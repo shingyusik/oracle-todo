@@ -63,6 +63,18 @@ class TodoService:
             raise KeyError(f"Item not found: {item_id}")
         return item
 
+    def _ensure_type(self, item_id: str | None, expected: ItemType, label: str) -> str | None:
+        if not item_id:
+            return None
+        item = self.session.get(TodoItem, item_id)
+        if not item:
+            raise KeyError(f"{label} not found: {item_id}")
+        if item.type != expected:
+            raise PolicyError(f"{label} must be {expected.value}: {item_id}")
+        if item.status in TERMINAL_STATUSES:
+            raise PolicyError(f"{label} is terminal: {item.status}")
+        return item.id
+
     def find_area(self, name_or_id: str | None) -> str | None:
         if not name_or_id:
             return None
@@ -70,11 +82,15 @@ class TodoService:
         if direct:
             if direct.type != ItemType.AREA:
                 raise PolicyError(f"Not an area: {name_or_id}")
+            if direct.status in TERMINAL_STATUSES:
+                raise PolicyError(f"Area is terminal: {name_or_id}")
             return direct.id
         stmt = select(TodoItem).where(TodoItem.type == ItemType.AREA, TodoItem.title == name_or_id)
         item = self.session.exec(stmt).first()
         if not item:
             raise KeyError(f"Area not found: {name_or_id}")
+        if item.status in TERMINAL_STATUSES:
+            raise PolicyError(f"Area is terminal: {name_or_id}")
         return item.id
 
     def create_area(self, title: str, *, actor: Actor = Actor.USER, review_cycle: str | None = None, standard: str | None = None) -> TodoItem:
@@ -128,8 +144,8 @@ class TodoService:
             title=title,
             status=ItemStatus.PROPOSED if actor != Actor.USER else ItemStatus.APPROVED,
             area_id=self.find_area(area),
-            project_id=project_id,
-            routine_id=routine_id,
+            project_id=self._ensure_type(project_id, ItemType.PROJECT, "Project"),
+            routine_id=self._ensure_type(routine_id, ItemType.ROUTINE, "Routine"),
             due=due,
             scheduled=scheduled,
             priority=priority,
@@ -184,7 +200,91 @@ class TodoService:
         item.archived_at = now_utc()
         return self._commit_event(actor=actor, action="archive", item=item, before=before, reason=reason)
 
-    def list_items(self, *, status: str | None = None, type_: str | None = None, include_archived: bool = False) -> list[TodoItem]:
+    def drop(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
+        item = self.get(item_id)
+        before = self._snapshot(item)
+        if item.type == ItemType.AREA:
+            raise PolicyError("Areas cannot be dropped; archive or pause them")
+        if item.status in TERMINAL_STATUSES:
+            raise PolicyError(f"Already terminal: {item.status}")
+        item.status = ItemStatus.DROPPED
+        item.archived_at = now_utc()
+        return self._commit_event(actor=actor, action="drop", item=item, before=before, reason=reason)
+
+    def cancel(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
+        item = self.get(item_id)
+        before = self._snapshot(item)
+        if item.type == ItemType.AREA:
+            raise PolicyError("Areas cannot be cancelled; archive or pause them")
+        if item.status in TERMINAL_STATUSES:
+            raise PolicyError(f"Already terminal: {item.status}")
+        item.status = ItemStatus.CANCELLED
+        item.archived_at = now_utc()
+        return self._commit_event(actor=actor, action="cancel", item=item, before=before, reason=reason)
+
+    def update_item(
+        self,
+        item_id: str,
+        *,
+        actor: Actor = Actor.USER,
+        title: str | None = None,
+        description: str | None = None,
+        outcome: str | None = None,
+        definition_of_done: str | None = None,
+        standard: str | None = None,
+        review_cycle: str | None = None,
+        recurrence_rule: str | None = None,
+        area: str | None = None,
+        project_id: str | None = None,
+        routine_id: str | None = None,
+        due: str | None = None,
+        scheduled: str | None = None,
+        priority: int | None = None,
+        reason: str | None = None,
+    ) -> TodoItem:
+        item = self.get(item_id)
+        if item.status in TERMINAL_STATUSES:
+            raise PolicyError(f"Cannot update terminal item: {item.status}")
+        before = self._snapshot(item)
+        if title is not None:
+            item.title = title
+        if description is not None:
+            item.description = description
+        if outcome is not None:
+            item.outcome = outcome
+        if definition_of_done is not None:
+            item.definition_of_done = definition_of_done
+        if standard is not None:
+            item.standard = standard
+        if review_cycle is not None:
+            item.review_cycle = review_cycle
+        if recurrence_rule is not None:
+            item.recurrence_rule = recurrence_rule
+        if area is not None:
+            item.area_id = self.find_area(area)
+        if project_id is not None:
+            item.project_id = self._ensure_type(project_id, ItemType.PROJECT, "Project")
+        if routine_id is not None:
+            item.routine_id = self._ensure_type(routine_id, ItemType.ROUTINE, "Routine")
+        if due is not None:
+            item.due = due
+        if scheduled is not None:
+            item.scheduled = scheduled
+        if priority is not None:
+            item.priority = priority
+        return self._commit_event(actor=actor, action="update_item", item=item, before=before, reason=reason)
+
+    def list_items(
+        self,
+        *,
+        status: str | None = None,
+        type_: str | None = None,
+        area_id: str | None = None,
+        project_id: str | None = None,
+        routine_id: str | None = None,
+        query: str | None = None,
+        include_archived: bool = False,
+    ) -> list[TodoItem]:
         stmt = select(TodoItem)
         if status:
             stmt = stmt.where(TodoItem.status == ItemStatus(status))
@@ -192,5 +292,22 @@ class TodoService:
             stmt = stmt.where(TodoItem.status.not_in([ItemStatus.ARCHIVED, ItemStatus.DROPPED, ItemStatus.CANCELLED]))
         if type_:
             stmt = stmt.where(TodoItem.type == ItemType(type_))
+        if area_id:
+            stmt = stmt.where(TodoItem.area_id == area_id)
+        if project_id:
+            stmt = stmt.where(TodoItem.project_id == project_id)
+        if routine_id:
+            stmt = stmt.where(TodoItem.routine_id == routine_id)
+        if query:
+            like = f"%{query}%"
+            stmt = stmt.where((TodoItem.title.like(like)) | (TodoItem.description.like(like)))
         stmt = stmt.order_by(TodoItem.created_at.desc())
+        return list(self.session.exec(stmt).all())
+
+    def archive_items(self) -> list[TodoItem]:
+        stmt = (
+            select(TodoItem)
+            .where(TodoItem.status.in_([ItemStatus.ARCHIVED, ItemStatus.COMPLETED, ItemStatus.DROPPED, ItemStatus.CANCELLED, ItemStatus.SOMEDAY]))
+            .order_by(TodoItem.updated_at.desc())
+        )
         return list(self.session.exec(stmt).all())
