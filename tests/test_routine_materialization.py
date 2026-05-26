@@ -98,19 +98,34 @@ def test_materialization_supports_weekly_weekday_rules(tmp_path):
     assert [task.occurrence_key for task in created] == ["2026-05-25", "2026-06-01"]
 
 
-def test_materialization_supports_monthly_day_rules(tmp_path):
+def test_materialization_supports_any_monthly_ordinal_day_rule(tmp_path):
     service = svc(tmp_path)
     routine = service.propose_routine(
         "월세 확인",
         actor=Actor.USER,
-        recurrence_rule="every month on the 5th",
+        recurrence_rule="every month on the 6th",
         materialization_policy="per_occurrence",
     )
     service.activate(routine.id)
 
     created = service.materialize_routines(now="2026-05-26", lookahead_days=40, catchup_days=0)
 
-    assert [task.occurrence_key for task in created] == ["2026-06-05", "2026-07-05"]
+    assert [task.occurrence_key for task in created] == ["2026-06-06"]
+
+
+def test_materialization_supports_interval_day_rules(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "격일 기록",
+        actor=Actor.USER,
+        recurrence_rule="every 2 days",
+        materialization_policy="per_occurrence",
+    )
+    service.activate(routine.id)
+
+    created = service.materialize_routines(now="2026-05-26", lookahead_days=6, catchup_days=0)
+
+    assert [task.occurrence_key for task in created] == ["2026-05-26", "2026-05-28", "2026-05-30", "2026-06-01"]
 
 
 def test_materialization_supports_monthly_last_day_rules(tmp_path):

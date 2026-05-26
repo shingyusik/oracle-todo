@@ -180,19 +180,38 @@ class TodoService:
             current = self._add_months(current)
         return out
 
-    def _weekday_occurrences(self, start: date, end: date, weekday: int, *, interval_weeks: int = 1) -> list[date]:
-        days_until_weekday = (weekday - start.weekday()) % 7
-        current = start + timedelta(days=days_until_weekday)
+    def _interval_occurrences(self, start: date, end: date, step: timedelta) -> list[date]:
+        current = start
         out: list[date] = []
-        step = timedelta(weeks=interval_weeks)
         while current <= end:
             out.append(current)
             current += step
         return out
 
+    def _weekday_occurrences(self, start: date, end: date, weekday: int, *, interval_weeks: int = 1) -> list[date]:
+        days_until_weekday = (weekday - start.weekday()) % 7
+        current = start + timedelta(days=days_until_weekday)
+        return self._interval_occurrences(current, end, timedelta(weeks=interval_weeks))
+
+    def _yearly_occurrences(self, start: date, end: date, month: int = 1, day: int = 1) -> list[date]:
+        out: list[date] = []
+        for year in range(start.year, end.year + 1):
+            last_day = calendar.monthrange(year, month)[1]
+            occurrence = date(year, month, min(day, last_day))
+            if start <= occurrence <= end:
+                out.append(occurrence)
+        return out
+
     def _occurrences(self, recurrence_rule: str, start: date, end: date) -> list[date]:
-        rule = recurrence_rule.strip().lower()
-        weekdays = {
+        raw_rule = recurrence_rule.strip().lower()
+        aliases = {
+            "daily": "every day",
+            "weekly": "every week",
+            "monthly": "every month",
+            "yearly": "every year",
+        }
+        rule = aliases.get(raw_rule, raw_rule)
+        weekday_aliases = {
             "mon": 0,
             "monday": 0,
             "tue": 1,
@@ -208,47 +227,82 @@ class TodoService:
             "sun": 6,
             "sunday": 6,
         }
-        weekly_match = re.fullmatch(r"every(?:\s+(\d+))?\s+weeks?\s+on\s+(\w+)", rule)
-        if weekly_match:
-            interval = int(weekly_match.group(1) or "1")
-            weekday_name = weekly_match.group(2)
-            if weekday_name not in weekdays:
+        interval_match = re.fullmatch(r"every(?:\s+(\d+))?\s+(days?|weeks?|months?|years?)(?:\s+on\s+(.+))?", rule)
+        if not interval_match:
+            if rule == "매일":
+                return self._interval_occurrences(start, end, timedelta(days=1))
+            if rule == "매주":
+                return self._interval_occurrences(start, end, timedelta(weeks=1))
+            if rule == "매월":
+                return self._monthly_occurrences(start, end, 1)
+            if rule == "매년":
+                return self._yearly_occurrences(start, end)
+            raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
+
+        interval = int(interval_match.group(1) or "1")
+        if interval < 1:
+            raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
+        unit = interval_match.group(2)
+        anchor = (interval_match.group(3) or "").strip()
+
+        if unit.startswith("day"):
+            if anchor:
                 raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
-            return self._weekday_occurrences(start, end, weekdays[weekday_name], interval_weeks=interval)
+            return self._interval_occurrences(start, end, timedelta(days=interval))
 
-        monthly_day_match = re.fullmatch(r"every\s+month\s+on\s+the\s+(\d+)(?:st|nd|rd|th)?", rule)
-        if monthly_day_match:
-            day = int(monthly_day_match.group(1))
-            if day < 1 or day > 31:
+        if unit.startswith("week"):
+            if not anchor:
+                return self._interval_occurrences(start, end, timedelta(weeks=interval))
+            weekday_name = anchor
+            if weekday_name not in weekday_aliases:
                 raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
-            return self._monthly_occurrences(start, end, day)
+            return self._weekday_occurrences(start, end, weekday_aliases[weekday_name], interval_weeks=interval)
 
-        if rule == "every month on the last":
-            return self._monthly_occurrences(start, end, "last")
+        if unit.startswith("month"):
+            if not anchor:
+                return self._monthly_occurrences(start, end, 1)
+            monthly_day_match = re.fullmatch(r"the\s+(\d+)(?:st|nd|rd|th)?", anchor)
+            if monthly_day_match:
+                day = int(monthly_day_match.group(1))
+                if day < 1 or day > 31:
+                    raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
+                if interval == 1:
+                    return self._monthly_occurrences(start, end, day)
+                current = start.replace(day=1)
+                out: list[date] = []
+                while current <= end:
+                    last_day = calendar.monthrange(current.year, current.month)[1]
+                    occurrence = current.replace(day=min(day, last_day))
+                    if start <= occurrence <= end:
+                        out.append(occurrence)
+                    current = self._add_months(current, interval)
+                return out
+            if anchor == "the last":
+                if interval == 1:
+                    return self._monthly_occurrences(start, end, "last")
+                current = start.replace(day=1)
+                out = []
+                while current <= end:
+                    last_day = calendar.monthrange(current.year, current.month)[1]
+                    occurrence = current.replace(day=last_day)
+                    if start <= occurrence <= end:
+                        out.append(occurrence)
+                    current = self._add_months(current, interval)
+                return out
+            raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
 
-        if rule in {"yearly", "every year", "매년"}:
-            out: list[date] = []
-            for year in range(start.year, end.year + 1):
-                occurrence = date(year, 1, 1)
-                if start <= occurrence <= end:
+        if unit.startswith("year"):
+            if anchor:
+                raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
+            if interval == 1:
+                return self._yearly_occurrences(start, end)
+            out = []
+            for occurrence in self._yearly_occurrences(start, end):
+                if (occurrence.year - start.year) % interval == 0:
                     out.append(occurrence)
             return out
 
-        if rule in {"daily", "every day", "매일"}:
-            step = timedelta(days=1)
-        elif rule in {"weekly", "every week", "매주"}:
-            step = timedelta(days=7)
-        elif rule in {"monthly", "every month", "매월"}:
-            return self._monthly_occurrences(start, end, 1)
-        else:
-            raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
-
-        current = start
-        out = []
-        while current <= end:
-            out.append(current)
-            current += step
-        return out
+        raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
 
     def _open_task_exists_for_routine(self, routine_id: str) -> bool:
         stmt = select(TodoItem).where(
