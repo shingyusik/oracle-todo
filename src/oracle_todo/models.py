@@ -66,6 +66,8 @@ class TodoItem(SQLModel, table=True):
     standard: Optional[str] = None
     review_cycle: Optional[str] = None
     recurrence_rule: Optional[str] = None
+    materialization_policy: str = Field(default="single_open", index=True)
+    occurrence_key: Optional[str] = Field(default=None, index=True)
     priority: Optional[int] = Field(default=None, index=True)
     due: Optional[str] = Field(default=None, index=True)
     scheduled: Optional[str] = Field(default=None, index=True)
@@ -76,6 +78,7 @@ class TodoItem(SQLModel, table=True):
     approved_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
+    last_materialized_at: Optional[datetime] = None
 
     second_brain_refs: list[dict] = Field(default_factory=list, sa_column=Column(JSON))
     metadata_: dict = Field(default_factory=dict, sa_column=Column("metadata", JSON))

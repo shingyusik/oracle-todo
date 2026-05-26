@@ -128,6 +128,7 @@ def update_item(
     standard: Optional[str] = None,
     review_cycle: Optional[str] = None,
     recurrence_rule: Optional[str] = None,
+    materialization_policy: Optional[str] = None,
     area: Optional[str] = None,
     project_id: Optional[str] = None,
     routine_id: Optional[str] = None,
@@ -147,6 +148,7 @@ def update_item(
                 standard=standard,
                 review_cycle=review_cycle,
                 recurrence_rule=recurrence_rule,
+                materialization_policy=materialization_policy,
                 area=area,
                 project_id=project_id,
                 routine_id=routine_id,
@@ -198,11 +200,38 @@ def project_propose(title: str, area: Optional[str] = None, definition_of_done: 
 
 
 @routine_app.command("propose")
-def routine_propose(title: str, area: Optional[str] = None, recurrence_rule: Optional[str] = None, actor: str = "oracle") -> None:
+def routine_propose(
+    title: str,
+    area: Optional[str] = None,
+    recurrence_rule: Optional[str] = None,
+    materialization_policy: str = "single_open",
+    actor: str = "oracle",
+) -> None:
     try:
-        _print_item(_service().propose_routine(title, area=area, recurrence_rule=recurrence_rule, actor=_actor(actor)))
+        _print_item(
+            _service().propose_routine(
+                title,
+                area=area,
+                recurrence_rule=recurrence_rule,
+                materialization_policy=materialization_policy,
+                actor=_actor(actor),
+            )
+        )
     except (PolicyError, KeyError) as e:
         raise typer.BadParameter(str(e))
+
+
+@routine_app.command("materialize")
+def routine_materialize(now: Optional[str] = None, lookahead_days: int = 7, catchup_days: int = 1) -> None:
+    """Create due task instances from active routines."""
+    try:
+        created = _service().materialize_routines(now=now, lookahead_days=lookahead_days, catchup_days=catchup_days)
+    except PolicyError as e:
+        raise typer.BadParameter(str(e))
+    for item in created:
+        _print_item(item)
+    if not created:
+        console.print("No routine tasks materialized")
 
 
 @task_app.command("propose")

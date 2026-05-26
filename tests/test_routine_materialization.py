@@ -1,0 +1,98 @@
+from pathlib import Path
+
+from oracle_todo.db import init_db, session_for
+from oracle_todo.models import Actor, ItemStatus, ItemType
+from oracle_todo.service import TodoService
+
+
+def svc(tmp_path: Path) -> TodoService:
+    db = tmp_path / "todo.sqlite"
+    init_db(db)
+    return TodoService(session_for(db), events_path=tmp_path / "events.jsonl")
+
+
+def test_single_open_routine_materialization_keeps_only_one_open_task(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "매일 책상 정리",
+        actor=Actor.USER,
+        recurrence_rule="daily",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+
+    first = service.materialize_routines(now="2026-05-26", lookahead_days=7, catchup_days=1)
+    second = service.materialize_routines(now="2026-05-27", lookahead_days=7, catchup_days=1)
+
+    assert len(first) == 1
+    assert second == []
+    open_tasks = service.list_items(type_="task", routine_id=routine.id)
+    assert len(open_tasks) == 1
+    assert open_tasks[0].title == "매일 책상 정리"
+    assert open_tasks[0].status == ItemStatus.APPROVED
+    assert open_tasks[0].routine_id == routine.id
+    assert open_tasks[0].occurrence_key == "open"
+
+
+def test_single_open_routine_creates_next_task_after_previous_completed(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "주간 리뷰",
+        actor=Actor.USER,
+        recurrence_rule="weekly",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+    [task] = service.materialize_routines(now="2026-05-26")
+    service.complete(task.id)
+
+    next_tasks = service.materialize_routines(now="2026-06-02")
+
+    assert len(next_tasks) == 1
+    assert next_tasks[0].id != task.id
+    assert next_tasks[0].routine_id == routine.id
+
+
+def test_per_occurrence_materialization_creates_bounded_unique_occurrence_tasks(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "혈압 기록",
+        actor=Actor.USER,
+        recurrence_rule="daily",
+        materialization_policy="per_occurrence",
+    )
+    service.activate(routine.id)
+
+    created = service.materialize_routines(now="2026-05-26", lookahead_days=2, catchup_days=1)
+    repeated = service.materialize_routines(now="2026-05-26", lookahead_days=2, catchup_days=1)
+
+    assert repeated == []
+    assert [task.occurrence_key for task in created] == [
+        "2026-05-25",
+        "2026-05-26",
+        "2026-05-27",
+        "2026-05-28",
+    ]
+    assert [task.scheduled for task in created] == [
+        "2026-05-25",
+        "2026-05-26",
+        "2026-05-27",
+        "2026-05-28",
+    ]
+    assert all(task.status == ItemStatus.APPROVED for task in created)
+    assert all(task.routine_id == routine.id for task in created)
+
+
+def test_materialization_ignores_non_active_routines(tmp_path):
+    service = svc(tmp_path)
+    service.propose_routine(
+        "승인 전 루틴",
+        actor=Actor.ORACLE,
+        recurrence_rule="daily",
+        materialization_policy="per_occurrence",
+    )
+
+    created = service.materialize_routines(now="2026-05-26")
+
+    assert created == []
+    assert service.list_items(type_="task") == []

@@ -24,6 +24,7 @@ Telegram / CLI / Future Dashboard / Oracle
 - `project`: finite outcome; requires `definition_of_done` before activation.
 - `routine`: recurring management; requires `recurrence_rule` before activation.
 - `task`: actionable unit; Oracle-created tasks start as `proposed`.
+- routine-generated `task`: generated only from `active` routines; linked by `routine_id` and protected from duplicates by `occurrence_key`.
 - `review`: scheduled review/checkpoint.
 - `archive_item`: completed/dropped/someday historical item.
 
@@ -44,11 +45,15 @@ Telegram / CLI / Future Dashboard / Oracle
 7. Every mutation records an event.
 8. Second_Brain references are stored as immutable read-only references from the ToDo side.
 9. Markdown exports are views, not source of truth.
+10. Routine materialization supports `single_open` and `per_occurrence`; `rolling` is intentionally excluded from v1.
+11. `single_open` allows at most one open task per routine.
+12. `per_occurrence` creates bounded task instances from `now - catchup_days` through `now + lookahead_days`, skipping existing `routine_id + occurrence_key` pairs.
+13. Only `active` routines materialize tasks; generated tasks are `approved` because the routine itself was user-approved before activation.
 
 ## v1 scope
 
 - SQLite schema and migrations via SQLModel create_all.
-- Service methods: create area, propose project/task/routine, approve, activate, complete, archive, list, export.
+- Service methods: create area, propose project/task/routine, approve, activate, complete, archive, list, export, materialize routine tasks.
 - CLI for local operations and Oracle tool calls.
 - FastAPI skeleton for future dashboard.
 - Tests for policy rules and export shape.
@@ -56,7 +61,7 @@ Telegram / CLI / Future Dashboard / Oracle
 ## Later phases
 
 - Second_Brain note-created/modified/deleted impact review queue.
-- Recurrence materialization.
+- Recurrence materialization scheduling/cron integration.
 - Telegram command parser.
 - HTMX dashboard: Today, Week, Projects, Areas, Routines, Proposed, Archive, Events.
 - Git-backed encrypted backup/export if needed.

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from sqlalchemy import not_
 from sqlmodel import Session, select
 
 from .models import Actor, ItemStatus, ItemType, TodoEvent, TodoItem, new_id, now_utc
@@ -123,7 +125,17 @@ class TodoService:
         )
         return self._commit_event(actor=actor, action="propose_project", item=item)
 
-    def propose_routine(self, title: str, *, area: str | None = None, actor: Actor = Actor.ORACLE, recurrence_rule: str | None = None) -> TodoItem:
+    def propose_routine(
+        self,
+        title: str,
+        *,
+        area: str | None = None,
+        actor: Actor = Actor.ORACLE,
+        recurrence_rule: str | None = None,
+        materialization_policy: str = "single_open",
+    ) -> TodoItem:
+        if materialization_policy not in {"single_open", "per_occurrence"}:
+            raise PolicyError(f"Unsupported materialization_policy: {materialization_policy}")
         item = TodoItem(
             id=new_id("rtn"),
             type=ItemType.ROUTINE,
@@ -131,11 +143,117 @@ class TodoService:
             status=ItemStatus.PROPOSED if actor != Actor.USER else ItemStatus.APPROVED,
             area_id=self.find_area(area),
             recurrence_rule=recurrence_rule,
+            materialization_policy=materialization_policy,
             proposed_by=actor,
             approved_by=Actor.USER if actor == Actor.USER else None,
             approved_at=now_utc() if actor == Actor.USER else None,
         )
         return self._commit_event(actor=actor, action="propose_routine", item=item)
+
+    def _parse_day(self, value: str | date | datetime | None) -> date:
+        if value is None:
+            return now_utc().date()
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        return date.fromisoformat(value)
+
+    def _occurrences(self, recurrence_rule: str, start: date, end: date) -> list[date]:
+        rule = recurrence_rule.strip().lower()
+        if rule in {"daily", "every day", "매일"}:
+            step = timedelta(days=1)
+        elif rule in {"weekly", "every week", "매주"}:
+            step = timedelta(days=7)
+        elif rule in {"monthly", "every month", "매월"}:
+            current = start.replace(day=1)
+            out = []
+            while current <= end:
+                if current >= start:
+                    out.append(current)
+                year = current.year + (1 if current.month == 12 else 0)
+                month = 1 if current.month == 12 else current.month + 1
+                current = current.replace(year=year, month=month)
+            return out
+        else:
+            raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
+
+        current = start
+        out = []
+        while current <= end:
+            out.append(current)
+            current += step
+        return out
+
+    def _open_task_exists_for_routine(self, routine_id: str) -> bool:
+        stmt = select(TodoItem).where(
+            TodoItem.type == ItemType.TASK,
+            TodoItem.routine_id == routine_id,
+            not_(TodoItem.status.in_(list(TERMINAL_STATUSES))),  # type: ignore[attr-defined]
+        )
+        return self.session.exec(stmt).first() is not None
+
+    def _task_exists_for_occurrence(self, routine_id: str, occurrence_key: str) -> bool:
+        stmt = select(TodoItem).where(
+            TodoItem.type == ItemType.TASK,
+            TodoItem.routine_id == routine_id,
+            TodoItem.occurrence_key == occurrence_key,
+        )
+        return self.session.exec(stmt).first() is not None
+
+    def _create_generated_task(self, routine: TodoItem, occurrence_key: str, scheduled: str | None) -> TodoItem:
+        task = TodoItem(
+            id=new_id("task"),
+            type=ItemType.TASK,
+            title=routine.title,
+            status=ItemStatus.APPROVED,
+            area_id=routine.area_id,
+            routine_id=routine.id,
+            scheduled=scheduled,
+            occurrence_key=occurrence_key,
+            proposed_by=Actor.SYSTEM,
+            approved_by=Actor.USER,
+            approved_at=now_utc(),
+            metadata_={"generated_by": "routine"},
+        )
+        return self._commit_event(actor=Actor.SYSTEM, action="materialize_routine_task", item=task)
+
+    def materialize_routines(self, *, now: str | date | datetime | None = None, lookahead_days: int = 7, catchup_days: int = 1) -> list[TodoItem]:
+        anchor = self._parse_day(now)
+        start = anchor - timedelta(days=catchup_days)
+        end = anchor + timedelta(days=lookahead_days)
+        routines = self.session.exec(
+            select(TodoItem).where(TodoItem.type == ItemType.ROUTINE, TodoItem.status == ItemStatus.ACTIVE)
+        ).all()
+        created: list[TodoItem] = []
+
+        for routine in routines:
+            if not routine.recurrence_rule:
+                continue
+            if routine.materialization_policy == "single_open":
+                if self._open_task_exists_for_routine(routine.id):
+                    continue
+                occurrence_key = "open"
+                if self._task_exists_for_occurrence(routine.id, occurrence_key):
+                    occurrence_key = anchor.isoformat()
+                created.append(self._create_generated_task(routine, occurrence_key, anchor.isoformat()))
+                routine.last_materialized_at = now_utc()
+                self.session.add(routine)
+                self.session.commit()
+                continue
+            if routine.materialization_policy == "per_occurrence":
+                for occurrence in self._occurrences(routine.recurrence_rule, start, end):
+                    occurrence_key = occurrence.isoformat()
+                    if self._task_exists_for_occurrence(routine.id, occurrence_key):
+                        continue
+                    created.append(self._create_generated_task(routine, occurrence_key, occurrence_key))
+                routine.last_materialized_at = now_utc()
+                self.session.add(routine)
+                self.session.commit()
+                continue
+            raise PolicyError(f"Unsupported materialization_policy: {routine.materialization_policy}")
+
+        return created
 
     def propose_task(self, title: str, *, area: str | None = None, project_id: str | None = None, routine_id: str | None = None, actor: Actor = Actor.ORACLE, due: str | None = None, scheduled: str | None = None, priority: int | None = None, description: str | None = None) -> TodoItem:
         item = TodoItem(
@@ -277,6 +395,7 @@ class TodoService:
         standard: str | None = None,
         review_cycle: str | None = None,
         recurrence_rule: str | None = None,
+        materialization_policy: str | None = None,
         area: str | None = None,
         project_id: str | None = None,
         routine_id: str | None = None,
@@ -303,6 +422,10 @@ class TodoService:
             item.review_cycle = review_cycle
         if recurrence_rule is not None:
             item.recurrence_rule = recurrence_rule
+        if materialization_policy is not None:
+            if materialization_policy not in {"single_open", "per_occurrence"}:
+                raise PolicyError(f"Unsupported materialization_policy: {materialization_policy}")
+            item.materialization_policy = materialization_policy
         if area is not None:
             item.area_id = self.find_area(area)
         if project_id is not None:
