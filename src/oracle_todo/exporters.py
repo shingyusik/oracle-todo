@@ -19,8 +19,16 @@ def render_items(title: str, items: list[TodoItem]) -> str:
         meta = [item.type.value, item.status.value]
         if item.due:
             meta.append(f"due:{item.due}")
+        if item.scheduled:
+            meta.append(f"scheduled:{item.scheduled}")
         if item.area_id:
             meta.append(f"area:{item.area_id}")
+        location = item.metadata_.get("location")
+        if location:
+            meta.append(f"location:{location}")
+        participants = item.metadata_.get("participants")
+        if isinstance(participants, list) and participants:
+            meta.append(f"with:{','.join(str(p) for p in participants)}")
         lines.append(f"- [{_checkbox(item)}] **{item.title}** `{' '.join(meta)}`")
         if item.description:
             lines.append(f"  - {item.description}")
@@ -33,6 +41,7 @@ def write_exports(items: list[TodoItem], out_dir: Path | None = None) -> list[Pa
     activeish = [i for i in items if i.status not in {ItemStatus.ARCHIVED, ItemStatus.CANCELLED, ItemStatus.DROPPED}]
     views = {
         "today.md": [i for i in activeish if i.type == ItemType.TASK and (i.scheduled in {None, "today"} or i.status in {ItemStatus.PROPOSED, ItemStatus.APPROVED, ItemStatus.ACTIVE})],
+        "events.md": [i for i in activeish if i.type == ItemType.EVENT],
         "projects.md": [i for i in activeish if i.type == ItemType.PROJECT],
         "areas.md": [i for i in activeish if i.type == ItemType.AREA],
         "routines.md": [i for i in activeish if i.type == ItemType.ROUTINE],

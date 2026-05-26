@@ -22,6 +22,7 @@ class ItemType(StrEnum):
     PROJECT = "project"
     ROUTINE = "routine"
     TASK = "task"
+    EVENT = "event"
     REVIEW = "review"
     ARCHIVE_ITEM = "archive_item"
 

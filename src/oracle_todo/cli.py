@@ -18,10 +18,12 @@ area_app = typer.Typer(help="Manage areas")
 project_app = typer.Typer(help="Manage projects")
 routine_app = typer.Typer(help="Manage routines")
 task_app = typer.Typer(help="Manage tasks")
+event_app = typer.Typer(help="Manage external commitments and scheduled events")
 app.add_typer(area_app, name="area")
 app.add_typer(project_app, name="project")
 app.add_typer(routine_app, name="routine")
 app.add_typer(task_app, name="task")
+app.add_typer(event_app, name="event")
 console = Console()
 
 
@@ -56,9 +58,9 @@ def list_items(
 ) -> None:
     svc = _service()
     items = svc.list_items(status=status, type_=type, area_id=area_id, project_id=project_id, routine_id=routine_id, query=query, include_archived=include_archived)
-    table = Table("ID", "Type", "Status", "Title", "Area", "Project", "Due")
+    table = Table("ID", "Type", "Status", "Title", "Area", "Project", "Due", "Scheduled")
     for i in items:
-        table.add_row(i.id, i.type.value, i.status.value, i.title, i.area_id or "", i.project_id or "", i.due or "")
+        table.add_row(i.id, i.type.value, i.status.value, i.title, i.area_id or "", i.project_id or "", i.due or "", i.scheduled or "")
     console.print(table)
 
 
@@ -161,9 +163,9 @@ def update_item(
 @app.command("archive-list")
 def archive_list() -> None:
     items = _service().archive_items()
-    table = Table("ID", "Type", "Status", "Title", "Area", "Project", "Due")
+    table = Table("ID", "Type", "Status", "Title", "Area", "Project", "Due", "Scheduled")
     for i in items:
-        table.add_row(i.id, i.type.value, i.status.value, i.title, i.area_id or "", i.project_id or "", i.due or "")
+        table.add_row(i.id, i.type.value, i.status.value, i.title, i.area_id or "", i.project_id or "", i.due or "", i.scheduled or "")
     console.print(table)
 
 
@@ -217,6 +219,40 @@ def task_propose(
 ) -> None:
     try:
         _print_item(_service().propose_task(title, area=area, project_id=project_id, routine_id=routine_id, due=due, scheduled=scheduled, priority=priority, description=description, actor=_actor(actor)))
+    except (PolicyError, KeyError) as e:
+        raise typer.BadParameter(str(e))
+
+
+@event_app.command("propose")
+def event_propose(
+    title: str,
+    scheduled: str,
+    area: Optional[str] = None,
+    project_id: Optional[str] = None,
+    due: Optional[str] = None,
+    priority: Optional[int] = None,
+    description: Optional[str] = None,
+    location: Optional[str] = None,
+    participant: Optional[list[str]] = typer.Option(None, "--with", "-w", help="Person, group, or institution this event is with. Repeatable."),
+    commitment_type: str = "appointment",
+    actor: str = "oracle",
+) -> None:
+    try:
+        _print_item(
+            _service().propose_event(
+                title,
+                area=area,
+                project_id=project_id,
+                due=due,
+                scheduled=scheduled,
+                priority=priority,
+                description=description,
+                location=location,
+                participants=participant,
+                commitment_type=commitment_type,
+                actor=_actor(actor),
+            )
+        )
     except (PolicyError, KeyError) as e:
         raise typer.BadParameter(str(e))
 

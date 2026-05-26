@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from sqlmodel import Session, select
 
@@ -155,6 +155,49 @@ class TodoService:
             approved_at=now_utc() if actor == Actor.USER else None,
         )
         return self._commit_event(actor=actor, action="propose_task", item=item)
+
+    def propose_event(
+        self,
+        title: str,
+        *,
+        area: str | None = None,
+        project_id: str | None = None,
+        actor: Actor = Actor.ORACLE,
+        scheduled: str | None = None,
+        due: str | None = None,
+        priority: int | None = None,
+        description: str | None = None,
+        location: str | None = None,
+        participants: list[str] | None = None,
+        commitment_type: str = "appointment",
+    ) -> TodoItem:
+        if not scheduled:
+            raise PolicyError("Event requires scheduled time")
+        metadata: dict[str, Any] = {
+            "commitment_type": commitment_type,
+            "schedule_kind": "external_commitment",
+        }
+        if location:
+            metadata["location"] = location
+        if participants:
+            metadata["participants"] = participants
+        item = TodoItem(
+            id=new_id("evt"),
+            type=ItemType.EVENT,
+            title=title,
+            status=ItemStatus.PROPOSED if actor != Actor.USER else ItemStatus.APPROVED,
+            area_id=self.find_area(area),
+            project_id=self._ensure_type(project_id, ItemType.PROJECT, "Project"),
+            due=due,
+            scheduled=scheduled,
+            priority=priority,
+            description=description,
+            metadata_=metadata,
+            proposed_by=actor,
+            approved_by=Actor.USER if actor == Actor.USER else None,
+            approved_at=now_utc() if actor == Actor.USER else None,
+        )
+        return self._commit_event(actor=actor, action="propose_event", item=item)
 
     def approve(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
         item = self.get(item_id)

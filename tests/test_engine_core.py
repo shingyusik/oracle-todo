@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from oracle_todo.db import init_db, session_for
+from oracle_todo.exporters import write_exports
 from oracle_todo.models import Actor, ItemStatus, ItemType
 from oracle_todo.service import PolicyError, TodoService
 
@@ -87,3 +88,51 @@ def test_archive_view_contains_dropped_cancelled_completed_and_archived(tmp_path
 
     archive = service.archive_items()
     assert {i.id for i in archive} == {completed.id, dropped.id, cancelled.id, archived.id}
+
+
+def test_propose_event_distinguishes_external_commitments_from_solo_tasks(tmp_path):
+    service = svc(tmp_path)
+
+    event = service.propose_event(
+        "병원 예약",
+        actor=Actor.ORACLE,
+        scheduled="2026-06-01 15:00",
+        location="서울대병원",
+        participants=["서울대병원"],
+        commitment_type="appointment",
+        description="진료 예약",
+    )
+    task = service.propose_task("혼자 책상 정리", actor=Actor.ORACLE, scheduled="2026-06-01")
+
+    assert event.type == ItemType.EVENT
+    assert event.status == ItemStatus.PROPOSED
+    assert event.scheduled == "2026-06-01 15:00"
+    assert event.metadata_["commitment_type"] == "appointment"
+    assert event.metadata_["location"] == "서울대병원"
+    assert event.metadata_["participants"] == ["서울대병원"]
+    assert task.type == ItemType.TASK
+    assert [i.id for i in service.list_items(type_="event")] == [event.id]
+
+
+def test_event_requires_scheduled_time(tmp_path):
+    service = svc(tmp_path)
+
+    with pytest.raises(PolicyError):
+        service.propose_event("시간 없는 약속", actor=Actor.ORACLE)
+
+
+def test_exports_split_tasks_and_events_into_separate_views(tmp_path):
+    service = svc(tmp_path)
+    task = service.propose_task("혼자 할 일", actor=Actor.USER, scheduled="today")
+    event = service.propose_event("친구 약속", actor=Actor.USER, scheduled="2026-06-01 19:00", participants=["친구"])
+
+    paths = write_exports(service.list_items(), out_dir=tmp_path / "exports")
+
+    today = (tmp_path / "exports" / "today.md").read_text(encoding="utf-8")
+    events = (tmp_path / "exports" / "events.md").read_text(encoding="utf-8")
+    assert tmp_path / "exports" / "events.md" in paths
+    assert task.title in today
+    assert event.title not in today
+    assert event.title in events
+    assert "scheduled:2026-06-01 19:00" in events
+    assert "with:친구" in events
