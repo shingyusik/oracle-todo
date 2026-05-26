@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -124,14 +125,16 @@ def test_event_requires_scheduled_time(tmp_path):
 def test_exports_split_tasks_and_events_into_separate_views(tmp_path):
     service = svc(tmp_path)
     task = service.propose_task("혼자 할 일", actor=Actor.USER, scheduled="today")
+    future_task = service.propose_task("다음 주 할 일", actor=Actor.USER, scheduled="2026-06-05")
     event = service.propose_event("친구 약속", actor=Actor.USER, scheduled="2026-06-01 19:00", participants=["친구"])
 
-    paths = write_exports(service.list_items(), out_dir=tmp_path / "exports")
+    paths = write_exports(service.list_items(), out_dir=tmp_path / "exports", today=date(2026, 5, 26))
 
     today = (tmp_path / "exports" / "today.md").read_text(encoding="utf-8")
     events = (tmp_path / "exports" / "events.md").read_text(encoding="utf-8")
     assert tmp_path / "exports" / "events.md" in paths
     assert task.title in today
+    assert future_task.title not in today
     assert event.title not in today
     assert event.title in events
     assert "scheduled:2026-06-01 19:00" in events

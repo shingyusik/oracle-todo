@@ -31,7 +31,8 @@ def test_single_open_routine_materialization_keeps_only_one_open_task(tmp_path):
     assert open_tasks[0].title == "매일 책상 정리"
     assert open_tasks[0].status == ItemStatus.APPROVED
     assert open_tasks[0].routine_id == routine.id
-    assert open_tasks[0].occurrence_key == "open"
+    assert open_tasks[0].occurrence_key == "2026-05-25"
+    assert open_tasks[0].scheduled == "2026-05-25"
 
 
 def test_single_open_routine_creates_next_task_after_previous_completed(tmp_path):

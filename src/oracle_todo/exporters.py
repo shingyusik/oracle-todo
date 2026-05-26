@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from .models import ItemStatus, ItemType, TodoItem
@@ -35,12 +36,37 @@ def render_items(title: str, items: list[TodoItem]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_exports(items: list[TodoItem], out_dir: Path | None = None) -> list[Path]:
+def _scheduled_day(value: str | None) -> date | None:
+    if not value or value == "today":
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def today_tasks(items: list[TodoItem], *, today: date | None = None) -> list[TodoItem]:
+    today = today or date.today()
+    visible_statuses = {ItemStatus.PROPOSED, ItemStatus.APPROVED, ItemStatus.ACTIVE}
+    out: list[TodoItem] = []
+    for item in items:
+        if item.type != ItemType.TASK or item.status not in visible_statuses:
+            continue
+        if item.scheduled in {None, "today"}:
+            out.append(item)
+            continue
+        scheduled_day = _scheduled_day(item.scheduled)
+        if scheduled_day is not None and scheduled_day <= today:
+            out.append(item)
+    return out
+
+
+def write_exports(items: list[TodoItem], out_dir: Path | None = None, *, today: date | None = None) -> list[Path]:
     out_dir = out_dir or exports_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     activeish = [i for i in items if i.status not in {ItemStatus.ARCHIVED, ItemStatus.CANCELLED, ItemStatus.DROPPED}]
     views = {
-        "today.md": [i for i in activeish if i.type == ItemType.TASK and (i.scheduled in {None, "today"} or i.status in {ItemStatus.PROPOSED, ItemStatus.APPROVED, ItemStatus.ACTIVE})],
+        "today.md": today_tasks(activeish, today=today),
         "events.md": [i for i in activeish if i.type == ItemType.EVENT],
         "projects.md": [i for i in activeish if i.type == ItemType.PROJECT],
         "areas.md": [i for i in activeish if i.type == ItemType.AREA],

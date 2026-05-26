@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .db import init_db, session_for
-from .exporters import render_items, write_exports
+from .exporters import render_items, today_tasks, write_exports
 from .models import Actor
 from .paths import db_path, todo_home
 from .service import PolicyError, TodoService
@@ -174,13 +174,15 @@ def archive_list() -> None:
 @app.command()
 def today() -> None:
     svc = _service()
-    items = svc.list_items(type_="task")
+    svc.materialize_routines()
+    items = today_tasks(svc.list_items(type_="task"))
     console.print(render_items("Today", items))
 
 
 @app.command("export")
 def export_cmd() -> None:
     svc = _service()
+    svc.materialize_routines()
     paths = write_exports(svc.list_items(include_archived=True))
     for path in paths:
         console.print(str(path))

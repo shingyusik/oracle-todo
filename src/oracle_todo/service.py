@@ -349,19 +349,22 @@ class TodoService:
         for routine in routines:
             if not routine.recurrence_rule:
                 continue
+            occurrences = self._occurrences(routine.recurrence_rule, start, end)
             if routine.materialization_policy == "single_open":
                 if self._open_task_exists_for_routine(routine.id):
                     continue
-                occurrence_key = "open"
-                if self._task_exists_for_occurrence(routine.id, occurrence_key):
-                    occurrence_key = anchor.isoformat()
-                created.append(self._create_generated_task(routine, occurrence_key, anchor.isoformat()))
+                for occurrence in occurrences:
+                    occurrence_key = occurrence.isoformat()
+                    if self._task_exists_for_occurrence(routine.id, occurrence_key):
+                        continue
+                    created.append(self._create_generated_task(routine, occurrence_key, occurrence_key))
+                    break
                 routine.last_materialized_at = now_utc()
                 self.session.add(routine)
                 self.session.commit()
                 continue
             if routine.materialization_policy == "per_occurrence":
-                for occurrence in self._occurrences(routine.recurrence_rule, start, end):
+                for occurrence in occurrences:
                     occurrence_key = occurrence.isoformat()
                     if self._task_exists_for_occurrence(routine.id, occurrence_key):
                         continue
