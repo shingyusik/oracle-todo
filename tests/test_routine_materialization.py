@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from oracle_todo.db import init_db, session_for
+from oracle_todo.exporters import today_tasks
 from oracle_todo.models import Actor, ItemStatus, ItemType
 from oracle_todo.service import TodoService
 
@@ -94,6 +95,68 @@ def test_generated_task_cancellation_records_routine_occurrence_history(tmp_path
     assert occurrence["status"] == "cancelled"
     assert occurrence["task_id"] == task.id
     assert "routine_occurrence_cancelled" in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+
+
+def test_pausing_routine_moves_open_generated_tasks_to_waiting_and_hides_today(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "매일 스트레칭",
+        actor=Actor.USER,
+        recurrence_rule="daily",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+    [task] = service.materialize_routines(now="2026-05-26", lookahead_days=0, catchup_days=0)
+
+    paused = service.pause(routine.id, reason="잠시 중지")
+
+    updated_task = service.get(task.id)
+    assert paused.status == ItemStatus.PAUSED
+    assert updated_task.status == ItemStatus.WAITING
+    assert today_tasks(service.list_items(type_="task"), today=service._parse_day("2026-05-26")) == []
+    assert service.materialize_routines(now="2026-05-27") == []
+    assert service.get(routine.id).metadata_["occurrences"][task.occurrence_key]["status"] == "waiting"
+    assert "routine_pause_generated_task" in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+
+
+def test_archiving_routine_archives_open_generated_tasks(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "주간 리뷰",
+        actor=Actor.USER,
+        recurrence_rule="weekly",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+    [task] = service.materialize_routines(now="2026-05-26")
+
+    service.archive(routine.id, reason="루틴 종료")
+
+    updated_task = service.get(task.id)
+    assert service.get(routine.id).status == ItemStatus.ARCHIVED
+    assert updated_task.status == ItemStatus.ARCHIVED
+    assert service.get(routine.id).metadata_["occurrences"][task.occurrence_key]["status"] == "archived"
+    assert "routine_archive_generated_task" in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+
+
+def test_cancelling_routine_cancels_open_generated_tasks(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "주간 리뷰",
+        actor=Actor.USER,
+        recurrence_rule="weekly",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+    [task] = service.materialize_routines(now="2026-05-26")
+
+    service.cancel(routine.id, reason="루틴 취소")
+
+    updated_task = service.get(task.id)
+    assert service.get(routine.id).status == ItemStatus.CANCELLED
+    assert updated_task.status == ItemStatus.CANCELLED
+    assert service.get(routine.id).metadata_["occurrences"][task.occurrence_key]["status"] == "cancelled"
+    assert "routine_cancel_generated_task" in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
 
 
 def test_per_occurrence_materialization_creates_bounded_unique_occurrence_tasks(tmp_path):

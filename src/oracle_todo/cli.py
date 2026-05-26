@@ -87,6 +87,14 @@ def activate(item_id: str, reason: Optional[str] = None) -> None:
 
 
 @app.command()
+def pause(item_id: str, reason: Optional[str] = None) -> None:
+    try:
+        _print_item(_service().pause(item_id, reason=reason))
+    except (PolicyError, KeyError) as e:
+        raise typer.BadParameter(str(e))
+
+
+@app.command()
 def complete(item_id: str, reason: Optional[str] = None) -> None:
     try:
         _print_item(_service().complete(item_id, reason=reason))

@@ -370,6 +370,58 @@ class TodoService:
             reason=reason,
         )
 
+    def _open_generated_tasks_for_routine(self, routine_id: str) -> list[TodoItem]:
+        stmt = select(TodoItem).where(
+            TodoItem.type == ItemType.TASK,
+            TodoItem.routine_id == routine_id,
+            not_(TodoItem.status.in_(list(TERMINAL_STATUSES))),  # type: ignore[attr-defined]
+        )
+        return [
+            task
+            for task in self.session.exec(stmt).all()
+            if task.metadata_.get("generated_by") == "routine"
+        ]
+
+    def _transition_generated_task_from_routine(
+        self,
+        task: TodoItem,
+        *,
+        status: ItemStatus,
+        action: str,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> TodoItem:
+        before = self._snapshot(task)
+        task.status = status
+        if status in TERMINAL_STATUSES:
+            task.archived_at = now_utc()
+            if status == ItemStatus.COMPLETED:
+                task.completed_at = now_utc()
+        self._record_generated_task_occurrence(task, actor=actor, reason=reason)
+        return self._commit_event(actor=actor, action=action, item=task, before=before, reason=reason)
+
+    def _cascade_routine_generated_tasks(
+        self,
+        routine: TodoItem,
+        *,
+        status: ItemStatus,
+        action: str,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> list[TodoItem]:
+        if routine.type != ItemType.ROUTINE:
+            return []
+        return [
+            self._transition_generated_task_from_routine(
+                task,
+                status=status,
+                action=action,
+                actor=actor,
+                reason=reason,
+            )
+            for task in self._open_generated_tasks_for_routine(routine.id)
+        ]
+
     def materialize_routines(self, *, now: str | date | datetime | None = None, lookahead_days: int = 7, catchup_days: int = 1) -> list[TodoItem]:
         anchor = self._parse_day(now)
         start = anchor - timedelta(days=catchup_days)
@@ -498,6 +550,25 @@ class TodoService:
         item.status = ItemStatus.ACTIVE
         return self._commit_event(actor=actor, action="activate", item=item, before=before, reason=reason)
 
+    def pause(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
+        item = self.get(item_id)
+        before = self._snapshot(item)
+        if item.type == ItemType.AREA:
+            raise PolicyError("Areas cannot be paused here; archive them if no longer maintained")
+        if item.status in TERMINAL_STATUSES:
+            raise PolicyError(f"Cannot pause terminal item: {item.status}")
+        item.status = ItemStatus.PAUSED
+        result = self._commit_event(actor=actor, action="pause", item=item, before=before, reason=reason)
+        self._cascade_routine_generated_tasks(
+            result,
+            status=ItemStatus.WAITING,
+            action="routine_pause_generated_task",
+            actor=actor,
+            reason=reason,
+        )
+        self.session.refresh(result)
+        return result
+
     def complete(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
         item = self.get(item_id)
         before = self._snapshot(item)
@@ -516,7 +587,16 @@ class TodoService:
         item.status = ItemStatus.ARCHIVED
         item.archived_at = now_utc()
         self._record_generated_task_occurrence(item, actor=actor, reason=reason)
-        return self._commit_event(actor=actor, action="archive", item=item, before=before, reason=reason)
+        result = self._commit_event(actor=actor, action="archive", item=item, before=before, reason=reason)
+        self._cascade_routine_generated_tasks(
+            result,
+            status=ItemStatus.ARCHIVED,
+            action="routine_archive_generated_task",
+            actor=actor,
+            reason=reason,
+        )
+        self.session.refresh(result)
+        return result
 
     def drop(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
         item = self.get(item_id)
@@ -540,7 +620,16 @@ class TodoService:
         item.status = ItemStatus.CANCELLED
         item.archived_at = now_utc()
         self._record_generated_task_occurrence(item, actor=actor, reason=reason)
-        return self._commit_event(actor=actor, action="cancel", item=item, before=before, reason=reason)
+        result = self._commit_event(actor=actor, action="cancel", item=item, before=before, reason=reason)
+        self._cascade_routine_generated_tasks(
+            result,
+            status=ItemStatus.CANCELLED,
+            action="routine_cancel_generated_task",
+            actor=actor,
+            reason=reason,
+        )
+        self.session.refresh(result)
+        return result
 
     def update_item(
         self,
