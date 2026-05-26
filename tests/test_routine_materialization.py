@@ -83,6 +83,81 @@ def test_per_occurrence_materialization_creates_bounded_unique_occurrence_tasks(
     assert all(task.routine_id == routine.id for task in created)
 
 
+def test_materialization_supports_weekly_weekday_rules(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "업무일지 작성 (Mon)",
+        actor=Actor.USER,
+        recurrence_rule="every week on Monday",
+        materialization_policy="per_occurrence",
+    )
+    service.activate(routine.id)
+
+    created = service.materialize_routines(now="2026-05-26", lookahead_days=7, catchup_days=1)
+
+    assert [task.occurrence_key for task in created] == ["2026-05-25", "2026-06-01"]
+
+
+def test_materialization_supports_monthly_day_rules(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "월세 확인",
+        actor=Actor.USER,
+        recurrence_rule="every month on the 5th",
+        materialization_policy="per_occurrence",
+    )
+    service.activate(routine.id)
+
+    created = service.materialize_routines(now="2026-05-26", lookahead_days=40, catchup_days=0)
+
+    assert [task.occurrence_key for task in created] == ["2026-06-05", "2026-07-05"]
+
+
+def test_materialization_supports_monthly_last_day_rules(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "monthly note 작성",
+        actor=Actor.USER,
+        recurrence_rule="every month on the last",
+        materialization_policy="per_occurrence",
+    )
+    service.activate(routine.id)
+
+    created = service.materialize_routines(now="2026-05-26", lookahead_days=40, catchup_days=0)
+
+    assert [task.occurrence_key for task in created] == ["2026-05-31", "2026-06-30"]
+
+
+def test_materialization_supports_multiweek_weekday_rules(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "발톱깍기",
+        actor=Actor.USER,
+        recurrence_rule="every 5 weeks on Friday",
+        materialization_policy="per_occurrence",
+    )
+    service.activate(routine.id)
+
+    created = service.materialize_routines(now="2026-05-26", lookahead_days=40, catchup_days=0)
+
+    assert [task.occurrence_key for task in created] == ["2026-05-29", "2026-07-03"]
+
+
+def test_materialization_supports_yearly_rules(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "yearly note 작성",
+        actor=Actor.USER,
+        recurrence_rule="every year",
+        materialization_policy="per_occurrence",
+    )
+    service.activate(routine.id)
+
+    created = service.materialize_routines(now="2026-12-30", lookahead_days=5, catchup_days=0)
+
+    assert [task.occurrence_key for task in created] == ["2027-01-01"]
+
+
 def test_materialization_ignores_non_active_routines(tmp_path):
     service = svc(tmp_path)
     service.propose_routine(

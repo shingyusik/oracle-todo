@@ -48,7 +48,8 @@ Telegram / CLI / Future Dashboard / Oracle
 10. Routine materialization supports `single_open` and `per_occurrence`; `rolling` is intentionally excluded from v1.
 11. `single_open` allows at most one open task per routine.
 12. `per_occurrence` creates bounded task instances from `now - catchup_days` through `now + lookahead_days`, skipping existing `routine_id + occurrence_key` pairs.
-13. Only `active` routines materialize tasks; generated tasks are `approved` because the routine itself was user-approved before activation.
+13. Recurrence parsing supports daily/weekly/monthly basics plus migrated Obsidian-style rules: `every week on Monday`, `every 5 weeks on Friday`, `every month on the 5th`, `every month on the last`, and `every year`.
+14. Only `active` routines materialize tasks; generated tasks are `approved` because the routine itself was user-approved before activation.
 
 ## v1 scope
 
