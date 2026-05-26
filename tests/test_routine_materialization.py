@@ -119,6 +119,50 @@ def test_pausing_routine_moves_open_generated_tasks_to_waiting_and_hides_today(t
     assert "routine_pause_generated_task" in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
 
 
+def test_resuming_routine_restores_waiting_generated_tasks_and_prevents_duplicate_single_open(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "매일 스트레칭",
+        actor=Actor.USER,
+        recurrence_rule="daily",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+    [task] = service.materialize_routines(now="2026-05-26", lookahead_days=0, catchup_days=0)
+    service.pause(routine.id, reason="잠시 중지")
+
+    resumed = service.resume(routine.id, reason="다시 시작")
+    duplicate = service.materialize_routines(now="2026-05-27", lookahead_days=0, catchup_days=0)
+
+    updated_task = service.get(task.id)
+    assert resumed.status == ItemStatus.ACTIVE
+    assert updated_task.status == ItemStatus.APPROVED
+    assert duplicate == []
+    assert today_tasks(service.list_items(type_="task"), today=service._parse_day("2026-05-26")) == [updated_task]
+    assert service.get(routine.id).metadata_["occurrences"][task.occurrence_key]["status"] == "approved"
+    event_log = (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+    assert "routine_resume_generated_task" in event_log
+    assert "routine_occurrence_approved" in event_log
+
+
+def test_resume_requires_paused_status(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "매일 스트레칭",
+        actor=Actor.USER,
+        recurrence_rule="daily",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+
+    try:
+        service.resume(routine.id)
+    except ValueError as exc:
+        assert "Cannot resume item in status active" in str(exc)
+    else:
+        raise AssertionError("resume should reject non-paused routines")
+
+
 def test_archiving_routine_archives_open_generated_tasks(tmp_path):
     service = svc(tmp_path)
     routine = service.propose_routine(

@@ -370,12 +370,14 @@ class TodoService:
             reason=reason,
         )
 
-    def _open_generated_tasks_for_routine(self, routine_id: str) -> list[TodoItem]:
+    def _open_generated_tasks_for_routine(self, routine_id: str, *, status: ItemStatus | None = None) -> list[TodoItem]:
         stmt = select(TodoItem).where(
             TodoItem.type == ItemType.TASK,
             TodoItem.routine_id == routine_id,
             not_(TodoItem.status.in_(list(TERMINAL_STATUSES))),  # type: ignore[attr-defined]
         )
+        if status is not None:
+            stmt = stmt.where(TodoItem.status == status)
         return [
             task
             for task in self.session.exec(stmt).all()
@@ -408,6 +410,7 @@ class TodoService:
         action: str,
         actor: Actor,
         reason: str | None = None,
+        from_status: ItemStatus | None = None,
     ) -> list[TodoItem]:
         if routine.type != ItemType.ROUTINE:
             return []
@@ -419,7 +422,7 @@ class TodoService:
                 actor=actor,
                 reason=reason,
             )
-            for task in self._open_generated_tasks_for_routine(routine.id)
+            for task in self._open_generated_tasks_for_routine(routine.id, status=from_status)
         ]
 
     def materialize_routines(self, *, now: str | date | datetime | None = None, lookahead_days: int = 7, catchup_days: int = 1) -> list[TodoItem]:
@@ -565,6 +568,30 @@ class TodoService:
             action="routine_pause_generated_task",
             actor=actor,
             reason=reason,
+        )
+        self.session.refresh(result)
+        return result
+
+    def resume(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
+        item = self.get(item_id)
+        before = self._snapshot(item)
+        if item.type == ItemType.AREA:
+            raise PolicyError("Areas are ongoing and are active at creation; do not resume them")
+        if item.status in TERMINAL_STATUSES:
+            raise PolicyError(f"Cannot resume terminal item: {item.status}")
+        if item.status != ItemStatus.PAUSED:
+            raise PolicyError(f"Cannot resume item in status {item.status}")
+        if item.type == ItemType.ROUTINE and not item.recurrence_rule:
+            raise PolicyError("Routine requires recurrence_rule before resume")
+        item.status = ItemStatus.ACTIVE
+        result = self._commit_event(actor=actor, action="resume", item=item, before=before, reason=reason)
+        self._cascade_routine_generated_tasks(
+            result,
+            status=ItemStatus.APPROVED,
+            action="routine_resume_generated_task",
+            actor=actor,
+            reason=reason,
+            from_status=ItemStatus.WAITING,
         )
         self.session.refresh(result)
         return result
