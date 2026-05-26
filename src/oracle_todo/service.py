@@ -337,6 +337,39 @@ class TodoService:
         )
         return self._commit_event(actor=Actor.SYSTEM, action="materialize_routine_task", item=task)
 
+    def _record_generated_task_occurrence(self, task: TodoItem, *, actor: Actor, reason: str | None = None) -> None:
+        if task.type != ItemType.TASK or not task.routine_id or not task.occurrence_key:
+            return
+        if task.metadata_.get("generated_by") != "routine":
+            return
+        routine = self.session.get(TodoItem, task.routine_id)
+        if not routine:
+            return
+        before = self._snapshot(routine)
+        at = now_utc().isoformat()
+        occurrence = {
+            "status": task.status.value,
+            "task_id": task.id,
+            "at": at,
+        }
+        if task.scheduled:
+            occurrence["scheduled"] = task.scheduled
+        metadata = dict(routine.metadata_ or {})
+        occurrences = dict(metadata.get("occurrences") or {})
+        occurrences[task.occurrence_key] = occurrence
+        metadata["occurrences"] = occurrences
+        metadata["last_occurrence"] = {"occurrence_key": task.occurrence_key, **occurrence}
+        routine.metadata_ = metadata
+        routine.updated_at = now_utc()
+        self.session.add(routine)
+        self._record_event(
+            actor=actor,
+            action=f"routine_occurrence_{task.status.value}",
+            item=routine,
+            before=before,
+            reason=reason,
+        )
+
     def materialize_routines(self, *, now: str | date | datetime | None = None, lookahead_days: int = 7, catchup_days: int = 1) -> list[TodoItem]:
         anchor = self._parse_day(now)
         start = anchor - timedelta(days=catchup_days)
@@ -474,6 +507,7 @@ class TodoService:
             raise PolicyError(f"Already terminal: {item.status}")
         item.status = ItemStatus.COMPLETED
         item.completed_at = now_utc()
+        self._record_generated_task_occurrence(item, actor=actor, reason=reason)
         return self._commit_event(actor=actor, action="complete", item=item, before=before, reason=reason)
 
     def archive(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
@@ -481,6 +515,7 @@ class TodoService:
         before = self._snapshot(item)
         item.status = ItemStatus.ARCHIVED
         item.archived_at = now_utc()
+        self._record_generated_task_occurrence(item, actor=actor, reason=reason)
         return self._commit_event(actor=actor, action="archive", item=item, before=before, reason=reason)
 
     def drop(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
@@ -492,6 +527,7 @@ class TodoService:
             raise PolicyError(f"Already terminal: {item.status}")
         item.status = ItemStatus.DROPPED
         item.archived_at = now_utc()
+        self._record_generated_task_occurrence(item, actor=actor, reason=reason)
         return self._commit_event(actor=actor, action="drop", item=item, before=before, reason=reason)
 
     def cancel(self, item_id: str, *, actor: Actor = Actor.USER, reason: str | None = None) -> TodoItem:
@@ -503,6 +539,7 @@ class TodoService:
             raise PolicyError(f"Already terminal: {item.status}")
         item.status = ItemStatus.CANCELLED
         item.archived_at = now_utc()
+        self._record_generated_task_occurrence(item, actor=actor, reason=reason)
         return self._commit_event(actor=actor, action="cancel", item=item, before=before, reason=reason)
 
     def update_item(

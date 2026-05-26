@@ -54,6 +54,48 @@ def test_single_open_routine_creates_next_task_after_previous_completed(tmp_path
     assert next_tasks[0].routine_id == routine.id
 
 
+def test_generated_task_completion_records_routine_occurrence_history(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "주간 리뷰",
+        actor=Actor.USER,
+        recurrence_rule="weekly",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+    [task] = service.materialize_routines(now="2026-05-26")
+
+    service.complete(task.id, reason="완료")
+
+    updated_routine = service.get(routine.id)
+    occurrence = updated_routine.metadata_["occurrences"][task.occurrence_key]
+    assert occurrence["status"] == "completed"
+    assert occurrence["task_id"] == task.id
+    assert occurrence["scheduled"] == task.scheduled
+    assert updated_routine.metadata_["last_occurrence"]["occurrence_key"] == task.occurrence_key
+    assert "routine_occurrence_completed" in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+
+
+def test_generated_task_cancellation_records_routine_occurrence_history(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "매일 스트레칭",
+        actor=Actor.USER,
+        recurrence_rule="daily",
+        materialization_policy="per_occurrence",
+    )
+    service.activate(routine.id)
+    [task] = service.materialize_routines(now="2026-05-26", lookahead_days=0, catchup_days=0)
+
+    service.cancel(task.id, reason="오늘은 쉼")
+
+    updated_routine = service.get(routine.id)
+    occurrence = updated_routine.metadata_["occurrences"]["2026-05-26"]
+    assert occurrence["status"] == "cancelled"
+    assert occurrence["task_id"] == task.id
+    assert "routine_occurrence_cancelled" in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+
+
 def test_per_occurrence_materialization_creates_bounded_unique_occurrence_tasks(tmp_path):
     service = svc(tmp_path)
     routine = service.propose_routine(
