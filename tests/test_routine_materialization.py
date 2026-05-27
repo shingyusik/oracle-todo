@@ -248,6 +248,56 @@ def test_materialization_supports_weekly_weekday_rules(tmp_path):
     assert [task.occurrence_key for task in created] == ["2026-05-25", "2026-06-01"]
 
 
+def test_materialization_normalizes_weekday_sets_and_ranges(tmp_path):
+    service = svc(tmp_path)
+    cases = [
+        ("평일", "weekdays", ["2026-05-26", "2026-05-27", "2026-05-28", "2026-05-29", "2026-06-01", "2026-06-02"]),
+        ("주말", "weekends", ["2026-05-30", "2026-05-31"]),
+        ("월-일", "월-일", [
+            "2026-05-26",
+            "2026-05-27",
+            "2026-05-28",
+            "2026-05-29",
+            "2026-05-30",
+            "2026-05-31",
+            "2026-06-01",
+            "2026-06-02",
+        ]),
+        ("월수금", "월수금", ["2026-05-27", "2026-05-29", "2026-06-01"]),
+        ("Mon, Wed, Fri", "Mon, Wed, Fri", ["2026-05-27", "2026-05-29", "2026-06-01"]),
+    ]
+    for title, rule, expected in cases:
+        routine = service.propose_routine(
+            title,
+            actor=Actor.USER,
+            recurrence_rule=rule,
+            materialization_policy="per_occurrence",
+        )
+        service.activate(routine.id)
+
+        created = service.materialize_routines(now="2026-05-26", lookahead_days=7, catchup_days=0)
+
+        assert [task.occurrence_key for task in created if task.routine_id == routine.id] == expected
+
+
+def test_materialization_treats_full_week_range_as_daily_alias(tmp_path):
+    service = svc(tmp_path)
+    routine = service.propose_routine(
+        "매일 루틴",
+        actor=Actor.USER,
+        recurrence_rule="월-일",
+        materialization_policy="single_open",
+    )
+    service.activate(routine.id)
+
+    first = service.materialize_routines(now="2026-05-26", lookahead_days=7, catchup_days=1)
+    second = service.materialize_routines(now="2026-05-27", lookahead_days=7, catchup_days=1)
+
+    assert len(first) == 1
+    assert second == []
+    assert first[0].occurrence_key == "2026-05-25"
+
+
 def test_materialization_supports_any_monthly_ordinal_day_rule(tmp_path):
     service = svc(tmp_path)
     routine = service.propose_routine(

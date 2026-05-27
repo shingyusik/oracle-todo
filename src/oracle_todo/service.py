@@ -193,6 +193,16 @@ class TodoService:
         current = start + timedelta(days=days_until_weekday)
         return self._interval_occurrences(current, end, timedelta(weeks=interval_weeks))
 
+    def _weekday_set_occurrences(
+        self, start: date, end: date, weekdays: list[int], *, interval_weeks: int = 1
+    ) -> list[date]:
+        occurrences = {
+            occurrence
+            for weekday in weekdays
+            for occurrence in self._weekday_occurrences(start, end, weekday, interval_weeks=interval_weeks)
+        }
+        return sorted(occurrences)
+
     def _yearly_occurrences(self, start: date, end: date, month: int = 1, day: int = 1) -> list[date]:
         out: list[date] = []
         for year in range(start.year, end.year + 1):
@@ -209,34 +219,89 @@ class TodoService:
             "weekly": "every week",
             "monthly": "every month",
             "yearly": "every year",
+            "매일": "every day",
+            "매주": "every week",
+            "매월": "every month",
+            "매년": "every year",
         }
         rule = aliases.get(raw_rule, raw_rule)
         weekday_aliases = {
             "mon": 0,
             "monday": 0,
+            "월": 0,
             "tue": 1,
             "tuesday": 1,
+            "화": 1,
             "wed": 2,
             "wednesday": 2,
+            "수": 2,
             "thu": 3,
             "thursday": 3,
+            "목": 3,
             "fri": 4,
             "friday": 4,
+            "금": 4,
             "sat": 5,
             "saturday": 5,
+            "토": 5,
             "sun": 6,
             "sunday": 6,
+            "일": 6,
         }
+        weekday_set_aliases = {
+            "weekday": [0, 1, 2, 3, 4],
+            "weekdays": [0, 1, 2, 3, 4],
+            "평일": [0, 1, 2, 3, 4],
+            "weekend": [5, 6],
+            "weekends": [5, 6],
+            "주말": [5, 6],
+            "월-금": [0, 1, 2, 3, 4],
+            "토-일": [5, 6],
+            "월-일": [0, 1, 2, 3, 4, 5, 6],
+        }
+
+        def parse_weekday_set(anchor: str) -> list[int] | None:
+            normalized = anchor.strip().lower()
+            if normalized in weekday_set_aliases:
+                return weekday_set_aliases[normalized]
+            if normalized in weekday_aliases:
+                return [weekday_aliases[normalized]]
+            range_match = re.fullmatch(r"(.+?)\s*[-~]\s*(.+)", normalized)
+            if range_match:
+                start_day = weekday_aliases.get(range_match.group(1).strip())
+                end_day = weekday_aliases.get(range_match.group(2).strip())
+                if start_day is None or end_day is None:
+                    return None
+                if start_day <= end_day:
+                    return list(range(start_day, end_day + 1))
+                return list(range(start_day, 7)) + list(range(0, end_day + 1))
+            if any(separator in normalized for separator in [",", "/", " "]):
+                parts = [part for part in re.split(r"\s*[,/]\s*|\s+", normalized) if part]
+                weekdays: list[int] = []
+                for part in parts:
+                    weekday = weekday_aliases.get(part)
+                    if weekday is None:
+                        return None
+                    if weekday not in weekdays:
+                        weekdays.append(weekday)
+                return weekdays or None
+            if re.fullmatch(r"[월화수목금토일]+", normalized):
+                weekdays = []
+                for char in normalized:
+                    weekday = weekday_aliases[char]
+                    if weekday not in weekdays:
+                        weekdays.append(weekday)
+                return weekdays
+            return None
+
+        weekday_set = parse_weekday_set(rule)
+        if weekday_set:
+            if weekday_set == [0, 1, 2, 3, 4, 5, 6]:
+                return self._interval_occurrences(start, end, timedelta(days=1))
+            return self._weekday_set_occurrences(start, end, weekday_set)
+
         interval_match = re.fullmatch(r"every(?:\s+(\d+))?\s+(days?|weeks?|months?|years?)(?:\s+on\s+(.+))?", rule)
         if not interval_match:
-            if rule == "매일":
-                return self._interval_occurrences(start, end, timedelta(days=1))
-            if rule == "매주":
-                return self._interval_occurrences(start, end, timedelta(weeks=1))
-            if rule == "매월":
-                return self._monthly_occurrences(start, end, 1)
-            if rule == "매년":
-                return self._yearly_occurrences(start, end)
             raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
 
         interval = int(interval_match.group(1) or "1")
@@ -253,10 +318,10 @@ class TodoService:
         if unit.startswith("week"):
             if not anchor:
                 return self._interval_occurrences(start, end, timedelta(weeks=interval))
-            weekday_name = anchor
-            if weekday_name not in weekday_aliases:
+            weekday_set = parse_weekday_set(anchor)
+            if not weekday_set:
                 raise PolicyError(f"Unsupported recurrence_rule: {recurrence_rule}")
-            return self._weekday_occurrences(start, end, weekday_aliases[weekday_name], interval_weeks=interval)
+            return self._weekday_set_occurrences(start, end, weekday_set, interval_weeks=interval)
 
         if unit.startswith("month"):
             if not anchor:
