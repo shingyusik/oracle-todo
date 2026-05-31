@@ -1,5 +1,5 @@
 use oracle_todo::application::error::TodoError;
-use oracle_todo::application::service::{CreateArea, ProposeProject, TodoService};
+use oracle_todo::application::service::{CreateArea, ProposeProject, ProposeTask, TodoService};
 use oracle_todo::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
 use time::macros::datetime;
 
@@ -86,5 +86,45 @@ fn project_requires_definition_of_done_before_activation() {
     assert_eq!(
         error,
         TodoError::Policy("Project requires definition_of_done before activation".to_string())
+    );
+}
+
+#[test]
+fn completing_terminal_item_is_rejected() {
+    let mut service = TodoService::in_memory();
+    let item = service
+        .propose_task(
+            "완료",
+            ProposeTask {
+                actor: Actor::User,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    service.complete(&item.id, None).unwrap();
+    let error = service.complete(&item.id, None).unwrap_err();
+
+    assert_eq!(
+        error,
+        TodoError::Policy("Already terminal: completed".to_string())
+    );
+}
+
+#[test]
+fn every_mutation_records_event() {
+    let mut service = TodoService::in_memory();
+    let item = service.propose_task("테스트", Default::default()).unwrap();
+    service.approve(&item.id, None).unwrap();
+
+    let actions: Vec<String> = service
+        .events()
+        .iter()
+        .map(|event| event.action.clone())
+        .collect();
+
+    assert_eq!(
+        actions,
+        vec!["propose_task".to_string(), "approve".to_string()]
     );
 }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use time::{Duration, OffsetDateTime, macros::datetime};
 
 use crate::application::error::{TodoError, TodoResult};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, terminal_status};
 
 pub struct CreateArea {
     pub title: String,
@@ -48,7 +48,9 @@ pub struct ProposeProject {
 
 pub struct TodoService {
     items: HashMap<String, TodoItem>,
+    events: Vec<TodoEvent>,
     id_counter: u64,
+    event_counter: u64,
     clock_counter: i64,
 }
 
@@ -56,7 +58,9 @@ impl TodoService {
     pub fn in_memory() -> Self {
         Self {
             items: HashMap::new(),
+            events: Vec::new(),
             id_counter: 1,
+            event_counter: 1,
             clock_counter: 0,
         }
     }
@@ -73,7 +77,9 @@ impl TodoService {
         item.status = ItemStatus::Active;
         item.review_cycle = request.review_cycle;
         item.standard = request.standard;
-        Ok(self.store(item))
+        let item = self.store(item);
+        self.record_event(Actor::User, "create_area", None, &item, None);
+        Ok(item)
     }
 
     pub fn propose_task(
@@ -90,7 +96,9 @@ impl TodoService {
         item.scheduled = request.scheduled;
         item.priority = request.priority;
         item.description = request.description;
-        Ok(self.store(item))
+        let item = self.store(item);
+        self.record_event(item.proposed_by, "propose_task", None, &item, None);
+        Ok(item)
     }
 
     pub fn propose_project(&mut self, request: ProposeProject) -> TodoResult<TodoItem> {
@@ -106,7 +114,9 @@ impl TodoService {
         item.definition_of_done = request.definition_of_done;
         item.outcome = request.outcome;
         item.due = request.due;
-        Ok(self.store(item))
+        let item = self.store(item);
+        self.record_event(item.proposed_by, "propose_project", None, &item, None);
+        Ok(item)
     }
 
     pub fn get(&self, item_id: &str) -> TodoResult<TodoItem> {
@@ -118,6 +128,9 @@ impl TodoService {
 
     pub fn approve(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
         let mut item = self.get(item_id)?;
+        let before = Some(serde_json::to_value(&item).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before approve: {error}"))
+        })?);
         if !matches!(item.status, ItemStatus::Proposed | ItemStatus::Approved) {
             return Err(TodoError::Policy(format!(
                 "Cannot approve item in status {}",
@@ -130,11 +143,16 @@ impl TodoService {
         item.approved_by = Some(Actor::User);
         item.approved_at = Some(now);
         item.updated_at = now;
-        Ok(self.store(item))
+        let item = self.store(item);
+        self.record_event(Actor::User, "approve", before, &item, _reason);
+        Ok(item)
     }
 
     pub fn activate(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
         let mut item = self.get(item_id)?;
+        let before = Some(serde_json::to_value(&item).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before activate: {error}"))
+        })?);
         if item.proposed_by != Actor::User && item.approved_at.is_none() {
             return Err(TodoError::Policy(
                 "Agent-created items must be approved before activation".to_string(),
@@ -160,11 +178,16 @@ impl TodoService {
         let now = self.next_now();
         item.status = ItemStatus::Active;
         item.updated_at = now;
-        Ok(self.store(item))
+        let item = self.store(item);
+        self.record_event(Actor::User, "activate", before, &item, _reason);
+        Ok(item)
     }
 
     pub fn complete(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
         let mut item = self.get(item_id)?;
+        let before = Some(serde_json::to_value(&item).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before complete: {error}"))
+        })?);
         if item.item_type == ItemType::Area {
             return Err(TodoError::Policy(
                 "Areas cannot be completed; pause or archive them".to_string(),
@@ -181,7 +204,13 @@ impl TodoService {
         item.status = ItemStatus::Completed;
         item.completed_at = Some(now);
         item.updated_at = now;
-        Ok(self.store(item))
+        let item = self.store(item);
+        self.record_event(Actor::User, "complete", before, &item, _reason);
+        Ok(item)
+    }
+
+    pub fn events(&self) -> &[TodoEvent] {
+        &self.events
     }
 
     fn next_id(&mut self, prefix: &str) -> String {
@@ -199,5 +228,33 @@ impl TodoService {
     fn store(&mut self, item: TodoItem) -> TodoItem {
         self.items.insert(item.id.clone(), item.clone());
         item
+    }
+
+    fn record_event(
+        &mut self,
+        actor: Actor,
+        action: &str,
+        before: Option<serde_json::Value>,
+        item: &TodoItem,
+        reason: Option<&str>,
+    ) {
+        let event = TodoEvent {
+            id: self.next_event_id(),
+            at: item.updated_at,
+            actor,
+            action: action.to_string(),
+            object_type: item.item_type.as_str().to_string(),
+            object_id: item.id.clone(),
+            before,
+            after: Some(serde_json::to_value(item).expect("TodoItem serialization cannot fail")),
+            reason: reason.map(ToOwned::to_owned),
+        };
+        self.events.push(event);
+    }
+
+    fn next_event_id(&mut self) -> String {
+        let id = format!("evt_{:06}", self.event_counter);
+        self.event_counter += 1;
+        id
     }
 }
