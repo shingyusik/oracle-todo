@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
+use std::str::FromStr;
 
 use crate::application::service::{ProposeTask, TodoService};
 use crate::domain::Actor;
@@ -116,12 +117,6 @@ fn connect_path(path: &Path) -> Result<rusqlite::Connection> {
 }
 
 fn parse_actor(value: &str) -> std::result::Result<Actor, String> {
-    match value {
-        "oracle" => Ok(Actor::Oracle),
-        "user" => Ok(Actor::User),
-        "system" => Ok(Actor::System),
-        other => Err(format!(
-            "invalid actor '{other}'; expected one of: oracle, user, system"
-        )),
-    }
+    Actor::from_str(value)
+        .map_err(|_| format!("invalid actor '{value}'; expected one of: oracle, user, system"))
 }

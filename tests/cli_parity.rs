@@ -19,6 +19,21 @@ fn init_creates_sqlite_database() {
 }
 
 #[test]
+fn init_uses_oracle_todo_home_environment() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("oracle-todo")
+        .unwrap()
+        .env("ORACLE_TODO_HOME", home.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(contains("initialized"));
+
+    assert!(home.db_path().exists());
+}
+
+#[test]
 fn task_propose_prints_json_item() {
     let home = TestHome::new();
 

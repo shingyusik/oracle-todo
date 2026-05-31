@@ -4,6 +4,7 @@ use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_
 use rusqlite::types::FromSql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Map, Value};
+use std::str::FromStr;
 use time::format_description::parse as parse_format_description;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, PrimitiveDateTime};
@@ -507,12 +508,7 @@ fn parse_status(value: &str) -> TodoResult<ItemStatus> {
 }
 
 fn parse_actor(value: &str) -> TodoResult<Actor> {
-    match value {
-        "user" => Ok(Actor::User),
-        "oracle" => Ok(Actor::Oracle),
-        "system" => Ok(Actor::System),
-        _ => Err(TodoError::Storage(format!("unknown actor: {value}"))),
-    }
+    Actor::from_str(value).map_err(TodoError::Storage)
 }
 
 fn parse_optional_actor(value: Option<&str>) -> TodoResult<Option<Actor>> {

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::str::FromStr;
 use time::OffsetDateTime;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -202,6 +203,19 @@ impl Actor {
             Actor::User => "user",
             Actor::Oracle => "oracle",
             Actor::System => "system",
+        }
+    }
+}
+
+impl FromStr for Actor {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "user" => Ok(Actor::User),
+            "oracle" => Ok(Actor::Oracle),
+            "system" => Ok(Actor::System),
+            _ => Err(format!("unknown actor: {value}")),
         }
     }
 }

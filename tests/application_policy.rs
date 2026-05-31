@@ -1,6 +1,7 @@
 use oracle_todo::application::error::TodoError;
 use oracle_todo::application::service::{CreateArea, ProposeProject, ProposeTask, TodoService};
 use oracle_todo::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
+use std::str::FromStr;
 use time::macros::datetime;
 
 #[test]
@@ -24,6 +25,14 @@ fn user_task_starts_approved() {
     assert_eq!(item.status, ItemStatus::Approved);
     assert_eq!(item.approved_by, Some(Actor::User));
     assert_eq!(item.approved_at, Some(now));
+}
+
+#[test]
+fn actor_strings_round_trip_through_domain_parser() {
+    assert_eq!(Actor::from_str("oracle").unwrap(), Actor::Oracle);
+    assert_eq!(Actor::from_str("user").unwrap(), Actor::User);
+    assert_eq!(Actor::from_str("system").unwrap(), Actor::System);
+    assert!(Actor::from_str("robot").is_err());
 }
 
 #[test]
