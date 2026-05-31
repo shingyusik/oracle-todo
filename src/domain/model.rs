@@ -50,6 +50,13 @@ pub fn terminal_status(status: ItemStatus) -> bool {
     )
 }
 
+pub fn hidden_by_default_status(status: ItemStatus) -> bool {
+    matches!(
+        status,
+        ItemStatus::Archived | ItemStatus::Dropped | ItemStatus::Cancelled
+    )
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TodoItem {
     pub id: String,

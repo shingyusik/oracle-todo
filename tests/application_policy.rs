@@ -184,6 +184,44 @@ fn update_item_changes_core_fields_and_records_event() {
 }
 
 #[test]
+fn update_rejects_terminal_items_and_invalid_materialization_policy() {
+    let mut service = TodoService::in_memory();
+    let item = service.propose_task("완료", Default::default()).unwrap();
+    service.complete(&item.id, None).unwrap();
+
+    let error = service
+        .update_item(
+            &item.id,
+            oracle_todo::application::service::UpdateItem {
+                title: Some("수정".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        TodoError::Policy("Cannot update terminal item: completed".to_string())
+    );
+
+    let item = service.propose_task("정책", Default::default()).unwrap();
+    let error = service
+        .update_item(
+            &item.id,
+            oracle_todo::application::service::UpdateItem {
+                materialization_policy: Some("many".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        TodoError::Policy("Unsupported materialization_policy: many".to_string())
+    );
+}
+
+#[test]
 fn list_items_status_filter_can_show_terminal_items() {
     let mut service = TodoService::in_memory();
     let item = service.propose_task("보관", Default::default()).unwrap();
@@ -202,5 +240,56 @@ fn list_items_status_filter_can_show_terminal_items() {
             .map(|item| item.id.as_str())
             .collect::<Vec<_>>(),
         vec![item.id]
+    );
+}
+
+#[test]
+fn relationships_must_reference_expected_item_types() {
+    let mut service = TodoService::in_memory();
+    let area = service
+        .create_area(CreateArea {
+            title: "재정".to_string(),
+            review_cycle: None,
+            standard: None,
+        })
+        .unwrap();
+    let project = service
+        .propose_project(ProposeProject {
+            title: "정리".to_string(),
+            area: None,
+            definition_of_done: Some("완료".to_string()),
+            outcome: None,
+            due: None,
+            actor: Actor::User,
+        })
+        .unwrap();
+    let task = service.propose_task("검증", Default::default()).unwrap();
+
+    let error = service
+        .propose_task(
+            "잘못된 프로젝트",
+            ProposeTask {
+                project_id: Some(area.id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        error,
+        TodoError::Policy(format!("Project must be project: {}", area.id))
+    );
+
+    let error = service
+        .update_item(
+            &task.id,
+            oracle_todo::application::service::UpdateItem {
+                routine_id: Some(project.id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        error,
+        TodoError::Policy(format!("Routine must be routine: {}", project.id))
     );
 }

@@ -1,6 +1,6 @@
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{EventRepository, ListFilter, TodoRepository, TodoStore};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, terminal_status};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status};
 use rusqlite::types::FromSql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Map, Value};
@@ -212,7 +212,9 @@ impl TodoRepository for SqliteTodoRepository {
         Ok(items
             .into_iter()
             .filter(|item| {
-                filter.include_archived || filter.status.is_some() || !terminal_status(item.status)
+                filter.include_archived
+                    || filter.status.is_some()
+                    || !hidden_by_default_status(item.status)
             })
             .filter(|item| filter.status.is_none_or(|status| item.status == status))
             .filter(|item| {

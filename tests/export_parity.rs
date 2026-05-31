@@ -1,3 +1,4 @@
+use oracle_todo::application::error::TodoError;
 use oracle_todo::application::service::{ProposeEvent, ProposeTask, TodoService};
 use oracle_todo::domain::Actor;
 use oracle_todo::exports::{render_items, today_tasks, write_exports};
@@ -64,6 +65,32 @@ fn event_propose_distinguishes_external_commitments() {
 }
 
 #[test]
+fn event_requires_non_blank_schedule() {
+    let mut service = TodoService::in_memory();
+
+    let error = service
+        .propose_event(ProposeEvent {
+            title: "빈 일정".to_string(),
+            actor: Actor::Oracle,
+            scheduled: Some("  ".to_string()),
+            area: None,
+            project_id: None,
+            due: None,
+            priority: None,
+            description: None,
+            location: None,
+            participants: Vec::new(),
+            commitment_type: "appointment".to_string(),
+        })
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        TodoError::Policy("Event requires scheduled time".to_string())
+    );
+}
+
+#[test]
 fn write_exports_creates_expected_view_files() {
     let tmp = tempfile::tempdir().unwrap();
     let mut service = TodoService::in_memory();
@@ -87,4 +114,31 @@ fn write_exports_creates_expected_view_files() {
 
     assert!(paths.iter().any(|path| path.ends_with("today.md")));
     assert!(tmp.path().join("today.md").exists());
+}
+
+#[test]
+fn archive_export_includes_completed_items_from_default_listing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut service = TodoService::in_memory();
+    let task = service
+        .propose_task(
+            "끝난 일",
+            ProposeTask {
+                actor: Actor::User,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    service.complete(&task.id, None).unwrap();
+
+    write_exports(
+        &service.list_items(Default::default()).unwrap(),
+        tmp.path(),
+        "2026-05-26",
+    )
+    .unwrap();
+
+    let archive = std::fs::read_to_string(tmp.path().join("archive.md")).unwrap();
+
+    assert!(archive.contains("끝난 일"));
 }

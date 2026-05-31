@@ -5,7 +5,9 @@ use uuid::Uuid;
 
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{ListFilter, TodoStore};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, terminal_status};
+use crate::domain::{
+    Actor, ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status, terminal_status,
+};
 
 pub struct CreateArea {
     pub title: String,
@@ -135,11 +137,14 @@ impl TodoService {
         title: impl Into<String>,
         request: ProposeTask,
     ) -> TodoResult<TodoItem> {
+        let area_id = self.ensure_relation(request.area, ItemType::Area, "Area")?;
+        let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
+        let routine_id = self.ensure_relation(request.routine_id, ItemType::Routine, "Routine")?;
         let now = self.next_now();
         let mut item = TodoItem::new_task(self.next_id("task"), title, request.actor, now);
-        item.area_id = request.area;
-        item.project_id = request.project_id;
-        item.routine_id = request.routine_id;
+        item.area_id = area_id;
+        item.project_id = project_id;
+        item.routine_id = routine_id;
         item.due = request.due;
         item.scheduled = request.scheduled;
         item.priority = request.priority;
@@ -148,6 +153,7 @@ impl TodoService {
     }
 
     pub fn propose_project(&mut self, request: ProposeProject) -> TodoResult<TodoItem> {
+        let area_id = self.ensure_relation(request.area, ItemType::Area, "Area")?;
         let now = self.next_now();
         let mut item = TodoItem::new(
             self.next_id("project"),
@@ -156,7 +162,7 @@ impl TodoService {
             request.actor,
             now,
         );
-        item.area_id = request.area;
+        item.area_id = area_id;
         item.definition_of_done = request.definition_of_done;
         item.outcome = request.outcome;
         item.due = request.due;
@@ -166,7 +172,11 @@ impl TodoService {
     pub fn propose_event(&mut self, request: ProposeEvent) -> TodoResult<TodoItem> {
         let scheduled = request
             .scheduled
-            .ok_or_else(|| TodoError::Validation("Event requires scheduled time".to_string()))?;
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| TodoError::Policy("Event requires scheduled time".to_string()))?;
+        let area_id = self.ensure_relation(request.area, ItemType::Area, "Area")?;
+        let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
         let now = self.next_now();
         let mut item = TodoItem::new(
             self.next_id("evt"),
@@ -175,8 +185,8 @@ impl TodoService {
             request.actor,
             now,
         );
-        item.area_id = request.area;
-        item.project_id = request.project_id;
+        item.area_id = area_id;
+        item.project_id = project_id;
         item.due = request.due;
         item.scheduled = Some(scheduled);
         item.priority = request.priority;
@@ -234,7 +244,7 @@ impl TodoService {
                     .filter(|item| {
                         filter.include_archived
                             || filter.status.is_some()
-                            || !terminal_status(item.status)
+                            || !hidden_by_default_status(item.status)
                     })
                     .filter(|item| filter.status.is_none_or(|status| item.status == status))
                     .filter(|item| {
@@ -450,13 +460,15 @@ impl TodoService {
             item.materialization_policy = materialization_policy;
         }
         if let Some(area) = request.area {
-            item.area_id = Some(area);
+            item.area_id = self.ensure_relation(Some(area), ItemType::Area, "Area")?;
         }
         if let Some(project_id) = request.project_id {
-            item.project_id = Some(project_id);
+            item.project_id =
+                self.ensure_relation(Some(project_id), ItemType::Project, "Project")?;
         }
         if let Some(routine_id) = request.routine_id {
-            item.routine_id = Some(routine_id);
+            item.routine_id =
+                self.ensure_relation(Some(routine_id), ItemType::Routine, "Routine")?;
         }
         if let Some(due) = request.due {
             item.due = Some(due);
@@ -563,6 +575,31 @@ impl TodoService {
         item.archived_at = Some(now);
         item.updated_at = now;
         self.store_item_and_event(Actor::User, action, before, item, reason)
+    }
+
+    fn ensure_relation(
+        &mut self,
+        item_id: Option<String>,
+        expected: ItemType,
+        label: &str,
+    ) -> TodoResult<Option<String>> {
+        let Some(item_id) = item_id else {
+            return Ok(None);
+        };
+        let item = self.get(&item_id)?;
+        if item.item_type != expected {
+            return Err(TodoError::Policy(format!(
+                "{label} must be {}: {item_id}",
+                expected.as_str()
+            )));
+        }
+        if terminal_status(item.status) {
+            return Err(TodoError::Policy(format!(
+                "{label} is terminal: {}",
+                item.status.as_str()
+            )));
+        }
+        Ok(Some(item.id))
     }
 
     fn next_event_id(&mut self) -> String {
