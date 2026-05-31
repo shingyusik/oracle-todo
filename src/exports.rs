@@ -5,7 +5,12 @@ use time::Date;
 use time::format_description::parse as parse_format_description;
 
 use crate::application::error::{TodoError, TodoResult};
+use crate::application::ports::ListFilter;
+use crate::application::service::TodoService;
 use crate::domain::{ItemStatus, ItemType, TodoItem};
+
+const ROUTINE_LOOKAHEAD_DAYS: i64 = 7;
+const ROUTINE_CATCHUP_DAYS: i64 = 1;
 
 pub fn render_items(title: &str, items: &[TodoItem]) -> String {
     let mut lines = vec![format!("# {title}"), String::new()];
@@ -157,6 +162,35 @@ pub fn write_exports(items: &[TodoItem], out_dir: &Path, today: &str) -> TodoRes
         written.push(path);
     }
     Ok(written)
+}
+
+pub fn pending_items(service: &mut TodoService) -> TodoResult<Vec<TodoItem>> {
+    service.list_items(ListFilter {
+        status: Some(ItemStatus::Proposed),
+        ..Default::default()
+    })
+}
+
+pub fn current_today_items(service: &mut TodoService, today: &str) -> TodoResult<Vec<TodoItem>> {
+    service.materialize_routines(today, ROUTINE_LOOKAHEAD_DAYS, ROUTINE_CATCHUP_DAYS)?;
+    let items = service.list_items(ListFilter {
+        item_type: Some(ItemType::Task),
+        ..Default::default()
+    })?;
+    today_tasks(&items, today)
+}
+
+pub fn write_current_exports(
+    service: &mut TodoService,
+    out_dir: &Path,
+    today: &str,
+) -> TodoResult<Vec<PathBuf>> {
+    service.materialize_routines(today, ROUTINE_LOOKAHEAD_DAYS, ROUTINE_CATCHUP_DAYS)?;
+    let items = service.list_items(ListFilter {
+        include_archived: true,
+        ..Default::default()
+    })?;
+    write_exports(&items, out_dir, today)
 }
 
 fn checkbox(item: &TodoItem) -> &'static str {

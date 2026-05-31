@@ -1,8 +1,11 @@
 mod support;
 
 use assert_cmd::Command;
+use oracle_todo::infrastructure::system::local_date_string_at;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use support::TestHome;
+use time::macros::{datetime, offset};
 
 #[test]
 fn init_creates_sqlite_database() {
@@ -97,10 +100,25 @@ fn area_create_and_pending_match_python_cli_intent() {
 
     Command::cargo_bin("oracle-todo")
         .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "task",
+            "propose",
+            "직접 승인된 일",
+            "--actor",
+            "user",
+        ])
+        .assert()
+        .success();
+
+    Command::cargo_bin("oracle-todo")
+        .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "pending"])
         .assert()
         .success()
-        .stdout(contains("DB 확인"));
+        .stdout(contains("DB 확인"))
+        .stdout(contains("직접 승인된 일").not());
 }
 
 #[test]
@@ -188,5 +206,30 @@ fn event_propose_prints_external_commitment_metadata() {
         .assert()
         .success()
         .stdout(contains("\"type\":\"event\""))
+        .stdout(contains("\"commitment_type\":\"appointment\""))
         .stdout(contains("서울대병원"));
+
+    Command::cargo_bin("oracle-todo")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "event",
+            "propose",
+            "컨설팅",
+            "2026-06-02 10:00",
+            "--commitment-type",
+            "consultation",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("\"commitment_type\":\"consultation\""));
+}
+
+#[test]
+fn local_today_uses_configured_offset_not_utc_date() {
+    assert_eq!(
+        local_date_string_at(datetime!(2026-05-31 15:30 UTC), offset!(+09:00)),
+        "2026-06-01"
+    );
 }

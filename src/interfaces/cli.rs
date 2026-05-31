@@ -3,16 +3,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use std::str::FromStr;
-use time::OffsetDateTime;
 
-use crate::application::ports::ListFilter;
 use crate::application::service::{
     CreateArea, ProposeEvent, ProposeRoutine, ProposeTask, TodoService,
 };
-use crate::domain::{Actor, ItemStatus, ItemType};
-use crate::exports::{render_items, today_tasks, write_exports};
+use crate::domain::Actor;
+use crate::exports::{current_today_items, pending_items, render_items, write_current_exports};
 use crate::infrastructure::paths::{db_path, exports_dir, todo_home};
 use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
+use crate::infrastructure::system::local_today_string;
 
 #[derive(Debug, Parser)]
 #[command(name = "oracle-todo")]
@@ -143,6 +142,8 @@ struct EventProposeArgs {
     location: Option<String>,
     #[arg(long = "with")]
     participants: Vec<String>,
+    #[arg(long, default_value = "appointment")]
+    commitment_type: String,
     #[arg(long, default_value = "oracle", value_parser = parse_actor)]
     actor: Actor,
 }
@@ -239,12 +240,6 @@ fn routine_propose(home: &Path, args: RoutineProposeArgs) -> Result<()> {
 
 fn event_propose(home: &Path, args: EventProposeArgs) -> Result<()> {
     let mut service = service(home)?;
-    let commitment_type = if args.location.is_some() || !args.participants.is_empty() {
-        "external"
-    } else {
-        "personal"
-    }
-    .to_string();
     let item = service.propose_event(ProposeEvent {
         title: args.title,
         actor: args.actor,
@@ -256,7 +251,7 @@ fn event_propose(home: &Path, args: EventProposeArgs) -> Result<()> {
         description: args.description,
         location: args.location,
         participants: args.participants,
-        commitment_type,
+        commitment_type: args.commitment_type,
     })?;
     println!("{}", serde_json::to_string(&item)?);
     Ok(())
@@ -271,17 +266,7 @@ fn activate(home: &Path, args: ActivateArgs) -> Result<()> {
 
 fn pending(home: &Path) -> Result<()> {
     let mut service = service(home)?;
-    let items = service
-        .list_items(ListFilter::default())?
-        .into_iter()
-        .filter(|item| {
-            matches!(
-                item.status,
-                ItemStatus::Proposed | ItemStatus::Approved | ItemStatus::Active
-            )
-        })
-        .filter(|item| item.item_type != ItemType::Area)
-        .collect::<Vec<_>>();
+    let items = pending_items(&mut service)?;
     println!("{}", render_items("Pending", &items));
     Ok(())
 }
@@ -289,12 +274,7 @@ fn pending(home: &Path) -> Result<()> {
 fn today(home: &Path) -> Result<()> {
     let today = today_string();
     let mut service = service(home)?;
-    service.materialize_routines(&today, 7, 1)?;
-    let items = service.list_items(ListFilter {
-        item_type: Some(ItemType::Task),
-        ..Default::default()
-    })?;
-    let items = today_tasks(&items, &today)?;
+    let items = current_today_items(&mut service, &today)?;
     println!("{}", render_items("Today", &items));
     Ok(())
 }
@@ -302,12 +282,7 @@ fn today(home: &Path) -> Result<()> {
 fn export(home: &Path) -> Result<()> {
     let today = today_string();
     let mut service = service(home)?;
-    service.materialize_routines(&today, 7, 1)?;
-    let items = service.list_items(ListFilter {
-        include_archived: true,
-        ..Default::default()
-    })?;
-    for path in write_exports(&items, &exports_dir(home), &today)? {
+    for path in write_current_exports(&mut service, &exports_dir(home), &today)? {
         println!("{}", path.display());
     }
     Ok(())
@@ -328,7 +303,7 @@ fn connect_path(path: &Path) -> Result<rusqlite::Connection> {
 }
 
 fn today_string() -> String {
-    OffsetDateTime::now_utc().date().to_string()
+    local_today_string()
 }
 
 fn parse_actor(value: &str) -> std::result::Result<Actor, String> {
