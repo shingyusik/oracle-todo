@@ -572,6 +572,7 @@ impl TodoService {
                 reason,
                 None,
             )?;
+            return self.get(&archived.id);
         }
         Ok(archived)
     }
@@ -618,6 +619,7 @@ impl TodoService {
                 reason,
                 None,
             )?;
+            return self.get(&cancelled.id);
         }
         Ok(cancelled)
     }

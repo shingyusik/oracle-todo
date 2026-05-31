@@ -321,13 +321,17 @@ fn archiving_and_cancelling_routine_cascades_generated_tasks() {
         .unwrap()
         .remove(0);
 
-    archive_service
+    let archived_routine = archive_service
         .archive(&routine.id, Some("루틴 종료"))
         .unwrap();
 
     assert_eq!(
         archive_service.get(&task.id).unwrap().status,
         ItemStatus::Archived
+    );
+    assert_eq!(
+        archived_routine.metadata["occurrences"][task.occurrence_key.as_ref().unwrap()]["status"],
+        "archived"
     );
     assert_eq!(
         archive_service.get(&routine.id).unwrap().metadata["occurrences"]
@@ -351,13 +355,17 @@ fn archiving_and_cancelling_routine_cascades_generated_tasks() {
         .unwrap()
         .remove(0);
 
-    cancel_service
+    let cancelled_routine = cancel_service
         .cancel(&routine.id, Some("루틴 취소"))
         .unwrap();
 
     assert_eq!(
         cancel_service.get(&task.id).unwrap().status,
         ItemStatus::Cancelled
+    );
+    assert_eq!(
+        cancelled_routine.metadata["occurrences"][task.occurrence_key.as_ref().unwrap()]["status"],
+        "cancelled"
     );
     assert_eq!(
         cancel_service.get(&routine.id).unwrap().metadata["occurrences"]
