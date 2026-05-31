@@ -1,8 +1,8 @@
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{EventRepository, ListFilter, TodoRepository, TodoStore};
-use crate::domain::{terminal_status, Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, terminal_status};
 use rusqlite::types::FromSql;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Map, Value};
 use time::format_description::parse as parse_format_description;
 use time::format_description::well_known::Rfc3339;

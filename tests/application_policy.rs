@@ -154,3 +154,53 @@ fn every_mutation_records_event() {
         ]
     );
 }
+
+#[test]
+fn update_item_changes_core_fields_and_records_event() {
+    let mut service = TodoService::in_memory();
+    let item = service.propose_task("옛 제목", Default::default()).unwrap();
+
+    let updated = service
+        .update_item(
+            &item.id,
+            oracle_todo::application::service::UpdateItem {
+                title: Some("새 제목".to_string()),
+                description: Some("설명".to_string()),
+                due: Some("2026-05-31".to_string()),
+                scheduled: Some("today".to_string()),
+                priority: Some(3),
+                reason: Some("정리".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(updated.title, "새 제목");
+    assert_eq!(updated.description.as_deref(), Some("설명"));
+    assert_eq!(updated.due.as_deref(), Some("2026-05-31"));
+    assert_eq!(updated.scheduled.as_deref(), Some("today"));
+    assert_eq!(updated.priority, Some(3));
+    assert_eq!(service.events().last().unwrap().action, "update_item");
+}
+
+#[test]
+fn list_items_status_filter_can_show_terminal_items() {
+    let mut service = TodoService::in_memory();
+    let item = service.propose_task("보관", Default::default()).unwrap();
+    service.archive(&item.id, None).unwrap();
+
+    let archived = service
+        .list_items(oracle_todo::application::ports::ListFilter {
+            status: Some(ItemStatus::Archived),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(
+        archived
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![item.id]
+    );
+}

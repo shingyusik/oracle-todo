@@ -3,7 +3,7 @@ use oracle_todo::application::service::TodoService;
 use oracle_todo::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
 use oracle_todo::infrastructure::sqlite::SqliteTodoRepository;
 use oracle_todo::infrastructure::sqlite::{connect, init_schema, user_version};
-use time::{macros::datetime, OffsetDateTime};
+use time::{OffsetDateTime, macros::datetime};
 
 #[test]
 fn init_schema_creates_items_and_events_tables() {
