@@ -3,7 +3,7 @@ use oracle_todo::application::service::TodoService;
 use oracle_todo::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
 use oracle_todo::infrastructure::sqlite::SqliteTodoRepository;
 use oracle_todo::infrastructure::sqlite::{connect, init_schema, user_version};
-use time::{OffsetDateTime, macros::datetime};
+use time::{macros::datetime, OffsetDateTime};
 
 #[test]
 fn init_schema_creates_items_and_events_tables() {
@@ -267,6 +267,17 @@ fn list_items_honors_core_filters_and_hides_archived_by_default() {
         .map(|item| item.id.as_str())
         .collect::<Vec<_>>(),
         vec!["task_active"]
+    );
+    assert_eq!(
+        repo.list_items(ListFilter {
+            status: Some(ItemStatus::Archived),
+            ..Default::default()
+        })
+        .unwrap()
+        .iter()
+        .map(|item| item.id.as_str())
+        .collect::<Vec<_>>(),
+        vec!["task_archived"]
     );
 }
 
