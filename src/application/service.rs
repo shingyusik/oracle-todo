@@ -491,7 +491,9 @@ impl TodoService {
             let Some(rule) = routine.recurrence_rule.clone() else {
                 continue;
             };
-            let occurrence_dates = occurrences(&rule, start, end)?;
+            let occurrence_dates = occurrences(&rule, start, end).map_err(|error| {
+                TodoError::Policy(format!("Unsupported recurrence_rule: {}", error.rule()))
+            })?;
             match routine.materialization_policy.as_str() {
                 "single_open" => {
                     if self.open_generated_task_exists_for_routine(&routine.id)? {

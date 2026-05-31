@@ -2,9 +2,22 @@ use std::collections::BTreeSet;
 
 use time::{Date, Duration, Month};
 
-use crate::application::error::{TodoError, TodoResult};
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecurrenceError {
+    rule: String,
+}
 
-pub fn occurrences(rule: &str, start: Date, end: Date) -> TodoResult<Vec<Date>> {
+impl RecurrenceError {
+    pub fn unsupported(rule: impl Into<String>) -> Self {
+        Self { rule: rule.into() }
+    }
+
+    pub fn rule(&self) -> &str {
+        &self.rule
+    }
+}
+
+pub fn occurrences(rule: &str, start: Date, end: Date) -> Result<Vec<Date>, RecurrenceError> {
     if start > end {
         return Ok(Vec::new());
     }
@@ -84,10 +97,8 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> TodoResult<Vec<Date>> 
     unsupported(original_rule)
 }
 
-fn unsupported<T>(rule: &str) -> TodoResult<T> {
-    Err(TodoError::Policy(format!(
-        "Unsupported recurrence_rule: {rule}"
-    )))
+fn unsupported<T>(rule: &str) -> Result<T, RecurrenceError> {
+    Err(RecurrenceError::unsupported(rule))
 }
 
 fn parse_interval_rule(rule: &str) -> Option<(i32, &str, Option<&str>)> {

@@ -1,6 +1,6 @@
 use oracle_todo::application::error::TodoError;
 use oracle_todo::application::service::{ProposeRoutine, TodoService};
-use oracle_todo::domain::{Actor, ItemStatus, ItemType, occurrences};
+use oracle_todo::domain::{Actor, ItemStatus, ItemType, RecurrenceError, occurrences};
 use time::macros::date;
 
 fn occurrence_keys(items: &[oracle_todo::domain::TodoItem]) -> Vec<String> {
@@ -241,6 +241,23 @@ fn pausing_and_resuming_routine_cascades_generated_task_state() {
 fn malformed_recurrence_units_are_rejected() {
     let error =
         occurrences("every dayzz", date!(2026 - 05 - 26), date!(2026 - 05 - 30)).unwrap_err();
+
+    assert_eq!(error, RecurrenceError::unsupported("every dayzz"));
+
+    let mut service = TodoService::in_memory();
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "깨진 루틴".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("every dayzz".to_string()),
+            materialization_policy: "per_occurrence".to_string(),
+            area: None,
+        })
+        .unwrap();
+    service.activate(&routine.id, None).unwrap();
+    let error = service
+        .materialize_routines("2026-05-26", 1, 0)
+        .unwrap_err();
 
     assert_eq!(
         error,
