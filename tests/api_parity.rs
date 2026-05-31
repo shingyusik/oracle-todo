@@ -238,6 +238,20 @@ async fn items_query_filters_and_orders_like_legacy_api() {
     assert_eq!(items.as_array().unwrap().len(), 2);
     assert_eq!(items[0]["title"], "두 번째");
     assert_eq!(items[1]["title"], "첫 번째");
+
+    let app = router(&db_path).unwrap();
+    let response = app
+        .oneshot(
+            http::Request::builder()
+                .uri("/items?status=&type=&include_archived=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]
@@ -257,6 +271,26 @@ async fn service_errors_return_legacy_detail_body() {
     assert_eq!(response.status(), 400);
     let body = body_json(response).await;
     assert!(body["detail"].as_str().unwrap().contains("missing"));
+}
+
+#[tokio::test]
+async fn request_validation_errors_return_detail_body() {
+    let app = router(":memory:").unwrap();
+    let response = app
+        .oneshot(
+            http::Request::builder()
+                .method("POST")
+                .uri("/tasks/propose")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert!(body["detail"].as_str().unwrap().contains("title"));
 }
 
 #[tokio::test]

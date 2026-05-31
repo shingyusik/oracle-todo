@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -47,7 +48,7 @@ struct ItemsQuery {
     status: Option<String>,
     #[serde(rename = "type")]
     item_type: Option<String>,
-    include_archived: Option<bool>,
+    include_archived: Option<String>,
 }
 
 pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
@@ -75,8 +76,9 @@ async fn health() -> Json<serde_json::Value> {
 
 async fn create_area(
     State(state): State<ApiState>,
-    Json(body): Json<AreaBody>,
+    body: std::result::Result<Json<AreaBody>, JsonRejection>,
 ) -> ApiResult<Json<TodoItem>> {
+    let Json(body) = body.map_err(validation_rejection)?;
     let item = with_service(&state, |service| {
         service.create_area(CreateArea {
             title: body.title,
@@ -89,8 +91,9 @@ async fn create_area(
 
 async fn propose_task(
     State(state): State<ApiState>,
-    Json(body): Json<TaskProposeBody>,
+    body: std::result::Result<Json<TaskProposeBody>, JsonRejection>,
 ) -> ApiResult<Json<TodoItem>> {
+    let Json(body) = body.map_err(validation_rejection)?;
     let actor = body
         .actor
         .as_deref()
@@ -123,16 +126,25 @@ async fn list_items(
         status: query
             .status
             .as_deref()
+            .and_then(non_empty)
             .map(parse_status)
             .transpose()
             .map_err(TodoError::Validation)?,
         item_type: query
             .item_type
             .as_deref()
+            .and_then(non_empty)
             .map(parse_item_type)
             .transpose()
             .map_err(TodoError::Validation)?,
-        include_archived: query.include_archived.unwrap_or(false),
+        include_archived: query
+            .include_archived
+            .as_deref()
+            .and_then(non_empty)
+            .map(parse_legacy_bool)
+            .transpose()
+            .map_err(TodoError::Validation)?
+            .unwrap_or(false),
         ..Default::default()
     };
     let mut items = with_service(&state, |service| service.list_items(filter))?;
@@ -236,6 +248,22 @@ fn parse_item_type(value: &str) -> std::result::Result<ItemType, String> {
         "archive_item" => Ok(ItemType::ArchiveItem),
         _ => Err(format!("unknown item type: {value}")),
     }
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    (!value.is_empty()).then_some(value)
+}
+
+fn parse_legacy_bool(value: &str) -> std::result::Result<bool, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Ok(true),
+        "false" | "0" | "no" | "off" => Ok(false),
+        _ => Err(format!("invalid boolean: {value}")),
+    }
+}
+
+fn validation_rejection(error: JsonRejection) -> TodoError {
+    TodoError::Validation(error.body_text())
 }
 
 type ApiResult<T> = std::result::Result<T, ApiError>;
