@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
-use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -101,25 +100,26 @@ pub struct TodoEvent {
 }
 
 impl TodoItem {
-    pub fn new_task(title: impl Into<String>, actor: Actor) -> Self {
-        Self::new(ItemType::Task, "task", title, actor)
+    pub fn new_task(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        actor: Actor,
+        now: OffsetDateTime,
+    ) -> Self {
+        Self::new(id, ItemType::Task, title, actor, now)
     }
 
-    pub fn new(item_type: ItemType, prefix: &str, title: impl Into<String>, actor: Actor) -> Self {
-        let now = OffsetDateTime::now_utc();
+    pub fn new(
+        id: impl Into<String>,
+        item_type: ItemType,
+        title: impl Into<String>,
+        actor: Actor,
+        now: OffsetDateTime,
+    ) -> Self {
         let approved = actor == Actor::User;
 
         Self {
-            id: format!(
-                "{}_{}",
-                prefix,
-                Uuid::new_v4()
-                    .simple()
-                    .to_string()
-                    .chars()
-                    .take(12)
-                    .collect::<String>()
-            ),
+            id: id.into(),
             item_type,
             title: title.into(),
             status: if approved {

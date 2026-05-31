@@ -1,5 +1,5 @@
 use crate::application::error::TodoResult;
-use crate::domain::{TodoEvent, TodoItem};
+use crate::domain::{ItemStatus, ItemType, TodoEvent, TodoItem};
 use time::OffsetDateTime;
 
 pub trait Clock: Send + Sync {
@@ -22,8 +22,8 @@ pub trait EventRepository: Send {
 
 #[derive(Clone, Debug, Default)]
 pub struct ListFilter {
-    pub status: Option<String>,
-    pub item_type: Option<String>,
+    pub status: Option<ItemStatus>,
+    pub item_type: Option<ItemType>,
     pub area_id: Option<String>,
     pub project_id: Option<String>,
     pub routine_id: Option<String>,
