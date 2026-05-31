@@ -1,6 +1,8 @@
 use crate::application::error::{TodoError, TodoResult};
-use crate::application::ports::{EventRepository, ListFilter, TodoRepository, TodoStore};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status};
+use crate::application::ports::{
+    EventRepository, ListFilter, TodoRepository, TodoStore, apply_list_filter,
+};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
 use rusqlite::types::FromSql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Map, Value};
@@ -210,51 +212,7 @@ impl TodoRepository for SqliteTodoRepository {
         while let Some(row) = rows.next().map_err(storage_error)? {
             items.push(row_to_item(row)?);
         }
-        Ok(items
-            .into_iter()
-            .filter(|item| {
-                filter.include_archived
-                    || filter.status.is_some()
-                    || !hidden_by_default_status(item.status)
-            })
-            .filter(|item| filter.status.is_none_or(|status| item.status == status))
-            .filter(|item| {
-                filter
-                    .item_type
-                    .is_none_or(|item_type| item.item_type == item_type)
-            })
-            .filter(|item| {
-                filter
-                    .area_id
-                    .as_ref()
-                    .is_none_or(|area_id| item.area_id.as_ref() == Some(area_id))
-            })
-            .filter(|item| {
-                filter
-                    .project_id
-                    .as_ref()
-                    .is_none_or(|project_id| item.project_id.as_ref() == Some(project_id))
-            })
-            .filter(|item| {
-                filter
-                    .routine_id
-                    .as_ref()
-                    .is_none_or(|routine_id| item.routine_id.as_ref() == Some(routine_id))
-            })
-            .filter(|item| {
-                filter.query.as_ref().is_none_or(|query| {
-                    item.title.contains(query)
-                        || item
-                            .description
-                            .as_ref()
-                            .is_some_and(|value| value.contains(query))
-                        || item
-                            .outcome
-                            .as_ref()
-                            .is_some_and(|value| value.contains(query))
-                })
-            })
-            .collect())
+        Ok(apply_list_filter(items, filter))
     }
 }
 
@@ -478,33 +436,11 @@ fn row_value<T: FromSql>(row: &Row<'_>, index: usize) -> TodoResult<T> {
 }
 
 fn parse_item_type(value: &str) -> TodoResult<ItemType> {
-    match value {
-        "area" => Ok(ItemType::Area),
-        "project" => Ok(ItemType::Project),
-        "routine" => Ok(ItemType::Routine),
-        "task" => Ok(ItemType::Task),
-        "event" => Ok(ItemType::Event),
-        "review" => Ok(ItemType::Review),
-        "archive_item" => Ok(ItemType::ArchiveItem),
-        _ => Err(TodoError::Storage(format!("unknown item type: {value}"))),
-    }
+    ItemType::from_str(value).map_err(TodoError::Storage)
 }
 
 fn parse_status(value: &str) -> TodoResult<ItemStatus> {
-    match value {
-        "proposed" => Ok(ItemStatus::Proposed),
-        "approved" => Ok(ItemStatus::Approved),
-        "active" => Ok(ItemStatus::Active),
-        "waiting" => Ok(ItemStatus::Waiting),
-        "paused" => Ok(ItemStatus::Paused),
-        "completed" => Ok(ItemStatus::Completed),
-        "cancelled" => Ok(ItemStatus::Cancelled),
-        "dropped" => Ok(ItemStatus::Dropped),
-        "archived" => Ok(ItemStatus::Archived),
-        "someday" => Ok(ItemStatus::Someday),
-        "rejected" => Ok(ItemStatus::Rejected),
-        _ => Err(TodoError::Storage(format!("unknown status: {value}"))),
-    }
+    ItemStatus::from_str(value).map_err(TodoError::Storage)
 }
 
 fn parse_actor(value: &str) -> TodoResult<Actor> {

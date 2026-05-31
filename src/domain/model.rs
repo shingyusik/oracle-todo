@@ -186,6 +186,23 @@ impl ItemType {
     }
 }
 
+impl FromStr for ItemType {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "area" => Ok(ItemType::Area),
+            "project" => Ok(ItemType::Project),
+            "routine" => Ok(ItemType::Routine),
+            "task" => Ok(ItemType::Task),
+            "event" => Ok(ItemType::Event),
+            "review" => Ok(ItemType::Review),
+            "archive_item" => Ok(ItemType::ArchiveItem),
+            _ => Err(format!("unknown item type: {value}")),
+        }
+    }
+}
+
 impl ItemStatus {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -200,6 +217,27 @@ impl ItemStatus {
             ItemStatus::Archived => "archived",
             ItemStatus::Someday => "someday",
             ItemStatus::Rejected => "rejected",
+        }
+    }
+}
+
+impl FromStr for ItemStatus {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "proposed" => Ok(ItemStatus::Proposed),
+            "approved" => Ok(ItemStatus::Approved),
+            "active" => Ok(ItemStatus::Active),
+            "waiting" => Ok(ItemStatus::Waiting),
+            "paused" => Ok(ItemStatus::Paused),
+            "completed" => Ok(ItemStatus::Completed),
+            "cancelled" => Ok(ItemStatus::Cancelled),
+            "dropped" => Ok(ItemStatus::Dropped),
+            "archived" => Ok(ItemStatus::Archived),
+            "someday" => Ok(ItemStatus::Someday),
+            "rejected" => Ok(ItemStatus::Rejected),
+            _ => Err(format!("unknown status: {value}")),
         }
     }
 }

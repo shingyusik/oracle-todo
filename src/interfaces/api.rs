@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use axum::extract::rejection::JsonRejection;
@@ -22,7 +21,6 @@ use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
 #[derive(Clone)]
 struct ApiState {
     db_path: PathBuf,
-    memory_service: Option<Arc<Mutex<TodoService>>>,
 }
 
 #[derive(Deserialize)]
@@ -52,12 +50,8 @@ struct ItemsQuery {
 }
 
 pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
-    let db_path = db_path.as_ref().to_path_buf();
-    let memory_service =
-        (db_path == Path::new(":memory:")).then(|| Arc::new(Mutex::new(TodoService::in_memory())));
     let state = ApiState {
-        db_path,
-        memory_service,
+        db_path: db_path.as_ref().to_path_buf(),
     };
     Ok(Router::new()
         .route("/health", get(health))
@@ -127,14 +121,14 @@ async fn list_items(
             .status
             .as_deref()
             .and_then(non_empty)
-            .map(parse_status)
+            .map(ItemStatus::from_str)
             .transpose()
             .map_err(TodoError::Validation)?,
         item_type: query
             .item_type
             .as_deref()
             .and_then(non_empty)
-            .map(parse_item_type)
+            .map(ItemType::from_str)
             .transpose()
             .map_err(TodoError::Validation)?,
         include_archived: query
@@ -209,45 +203,8 @@ fn with_service<T>(
     state: &ApiState,
     action: impl FnOnce(&mut TodoService) -> crate::application::error::TodoResult<T>,
 ) -> ApiResult<T> {
-    if let Some(service) = &state.memory_service {
-        let mut service = service
-            .lock()
-            .map_err(|_| TodoError::Internal("in-memory API state lock poisoned".to_string()))?;
-        return action(&mut service).map_err(Into::into);
-    }
-
     let mut service = service(state)?;
     action(&mut service).map_err(Into::into)
-}
-
-fn parse_status(value: &str) -> std::result::Result<ItemStatus, String> {
-    match value {
-        "proposed" => Ok(ItemStatus::Proposed),
-        "approved" => Ok(ItemStatus::Approved),
-        "active" => Ok(ItemStatus::Active),
-        "waiting" => Ok(ItemStatus::Waiting),
-        "paused" => Ok(ItemStatus::Paused),
-        "completed" => Ok(ItemStatus::Completed),
-        "cancelled" => Ok(ItemStatus::Cancelled),
-        "dropped" => Ok(ItemStatus::Dropped),
-        "archived" => Ok(ItemStatus::Archived),
-        "someday" => Ok(ItemStatus::Someday),
-        "rejected" => Ok(ItemStatus::Rejected),
-        _ => Err(format!("unknown status: {value}")),
-    }
-}
-
-fn parse_item_type(value: &str) -> std::result::Result<ItemType, String> {
-    match value {
-        "area" => Ok(ItemType::Area),
-        "project" => Ok(ItemType::Project),
-        "routine" => Ok(ItemType::Routine),
-        "task" => Ok(ItemType::Task),
-        "event" => Ok(ItemType::Event),
-        "review" => Ok(ItemType::Review),
-        "archive_item" => Ok(ItemType::ArchiveItem),
-        _ => Err(format!("unknown item type: {value}")),
-    }
 }
 
 fn non_empty(value: &str) -> Option<&str> {

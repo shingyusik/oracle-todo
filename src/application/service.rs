@@ -5,10 +5,9 @@ use time::{Date, Duration, OffsetDateTime, macros::datetime};
 use uuid::Uuid;
 
 use crate::application::error::{TodoError, TodoResult};
-use crate::application::ports::{ListFilter, TodoStore};
+use crate::application::ports::{ListFilter, TodoStore, apply_list_filter};
 use crate::domain::{
-    Actor, ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status, occurrences,
-    terminal_status,
+    Actor, ItemStatus, ItemType, TodoEvent, TodoItem, occurrences, terminal_status,
 };
 
 pub struct CreateArea {
@@ -274,51 +273,7 @@ impl TodoService {
                         .cmp(&right.created_at)
                         .then_with(|| left.id.cmp(&right.id))
                 });
-                Ok(items
-                    .into_iter()
-                    .filter(|item| {
-                        filter.include_archived
-                            || filter.status.is_some()
-                            || !hidden_by_default_status(item.status)
-                    })
-                    .filter(|item| filter.status.is_none_or(|status| item.status == status))
-                    .filter(|item| {
-                        filter
-                            .item_type
-                            .is_none_or(|item_type| item.item_type == item_type)
-                    })
-                    .filter(|item| {
-                        filter
-                            .area_id
-                            .as_ref()
-                            .is_none_or(|area_id| item.area_id.as_ref() == Some(area_id))
-                    })
-                    .filter(|item| {
-                        filter
-                            .project_id
-                            .as_ref()
-                            .is_none_or(|project_id| item.project_id.as_ref() == Some(project_id))
-                    })
-                    .filter(|item| {
-                        filter
-                            .routine_id
-                            .as_ref()
-                            .is_none_or(|routine_id| item.routine_id.as_ref() == Some(routine_id))
-                    })
-                    .filter(|item| {
-                        filter.query.as_ref().is_none_or(|query| {
-                            item.title.contains(query)
-                                || item
-                                    .description
-                                    .as_ref()
-                                    .is_some_and(|value| value.contains(query))
-                                || item
-                                    .outcome
-                                    .as_ref()
-                                    .is_some_and(|value| value.contains(query))
-                        })
-                    })
-                    .collect())
+                Ok(apply_list_filter(items, filter))
             }
             ServiceStore::Persistent(store) => store.list_items(filter),
         }

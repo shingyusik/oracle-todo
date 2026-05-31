@@ -69,8 +69,10 @@ async fn task_propose_and_items_use_same_service_path() {
 }
 
 #[tokio::test]
-async fn memory_router_keeps_state_for_multiple_requests() {
-    let app = router(":memory:").unwrap();
+async fn file_router_keeps_state_for_multiple_requests() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let app = router(&db_path).unwrap();
     let response = app
         .clone()
         .oneshot(
