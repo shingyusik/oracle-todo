@@ -36,6 +36,43 @@ fn actor_strings_round_trip_through_domain_parser() {
 }
 
 #[test]
+fn json_timestamps_are_rfc3339_strings() {
+    let now = datetime!(2026-05-31 12:00 UTC);
+    let item = TodoItem::new_task("task_json", "JSON 확인", Actor::User, now);
+
+    let value = serde_json::to_value(item).unwrap();
+
+    assert_eq!(value["created_at"], "2026-05-31T12:00:00Z");
+    assert_eq!(value["updated_at"], "2026-05-31T12:00:00Z");
+    assert_eq!(value["approved_at"], "2026-05-31T12:00:00Z");
+}
+
+#[test]
+fn area_titles_resolve_like_existing_python_cli() {
+    let mut service = TodoService::in_memory();
+    let area = service
+        .create_area(CreateArea {
+            title: "재정".to_string(),
+            review_cycle: None,
+            standard: None,
+        })
+        .unwrap();
+
+    let task = service
+        .propose_task(
+            "DB 확인",
+            ProposeTask {
+                actor: Actor::User,
+                area: Some("재정".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(task.area_id.as_deref(), Some(area.id.as_str()));
+}
+
+#[test]
 fn oracle_task_requires_approval_before_activation() {
     let mut service = TodoService::in_memory();
     let item = service

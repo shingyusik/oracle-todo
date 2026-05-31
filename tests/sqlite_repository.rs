@@ -128,6 +128,36 @@ fn sqlite_backed_service_persists_items_and_events() {
 }
 
 #[test]
+fn persistent_service_uses_current_clock_across_instances() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("todo.sqlite");
+    let db_path = db_path.to_str().unwrap();
+    let before = OffsetDateTime::now_utc() - time::Duration::seconds(1);
+
+    let conn = connect(db_path).unwrap();
+    init_schema(&conn).unwrap();
+    let mut first_service = TodoService::persistent(SqliteTodoRepository::new(conn));
+    let first = first_service
+        .propose_task("첫 저장", Default::default())
+        .unwrap();
+
+    let conn = connect(db_path).unwrap();
+    init_schema(&conn).unwrap();
+    let mut second_service = TodoService::persistent(SqliteTodoRepository::new(conn));
+    let second = second_service
+        .propose_task("둘째 저장", Default::default())
+        .unwrap();
+    let after = OffsetDateTime::now_utc() + time::Duration::seconds(1);
+
+    assert!(first.created_at >= before);
+    assert!(second.created_at >= before);
+    assert!(first.created_at <= after);
+    assert!(second.created_at <= after);
+    assert_ne!(first.created_at, datetime!(2026-05-31 12:00 UTC));
+    assert_ne!(second.created_at, datetime!(2026-05-31 12:00 UTC));
+}
+
+#[test]
 fn duplicate_event_ids_are_rejected() {
     let conn = connect(":memory:").unwrap();
     init_schema(&conn).unwrap();

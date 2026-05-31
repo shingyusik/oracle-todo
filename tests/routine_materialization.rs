@@ -1,5 +1,5 @@
 use oracle_todo::application::error::TodoError;
-use oracle_todo::application::service::{ProposeRoutine, TodoService};
+use oracle_todo::application::service::{ProposeRoutine, ProposeTask, TodoService};
 use oracle_todo::domain::{Actor, ItemStatus, ItemType, RecurrenceError, occurrences};
 use time::macros::date;
 
@@ -195,6 +195,55 @@ fn recurrence_matrix_matches_existing_python_cases() {
 
         assert_eq!(occurrence_keys(&created), expected, "{rule}");
     }
+}
+
+#[test]
+fn unanchored_monthly_interval_keeps_python_monthly_default() {
+    let out = occurrences(
+        "every 2 months",
+        date!(2026 - 01 - 15),
+        date!(2026 - 05 - 31),
+    )
+    .unwrap();
+
+    assert_eq!(
+        out,
+        vec![
+            date!(2026 - 02 - 01),
+            date!(2026 - 03 - 01),
+            date!(2026 - 04 - 01),
+            date!(2026 - 05 - 01)
+        ]
+    );
+}
+
+#[test]
+fn single_open_routine_respects_existing_manual_open_task() {
+    let mut service = TodoService::in_memory();
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "매일 확인".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("daily".to_string()),
+            materialization_policy: "single_open".to_string(),
+            area: None,
+        })
+        .unwrap();
+    service.activate(&routine.id, None).unwrap();
+    service
+        .propose_task(
+            "직접 만든 루틴 태스크",
+            ProposeTask {
+                actor: Actor::User,
+                routine_id: Some(routine.id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let created = service.materialize_routines("2026-05-26", 0, 0).unwrap();
+
+    assert!(created.is_empty());
 }
 
 #[test]

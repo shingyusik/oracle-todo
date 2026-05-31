@@ -147,7 +147,7 @@ impl TodoService {
         title: impl Into<String>,
         request: ProposeTask,
     ) -> TodoResult<TodoItem> {
-        let area_id = self.ensure_relation(request.area, ItemType::Area, "Area")?;
+        let area_id = self.find_area(request.area)?;
         let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
         let routine_id = self.ensure_relation(request.routine_id, ItemType::Routine, "Routine")?;
         let now = self.next_now();
@@ -163,7 +163,7 @@ impl TodoService {
     }
 
     pub fn propose_project(&mut self, request: ProposeProject) -> TodoResult<TodoItem> {
-        let area_id = self.ensure_relation(request.area, ItemType::Area, "Area")?;
+        let area_id = self.find_area(request.area)?;
         let now = self.next_now();
         let mut item = TodoItem::new(
             self.next_id("project"),
@@ -189,7 +189,7 @@ impl TodoService {
                 request.materialization_policy
             )));
         }
-        let area_id = self.ensure_relation(request.area, ItemType::Area, "Area")?;
+        let area_id = self.find_area(request.area)?;
         let now = self.next_now();
         let mut item = TodoItem::new(
             self.next_id("rtn"),
@@ -210,7 +210,7 @@ impl TodoService {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .ok_or_else(|| TodoError::Policy("Event requires scheduled time".to_string()))?;
-        let area_id = self.ensure_relation(request.area, ItemType::Area, "Area")?;
+        let area_id = self.find_area(request.area)?;
         let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
         let now = self.next_now();
         let mut item = TodoItem::new(
@@ -671,7 +671,7 @@ impl TodoService {
             item.materialization_policy = materialization_policy;
         }
         if let Some(area) = request.area {
-            item.area_id = self.ensure_relation(Some(area), ItemType::Area, "Area")?;
+            item.area_id = self.find_area(Some(area))?;
         }
         if let Some(project_id) = request.project_id {
             item.project_id =
@@ -753,7 +753,12 @@ impl TodoService {
 
     fn open_generated_task_exists_for_routine(&mut self, routine_id: &str) -> TodoResult<bool> {
         Ok(self
-            .generated_tasks_for_routine(routine_id)?
+            .list_items(ListFilter {
+                item_type: Some(ItemType::Task),
+                routine_id: Some(routine_id.to_string()),
+                include_archived: true,
+                ..Default::default()
+            })?
             .into_iter()
             .any(|item| !terminal_status(item.status)))
     }
@@ -846,9 +851,38 @@ impl TodoService {
     }
 
     fn next_now(&mut self) -> OffsetDateTime {
+        if matches!(self.store, ServiceStore::Persistent(_)) {
+            return OffsetDateTime::now_utc();
+        }
         let now = datetime!(2026-05-31 12:00 UTC) + Duration::seconds(self.clock_counter);
         self.clock_counter += 1;
         now
+    }
+
+    fn find_area(&mut self, area: Option<String>) -> TodoResult<Option<String>> {
+        let Some(area) = area else {
+            return Ok(None);
+        };
+
+        match self.get(&area) {
+            Ok(item) if item.item_type == ItemType::Area && !terminal_status(item.status) => {
+                return Ok(Some(item.id));
+            }
+            Ok(item) => {
+                return Err(TodoError::Policy(format!("Area must be area: {}", item.id)));
+            }
+            Err(TodoError::NotFound(_)) => {}
+            Err(error) => return Err(error),
+        }
+
+        self.list_items(ListFilter {
+            item_type: Some(ItemType::Area),
+            ..Default::default()
+        })?
+        .into_iter()
+        .find(|item| item.title == area && !terminal_status(item.status))
+        .map(|item| Some(item.id))
+        .ok_or(TodoError::NotFound(area))
     }
 
     fn store_item_and_event(

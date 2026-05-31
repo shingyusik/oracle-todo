@@ -83,20 +83,27 @@ pub struct TodoItem {
     pub horizon: Option<String>,
     pub proposed_by: Actor,
     pub approved_by: Option<Actor>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub approved_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub completed_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub archived_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub last_materialized_at: Option<OffsetDateTime>,
     pub second_brain_refs: Vec<Value>,
     #[serde(rename = "metadata_")]
     pub metadata: Map<String, Value>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TodoEvent {
     pub id: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub at: OffsetDateTime,
     pub actor: Actor,
     pub action: String,
