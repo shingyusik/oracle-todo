@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
-use time::{Duration, OffsetDateTime, macros::datetime};
+use time::format_description::parse as parse_format_description;
+use time::{Date, Duration, OffsetDateTime, macros::datetime};
 use uuid::Uuid;
 
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{ListFilter, TodoStore};
 use crate::domain::{
-    Actor, ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status, terminal_status,
+    Actor, ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status, occurrences,
+    terminal_status,
 };
 
 pub struct CreateArea {
@@ -48,6 +50,14 @@ pub struct ProposeProject {
     pub outcome: Option<String>,
     pub due: Option<String>,
     pub actor: Actor,
+}
+
+pub struct ProposeRoutine {
+    pub title: String,
+    pub area: Option<String>,
+    pub actor: Actor,
+    pub recurrence_rule: Option<String>,
+    pub materialization_policy: String,
 }
 
 pub struct ProposeEvent {
@@ -167,6 +177,31 @@ impl TodoService {
         item.outcome = request.outcome;
         item.due = request.due;
         self.store_item_and_event(item.proposed_by, "propose_project", None, item, None)
+    }
+
+    pub fn propose_routine(&mut self, request: ProposeRoutine) -> TodoResult<TodoItem> {
+        if !matches!(
+            request.materialization_policy.as_str(),
+            "single_open" | "per_occurrence"
+        ) {
+            return Err(TodoError::Policy(format!(
+                "Unsupported materialization_policy: {}",
+                request.materialization_policy
+            )));
+        }
+        let area_id = self.ensure_relation(request.area, ItemType::Area, "Area")?;
+        let now = self.next_now();
+        let mut item = TodoItem::new(
+            self.next_id("rtn"),
+            ItemType::Routine,
+            request.title,
+            request.actor,
+            now,
+        );
+        item.area_id = area_id;
+        item.recurrence_rule = request.recurrence_rule;
+        item.materialization_policy = request.materialization_policy;
+        self.store_item_and_event(item.proposed_by, "propose_routine", None, item, None)
     }
 
     pub fn propose_event(&mut self, request: ProposeEvent) -> TodoResult<TodoItem> {
@@ -335,6 +370,11 @@ impl TodoService {
                 "Project requires definition_of_done before activation".to_string(),
             ));
         }
+        if item.item_type == ItemType::Routine && item.recurrence_rule.is_none() {
+            return Err(TodoError::Policy(
+                "Routine requires recurrence_rule before activation".to_string(),
+            ));
+        }
         if item.item_type == ItemType::Area {
             return Err(TodoError::Policy(
                 "Areas are ongoing and are active at creation; do not activate as work".to_string(),
@@ -351,6 +391,145 @@ impl TodoService {
         item.status = ItemStatus::Active;
         item.updated_at = now;
         self.store_item_and_event(Actor::User, "activate", before, item, _reason)
+    }
+
+    pub fn pause(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
+        let mut item = self.get(item_id)?;
+        let before = Some(serde_json::to_value(&item).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before pause: {error}"))
+        })?);
+        if item.item_type == ItemType::Area {
+            return Err(TodoError::Policy(
+                "Areas cannot be paused here; archive them if no longer maintained".to_string(),
+            ));
+        }
+        if terminal_status(item.status) {
+            return Err(TodoError::Policy(format!(
+                "Cannot pause terminal item: {}",
+                item.status.as_str()
+            )));
+        }
+
+        let now = self.next_now();
+        item.status = ItemStatus::Paused;
+        item.updated_at = now;
+        let paused = self.store_item_and_event(Actor::User, "pause", before, item, reason)?;
+        if paused.item_type == ItemType::Routine {
+            self.cascade_routine_generated_tasks(
+                &paused.id,
+                ItemStatus::Waiting,
+                "routine_pause_generated_task",
+                reason,
+                None,
+            )?;
+        }
+        Ok(paused)
+    }
+
+    pub fn resume(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
+        let mut item = self.get(item_id)?;
+        let before = Some(serde_json::to_value(&item).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before resume: {error}"))
+        })?);
+        if item.item_type == ItemType::Area {
+            return Err(TodoError::Policy(
+                "Areas are ongoing and are active at creation; do not resume them".to_string(),
+            ));
+        }
+        if terminal_status(item.status) {
+            return Err(TodoError::Policy(format!(
+                "Cannot resume terminal item: {}",
+                item.status.as_str()
+            )));
+        }
+        if item.status != ItemStatus::Paused {
+            return Err(TodoError::Policy(format!(
+                "Cannot resume item in status {}",
+                item.status.as_str()
+            )));
+        }
+        if item.item_type == ItemType::Routine && item.recurrence_rule.is_none() {
+            return Err(TodoError::Policy(
+                "Routine requires recurrence_rule before resume".to_string(),
+            ));
+        }
+
+        let now = self.next_now();
+        item.status = ItemStatus::Active;
+        item.updated_at = now;
+        let resumed = self.store_item_and_event(Actor::User, "resume", before, item, reason)?;
+        if resumed.item_type == ItemType::Routine {
+            self.cascade_routine_generated_tasks(
+                &resumed.id,
+                ItemStatus::Approved,
+                "routine_resume_generated_task",
+                reason,
+                Some(ItemStatus::Waiting),
+            )?;
+        }
+        Ok(resumed)
+    }
+
+    pub fn materialize_routines(
+        &mut self,
+        now: &str,
+        lookahead_days: i64,
+        catchup_days: i64,
+    ) -> TodoResult<Vec<TodoItem>> {
+        let anchor = parse_day(now)?;
+        let start = anchor - Duration::days(catchup_days);
+        let end = anchor + Duration::days(lookahead_days);
+        let routines = self.list_items(ListFilter {
+            status: Some(ItemStatus::Active),
+            item_type: Some(ItemType::Routine),
+            include_archived: true,
+            ..Default::default()
+        })?;
+        let mut created = Vec::new();
+
+        for mut routine in routines {
+            let Some(rule) = routine.recurrence_rule.clone() else {
+                continue;
+            };
+            let occurrence_dates = occurrences(&rule, start, end)?;
+            match routine.materialization_policy.as_str() {
+                "single_open" => {
+                    if self.open_generated_task_exists_for_routine(&routine.id)? {
+                        continue;
+                    }
+                    for occurrence in occurrence_dates {
+                        let occurrence_key = occurrence.to_string();
+                        if self
+                            .generated_task_exists_for_occurrence(&routine.id, &occurrence_key)?
+                        {
+                            continue;
+                        }
+                        created.push(self.create_generated_task(&routine, occurrence_key)?);
+                        break;
+                    }
+                    self.mark_routine_materialized(&mut routine)?;
+                }
+                "per_occurrence" => {
+                    for occurrence in occurrence_dates {
+                        let occurrence_key = occurrence.to_string();
+                        if self
+                            .generated_task_exists_for_occurrence(&routine.id, &occurrence_key)?
+                        {
+                            continue;
+                        }
+                        created.push(self.create_generated_task(&routine, occurrence_key)?);
+                    }
+                    self.mark_routine_materialized(&mut routine)?;
+                }
+                unsupported => {
+                    return Err(TodoError::Policy(format!(
+                        "Unsupported materialization_policy: {unsupported}"
+                    )));
+                }
+            }
+        }
+
+        Ok(created)
     }
 
     pub fn complete(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -495,6 +674,126 @@ impl TodoService {
         &self.events
     }
 
+    fn create_generated_task(
+        &mut self,
+        routine: &TodoItem,
+        occurrence_key: String,
+    ) -> TodoResult<TodoItem> {
+        let now = self.next_now();
+        let mut task = TodoItem::new_task(
+            self.next_id("task"),
+            routine.title.clone(),
+            Actor::System,
+            now,
+        );
+        task.status = ItemStatus::Approved;
+        task.area_id = routine.area_id.clone();
+        task.routine_id = Some(routine.id.clone());
+        task.occurrence_key = Some(occurrence_key.clone());
+        task.scheduled = Some(occurrence_key);
+        task.approved_by = Some(Actor::User);
+        task.approved_at = Some(now);
+        task.metadata.insert(
+            "generated_by".to_string(),
+            serde_json::Value::String("routine".to_string()),
+        );
+        self.store_item_and_event(Actor::System, "materialize_routine_task", None, task, None)
+    }
+
+    fn mark_routine_materialized(&mut self, routine: &mut TodoItem) -> TodoResult<()> {
+        let before = Some(serde_json::to_value(&routine).map_err(|error| {
+            TodoError::Internal(format!(
+                "failed to snapshot item before materialize_routine: {error}"
+            ))
+        })?);
+        let now = self.next_now();
+        routine.last_materialized_at = Some(now);
+        routine.updated_at = now;
+        self.store_item_and_event(
+            Actor::System,
+            "materialize_routine",
+            before,
+            routine.clone(),
+            None,
+        )?;
+        Ok(())
+    }
+
+    fn open_generated_task_exists_for_routine(&mut self, routine_id: &str) -> TodoResult<bool> {
+        Ok(self
+            .generated_tasks_for_routine(routine_id)?
+            .into_iter()
+            .any(|item| !terminal_status(item.status)))
+    }
+
+    fn generated_task_exists_for_occurrence(
+        &mut self,
+        routine_id: &str,
+        occurrence_key: &str,
+    ) -> TodoResult<bool> {
+        Ok(self
+            .generated_tasks_for_routine(routine_id)?
+            .into_iter()
+            .any(|item| item.occurrence_key.as_deref() == Some(occurrence_key)))
+    }
+
+    fn generated_tasks_for_routine(&mut self, routine_id: &str) -> TodoResult<Vec<TodoItem>> {
+        Ok(self
+            .list_items(ListFilter {
+                item_type: Some(ItemType::Task),
+                routine_id: Some(routine_id.to_string()),
+                include_archived: true,
+                ..Default::default()
+            })?
+            .into_iter()
+            .filter(generated_by_routine)
+            .collect())
+    }
+
+    fn cascade_routine_generated_tasks(
+        &mut self,
+        routine_id: &str,
+        status: ItemStatus,
+        action: &str,
+        reason: Option<&str>,
+        from_status: Option<ItemStatus>,
+    ) -> TodoResult<Vec<TodoItem>> {
+        let tasks = self.generated_tasks_for_routine(routine_id)?;
+        let mut changed = Vec::new();
+        for task in tasks {
+            if terminal_status(task.status) {
+                continue;
+            }
+            if from_status.is_some_and(|expected| task.status != expected) {
+                continue;
+            }
+            changed.push(self.transition_generated_task(task, status, action, reason)?);
+        }
+        Ok(changed)
+    }
+
+    fn transition_generated_task(
+        &mut self,
+        mut task: TodoItem,
+        status: ItemStatus,
+        action: &str,
+        reason: Option<&str>,
+    ) -> TodoResult<TodoItem> {
+        let before = Some(serde_json::to_value(&task).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before {action}: {error}"))
+        })?);
+        let now = self.next_now();
+        task.status = status;
+        task.updated_at = now;
+        if terminal_status(status) {
+            task.archived_at = Some(now);
+            if status == ItemStatus::Completed {
+                task.completed_at = Some(now);
+            }
+        }
+        self.store_item_and_event(Actor::User, action, before, task, reason)
+    }
+
     fn next_id(&mut self, prefix: &str) -> String {
         if matches!(self.store, ServiceStore::Persistent(_)) {
             return format!(
@@ -618,4 +917,18 @@ impl TodoService {
         self.event_counter += 1;
         id
     }
+}
+
+fn generated_by_routine(item: &TodoItem) -> bool {
+    item.metadata
+        .get("generated_by")
+        .and_then(|value| value.as_str())
+        == Some("routine")
+}
+
+fn parse_day(value: &str) -> TodoResult<Date> {
+    let format = parse_format_description("[year]-[month]-[day]")
+        .map_err(|error| TodoError::Internal(format!("failed to prepare date parser: {error}")))?;
+    Date::parse(value, &format)
+        .map_err(|error| TodoError::Validation(format!("Invalid date {value}: {error}")))
 }
