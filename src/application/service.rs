@@ -563,6 +563,7 @@ impl TodoService {
     pub fn archive(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
         let archived =
             self.set_terminal_status(item_id, ItemStatus::Archived, "archive", reason)?;
+        self.record_generated_task_occurrence(&archived, Actor::User, reason)?;
         if archived.item_type == ItemType::Routine {
             self.cascade_routine_generated_tasks(
                 &archived.id,

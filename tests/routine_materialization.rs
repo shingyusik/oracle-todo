@@ -365,3 +365,36 @@ fn archiving_and_cancelling_routine_cascades_generated_tasks() {
         "cancelled"
     );
 }
+
+#[test]
+fn archiving_generated_task_updates_routine_occurrence_history() {
+    let mut service = TodoService::in_memory();
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "매일 정리".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("daily".to_string()),
+            materialization_policy: "single_open".to_string(),
+            area: None,
+        })
+        .unwrap();
+    service.activate(&routine.id, None).unwrap();
+    let task = service
+        .materialize_routines("2026-05-26", 0, 0)
+        .unwrap()
+        .remove(0);
+
+    service.archive(&task.id, Some("건너뜀")).unwrap();
+
+    let updated_routine = service.get(&routine.id).unwrap();
+    assert_eq!(
+        updated_routine.metadata["occurrences"][task.occurrence_key.as_ref().unwrap()]["status"],
+        "archived"
+    );
+    assert!(
+        service
+            .events()
+            .iter()
+            .any(|event| event.action == "routine_occurrence_archived")
+    );
+}
