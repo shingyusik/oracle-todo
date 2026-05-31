@@ -9,10 +9,10 @@ pub fn init_schema(conn: &Connection) -> TodoResult<()> {
     conn.execute_batch(
         r#"
         PRAGMA foreign_keys = ON;
-        PRAGMA user_version = 1;
+        BEGIN;
 
         CREATE TABLE IF NOT EXISTS items (
-            id TEXT PRIMARY KEY,
+            id TEXT NOT NULL PRIMARY KEY,
             type TEXT NOT NULL,
             title TEXT NOT NULL,
             status TEXT NOT NULL,
@@ -54,7 +54,7 @@ pub fn init_schema(conn: &Connection) -> TodoResult<()> {
             WHERE routine_id IS NOT NULL AND occurrence_key IS NOT NULL;
 
         CREATE TABLE IF NOT EXISTS events (
-            id TEXT PRIMARY KEY,
+            id TEXT NOT NULL PRIMARY KEY,
             at TEXT NOT NULL,
             actor TEXT NOT NULL,
             action TEXT NOT NULL,
@@ -67,6 +67,9 @@ pub fn init_schema(conn: &Connection) -> TodoResult<()> {
 
         CREATE INDEX IF NOT EXISTS idx_events_at ON events(at);
         CREATE INDEX IF NOT EXISTS idx_events_object_id ON events(object_id);
+
+        PRAGMA user_version = 1;
+        COMMIT;
         "#,
     )
     .map_err(|error| TodoError::Migration(error.to_string()))
