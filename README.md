@@ -40,6 +40,15 @@ uv run oracle-todo today
 uv run oracle-todo export
 ```
 
+## Rust parity commands
+
+```bash
+cargo test
+cargo run -- init
+cargo run -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인"
+cargo run -- pending
+```
+
 Default data directory: `~/.hermes/oracle-todo/`.
 Override with:
 

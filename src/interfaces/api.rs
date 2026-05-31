@@ -284,13 +284,12 @@ impl IntoResponse for ApiError {
         let status =
             self.0
                 .downcast_ref::<TodoError>()
-                .map_or(StatusCode::INTERNAL_SERVER_ERROR, |error| match error {
-                    TodoError::Policy(_) | TodoError::Validation(_) | TodoError::NotFound(_) => {
-                        StatusCode::BAD_REQUEST
-                    }
-                    TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => {
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    }
+                .map_or(StatusCode::INTERNAL_SERVER_ERROR, |error| {
+                    let code = match error {
+                        TodoError::NotFound(_) => 400,
+                        _ => error.http_status_code(),
+                    };
+                    StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
                 });
         (status, Json(json!({"detail": self.0.to_string()}))).into_response()
     }

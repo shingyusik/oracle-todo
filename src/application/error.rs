@@ -17,3 +17,21 @@ pub enum TodoError {
     #[error("internal error: {0}")]
     Internal(String),
 }
+
+impl TodoError {
+    pub fn cli_exit_code(&self) -> i32 {
+        match self {
+            TodoError::Policy(_) | TodoError::Validation(_) => 2,
+            TodoError::NotFound(_) => 4,
+            TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => 1,
+        }
+    }
+
+    pub fn http_status_code(&self) -> u16 {
+        match self {
+            TodoError::Policy(_) | TodoError::Validation(_) => 400,
+            TodoError::NotFound(_) => 404,
+            TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => 500,
+        }
+    }
+}

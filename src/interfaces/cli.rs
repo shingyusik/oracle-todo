@@ -11,7 +11,7 @@ use crate::domain::Actor;
 use crate::exports::{current_today_items, pending_items, render_items, write_current_exports};
 use crate::infrastructure::paths::{db_path, exports_dir, todo_home};
 use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
-use crate::infrastructure::system::local_today_string;
+use crate::infrastructure::system::{init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
 #[command(name = "oracle-todo")]
@@ -154,6 +154,7 @@ struct ActivateArgs {
 }
 
 pub fn run() -> Result<()> {
+    init_tracing();
     let cli = Cli::parse();
     let home = todo_home(cli.home)?;
 

@@ -55,3 +55,13 @@ Do not point Rust smoke tests at the live data path unless intentionally testing
 5. Add API after CLI/service parity.
 6. Run side-by-side verification against copied live data.
 7. Cut over only after explicit approval.
+
+## Rust parity verification
+
+```bash
+cargo fmt --check
+cargo test
+uv run pytest
+```
+
+Run copied-data smoke tests only against an explicitly copied data home.
