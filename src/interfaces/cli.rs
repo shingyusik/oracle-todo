@@ -3,10 +3,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use std::str::FromStr;
+use time::OffsetDateTime;
 
-use crate::application::service::{ProposeTask, TodoService};
-use crate::domain::Actor;
-use crate::infrastructure::paths::{db_path, todo_home};
+use crate::application::ports::ListFilter;
+use crate::application::service::{
+    CreateArea, ProposeEvent, ProposeRoutine, ProposeTask, TodoService,
+};
+use crate::domain::{Actor, ItemStatus, ItemType};
+use crate::exports::{render_items, today_tasks, write_exports};
+use crate::infrastructure::paths::{db_path, exports_dir, todo_home};
 use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
 
 #[derive(Debug, Parser)]
@@ -27,17 +32,67 @@ enum Command {
     Init,
     /// Check database reachability and schema baseline.
     Health,
+    /// Create and maintain areas.
+    Area {
+        #[command(subcommand)]
+        command: AreaCommand,
+    },
     /// Manage tasks.
     Task {
         #[command(subcommand)]
         command: TaskCommand,
     },
+    /// Manage routines.
+    Routine {
+        #[command(subcommand)]
+        command: RoutineCommand,
+    },
+    /// Manage scheduled events and external commitments.
+    Event {
+        #[command(subcommand)]
+        command: EventCommand,
+    },
+    /// Activate an approved or user-created item.
+    Activate(ActivateArgs),
+    /// Show proposed, approved, and active work.
+    Pending,
+    /// Show today's materialized task view.
+    Today,
+    /// Write markdown exports.
+    Export,
+}
+
+#[derive(Debug, Subcommand)]
+enum AreaCommand {
+    /// Create an active area.
+    Create(AreaCreateArgs),
 }
 
 #[derive(Debug, Subcommand)]
 enum TaskCommand {
     /// Propose a task.
     Propose(TaskProposeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum RoutineCommand {
+    /// Propose a routine.
+    Propose(RoutineProposeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum EventCommand {
+    /// Propose an event.
+    Propose(EventProposeArgs),
+}
+
+#[derive(Debug, Args)]
+struct AreaCreateArgs {
+    title: String,
+    #[arg(long)]
+    review_cycle: Option<String>,
+    #[arg(long)]
+    standard: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -57,6 +112,46 @@ struct TaskProposeArgs {
     actor: Actor,
 }
 
+#[derive(Debug, Args)]
+struct RoutineProposeArgs {
+    title: String,
+    #[arg(long)]
+    area: Option<String>,
+    #[arg(long)]
+    recurrence_rule: Option<String>,
+    #[arg(long, default_value = "single_open")]
+    materialization_policy: String,
+    #[arg(long, default_value = "oracle", value_parser = parse_actor)]
+    actor: Actor,
+}
+
+#[derive(Debug, Args)]
+struct EventProposeArgs {
+    title: String,
+    scheduled: String,
+    #[arg(long)]
+    area: Option<String>,
+    #[arg(long)]
+    project_id: Option<String>,
+    #[arg(long)]
+    due: Option<String>,
+    #[arg(long)]
+    priority: Option<i64>,
+    #[arg(long)]
+    description: Option<String>,
+    #[arg(long)]
+    location: Option<String>,
+    #[arg(long = "with")]
+    participants: Vec<String>,
+    #[arg(long, default_value = "oracle", value_parser = parse_actor)]
+    actor: Actor,
+}
+
+#[derive(Debug, Args)]
+struct ActivateArgs {
+    item_id: String,
+}
+
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
     let home = todo_home(cli.home)?;
@@ -64,9 +159,22 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::Init => init(&home),
         Command::Health => health(&home),
+        Command::Area {
+            command: AreaCommand::Create(args),
+        } => area_create(&home, args),
         Command::Task {
             command: TaskCommand::Propose(args),
         } => task_propose(&home, args),
+        Command::Routine {
+            command: RoutineCommand::Propose(args),
+        } => routine_propose(&home, args),
+        Command::Event {
+            command: EventCommand::Propose(args),
+        } => event_propose(&home, args),
+        Command::Activate(args) => activate(&home, args),
+        Command::Pending => pending(&home),
+        Command::Today => today(&home),
+        Command::Export => export(&home),
     }
 }
 
@@ -88,11 +196,7 @@ fn health(home: &Path) -> Result<()> {
 }
 
 fn task_propose(home: &Path, args: TaskProposeArgs) -> Result<()> {
-    let db_path = db_path(home);
-    let conn = connect_path(&db_path)?;
-    init_schema(&conn)?;
-    let repo = SqliteTodoRepository::new(conn);
-    let mut service = TodoService::persistent(repo);
+    let mut service = service(home)?;
     let item = service.propose_task(
         args.title,
         ProposeTask {
@@ -109,11 +213,122 @@ fn task_propose(home: &Path, args: TaskProposeArgs) -> Result<()> {
     Ok(())
 }
 
+fn area_create(home: &Path, args: AreaCreateArgs) -> Result<()> {
+    let mut service = service(home)?;
+    let item = service.create_area(CreateArea {
+        title: args.title,
+        review_cycle: args.review_cycle,
+        standard: args.standard,
+    })?;
+    println!("{}", serde_json::to_string(&item)?);
+    Ok(())
+}
+
+fn routine_propose(home: &Path, args: RoutineProposeArgs) -> Result<()> {
+    let mut service = service(home)?;
+    let item = service.propose_routine(ProposeRoutine {
+        title: args.title,
+        area: args.area,
+        actor: args.actor,
+        recurrence_rule: args.recurrence_rule,
+        materialization_policy: args.materialization_policy,
+    })?;
+    println!("{}", serde_json::to_string(&item)?);
+    Ok(())
+}
+
+fn event_propose(home: &Path, args: EventProposeArgs) -> Result<()> {
+    let mut service = service(home)?;
+    let commitment_type = if args.location.is_some() || !args.participants.is_empty() {
+        "external"
+    } else {
+        "personal"
+    }
+    .to_string();
+    let item = service.propose_event(ProposeEvent {
+        title: args.title,
+        actor: args.actor,
+        scheduled: Some(args.scheduled),
+        area: args.area,
+        project_id: args.project_id,
+        due: args.due,
+        priority: args.priority,
+        description: args.description,
+        location: args.location,
+        participants: args.participants,
+        commitment_type,
+    })?;
+    println!("{}", serde_json::to_string(&item)?);
+    Ok(())
+}
+
+fn activate(home: &Path, args: ActivateArgs) -> Result<()> {
+    let mut service = service(home)?;
+    let item = service.activate(&args.item_id, None)?;
+    println!("{}", serde_json::to_string(&item)?);
+    Ok(())
+}
+
+fn pending(home: &Path) -> Result<()> {
+    let mut service = service(home)?;
+    let items = service
+        .list_items(ListFilter::default())?
+        .into_iter()
+        .filter(|item| {
+            matches!(
+                item.status,
+                ItemStatus::Proposed | ItemStatus::Approved | ItemStatus::Active
+            )
+        })
+        .filter(|item| item.item_type != ItemType::Area)
+        .collect::<Vec<_>>();
+    println!("{}", render_items("Pending", &items));
+    Ok(())
+}
+
+fn today(home: &Path) -> Result<()> {
+    let today = today_string();
+    let mut service = service(home)?;
+    service.materialize_routines(&today, 7, 1)?;
+    let items = service.list_items(ListFilter {
+        item_type: Some(ItemType::Task),
+        ..Default::default()
+    })?;
+    let items = today_tasks(&items, &today)?;
+    println!("{}", render_items("Today", &items));
+    Ok(())
+}
+
+fn export(home: &Path) -> Result<()> {
+    let today = today_string();
+    let mut service = service(home)?;
+    service.materialize_routines(&today, 7, 1)?;
+    let items = service.list_items(ListFilter {
+        include_archived: true,
+        ..Default::default()
+    })?;
+    for path in write_exports(&items, &exports_dir(home), &today)? {
+        println!("{}", path.display());
+    }
+    Ok(())
+}
+
+fn service(home: &Path) -> Result<TodoService> {
+    let db_path = db_path(home);
+    let conn = connect_path(&db_path)?;
+    init_schema(&conn)?;
+    Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
+}
+
 fn connect_path(path: &Path) -> Result<rusqlite::Connection> {
     let path = path
         .to_str()
         .with_context(|| format!("database path is not valid UTF-8: {}", path.display()))?;
     connect(path).map_err(Into::into)
+}
+
+fn today_string() -> String {
+    OffsetDateTime::now_utc().date().to_string()
 }
 
 fn parse_actor(value: &str) -> std::result::Result<Actor, String> {
