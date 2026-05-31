@@ -55,7 +55,7 @@ Keep the existing Python files and tests untouched until Rust parity is verified
 - Create: `src/application/ports.rs`
 - Test: `tests/application_policy.rs`
 
-- [ ] **Step 1: Add failing foundation tests**
+- [x] **Step 1: Add failing foundation tests**
 
 Create `tests/application_policy.rs` with:
 
@@ -81,13 +81,13 @@ fn user_task_starts_approved() {
 }
 ```
 
-- [ ] **Step 2: Run the failing tests**
+- [x] **Step 2: Run the failing tests**
 
 Run: `cargo test --test application_policy oracle_task_starts_proposed user_task_starts_approved`
 
 Expected: FAIL because `oracle_todo::domain` and `TodoItem::new_task` do not exist.
 
-- [ ] **Step 3: Add minimal dependencies**
+- [x] **Step 3: Add minimal dependencies**
 
 Modify `Cargo.toml` dependencies to include:
 
@@ -115,7 +115,7 @@ tempfile = "3.15"
 tower = { version = "0.5", features = ["util"] }
 ```
 
-- [ ] **Step 4: Add module wiring**
+- [x] **Step 4: Add module wiring**
 
 Create `src/lib.rs`:
 
@@ -141,7 +141,7 @@ pub mod ports;
 
 Do not declare `exports`, `infrastructure`, `interfaces`, `domain::recurrence`, or `application::service` in Task 1. Add each `pub mod` only in the task that creates the corresponding file so this task can reach a green test state.
 
-- [ ] **Step 5: Add minimal domain model**
+- [x] **Step 5: Add minimal domain model**
 
 Create `src/domain/model.rs`:
 
@@ -334,7 +334,7 @@ impl Actor {
 }
 ```
 
-- [ ] **Step 6: Add typed errors and ports**
+- [x] **Step 6: Add typed errors and ports**
 
 Create `src/application/error.rs`:
 
@@ -397,13 +397,13 @@ pub struct ListFilter {
 }
 ```
 
-- [ ] **Step 7: Run foundation tests**
+- [x] **Step 7: Run foundation tests**
 
 Run: `cargo test --test application_policy oracle_task_starts_proposed user_task_starts_approved`
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 Run:
 
@@ -419,7 +419,7 @@ git commit -m "[feat] add Rust domain foundation"
 - Create: `src/infrastructure/sqlite.rs`
 - Create: `tests/sqlite_repository.rs`
 
-- [ ] **Step 1: Write failing SQLite schema tests**
+- [x] **Step 1: Write failing SQLite schema tests**
 
 Create `tests/sqlite_repository.rs`:
 
@@ -445,13 +445,13 @@ fn init_schema_creates_items_and_events_tables() {
 }
 ```
 
-- [ ] **Step 2: Run the failing test**
+- [x] **Step 2: Run the failing test**
 
 Run: `cargo test --test sqlite_repository init_schema_creates_items_and_events_tables`
 
 Expected: FAIL because `infrastructure::sqlite` does not exist.
 
-- [ ] **Step 3: Add infrastructure module and schema**
+- [x] **Step 3: Add infrastructure module and schema**
 
 Create `src/infrastructure/mod.rs`:
 
@@ -550,13 +550,13 @@ pub fn user_version(conn: &Connection) -> TodoResult<i64> {
 }
 ```
 
-- [ ] **Step 4: Run schema test**
+- [x] **Step 4: Run schema test**
 
 Run: `cargo test --test sqlite_repository init_schema_creates_items_and_events_tables`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -573,7 +573,7 @@ git commit -m "[feat] add SQLite schema baseline"
 - Modify: `src/domain/model.rs`
 - Modify: `tests/application_policy.rs`
 
-- [ ] **Step 1: Add failing policy tests**
+- [x] **Step 1: Add failing policy tests**
 
 Append to `tests/application_policy.rs`:
 
@@ -644,13 +644,13 @@ fn project_requires_definition_of_done_before_activation() {
 }
 ```
 
-- [ ] **Step 2: Run failing policy tests**
+- [x] **Step 2: Run failing policy tests**
 
 Run: `cargo test --test application_policy oracle_task_requires_approval_before_activation area_creation_is_active_and_cannot_complete project_requires_definition_of_done_before_activation`
 
 Expected: FAIL because `TodoService`, request structs, and transitions do not exist.
 
-- [ ] **Step 3: Implement in-memory service minimally**
+- [x] **Step 3: Implement in-memory service minimally**
 
 Modify `src/application/mod.rs`:
 
@@ -795,13 +795,13 @@ impl TodoService {
 
 Use the `ItemStatus::as_str`, `ItemType::as_str`, and `Actor::as_str` helpers added in Task 1. Do not add duplicate string conversion functions in application or adapter code.
 
-- [ ] **Step 4: Run policy tests**
+- [x] **Step 4: Run policy tests**
 
 Run: `cargo test --test application_policy`
 
 Expected: PASS.
 
-- [ ] **Step 5: Refactor only names and formatting**
+- [x] **Step 5: Refactor only names and formatting**
 
 Run: `cargo fmt`
 
@@ -809,7 +809,7 @@ Run: `cargo test --test application_policy`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -827,7 +827,7 @@ git commit -m "[feat] enforce core item policies"
 - Modify: `tests/application_policy.rs`
 - Modify: `tests/sqlite_repository.rs`
 
-- [ ] **Step 1: Add failing event and transition tests**
+- [x] **Step 1: Add failing event and transition tests**
 
 Append to `tests/sqlite_repository.rs`:
 
@@ -899,7 +899,7 @@ fn completing_terminal_item_is_rejected() {
 }
 ```
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run: `cargo test --test sqlite_repository saving_item_and_event_persists_to_sqlite`
 
@@ -909,7 +909,7 @@ Run: `cargo test --test application_policy completing_terminal_item_is_rejected`
 
 Expected: FAIL if `ProposeTask` is not in scope or transition is incomplete.
 
-- [ ] **Step 3: Implement SQLite repository mapping**
+- [x] **Step 3: Implement SQLite repository mapping**
 
 Add to `src/infrastructure/sqlite.rs`:
 
@@ -1201,13 +1201,13 @@ fn parse_optional_time(value: Option<String>) -> rusqlite::Result<Option<OffsetD
 
 Do not add query filters in this step.
 
-- [ ] **Step 4: Run persistence tests**
+- [x] **Step 4: Run persistence tests**
 
 Run: `cargo test --test sqlite_repository`
 
 Expected: PASS.
 
-- [ ] **Step 5: Add audit events to service**
+- [x] **Step 5: Add audit events to service**
 
 Refactor `TodoService` so persistence and audit recording happen inside the service boundary before any CLI/API adapter is implemented:
 
@@ -1246,13 +1246,13 @@ fn every_mutation_records_event() {
 }
 ```
 
-- [ ] **Step 6: Run audit tests**
+- [x] **Step 6: Run audit tests**
 
 Run: `cargo test --test application_policy every_mutation_records_event`
 
 Expected: PASS after adding event recording.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 Run:
 
@@ -1271,7 +1271,7 @@ git commit -m "[feat] persist items and audit transitions"
 - Create: `tests/export_parity.rs`
 - Modify: `tests/application_policy.rs`
 
-- [ ] **Step 1: Add failing list/update/archive/export tests**
+- [x] **Step 1: Add failing list/update/archive/export tests**
 
 Create `tests/export_parity.rs`:
 
@@ -1373,7 +1373,7 @@ fn update_item_changes_core_fields_and_records_event() {
 }
 ```
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run: `cargo test --test export_parity today_export_includes_today_tasks_and_excludes_future_tasks`
 
@@ -1383,7 +1383,7 @@ Run: `cargo test --test application_policy update_item_changes_core_fields_and_r
 
 Expected: FAIL because `UpdateItem` and `update_item` do not exist.
 
-- [ ] **Step 3: Implement update and list filters**
+- [x] **Step 3: Implement update and list filters**
 
 Add `UpdateItem` to `src/application/service.rs`:
 
@@ -1421,7 +1421,7 @@ if matches!(input.materialization_policy.as_deref(), Some(value) if value != "si
 }
 ```
 
-- [ ] **Step 4: Implement exports**
+- [x] **Step 4: Implement exports**
 
 Modify `src/lib.rs`:
 
@@ -1529,7 +1529,7 @@ fn parse_date(value: &str) -> TodoResult<Date> {
 
 The `today_tasks` implementation must ignore invalid or short `scheduled` strings instead of panicking. Remove any duplicate `item_type_str` helper and use `ItemType::as_str`.
 
-- [ ] **Step 5: Run update/export tests**
+- [x] **Step 5: Run update/export tests**
 
 Run: `cargo test --test application_policy update_item_changes_core_fields_and_records_event`
 
@@ -1539,7 +1539,7 @@ Run: `cargo test --test export_parity`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -1556,7 +1556,7 @@ git commit -m "[feat] add item views and markdown exports"
 - Modify: `src/domain/model.rs`
 - Create: `tests/routine_materialization.rs`
 
-- [ ] **Step 1: Add failing recurrence tests**
+- [x] **Step 1: Add failing recurrence tests**
 
 Create `tests/routine_materialization.rs`:
 
@@ -1649,13 +1649,13 @@ fn recurrence_matrix_matches_existing_python_cases() {
 }
 ```
 
-- [ ] **Step 2: Run failing routine tests**
+- [x] **Step 2: Run failing routine tests**
 
 Run: `cargo test --test routine_materialization`
 
 Expected: FAIL because `ProposeRoutine`, recurrence parsing, and materialization do not exist.
 
-- [ ] **Step 3: Implement recurrence parser**
+- [x] **Step 3: Implement recurrence parser**
 
 Modify `src/domain/mod.rs`:
 
@@ -1732,7 +1732,7 @@ fn weekday_set_alias(value: &str) -> Option<Vec<u8>> {
 
 Then implement `parse_weekday_set`, `weekday_set_occurrences`, `monthly_occurrences`, `add_months`, `yearly_occurrences`, and `parse_every_rule` in the same file. Use `TodoError::Policy(format!("Unsupported recurrence_rule: {original_rule}"))` for unsupported input, matching Python behavior.
 
-- [ ] **Step 4: Implement routine service methods**
+- [x] **Step 4: Implement routine service methods**
 
 Add `ProposeRoutine` and `materialize_routines` to `src/application/service.rs`:
 
@@ -1755,7 +1755,7 @@ Rules:
 - `per_occurrence` checks the `(routine_id, occurrence_key)` pair before creating.
 - Generated tasks use actor `System`, status `Approved`, `metadata.generated_by = "routine"`, `approved_by = User`.
 
-- [ ] **Step 5: Add cascade tests**
+- [x] **Step 5: Add cascade tests**
 
 Append to `tests/routine_materialization.rs`:
 
@@ -1783,13 +1783,13 @@ fn pausing_and_resuming_routine_cascades_generated_task_state() {
 }
 ```
 
-- [ ] **Step 6: Run all routine tests**
+- [x] **Step 6: Run all routine tests**
 
 Run: `cargo test --test routine_materialization`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 Run:
 
@@ -1809,7 +1809,7 @@ git commit -m "[feat] materialize recurring routines"
 - Create: `tests/support/mod.rs`
 - Create: `tests/cli_parity.rs`
 
-- [ ] **Step 1: Add failing CLI tests**
+- [x] **Step 1: Add failing CLI tests**
 
 Create `tests/support/mod.rs`:
 
@@ -1865,13 +1865,13 @@ fn task_propose_prints_json_item() {
 }
 ```
 
-- [ ] **Step 2: Run failing CLI tests**
+- [x] **Step 2: Run failing CLI tests**
 
 Run: `cargo test --test cli_parity`
 
 Expected: FAIL because CLI adapter still only supports `init` and `health`, and may not use the library service.
 
-- [ ] **Step 3: Implement CLI adapter over service**
+- [x] **Step 3: Implement CLI adapter over service**
 
 Create `src/interfaces/mod.rs`:
 
@@ -1978,7 +1978,7 @@ pub fn run() -> anyhow::Result<()> {
 
 `task propose` opens `TodoService::sqlite(ORACLE_TODO_HOME/todo.sqlite)`, calls `TodoService::propose_task`, lets the service persist the item and event, and prints compact JSON via `serde_json::to_string(&item)`.
 
-- [ ] **Step 4: Replace binary entrypoint**
+- [x] **Step 4: Replace binary entrypoint**
 
 Replace `src/main.rs`:
 
@@ -1988,13 +1988,13 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-- [ ] **Step 5: Run CLI tests**
+- [x] **Step 5: Run CLI tests**
 
 Run: `cargo test --test cli_parity`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit core CLI**
+- [x] **Step 6: Commit core CLI**
 
 Run:
 
@@ -2009,7 +2009,7 @@ git commit -m "[feat] add core Rust CLI"
 - Modify: `src/interfaces/cli.rs`
 - Modify: `tests/cli_parity.rs`
 
-- [ ] **Step 1: Add remaining CLI command tests**
+- [x] **Step 1: Add remaining CLI command tests**
 
 Add these tests to `tests/cli_parity.rs`:
 
@@ -2050,23 +2050,23 @@ fn event_propose_prints_external_commitment_metadata() {
 }
 ```
 
-- [ ] **Step 2: Run expanded CLI tests and verify RED**
+- [x] **Step 2: Run expanded CLI tests and verify RED**
 
 Run: `cargo test --test cli_parity`
 
 Expected: FAIL because the CLI only supports `init`, `health`, and `task propose`.
 
-- [ ] **Step 3: Implement remaining CLI commands over `TodoService::sqlite`**
+- [x] **Step 3: Implement remaining CLI commands over `TodoService::sqlite`**
 
 Extend `src/interfaces/cli.rs` with `ListArgs`, `UpdateArgs`, `AreaCommand`, `ProjectCommand`, `RoutineCommand`, `EventCommand`, and transition commands. Each handler must open `TodoService::sqlite(db_path)` and call a service method. No handler may call SQLite repository methods directly.
 
-- [ ] **Step 4: Run expanded CLI tests**
+- [x] **Step 4: Run expanded CLI tests**
 
 Run: `cargo test --test cli_parity`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -2082,7 +2082,7 @@ git commit -m "[feat] expand Rust CLI parity"
 - Modify: `src/interfaces/mod.rs`
 - Create: `tests/api_parity.rs`
 
-- [ ] **Step 1: Add failing API route tests**
+- [x] **Step 1: Add failing API route tests**
 
 Create `tests/api_parity.rs`:
 
@@ -2140,13 +2140,13 @@ async fn task_propose_and_approve_use_same_service_path() {
 }
 ```
 
-- [ ] **Step 2: Run failing API tests**
+- [x] **Step 2: Run failing API tests**
 
 Run: `cargo test --test api_parity`
 
 Expected: FAIL because `interfaces::api::router` does not exist.
 
-- [ ] **Step 3: Implement minimal router**
+- [x] **Step 3: Implement minimal router**
 
 Modify `src/interfaces/mod.rs`:
 
@@ -2211,7 +2211,7 @@ async fn propose_task(State(state): State<ApiState>, Json(body): Json<TaskPropos
 
 Every handler creates a fresh `TodoService::sqlite(&state.db_path)` so API behavior persists across requests and matches the CLI service path.
 
-- [ ] **Step 4: Add remaining API route tests and handlers**
+- [x] **Step 4: Add remaining API route tests and handlers**
 
 Add route tests and handlers for these endpoints:
 
@@ -2249,13 +2249,13 @@ async fn create_area_returns_active_area() {
 
 Use equivalent tests for `GET /items`, `POST /items/{id}/approve`, `POST /items/{id}/complete`, and `GET /exports/today.md`. Each handler must call `TodoService`, not repository or domain functions directly.
 
-- [ ] **Step 5: Run API tests**
+- [x] **Step 5: Run API tests**
 
 Run: `cargo test --test api_parity`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -2276,7 +2276,7 @@ git commit -m "[feat] add Rust API parity"
 - Modify: `README.md`
 - Modify: `docs/rust-refactor.md`
 
-- [ ] **Step 1: Add failing error mapping tests**
+- [x] **Step 1: Add failing error mapping tests**
 
 Create `tests/logging_errors.rs`:
 
@@ -2294,13 +2294,13 @@ fn not_found_errors_map_to_http_404() {
 }
 ```
 
-- [ ] **Step 2: Run failing error tests**
+- [x] **Step 2: Run failing error tests**
 
 Run: `cargo test --test logging_errors`
 
 Expected: FAIL because error mapping helpers do not exist.
 
-- [ ] **Step 3: Implement error mappings**
+- [x] **Step 3: Implement error mappings**
 
 Add to `src/application/error.rs`:
 
@@ -2324,7 +2324,7 @@ impl TodoError {
 }
 ```
 
-- [ ] **Step 4: Add tracing setup**
+- [x] **Step 4: Add tracing setup**
 
 Modify `src/infrastructure/mod.rs`:
 
@@ -2364,7 +2364,7 @@ pub fn init_tracing() {
 }
 ```
 
-- [ ] **Step 5: Add copied-data compatibility smoke test**
+- [x] **Step 5: Add copied-data compatibility smoke test**
 
 Add to `tests/sqlite_repository.rs`:
 
@@ -2422,7 +2422,7 @@ const ITEM_COLUMN_ADDITIONS: &[(&str, &str)] = &[
 ];
 ```
 
-- [ ] **Step 6: Update docs**
+- [x] **Step 6: Update docs**
 
 Update `README.md` to include Rust commands:
 
@@ -2450,7 +2450,7 @@ uv run pytest
 Run copied-data smoke tests only against an explicitly copied data home.
 ````
 
-- [ ] **Step 7: Run full verification**
+- [x] **Step 7: Run full verification**
 
 Run: `cargo fmt --check`
 
@@ -2464,7 +2464,7 @@ Run: `uv run pytest`
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 Run:
 
@@ -2475,13 +2475,13 @@ git commit -m "[feat] finish Rust parity guardrails"
 
 ## Self-Review Checklist
 
-- [ ] Spec coverage: tasks cover foundation, schema, policies, events, update/list/archive/export, routines, CLI, API, logging, errors, compatibility, and guardrails.
-- [ ] TDD ordering: every task starts by adding or expanding failing tests before implementation steps.
-- [ ] Clean Architecture: domain has no adapter dependencies; CLI/API call application service; SQLite stays in infrastructure.
-- [ ] SQLite safety: tests use temporary or in-memory databases; live `~/.hermes/oracle-todo/todo.sqlite` is not used.
-- [ ] KISS/YAGNI: no dashboard, Telegram parser, hard delete, or new recurrence behavior.
-- [ ] DRY: recurrence parsing is centralized in `src/domain/recurrence.rs`; transitions are centralized in `TodoService`.
-- [ ] Verification: final task runs `cargo fmt --check`, `cargo test`, and `uv run pytest`.
+- [x] Spec coverage: tasks cover foundation, schema, policies, events, update/list/archive/export, routines, CLI, API, logging, errors, compatibility, and guardrails.
+- [x] TDD ordering: every task starts by adding or expanding failing tests before implementation steps.
+- [x] Clean Architecture: domain has no adapter dependencies; CLI/API call application service; SQLite stays in infrastructure.
+- [x] SQLite safety: tests use temporary or in-memory databases; live `~/.hermes/oracle-todo/todo.sqlite` is not used.
+- [x] KISS/YAGNI: no dashboard, Telegram parser, hard delete, or new recurrence behavior.
+- [x] DRY: recurrence parsing is centralized in `src/domain/recurrence.rs`; transitions are centralized in `TodoService`.
+- [x] Verification: final task runs `cargo fmt --check`, `cargo test`, and `uv run pytest`.
 
 ## Execution Choice
 
