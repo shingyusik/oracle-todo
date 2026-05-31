@@ -1,31 +1,4 @@
-use crate::application::ports::{Clock, IdGenerator};
 use time::{OffsetDateTime, UtcOffset};
-use uuid::Uuid;
-
-pub struct SystemClock;
-
-impl Clock for SystemClock {
-    fn now(&self) -> OffsetDateTime {
-        OffsetDateTime::now_utc()
-    }
-}
-
-pub struct UuidGenerator;
-
-impl IdGenerator for UuidGenerator {
-    fn new_id(&self, prefix: &str) -> String {
-        format!(
-            "{}_{}",
-            prefix,
-            Uuid::new_v4()
-                .simple()
-                .to_string()
-                .chars()
-                .take(12)
-                .collect::<String>()
-        )
-    }
-}
 
 pub fn init_tracing() {
     let _ = tracing_subscriber::fmt()

@@ -69,6 +69,38 @@ async fn task_propose_and_items_use_same_service_path() {
 }
 
 #[tokio::test]
+async fn memory_router_keeps_state_for_multiple_requests() {
+    let app = router(":memory:").unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            http::Request::builder()
+                .method("POST")
+                .uri("/tasks/propose")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"title":"메모리 유지"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    let response = app
+        .oneshot(
+            http::Request::builder()
+                .uri("/items")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["title"], "메모리 유지");
+}
+
+#[tokio::test]
 async fn file_router_keeps_state_for_multiple_requests() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");

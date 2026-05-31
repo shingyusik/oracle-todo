@@ -1,14 +1,5 @@
 use crate::application::error::TodoResult;
 use crate::domain::{ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status};
-use time::OffsetDateTime;
-
-pub trait Clock: Send + Sync {
-    fn now(&self) -> OffsetDateTime;
-}
-
-pub trait IdGenerator: Send + Sync {
-    fn new_id(&self, prefix: &str) -> String;
-}
 
 pub trait TodoRepository: Send {
     fn save_item(&mut self, item: &TodoItem) -> TodoResult<()>;

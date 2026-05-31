@@ -21,6 +21,7 @@ use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
 #[derive(Clone)]
 struct ApiState {
     db_path: PathBuf,
+    keeper: Option<std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>>,
 }
 
 #[derive(Deserialize)]
@@ -50,9 +51,8 @@ struct ItemsQuery {
 }
 
 pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
-    let state = ApiState {
-        db_path: db_path.as_ref().to_path_buf(),
-    };
+    let (db_path, keeper) = api_db_path(db_path.as_ref())?;
+    let state = ApiState { db_path, keeper };
     Ok(Router::new()
         .route("/health", get(health))
         .route("/areas", post(create_area))
@@ -188,6 +188,7 @@ async fn today_export(State(state): State<ApiState>) -> ApiResult<Response> {
 }
 
 fn service(state: &ApiState) -> ApiResult<TodoService> {
+    let _keeper = &state.keeper;
     let path = state.db_path.to_str().with_context(|| {
         format!(
             "database path is not valid UTF-8: {}",
@@ -197,6 +198,28 @@ fn service(state: &ApiState) -> ApiResult<TodoService> {
     let conn = connect(path)?;
     init_schema(&conn)?;
     Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
+}
+
+fn api_db_path(
+    path: &Path,
+) -> Result<(
+    PathBuf,
+    Option<std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>>,
+)> {
+    if path == Path::new(":memory:") {
+        let uri = format!(
+            "file:oracle_todo_api_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().simple()
+        );
+        let keeper = connect(&uri)?;
+        init_schema(&keeper)?;
+        return Ok((
+            PathBuf::from(uri),
+            Some(std::sync::Arc::new(std::sync::Mutex::new(keeper))),
+        ));
+    }
+
+    Ok((path.to_path_buf(), None))
 }
 
 fn with_service<T>(
