@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use axum::extract::{Path as AxumPath, State};
+use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -13,14 +14,14 @@ use serde_json::json;
 use crate::application::error::TodoError;
 use crate::application::ports::ListFilter;
 use crate::application::service::{CreateArea, ProposeTask, TodoService};
-use crate::domain::{Actor, TodoItem};
-use crate::exports::{current_today_items, render_items};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoItem};
+use crate::exports::render_items;
 use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
-use crate::infrastructure::system::local_today_string;
 
 #[derive(Clone)]
 struct ApiState {
     db_path: PathBuf,
+    memory_service: Option<Arc<Mutex<TodoService>>>,
 }
 
 #[derive(Deserialize)]
@@ -41,9 +42,21 @@ struct TaskProposeBody {
     actor: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct ItemsQuery {
+    status: Option<String>,
+    #[serde(rename = "type")]
+    item_type: Option<String>,
+    include_archived: Option<bool>,
+}
+
 pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
+    let db_path = db_path.as_ref().to_path_buf();
+    let memory_service =
+        (db_path == Path::new(":memory:")).then(|| Arc::new(Mutex::new(TodoService::in_memory())));
     let state = ApiState {
-        db_path: db_path.as_ref().to_path_buf(),
+        db_path,
+        memory_service,
     };
     Ok(Router::new()
         .route("/health", get(health))
@@ -64,11 +77,12 @@ async fn create_area(
     State(state): State<ApiState>,
     Json(body): Json<AreaBody>,
 ) -> ApiResult<Json<TodoItem>> {
-    let mut service = service(&state)?;
-    let item = service.create_area(CreateArea {
-        title: body.title,
-        review_cycle: body.review_cycle,
-        standard: body.standard,
+    let item = with_service(&state, |service| {
+        service.create_area(CreateArea {
+            title: body.title,
+            review_cycle: body.review_cycle,
+            standard: body.standard,
+        })
     })?;
     Ok(Json(item))
 }
@@ -84,25 +98,50 @@ async fn propose_task(
         .transpose()
         .map_err(TodoError::Validation)?
         .unwrap_or(Actor::Oracle);
-    let mut service = service(&state)?;
-    let item = service.propose_task(
-        body.title,
-        ProposeTask {
-            actor,
-            area: body.area,
-            due: body.due,
-            scheduled: body.scheduled,
-            priority: body.priority,
-            description: body.description,
-            ..Default::default()
-        },
-    )?;
+    let item = with_service(&state, |service| {
+        service.propose_task(
+            body.title,
+            ProposeTask {
+                actor,
+                area: body.area,
+                due: body.due,
+                scheduled: body.scheduled,
+                priority: body.priority,
+                description: body.description,
+                ..Default::default()
+            },
+        )
+    })?;
     Ok(Json(item))
 }
 
-async fn list_items(State(state): State<ApiState>) -> ApiResult<Json<Vec<TodoItem>>> {
-    let mut service = service(&state)?;
-    let items = service.list_items(ListFilter::default())?;
+async fn list_items(
+    State(state): State<ApiState>,
+    Query(query): Query<ItemsQuery>,
+) -> ApiResult<Json<Vec<TodoItem>>> {
+    let filter = ListFilter {
+        status: query
+            .status
+            .as_deref()
+            .map(parse_status)
+            .transpose()
+            .map_err(TodoError::Validation)?,
+        item_type: query
+            .item_type
+            .as_deref()
+            .map(parse_item_type)
+            .transpose()
+            .map_err(TodoError::Validation)?,
+        include_archived: query.include_archived.unwrap_or(false),
+        ..Default::default()
+    };
+    let mut items = with_service(&state, |service| service.list_items(filter))?;
+    items.sort_by(|left, right| {
+        right
+            .created_at
+            .cmp(&left.created_at)
+            .then_with(|| right.id.cmp(&left.id))
+    });
     Ok(Json(items))
 }
 
@@ -110,8 +149,7 @@ async fn approve_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
 ) -> ApiResult<Json<TodoItem>> {
-    let mut service = service(&state)?;
-    let item = service.approve(&id, None)?;
+    let item = with_service(&state, |service| service.approve(&id, None))?;
     Ok(Json(item))
 }
 
@@ -119,15 +157,23 @@ async fn complete_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
 ) -> ApiResult<Json<TodoItem>> {
-    let mut service = service(&state)?;
-    let item = service.complete(&id, None)?;
+    let item = with_service(&state, |service| service.complete(&id, None))?;
     Ok(Json(item))
 }
 
 async fn today_export(State(state): State<ApiState>) -> ApiResult<Response> {
-    let today = local_today_string();
-    let mut service = service(&state)?;
-    let items = current_today_items(&mut service, &today)?;
+    let mut items = with_service(&state, |service| {
+        service.list_items(ListFilter {
+            item_type: Some(ItemType::Task),
+            ..Default::default()
+        })
+    })?;
+    items.sort_by(|left, right| {
+        right
+            .created_at
+            .cmp(&left.created_at)
+            .then_with(|| right.id.cmp(&left.id))
+    });
     Ok((
         [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
         render_items("Today", &items),
@@ -145,6 +191,51 @@ fn service(state: &ApiState) -> ApiResult<TodoService> {
     let conn = connect(path)?;
     init_schema(&conn)?;
     Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
+}
+
+fn with_service<T>(
+    state: &ApiState,
+    action: impl FnOnce(&mut TodoService) -> crate::application::error::TodoResult<T>,
+) -> ApiResult<T> {
+    if let Some(service) = &state.memory_service {
+        let mut service = service
+            .lock()
+            .map_err(|_| TodoError::Internal("in-memory API state lock poisoned".to_string()))?;
+        return action(&mut service).map_err(Into::into);
+    }
+
+    let mut service = service(state)?;
+    action(&mut service).map_err(Into::into)
+}
+
+fn parse_status(value: &str) -> std::result::Result<ItemStatus, String> {
+    match value {
+        "proposed" => Ok(ItemStatus::Proposed),
+        "approved" => Ok(ItemStatus::Approved),
+        "active" => Ok(ItemStatus::Active),
+        "waiting" => Ok(ItemStatus::Waiting),
+        "paused" => Ok(ItemStatus::Paused),
+        "completed" => Ok(ItemStatus::Completed),
+        "cancelled" => Ok(ItemStatus::Cancelled),
+        "dropped" => Ok(ItemStatus::Dropped),
+        "archived" => Ok(ItemStatus::Archived),
+        "someday" => Ok(ItemStatus::Someday),
+        "rejected" => Ok(ItemStatus::Rejected),
+        _ => Err(format!("unknown status: {value}")),
+    }
+}
+
+fn parse_item_type(value: &str) -> std::result::Result<ItemType, String> {
+    match value {
+        "area" => Ok(ItemType::Area),
+        "project" => Ok(ItemType::Project),
+        "routine" => Ok(ItemType::Routine),
+        "task" => Ok(ItemType::Task),
+        "event" => Ok(ItemType::Event),
+        "review" => Ok(ItemType::Review),
+        "archive_item" => Ok(ItemType::ArchiveItem),
+        _ => Err(format!("unknown item type: {value}")),
+    }
 }
 
 type ApiResult<T> = std::result::Result<T, ApiError>;
@@ -166,12 +257,13 @@ impl IntoResponse for ApiError {
             self.0
                 .downcast_ref::<TodoError>()
                 .map_or(StatusCode::INTERNAL_SERVER_ERROR, |error| match error {
-                    TodoError::Policy(_) | TodoError::Validation(_) => StatusCode::BAD_REQUEST,
-                    TodoError::NotFound(_) => StatusCode::NOT_FOUND,
+                    TodoError::Policy(_) | TodoError::Validation(_) | TodoError::NotFound(_) => {
+                        StatusCode::BAD_REQUEST
+                    }
                     TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => {
                         StatusCode::INTERNAL_SERVER_ERROR
                     }
                 });
-        (status, Json(json!({"error": self.0.to_string()}))).into_response()
+        (status, Json(json!({"detail": self.0.to_string()}))).into_response()
     }
 }
