@@ -20,6 +20,10 @@ pub trait EventRepository: Send {
     fn save_event(&mut self, event: &TodoEvent) -> TodoResult<()>;
 }
 
+pub trait TodoStore: TodoRepository + EventRepository {
+    fn save_item_and_event(&mut self, item: &TodoItem, event: &TodoEvent) -> TodoResult<()>;
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ListFilter {
     pub status: Option<ItemStatus>,

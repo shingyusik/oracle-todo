@@ -1,6 +1,6 @@
 use crate::application::error::{TodoError, TodoResult};
-use crate::application::ports::{EventRepository, ListFilter, TodoRepository};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
+use crate::application::ports::{EventRepository, ListFilter, TodoRepository, TodoStore};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, terminal_status};
 use rusqlite::types::FromSql;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::{Map, Value};
@@ -13,6 +13,16 @@ pub fn connect(path: &str) -> TodoResult<Connection> {
 }
 
 pub fn init_schema(conn: &Connection) -> TodoResult<()> {
+    match init_schema_inner(conn) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            Err(error)
+        }
+    }
+}
+
+fn init_schema_inner(conn: &Connection) -> TodoResult<()> {
     conn.execute_batch(
         r#"
         PRAGMA foreign_keys = ON;
@@ -51,15 +61,6 @@ pub fn init_schema(conn: &Connection) -> TodoResult<()> {
             updated_at TEXT NOT NULL
         );
 
-        CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
-        CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
-        CREATE INDEX IF NOT EXISTS idx_items_area_id ON items(area_id);
-        CREATE INDEX IF NOT EXISTS idx_items_project_id ON items(project_id);
-        CREATE INDEX IF NOT EXISTS idx_items_routine_id ON items(routine_id);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_items_routine_occurrence
-            ON items(routine_id, occurrence_key)
-            WHERE routine_id IS NOT NULL AND occurrence_key IS NOT NULL;
-
         CREATE TABLE IF NOT EXISTS events (
             id TEXT NOT NULL PRIMARY KEY,
             at TEXT NOT NULL,
@@ -71,6 +72,22 @@ pub fn init_schema(conn: &Connection) -> TodoResult<()> {
             after TEXT,
             reason TEXT
         );
+        "#,
+    )
+    .map_err(|error| TodoError::Migration(error.to_string()))?;
+
+    ensure_item_columns(conn)?;
+
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
+        CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
+        CREATE INDEX IF NOT EXISTS idx_items_area_id ON items(area_id);
+        CREATE INDEX IF NOT EXISTS idx_items_project_id ON items(project_id);
+        CREATE INDEX IF NOT EXISTS idx_items_routine_id ON items(routine_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_items_routine_occurrence
+            ON items(routine_id, occurrence_key)
+            WHERE routine_id IS NOT NULL AND occurrence_key IS NOT NULL;
 
         CREATE INDEX IF NOT EXISTS idx_events_at ON events(at);
         CREATE INDEX IF NOT EXISTS idx_events_object_id ON events(object_id);
@@ -80,6 +97,57 @@ pub fn init_schema(conn: &Connection) -> TodoResult<()> {
         "#,
     )
     .map_err(|error| TodoError::Migration(error.to_string()))
+}
+
+const ITEM_COLUMN_ADDITIONS: &[(&str, &str)] = &[
+    ("area_id", "TEXT REFERENCES items(id)"),
+    ("project_id", "TEXT REFERENCES items(id)"),
+    ("routine_id", "TEXT REFERENCES items(id)"),
+    ("parent_id", "TEXT REFERENCES items(id)"),
+    ("description", "TEXT"),
+    ("outcome", "TEXT"),
+    ("definition_of_done", "TEXT"),
+    ("standard", "TEXT"),
+    ("review_cycle", "TEXT"),
+    ("recurrence_rule", "TEXT"),
+    (
+        "materialization_policy",
+        "TEXT NOT NULL DEFAULT 'single_open'",
+    ),
+    ("occurrence_key", "TEXT"),
+    ("priority", "INTEGER"),
+    ("due", "TEXT"),
+    ("scheduled", "TEXT"),
+    ("horizon", "TEXT"),
+    ("proposed_by", "TEXT NOT NULL DEFAULT 'oracle'"),
+    ("approved_by", "TEXT"),
+    ("approved_at", "TEXT"),
+    ("completed_at", "TEXT"),
+    ("archived_at", "TEXT"),
+    ("last_materialized_at", "TEXT"),
+    ("second_brain_refs", "TEXT NOT NULL DEFAULT '[]'"),
+    ("metadata", "TEXT NOT NULL DEFAULT '{}'"),
+];
+
+fn ensure_item_columns(conn: &Connection) -> TodoResult<()> {
+    let mut statement = conn
+        .prepare("PRAGMA table_info(items)")
+        .map_err(storage_error)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+
+    for (name, definition) in ITEM_COLUMN_ADDITIONS {
+        if !columns.iter().any(|column| column == name) {
+            conn.execute_batch(&format!(
+                "ALTER TABLE items ADD COLUMN {name} {definition};"
+            ))
+            .map_err(|error| TodoError::Migration(error.to_string()))?;
+        }
+    }
+    Ok(())
 }
 
 pub fn user_version(conn: &Connection) -> TodoResult<i64> {
@@ -117,9 +185,93 @@ impl SqliteTodoRepository {
 
 impl TodoRepository for SqliteTodoRepository {
     fn save_item(&mut self, item: &TodoItem) -> TodoResult<()> {
-        self.conn
-            .execute(
-                r#"
+        save_item_on(&self.conn, item)
+    }
+
+    fn get_item(&mut self, id: &str) -> TodoResult<Option<TodoItem>> {
+        let item = self
+            .conn
+            .query_row(item_select_sql("WHERE id = ?1").as_str(), [id], |row| {
+                Ok(row_to_item(row))
+            })
+            .optional()
+            .map_err(storage_error)?;
+        item.transpose()
+    }
+
+    fn list_items(&mut self, filter: ListFilter) -> TodoResult<Vec<TodoItem>> {
+        let mut statement = self
+            .conn
+            .prepare(item_select_sql("ORDER BY created_at, id").as_str())
+            .map_err(storage_error)?;
+        let mut rows = statement.query([]).map_err(storage_error)?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            items.push(row_to_item(row)?);
+        }
+        Ok(items
+            .into_iter()
+            .filter(|item| filter.include_archived || !terminal_status(item.status))
+            .filter(|item| filter.status.is_none_or(|status| item.status == status))
+            .filter(|item| {
+                filter
+                    .item_type
+                    .is_none_or(|item_type| item.item_type == item_type)
+            })
+            .filter(|item| {
+                filter
+                    .area_id
+                    .as_ref()
+                    .is_none_or(|area_id| item.area_id.as_ref() == Some(area_id))
+            })
+            .filter(|item| {
+                filter
+                    .project_id
+                    .as_ref()
+                    .is_none_or(|project_id| item.project_id.as_ref() == Some(project_id))
+            })
+            .filter(|item| {
+                filter
+                    .routine_id
+                    .as_ref()
+                    .is_none_or(|routine_id| item.routine_id.as_ref() == Some(routine_id))
+            })
+            .filter(|item| {
+                filter.query.as_ref().is_none_or(|query| {
+                    item.title.contains(query)
+                        || item
+                            .description
+                            .as_ref()
+                            .is_some_and(|value| value.contains(query))
+                        || item
+                            .outcome
+                            .as_ref()
+                            .is_some_and(|value| value.contains(query))
+                })
+            })
+            .collect())
+    }
+}
+
+impl EventRepository for SqliteTodoRepository {
+    fn save_event(&mut self, event: &TodoEvent) -> TodoResult<()> {
+        save_event_on(&self.conn, event)
+    }
+}
+
+impl TodoStore for SqliteTodoRepository {
+    fn save_item_and_event(&mut self, item: &TodoItem, event: &TodoEvent) -> TodoResult<()> {
+        let transaction = self.conn.transaction().map_err(storage_error)?;
+        save_item_on(&transaction, item)?;
+        save_event_on(&transaction, event)?;
+        transaction.commit().map_err(storage_error)?;
+        Ok(())
+    }
+}
+
+fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
+    conn.execute(
+        r#"
                 INSERT INTO items (
                     id, type, title, status, area_id, project_id, routine_id, parent_id,
                     description, outcome, definition_of_done, standard, review_cycle,
@@ -161,117 +313,79 @@ impl TodoRepository for SqliteTodoRepository {
                     last_materialized_at = excluded.last_materialized_at,
                     second_brain_refs = excluded.second_brain_refs,
                     metadata = excluded.metadata,
-                    created_at = excluded.created_at,
                     updated_at = excluded.updated_at
                 "#,
-                params![
-                    item.id,
-                    item.item_type.as_str(),
-                    item.title,
-                    item.status.as_str(),
-                    item.area_id,
-                    item.project_id,
-                    item.routine_id,
-                    item.parent_id,
-                    item.description,
-                    item.outcome,
-                    item.definition_of_done,
-                    item.standard,
-                    item.review_cycle,
-                    item.recurrence_rule,
-                    item.materialization_policy,
-                    item.occurrence_key,
-                    item.priority,
-                    item.due,
-                    item.scheduled,
-                    item.horizon,
-                    item.proposed_by.as_str(),
-                    item.approved_by.map(Actor::as_str),
-                    format_optional_time(item.approved_at)?,
-                    format_optional_time(item.completed_at)?,
-                    format_optional_time(item.archived_at)?,
-                    format_optional_time(item.last_materialized_at)?,
-                    serde_json::to_string(&item.second_brain_refs)
-                        .map_err(|error| TodoError::Storage(error.to_string()))?,
-                    serde_json::to_string(&item.metadata)
-                        .map_err(|error| TodoError::Storage(error.to_string()))?,
-                    format_time(item.created_at)?,
-                    format_time(item.updated_at)?,
-                ],
-            )
-            .map_err(storage_error)?;
-        Ok(())
-    }
-
-    fn get_item(&mut self, id: &str) -> TodoResult<Option<TodoItem>> {
-        let item = self
-            .conn
-            .query_row(item_select_sql("WHERE id = ?1").as_str(), [id], |row| {
-                Ok(row_to_item(row))
-            })
-            .optional()
-            .map_err(storage_error)?;
-        item.transpose()
-    }
-
-    fn list_items(&mut self, _filter: ListFilter) -> TodoResult<Vec<TodoItem>> {
-        let mut statement = self
-            .conn
-            .prepare(item_select_sql("ORDER BY created_at, id").as_str())
-            .map_err(storage_error)?;
-        let mut rows = statement.query([]).map_err(storage_error)?;
-        let mut items = Vec::new();
-        while let Some(row) = rows.next().map_err(storage_error)? {
-            items.push(row_to_item(row)?);
-        }
-        Ok(items)
-    }
+        params![
+            item.id,
+            item.item_type.as_str(),
+            item.title,
+            item.status.as_str(),
+            item.area_id,
+            item.project_id,
+            item.routine_id,
+            item.parent_id,
+            item.description,
+            item.outcome,
+            item.definition_of_done,
+            item.standard,
+            item.review_cycle,
+            item.recurrence_rule,
+            item.materialization_policy,
+            item.occurrence_key,
+            item.priority,
+            item.due,
+            item.scheduled,
+            item.horizon,
+            item.proposed_by.as_str(),
+            item.approved_by.map(Actor::as_str),
+            format_optional_time(item.approved_at)?,
+            format_optional_time(item.completed_at)?,
+            format_optional_time(item.archived_at)?,
+            format_optional_time(item.last_materialized_at)?,
+            serde_json::to_string(&item.second_brain_refs)
+                .map_err(|error| TodoError::Storage(error.to_string()))?,
+            serde_json::to_string(&item.metadata)
+                .map_err(|error| TodoError::Storage(error.to_string()))?,
+            format_time(item.created_at)?,
+            format_time(item.updated_at)?,
+        ],
+    )
+    .map_err(storage_error)?;
+    Ok(())
 }
 
-impl EventRepository for SqliteTodoRepository {
-    fn save_event(&mut self, event: &TodoEvent) -> TodoResult<()> {
-        self.conn
-            .execute(
-                r#"
+fn save_event_on(conn: &Connection, event: &TodoEvent) -> TodoResult<()> {
+    conn.execute(
+        r#"
                 INSERT INTO events (
                     id, at, actor, action, object_type, object_id, before, after, reason
                 )
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                ON CONFLICT(id) DO UPDATE SET
-                    at = excluded.at,
-                    actor = excluded.actor,
-                    action = excluded.action,
-                    object_type = excluded.object_type,
-                    object_id = excluded.object_id,
-                    before = excluded.before,
-                    after = excluded.after,
-                    reason = excluded.reason
                 "#,
-                params![
-                    event.id,
-                    format_time(event.at)?,
-                    event.actor.as_str(),
-                    event.action,
-                    event.object_type,
-                    event.object_id,
-                    event
-                        .before
-                        .as_ref()
-                        .map(serde_json::to_string)
-                        .transpose()
-                        .map_err(|error| TodoError::Storage(error.to_string()))?,
-                    event
-                        .after
-                        .as_ref()
-                        .map(serde_json::to_string)
-                        .transpose()
-                        .map_err(|error| TodoError::Storage(error.to_string()))?,
-                    event.reason,
-                ],
-            )
-            .map_err(storage_error)?;
-        Ok(())
-    }
+        params![
+            event.id,
+            format_time(event.at)?,
+            event.actor.as_str(),
+            event.action,
+            event.object_type,
+            event.object_id,
+            event
+                .before
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|error| TodoError::Storage(error.to_string()))?,
+            event
+                .after
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|error| TodoError::Storage(error.to_string()))?,
+            event.reason,
+        ],
+    )
+    .map_err(storage_error)?;
+    Ok(())
 }
 
 fn item_select_sql(suffix: &str) -> String {

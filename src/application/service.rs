@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use time::{Duration, OffsetDateTime, macros::datetime};
+use uuid::Uuid;
 
 use crate::application::error::{TodoError, TodoResult};
+use crate::application::ports::TodoStore;
 use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, terminal_status};
 
 pub struct CreateArea {
@@ -47,17 +49,32 @@ pub struct ProposeProject {
 }
 
 pub struct TodoService {
-    items: HashMap<String, TodoItem>,
+    store: ServiceStore,
     events: Vec<TodoEvent>,
     id_counter: u64,
     event_counter: u64,
     clock_counter: i64,
 }
 
+enum ServiceStore {
+    InMemory(HashMap<String, TodoItem>),
+    Persistent(Box<dyn TodoStore>),
+}
+
 impl TodoService {
     pub fn in_memory() -> Self {
         Self {
-            items: HashMap::new(),
+            store: ServiceStore::InMemory(HashMap::new()),
+            events: Vec::new(),
+            id_counter: 1,
+            event_counter: 1,
+            clock_counter: 0,
+        }
+    }
+
+    pub fn persistent(store: impl TodoStore + 'static) -> Self {
+        Self {
+            store: ServiceStore::Persistent(Box::new(store)),
             events: Vec::new(),
             id_counter: 1,
             event_counter: 1,
@@ -77,9 +94,7 @@ impl TodoService {
         item.status = ItemStatus::Active;
         item.review_cycle = request.review_cycle;
         item.standard = request.standard;
-        let item = self.store(item);
-        self.record_event(Actor::User, "create_area", None, &item, None);
-        Ok(item)
+        self.store_item_and_event(Actor::User, "create_area", None, item, None)
     }
 
     pub fn propose_task(
@@ -96,9 +111,7 @@ impl TodoService {
         item.scheduled = request.scheduled;
         item.priority = request.priority;
         item.description = request.description;
-        let item = self.store(item);
-        self.record_event(item.proposed_by, "propose_task", None, &item, None);
-        Ok(item)
+        self.store_item_and_event(item.proposed_by, "propose_task", None, item, None)
     }
 
     pub fn propose_project(&mut self, request: ProposeProject) -> TodoResult<TodoItem> {
@@ -114,16 +127,19 @@ impl TodoService {
         item.definition_of_done = request.definition_of_done;
         item.outcome = request.outcome;
         item.due = request.due;
-        let item = self.store(item);
-        self.record_event(item.proposed_by, "propose_project", None, &item, None);
-        Ok(item)
+        self.store_item_and_event(item.proposed_by, "propose_project", None, item, None)
     }
 
-    pub fn get(&self, item_id: &str) -> TodoResult<TodoItem> {
-        self.items
-            .get(item_id)
-            .cloned()
-            .ok_or_else(|| TodoError::NotFound(item_id.to_string()))
+    pub fn get(&mut self, item_id: &str) -> TodoResult<TodoItem> {
+        match &mut self.store {
+            ServiceStore::InMemory(items) => items
+                .get(item_id)
+                .cloned()
+                .ok_or_else(|| TodoError::NotFound(item_id.to_string())),
+            ServiceStore::Persistent(store) => store
+                .get_item(item_id)?
+                .ok_or_else(|| TodoError::NotFound(item_id.to_string())),
+        }
     }
 
     pub fn approve(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -143,9 +159,7 @@ impl TodoService {
         item.approved_by = Some(Actor::User);
         item.approved_at = Some(now);
         item.updated_at = now;
-        let item = self.store(item);
-        self.record_event(Actor::User, "approve", before, &item, _reason);
-        Ok(item)
+        self.store_item_and_event(Actor::User, "approve", before, item, _reason)
     }
 
     pub fn activate(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -178,9 +192,7 @@ impl TodoService {
         let now = self.next_now();
         item.status = ItemStatus::Active;
         item.updated_at = now;
-        let item = self.store(item);
-        self.record_event(Actor::User, "activate", before, &item, _reason);
-        Ok(item)
+        self.store_item_and_event(Actor::User, "activate", before, item, _reason)
     }
 
     pub fn complete(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -204,9 +216,7 @@ impl TodoService {
         item.status = ItemStatus::Completed;
         item.completed_at = Some(now);
         item.updated_at = now;
-        let item = self.store(item);
-        self.record_event(Actor::User, "complete", before, &item, _reason);
-        Ok(item)
+        self.store_item_and_event(Actor::User, "complete", before, item, _reason)
     }
 
     pub fn events(&self) -> &[TodoEvent] {
@@ -214,6 +224,17 @@ impl TodoService {
     }
 
     fn next_id(&mut self, prefix: &str) -> String {
+        if matches!(self.store, ServiceStore::Persistent(_)) {
+            return format!(
+                "{prefix}_{}",
+                Uuid::new_v4()
+                    .simple()
+                    .to_string()
+                    .chars()
+                    .take(12)
+                    .collect::<String>()
+            );
+        }
         let id = format!("{prefix}_{:06}", self.id_counter);
         self.id_counter += 1;
         id
@@ -225,19 +246,14 @@ impl TodoService {
         now
     }
 
-    fn store(&mut self, item: TodoItem) -> TodoItem {
-        self.items.insert(item.id.clone(), item.clone());
-        item
-    }
-
-    fn record_event(
+    fn store_item_and_event(
         &mut self,
         actor: Actor,
         action: &str,
         before: Option<serde_json::Value>,
-        item: &TodoItem,
+        item: TodoItem,
         reason: Option<&str>,
-    ) {
+    ) -> TodoResult<TodoItem> {
         let event = TodoEvent {
             id: self.next_event_id(),
             at: item.updated_at,
@@ -246,13 +262,33 @@ impl TodoService {
             object_type: item.item_type.as_str().to_string(),
             object_id: item.id.clone(),
             before,
-            after: Some(serde_json::to_value(item).expect("TodoItem serialization cannot fail")),
+            after: Some(serde_json::to_value(&item).expect("TodoItem serialization cannot fail")),
             reason: reason.map(ToOwned::to_owned),
         };
+        match &mut self.store {
+            ServiceStore::InMemory(items) => {
+                items.insert(item.id.clone(), item.clone());
+            }
+            ServiceStore::Persistent(store) => {
+                store.save_item_and_event(&item, &event)?;
+            }
+        }
         self.events.push(event);
+        Ok(item)
     }
 
     fn next_event_id(&mut self) -> String {
+        if matches!(self.store, ServiceStore::Persistent(_)) {
+            return format!(
+                "evt_{}",
+                Uuid::new_v4()
+                    .simple()
+                    .to_string()
+                    .chars()
+                    .take(12)
+                    .collect::<String>()
+            );
+        }
         let id = format!("evt_{:06}", self.event_counter);
         self.event_counter += 1;
         id
