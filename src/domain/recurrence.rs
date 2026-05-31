@@ -33,7 +33,7 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> TodoResult<Vec<Date>> 
         return unsupported(original_rule);
     }
 
-    if unit.starts_with("day") {
+    if matches!(unit, "day" | "days") {
         if anchor.is_some() {
             return unsupported(original_rule);
         }
@@ -44,7 +44,7 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> TodoResult<Vec<Date>> 
         ));
     }
 
-    if unit.starts_with("week") {
+    if matches!(unit, "week" | "weeks") {
         let Some(anchor) = anchor else {
             return Ok(interval_occurrences(
                 start,
@@ -58,7 +58,7 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> TodoResult<Vec<Date>> 
         return Ok(weekday_set_occurrences(start, end, &weekdays, interval));
     }
 
-    if unit.starts_with("month") {
+    if matches!(unit, "month" | "months") {
         let Some(anchor) = anchor else {
             return Ok(monthly_occurrences(start, end, 1, interval));
         };
@@ -74,7 +74,7 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> TodoResult<Vec<Date>> 
         return unsupported(original_rule);
     }
 
-    if unit.starts_with("year") {
+    if matches!(unit, "year" | "years") {
         if anchor.is_some() {
             return unsupported(original_rule);
         }

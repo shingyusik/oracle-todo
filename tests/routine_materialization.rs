@@ -1,5 +1,7 @@
+use oracle_todo::application::error::TodoError;
 use oracle_todo::application::service::{ProposeRoutine, TodoService};
-use oracle_todo::domain::{Actor, ItemStatus, ItemType};
+use oracle_todo::domain::{Actor, ItemStatus, ItemType, occurrences};
+use time::macros::date;
 
 fn occurrence_keys(items: &[oracle_todo::domain::TodoItem]) -> Vec<String> {
     items
@@ -222,4 +224,127 @@ fn pausing_and_resuming_routine_cascades_generated_task_state() {
 
     assert_eq!(resumed.status, ItemStatus::Active);
     assert_eq!(service.get(&task.id).unwrap().status, ItemStatus::Approved);
+    assert_eq!(
+        service.get(&routine.id).unwrap().metadata["occurrences"]
+            [task.occurrence_key.as_ref().unwrap()]["status"],
+        "approved"
+    );
+    assert!(
+        service
+            .events()
+            .iter()
+            .any(|event| event.action == "routine_occurrence_approved")
+    );
+}
+
+#[test]
+fn malformed_recurrence_units_are_rejected() {
+    let error =
+        occurrences("every dayzz", date!(2026 - 05 - 26), date!(2026 - 05 - 30)).unwrap_err();
+
+    assert_eq!(
+        error,
+        TodoError::Policy("Unsupported recurrence_rule: every dayzz".to_string())
+    );
+}
+
+#[test]
+fn completing_generated_task_updates_routine_occurrence_history() {
+    let mut service = TodoService::in_memory();
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "주간 리뷰".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("weekly".to_string()),
+            materialization_policy: "single_open".to_string(),
+            area: None,
+        })
+        .unwrap();
+    service.activate(&routine.id, None).unwrap();
+    let task = service
+        .materialize_routines("2026-05-26", 0, 0)
+        .unwrap()
+        .remove(0);
+
+    service.complete(&task.id, Some("완료")).unwrap();
+
+    let updated_routine = service.get(&routine.id).unwrap();
+    let occurrence =
+        &updated_routine.metadata["occurrences"][task.occurrence_key.as_ref().unwrap()];
+    assert_eq!(occurrence["status"], "completed");
+    assert_eq!(occurrence["task_id"], task.id);
+    assert_eq!(occurrence["scheduled"], task.scheduled.unwrap());
+    assert_eq!(
+        updated_routine.metadata["last_occurrence"]["occurrence_key"],
+        task.occurrence_key.unwrap()
+    );
+    assert!(
+        service
+            .events()
+            .iter()
+            .any(|event| event.action == "routine_occurrence_completed")
+    );
+}
+
+#[test]
+fn archiving_and_cancelling_routine_cascades_generated_tasks() {
+    let mut archive_service = TodoService::in_memory();
+    let routine = archive_service
+        .propose_routine(ProposeRoutine {
+            title: "주간 리뷰".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("weekly".to_string()),
+            materialization_policy: "single_open".to_string(),
+            area: None,
+        })
+        .unwrap();
+    archive_service.activate(&routine.id, None).unwrap();
+    let task = archive_service
+        .materialize_routines("2026-05-26", 0, 0)
+        .unwrap()
+        .remove(0);
+
+    archive_service
+        .archive(&routine.id, Some("루틴 종료"))
+        .unwrap();
+
+    assert_eq!(
+        archive_service.get(&task.id).unwrap().status,
+        ItemStatus::Archived
+    );
+    assert_eq!(
+        archive_service.get(&routine.id).unwrap().metadata["occurrences"]
+            [task.occurrence_key.as_ref().unwrap()]["status"],
+        "archived"
+    );
+
+    let mut cancel_service = TodoService::in_memory();
+    let routine = cancel_service
+        .propose_routine(ProposeRoutine {
+            title: "격주 리뷰".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("weekly".to_string()),
+            materialization_policy: "single_open".to_string(),
+            area: None,
+        })
+        .unwrap();
+    cancel_service.activate(&routine.id, None).unwrap();
+    let task = cancel_service
+        .materialize_routines("2026-05-26", 0, 0)
+        .unwrap()
+        .remove(0);
+
+    cancel_service
+        .cancel(&routine.id, Some("루틴 취소"))
+        .unwrap();
+
+    assert_eq!(
+        cancel_service.get(&task.id).unwrap().status,
+        ItemStatus::Cancelled
+    );
+    assert_eq!(
+        cancel_service.get(&routine.id).unwrap().metadata["occurrences"]
+            [task.occurrence_key.as_ref().unwrap()]["status"],
+        "cancelled"
+    );
 }

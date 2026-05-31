@@ -553,11 +553,24 @@ impl TodoService {
         item.status = ItemStatus::Completed;
         item.completed_at = Some(now);
         item.updated_at = now;
-        self.store_item_and_event(Actor::User, "complete", before, item, _reason)
+        let item = self.store_item_and_event(Actor::User, "complete", before, item, _reason)?;
+        self.record_generated_task_occurrence(&item, Actor::User, _reason)?;
+        Ok(item)
     }
 
     pub fn archive(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
-        self.set_terminal_status(item_id, ItemStatus::Archived, "archive", reason)
+        let archived =
+            self.set_terminal_status(item_id, ItemStatus::Archived, "archive", reason)?;
+        if archived.item_type == ItemType::Routine {
+            self.cascade_routine_generated_tasks(
+                &archived.id,
+                ItemStatus::Archived,
+                "routine_archive_generated_task",
+                reason,
+                None,
+            )?;
+        }
+        Ok(archived)
     }
 
     pub fn drop(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -573,7 +586,9 @@ impl TodoService {
                 item.status.as_str()
             )));
         }
-        self.set_terminal_status_from(item, ItemStatus::Dropped, "drop", reason)
+        let dropped = self.set_terminal_status_from(item, ItemStatus::Dropped, "drop", reason)?;
+        self.record_generated_task_occurrence(&dropped, Actor::User, reason)?;
+        Ok(dropped)
     }
 
     pub fn cancel(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -589,7 +604,19 @@ impl TodoService {
                 item.status.as_str()
             )));
         }
-        self.set_terminal_status_from(item, ItemStatus::Cancelled, "cancel", reason)
+        let cancelled =
+            self.set_terminal_status_from(item, ItemStatus::Cancelled, "cancel", reason)?;
+        self.record_generated_task_occurrence(&cancelled, Actor::User, reason)?;
+        if cancelled.item_type == ItemType::Routine {
+            self.cascade_routine_generated_tasks(
+                &cancelled.id,
+                ItemStatus::Cancelled,
+                "routine_cancel_generated_task",
+                reason,
+                None,
+            )?;
+        }
+        Ok(cancelled)
     }
 
     pub fn update_item(&mut self, item_id: &str, request: UpdateItem) -> TodoResult<TodoItem> {
@@ -791,7 +818,9 @@ impl TodoService {
                 task.completed_at = Some(now);
             }
         }
-        self.store_item_and_event(Actor::User, action, before, task, reason)
+        let task = self.store_item_and_event(Actor::User, action, before, task, reason)?;
+        self.record_generated_task_occurrence(&task, Actor::User, reason)?;
+        Ok(task)
     }
 
     fn next_id(&mut self, prefix: &str) -> String {
@@ -876,6 +905,84 @@ impl TodoService {
         self.store_item_and_event(Actor::User, action, before, item, reason)
     }
 
+    fn record_generated_task_occurrence(
+        &mut self,
+        task: &TodoItem,
+        actor: Actor,
+        reason: Option<&str>,
+    ) -> TodoResult<()> {
+        if task.item_type != ItemType::Task
+            || task.routine_id.is_none()
+            || task.occurrence_key.is_none()
+            || !generated_by_routine(task)
+        {
+            return Ok(());
+        }
+        let routine_id = task.routine_id.as_ref().expect("checked routine_id");
+        let occurrence_key = task
+            .occurrence_key
+            .as_ref()
+            .expect("checked occurrence_key")
+            .clone();
+        let mut routine = self.get(routine_id)?;
+        let before = Some(serde_json::to_value(&routine).map_err(|error| {
+            TodoError::Internal(format!(
+                "failed to snapshot routine before occurrence update: {error}"
+            ))
+        })?);
+        let mut metadata = routine.metadata.clone();
+        let mut occurrences = metadata
+            .remove("occurrences")
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        let mut occurrence = serde_json::Map::new();
+        occurrence.insert(
+            "status".to_string(),
+            serde_json::Value::String(task.status.as_str().to_string()),
+        );
+        occurrence.insert(
+            "task_id".to_string(),
+            serde_json::Value::String(task.id.clone()),
+        );
+        occurrence.insert(
+            "at".to_string(),
+            serde_json::Value::String(format_time(task.updated_at)?),
+        );
+        if let Some(scheduled) = &task.scheduled {
+            occurrence.insert(
+                "scheduled".to_string(),
+                serde_json::Value::String(scheduled.clone()),
+            );
+        }
+        occurrences.insert(
+            occurrence_key.clone(),
+            serde_json::Value::Object(occurrence.clone()),
+        );
+        let mut last_occurrence = occurrence;
+        last_occurrence.insert(
+            "occurrence_key".to_string(),
+            serde_json::Value::String(occurrence_key),
+        );
+        metadata.insert(
+            "occurrences".to_string(),
+            serde_json::Value::Object(occurrences),
+        );
+        metadata.insert(
+            "last_occurrence".to_string(),
+            serde_json::Value::Object(last_occurrence),
+        );
+        routine.metadata = metadata;
+        routine.updated_at = self.next_now();
+        self.store_item_and_event(
+            actor,
+            &format!("routine_occurrence_{}", task.status.as_str()),
+            before,
+            routine,
+            reason,
+        )?;
+        Ok(())
+    }
+
     fn ensure_relation(
         &mut self,
         item_id: Option<String>,
@@ -931,4 +1038,10 @@ fn parse_day(value: &str) -> TodoResult<Date> {
         .map_err(|error| TodoError::Internal(format!("failed to prepare date parser: {error}")))?;
     Date::parse(value, &format)
         .map_err(|error| TodoError::Validation(format!("Invalid date {value}: {error}")))
+}
+
+fn format_time(value: OffsetDateTime) -> TodoResult<String> {
+    value
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|error| TodoError::Storage(error.to_string()))
 }
