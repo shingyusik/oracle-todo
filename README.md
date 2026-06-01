@@ -10,14 +10,21 @@ A policy-enforced personal ToDo engine for Oracle/Hermes workflows.
 - **Second_Brain is read-only**: ToDo stores references but never writes to the vault.
 - **User approval gates agent-created work**: Oracle proposals cannot become active tasks without approval.
 
-## Stack
+## Refactor status
 
-- Python 3.12
-- uv
-- SQLite via SQLModel
-- Pydantic models / policy validation
-- Typer CLI
-- FastAPI for future dashboard/API
+This worktree is for the Rust + SQLite refactor. The existing Python engine remains operational until explicit cutover approval.
+
+- Operational Python engine: `/Users/singyusig/Desktop/02_Coding/oracle-todo`
+- Preserved legacy copy: `/Users/singyusig/Desktop/02_Coding/oracle-todo-python-legacy`
+- Refactor branch/worktree: `/Users/singyusig/Desktop/02_Coding/oracle-todo-rust-refactor` (`refactor/rust-sqlite`)
+- Guardrails: `docs/rust-refactor.md`
+
+## Target stack
+
+- Rust
+- SQLite via `rusqlite`
+- Terminal CLI first
+- API later, over the same policy/service path
 
 ## Quick start
 
@@ -31,6 +38,15 @@ uv run oracle-todo pending
 uv run oracle-todo approve <item-id>
 uv run oracle-todo today
 uv run oracle-todo export
+```
+
+## Rust parity commands
+
+```bash
+cargo test
+cargo run -- init
+cargo run -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인"
+cargo run -- pending
 ```
 
 Default data directory: `~/.hermes/oracle-todo/`.
