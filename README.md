@@ -47,6 +47,9 @@ cargo test
 cargo run -- init
 cargo run -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인"
 cargo run -- pending
+cargo run -- list --type task
+cargo run -- approve <item-id>
+cargo run -- complete <item-id>
 ```
 
 Default data directory: `~/.hermes/oracle-todo/`.
@@ -54,6 +57,29 @@ Override with:
 
 ```bash
 export ORACLE_TODO_HOME=/path/to/data
+```
+
+## Rust cutover smoke
+
+Run compatibility smoke tests only against a copied data home:
+
+```bash
+tmp_home="$(mktemp -d)"
+mkdir -p "$tmp_home"
+cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
+cargo run -- --home "$tmp_home" pending
+cargo run -- --home "$tmp_home" today
+cargo run -- --home "$tmp_home" export
+```
+
+Cutover gate:
+
+```bash
+cargo fmt --check
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+uv run pytest -q
+cargo llvm-cov --summary-only
 ```
 
 ## Dashboard-ready API
@@ -71,3 +97,5 @@ Endpoints:
 - `POST /items/{id}/approve`
 - `POST /items/{id}/complete`
 - `GET /exports/today.md`
+
+Rust also exposes operational API routes for project, routine, event, lifecycle, update, and archive-list workflows over the same service layer.

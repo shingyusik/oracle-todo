@@ -61,7 +61,50 @@ Do not point Rust smoke tests at the live data path unless intentionally testing
 ```bash
 cargo fmt --check
 cargo test
-uv run pytest
+cargo clippy --all-targets --all-features -- -D warnings
+uv run pytest -q
+cargo llvm-cov --summary-only
 ```
 
-Run copied-data smoke tests only against an explicitly copied data home.
+Rust line coverage must remain at or above 80%.
+
+## Copied-data smoke
+
+Run copied-data smoke tests only against an explicitly copied data home:
+
+```bash
+tmp_home="$(mktemp -d)"
+mkdir -p "$tmp_home"
+cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
+cargo run -- --home "$tmp_home" pending
+cargo run -- --home "$tmp_home" today
+cargo run -- --home "$tmp_home" export
+```
+
+The smoke gate passes when these commands exit without enum storage errors and without mutating the live data home.
+
+## Round-trip smoke
+
+Temporary data homes must pass both directions:
+
+- Python-created SQLite data is readable by Rust CLI.
+- Rust-created SQLite data is readable by Python CLI.
+
+Covered by:
+
+```bash
+cargo test --test python_rust_roundtrip
+```
+
+## Cutover gate
+
+Cutover requires:
+
+- `cargo fmt --check`
+- `cargo test`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `uv run pytest -q`
+- `cargo llvm-cov --summary-only`
+- copied-data smoke for `pending`, `today`, and `export`
+- Python/Rust round-trip smoke
+- explicit cutover approval
