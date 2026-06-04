@@ -31,7 +31,7 @@
 - Modify: `tests/application_policy.rs`
 - Modify: `tests/sqlite_repository.rs`
 
-- [ ] **Step 1: Add failing domain parser tests**
+- [x] **Step 1: Add failing domain parser tests**
 
 Append to `tests/application_policy.rs`:
 
@@ -47,7 +47,7 @@ fn domain_enums_parse_uppercase_sqlite_names() {
 }
 ```
 
-- [ ] **Step 2: Run parser test to verify RED**
+- [x] **Step 2: Run parser test to verify RED**
 
 Run:
 
@@ -57,7 +57,7 @@ cargo test --test application_policy domain_enums_parse_uppercase_sqlite_names
 
 Expected: FAIL with `unknown item type: AREA` or equivalent.
 
-- [ ] **Step 3: Add failing SQLite legacy fixture test**
+- [x] **Step 3: Add failing SQLite legacy fixture test**
 
 Append to `tests/sqlite_repository.rs`:
 
@@ -90,7 +90,7 @@ fn repository_reads_legacy_uppercase_enum_rows() {
 }
 ```
 
-- [ ] **Step 4: Add failing SQLite write-format test**
+- [x] **Step 4: Add failing SQLite write-format test**
 
 Append to `tests/sqlite_repository.rs`:
 
@@ -146,7 +146,7 @@ fn repository_writes_python_compatible_enum_names() {
 }
 ```
 
-- [ ] **Step 5: Run compatibility tests to verify RED**
+- [x] **Step 5: Run compatibility tests to verify RED**
 
 Run:
 
@@ -156,7 +156,7 @@ cargo test --test sqlite_repository repository_reads_legacy_uppercase_enum_rows 
 
 Expected: first test FAILS while parsing uppercase values; second test FAILS because Rust writes lowercase enum values.
 
-- [ ] **Step 6: Implement enum parsing and SQLite encoding**
+- [x] **Step 6: Implement enum parsing and SQLite encoding**
 
 Modify `src/domain/model.rs` parsers to normalize input:
 
@@ -228,7 +228,7 @@ item.approved_by.map(actor_sqlite_value)
 
 In `save_event_on`, replace `event.actor.as_str()` with `actor_sqlite_value(event.actor)`. Do not change `event.object_type`.
 
-- [ ] **Step 7: Run enum compatibility tests to verify GREEN**
+- [x] **Step 7: Run enum compatibility tests to verify GREEN**
 
 Run:
 
@@ -240,7 +240,7 @@ cargo test --test sqlite_repository repository_writes_python_compatible_enum_nam
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit enum compatibility fix**
+- [x] **Step 8: Commit enum compatibility fix**
 
 Run:
 
@@ -255,7 +255,7 @@ git commit -m "[fix] align SQLite enum compatibility"
 - Create: `tests/python_rust_roundtrip.rs`
 - Modify: `tests/support/mod.rs` if helper reuse is useful
 
-- [ ] **Step 1: Add failing round-trip tests**
+- [x] **Step 1: Add failing round-trip tests**
 
 Create `tests/python_rust_roundtrip.rs`:
 
@@ -342,7 +342,7 @@ fn python_reads_rust_created_database() {
 }
 ```
 
-- [ ] **Step 2: Run round-trip tests to verify RED**
+- [x] **Step 2: Run round-trip tests to verify RED**
 
 Run:
 
@@ -352,7 +352,7 @@ cargo test --test python_rust_roundtrip
 
 Expected before Task 1: FAIL. Expected after Task 1: PASS. If this fails after Task 1, inspect raw SQLite enum values before changing CLI behavior.
 
-- [ ] **Step 3: Commit round-trip tests**
+- [x] **Step 3: Commit round-trip tests**
 
 Run:
 
@@ -367,7 +367,7 @@ git commit -m "[test] add Python Rust roundtrip coverage"
 - Modify: `src/interfaces/cli.rs`
 - Modify: `tests/cli_parity.rs`
 
-- [ ] **Step 1: Add failing CLI command tests**
+- [x] **Step 1: Add failing CLI command tests**
 
 Append tests covering `list`, `approve`, `complete`, `archive`, `drop`, `cancel`, `project propose`, and `update` to `tests/cli_parity.rs`. Use command assertions that prove each command reaches `TodoService` by checking persisted status or updated fields through a later `list` command.
 
@@ -382,7 +382,7 @@ Command::cargo_bin("oracle-todo")
     .stdout(predicate::str::contains("expected title"));
 ```
 
-- [ ] **Step 2: Run CLI tests to verify RED**
+- [x] **Step 2: Run CLI tests to verify RED**
 
 Run:
 
@@ -392,7 +392,7 @@ cargo test --test cli_parity
 
 Expected: FAIL with unknown subcommands or missing output.
 
-- [ ] **Step 3: Add CLI command variants and argument structs**
+- [x] **Step 3: Add CLI command variants and argument structs**
 
 Modify `src/interfaces/cli.rs`:
 
@@ -507,7 +507,7 @@ struct UpdateArgs {
 }
 ```
 
-- [ ] **Step 4: Implement handlers through `TodoService`**
+- [x] **Step 4: Implement handlers through `TodoService`**
 
 Add handlers in `src/interfaces/cli.rs`:
 
@@ -562,7 +562,7 @@ service.update_item(
 )?;
 ```
 
-- [ ] **Step 5: Run core CLI tests**
+- [x] **Step 5: Run core CLI tests**
 
 Run:
 
@@ -572,7 +572,7 @@ cargo test --test cli_parity
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit core CLI parity**
+- [x] **Step 6: Commit core CLI parity**
 
 Run:
 
@@ -587,14 +587,14 @@ git commit -m "[feat] complete core CLI parity"
 - Modify: `src/interfaces/cli.rs`
 - Modify: `tests/cli_parity.rs`
 
-- [ ] **Step 1: Add failing tests for `archive-list` and `routine materialize`**
+- [x] **Step 1: Add failing tests for `archive-list` and `routine materialize`**
 
 Append tests to `tests/cli_parity.rs` that:
 
 - create and archive a task, then assert `archive-list` prints the archived task.
 - create, approve, and activate a routine, then assert `routine materialize` prints generated tasks or the no-op message.
 
-- [ ] **Step 2: Run targeted CLI tests to verify RED**
+- [x] **Step 2: Run targeted CLI tests to verify RED**
 
 Run:
 
@@ -604,7 +604,7 @@ cargo test --test cli_parity archive_list_shows_terminal_items routine_materiali
 
 Expected: FAIL with missing subcommand or missing output.
 
-- [ ] **Step 3: Implement `archive-list`**
+- [x] **Step 3: Implement `archive-list`**
 
 Add handler:
 
@@ -617,7 +617,7 @@ fn archive_list(home: &Path) -> Result<()> {
 }
 ```
 
-- [ ] **Step 4: Implement `routine materialize`**
+- [x] **Step 4: Implement `routine materialize`**
 
 Add subcommand:
 
@@ -656,7 +656,7 @@ fn routine_materialize(home: &Path, args: RoutineMaterializeArgs) -> Result<()> 
 }
 ```
 
-- [ ] **Step 5: Run routine/archive CLI tests**
+- [x] **Step 5: Run routine/archive CLI tests**
 
 Run:
 
@@ -666,7 +666,7 @@ cargo test --test cli_parity archive_list_shows_terminal_items routine_materiali
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit remaining CLI parity**
+- [x] **Step 6: Commit remaining CLI parity**
 
 Run:
 
@@ -681,7 +681,7 @@ git commit -m "[feat] add routine and archive CLI parity"
 - Modify: `src/interfaces/api.rs`
 - Modify: `tests/api_parity.rs`
 
-- [ ] **Step 1: Add failing route tests**
+- [x] **Step 1: Add failing route tests**
 
 Add tests for:
 
@@ -699,7 +699,7 @@ Add tests for:
 
 Each route test must assert status code, response body, and persisted state through `GET /items`.
 
-- [ ] **Step 2: Run API tests to verify RED**
+- [x] **Step 2: Run API tests to verify RED**
 
 Run:
 
@@ -709,7 +709,7 @@ cargo test --test api_parity
 
 Expected: FAIL with `404 Not Found` for the new routes.
 
-- [ ] **Step 3: Add request bodies and routes**
+- [x] **Step 3: Add request bodies and routes**
 
 Modify `src/interfaces/api.rs`:
 
@@ -746,13 +746,13 @@ struct UpdateBody {
 
 Add routes to `router` using `post`, `patch`, and `get`.
 
-- [ ] **Step 4: Implement handlers through `TodoService`**
+- [x] **Step 4: Implement handlers through `TodoService`**
 
 Every handler must use `with_service(&state, |service| ...)`. Transition handlers must mirror the existing `approve_item` and `complete_item` pattern.
 
 Do not instantiate `SqliteTodoRepository` inside individual handlers.
 
-- [ ] **Step 5: Run API tests**
+- [x] **Step 5: Run API tests**
 
 Run:
 
@@ -762,7 +762,7 @@ cargo test --test api_parity
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit API extension**
+- [x] **Step 6: Commit API extension**
 
 Run:
 
@@ -777,7 +777,7 @@ git commit -m "[feat] add operational API routes"
 - Modify: `README.md`
 - Modify: `docs/rust-refactor.md`
 
-- [ ] **Step 1: Add copied-live-DB smoke commands**
+- [x] **Step 1: Add copied-live-DB smoke commands**
 
 Document this procedure:
 
@@ -792,7 +792,7 @@ cargo run -- --home "$tmp_home" export
 
 State that the smoke uses a copied DB only and must not write to the live home.
 
-- [ ] **Step 2: Add cutover gate checklist**
+- [x] **Step 2: Add cutover gate checklist**
 
 Document these required gates:
 
@@ -807,7 +807,7 @@ Python-to-Rust round-trip smoke
 Rust-to-Python round-trip smoke
 ```
 
-- [ ] **Step 3: Run docs diff check**
+- [x] **Step 3: Run docs diff check**
 
 Run:
 
@@ -817,7 +817,7 @@ git diff --check README.md docs/rust-refactor.md
 
 Expected: no output.
 
-- [ ] **Step 4: Commit docs**
+- [x] **Step 4: Commit docs**
 
 Run:
 
@@ -831,7 +831,7 @@ git commit -m "[docs] add Rust cutover smoke gate"
 **Files:**
 - All files modified by previous tasks.
 
-- [ ] **Step 1: Run full verification**
+- [x] **Step 1: Run full verification**
 
 Run:
 
@@ -849,7 +849,7 @@ Expected:
 - all Python tests pass.
 - Rust line coverage is at least 80%.
 
-- [ ] **Step 2: Run copied-live-DB smoke**
+- [x] **Step 2: Run copied-live-DB smoke**
 
 Run against a copied data home:
 
@@ -864,7 +864,7 @@ cargo run -- --home "$tmp_home" export
 
 Expected: all commands exit successfully without `unknown item type`, `unknown status`, or `unknown actor` errors.
 
-- [ ] **Step 3: Inspect commit history and status**
+- [x] **Step 3: Inspect commit history and status**
 
 Run:
 
@@ -875,7 +875,7 @@ git log --oneline -n 10
 
 Expected: only intentionally untracked local files remain.
 
-- [ ] **Step 4: Push branch**
+- [x] **Step 4: Push branch**
 
 Run:
 
@@ -887,9 +887,9 @@ Expected: branch updates successfully.
 
 ## Self-Review Checklist
 
-- [ ] Spec coverage: DB enum compatibility, round-trip tests, CLI parity, API extension, docs, verification, and cutover smoke are represented.
-- [ ] TDD ordering: every behavior change starts with failing tests before implementation.
-- [ ] Clean Architecture: SQLite encoding stays outside application service; CLI/API use `TodoService`.
-- [ ] SQLite safety: copied-live-DB smoke uses a temporary data home.
-- [ ] KISS/YAGNI: no live migration, hard delete, dashboard, or new recurrence behavior.
-- [ ] Verification: final gate includes Rust, Python, clippy, coverage, and copied DB smoke.
+- [x] Spec coverage: DB enum compatibility, round-trip tests, CLI parity, API extension, docs, verification, and cutover smoke are represented.
+- [x] TDD ordering: every behavior change starts with failing tests before implementation.
+- [x] Clean Architecture: SQLite encoding stays outside application service; CLI/API use `TodoService`.
+- [x] SQLite safety: copied-live-DB smoke uses a temporary data home.
+- [x] KISS/YAGNI: no live migration, hard delete, dashboard, or new recurrence behavior.
+- [x] Verification: final gate includes Rust, Python, clippy, coverage, and copied DB smoke.
