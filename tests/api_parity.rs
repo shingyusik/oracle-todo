@@ -9,6 +9,41 @@ async fn body_json(response: http::Response<Body>) -> Value {
     serde_json::from_slice(&body).unwrap()
 }
 
+async fn json_request(
+    app: axum::Router,
+    method: &str,
+    uri: impl Into<String>,
+    body: Value,
+) -> http::Response<Body> {
+    http_request(app, method, uri, Body::from(body.to_string())).await
+}
+
+async fn empty_request(
+    app: axum::Router,
+    method: &str,
+    uri: impl Into<String>,
+) -> http::Response<Body> {
+    http_request(app, method, uri, Body::empty()).await
+}
+
+async fn http_request(
+    app: axum::Router,
+    method: &str,
+    uri: impl Into<String>,
+    body: Body,
+) -> http::Response<Body> {
+    app.oneshot(
+        http::Request::builder()
+            .method(method)
+            .uri(uri.into())
+            .header("content-type", "application/json")
+            .body(body)
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn health_returns_ok() {
     let app = router(":memory:").unwrap();
@@ -286,6 +321,216 @@ async fn items_query_filters_and_orders_like_legacy_api() {
     assert_eq!(response.status(), 200);
     let items = body_json(response).await;
     assert_eq!(items.as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn operational_propose_routes_return_persisted_items() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/areas",
+        json!({"title":"운영"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/projects/propose",
+        json!({
+            "title":"Rust cutover",
+            "area":"운영",
+            "definition_of_done":"copied DB smoke passes",
+            "outcome":"safe cutover",
+            "due":"2026-06-10",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let project = body_json(response).await;
+    assert_eq!(project["type"], "project");
+    assert_eq!(project["status"], "approved");
+    assert_eq!(project["definition_of_done"], "copied DB smoke passes");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/routines/propose",
+        json!({
+            "title":"매일 점검",
+            "area":"운영",
+            "recurrence_rule":"daily",
+            "materialization_policy":"single_open",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let routine = body_json(response).await;
+    assert_eq!(routine["type"], "routine");
+    assert_eq!(routine["recurrence_rule"], "daily");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/events/propose",
+        json!({
+            "title":"운영 회의",
+            "scheduled":"2026-06-01 10:00",
+            "area":"운영",
+            "location":"회의실",
+            "participants":["팀"],
+            "commitment_type":"meeting",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let event = body_json(response).await;
+    assert_eq!(event["type"], "event");
+    assert_eq!(event["status"], "approved");
+    assert_eq!(event["metadata_"]["location"], "회의실");
+    assert_eq!(event["metadata_"]["participants"][0], "팀");
+
+    let response = empty_request(router(&db_path).unwrap(), "GET", "/items?type=project").await;
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["title"], "Rust cutover");
+}
+
+#[tokio::test]
+async fn operational_transition_routes_return_mutated_items() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"활성화", "actor":"user"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let item = body_json(response).await;
+    let active_id = item["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{active_id}/activate"),
+        json!({"reason":"start"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_json(response).await["status"], "active");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{active_id}/pause"),
+        json!({"reason":"blocked"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_json(response).await["status"], "paused");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{active_id}/resume"),
+        json!({"reason":"clear"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_json(response).await["status"], "active");
+
+    for (title, route, status) in [
+        ("보관", "archive", "archived"),
+        ("폐기", "drop", "dropped"),
+        ("취소", "cancel", "cancelled"),
+    ] {
+        let response = json_request(
+            router(&db_path).unwrap(),
+            "POST",
+            "/tasks/propose",
+            json!({"title":title, "actor":"user"}),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        let item = body_json(response).await;
+        let id = item["id"].as_str().unwrap();
+        let response = json_request(
+            router(&db_path).unwrap(),
+            "POST",
+            format!("/items/{id}/{route}"),
+            json!({"reason":"terminal"}),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(body_json(response).await["status"], status);
+    }
+}
+
+#[tokio::test]
+async fn patch_item_and_archive_endpoint_use_persisted_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"수정 전", "actor":"user"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let item = body_json(response).await;
+    let id = item["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{id}"),
+        json!({
+            "title":"수정 후",
+            "description":"API update",
+            "priority":3,
+            "reason":"patch"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let item = body_json(response).await;
+    assert_eq!(item["title"], "수정 후");
+    assert_eq!(item["description"], "API update");
+    assert_eq!(item["priority"], 3);
+
+    let response = empty_request(router(&db_path).unwrap(), "GET", "/items?query=API").await;
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["id"], id);
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{id}/archive"),
+        json!({}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = empty_request(router(&db_path).unwrap(), "GET", "/items/archive").await;
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["title"], "수정 후");
 }
 
 #[tokio::test]
