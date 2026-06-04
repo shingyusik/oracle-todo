@@ -329,6 +329,90 @@ fn repository_reads_python_sqlalchemy_datetime_format() {
 }
 
 #[test]
+fn repository_reads_legacy_uppercase_enum_rows() {
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    conn.execute(
+        r#"
+        INSERT INTO items (
+            id, type, title, status, materialization_policy, proposed_by,
+            second_brain_refs, metadata, created_at, updated_at
+        )
+        VALUES (
+            'area_legacy', 'AREA', '레거시 영역', 'ACTIVE', 'single_open', 'USER',
+            '[]', '{}', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'
+        )
+        "#,
+        [],
+    )
+    .unwrap();
+
+    let mut repo = SqliteTodoRepository::new(conn);
+    let item = repo.get_item("area_legacy").unwrap().unwrap();
+
+    assert_eq!(item.item_type, ItemType::Area);
+    assert_eq!(item.status, ItemStatus::Active);
+    assert_eq!(item.proposed_by, Actor::User);
+}
+
+#[test]
+fn repository_writes_python_compatible_enum_names() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let db_path = dir.path().join("todo.sqlite");
+    let conn = connect(db_path.to_str().unwrap()).unwrap();
+    init_schema(&conn).unwrap();
+    let now = datetime!(2026-06-01 00:00 UTC);
+    let item = TodoItem::new_task("task_enum_format", "저장 포맷 확인", Actor::Oracle, now);
+    let event = TodoEvent {
+        id: "evt_enum_format".to_string(),
+        at: now,
+        actor: Actor::Oracle,
+        action: "propose_task".to_string(),
+        object_type: item.item_type.as_str().to_string(),
+        object_id: item.id.clone(),
+        before: None,
+        after: None,
+        reason: None,
+    };
+
+    let mut repo = SqliteTodoRepository::new(conn);
+    repo.save_item_and_event(&item, &event).unwrap();
+    drop(repo);
+
+    let conn = connect(db_path.to_str().unwrap()).unwrap();
+    let item_row = conn
+        .query_row(
+            "SELECT type, status, proposed_by FROM items WHERE id = ?1",
+            ["task_enum_format"],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .unwrap();
+    let event_row = conn
+        .query_row(
+            "SELECT actor, object_type FROM events WHERE id = ?1",
+            ["evt_enum_format"],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(
+        item_row,
+        (
+            "TASK".to_string(),
+            "PROPOSED".to_string(),
+            "ORACLE".to_string()
+        )
+    );
+    assert_eq!(event_row, ("ORACLE".to_string(), "task".to_string()));
+}
+
+#[test]
 fn schema_init_adds_missing_legacy_columns() {
     let conn = connect(":memory:").unwrap();
     conn.execute_batch(

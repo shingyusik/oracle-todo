@@ -36,6 +36,22 @@ fn actor_strings_round_trip_through_domain_parser() {
 }
 
 #[test]
+fn domain_enums_parse_uppercase_sqlite_names() {
+    assert_eq!(ItemType::from_str("AREA").unwrap(), ItemType::Area);
+    assert_eq!(
+        ItemType::from_str("ARCHIVE_ITEM").unwrap(),
+        ItemType::ArchiveItem
+    );
+    assert_eq!(ItemStatus::from_str("ACTIVE").unwrap(), ItemStatus::Active);
+    assert_eq!(
+        ItemStatus::from_str("PROPOSED").unwrap(),
+        ItemStatus::Proposed
+    );
+    assert_eq!(Actor::from_str("ORACLE").unwrap(), Actor::Oracle);
+    assert_eq!(Actor::from_str("SYSTEM").unwrap(), Actor::System);
+}
+
+#[test]
 fn json_timestamps_are_rfc3339_strings() {
     let now = datetime!(2026-05-31 12:00 UTC);
     let item = TodoItem::new_task("task_json", "JSON 확인", Actor::User, now);

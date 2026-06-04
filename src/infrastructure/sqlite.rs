@@ -122,7 +122,7 @@ const ITEM_COLUMN_ADDITIONS: &[(&str, &str)] = &[
     ("due", "TEXT"),
     ("scheduled", "TEXT"),
     ("horizon", "TEXT"),
-    ("proposed_by", "TEXT NOT NULL DEFAULT 'oracle'"),
+    ("proposed_by", "TEXT NOT NULL DEFAULT 'ORACLE'"),
     ("approved_by", "TEXT"),
     ("approved_at", "TEXT"),
     ("completed_at", "TEXT"),
@@ -280,9 +280,9 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
                 "#,
         params![
             item.id,
-            item.item_type.as_str(),
+            item_type_sqlite_value(item.item_type),
             item.title,
-            item.status.as_str(),
+            status_sqlite_value(item.status),
             item.area_id,
             item.project_id,
             item.routine_id,
@@ -299,8 +299,8 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
             item.due,
             item.scheduled,
             item.horizon,
-            item.proposed_by.as_str(),
-            item.approved_by.map(Actor::as_str),
+            actor_sqlite_value(item.proposed_by),
+            item.approved_by.map(actor_sqlite_value),
             format_optional_time(item.approved_at)?,
             format_optional_time(item.completed_at)?,
             format_optional_time(item.archived_at)?,
@@ -328,7 +328,7 @@ fn save_event_on(conn: &Connection, event: &TodoEvent) -> TodoResult<()> {
         params![
             event.id,
             format_time(event.at)?,
-            event.actor.as_str(),
+            actor_sqlite_value(event.actor),
             event.action,
             event.object_type,
             event.object_id,
@@ -349,6 +349,42 @@ fn save_event_on(conn: &Connection, event: &TodoEvent) -> TodoResult<()> {
     )
     .map_err(storage_error)?;
     Ok(())
+}
+
+fn item_type_sqlite_value(item_type: ItemType) -> &'static str {
+    match item_type {
+        ItemType::Area => "AREA",
+        ItemType::Project => "PROJECT",
+        ItemType::Routine => "ROUTINE",
+        ItemType::Task => "TASK",
+        ItemType::Event => "EVENT",
+        ItemType::Review => "REVIEW",
+        ItemType::ArchiveItem => "ARCHIVE_ITEM",
+    }
+}
+
+fn status_sqlite_value(status: ItemStatus) -> &'static str {
+    match status {
+        ItemStatus::Proposed => "PROPOSED",
+        ItemStatus::Approved => "APPROVED",
+        ItemStatus::Active => "ACTIVE",
+        ItemStatus::Waiting => "WAITING",
+        ItemStatus::Paused => "PAUSED",
+        ItemStatus::Completed => "COMPLETED",
+        ItemStatus::Cancelled => "CANCELLED",
+        ItemStatus::Dropped => "DROPPED",
+        ItemStatus::Archived => "ARCHIVED",
+        ItemStatus::Someday => "SOMEDAY",
+        ItemStatus::Rejected => "REJECTED",
+    }
+}
+
+fn actor_sqlite_value(actor: Actor) -> &'static str {
+    match actor {
+        Actor::User => "USER",
+        Actor::Oracle => "ORACLE",
+        Actor::System => "SYSTEM",
+    }
 }
 
 fn item_select_sql(suffix: &str) -> String {
