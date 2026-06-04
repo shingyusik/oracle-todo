@@ -283,7 +283,6 @@ async fn list_items(
         project_id: query.project_id.and_then(non_empty_string),
         routine_id: query.routine_id.and_then(non_empty_string),
         query: query.query.and_then(non_empty_string),
-        ..Default::default()
     };
     let mut items = with_service(&state, |service| service.list_items(filter))?;
     items.sort_by(|left, right| {
