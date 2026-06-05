@@ -2,7 +2,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use time::{OffsetDateTime, UtcOffset};
+use serde::Serialize;
+use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 
 pub fn init_tracing() {
     let _ = tracing_subscriber::fmt()
@@ -10,43 +11,94 @@ pub fn init_tracing() {
         .try_init();
 }
 
+const DEFAULT_LOG_MAX_BYTES: u64 = 1_048_576;
+const DEFAULT_LOG_MAX_FILES: usize = 3;
+
 #[derive(Debug, Clone)]
-pub struct FileLogger {
+pub struct OperationalLogger {
     path: PathBuf,
     max_bytes: u64,
+    max_files: usize,
+    pid: u32,
 }
 
-impl FileLogger {
+#[derive(Debug, Serialize)]
+struct LogRecord<'a> {
+    timestamp: String,
+    level: &'a str,
+    event: &'a str,
+    command: &'a str,
+    message: &'a str,
+    pid: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<u64>,
+}
+
+impl OperationalLogger {
     pub fn new(home: &Path) -> std::io::Result<Self> {
         let log_dir = home.join("logs");
         fs::create_dir_all(&log_dir)?;
-        let max_bytes = std::env::var("ORACLE_TODO_LOG_MAX_BYTES")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(1_048_576);
         Ok(Self {
-            path: log_dir.join("oracle-todo.log"),
-            max_bytes,
+            path: log_dir.join("oracle-todo.jsonl"),
+            max_bytes: log_max_bytes_from_env(),
+            max_files: log_max_files_from_env(),
+            pid: std::process::id(),
         })
     }
 
-    pub fn info(&self, event: &str, message: &str) {
-        self.write("INFO", event, message);
+    pub fn command_start(&self, command: &str) {
+        self.write(LogRecord {
+            timestamp: timestamp(),
+            level: "INFO",
+            event: "command_start",
+            command,
+            message: "command started",
+            pid: self.pid,
+            exit_code: None,
+            duration_ms: None,
+        });
     }
 
-    pub fn error(&self, event: &str, message: &str) {
-        self.write("ERROR", event, message);
+    pub fn command_success(&self, command: &str, duration_ms: u64) {
+        self.write(LogRecord {
+            timestamp: timestamp(),
+            level: "INFO",
+            event: "command_success",
+            command,
+            message: "command completed",
+            pid: self.pid,
+            exit_code: Some(0),
+            duration_ms: Some(duration_ms),
+        });
     }
 
-    fn write(&self, level: &str, event: &str, message: &str) {
-        let line = format!(
-            "{} level={} event={} message={}\n",
-            OffsetDateTime::now_utc(),
-            level,
-            event,
-            sanitize_log_message(message)
-        );
+    pub fn command_error(
+        &self,
+        command: &str,
+        message: &str,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+    ) {
+        self.write(LogRecord {
+            timestamp: timestamp(),
+            level: "ERROR",
+            event: "command_error",
+            command,
+            message,
+            pid: self.pid,
+            exit_code,
+            duration_ms: Some(duration_ms),
+        });
+    }
+
+    fn write(&self, record: LogRecord<'_>) {
+        let Ok(mut line) = serde_json::to_string(&record) else {
+            tracing::warn!("failed to serialize oracle-todo log record");
+            return;
+        };
+        line.push('\n');
         if let Err(error) = self.rotate_if_needed(line.len() as u64).and_then(|_| {
             OpenOptions::new()
                 .create(true)
@@ -65,19 +117,61 @@ impl FileLogger {
         if current_bytes == 0 || current_bytes + incoming_bytes <= self.max_bytes {
             return Ok(());
         }
-        let rotated = self.path.with_file_name("oracle-todo.log.1");
-        if rotated.exists() {
-            fs::remove_file(&rotated)?;
+
+        if self.max_files == 0 {
+            if self.path.exists() {
+                fs::remove_file(&self.path)?;
+            }
+            return Ok(());
         }
+
+        let oldest = self.rotated_path(self.max_files);
+        if oldest.exists() {
+            fs::remove_file(oldest)?;
+        }
+
+        for index in (1..self.max_files).rev() {
+            let source = self.rotated_path(index);
+            if source.exists() {
+                fs::rename(source, self.rotated_path(index + 1))?;
+            }
+        }
+
         if self.path.exists() {
-            fs::rename(&self.path, rotated)?;
+            fs::rename(&self.path, self.rotated_path(1))?;
         }
         Ok(())
     }
+
+    fn rotated_path(&self, index: usize) -> PathBuf {
+        let file_name = self
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("oracle-todo.jsonl");
+        self.path.with_file_name(format!("{file_name}.{index}"))
+    }
 }
 
-fn sanitize_log_message(message: &str) -> String {
-    message.replace('\n', "\\n").replace('\r', "\\r")
+fn timestamp() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| OffsetDateTime::now_utc().to_string())
+}
+
+fn log_max_bytes_from_env() -> u64 {
+    std::env::var("ORACLE_TODO_LOG_MAX_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_LOG_MAX_BYTES)
+}
+
+fn log_max_files_from_env() -> usize {
+    std::env::var("ORACLE_TODO_LOG_MAX_FILES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_LOG_MAX_FILES)
 }
 
 pub fn local_today_string() -> String {

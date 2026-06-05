@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use std::str::FromStr;
 
+use crate::application::error::TodoError;
 use crate::application::service::{
     CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, TodoService,
 };
@@ -11,7 +13,7 @@ use crate::domain::Actor;
 use crate::exports::{current_today_items, pending_items, render_items, write_current_exports};
 use crate::infrastructure::paths::{db_path, exports_dir, todo_home};
 use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
-use crate::infrastructure::system::{FileLogger, init_tracing, local_today_string};
+use crate::infrastructure::system::{OperationalLogger, init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
 #[command(name = "oracle-todo")]
@@ -192,10 +194,11 @@ struct ActivateArgs {
 pub fn run() -> Result<()> {
     init_tracing();
     let cli = Cli::parse();
-    let command_name = format!("{:?}", &cli.command);
+    let command_name = command_label(&cli.command);
     let home = todo_home(cli.home)?;
-    let logger = FileLogger::new(&home)?;
-    logger.info("command_start", &command_name);
+    let logger = OperationalLogger::new(&home)?;
+    logger.command_start(command_name);
+    let started_at = Instant::now();
 
     let result = match cli.command {
         Command::Init => init(&home),
@@ -221,11 +224,47 @@ pub fn run() -> Result<()> {
         Command::Export => export(&home),
     };
 
+    let duration_ms = elapsed_millis(started_at);
     match &result {
-        Ok(()) => logger.info("command_success", &command_name),
-        Err(error) => logger.error("command_error", &format!("{command_name}: {error:#}")),
+        Ok(()) => logger.command_success(command_name, duration_ms),
+        Err(error) => logger.command_error(
+            command_name,
+            &format!("{error:#}"),
+            TodoError::cli_exit_code_from_error(error),
+            duration_ms,
+        ),
     }
     result
+}
+
+fn command_label(command: &Command) -> &'static str {
+    match command {
+        Command::Init => "init",
+        Command::Health => "health",
+        Command::Area {
+            command: AreaCommand::Create(_),
+        } => "area create",
+        Command::Project {
+            command: ProjectCommand::Propose(_),
+        } => "project propose",
+        Command::Task {
+            command: TaskCommand::Propose(_),
+        } => "task propose",
+        Command::Routine {
+            command: RoutineCommand::Propose(_),
+        } => "routine propose",
+        Command::Event {
+            command: EventCommand::Propose(_),
+        } => "event propose",
+        Command::Activate(_) => "activate",
+        Command::Pending => "pending",
+        Command::Today => "today",
+        Command::Export => "export",
+    }
+}
+
+fn elapsed_millis(started_at: Instant) -> u64 {
+    started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn init(home: &Path) -> Result<()> {

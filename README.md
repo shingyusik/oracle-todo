@@ -42,8 +42,10 @@ Default data directory:
 │   ├── proposed.md
 │   └── archive.md
 └── logs/
-    ├── oracle-todo.log
-    └── oracle-todo.log.1
+    ├── oracle-todo.jsonl
+    ├── oracle-todo.jsonl.1
+    ├── oracle-todo.jsonl.2
+    └── oracle-todo.jsonl.3
 ```
 
 Use another data directory:
@@ -295,15 +297,19 @@ CLI output has two layers:
 
 - **stdout**: user-facing command result, usually JSON or rendered Markdown.
 - **stderr**: user-facing errors.
-- **file log**: operational command log at `ORACLE_TODO_HOME/logs/oracle-todo.log`.
+- **file log**: JSONL operational command log at `ORACLE_TODO_HOME/logs/oracle-todo.jsonl`.
 
 File logging behavior:
 
-- Logs `command_start`, `command_success`, and `command_error`.
-- Errors are logged with the same message shown to the CLI user.
+- Logs one JSON object per line for `command_start`, `command_success`, and `command_error`.
+- Records include `timestamp`, `level`, `event`, `command`, `message`, and `pid`.
+- Command success/error records include `duration_ms`; success records include `exit_code: 0`.
+- `command_error` records include the error message and, for downcastable `TodoError` values, the mapped `exit_code`.
 - Default max file size: `1_048_576` bytes.
 - Override with `ORACLE_TODO_LOG_MAX_BYTES=<bytes>`.
-- Rotation keeps one previous file: `oracle-todo.log.1`.
+- Default backup count: `3`.
+- Override with `ORACLE_TODO_LOG_MAX_FILES=<count>`.
+- Rotation shifts `oracle-todo.jsonl` to `oracle-todo.jsonl.1`, then `.2`, `.3`, up to the configured backup count.
 
 Error handling:
 
