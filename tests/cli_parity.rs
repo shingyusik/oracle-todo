@@ -54,10 +54,54 @@ fn task_propose_prints_json_item() {
             "task",
             "propose",
             "MoneyManager 앱 열고 DB 생성 여부 확인",
+            "--note",
+            "앱 최초 실행 후 확인",
         ])
         .assert()
         .success()
-        .stdout(contains("\"status\":\"proposed\""));
+        .stdout(contains("\"status\":\"proposed\""))
+        .stdout(contains("\"note\":\"앱 최초 실행 후 확인\""));
+}
+
+#[test]
+fn cli_writes_rotated_logs_and_records_errors() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("oracle-todo")
+        .unwrap()
+        .env("ORACLE_TODO_LOG_MAX_BYTES", "160")
+        .args(["--home", home.path().to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("oracle-todo")
+        .unwrap()
+        .env("ORACLE_TODO_LOG_MAX_BYTES", "160")
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "task",
+            "propose",
+            "실패할 일",
+            "--area",
+            "없는영역",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("Item not found: 없는영역"));
+
+    let log_path = home.path().join("logs/oracle-todo.log");
+    let rotated_path = home.path().join("logs/oracle-todo.log.1");
+    assert!(log_path.exists());
+    assert!(rotated_path.exists());
+    let combined = format!(
+        "{}\n{}",
+        std::fs::read_to_string(&log_path).unwrap(),
+        std::fs::read_to_string(&rotated_path).unwrap()
+    );
+    assert!(combined.contains("command_start"));
+    assert!(combined.contains("command_error"));
+    assert!(combined.contains("Item not found: 없는영역"));
 }
 
 #[test]

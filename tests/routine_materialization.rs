@@ -20,6 +20,7 @@ fn per_occurrence_materialization_creates_bounded_unique_tasks() {
             recurrence_rule: Some("daily".to_string()),
             materialization_policy: "per_occurrence".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -79,6 +80,7 @@ fn weekday_sets_and_ranges_match_python_behavior() {
             recurrence_rule: Some("월수금".to_string()),
             materialization_policy: "per_occurrence".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -185,6 +187,7 @@ fn recurrence_matrix_matches_existing_python_cases() {
                 recurrence_rule: Some(rule.to_string()),
                 materialization_policy: "per_occurrence".to_string(),
                 area: None,
+                note: None,
             })
             .unwrap();
         service.activate(&routine.id, None).unwrap();
@@ -227,6 +230,7 @@ fn single_open_routine_respects_existing_manual_open_task() {
             recurrence_rule: Some("daily".to_string()),
             materialization_policy: "single_open".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -256,6 +260,7 @@ fn pausing_and_resuming_routine_cascades_generated_task_state() {
             recurrence_rule: Some("daily".to_string()),
             materialization_policy: "single_open".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -301,6 +306,7 @@ fn malformed_recurrence_units_are_rejected() {
             recurrence_rule: Some("every dayzz".to_string()),
             materialization_policy: "per_occurrence".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -324,6 +330,7 @@ fn completing_generated_task_updates_routine_occurrence_history() {
             recurrence_rule: Some("weekly".to_string()),
             materialization_policy: "single_open".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -362,6 +369,7 @@ fn archiving_and_cancelling_routine_cascades_generated_tasks() {
             recurrence_rule: Some("weekly".to_string()),
             materialization_policy: "single_open".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     archive_service.activate(&routine.id, None).unwrap();
@@ -396,6 +404,7 @@ fn archiving_and_cancelling_routine_cascades_generated_tasks() {
             recurrence_rule: Some("weekly".to_string()),
             materialization_policy: "single_open".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     cancel_service.activate(&routine.id, None).unwrap();
@@ -433,6 +442,7 @@ fn archiving_generated_task_updates_routine_occurrence_history() {
             recurrence_rule: Some("daily".to_string()),
             materialization_policy: "single_open".to_string(),
             area: None,
+            note: None,
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();

@@ -29,6 +29,7 @@ struct AreaBody {
     title: String,
     review_cycle: Option<String>,
     standard: Option<String>,
+    note: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +40,7 @@ struct TaskProposeBody {
     scheduled: Option<String>,
     priority: Option<i64>,
     description: Option<String>,
+    note: Option<String>,
     actor: Option<String>,
 }
 
@@ -78,6 +80,7 @@ async fn create_area(
             title: body.title,
             review_cycle: body.review_cycle,
             standard: body.standard,
+            note: body.note,
         })
     })?;
     Ok(Json(item))
@@ -105,6 +108,7 @@ async fn propose_task(
                 scheduled: body.scheduled,
                 priority: body.priority,
                 description: body.description,
+                note: body.note,
                 ..Default::default()
             },
         )

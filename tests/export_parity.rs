@@ -56,6 +56,7 @@ fn event_propose_distinguishes_external_commitments() {
             location: Some("서울대병원".to_string()),
             participants: vec!["서울대병원".to_string()],
             commitment_type: "appointment".to_string(),
+            note: None,
         })
         .unwrap();
 
@@ -81,6 +82,7 @@ fn event_requires_non_blank_schedule() {
             location: None,
             participants: Vec::new(),
             commitment_type: "appointment".to_string(),
+            note: None,
         })
         .unwrap_err();
 

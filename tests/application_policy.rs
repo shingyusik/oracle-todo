@@ -55,6 +55,7 @@ fn area_titles_resolve_like_existing_python_cli() {
             title: "재정".to_string(),
             review_cycle: None,
             standard: None,
+            note: None,
         })
         .unwrap();
 
@@ -100,6 +101,7 @@ fn area_creation_is_active_and_cannot_complete() {
             title: "재정".to_string(),
             review_cycle: Some("weekly".to_string()),
             standard: None,
+            note: None,
         })
         .unwrap();
 
@@ -125,6 +127,7 @@ fn project_requires_definition_of_done_before_activation() {
             outcome: None,
             due: None,
             actor: Actor::User,
+            note: None,
         })
         .unwrap();
 
@@ -165,6 +168,7 @@ fn every_mutation_records_event() {
             title: "재정".to_string(),
             review_cycle: None,
             standard: None,
+            note: None,
         })
         .unwrap();
     service
@@ -175,6 +179,7 @@ fn every_mutation_records_event() {
             outcome: None,
             due: None,
             actor: Actor::User,
+            note: None,
         })
         .unwrap();
     let item = service.propose_task("테스트", Default::default()).unwrap();
@@ -297,6 +302,7 @@ fn relationships_must_reference_expected_item_types() {
             title: "재정".to_string(),
             review_cycle: None,
             standard: None,
+            note: None,
         })
         .unwrap();
     let project = service
@@ -307,6 +313,7 @@ fn relationships_must_reference_expected_item_types() {
             outcome: None,
             due: None,
             actor: Actor::User,
+            note: None,
         })
         .unwrap();
     let task = service.propose_task("검증", Default::default()).unwrap();

@@ -5,13 +5,13 @@ use clap::{Args, Parser, Subcommand};
 use std::str::FromStr;
 
 use crate::application::service::{
-    CreateArea, ProposeEvent, ProposeRoutine, ProposeTask, TodoService,
+    CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, TodoService,
 };
 use crate::domain::Actor;
 use crate::exports::{current_today_items, pending_items, render_items, write_current_exports};
 use crate::infrastructure::paths::{db_path, exports_dir, todo_home};
 use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
-use crate::infrastructure::system::{init_tracing, local_today_string};
+use crate::infrastructure::system::{FileLogger, init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
 #[command(name = "oracle-todo")]
@@ -35,6 +35,11 @@ enum Command {
     Area {
         #[command(subcommand)]
         command: AreaCommand,
+    },
+    /// Manage projects.
+    Project {
+        #[command(subcommand)]
+        command: ProjectCommand,
     },
     /// Manage tasks.
     Task {
@@ -68,6 +73,12 @@ enum AreaCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum ProjectCommand {
+    /// Propose a project.
+    Propose(ProjectProposeArgs),
+}
+
+#[derive(Debug, Subcommand)]
 enum TaskCommand {
     /// Propose a task.
     Propose(TaskProposeArgs),
@@ -92,6 +103,25 @@ struct AreaCreateArgs {
     review_cycle: Option<String>,
     #[arg(long)]
     standard: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct ProjectProposeArgs {
+    title: String,
+    #[arg(long)]
+    area: Option<String>,
+    #[arg(long)]
+    definition_of_done: Option<String>,
+    #[arg(long)]
+    outcome: Option<String>,
+    #[arg(long)]
+    due: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long, default_value = "oracle", value_parser = parse_actor)]
+    actor: Actor,
 }
 
 #[derive(Debug, Args)]
@@ -107,6 +137,8 @@ struct TaskProposeArgs {
     priority: Option<i64>,
     #[arg(long)]
     description: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
     #[arg(long, default_value = "oracle", value_parser = parse_actor)]
     actor: Actor,
 }
@@ -120,6 +152,8 @@ struct RoutineProposeArgs {
     recurrence_rule: Option<String>,
     #[arg(long, default_value = "single_open")]
     materialization_policy: String,
+    #[arg(long)]
+    note: Option<String>,
     #[arg(long, default_value = "oracle", value_parser = parse_actor)]
     actor: Actor,
 }
@@ -139,6 +173,8 @@ struct EventProposeArgs {
     #[arg(long)]
     description: Option<String>,
     #[arg(long)]
+    note: Option<String>,
+    #[arg(long)]
     location: Option<String>,
     #[arg(long = "with")]
     participants: Vec<String>,
@@ -156,14 +192,20 @@ struct ActivateArgs {
 pub fn run() -> Result<()> {
     init_tracing();
     let cli = Cli::parse();
+    let command_name = format!("{:?}", &cli.command);
     let home = todo_home(cli.home)?;
+    let logger = FileLogger::new(&home)?;
+    logger.info("command_start", &command_name);
 
-    match cli.command {
+    let result = match cli.command {
         Command::Init => init(&home),
         Command::Health => health(&home),
         Command::Area {
             command: AreaCommand::Create(args),
         } => area_create(&home, args),
+        Command::Project {
+            command: ProjectCommand::Propose(args),
+        } => project_propose(&home, args),
         Command::Task {
             command: TaskCommand::Propose(args),
         } => task_propose(&home, args),
@@ -177,7 +219,13 @@ pub fn run() -> Result<()> {
         Command::Pending => pending(&home),
         Command::Today => today(&home),
         Command::Export => export(&home),
+    };
+
+    match &result {
+        Ok(()) => logger.info("command_success", &command_name),
+        Err(error) => logger.error("command_error", &format!("{command_name}: {error:#}")),
     }
+    result
 }
 
 fn init(home: &Path) -> Result<()> {
@@ -208,6 +256,7 @@ fn task_propose(home: &Path, args: TaskProposeArgs) -> Result<()> {
             scheduled: args.scheduled,
             priority: args.priority,
             description: args.description,
+            note: args.note,
             ..Default::default()
         },
     )?;
@@ -221,6 +270,22 @@ fn area_create(home: &Path, args: AreaCreateArgs) -> Result<()> {
         title: args.title,
         review_cycle: args.review_cycle,
         standard: args.standard,
+        note: args.note,
+    })?;
+    println!("{}", serde_json::to_string(&item)?);
+    Ok(())
+}
+
+fn project_propose(home: &Path, args: ProjectProposeArgs) -> Result<()> {
+    let mut service = service(home)?;
+    let item = service.propose_project(ProposeProject {
+        title: args.title,
+        area: args.area,
+        definition_of_done: args.definition_of_done,
+        outcome: args.outcome,
+        due: args.due,
+        actor: args.actor,
+        note: args.note,
     })?;
     println!("{}", serde_json::to_string(&item)?);
     Ok(())
@@ -234,6 +299,7 @@ fn routine_propose(home: &Path, args: RoutineProposeArgs) -> Result<()> {
         actor: args.actor,
         recurrence_rule: args.recurrence_rule,
         materialization_policy: args.materialization_policy,
+        note: args.note,
     })?;
     println!("{}", serde_json::to_string(&item)?);
     Ok(())
@@ -250,6 +316,7 @@ fn event_propose(home: &Path, args: EventProposeArgs) -> Result<()> {
         due: args.due,
         priority: args.priority,
         description: args.description,
+        note: args.note,
         location: args.location,
         participants: args.participants,
         commitment_type: args.commitment_type,
