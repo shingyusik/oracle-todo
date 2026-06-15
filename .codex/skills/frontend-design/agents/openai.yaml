@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Design"
+  short_description: "Build and refactor frontend with clean architecture"
+  default_prompt: "Use $frontend-design to implement or refactor this frontend feature with repository-consistent stack, architecture, and dead-code cleanup."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dead Code Cleaner"
+  short_description: "Remove unused code and verify with tests plus reference search"
+  default_prompt: "Clean dead code safely: detect unreferenced code, delete conservatively, run all available tests, and prove removed symbols have zero remaining references via code search."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feature Implementer"
+  short_description: "Plan phased feature delivery with clean architecture defaults"
+  default_prompt: "Use $feature-implementer to create a phase-based implementation plan with test-first workflow, quality gates, and Clean Architecture unless explicitly overridden."
