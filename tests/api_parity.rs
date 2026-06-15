@@ -255,7 +255,7 @@ async fn approve_and_complete_items_return_mutated_items() {
 }
 
 #[tokio::test]
-async fn items_query_filters_and_orders_like_legacy_api() {
+async fn items_query_filters_and_orders_items() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
     let mut ids = Vec::new();
@@ -534,7 +534,7 @@ async fn patch_item_and_archive_endpoint_use_persisted_state() {
 }
 
 #[tokio::test]
-async fn service_errors_return_legacy_detail_body() {
+async fn service_errors_return_detail_body() {
     let app = router(":memory:").unwrap();
     let response = app
         .oneshot(

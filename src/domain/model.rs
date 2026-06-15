@@ -190,8 +190,7 @@ impl FromStr for ItemType {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let normalized = normalize_enum_input(value);
-        match normalized.as_str() {
+        match value.trim() {
             "area" => Ok(ItemType::Area),
             "project" => Ok(ItemType::Project),
             "routine" => Ok(ItemType::Routine),
@@ -226,8 +225,7 @@ impl FromStr for ItemStatus {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let normalized = normalize_enum_input(value);
-        match normalized.as_str() {
+        match value.trim() {
             "proposed" => Ok(ItemStatus::Proposed),
             "approved" => Ok(ItemStatus::Approved),
             "active" => Ok(ItemStatus::Active),
@@ -258,16 +256,11 @@ impl FromStr for Actor {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let normalized = normalize_enum_input(value);
-        match normalized.as_str() {
+        match value.trim() {
             "user" => Ok(Actor::User),
             "oracle" => Ok(Actor::Oracle),
             "system" => Ok(Actor::System),
             _ => Err(format!("unknown actor: {value}")),
         }
     }
-}
-
-fn normalize_enum_input(value: &str) -> String {
-    value.trim().to_ascii_lowercase()
 }

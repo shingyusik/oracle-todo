@@ -275,7 +275,7 @@ async fn list_items(
             .include_archived
             .as_deref()
             .and_then(non_empty)
-            .map(parse_legacy_bool)
+            .map(parse_bool)
             .transpose()
             .map_err(TodoError::Validation)?
             .unwrap_or(false),
@@ -485,7 +485,7 @@ fn parse_actor_or_default(value: Option<&str>) -> Result<Actor, TodoError> {
         .map(|actor| actor.unwrap_or(Actor::Oracle))
 }
 
-fn parse_legacy_bool(value: &str) -> std::result::Result<bool, String> {
+fn parse_bool(value: &str) -> std::result::Result<bool, String> {
     match value.to_ascii_lowercase().as_str() {
         "true" | "1" | "yes" | "on" => Ok(true),
         "false" | "0" | "no" | "off" => Ok(false),

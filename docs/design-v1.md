@@ -53,10 +53,10 @@ Telegram / CLI / Future Dashboard / Oracle
 
 ## v1 scope
 
-- SQLite schema and migrations via SQLModel create_all.
+- SQLite schema and migrations in the Rust storage layer.
 - Service methods: create area, propose project/task/routine, approve, activate, complete, archive, list, export, materialize routine tasks.
-- CLI for local operations and Oracle tool calls.
-- FastAPI skeleton for future dashboard.
+- Rust CLI for local operations and Oracle tool calls.
+- Axum router for the HTTP surface.
 - Tests for policy rules and export shape.
 
 ## Later phases

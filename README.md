@@ -10,85 +10,67 @@ A policy-enforced personal ToDo engine for Oracle/Hermes workflows.
 - **Second_Brain is read-only**: ToDo stores references but never writes to the vault.
 - **User approval gates agent-created work**: Oracle proposals cannot become active tasks without approval.
 
-## Refactor status
+## Current status
 
-This worktree is for the Rust + SQLite refactor. The existing Python engine remains operational until explicit cutover approval.
+This repo is the active Rust engine workspace.
 
-- Operational Python engine: `/Users/singyusig/Desktop/02_Coding/oracle-todo`
-- Preserved legacy copy: `/Users/singyusig/Desktop/02_Coding/oracle-todo-python-legacy`
-- Refactor branch/worktree: `/Users/singyusig/Desktop/02_Coding/oracle-todo-rust-refactor` (`refactor/rust-sqlite`)
-- Guardrails: `docs/rust-refactor.md`
+- Workspace: `/Users/singyusig/Desktop/02_Coding/oracle-todo-rust-refactor`
+- Branch: `refactor/rust-sqlite`
+- Data home default: `~/.hermes/oracle-todo/`
+- Operating guardrails: `docs/rust-refactor.md`
 
-## Target stack
+## Stack
 
 - Rust
 - SQLite via `rusqlite`
 - Terminal CLI first
-- API later, over the same policy/service path
+- HTTP API over the same policy/service path
 
 ## Quick start
 
 ```bash
-uv sync
-uv run oracle-todo init
-uv run oracle-todo area create "재정" --review-cycle weekly
-uv run oracle-todo project propose "MoneyManager 안정화" --area "재정" --definition-of-done "원본 DB 백업/브리핑이 매일 실패 없이 동작한다"
-uv run oracle-todo task propose "MoneyManager 앱 열고 DB 생성 여부 확인" --area "재정"
-uv run oracle-todo pending
-uv run oracle-todo approve <item-id>
-uv run oracle-todo today
-uv run oracle-todo export
-```
-
-## Rust parity commands
-
-```bash
-cargo test
 cargo run -- init
-cargo run -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인"
+cargo run -- area create "재정" --review-cycle weekly
+cargo run -- project propose "MoneyManager 안정화" --area "재정" --definition-of-done "원본 DB 백업/브리핑이 매일 실패 없이 동작한다"
+cargo run -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인" --area "재정"
 cargo run -- pending
-cargo run -- list --type task
 cargo run -- approve <item-id>
-cargo run -- complete <item-id>
+cargo run -- today
+cargo run -- export
 ```
 
-Default data directory: `~/.hermes/oracle-todo/`.
-Override with:
+Override data home when needed:
 
 ```bash
 export ORACLE_TODO_HOME=/path/to/data
 ```
 
-## Rust cutover smoke
-
-Run compatibility smoke tests only against a copied data home:
-
-```bash
-tmp_home="$(mktemp -d)"
-mkdir -p "$tmp_home"
-cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
-cargo run -- --home "$tmp_home" pending
-cargo run -- --home "$tmp_home" today
-cargo run -- --home "$tmp_home" export
-```
-
-Cutover gate:
+## Verification
 
 ```bash
 cargo fmt --check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
-uv run pytest -q
-cargo llvm-cov --summary-only
 ```
 
-## Dashboard-ready API
+## Copied-data smoke
+
+Run smoke tests only against a copied data home:
 
 ```bash
-uv run uvicorn oracle_todo.api:app --reload
+tmp_home="$(mktemp -d)"
+cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
+cargo run -- --home "$tmp_home" migrate-legacy-db
+cargo run -- --home "$tmp_home" pending
+cargo run -- --home "$tmp_home" today
+cargo run -- --home "$tmp_home" export
 ```
 
-Endpoints:
+## API
+
+The repo includes an Axum router in `src/interfaces/api.rs` and test coverage for the HTTP surface.
+
+Endpoints include:
 
 - `GET /health`
 - `GET /items`
@@ -97,5 +79,3 @@ Endpoints:
 - `POST /items/{id}/approve`
 - `POST /items/{id}/complete`
 - `GET /exports/today.md`
-
-Rust also exposes operational API routes for project, routine, event, lifecycle, update, and archive-list workflows over the same service layer.

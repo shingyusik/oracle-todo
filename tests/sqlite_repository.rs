@@ -312,51 +312,7 @@ fn list_items_honors_core_filters_and_hides_archived_by_default() {
 }
 
 #[test]
-fn repository_reads_python_sqlalchemy_datetime_format() {
-    let conn = connect(":memory:").unwrap();
-    init_schema(&conn).unwrap();
-    conn.execute(
-        "INSERT INTO items (id, type, title, status, proposed_by, second_brain_refs, metadata, created_at, updated_at)
-         VALUES ('task_py', 'task', '파이썬 row', 'proposed', 'oracle', '[]', '{}', '2026-05-31 14:47:48.837726', '2026-05-31 14:47:48.837726')",
-        [],
-    )
-    .unwrap();
-    let mut repo = SqliteTodoRepository::new(conn);
-
-    let item = repo.get_item("task_py").unwrap().unwrap();
-
-    assert_eq!(item.title, "파이썬 row");
-}
-
-#[test]
-fn repository_reads_legacy_uppercase_enum_rows() {
-    let conn = connect(":memory:").unwrap();
-    init_schema(&conn).unwrap();
-    conn.execute(
-        r#"
-        INSERT INTO items (
-            id, type, title, status, materialization_policy, proposed_by,
-            second_brain_refs, metadata, created_at, updated_at
-        )
-        VALUES (
-            'area_legacy', 'AREA', '레거시 영역', 'ACTIVE', 'single_open', 'USER',
-            '[]', '{}', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'
-        )
-        "#,
-        [],
-    )
-    .unwrap();
-
-    let mut repo = SqliteTodoRepository::new(conn);
-    let item = repo.get_item("area_legacy").unwrap().unwrap();
-
-    assert_eq!(item.item_type, ItemType::Area);
-    assert_eq!(item.status, ItemStatus::Active);
-    assert_eq!(item.proposed_by, Actor::User);
-}
-
-#[test]
-fn repository_writes_python_compatible_enum_names() {
+fn repository_writes_canonical_enum_names() {
     let dir = tempfile::TempDir::new().unwrap();
     let db_path = dir.path().join("todo.sqlite");
     let conn = connect(db_path.to_str().unwrap()).unwrap();
@@ -404,16 +360,16 @@ fn repository_writes_python_compatible_enum_names() {
     assert_eq!(
         item_row,
         (
-            "TASK".to_string(),
-            "PROPOSED".to_string(),
-            "ORACLE".to_string()
+            "task".to_string(),
+            "proposed".to_string(),
+            "oracle".to_string()
         )
     );
-    assert_eq!(event_row, ("ORACLE".to_string(), "task".to_string()));
+    assert_eq!(event_row, ("oracle".to_string(), "task".to_string()));
 }
 
 #[test]
-fn schema_init_adds_missing_legacy_columns() {
+fn schema_init_adds_missing_columns() {
     let conn = connect(":memory:").unwrap();
     conn.execute_batch(
         r#"

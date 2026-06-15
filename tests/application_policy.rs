@@ -36,19 +36,22 @@ fn actor_strings_round_trip_through_domain_parser() {
 }
 
 #[test]
-fn domain_enums_parse_uppercase_sqlite_names() {
-    assert_eq!(ItemType::from_str("AREA").unwrap(), ItemType::Area);
+fn domain_enums_require_canonical_lowercase_names() {
+    assert_eq!(ItemType::from_str("area").unwrap(), ItemType::Area);
     assert_eq!(
-        ItemType::from_str("ARCHIVE_ITEM").unwrap(),
+        ItemType::from_str("archive_item").unwrap(),
         ItemType::ArchiveItem
     );
-    assert_eq!(ItemStatus::from_str("ACTIVE").unwrap(), ItemStatus::Active);
+    assert_eq!(ItemStatus::from_str("active").unwrap(), ItemStatus::Active);
     assert_eq!(
-        ItemStatus::from_str("PROPOSED").unwrap(),
+        ItemStatus::from_str("proposed").unwrap(),
         ItemStatus::Proposed
     );
-    assert_eq!(Actor::from_str("ORACLE").unwrap(), Actor::Oracle);
-    assert_eq!(Actor::from_str("SYSTEM").unwrap(), Actor::System);
+    assert_eq!(Actor::from_str("oracle").unwrap(), Actor::Oracle);
+    assert_eq!(Actor::from_str("system").unwrap(), Actor::System);
+    assert!(ItemType::from_str("AREA").is_err());
+    assert!(ItemStatus::from_str("ACTIVE").is_err());
+    assert!(Actor::from_str("ORACLE").is_err());
 }
 
 #[test]
@@ -64,7 +67,7 @@ fn json_timestamps_are_rfc3339_strings() {
 }
 
 #[test]
-fn area_titles_resolve_like_existing_python_cli() {
+fn area_titles_resolve_in_service() {
     let mut service = TodoService::in_memory();
     let area = service
         .create_area(CreateArea {

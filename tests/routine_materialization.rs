@@ -70,7 +70,7 @@ fn per_occurrence_materialization_creates_bounded_unique_tasks() {
 }
 
 #[test]
-fn weekday_sets_and_ranges_match_python_behavior() {
+fn weekday_sets_and_ranges_match_expected_schedule() {
     let mut service = TodoService::in_memory();
     let routine = service
         .propose_routine(ProposeRoutine {
@@ -92,7 +92,7 @@ fn weekday_sets_and_ranges_match_python_behavior() {
 }
 
 #[test]
-fn recurrence_matrix_matches_existing_python_cases() {
+fn recurrence_matrix_covers_supported_cases() {
     let cases = [
         (
             "every week on Monday",
@@ -198,7 +198,7 @@ fn recurrence_matrix_matches_existing_python_cases() {
 }
 
 #[test]
-fn unanchored_monthly_interval_keeps_python_monthly_default() {
+fn unanchored_monthly_interval_uses_first_of_month_default() {
     let out = occurrences(
         "every 2 months",
         date!(2026 - 01 - 15),
