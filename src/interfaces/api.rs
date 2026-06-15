@@ -31,6 +31,7 @@ struct AreaBody {
     title: String,
     review_cycle: Option<String>,
     standard: Option<String>,
+    note: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -41,6 +42,7 @@ struct TaskProposeBody {
     scheduled: Option<String>,
     priority: Option<i64>,
     description: Option<String>,
+    note: Option<String>,
     actor: Option<String>,
 }
 
@@ -51,6 +53,7 @@ struct ProjectProposeBody {
     definition_of_done: Option<String>,
     outcome: Option<String>,
     due: Option<String>,
+    note: Option<String>,
     actor: Option<String>,
 }
 
@@ -60,6 +63,7 @@ struct RoutineProposeBody {
     area: Option<String>,
     recurrence_rule: Option<String>,
     materialization_policy: Option<String>,
+    note: Option<String>,
     actor: Option<String>,
 }
 
@@ -72,6 +76,7 @@ struct EventProposeBody {
     due: Option<String>,
     priority: Option<i64>,
     description: Option<String>,
+    note: Option<String>,
     location: Option<String>,
     participants: Option<Vec<String>>,
     commitment_type: Option<String>,
@@ -87,6 +92,7 @@ struct ReasonBody {
 struct UpdateBody {
     title: Option<String>,
     description: Option<String>,
+    note: Option<String>,
     outcome: Option<String>,
     definition_of_done: Option<String>,
     standard: Option<String>,
@@ -153,6 +159,7 @@ async fn create_area(
             title: body.title,
             review_cycle: body.review_cycle,
             standard: body.standard,
+            note: body.note,
         })
     })?;
     Ok(Json(item))
@@ -180,6 +187,7 @@ async fn propose_task(
                 scheduled: body.scheduled,
                 priority: body.priority,
                 description: body.description,
+                note: body.note,
                 ..Default::default()
             },
         )
@@ -201,6 +209,7 @@ async fn propose_project(
             outcome: body.outcome,
             due: body.due,
             actor,
+            note: body.note,
         })
     })?;
     Ok(Json(item))
@@ -221,6 +230,7 @@ async fn propose_routine(
             materialization_policy: body
                 .materialization_policy
                 .unwrap_or_else(|| "single_open".to_string()),
+            note: body.note,
         })
     })?;
     Ok(Json(item))
@@ -242,6 +252,7 @@ async fn propose_event(
             due: body.due,
             priority: body.priority,
             description: body.description,
+            note: body.note,
             location: body.location,
             participants: body.participants.unwrap_or_default(),
             commitment_type: body
@@ -311,6 +322,7 @@ async fn update_item(
             UpdateItem {
                 title: body.title,
                 description: body.description,
+                note: body.note,
                 outcome: body.outcome,
                 definition_of_done: body.definition_of_done,
                 standard: body.standard,

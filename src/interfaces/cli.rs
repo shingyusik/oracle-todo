@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use std::str::FromStr;
 
+use crate::application::error::TodoError;
 use crate::application::ports::ListFilter;
 use crate::application::service::{
     CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, TodoService, UpdateItem,
@@ -14,7 +16,7 @@ use crate::infrastructure::paths::{db_path, exports_dir, todo_home};
 use crate::infrastructure::sqlite::{
     SqliteTodoRepository, connect, init_schema, migrate_legacy_storage, user_version,
 };
-use crate::infrastructure::system::{init_tracing, local_today_string};
+use crate::infrastructure::system::{OperationalLogger, init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
 #[command(name = "oracle-todo")]
@@ -132,6 +134,8 @@ struct AreaCreateArgs {
     review_cycle: Option<String>,
     #[arg(long)]
     standard: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -163,6 +167,8 @@ struct ProjectProposeArgs {
     outcome: Option<String>,
     #[arg(long)]
     due: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
     #[arg(long, default_value = "oracle", value_parser = parse_actor)]
     actor: Actor,
 }
@@ -180,6 +186,8 @@ struct TaskProposeArgs {
     priority: Option<i64>,
     #[arg(long)]
     description: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
     #[arg(long, default_value = "oracle", value_parser = parse_actor)]
     actor: Actor,
 }
@@ -193,6 +201,8 @@ struct RoutineProposeArgs {
     recurrence_rule: Option<String>,
     #[arg(long, default_value = "single_open")]
     materialization_policy: String,
+    #[arg(long)]
+    note: Option<String>,
     #[arg(long, default_value = "oracle", value_parser = parse_actor)]
     actor: Actor,
 }
@@ -222,6 +232,8 @@ struct EventProposeArgs {
     #[arg(long)]
     description: Option<String>,
     #[arg(long)]
+    note: Option<String>,
+    #[arg(long)]
     location: Option<String>,
     #[arg(long = "with")]
     participants: Vec<String>,
@@ -245,6 +257,8 @@ struct UpdateArgs {
     title: Option<String>,
     #[arg(long)]
     description: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
     #[arg(long)]
     outcome: Option<String>,
     #[arg(long)]
@@ -276,9 +290,13 @@ struct UpdateArgs {
 pub fn run() -> Result<()> {
     init_tracing();
     let cli = Cli::parse();
+    let command_name = command_label(&cli.command);
     let home = todo_home(cli.home)?;
+    let logger = OperationalLogger::new(&home)?;
+    logger.command_start(command_name);
+    let started_at = Instant::now();
 
-    match cli.command {
+    let result = match cli.command {
         Command::Init => init(&home),
         Command::Health => health(&home),
         Command::MigrateLegacyDb => migrate_legacy_db(&home),
@@ -314,7 +332,63 @@ pub fn run() -> Result<()> {
         Command::Pending => pending(&home),
         Command::Today => today(&home),
         Command::Export => export(&home),
+    };
+
+    let duration_ms = elapsed_millis(started_at);
+    match &result {
+        Ok(()) => logger.command_success(command_name, duration_ms),
+        Err(error) => logger.command_error(
+            command_name,
+            &format!("{error:#}"),
+            TodoError::cli_exit_code_from_error(error),
+            duration_ms,
+        ),
     }
+    result
+}
+
+fn command_label(command: &Command) -> &'static str {
+    match command {
+        Command::Init => "init",
+        Command::Health => "health",
+        Command::MigrateLegacyDb => "migrate-legacy-db",
+        Command::List(_) => "list",
+        Command::Area {
+            command: AreaCommand::Create(_),
+        } => "area create",
+        Command::Project {
+            command: ProjectCommand::Propose(_),
+        } => "project propose",
+        Command::Task {
+            command: TaskCommand::Propose(_),
+        } => "task propose",
+        Command::Routine {
+            command: RoutineCommand::Propose(_),
+        } => "routine propose",
+        Command::Routine {
+            command: RoutineCommand::Materialize(_),
+        } => "routine materialize",
+        Command::Event {
+            command: EventCommand::Propose(_),
+        } => "event propose",
+        Command::Approve(_) => "approve",
+        Command::Activate(_) => "activate",
+        Command::Pause(_) => "pause",
+        Command::Resume(_) => "resume",
+        Command::Complete(_) => "complete",
+        Command::Archive(_) => "archive",
+        Command::Drop(_) => "drop",
+        Command::Cancel(_) => "cancel",
+        Command::Update(_) => "update",
+        Command::ArchiveList => "archive-list",
+        Command::Pending => "pending",
+        Command::Today => "today",
+        Command::Export => "export",
+    }
+}
+
+fn elapsed_millis(started_at: Instant) -> u64 {
+    started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn init(home: &Path) -> Result<()> {
@@ -361,6 +435,7 @@ fn task_propose(home: &Path, args: TaskProposeArgs) -> Result<()> {
             scheduled: args.scheduled,
             priority: args.priority,
             description: args.description,
+            note: args.note,
             ..Default::default()
         },
     )?;
@@ -377,6 +452,7 @@ fn project_propose(home: &Path, args: ProjectProposeArgs) -> Result<()> {
         outcome: args.outcome,
         due: args.due,
         actor: args.actor,
+        note: args.note,
     })?;
     println!("{}", serde_json::to_string(&item)?);
     Ok(())
@@ -388,6 +464,7 @@ fn area_create(home: &Path, args: AreaCreateArgs) -> Result<()> {
         title: args.title,
         review_cycle: args.review_cycle,
         standard: args.standard,
+        note: args.note,
     })?;
     println!("{}", serde_json::to_string(&item)?);
     Ok(())
@@ -401,6 +478,7 @@ fn routine_propose(home: &Path, args: RoutineProposeArgs) -> Result<()> {
         actor: args.actor,
         recurrence_rule: args.recurrence_rule,
         materialization_policy: args.materialization_policy,
+        note: args.note,
     })?;
     println!("{}", serde_json::to_string(&item)?);
     Ok(())
@@ -431,6 +509,7 @@ fn event_propose(home: &Path, args: EventProposeArgs) -> Result<()> {
         due: args.due,
         priority: args.priority,
         description: args.description,
+        note: args.note,
         location: args.location,
         participants: args.participants,
         commitment_type: args.commitment_type,
@@ -517,6 +596,7 @@ fn update(home: &Path, args: UpdateArgs) -> Result<()> {
         UpdateItem {
             title: args.title,
             description: args.description,
+            note: args.note,
             outcome: args.outcome,
             definition_of_done: args.definition_of_done,
             standard: args.standard,

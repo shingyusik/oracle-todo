@@ -14,6 +14,7 @@ pub struct CreateArea {
     pub title: String,
     pub review_cycle: Option<String>,
     pub standard: Option<String>,
+    pub note: Option<String>,
 }
 
 pub struct ProposeTask {
@@ -25,6 +26,7 @@ pub struct ProposeTask {
     pub scheduled: Option<String>,
     pub priority: Option<i64>,
     pub description: Option<String>,
+    pub note: Option<String>,
 }
 
 impl Default for ProposeTask {
@@ -38,6 +40,7 @@ impl Default for ProposeTask {
             scheduled: None,
             priority: None,
             description: None,
+            note: None,
         }
     }
 }
@@ -49,6 +52,7 @@ pub struct ProposeProject {
     pub outcome: Option<String>,
     pub due: Option<String>,
     pub actor: Actor,
+    pub note: Option<String>,
 }
 
 pub struct ProposeRoutine {
@@ -57,6 +61,7 @@ pub struct ProposeRoutine {
     pub actor: Actor,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: String,
+    pub note: Option<String>,
 }
 
 pub struct ProposeEvent {
@@ -71,12 +76,14 @@ pub struct ProposeEvent {
     pub location: Option<String>,
     pub participants: Vec<String>,
     pub commitment_type: String,
+    pub note: Option<String>,
 }
 
 #[derive(Default)]
 pub struct UpdateItem {
     pub title: Option<String>,
     pub description: Option<String>,
+    pub note: Option<String>,
     pub outcome: Option<String>,
     pub definition_of_done: Option<String>,
     pub standard: Option<String>,
@@ -138,6 +145,7 @@ impl TodoService {
         item.status = ItemStatus::Active;
         item.review_cycle = request.review_cycle;
         item.standard = request.standard;
+        item.note = request.note;
         self.store_item_and_event(Actor::User, "create_area", None, item, None)
     }
 
@@ -158,6 +166,7 @@ impl TodoService {
         item.scheduled = request.scheduled;
         item.priority = request.priority;
         item.description = request.description;
+        item.note = request.note;
         self.store_item_and_event(item.proposed_by, "propose_task", None, item, None)
     }
 
@@ -175,6 +184,7 @@ impl TodoService {
         item.definition_of_done = request.definition_of_done;
         item.outcome = request.outcome;
         item.due = request.due;
+        item.note = request.note;
         self.store_item_and_event(item.proposed_by, "propose_project", None, item, None)
     }
 
@@ -200,6 +210,7 @@ impl TodoService {
         item.area_id = area_id;
         item.recurrence_rule = request.recurrence_rule;
         item.materialization_policy = request.materialization_policy;
+        item.note = request.note;
         self.store_item_and_event(item.proposed_by, "propose_routine", None, item, None)
     }
 
@@ -225,6 +236,7 @@ impl TodoService {
         item.scheduled = Some(scheduled);
         item.priority = request.priority;
         item.description = request.description;
+        item.note = request.note;
         item.metadata.insert(
             "commitment_type".to_string(),
             serde_json::Value::String(request.commitment_type),
@@ -598,6 +610,9 @@ impl TodoService {
         }
         if let Some(description) = request.description {
             item.description = Some(description);
+        }
+        if let Some(note) = request.note {
+            item.note = Some(note);
         }
         if let Some(outcome) = request.outcome {
             item.outcome = Some(outcome);

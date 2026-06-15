@@ -42,6 +42,7 @@ fn init_schema_inner(conn: &Connection) -> TodoResult<()> {
             routine_id TEXT REFERENCES items(id),
             parent_id TEXT REFERENCES items(id),
             description TEXT,
+            note TEXT,
             outcome TEXT,
             definition_of_done TEXT,
             standard TEXT,
@@ -109,6 +110,7 @@ const ITEM_COLUMN_ADDITIONS: &[(&str, &str)] = &[
     ("routine_id", "TEXT REFERENCES items(id)"),
     ("parent_id", "TEXT REFERENCES items(id)"),
     ("description", "TEXT"),
+    ("note", "TEXT"),
     ("outcome", "TEXT"),
     ("definition_of_done", "TEXT"),
     ("standard", "TEXT"),
@@ -572,7 +574,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
         r#"
                 INSERT INTO items (
                     id, type, title, status, area_id, project_id, routine_id, parent_id,
-                    description, outcome, definition_of_done, standard, review_cycle,
+                    description, note, outcome, definition_of_done, standard, review_cycle,
                     recurrence_rule, materialization_policy, occurrence_key, priority, due,
                     scheduled, horizon, proposed_by, approved_by, approved_at, completed_at,
                     archived_at, last_materialized_at, second_brain_refs, metadata, created_at,
@@ -581,7 +583,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
                 VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28,
-                    ?29, ?30
+                    ?29, ?30, ?31
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     type = excluded.type,
@@ -592,6 +594,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
                     routine_id = excluded.routine_id,
                     parent_id = excluded.parent_id,
                     description = excluded.description,
+                    note = excluded.note,
                     outcome = excluded.outcome,
                     definition_of_done = excluded.definition_of_done,
                     standard = excluded.standard,
@@ -623,6 +626,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
             item.routine_id,
             item.parent_id,
             item.description,
+            item.note,
             item.outcome,
             item.definition_of_done,
             item.standard,
@@ -701,7 +705,7 @@ fn actor_sqlite_value(actor: Actor) -> &'static str {
 fn item_select_sql(suffix: &str) -> String {
     format!(
         "SELECT id, type, title, status, area_id, project_id, routine_id, parent_id,
-                description, outcome, definition_of_done, standard, review_cycle,
+                description, note, outcome, definition_of_done, standard, review_cycle,
                 recurrence_rule, materialization_policy, occurrence_key, priority, due,
                 scheduled, horizon, proposed_by, approved_by, approved_at, completed_at,
                 archived_at, last_materialized_at, second_brain_refs, metadata, created_at,
@@ -714,16 +718,16 @@ fn item_select_sql(suffix: &str) -> String {
 fn row_to_item(row: &Row<'_>) -> TodoResult<TodoItem> {
     let item_type: String = row_value(row, 1)?;
     let status: String = row_value(row, 3)?;
-    let proposed_by: String = row_value(row, 20)?;
-    let approved_by: Option<String> = row_value(row, 21)?;
-    let approved_at: Option<String> = row_value(row, 22)?;
-    let completed_at: Option<String> = row_value(row, 23)?;
-    let archived_at: Option<String> = row_value(row, 24)?;
-    let last_materialized_at: Option<String> = row_value(row, 25)?;
-    let second_brain_refs: String = row_value(row, 26)?;
-    let metadata: String = row_value(row, 27)?;
-    let created_at: String = row_value(row, 28)?;
-    let updated_at: String = row_value(row, 29)?;
+    let proposed_by: String = row_value(row, 21)?;
+    let approved_by: Option<String> = row_value(row, 22)?;
+    let approved_at: Option<String> = row_value(row, 23)?;
+    let completed_at: Option<String> = row_value(row, 24)?;
+    let archived_at: Option<String> = row_value(row, 25)?;
+    let last_materialized_at: Option<String> = row_value(row, 26)?;
+    let second_brain_refs: String = row_value(row, 27)?;
+    let metadata: String = row_value(row, 28)?;
+    let created_at: String = row_value(row, 29)?;
+    let updated_at: String = row_value(row, 30)?;
 
     Ok(TodoItem {
         id: row_value(row, 0)?,
@@ -735,17 +739,18 @@ fn row_to_item(row: &Row<'_>) -> TodoResult<TodoItem> {
         routine_id: row_value(row, 6)?,
         parent_id: row_value(row, 7)?,
         description: row_value(row, 8)?,
-        outcome: row_value(row, 9)?,
-        definition_of_done: row_value(row, 10)?,
-        standard: row_value(row, 11)?,
-        review_cycle: row_value(row, 12)?,
-        recurrence_rule: row_value(row, 13)?,
-        materialization_policy: row_value(row, 14)?,
-        occurrence_key: row_value(row, 15)?,
-        priority: row_value(row, 16)?,
-        due: row_value(row, 17)?,
-        scheduled: row_value(row, 18)?,
-        horizon: row_value(row, 19)?,
+        note: row_value(row, 9)?,
+        outcome: row_value(row, 10)?,
+        definition_of_done: row_value(row, 11)?,
+        standard: row_value(row, 12)?,
+        review_cycle: row_value(row, 13)?,
+        recurrence_rule: row_value(row, 14)?,
+        materialization_policy: row_value(row, 15)?,
+        occurrence_key: row_value(row, 16)?,
+        priority: row_value(row, 17)?,
+        due: row_value(row, 18)?,
+        scheduled: row_value(row, 19)?,
+        horizon: row_value(row, 20)?,
         proposed_by: parse_actor(&proposed_by)?,
         approved_by: parse_optional_actor(approved_by.as_deref())?,
         approved_at: parse_optional_time(approved_at.as_deref())?,

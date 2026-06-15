@@ -34,4 +34,10 @@ impl TodoError {
             TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => 500,
         }
     }
+
+    pub fn cli_exit_code_from_error(error: &anyhow::Error) -> Option<i32> {
+        error
+            .downcast_ref::<TodoError>()
+            .map(TodoError::cli_exit_code)
+    }
 }

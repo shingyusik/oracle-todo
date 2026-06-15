@@ -2,7 +2,7 @@
 name = "oracle-todo"
 version = "0.2.0"
 edition = "2024"
-description = "Rust rewrite of the policy-enforced Oracle ToDo engine"
+description = "Policy-enforced Oracle ToDo engine"
 
 [dependencies]
 anyhow = "1.0"
