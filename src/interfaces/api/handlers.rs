@@ -1,155 +1,33 @@
-use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use anyhow::{Context, Result};
+use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path as AxumPath, Query, State};
-use axum::http::{StatusCode, header};
+use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post};
-use axum::{Json, Router};
-use serde::Deserialize;
 use serde_json::json;
 
+use super::dto::{
+    AreaBody, EventProposeBody, ItemsQuery, ProjectProposeBody, ReasonBody, RoutineProposeBody,
+    TaskProposeBody, UpdateBody,
+};
+use super::{
+    ApiResult, ApiState, non_empty, non_empty_string, parse_actor_or_default, parse_bool,
+    validation_rejection, with_service,
+};
 use crate::application::error::TodoError;
 use crate::application::ports::ListFilter;
 use crate::application::service::{
-    CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, TodoService, UpdateItem,
+    CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, UpdateItem,
 };
 use crate::domain::{Actor, ItemStatus, ItemType, TodoItem};
 use crate::exports::render_items;
-use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
 
-#[derive(Clone)]
-struct ApiState {
-    db_path: PathBuf,
-    keeper: Option<std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>>,
-}
-
-#[derive(Deserialize)]
-struct AreaBody {
-    title: String,
-    review_cycle: Option<String>,
-    standard: Option<String>,
-    note: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct TaskProposeBody {
-    title: String,
-    area: Option<String>,
-    due: Option<String>,
-    scheduled: Option<String>,
-    priority: Option<i64>,
-    description: Option<String>,
-    note: Option<String>,
-    actor: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ProjectProposeBody {
-    title: String,
-    area: Option<String>,
-    definition_of_done: Option<String>,
-    outcome: Option<String>,
-    due: Option<String>,
-    note: Option<String>,
-    actor: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct RoutineProposeBody {
-    title: String,
-    area: Option<String>,
-    recurrence_rule: Option<String>,
-    materialization_policy: Option<String>,
-    note: Option<String>,
-    actor: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct EventProposeBody {
-    title: String,
-    scheduled: String,
-    area: Option<String>,
-    project_id: Option<String>,
-    due: Option<String>,
-    priority: Option<i64>,
-    description: Option<String>,
-    note: Option<String>,
-    location: Option<String>,
-    participants: Option<Vec<String>>,
-    commitment_type: Option<String>,
-    actor: Option<String>,
-}
-
-#[derive(Deserialize, Default)]
-struct ReasonBody {
-    reason: Option<String>,
-}
-
-#[derive(Deserialize, Default)]
-struct UpdateBody {
-    title: Option<String>,
-    description: Option<String>,
-    note: Option<String>,
-    outcome: Option<String>,
-    definition_of_done: Option<String>,
-    standard: Option<String>,
-    review_cycle: Option<String>,
-    recurrence_rule: Option<String>,
-    materialization_policy: Option<String>,
-    area: Option<String>,
-    project_id: Option<String>,
-    routine_id: Option<String>,
-    due: Option<String>,
-    scheduled: Option<String>,
-    priority: Option<i64>,
-    reason: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ItemsQuery {
-    status: Option<String>,
-    #[serde(rename = "type")]
-    item_type: Option<String>,
-    area_id: Option<String>,
-    project_id: Option<String>,
-    routine_id: Option<String>,
-    query: Option<String>,
-    include_archived: Option<String>,
-}
-
-pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
-    let (db_path, keeper) = api_db_path(db_path.as_ref())?;
-    let state = ApiState { db_path, keeper };
-    Ok(Router::new()
-        .route("/health", get(health))
-        .route("/areas", post(create_area))
-        .route("/projects/propose", post(propose_project))
-        .route("/routines/propose", post(propose_routine))
-        .route("/events/propose", post(propose_event))
-        .route("/tasks/propose", post(propose_task))
-        .route("/items", get(list_items))
-        .route("/items/archive", get(archive_items))
-        .route("/items/:id", patch(update_item))
-        .route("/items/:id/approve", post(approve_item))
-        .route("/items/:id/activate", post(activate_item))
-        .route("/items/:id/pause", post(pause_item))
-        .route("/items/:id/resume", post(resume_item))
-        .route("/items/:id/complete", post(complete_item))
-        .route("/items/:id/archive", post(archive_item))
-        .route("/items/:id/drop", post(drop_item))
-        .route("/items/:id/cancel", post(cancel_item))
-        .route("/exports/today.md", get(today_export))
-        .with_state(state))
-}
-
-async fn health() -> Json<serde_json::Value> {
+pub(super) async fn health() -> Json<serde_json::Value> {
     Json(json!({"ok": true}))
 }
 
-async fn create_area(
+pub(super) async fn create_area(
     State(state): State<ApiState>,
     body: std::result::Result<Json<AreaBody>, JsonRejection>,
 ) -> ApiResult<Json<TodoItem>> {
@@ -165,7 +43,7 @@ async fn create_area(
     Ok(Json(item))
 }
 
-async fn propose_task(
+pub(super) async fn propose_task(
     State(state): State<ApiState>,
     body: std::result::Result<Json<TaskProposeBody>, JsonRejection>,
 ) -> ApiResult<Json<TodoItem>> {
@@ -195,7 +73,7 @@ async fn propose_task(
     Ok(Json(item))
 }
 
-async fn propose_project(
+pub(super) async fn propose_project(
     State(state): State<ApiState>,
     body: std::result::Result<Json<ProjectProposeBody>, JsonRejection>,
 ) -> ApiResult<Json<TodoItem>> {
@@ -215,7 +93,7 @@ async fn propose_project(
     Ok(Json(item))
 }
 
-async fn propose_routine(
+pub(super) async fn propose_routine(
     State(state): State<ApiState>,
     body: std::result::Result<Json<RoutineProposeBody>, JsonRejection>,
 ) -> ApiResult<Json<TodoItem>> {
@@ -236,7 +114,7 @@ async fn propose_routine(
     Ok(Json(item))
 }
 
-async fn propose_event(
+pub(super) async fn propose_event(
     State(state): State<ApiState>,
     body: std::result::Result<Json<EventProposeBody>, JsonRejection>,
 ) -> ApiResult<Json<TodoItem>> {
@@ -263,7 +141,7 @@ async fn propose_event(
     Ok(Json(item))
 }
 
-async fn list_items(
+pub(super) async fn list_items(
     State(state): State<ApiState>,
     Query(query): Query<ItemsQuery>,
 ) -> ApiResult<Json<Vec<TodoItem>>> {
@@ -305,12 +183,12 @@ async fn list_items(
     Ok(Json(items))
 }
 
-async fn archive_items(State(state): State<ApiState>) -> ApiResult<Json<Vec<TodoItem>>> {
+pub(super) async fn archive_items(State(state): State<ApiState>) -> ApiResult<Json<Vec<TodoItem>>> {
     let items = with_service(&state, |service| service.archive_items())?;
     Ok(Json(items))
 }
 
-async fn update_item(
+pub(super) async fn update_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
     body: std::result::Result<Json<UpdateBody>, JsonRejection>,
@@ -342,7 +220,7 @@ async fn update_item(
     Ok(Json(item))
 }
 
-async fn approve_item(
+pub(super) async fn approve_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
 ) -> ApiResult<Json<TodoItem>> {
@@ -350,7 +228,7 @@ async fn approve_item(
     Ok(Json(item))
 }
 
-async fn activate_item(
+pub(super) async fn activate_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
     body: Option<Json<ReasonBody>>,
@@ -360,7 +238,7 @@ async fn activate_item(
     Ok(Json(item))
 }
 
-async fn pause_item(
+pub(super) async fn pause_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
     body: Option<Json<ReasonBody>>,
@@ -370,7 +248,7 @@ async fn pause_item(
     Ok(Json(item))
 }
 
-async fn resume_item(
+pub(super) async fn resume_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
     body: Option<Json<ReasonBody>>,
@@ -380,7 +258,7 @@ async fn resume_item(
     Ok(Json(item))
 }
 
-async fn complete_item(
+pub(super) async fn complete_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
 ) -> ApiResult<Json<TodoItem>> {
@@ -388,7 +266,7 @@ async fn complete_item(
     Ok(Json(item))
 }
 
-async fn archive_item(
+pub(super) async fn archive_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
     body: Option<Json<ReasonBody>>,
@@ -398,7 +276,7 @@ async fn archive_item(
     Ok(Json(item))
 }
 
-async fn drop_item(
+pub(super) async fn drop_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
     body: Option<Json<ReasonBody>>,
@@ -408,7 +286,7 @@ async fn drop_item(
     Ok(Json(item))
 }
 
-async fn cancel_item(
+pub(super) async fn cancel_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
     body: Option<Json<ReasonBody>>,
@@ -418,7 +296,7 @@ async fn cancel_item(
     Ok(Json(item))
 }
 
-async fn today_export(State(state): State<ApiState>) -> ApiResult<Response> {
+pub(super) async fn today_export(State(state): State<ApiState>) -> ApiResult<Response> {
     let mut items = with_service(&state, |service| {
         service.list_items(ListFilter {
             item_type: Some(ItemType::Task),
@@ -436,104 +314,4 @@ async fn today_export(State(state): State<ApiState>) -> ApiResult<Response> {
         render_items("Today", &items),
     )
         .into_response())
-}
-
-fn service(state: &ApiState) -> ApiResult<TodoService> {
-    let _keeper = &state.keeper;
-    let path = state.db_path.to_str().with_context(|| {
-        format!(
-            "database path is not valid UTF-8: {}",
-            state.db_path.display()
-        )
-    })?;
-    let conn = connect(path)?;
-    init_schema(&conn)?;
-    Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
-}
-
-fn api_db_path(
-    path: &Path,
-) -> Result<(
-    PathBuf,
-    Option<std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>>,
-)> {
-    if path == Path::new(":memory:") {
-        let uri = format!(
-            "file:oracle_todo_api_{}?mode=memory&cache=shared",
-            uuid::Uuid::new_v4().simple()
-        );
-        let keeper = connect(&uri)?;
-        init_schema(&keeper)?;
-        return Ok((
-            PathBuf::from(uri),
-            Some(std::sync::Arc::new(std::sync::Mutex::new(keeper))),
-        ));
-    }
-
-    Ok((path.to_path_buf(), None))
-}
-
-fn with_service<T>(
-    state: &ApiState,
-    action: impl FnOnce(&mut TodoService) -> crate::application::error::TodoResult<T>,
-) -> ApiResult<T> {
-    let mut service = service(state)?;
-    action(&mut service).map_err(Into::into)
-}
-
-fn non_empty(value: &str) -> Option<&str> {
-    (!value.is_empty()).then_some(value)
-}
-
-fn non_empty_string(value: String) -> Option<String> {
-    (!value.is_empty()).then_some(value)
-}
-
-fn parse_actor_or_default(value: Option<&str>) -> Result<Actor, TodoError> {
-    value
-        .map(Actor::from_str)
-        .transpose()
-        .map_err(TodoError::Validation)
-        .map(|actor| actor.unwrap_or(Actor::Oracle))
-}
-
-fn parse_bool(value: &str) -> std::result::Result<bool, String> {
-    match value.to_ascii_lowercase().as_str() {
-        "true" | "1" | "yes" | "on" => Ok(true),
-        "false" | "0" | "no" | "off" => Ok(false),
-        _ => Err(format!("invalid boolean: {value}")),
-    }
-}
-
-fn validation_rejection(error: JsonRejection) -> TodoError {
-    TodoError::Validation(error.body_text())
-}
-
-type ApiResult<T> = std::result::Result<T, ApiError>;
-
-struct ApiError(anyhow::Error);
-
-impl<E> From<E> for ApiError
-where
-    E: Into<anyhow::Error>,
-{
-    fn from(error: E) -> Self {
-        Self(error.into())
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let status =
-            self.0
-                .downcast_ref::<TodoError>()
-                .map_or(StatusCode::INTERNAL_SERVER_ERROR, |error| {
-                    let code = match error {
-                        TodoError::NotFound(_) => 400,
-                        _ => error.http_status_code(),
-                    };
-                    StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
-                });
-        (status, Json(json!({"detail": self.0.to_string()}))).into_response()
-    }
 }

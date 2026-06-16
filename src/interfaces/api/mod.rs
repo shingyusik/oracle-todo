@@ -1,0 +1,151 @@
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+
+use anyhow::{Context, Result};
+use axum::Json;
+use axum::Router;
+use axum::extract::rejection::JsonRejection;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, patch, post};
+use serde_json::json;
+
+use crate::application::error::TodoError;
+use crate::application::service::TodoService;
+use crate::domain::Actor;
+use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
+
+mod dto;
+mod handlers;
+use handlers::*;
+
+#[derive(Clone)]
+pub(super) struct ApiState {
+    db_path: PathBuf,
+    keeper: Option<std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>>,
+}
+
+pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
+    let (db_path, keeper) = api_db_path(db_path.as_ref())?;
+    let state = ApiState { db_path, keeper };
+    Ok(Router::new()
+        .route("/health", get(health))
+        .route("/areas", post(create_area))
+        .route("/projects/propose", post(propose_project))
+        .route("/routines/propose", post(propose_routine))
+        .route("/events/propose", post(propose_event))
+        .route("/tasks/propose", post(propose_task))
+        .route("/items", get(list_items))
+        .route("/items/archive", get(archive_items))
+        .route("/items/:id", patch(update_item))
+        .route("/items/:id/approve", post(approve_item))
+        .route("/items/:id/activate", post(activate_item))
+        .route("/items/:id/pause", post(pause_item))
+        .route("/items/:id/resume", post(resume_item))
+        .route("/items/:id/complete", post(complete_item))
+        .route("/items/:id/archive", post(archive_item))
+        .route("/items/:id/drop", post(drop_item))
+        .route("/items/:id/cancel", post(cancel_item))
+        .route("/exports/today.md", get(today_export))
+        .with_state(state))
+}
+
+fn service(state: &ApiState) -> ApiResult<TodoService> {
+    let _keeper = &state.keeper;
+    let path = state.db_path.to_str().with_context(|| {
+        format!(
+            "database path is not valid UTF-8: {}",
+            state.db_path.display()
+        )
+    })?;
+    let conn = connect(path)?;
+    init_schema(&conn)?;
+    Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
+}
+
+fn api_db_path(
+    path: &Path,
+) -> Result<(
+    PathBuf,
+    Option<std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>>,
+)> {
+    if path == Path::new(":memory:") {
+        let uri = format!(
+            "file:oracle_todo_api_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().simple()
+        );
+        let keeper = connect(&uri)?;
+        init_schema(&keeper)?;
+        return Ok((
+            PathBuf::from(uri),
+            Some(std::sync::Arc::new(std::sync::Mutex::new(keeper))),
+        ));
+    }
+
+    Ok((path.to_path_buf(), None))
+}
+
+pub(super) fn with_service<T>(
+    state: &ApiState,
+    action: impl FnOnce(&mut TodoService) -> crate::application::error::TodoResult<T>,
+) -> ApiResult<T> {
+    let mut service = service(state)?;
+    action(&mut service).map_err(Into::into)
+}
+
+pub(super) fn non_empty(value: &str) -> Option<&str> {
+    (!value.is_empty()).then_some(value)
+}
+
+pub(super) fn non_empty_string(value: String) -> Option<String> {
+    (!value.is_empty()).then_some(value)
+}
+
+pub(super) fn parse_actor_or_default(value: Option<&str>) -> Result<Actor, TodoError> {
+    value
+        .map(Actor::from_str)
+        .transpose()
+        .map_err(TodoError::Validation)
+        .map(|actor| actor.unwrap_or(Actor::Oracle))
+}
+
+pub(super) fn parse_bool(value: &str) -> std::result::Result<bool, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Ok(true),
+        "false" | "0" | "no" | "off" => Ok(false),
+        _ => Err(format!("invalid boolean: {value}")),
+    }
+}
+
+pub(super) fn validation_rejection(error: JsonRejection) -> TodoError {
+    TodoError::Validation(error.body_text())
+}
+
+pub(super) type ApiResult<T> = std::result::Result<T, ApiError>;
+
+pub(super) struct ApiError(anyhow::Error);
+
+impl<E> From<E> for ApiError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(error: E) -> Self {
+        Self(error.into())
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let status =
+            self.0
+                .downcast_ref::<TodoError>()
+                .map_or(StatusCode::INTERNAL_SERVER_ERROR, |error| {
+                    let code = match error {
+                        TodoError::NotFound(_) => 400,
+                        _ => error.http_status_code(),
+                    };
+                    StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+                });
+        (status, Json(json!({"detail": self.0.to_string()}))).into_response()
+    }
+}
