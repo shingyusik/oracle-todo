@@ -29,18 +29,18 @@ cargo run -- --home /path/to/data init   # flag wins over the env var
 │   ├── routines.md
 │   ├── proposed.md
 │   └── archive.md
-└── logs/                       # operational JSONL log + rotated backups
-    ├── oracle-todo.jsonl
-    ├── oracle-todo.jsonl.1
-    ├── oracle-todo.jsonl.2
-    └── oracle-todo.jsonl.3
+└── logs/                       # structured JSONL tracing log + rotated backups
+    ├── oracle-todo.log.jsonl
+    ├── oracle-todo.log.jsonl.1
+    ├── oracle-todo.log.jsonl.2
+    └── oracle-todo.log.jsonl.3
 ```
 
 - `todo.sqlite` — the source of truth (`paths::db_path`). See
   [../architecture/decisions/adr-0001-sqlite-source-of-truth.md](../architecture/decisions/adr-0001-sqlite-source-of-truth.md).
 - `exports/` — written by `export` (`paths::exports_dir`); regenerable, never read back as
   state. See `README.md`'s "Markdown exports" table for each file's contents.
-- `logs/` — the operational log and its rotated backups. See
+- `logs/` — structured tracing logs and rotated backups. See
   [logging-and-rotation.md](logging-and-rotation.md).
 
 ## Safety rule: never target the live home

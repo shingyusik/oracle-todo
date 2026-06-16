@@ -12,7 +12,7 @@ is unchanged.
 | --- | --- | --- |
 | `domain/` | `model.rs`, `status.rs`, `recurrence.rs`, `mod.rs` | Pure logic, no I/O. `model.rs` holds `ItemType`, `Actor`, `TodoItem`, `TodoEvent`; `status.rs` holds `ItemStatus` + `terminal_status`/`hidden_by_default_status`; `recurrence.rs` holds the `occurrences` parser and `RecurrenceError`. |
 | `application/` | `service/{mod,creation,transitions,update,materialization,queries}.rs`, `ports.rs`, `error.rs` | `TodoService` policy + state machine (split by concern), the repository port traits (`TodoRepository`/`EventRepository`/`TodoStore`) plus `ListFilter`/`apply_list_filter`, and `TodoError`. |
-| `infrastructure/` | `sqlite/{mod,schema,mapping,repo,migrate_legacy}.rs`, `paths.rs`, `system.rs` | `rusqlite` repository (`SqliteTodoRepository`) + schema DDL, data-home resolution, clock/system + `OperationalLogger`. |
+| `infrastructure/` | `sqlite/{mod,schema,mapping,repo,migrate_legacy}.rs`, `paths.rs`, `system.rs` | `rusqlite` repository (`SqliteTodoRepository`) + schema DDL, data-home resolution, clock helpers, and tracing setup/log rotation. |
 | `interfaces/` | `cli/{mod,create,lifecycle,views,output}.rs`, `api/{mod,handlers,dto}.rs`, `exports.rs` | `clap` CLI and `axum` HTTP router (thin adapters over the service), plus the Markdown export renderer. |
 | (root) | `lib.rs`, `main.rs` | Crate wiring and the binary entrypoint. `lib.rs` re-exports `interfaces::exports` so the public path `oracle_todo::exports` is preserved. |
 

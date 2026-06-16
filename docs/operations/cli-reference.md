@@ -7,9 +7,9 @@ binary directly). This reference is verified against `src/interfaces/cli/mod.rs`
 
 - `--home <path>` (env `ORACLE_TODO_HOME`) — data home. See [data-home.md](data-home.md).
 
-Every run logs `command_start` / `command_success` / `command_error` to the operational log
-(see [logging-and-rotation.md](logging-and-rotation.md)). Created/updated items are printed as
-a single JSON line on stdout; view commands print rendered Markdown.
+Every run emits tracing logs to stderr and to the rotating JSONL file log (see
+[logging-and-rotation.md](logging-and-rotation.md)). Created/updated items are printed as a
+single JSON line on stdout; view commands print rendered Markdown.
 
 ## System commands
 

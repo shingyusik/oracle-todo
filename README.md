@@ -10,7 +10,7 @@ Policy-enforced personal ToDo engine for Oracle/Hermes workflows.
 - **Rust service layer enforces policy**: CLI/API use the same validation and state transitions.
 - **Audit events are mandatory**: every service-layer mutation writes an event row to SQLite `events`.
 - **User approval gates agent-created work**: Oracle-created items start as `proposed` until user approval.
-- **File logs are operational logs**: CLI command start/success/error are written under `logs/` with rotation.
+- **File logs are structured tracing logs**: CLI progress, success, and errors are written under `logs/` with rotation.
 
 ## Stack
 
@@ -51,10 +51,10 @@ Default data directory:
 │   ├── proposed.md
 │   └── archive.md
 └── logs/
-    ├── oracle-todo.jsonl
-    ├── oracle-todo.jsonl.1
-    ├── oracle-todo.jsonl.2
-    └── oracle-todo.jsonl.3
+    ├── oracle-todo.log.jsonl
+    ├── oracle-todo.log.jsonl.1
+    ├── oracle-todo.log.jsonl.2
+    └── oracle-todo.log.jsonl.3
 ```
 
 Use another data directory:
@@ -321,20 +321,23 @@ The Rust domain parses status strings through the `ItemStatus` enum. App paths r
 CLI output has two layers:
 
 - **stdout**: user-facing command result, usually JSON or rendered Markdown.
-- **stderr**: user-facing errors.
-- **file log**: JSONL operational command log at `ORACLE_TODO_HOME/logs/oracle-todo.jsonl`.
+- **stderr**: user-facing errors plus console tracing logs at `ORACLE_TODO_CONSOLE_LOG` or `info`.
+- **file log**: structured JSONL tracing log at `ORACLE_TODO_HOME/logs/oracle-todo.log.jsonl`.
 
 File logging behavior:
 
-- Logs one JSON object per line for `command_start`, `command_success`, and `command_error`.
-- Records include `timestamp`, `level`, `event`, `command`, `message`, and `pid`.
-- Command success/error records include `duration_ms`; success records include `exit_code: 0`.
-- `command_error` records include the error message and, for downcastable `TodoError` values, the mapped `exit_code`.
+- Code emits logs with `tracing::{debug, info, warn, error}!`.
+- Console logs default to `INFO` and above; override with `ORACLE_TODO_CONSOLE_LOG=<level>`.
+- File logs default to `DEBUG` and above; override with `ORACLE_TODO_FILE_LOG=<level>`.
+- Each file line is a JSON object with tracing fields such as `timestamp`, `level`, `target`, and `fields`.
+- Command events include `command_started`, `command_completed`, and `command_failed`.
+- `command_completed` records include `duration_ms` and `exit_code: 0`.
+- `command_failed` records include the error message and mapped `exit_code`.
 - Default max file size: `1_048_576` bytes.
 - Override with `ORACLE_TODO_LOG_MAX_BYTES=<bytes>`.
 - Default backup count: `3`.
 - Override with `ORACLE_TODO_LOG_MAX_FILES=<count>`.
-- Rotation shifts `oracle-todo.jsonl` to `oracle-todo.jsonl.1`, then `.2`, `.3`, up to the configured backup count.
+- Rotation shifts `oracle-todo.log.jsonl` to `oracle-todo.log.jsonl.1`, then `.2`, `.3`, up to the configured backup count.
 
 Error handling:
 

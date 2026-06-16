@@ -54,7 +54,8 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 ## Data Home & Configuration
 
 - Data home: `ORACLE_TODO_HOME` env var or `--home <path>`; default `~/.hermes/oracle-todo/`.
-- Layout: `todo.sqlite`, `exports/*.md`, `logs/oracle-todo.jsonl(.1-.3)`.
+- Layout: `todo.sqlite`, `exports/*.md`, `logs/oracle-todo.log.jsonl(.1-.3)`.
+- Log levels: `ORACLE_TODO_CONSOLE_LOG` (default `info`), `ORACLE_TODO_FILE_LOG` (default `debug`).
 - Log rotation: `ORACLE_TODO_LOG_MAX_BYTES` (default `1_048_576`), `ORACLE_TODO_LOG_MAX_FILES` (default `3`).
 - Exit codes / HTTP status: policy/validation → CLI `2` / HTTP `400`; not-found → CLI `4` / HTTP `404`; storage/internal → CLI `1` / HTTP `500`.
 
@@ -66,15 +67,17 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 - **Approval gating is policy, not UI.** Agent/Oracle-created items must stay `proposed` until user approval.
 - **Layered tests guard shared behavior.** `tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration (`tests/integration/exports.rs`) suites assert CLI/API/export views agree with the service layer — keep them green when changing shared behavior.
 
-## Skills & Plugins
+## Skills & Hooks
 
-Project skills live in `.claude/plugins/` as a local marketplace. Pick the plugin by task domain; individual skills self-describe when to fire.
+Project-owned skills are authored under `.claude/plugins/` and mirrored for Codex under `.codex/skills/`. Treat `.claude/plugins/` as the source of truth and `.codex/skills/` as the local Codex runtime copy. Do not install these project skills into global Codex skill storage.
 
-| Plugin | Domain | Reach for it when |
-| --- | --- | --- |
-| `docs-tools` | Documentation (mutating) | Touching `README.md` or `docs/`, or code changes need doc sync. |
-| `code-audits` | Quality inspection (read-only) | Auditing architecture boundaries, complexity, duplication, conventions, error/logging, constants, test quality, docs sync, or resource lifecycle — `quality-audit` runs them all. |
-| `code-cleanup` | Code removal (mutating) | Cleaning up dead code, legacy code, or unnecessary comments. |
-| `git-workflow` | Git commits | Committing changes or splitting them into structured commits. |
+Codex project hooks live in `.codex/hooks.json`. On `session_start` for `startup|clear|compact`, the hook (`.codex/hooks/run-hook.cmd session-start`) injects baseline guidelines (e.g. `karpathy-guidelines`, `using-superpowers`) into the session.
+
+| Skill group | Codex location | Source | Reach for it when |
+| --- | --- | --- | --- |
+| `docs-tools` | `.codex/skills/{docs-change-updater,readme-structure-guard,writing-final-state-docs}` | `.claude/plugins/docs-tools/skills/` | Touching `README.md` or `docs/`, or code changes need doc sync. |
+| `code-audits` | `.codex/skills/*-audit`, `.codex/skills/quality-audit` | `.claude/plugins/code-audits/skills/` | Auditing architecture boundaries, complexity, duplication, conventions, error/logging, constants, test quality, docs sync, or resource lifecycle. Use `quality-audit` for the full sweep. |
+| `code-cleanup` | `.codex/skills/deadcode-cleaner` | `.claude/plugins/code-cleanup/skills/` | Cleaning up dead code, legacy code, or unnecessary comments. |
+| `git-workflow` | `.codex/skills/structured-commit` | `.claude/plugins/git-workflow/skills/` | Committing changes or splitting them into structured commits. |
 
 Workflow: docs follow code — after a change lands, sync docs with `docs-tools`, then commit with `git-workflow`.

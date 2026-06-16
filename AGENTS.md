@@ -54,7 +54,8 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 ## Data Home & Configuration
 
 - Data home: `ORACLE_TODO_HOME` env var or `--home <path>`; default `~/.hermes/oracle-todo/`.
-- Layout: `todo.sqlite`, `exports/*.md`, `logs/oracle-todo.jsonl(.1-.3)`.
+- Layout: `todo.sqlite`, `exports/*.md`, `logs/oracle-todo.log.jsonl(.1-.3)`.
+- Log levels: `ORACLE_TODO_CONSOLE_LOG` (default `info`), `ORACLE_TODO_FILE_LOG` (default `debug`).
 - Log rotation: `ORACLE_TODO_LOG_MAX_BYTES` (default `1_048_576`), `ORACLE_TODO_LOG_MAX_FILES` (default `3`).
 - Exit codes / HTTP status: policy/validation → CLI `2` / HTTP `400`; not-found → CLI `4` / HTTP `404`; storage/internal → CLI `1` / HTTP `500`.
 
