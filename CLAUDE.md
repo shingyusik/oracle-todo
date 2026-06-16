@@ -28,9 +28,10 @@ Clean/hexagonal layering under `src/`. Dependencies point inward — `interfaces
 
 | Need | Read |
 | --- | --- |
-| Data model, item types, columns, status lifecycle, full CLI/API surface | `README.md` |
-| v1 design rationale, canonical architecture, object-type semantics | `docs/design-v1.md` |
-| Engine guardrails, data-home safety rules, verification gate | `docs/rust-refactor.md` |
+| Data model, item types, columns, status lifecycle | `README.md` |
+| Full CLI/API surface | `docs/operations/cli-reference.md` + `docs/operations/api-reference.md` |
+| Design rationale, architecture, locked policies | `docs/architecture/overview.md`, `docs/architecture/layers.md`, `docs/architecture/decisions/` |
+| Engine guardrails, data-home safety, smoke + verification | `docs/operations/verification-and-smoke.md`, `docs/operations/data-home.md` |
 
 ## Commands
 
