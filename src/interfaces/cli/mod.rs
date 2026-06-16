@@ -1,5 +1,6 @@
 mod create;
 mod lifecycle;
+mod markdown;
 mod output;
 mod views;
 
@@ -92,8 +93,6 @@ enum Command {
     Pending,
     /// Show today's materialized task view.
     Today,
-    /// Write markdown exports.
-    Export,
 }
 
 #[derive(Debug, Subcommand)]
@@ -336,7 +335,6 @@ pub fn run() -> Result<()> {
         Command::ArchiveList => views::archive_list(&home),
         Command::Pending => views::pending(&home),
         Command::Today => views::today(&home),
-        Command::Export => views::export(&home),
     };
 
     let duration_ms = elapsed_millis(started_at);
@@ -396,7 +394,6 @@ fn command_label(command: &Command) -> &'static str {
         Command::ArchiveList => "archive-list",
         Command::Pending => "pending",
         Command::Today => "today",
-        Command::Export => "export",
     }
 }
 

@@ -1,11 +1,10 @@
 use anyhow::Result;
 use std::path::Path;
 
+use super::markdown::{current_today_items, pending_items, render_items};
 use super::output::print_json;
 use super::{ListArgs, RoutineMaterializeArgs, service, today_string};
 use crate::application::ports::ListFilter;
-use crate::exports::{current_today_items, pending_items, render_items, write_current_exports};
-use crate::infrastructure::paths::exports_dir;
 
 pub(super) fn list(home: &Path, args: ListArgs) -> Result<()> {
     let mut service = service(home)?;
@@ -55,14 +54,5 @@ pub(super) fn today(home: &Path) -> Result<()> {
     let mut service = service(home)?;
     let items = current_today_items(&mut service, &today)?;
     println!("{}", render_items("Today", &items));
-    Ok(())
-}
-
-pub(super) fn export(home: &Path) -> Result<()> {
-    let today = today_string();
-    let mut service = service(home)?;
-    for path in write_current_exports(&mut service, &exports_dir(home), &today)? {
-        println!("{}", path.display());
-    }
     Ok(())
 }

@@ -1,7 +1,5 @@
 #[path = "integration/events.rs"]
 mod events;
-#[path = "integration/exports.rs"]
-mod exports;
 #[path = "integration/materialization.rs"]
 mod materialization;
 #[path = "integration/repository.rs"]

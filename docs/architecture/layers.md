@@ -4,7 +4,7 @@
 `interfaces` and `infrastructure` depend on `application` and `domain`, never the reverse,
 and `domain` does no I/O. Each oversized file from the original layout has been split into a
 directory module of focused submodules; the public crate surface (`oracle_todo::…` paths)
-is unchanged.
+is intentionally small.
 
 ## Layer map (refactored tree)
 
@@ -13,8 +13,8 @@ is unchanged.
 | `domain/` | `model.rs`, `status.rs`, `recurrence.rs`, `mod.rs` | Pure logic, no I/O. `model.rs` holds `ItemType`, `Actor`, `TodoItem`, `TodoEvent`; `status.rs` holds `ItemStatus` + `terminal_status`/`hidden_by_default_status`; `recurrence.rs` holds the `occurrences` parser and `RecurrenceError`. |
 | `application/` | `service/{mod,creation,transitions,update,materialization,queries}.rs`, `ports.rs`, `error.rs` | `TodoService` policy + state machine (split by concern), the repository port traits (`TodoRepository`/`EventRepository`/`TodoStore`) plus `ListFilter`/`apply_list_filter`, and `TodoError`. |
 | `infrastructure/` | `sqlite/{mod,schema,mapping,repo,migrate_legacy}.rs`, `paths.rs`, `system.rs` | `rusqlite` repository (`SqliteTodoRepository`) + schema DDL, data-home resolution, clock helpers, and tracing setup/log rotation. |
-| `interfaces/` | `cli/{mod,create,lifecycle,views,output}.rs`, `api/{mod,handlers,dto}.rs`, `exports.rs` | `clap` CLI and `axum` HTTP router (thin adapters over the service), plus the Markdown export renderer. |
-| (root) | `lib.rs`, `main.rs` | Crate wiring and the binary entrypoint. `lib.rs` re-exports `interfaces::exports` so the public path `oracle_todo::exports` is preserved. |
+| `interfaces/` | `cli/{mod,create,lifecycle,views,markdown,output}.rs`, `api/{mod,handlers,dto}.rs` | `clap` CLI and `axum` HTTP router (thin adapters over the service). |
+| (root) | `lib.rs`, `main.rs` | Crate wiring and the binary entrypoint. |
 
 ## Why each oversized file became a directory
 
@@ -32,8 +32,8 @@ is unchanged.
   `mod.rs` keeps `connect`, the `SqliteTodoRepository` struct, and the re-exports.
 - **`interfaces/cli/`** — `mod` (clap definitions, dispatch in `run`, and the system handlers
   `init`/`health`/`migrate-legacy-db`), `create` (area/task/project/routine/event proposers),
-  `lifecycle` (transition + update handlers), `views` (list/materialize/archive-list/pending/today/export),
-  and `output` (the shared `print_json` helper).
+  `lifecycle` (transition + update handlers), `views` (list/materialize/archive-list/pending/today),
+  `markdown` (the CLI Markdown renderer), and `output` (the shared `print_json` helper).
 - **`interfaces/api/`** — `mod` (router, `ApiState`, the `ApiError` boundary and shared helpers),
   `handlers` (the 18 endpoint functions), `dto` (the request/query wire structs).
 

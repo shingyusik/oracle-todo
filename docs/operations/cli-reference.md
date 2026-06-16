@@ -74,7 +74,7 @@ Update mutable fields. Flags (all optional): `--title`, `--description`, `--note
 `--materialization-policy`, `--area`, `--project-id`, `--routine-id`, `--due`, `--scheduled`,
 `--priority <int>`, `--reason`.
 
-## View / export commands
+## View commands
 
 | Subcommand | Output |
 | --- | --- |
@@ -82,7 +82,6 @@ Update mutable fields. Flags (all optional): `--title`, `--description`, `--note
 | `archive-list` | List terminal/archive items as Markdown. |
 | `pending` | Show proposed/approved/active work as Markdown. |
 | `today` | Show today's task view as Markdown. |
-| `export` | Write the Markdown export files under `exports/`; prints each written path. |
 
 `--status` accepts: `proposed`, `approved`, `active`, `waiting`, `paused`, `completed`,
 `cancelled`, `dropped`, `archived`, `someday`, `rejected`. `--type` accepts: `area`,

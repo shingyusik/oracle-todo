@@ -384,7 +384,7 @@ fn area_create_and_pending_show_current_cli_behavior() {
 }
 
 #[test]
-fn today_and_export_materialize_active_routines() {
+fn today_materializes_active_routines() {
     let home = TestHome::new();
 
     Command::cargo_bin("oracle-todo")
@@ -431,14 +431,18 @@ fn today_and_export_materialize_active_routines() {
         .assert()
         .success()
         .stdout(contains("매일 스트레칭"));
+}
+
+#[test]
+fn export_subcommand_is_not_available() {
+    let home = TestHome::new();
 
     Command::cargo_bin("oracle-todo")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "export"])
         .assert()
-        .success();
-
-    assert!(home.path().join("exports/today.md").exists());
+        .failure()
+        .stderr(contains("unrecognized subcommand 'export'"));
 }
 
 #[test]

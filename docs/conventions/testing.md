@@ -1,15 +1,15 @@
 # Testing
 
 Tests are organized into three layers, each a separate cargo test binary, plus a shared
-support module. The layers are behavior-locks: they prove the public CLI/API/export surface
-and the policy invariants are unchanged across refactors.
+support module. The layers are behavior-locks: they prove the public CLI/API surface and
+the policy invariants are unchanged across refactors.
 
 ## The three layers
 
 | Layer | Binary | Directory | What belongs here |
 | --- | --- | --- | --- |
 | **unit** | `tests/unit.rs` | `tests/unit/` | Pure, no-I/O logic exercised through the crate's *public* API: recurrence, status, model, list filter, error mapping, the local-date clock helper, and the architecture boundary guard. |
-| **integration** | `tests/integration.rs` | `tests/integration/` | The library wired in-process: `TodoService` policy, the audit-event invariant, the SQLite repository, routine materialization, and Markdown export parity. |
+| **integration** | `tests/integration.rs` | `tests/integration/` | The library wired in-process: `TodoService` policy, the audit-event invariant, the SQLite repository, and routine materialization. |
 | **e2e** | `tests/e2e.rs` | `tests/e2e/` | The delivered interfaces end-to-end: the real `oracle-todo` binary via `assert_cmd` (`cli.rs`), and the full `axum` HTTP stack via `tower`'s `oneshot` (`api.rs`). |
 
 ## The dispatcher pattern (and the cargo subfolder gotcha)
@@ -40,7 +40,6 @@ of the dispatcher's own modules):
 mod support;
 
 mod events;
-mod exports;
 mod materialization;
 mod repository;
 mod service_policy;

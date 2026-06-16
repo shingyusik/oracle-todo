@@ -4,9 +4,8 @@
 workflows. It keeps areas, projects, tasks, routines, and events in one SQLite-backed
 item graph. Oracle (and other agents) may interpret and *propose* work, but the software
 itself enforces the operating system: approval gates, audit events, a status state
-machine, and read-only Second_Brain boundaries. Every external surface — CLI, HTTP API,
-and Markdown exports — is a thin view over the same Rust service layer and the same
-`todo.sqlite` database.
+machine, and read-only Second_Brain boundaries. Every external surface — CLI and HTTP API
+— is a thin view over the same Rust service layer and the same `todo.sqlite` database.
 
 ## Pipeline
 
@@ -21,14 +20,14 @@ Telegram / CLI / Future Dashboard / Oracle
                   ↓
         SQLite source of truth + events
                   ↓
-        Markdown / JSON / API exports
+        CLI Markdown / JSON / API responses
 ```
 
 ## Core principles
 
-1. **SQLite is the single source of truth.** The CLI, the `axum` HTTP API, and the
-   Markdown exports are all *views* over `todo.sqlite`. Nothing else holds canonical
-   state. See [decisions/adr-0001-sqlite-source-of-truth.md](decisions/adr-0001-sqlite-source-of-truth.md).
+1. **SQLite is the single source of truth.** The CLI and the `axum` HTTP API are both
+   *views* over `todo.sqlite`. Nothing else holds canonical state. See
+   [decisions/adr-0001-sqlite-source-of-truth.md](decisions/adr-0001-sqlite-source-of-truth.md).
 2. **The service layer enforces policy.** Every mutation routes through `TodoService`,
    which runs validation plus a status state machine before touching storage. CLI and API
    never bypass it. See [decisions/adr-0002-service-layer-policy.md](decisions/adr-0002-service-layer-policy.md).

@@ -6,7 +6,7 @@ Policy-enforced personal ToDo engine for Oracle/Hermes workflows.
 
 `oracle-todo` keeps areas, projects, tasks, routines, and events in one SQLite-backed item graph.
 
-- **SQLite source of truth**: CLI, API, and Markdown exports are views over `todo.sqlite`.
+- **SQLite source of truth**: CLI and API are views over `todo.sqlite`.
 - **Rust service layer enforces policy**: CLI/API use the same validation and state transitions.
 - **Audit events are mandatory**: every service-layer mutation writes an event row to SQLite `events`.
 - **User approval gates agent-created work**: Oracle-created items start as `proposed` until user approval.
@@ -42,14 +42,6 @@ Default data directory:
 ```text
 ~/.hermes/oracle-todo/
 ├── todo.sqlite
-├── exports/
-│   ├── today.md
-│   ├── events.md
-│   ├── projects.md
-│   ├── areas.md
-│   ├── routines.md
-│   ├── proposed.md
-│   └── archive.md
 └── logs/
     ├── oracle-todo.log.jsonl
     ├── oracle-todo.log.jsonl.1
@@ -109,7 +101,6 @@ cargo run -- event propose "치과 예약" "2026-06-12T10:30" \
 # Read current views.
 cargo run -- pending
 cargo run -- today
-cargo run -- export
 ```
 
 ## Item types
@@ -236,7 +227,7 @@ External commitment or scheduled appointment.
 
 - Requires `scheduled`.
 - Uses `metadata` for location, participants, and commitment type.
-- Exported separately from tasks.
+- Listed separately from tasks.
 
 Required / useful columns:
 
@@ -346,22 +337,6 @@ Error handling:
 - Not-found errors map to CLI exit code `4` and HTTP `404`.
 - Storage/migration/internal errors map to CLI exit code `1` and HTTP `500`.
 
-## Markdown exports
-
-`cargo run -- export` writes Markdown views to `ORACLE_TODO_HOME/exports/`.
-
-| File | Contents |
-| --- | --- |
-| `today.md` | Visible task list for today. |
-| `events.md` | Non-archived events. |
-| `projects.md` | Non-archived projects. |
-| `areas.md` | Non-archived areas. |
-| `routines.md` | Non-archived routines. |
-| `proposed.md` | Items awaiting approval. |
-| `archive.md` | Completed, archived, cancelled, dropped, or someday items. |
-
-Exported list item metadata includes type, status, due date, scheduled date, area ID, location, and participants when available.
-
 ## Event log
 
 SQLite table: `events`.
@@ -403,7 +378,6 @@ Endpoints:
 - `POST /items/{id}/archive`: archive item.
 - `POST /items/{id}/drop`: drop item.
 - `POST /items/{id}/cancel`: cancel item.
-- `GET /exports/today.md`: render today's task Markdown.
 
 ## Verification
 
@@ -423,7 +397,6 @@ cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
 cargo run -- --home "$tmp_home" migrate-legacy-db
 cargo run -- --home "$tmp_home" pending
 cargo run -- --home "$tmp_home" today
-cargo run -- --home "$tmp_home" export
 ```
 
 SQLite schema initialization is additive for existing databases. `init_schema()` creates tables and ensures missing columns exist on older `items` tables, including:
