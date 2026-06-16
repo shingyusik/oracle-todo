@@ -1,12 +1,8 @@
-mod support;
-
+use crate::support::TestHome;
 use assert_cmd::Command;
-use oracle_todo::infrastructure::system::local_date_string_at;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use rusqlite::Connection;
-use support::TestHome;
-use time::macros::{datetime, offset};
 
 #[test]
 fn init_creates_sqlite_database() {
@@ -747,12 +743,4 @@ fn routine_materialize_covers_cli_intent() {
         .assert()
         .success()
         .stdout(contains("매일 호환성 점검"));
-}
-
-#[test]
-fn local_today_uses_configured_offset_not_utc_date() {
-    assert_eq!(
-        local_date_string_at(datetime!(2026-05-31 15:30 UTC), offset!(+09:00)),
-        "2026-06-01"
-    );
 }
