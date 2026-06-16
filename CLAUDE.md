@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 ## Project Overview
 
@@ -63,17 +63,15 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 - **Approval gating is policy, not UI.** Agent/Oracle-created items must stay `proposed` until user approval.
 - **Parity tests guard shared behavior.** `tests/*_parity.rs` assert CLI/API/export views agree with the service layer — keep them green when changing shared behavior.
 
-## Skills & Hooks
+## Skills & Plugins
 
-Project-owned skills are authored under `.claude/plugins/` and mirrored for Codex under `.codex/skills/`. Treat `.claude/plugins/` as the source of truth and `.codex/skills/` as the local Codex runtime copy. Do not install these project skills into global Codex skill storage.
+Project skills live in `.claude/plugins/` as a local marketplace. Pick the plugin by task domain; individual skills self-describe when to fire.
 
-Codex project hooks live in `.codex/hooks.json`. On `session_start` for `startup|clear|compact`, the hook (`.codex/hooks/run-hook.cmd session-start`) injects baseline guidelines (e.g. `karpathy-guidelines`, `using-superpowers`) into the session.
-
-| Skill group | Codex location | Source | Reach for it when |
-| --- | --- | --- | --- |
-| `docs-tools` | `.codex/skills/{docs-change-updater,readme-structure-guard,writing-final-state-docs}` | `.claude/plugins/docs-tools/skills/` | Touching `README.md` or `docs/`, or code changes need doc sync. |
-| `code-audits` | `.codex/skills/*-audit`, `.codex/skills/quality-audit` | `.claude/plugins/code-audits/skills/` | Auditing architecture boundaries, complexity, duplication, conventions, error/logging, constants, test quality, docs sync, or resource lifecycle. Use `quality-audit` for the full sweep. |
-| `code-cleanup` | `.codex/skills/deadcode-cleaner` | `.claude/plugins/code-cleanup/skills/` | Cleaning up dead code, legacy code, or unnecessary comments. |
-| `git-workflow` | `.codex/skills/structured-commit` | `.claude/plugins/git-workflow/skills/` | Committing changes or splitting them into structured commits. |
+| Plugin | Domain | Reach for it when |
+| --- | --- | --- |
+| `docs-tools` | Documentation (mutating) | Touching `README.md` or `docs/`, or code changes need doc sync. |
+| `code-audits` | Quality inspection (read-only) | Auditing architecture boundaries, complexity, duplication, conventions, error/logging, constants, test quality, docs sync, or resource lifecycle — `quality-audit` runs them all. |
+| `code-cleanup` | Code removal (mutating) | Cleaning up dead code, legacy code, or unnecessary comments. |
+| `git-workflow` | Git commits | Committing changes or splitting them into structured commits. |
 
 Workflow: docs follow code — after a change lands, sync docs with `docs-tools`, then commit with `git-workflow`.
