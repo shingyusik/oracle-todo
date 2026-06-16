@@ -3,8 +3,6 @@ use std::str::FromStr;
 use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path as AxumPath, Query, State};
-use axum::http::header;
-use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
 use super::dto::{
@@ -21,7 +19,6 @@ use crate::application::service::{
     CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, UpdateItem,
 };
 use crate::domain::{Actor, ItemStatus, ItemType, TodoItem};
-use crate::exports::render_items;
 
 pub(super) async fn health() -> Json<serde_json::Value> {
     Json(json!({"ok": true}))
@@ -294,24 +291,4 @@ pub(super) async fn cancel_item(
     let reason = body.and_then(|Json(body)| body.reason);
     let item = with_service(&state, |service| service.cancel(&id, reason.as_deref()))?;
     Ok(Json(item))
-}
-
-pub(super) async fn today_export(State(state): State<ApiState>) -> ApiResult<Response> {
-    let mut items = with_service(&state, |service| {
-        service.list_items(ListFilter {
-            item_type: Some(ItemType::Task),
-            ..Default::default()
-        })
-    })?;
-    items.sort_by(|left, right| {
-        right
-            .created_at
-            .cmp(&left.created_at)
-            .then_with(|| right.id.cmp(&left.id))
-    });
-    Ok((
-        [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
-        render_items("Today", &items),
-    )
-        .into_response())
 }

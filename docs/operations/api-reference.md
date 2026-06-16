@@ -29,7 +29,6 @@ Item-returning endpoints respond with the full `TodoItem` as JSON. Errors return
 | `POST` | `/items/:id/archive` | `archive_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/drop` | `drop_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/cancel` | `cancel_item` | optional `ReasonBody` |
-| `GET` | `/exports/today.md` | `today_export` | — (returns `text/markdown`) |
 
 ## Request bodies
 

@@ -573,7 +573,7 @@ async fn request_validation_errors_return_detail_body() {
 }
 
 #[tokio::test]
-async fn today_export_returns_markdown_text() {
+async fn exports_today_md_route_is_not_available() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
     let app = router(&db_path).unwrap();
@@ -620,12 +620,5 @@ async fn today_export_returns_markdown_text() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 200);
-    let content_type = response.headers().get(http::header::CONTENT_TYPE).unwrap();
-    assert_eq!(content_type, "text/markdown; charset=utf-8");
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let markdown = String::from_utf8(body.to_vec()).unwrap();
-    assert!(markdown.starts_with("# Today\n\n"));
-    assert!(markdown.contains("- [ ] **오늘 보기** `task approved scheduled:today`"));
-    assert!(markdown.contains("미래 보기"));
+    assert_eq!(response.status(), 404);
 }

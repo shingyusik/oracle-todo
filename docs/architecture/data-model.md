@@ -27,7 +27,7 @@ created/managed types and their invariants:
   tasks start `approved`. May belong to an area, a (non-terminal) project, or a
   (non-terminal) routine.
 - **`event`** — an external commitment / scheduled appointment. Requires `scheduled`. Uses
-  `metadata` for location, participants, and commitment type. Exported separately from tasks.
+  `metadata` for location, participants, and commitment type. Listed separately from tasks.
 - **`review`** — a scheduled review/checkpoint item (reserved type).
 - **`archive_item`** — a historical/terminal item type (reserved type).
 

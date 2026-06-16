@@ -29,8 +29,8 @@ domain/service layer and applies identically to the CLI, the API, and any future
 
 ## Consequences
 
-- Proposed items are surfaced (e.g. `pending`, `proposed.md` export) so the user can review
-  and approve them, but they never silently become active work.
+- Proposed items are surfaced by `pending` so the user can review and approve them, but
+  they never silently become active work.
 - A user operating the CLI directly with `--actor user` can create already-approved items,
   matching the intent that the user is the authority.
 - Rejection is a first-class terminal state (`rejected`) for proposals the user declines.

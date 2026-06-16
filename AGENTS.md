@@ -4,7 +4,7 @@
 
 `oracle-todo` — a policy-enforced, local-first personal ToDo engine (Rust 2024) for Oracle/Hermes workflows.
 
-- **SQLite is the source of truth.** CLI, HTTP API, and Markdown exports are all views over `todo.sqlite`.
+- **SQLite is the source of truth.** CLI and HTTP API are both views over `todo.sqlite`.
 - **The Rust service layer enforces policy.** Every mutation goes through `TodoService`: validation plus a status state machine. CLI and API never bypass it.
 - **Approval gates agent work.** Oracle/agent-created items start as `proposed` and require user approval before activation; user-created items can start `approved`.
 - **Audit events are mandatory.** Every service-layer mutation writes a `TodoEvent` row to the SQLite `events` table.
@@ -21,7 +21,7 @@ Clean/hexagonal layering under `src/`. Dependencies point inward — `interfaces
 | `domain/` | `model.rs`, `status.rs`, `recurrence.rs` | Item types, `ItemStatus`, recurrence rules. Pure logic, no I/O. |
 | `application/` | `service/`, `ports.rs`, `error.rs` | `TodoService` policy + state machine, repository port trait, `TodoError`. |
 | `infrastructure/` | `sqlite/`, `paths.rs`, `system.rs` | `rusqlite` repository + schema, data-home resolution, clock/system. |
-| `interfaces/` | `cli/`, `api/`, `exports.rs` | `clap` CLI, `axum` HTTP router, Markdown exports. Thin adapters over the service. |
+| `interfaces/` | `cli/`, `api/` | `clap` CLI and `axum` HTTP router. Thin adapters over the service. |
 | (root) | `lib.rs`, `main.rs` | Crate wiring, binary entrypoint. |
 
 Each split layer (`service/`, `sqlite/`, `cli/`, `api/`) is a directory module; see `docs/architecture/layers.md` for the per-file breakdown and the `pub(super)` visibility convention.
@@ -43,18 +43,17 @@ cargo run -- init                                        # create the SQLite DB 
 cargo run -- health                                      # DB reachability + schema baseline
 cargo run -- pending                                     # proposed / approved / active work
 cargo run -- today                                       # today's materialized task view
-cargo run -- export                                      # write Markdown views to exports/
 cargo test                                               # all tests
 cargo fmt --check                                        # format gate
 cargo clippy --all-targets --all-features -- -D warnings # lint gate (warnings are errors)
 ```
 
-CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`, `export`.
+CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`.
 
 ## Data Home & Configuration
 
 - Data home: `ORACLE_TODO_HOME` env var or `--home <path>`; default `~/.hermes/oracle-todo/`.
-- Layout: `todo.sqlite`, `exports/*.md`, `logs/oracle-todo.jsonl(.1-.3)`.
+- Layout: `todo.sqlite`, `logs/oracle-todo.jsonl(.1-.3)`.
 - Log rotation: `ORACLE_TODO_LOG_MAX_BYTES` (default `1_048_576`), `ORACLE_TODO_LOG_MAX_FILES` (default `3`).
 - Exit codes / HTTP status: policy/validation → CLI `2` / HTTP `400`; not-found → CLI `4` / HTTP `404`; storage/internal → CLI `1` / HTTP `500`.
 
@@ -64,7 +63,7 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 - **The live data home is canonical.** Never aim destructive experiments at `~/.hermes/oracle-todo/todo.sqlite` without explicit approval. Copy it to a temp home for smoke checks (`*.sqlite` is gitignored).
 - **Schema init is additive.** `init_schema()` creates tables and backfills missing columns on older `items` tables; `migrate-legacy-db` normalizes Python-era values. Don't drop or rewrite existing columns.
 - **Approval gating is policy, not UI.** Agent/Oracle-created items must stay `proposed` until user approval.
-- **Layered tests guard shared behavior.** `tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration (`tests/integration/exports.rs`) suites assert CLI/API/export views agree with the service layer — keep them green when changing shared behavior.
+- **Layered tests guard shared behavior.** `tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration suites assert CLI/API behavior agrees with the service layer — keep them green when changing shared behavior.
 
 ## Skills & Hooks
 

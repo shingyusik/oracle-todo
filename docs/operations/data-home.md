@@ -1,7 +1,7 @@
 # Data Home
 
-The **data home** is the directory that holds the canonical SQLite database, the rendered
-Markdown exports, and the operational logs. Everything `oracle-todo` persists lives under it.
+The **data home** is the directory that holds the canonical SQLite database and the
+operational logs. Everything `oracle-todo` persists lives under it.
 
 ## Resolution
 
@@ -21,14 +21,6 @@ cargo run -- --home /path/to/data init   # flag wins over the env var
 ```text
 <data-home>/
 ├── todo.sqlite                 # canonical store (items + events tables)
-├── exports/                    # rendered Markdown views (output only)
-│   ├── today.md
-│   ├── events.md
-│   ├── projects.md
-│   ├── areas.md
-│   ├── routines.md
-│   ├── proposed.md
-│   └── archive.md
 └── logs/                       # operational JSONL log + rotated backups
     ├── oracle-todo.jsonl
     ├── oracle-todo.jsonl.1
@@ -38,8 +30,6 @@ cargo run -- --home /path/to/data init   # flag wins over the env var
 
 - `todo.sqlite` — the source of truth (`paths::db_path`). See
   [../architecture/decisions/adr-0001-sqlite-source-of-truth.md](../architecture/decisions/adr-0001-sqlite-source-of-truth.md).
-- `exports/` — written by `export` (`paths::exports_dir`); regenerable, never read back as
-  state. See `README.md`'s "Markdown exports" table for each file's contents.
 - `logs/` — the operational log and its rotated backups. See
   [logging-and-rotation.md](logging-and-rotation.md).
 

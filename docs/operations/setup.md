@@ -30,7 +30,7 @@ cargo run -- init
 cargo run -- --home /path/to/data init
 ```
 
-The full layout (`todo.sqlite`, `exports/`, `logs/`) and resolution rules are documented in
+The full layout (`todo.sqlite`, `logs/`) and resolution rules are documented in
 [data-home.md](data-home.md).
 
 ## Verify the install

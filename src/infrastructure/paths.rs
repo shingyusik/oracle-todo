@@ -16,7 +16,3 @@ pub fn todo_home(explicit_home: Option<PathBuf>) -> Result<PathBuf> {
 pub fn db_path(home: &Path) -> PathBuf {
     home.join("todo.sqlite")
 }
-
-pub fn exports_dir(home: &Path) -> PathBuf {
-    home.join("exports")
-}

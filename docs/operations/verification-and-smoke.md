@@ -46,7 +46,6 @@ cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
 cargo run -- --home "$tmp_home" migrate-legacy-db
 cargo run -- --home "$tmp_home" pending
 cargo run -- --home "$tmp_home" today
-cargo run -- --home "$tmp_home" export
 ```
 
 Without a legacy database, start from a fresh init in a temp home:
@@ -56,7 +55,6 @@ tmp_home="$(mktemp -d)"
 cargo run -- --home "$tmp_home" init
 cargo run -- --home "$tmp_home" pending
 cargo run -- --home "$tmp_home" today
-cargo run -- --home "$tmp_home" export
 ```
 
 The smoke passes when every command succeeds against the temp home and the live home remains
@@ -64,6 +62,5 @@ untouched. `*.sqlite` is gitignored, so a temp copy is never committed.
 
 ## Structure checks
 
-After a refactor, confirm: no `src/**/*.rs` is much over ~400 lines; `src/exports.rs` no
-longer exists (it now lives at `src/interfaces/exports.rs`, re-exported as `oracle_todo::exports`);
-and `docs/{architecture,conventions,operations}` are populated.
+After a refactor, confirm: no `src/**/*.rs` is much over ~400 lines and
+`docs/{architecture,conventions,operations}` are populated.
