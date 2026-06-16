@@ -104,11 +104,10 @@ fn yearly_interval_skips_off_years() {
 }
 
 #[test]
-fn unanchored_monthly_emits_first_of_every_month() {
-    // Current behavior: an unanchored `every N months` rule emits the 1st of EVERY
-    // month in the window — the interval N is not honored on this path (also locked by
-    // tests/integration/materialization.rs). Anchored monthly and yearly rules DO
-    // honor the interval.
+fn unanchored_monthly_honors_interval() {
+    // An unanchored `every N months` rule emits the 1st of every Nth month in the
+    // window, anchored to the start month. (Anchored monthly and yearly rules also
+    // honor the interval.)
     let got = occurrences(
         "every 2 months",
         date!(2026 - 01 - 01),
@@ -119,9 +118,7 @@ fn unanchored_monthly_emits_first_of_every_month() {
         got,
         vec![
             date!(2026 - 01 - 01),
-            date!(2026 - 02 - 01),
             date!(2026 - 03 - 01),
-            date!(2026 - 04 - 01),
             date!(2026 - 05 - 01)
         ]
     );
