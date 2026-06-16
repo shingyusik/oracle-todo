@@ -1,3 +1,4 @@
+use super::status::ItemStatus;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::str::FromStr;
@@ -17,45 +18,10 @@ pub enum ItemType {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum ItemStatus {
-    Proposed,
-    Approved,
-    Active,
-    Waiting,
-    Paused,
-    Completed,
-    Cancelled,
-    Dropped,
-    Archived,
-    Someday,
-    Rejected,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum Actor {
     User,
     Oracle,
     System,
-}
-
-pub fn terminal_status(status: ItemStatus) -> bool {
-    matches!(
-        status,
-        ItemStatus::Completed
-            | ItemStatus::Cancelled
-            | ItemStatus::Dropped
-            | ItemStatus::Archived
-            | ItemStatus::Someday
-            | ItemStatus::Rejected
-    )
-}
-
-pub fn hidden_by_default_status(status: ItemStatus) -> bool {
-    matches!(
-        status,
-        ItemStatus::Archived | ItemStatus::Dropped | ItemStatus::Cancelled
-    )
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -201,45 +167,6 @@ impl FromStr for ItemType {
             "review" => Ok(ItemType::Review),
             "archive_item" => Ok(ItemType::ArchiveItem),
             _ => Err(format!("unknown item type: {value}")),
-        }
-    }
-}
-
-impl ItemStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ItemStatus::Proposed => "proposed",
-            ItemStatus::Approved => "approved",
-            ItemStatus::Active => "active",
-            ItemStatus::Waiting => "waiting",
-            ItemStatus::Paused => "paused",
-            ItemStatus::Completed => "completed",
-            ItemStatus::Cancelled => "cancelled",
-            ItemStatus::Dropped => "dropped",
-            ItemStatus::Archived => "archived",
-            ItemStatus::Someday => "someday",
-            ItemStatus::Rejected => "rejected",
-        }
-    }
-}
-
-impl FromStr for ItemStatus {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim() {
-            "proposed" => Ok(ItemStatus::Proposed),
-            "approved" => Ok(ItemStatus::Approved),
-            "active" => Ok(ItemStatus::Active),
-            "waiting" => Ok(ItemStatus::Waiting),
-            "paused" => Ok(ItemStatus::Paused),
-            "completed" => Ok(ItemStatus::Completed),
-            "cancelled" => Ok(ItemStatus::Cancelled),
-            "dropped" => Ok(ItemStatus::Dropped),
-            "archived" => Ok(ItemStatus::Archived),
-            "someday" => Ok(ItemStatus::Someday),
-            "rejected" => Ok(ItemStatus::Rejected),
-            _ => Err(format!("unknown status: {value}")),
         }
     }
 }
