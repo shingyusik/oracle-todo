@@ -1,4 +1,0 @@
-interface:
-  display_name: "PR To Main"
-  short_description: "Create or update PRs targeting main branch"
-  default_prompt: "Use $pr-to-main to generate and open a pull request from the current branch to main using this repository template rules."

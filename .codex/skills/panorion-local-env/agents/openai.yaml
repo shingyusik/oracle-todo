@@ -1,4 +1,0 @@
-interface:
-  display_name: "Panorion Local Env"
-  short_description: "Restore Panorion local env keys"
-  default_prompt: "Use $panorion-local-env to set up the Panorion local environment and verify auth, backend, and frontend."
