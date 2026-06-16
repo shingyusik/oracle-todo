@@ -1,0 +1,5 @@
+{
+  "name": "code-cleanup",
+  "description": "Code removal skills: dead code, legacy code, and unnecessary comment cleanup with safety verification",
+  "version": "1.0.0"
+}

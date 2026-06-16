@@ -1,0 +1,4 @@
+interface:
+  display_name: "Docs Change Updater"
+  short_description: "Sync README/docs with git and session changes"
+  default_prompt: "Use $docs-change-updater to review current git diffs, staged changes, and recent commits, then update README/docs so they match the current source state."

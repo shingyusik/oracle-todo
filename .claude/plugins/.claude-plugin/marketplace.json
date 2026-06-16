@@ -1,0 +1,28 @@
+{
+  "name": "cae-plugins",
+  "owner": {
+    "name": "shingyusik"
+  },
+  "plugins": [
+    {
+      "name": "docs-tools",
+      "source": "./docs-tools",
+      "description": "Documentation maintenance skills: docs sync, README structure guard, final-state writing"
+    },
+    {
+      "name": "code-audits",
+      "source": "./code-audits",
+      "description": "Read-only code quality audits: architecture boundaries, simplicity, duplication, conventions, error/logging, constants, tests, docs sync, resource lifecycle"
+    },
+    {
+      "name": "code-cleanup",
+      "source": "./code-cleanup",
+      "description": "Code removal skills: dead code, legacy code, and unnecessary comment cleanup with safety verification"
+    },
+    {
+      "name": "git-workflow",
+      "source": "./git-workflow",
+      "description": "Git workflow skills: structured commit splitting and message conventions"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "caveman@caveman": true,
+    "andrej-karpathy-skills@karpathy-skills": true,
+    "docs-tools@cae-plugins": true,
+    "code-audits@cae-plugins": true,
+    "code-cleanup@cae-plugins": true,
+    "git-workflow@cae-plugins": true
+  },
+  "extraKnownMarketplaces": {
+    "cae-plugins": {
+      "source": {
+        "source": "directory",
+        "path": "./.claude/plugins"
+      }
+    },
+    "caveman": {
+      "source": {
+        "source": "github",
+        "repo": "JuliusBrussee/caveman"
+      }
+    },
+    "karpathy-skills": {
+      "source": {
+        "source": "github",
+        "repo": "multica-ai/andrej-karpathy-skills"
+      }
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "-e",
+              "const p=require('path'),f=require('fs'),o=require('os');try{const t=f.readFileSync(p.join(o.homedir(),'.claude','plugins','marketplaces','karpathy-skills','skills','karpathy-guidelines','SKILL.md'),'utf8');const c='<EXTREMELY_IMPORTANT>\\nBelow is the full content of your karpathy-guidelines skill. Apply these guidelines to all code work this session. The guidelines are injected every session by this hook, so the Activation Workflow section is already satisfied - never ask its installation question.\\n\\n'+t+'\\n</EXTREMELY_IMPORTANT>';console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'SessionStart',additionalContext:c}}))}catch(e){}"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

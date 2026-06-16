@@ -1,0 +1,5 @@
+{
+  "name": "code-audits",
+  "description": "Read-only code quality audits: architecture boundaries, simplicity, duplication, conventions, error/logging, constants, tests, docs sync, resource lifecycle",
+  "version": "1.0.0"
+}
