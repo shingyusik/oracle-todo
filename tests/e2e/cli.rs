@@ -149,7 +149,7 @@ fn task_propose_prints_json_item() {
 }
 
 #[test]
-fn cli_writes_structured_jsonl_logs_without_changing_stdout() {
+fn cli_writes_info_to_stderr_and_debug_to_file_without_changing_stdout() {
     let home = TestHome::new();
 
     let output = Command::cargo_bin("oracle-todo")
@@ -157,37 +157,28 @@ fn cli_writes_structured_jsonl_logs_without_changing_stdout() {
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success()
-        .stderr("")
         .stdout(contains("initialized"))
         .get_output()
-        .stdout
         .clone();
-    assert!(String::from_utf8(output).unwrap().contains("todo.sqlite"));
 
-    let records = read_jsonl_records(home.path().join("logs/oracle-todo.jsonl"));
-    let start = records
-        .iter()
-        .find(|record| record["event"] == "command_start")
-        .expect("command_start record");
-    assert_eq!(start["level"], "INFO");
-    assert_eq!(start["command"], "init");
-    assert!(start["timestamp"].as_str().unwrap().contains('T'));
-    assert!(start["message"].as_str().unwrap().contains("started"));
-    assert!(start["pid"].as_u64().unwrap() > 0);
-    assert!(start.get("duration_ms").is_none());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("todo.sqlite"));
 
-    let success = records
-        .iter()
-        .find(|record| record["event"] == "command_success")
-        .expect("command_success record");
-    assert_eq!(success["level"], "INFO");
-    assert_eq!(success["command"], "init");
-    assert_eq!(success["exit_code"], 0);
-    assert!(success["duration_ms"].as_u64().is_some());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("INFO"));
+    assert!(stderr.contains("command started"));
+    assert!(stderr.contains("command completed"));
+    assert!(!stderr.contains("DEBUG"));
+
+    let records = read_jsonl_records(home.path().join("logs/oracle-todo.log.jsonl"));
+    assert_jsonl_event(&records, "INFO", "command_started");
+    assert_jsonl_event(&records, "INFO", "command_completed");
+    assert_jsonl_event(&records, "DEBUG", "home_resolved");
+    assert_jsonl_event(&records, "DEBUG", "database_opened");
 }
 
 #[test]
-fn cli_logs_error_exit_code_for_todo_errors() {
+fn cli_logs_error_event_with_exit_code_to_file() {
     let home = TestHome::new();
 
     Command::cargo_bin("oracle-todo")
@@ -209,19 +200,16 @@ fn cli_logs_error_exit_code_for_todo_errors() {
         ])
         .assert()
         .code(4)
+        .stderr(contains("ERROR"))
         .stderr(contains("Item not found: 없는영역"));
 
-    let records = read_jsonl_records(home.path().join("logs/oracle-todo.jsonl"));
-    let error = records
-        .iter()
-        .find(|record| record["event"] == "command_error")
-        .expect("command_error record");
+    let records = read_jsonl_records(home.path().join("logs/oracle-todo.log.jsonl"));
+    let error = find_jsonl_event(&records, "command_failed");
     assert_eq!(error["level"], "ERROR");
-    assert_eq!(error["command"], "task propose");
-    assert_eq!(error["exit_code"], 4);
-    assert!(error["duration_ms"].as_u64().is_some());
+    assert_eq!(error["fields"]["command"], "task propose");
+    assert_eq!(error["fields"]["exit_code"], 4);
     assert!(
-        error["message"]
+        error["fields"]["error"]
             .as_str()
             .unwrap()
             .contains("Item not found: 없는영역")
@@ -229,37 +217,88 @@ fn cli_logs_error_exit_code_for_todo_errors() {
 }
 
 #[test]
-fn cli_rotates_jsonl_logs_with_configurable_backup_count() {
+fn cli_rotates_tracing_jsonl_logs_with_configurable_backup_count() {
     let home = TestHome::new();
 
     for _ in 0..8 {
         Command::cargo_bin("oracle-todo")
             .unwrap()
-            .env("ORACLE_TODO_LOG_MAX_BYTES", "260")
+            .env("ORACLE_TODO_LOG_MAX_BYTES", "520")
             .env("ORACLE_TODO_LOG_MAX_FILES", "2")
             .args(["--home", home.path().to_str().unwrap(), "init"])
             .assert()
             .success();
     }
 
-    let log_path = home.path().join("logs/oracle-todo.jsonl");
-    let rotated_path = home.path().join("logs/oracle-todo.jsonl.1");
-    let second_rotated_path = home.path().join("logs/oracle-todo.jsonl.2");
-    let third_rotated_path = home.path().join("logs/oracle-todo.jsonl.3");
+    let log_path = home.path().join("logs/oracle-todo.log.jsonl");
+    let rotated_path = home.path().join("logs/oracle-todo.log.jsonl.1");
+    let second_rotated_path = home.path().join("logs/oracle-todo.log.jsonl.2");
+    let third_rotated_path = home.path().join("logs/oracle-todo.log.jsonl.3");
     assert!(log_path.exists());
     assert!(rotated_path.exists());
     assert!(second_rotated_path.exists());
     assert!(!third_rotated_path.exists());
 
-    let rotated_records = read_jsonl_records(rotated_path)
+    let records = read_jsonl_records(&log_path)
         .into_iter()
+        .chain(read_jsonl_records(rotated_path))
         .chain(read_jsonl_records(second_rotated_path))
         .collect::<Vec<_>>();
-    assert!(!rotated_records.is_empty());
+    assert_jsonl_event(&records, "INFO", "log_rotated");
     assert!(
-        rotated_records.iter().all(
-            |record| record["event"] == "command_start" || record["event"] == "command_success"
-        )
+        records
+            .iter()
+            .any(|record| record["fields"]["event"] == "command_completed")
+    );
+}
+
+#[test]
+fn cli_file_log_error_filters_debug_info_and_rotation_records() {
+    let home = TestHome::new();
+    let log_path = home.path().join("logs/oracle-todo.log.jsonl");
+    std::fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+    std::fs::write(&log_path, "old log large enough to rotate\n").unwrap();
+
+    Command::cargo_bin("oracle-todo")
+        .unwrap()
+        .env("ORACLE_TODO_FILE_LOG", "error")
+        .env("ORACLE_TODO_LOG_MAX_BYTES", "1")
+        .env("ORACLE_TODO_LOG_MAX_FILES", "1")
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "task",
+            "propose",
+            "실패할 일",
+            "--area",
+            "없는영역",
+        ])
+        .assert()
+        .code(4);
+
+    let records = read_jsonl_records(&log_path);
+    assert_jsonl_event(&records, "ERROR", "command_failed");
+    assert!(
+        records.iter().all(|record| record["level"] == "ERROR"),
+        "expected only ERROR records in active log, got {records:#?}"
+    );
+    assert!(
+        records
+            .iter()
+            .all(|record| record["fields"]["event"] != "log_rotated"),
+        "log_rotated should be filtered when ORACLE_TODO_FILE_LOG=error: {records:#?}"
+    );
+    assert!(
+        records
+            .iter()
+            .all(|record| record["fields"]["event"] != "home_resolved"),
+        "DEBUG events should be filtered when ORACLE_TODO_FILE_LOG=error: {records:#?}"
+    );
+    assert!(
+        records
+            .iter()
+            .all(|record| record["fields"]["event"] != "command_started"),
+        "INFO events should be filtered when ORACLE_TODO_FILE_LOG=error: {records:#?}"
     );
 }
 
@@ -269,6 +308,18 @@ fn read_jsonl_records(path: impl AsRef<std::path::Path>) -> Vec<serde_json::Valu
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect()
+}
+
+fn find_jsonl_event<'a>(records: &'a [serde_json::Value], event: &str) -> &'a serde_json::Value {
+    records
+        .iter()
+        .find(|record| record["fields"]["event"] == event)
+        .unwrap_or_else(|| panic!("{event} event in {records:#?}"))
+}
+
+fn assert_jsonl_event(records: &[serde_json::Value], level: &str, event: &str) {
+    let record = find_jsonl_event(records, event);
+    assert_eq!(record["level"], level);
 }
 
 #[test]

@@ -15,7 +15,7 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "macros", "serde", "serde-well-known", "local-offset"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]

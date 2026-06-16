@@ -17,7 +17,7 @@ use crate::infrastructure::paths::{db_path, todo_home};
 use crate::infrastructure::sqlite::{
     SqliteTodoRepository, connect, init_schema, migrate_legacy_storage, user_version,
 };
-use crate::infrastructure::system::{OperationalLogger, init_tracing, local_today_string};
+use crate::infrastructure::system::{init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
 #[command(name = "oracle-todo")]
@@ -289,12 +289,16 @@ struct UpdateArgs {
 }
 
 pub fn run() -> Result<()> {
-    init_tracing();
     let cli = Cli::parse();
     let command_name = command_label(&cli.command);
     let home = todo_home(cli.home)?;
-    let logger = OperationalLogger::new(&home)?;
-    logger.command_start(command_name);
+    init_tracing(&home);
+    tracing::debug!(event = "home_resolved", home = %home.display());
+    tracing::info!(
+        event = "command_started",
+        command = command_name,
+        "command started"
+    );
     let started_at = Instant::now();
 
     let result = match cli.command {
@@ -337,12 +341,20 @@ pub fn run() -> Result<()> {
 
     let duration_ms = elapsed_millis(started_at);
     match &result {
-        Ok(()) => logger.command_success(command_name, duration_ms),
-        Err(error) => logger.command_error(
-            command_name,
-            &format!("{error:#}"),
-            TodoError::cli_exit_code_from_error(error),
+        Ok(()) => tracing::info!(
+            event = "command_completed",
+            command = command_name,
             duration_ms,
+            exit_code = 0_i32,
+            "command completed"
+        ),
+        Err(error) => tracing::error!(
+            event = "command_failed",
+            command = command_name,
+            duration_ms,
+            exit_code = TodoError::cli_exit_code_from_error(error),
+            error = %format!("{error:#}"),
+            "command failed"
         ),
     }
     result
@@ -395,15 +407,20 @@ fn elapsed_millis(started_at: Instant) -> u64 {
 fn init(home: &Path) -> Result<()> {
     std::fs::create_dir_all(home)?;
     let db_path = db_path(home);
+    tracing::debug!(event = "database_path_resolved", path = %db_path.display());
     let conn = connect_path(&db_path)?;
+    tracing::debug!(event = "database_opened", path = %db_path.display());
     init_schema(&conn)?;
+    tracing::debug!(event = "schema_initialized", path = %db_path.display());
     println!("initialized {}", db_path.display());
     Ok(())
 }
 
 fn health(home: &Path) -> Result<()> {
     let db_path = db_path(home);
+    tracing::debug!(event = "database_path_resolved", path = %db_path.display());
     let conn = connect_path(&db_path)?;
+    tracing::debug!(event = "database_opened", path = %db_path.display());
     let user_version = user_version(&conn)?;
     println!("ok db={} user_version={}", db_path.display(), user_version);
     Ok(())
@@ -412,8 +429,11 @@ fn health(home: &Path) -> Result<()> {
 fn migrate_legacy_db(home: &Path) -> Result<()> {
     std::fs::create_dir_all(home)?;
     let db_path = db_path(home);
+    tracing::debug!(event = "database_path_resolved", path = %db_path.display());
     let conn = connect_path(&db_path)?;
+    tracing::debug!(event = "database_opened", path = %db_path.display());
     init_schema(&conn)?;
+    tracing::debug!(event = "schema_initialized", path = %db_path.display());
     let report = migrate_legacy_storage(&conn)?;
     println!(
         "migrated db={} item_rows={} event_rows={} timestamp_fields={}",
@@ -427,8 +447,12 @@ fn migrate_legacy_db(home: &Path) -> Result<()> {
 
 pub(super) fn service(home: &Path) -> Result<TodoService> {
     let db_path = db_path(home);
+    tracing::debug!(event = "database_path_resolved", path = %db_path.display());
     let conn = connect_path(&db_path)?;
+    tracing::debug!(event = "database_opened", path = %db_path.display());
     init_schema(&conn)?;
+    tracing::debug!(event = "schema_initialized", path = %db_path.display());
+    tracing::debug!(event = "service_ready", path = %db_path.display());
     Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
 }
 
