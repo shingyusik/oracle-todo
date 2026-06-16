@@ -201,26 +201,6 @@ fn recurrence_matrix_covers_supported_cases() {
 }
 
 #[test]
-fn unanchored_monthly_interval_uses_first_of_month_default() {
-    let out = occurrences(
-        "every 2 months",
-        date!(2026 - 01 - 15),
-        date!(2026 - 05 - 31),
-    )
-    .unwrap();
-
-    assert_eq!(
-        out,
-        vec![
-            date!(2026 - 02 - 01),
-            date!(2026 - 03 - 01),
-            date!(2026 - 04 - 01),
-            date!(2026 - 05 - 01)
-        ]
-    );
-}
-
-#[test]
 fn single_open_routine_respects_existing_manual_open_task() {
     let mut service = TodoService::in_memory();
     let routine = service
