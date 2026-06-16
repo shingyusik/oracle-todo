@@ -59,9 +59,8 @@ the wire as `type` via `#[serde(rename = "type")]`), `area_id`, `project_id`, `r
 
 ## Status mapping note
 
-The `axum` error boundary maps `TodoError::NotFound` to **HTTP 400** (every other variant
-follows `http_status_code`: policy/validation → 400, storage/migration/internal → 500). This
-is the behavior-locked quirk documented in
+The `axum` error boundary maps every `TodoError` through `http_status_code`:
+policy/validation → 400, not-found → 404, storage/migration/internal → 500. See
 [../conventions/error-handling.md](../conventions/error-handling.md).
 
 ## In-memory mode

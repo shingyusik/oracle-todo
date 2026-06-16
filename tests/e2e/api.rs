@@ -547,7 +547,7 @@ async fn service_errors_return_detail_body() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 400);
+    assert_eq!(response.status(), 404);
     let body = body_json(response).await;
     assert!(body["detail"].as_str().unwrap().contains("missing"));
 }

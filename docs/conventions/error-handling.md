@@ -28,10 +28,8 @@ The variant determines both the CLI exit code (`cli_exit_code`) and the HTTP sta
 | `NotFound` | `4` | `404` |
 | `Storage`, `Migration`, `Internal` | `1` | `500` |
 
-> **API NotFound caveat.** The `axum` `ApiError::into_response` boundary intentionally maps
-> `TodoError::NotFound` to **HTTP 400** (not 404) — every other variant uses
-> `http_status_code` as above. This is a deliberate, behavior-locked quirk of the HTTP
-> surface; the underlying `http_status_code()` for `NotFound` is still 404.
+> The `axum` `ApiError::into_response` boundary maps every variant through
+> `http_status_code` above — `NotFound` → 404, like the CLI's exit-code mapping.
 
 ## Propagation pattern
 
