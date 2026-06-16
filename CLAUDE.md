@@ -18,11 +18,13 @@ Clean/hexagonal layering under `src/`. Dependencies point inward — `interfaces
 
 | Layer | Files | Responsibility |
 | --- | --- | --- |
-| `domain/` | `model.rs`, `recurrence.rs` | Item types, `ItemStatus`, recurrence rules. Pure logic, no I/O. |
-| `application/` | `service.rs`, `ports.rs`, `error.rs` | `TodoService` policy + state machine, repository port trait, `TodoError`. |
-| `infrastructure/` | `sqlite.rs`, `paths.rs`, `system.rs` | `rusqlite` repository + schema, data-home resolution, clock/system. |
-| `interfaces/` | `cli.rs`, `api.rs` | `clap` CLI and `axum` HTTP router. Thin adapters over the service. |
-| (root) | `exports.rs`, `lib.rs`, `main.rs` | Markdown exports, crate wiring, binary entrypoint. |
+| `domain/` | `model.rs`, `status.rs`, `recurrence.rs` | Item types, `ItemStatus`, recurrence rules. Pure logic, no I/O. |
+| `application/` | `service/`, `ports.rs`, `error.rs` | `TodoService` policy + state machine, repository port trait, `TodoError`. |
+| `infrastructure/` | `sqlite/`, `paths.rs`, `system.rs` | `rusqlite` repository + schema, data-home resolution, clock/system. |
+| `interfaces/` | `cli/`, `api/`, `exports.rs` | `clap` CLI, `axum` HTTP router, Markdown exports. Thin adapters over the service. |
+| (root) | `lib.rs`, `main.rs` | Crate wiring, binary entrypoint. |
+
+Each split layer (`service/`, `sqlite/`, `cli/`, `api/`) is a directory module; see `docs/architecture/layers.md` for the per-file breakdown and the `pub(super)` visibility convention.
 
 ## Docs Map
 
@@ -62,7 +64,7 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 - **The live data home is canonical.** Never aim destructive experiments at `~/.hermes/oracle-todo/todo.sqlite` without explicit approval. Copy it to a temp home for smoke checks (`*.sqlite` is gitignored).
 - **Schema init is additive.** `init_schema()` creates tables and backfills missing columns on older `items` tables; `migrate-legacy-db` normalizes Python-era values. Don't drop or rewrite existing columns.
 - **Approval gating is policy, not UI.** Agent/Oracle-created items must stay `proposed` until user approval.
-- **Parity tests guard shared behavior.** `tests/*_parity.rs` assert CLI/API/export views agree with the service layer — keep them green when changing shared behavior.
+- **Layered tests guard shared behavior.** `tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration (`tests/integration/exports.rs`) suites assert CLI/API/export views agree with the service layer — keep them green when changing shared behavior.
 
 ## Skills & Plugins
 
