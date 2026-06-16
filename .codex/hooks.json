@@ -1,16 +1,16 @@
 {
   "hooks": {
-    "SessionStart": [
+    "session_start": [
       {
         "matcher": "startup|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "./.codex/hooks/run-hook.cmd session-start",
-            "commandWindows": ".\\.codex\\hooks\\run-hook.cmd session-start",
+            "command": ".codex/hooks/run-hook.cmd session-start",
+            "commandWindows": ".codex\\hooks\\run-hook.cmd session-start",
             "async": false,
             "timeout": 30,
-            "statusMessage": "Loading using-superpowers entrypoint"
+            "statusMessage": "Loading Codex session context"
           }
         ]
       }

@@ -1,67 +1,38 @@
 #!/usr/bin/env bash
-# SessionStart hook for superpowers plugin
 
 set -euo pipefail
 
-# Determine repo-local hook and agent directories
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CODEX_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PROJECT_ROOT="$(cd "${CODEX_DIR}/.." && pwd)"
-PLUGIN_ROOT="${PROJECT_ROOT}/.agents"
+karpathy_skill_path="${HOME}/.claude/plugins/marketplaces/karpathy-skills/skills/karpathy-guidelines/SKILL.md"
+superpowers_skill_path="${HOME}/.codex/skills/using-superpowers/SKILL.md"
 
-# Check if legacy skills directory exists and build warning
-warning_message=""
-legacy_skills_dir="${HOME}/.config/superpowers/skills"
-if [ -d "$legacy_skills_dir" ]; then
-    warning_message="\n\n<important-reminder>IN YOUR FIRST REPLY AFTER SEEING THIS MESSAGE YOU MUST TELL THE USER:⚠️ **WARNING:** Superpowers now uses Claude Code's skills system. Custom skills in ~/.config/superpowers/skills will not be read. Move custom skills to ~/.claude/skills instead. To make this message go away, remove ~/.config/superpowers/skills</important-reminder>"
-fi
-
-# Read using-superpowers content
-repo_agent_skill="${PROJECT_ROOT}/.agents/skills/using-superpowers/SKILL.md"
-codex_skill="${CODEX_DIR}/skills/using-superpowers/SKILL.md"
-if [ -f "$repo_agent_skill" ]; then
-    using_superpowers_content=$(cat "$repo_agent_skill")
-elif [ -f "$codex_skill" ]; then
-    using_superpowers_content=$(cat "$codex_skill")
-else
-    using_superpowers_content="Error reading using-superpowers skill"
-fi
-
-# Escape string for JSON embedding using bash parameter substitution.
-# Each ${s//old/new} is a single C-level pass - orders of magnitude
-# faster than the character-by-character loop this replaces.
 escape_for_json() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
 }
 
-using_superpowers_escaped=$(escape_for_json "$using_superpowers_content")
-warning_escaped=$(escape_for_json "$warning_message")
-session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the full content of your 'superpowers:using-superpowers' skill - your introduction to using skills. For all other skills, use the 'Skill' tool:**\n\n${using_superpowers_escaped}\n\n${warning_escaped}\n</EXTREMELY_IMPORTANT>"
+context="<EXTREMELY_IMPORTANT>"
 
-# Output context injection as JSON.
-# Cursor hooks expect additional_context (snake_case).
-# Claude Code hooks expect hookSpecificOutput.additionalContext (nested).
-# Copilot CLI (v1.0.11+) and others expect additionalContext (top-level, SDK standard).
-# Claude Code reads BOTH additional_context and hookSpecificOutput without
-# deduplication, so we must emit only the field the current platform consumes.
-#
-# Uses printf instead of heredoc to work around bash 5.3+ heredoc hang.
-# See: https://github.com/obra/superpowers/issues/571
-if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
-  # Cursor sets CURSOR_PLUGIN_ROOT (may also set CLAUDE_PLUGIN_ROOT)
-  printf '{\n  "additional_context": "%s"\n}\n' "$session_context"
-elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
-  # Claude Code sets CLAUDE_PLUGIN_ROOT without COPILOT_CLI
-  printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
-else
-  # Copilot CLI (sets COPILOT_CLI=1) or unknown platform — SDK standard format
-  printf '{\n  "additionalContext": "%s"\n}\n' "$session_context"
+if [ -f "$karpathy_skill_path" ]; then
+  karpathy_content="$(cat "$karpathy_skill_path")"
+  context="${context}\nBelow is the full content of your karpathy-guidelines skill. Apply these guidelines to all code work this session. The guidelines are injected every session by this hook, so the Activation Workflow section is already satisfied - never ask its installation question.\n\n$(escape_for_json "$karpathy_content")\n"
 fi
+
+if [ -f "$superpowers_skill_path" ]; then
+  superpowers_content="$(cat "$superpowers_skill_path")"
+  context="${context}\nYou have superpowers.\n\nBelow is the full content of your using-superpowers skill. Apply it this session. The skill is injected every session by this hook, so its session-start activation requirement is already satisfied.\n\n$(escape_for_json "$superpowers_content")\n"
+fi
+
+context="${context}</EXTREMELY_IMPORTANT>"
+
+if [ "$context" = "<EXTREMELY_IMPORTANT></EXTREMELY_IMPORTANT>" ]; then
+  exit 0
+fi
+
+printf '{\n  "additional_context": "%s",\n  "additionalContext": "%s"\n}\n' "$context" "$context"
 
 exit 0
