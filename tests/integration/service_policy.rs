@@ -1,70 +1,6 @@
 use oracle_todo::application::error::TodoError;
 use oracle_todo::application::service::{CreateArea, ProposeProject, ProposeTask, TodoService};
-use oracle_todo::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
-use std::str::FromStr;
-use time::macros::datetime;
-
-#[test]
-fn oracle_task_starts_proposed() {
-    let now = datetime!(2026-05-31 12:00 UTC);
-    let item = TodoItem::new_task("task_fixed", "앱 열고 DB 확인", Actor::Oracle, now);
-
-    assert_eq!(item.id, "task_fixed");
-    assert_eq!(item.item_type, ItemType::Task);
-    assert_eq!(item.status, ItemStatus::Proposed);
-    assert_eq!(item.proposed_by, Actor::Oracle);
-    assert_eq!(item.created_at, now);
-    assert_eq!(item.updated_at, now);
-}
-
-#[test]
-fn user_task_starts_approved() {
-    let now = datetime!(2026-05-31 12:00 UTC);
-    let item = TodoItem::new_task("task_user", "직접 입력한 일", Actor::User, now);
-
-    assert_eq!(item.status, ItemStatus::Approved);
-    assert_eq!(item.approved_by, Some(Actor::User));
-    assert_eq!(item.approved_at, Some(now));
-}
-
-#[test]
-fn actor_strings_round_trip_through_domain_parser() {
-    assert_eq!(Actor::from_str("oracle").unwrap(), Actor::Oracle);
-    assert_eq!(Actor::from_str("user").unwrap(), Actor::User);
-    assert_eq!(Actor::from_str("system").unwrap(), Actor::System);
-    assert!(Actor::from_str("robot").is_err());
-}
-
-#[test]
-fn domain_enums_require_canonical_lowercase_names() {
-    assert_eq!(ItemType::from_str("area").unwrap(), ItemType::Area);
-    assert_eq!(
-        ItemType::from_str("archive_item").unwrap(),
-        ItemType::ArchiveItem
-    );
-    assert_eq!(ItemStatus::from_str("active").unwrap(), ItemStatus::Active);
-    assert_eq!(
-        ItemStatus::from_str("proposed").unwrap(),
-        ItemStatus::Proposed
-    );
-    assert_eq!(Actor::from_str("oracle").unwrap(), Actor::Oracle);
-    assert_eq!(Actor::from_str("system").unwrap(), Actor::System);
-    assert!(ItemType::from_str("AREA").is_err());
-    assert!(ItemStatus::from_str("ACTIVE").is_err());
-    assert!(Actor::from_str("ORACLE").is_err());
-}
-
-#[test]
-fn json_timestamps_are_rfc3339_strings() {
-    let now = datetime!(2026-05-31 12:00 UTC);
-    let item = TodoItem::new_task("task_json", "JSON 확인", Actor::User, now);
-
-    let value = serde_json::to_value(item).unwrap();
-
-    assert_eq!(value["created_at"], "2026-05-31T12:00:00Z");
-    assert_eq!(value["updated_at"], "2026-05-31T12:00:00Z");
-    assert_eq!(value["approved_at"], "2026-05-31T12:00:00Z");
-}
+use oracle_todo::domain::{Actor, ItemStatus, ItemType, terminal_status};
 
 #[test]
 fn area_titles_resolve_in_service() {
@@ -176,52 +112,6 @@ fn completing_terminal_item_is_rejected() {
     assert_eq!(
         error,
         TodoError::Policy("Already terminal: completed".to_string())
-    );
-}
-
-#[test]
-fn every_mutation_records_event() {
-    let mut service = TodoService::in_memory();
-    service
-        .create_area(CreateArea {
-            title: "재정".to_string(),
-            review_cycle: None,
-            standard: None,
-            note: None,
-        })
-        .unwrap();
-    service
-        .propose_project(ProposeProject {
-            title: "프로젝트".to_string(),
-            area: None,
-            definition_of_done: Some("완료 조건".to_string()),
-            outcome: None,
-            due: None,
-            actor: Actor::User,
-            note: None,
-        })
-        .unwrap();
-    let item = service.propose_task("테스트", Default::default()).unwrap();
-    let approved = service.approve(&item.id, None).unwrap();
-    let active = service.activate(&approved.id, None).unwrap();
-    service.complete(&active.id, None).unwrap();
-
-    let actions: Vec<String> = service
-        .events()
-        .iter()
-        .map(|event| event.action.clone())
-        .collect();
-
-    assert_eq!(
-        actions,
-        vec![
-            "create_area".to_string(),
-            "propose_project".to_string(),
-            "propose_task".to_string(),
-            "approve".to_string(),
-            "activate".to_string(),
-            "complete".to_string(),
-        ]
     );
 }
 

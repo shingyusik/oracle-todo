@@ -73,7 +73,7 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> Result<Vec<Date>, Recu
 
     if matches!(unit, "month" | "months") {
         let Some(anchor) = anchor else {
-            return Ok(monthly_occurrences(start, end, 1, 1));
+            return Ok(monthly_occurrences(start, end, 1, interval));
         };
         if anchor == "the last" {
             return Ok(monthly_last_occurrences(start, end, interval));
