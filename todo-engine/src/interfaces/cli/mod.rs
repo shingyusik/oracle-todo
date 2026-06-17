@@ -169,7 +169,7 @@ struct ProjectProposeArgs {
     due: Option<String>,
     #[arg(long)]
     note: Option<String>,
-    #[arg(long, default_value = "oracle", value_parser = parse_actor)]
+    #[arg(long, default_value = "agent", value_parser = parse_actor)]
     actor: Actor,
 }
 
@@ -188,7 +188,7 @@ struct TaskProposeArgs {
     description: Option<String>,
     #[arg(long)]
     note: Option<String>,
-    #[arg(long, default_value = "oracle", value_parser = parse_actor)]
+    #[arg(long, default_value = "agent", value_parser = parse_actor)]
     actor: Actor,
 }
 
@@ -203,7 +203,7 @@ struct RoutineProposeArgs {
     materialization_policy: String,
     #[arg(long)]
     note: Option<String>,
-    #[arg(long, default_value = "oracle", value_parser = parse_actor)]
+    #[arg(long, default_value = "agent", value_parser = parse_actor)]
     actor: Actor,
 }
 
@@ -239,7 +239,7 @@ struct EventProposeArgs {
     participants: Vec<String>,
     #[arg(long, default_value = "appointment")]
     commitment_type: String,
-    #[arg(long, default_value = "oracle", value_parser = parse_actor)]
+    #[arg(long, default_value = "agent", value_parser = parse_actor)]
     actor: Actor,
 }
 
@@ -466,7 +466,7 @@ pub(super) fn today_string() -> String {
 
 fn parse_actor(value: &str) -> std::result::Result<Actor, String> {
     Actor::from_str(value)
-        .map_err(|_| format!("invalid actor '{value}'; expected one of: oracle, user, system"))
+        .map_err(|_| format!("invalid actor '{value}'; expected one of: agent, user, system"))
 }
 
 fn parse_status(value: &str) -> std::result::Result<ItemStatus, String> {

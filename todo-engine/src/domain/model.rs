@@ -20,7 +20,7 @@ pub enum ItemType {
 #[serde(rename_all = "lowercase")]
 pub enum Actor {
     User,
-    Oracle,
+    Agent,
     System,
 }
 
@@ -175,7 +175,7 @@ impl Actor {
     pub fn as_str(self) -> &'static str {
         match self {
             Actor::User => "user",
-            Actor::Oracle => "oracle",
+            Actor::Agent => "agent",
             Actor::System => "system",
         }
     }
@@ -187,7 +187,7 @@ impl FromStr for Actor {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim() {
             "user" => Ok(Actor::User),
-            "oracle" => Ok(Actor::Oracle),
+            "agent" => Ok(Actor::Agent),
             "system" => Ok(Actor::System),
             _ => Err(format!("unknown actor: {value}")),
         }

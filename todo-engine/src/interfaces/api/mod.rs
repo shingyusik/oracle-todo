@@ -105,7 +105,7 @@ pub(super) fn parse_actor_or_default(value: Option<&str>) -> Result<Actor, TodoE
         .map(Actor::from_str)
         .transpose()
         .map_err(TodoError::Validation)
-        .map(|actor| actor.unwrap_or(Actor::Oracle))
+        .map(|actor| actor.unwrap_or(Actor::Agent))
 }
 
 pub(super) fn parse_bool(value: &str) -> std::result::Result<bool, String> {

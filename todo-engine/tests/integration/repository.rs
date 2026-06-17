@@ -29,11 +29,11 @@ fn schema_rejects_null_primary_ids() {
     init_schema(&conn).unwrap();
 
     let item_result = conn.execute(
-        "INSERT INTO items (id, type, title, status, proposed_by, created_at, updated_at) VALUES (NULL, 'task', 'bad', 'proposed', 'oracle', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z')",
+        "INSERT INTO items (id, type, title, status, proposed_by, created_at, updated_at) VALUES (NULL, 'task', 'bad', 'proposed', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z')",
         [],
     );
     let event_result = conn.execute(
-        "INSERT INTO events (id, at, actor, action, object_type, object_id) VALUES (NULL, '2026-06-01T00:00:00Z', 'oracle', 'bad', 'task', 'task_1')",
+        "INSERT INTO events (id, at, actor, action, object_type, object_id) VALUES (NULL, '2026-06-01T00:00:00Z', 'agent', 'bad', 'task', 'task_1')",
         [],
     );
 
@@ -59,8 +59,8 @@ fn failed_schema_init_does_not_mark_database_version() {
         );
         INSERT INTO items (id, type, title, status, routine_id, occurrence_key, proposed_by, created_at, updated_at)
         VALUES
-            ('task_1', 'task', 'one', 'proposed', 'rtn_1', '2026-06-01', 'oracle', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'),
-            ('task_2', 'task', 'two', 'proposed', 'rtn_1', '2026-06-01', 'oracle', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
+            ('task_1', 'task', 'one', 'proposed', 'rtn_1', '2026-06-01', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'),
+            ('task_2', 'task', 'two', 'proposed', 'rtn_1', '2026-06-01', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
         "#,
     )
     .unwrap();
@@ -77,7 +77,7 @@ fn saving_item_and_event_persists_to_sqlite() {
     init_schema(&conn).unwrap();
     let mut repo = SqliteTodoRepository::new(conn);
     let now = datetime!(2026-06-01 00:00 UTC);
-    let mut item = TodoItem::new_task("task_test", "테스트", Actor::Oracle, now);
+    let mut item = TodoItem::new_task("task_test", "테스트", Actor::Agent, now);
     item.note = Some("간단 메모".to_string());
 
     repo.save_item(&item).unwrap();
@@ -91,7 +91,7 @@ fn saving_item_and_event_persists_to_sqlite() {
     let event = TodoEvent {
         id: "evt_test".to_string(),
         at: OffsetDateTime::now_utc(),
-        actor: Actor::Oracle,
+        actor: Actor::Agent,
         action: "propose_task".to_string(),
         object_type: "task".to_string(),
         object_id: item.id.clone(),
@@ -168,7 +168,7 @@ fn duplicate_event_ids_are_rejected() {
     let event = TodoEvent {
         id: "evt_test".to_string(),
         at: now,
-        actor: Actor::Oracle,
+        actor: Actor::Agent,
         action: "propose_task".to_string(),
         object_type: "task".to_string(),
         object_id: "task_test".to_string(),
@@ -193,7 +193,7 @@ fn item_and_event_are_saved_atomically() {
     let existing = TodoEvent {
         id: "evt_conflict".to_string(),
         at: now,
-        actor: Actor::Oracle,
+        actor: Actor::Agent,
         action: "existing".to_string(),
         object_type: "task".to_string(),
         object_id: "task_existing".to_string(),
@@ -201,7 +201,7 @@ fn item_and_event_are_saved_atomically() {
         after: None,
         reason: None,
     };
-    let item = TodoItem::new_task("task_conflict", "충돌", Actor::Oracle, now);
+    let item = TodoItem::new_task("task_conflict", "충돌", Actor::Agent, now);
     let conflicting = TodoEvent {
         object_id: item.id.clone(),
         action: "propose_task".to_string(),
@@ -221,7 +221,7 @@ fn item_upsert_preserves_original_created_at() {
     let mut repo = SqliteTodoRepository::new(conn);
     let original = datetime!(2026-06-01 00:00 UTC);
     let rewritten = datetime!(2026-06-02 00:00 UTC);
-    let mut item = TodoItem::new_task("task_test", "테스트", Actor::Oracle, original);
+    let mut item = TodoItem::new_task("task_test", "테스트", Actor::Agent, original);
 
     repo.save_item(&item).unwrap();
     item.title = "수정".to_string();
@@ -241,10 +241,10 @@ fn list_items_honors_core_filters_and_hides_archived_by_default() {
     init_schema(&conn).unwrap();
     let mut repo = SqliteTodoRepository::new(conn);
     let now = datetime!(2026-06-01 00:00 UTC);
-    let mut active = TodoItem::new_task("task_active", "활성", Actor::Oracle, now);
+    let mut active = TodoItem::new_task("task_active", "활성", Actor::Agent, now);
     active.status = ItemStatus::Active;
     active.area_id = Some("area_1".to_string());
-    let mut archived = TodoItem::new_task("task_archived", "보관", Actor::Oracle, now);
+    let mut archived = TodoItem::new_task("task_archived", "보관", Actor::Agent, now);
     archived.status = ItemStatus::Archived;
     let area = TodoItem::new("area_1", ItemType::Area, "재정", Actor::User, now);
 
@@ -320,11 +320,11 @@ fn repository_writes_canonical_enum_names() {
     let conn = connect(db_path.to_str().unwrap()).unwrap();
     init_schema(&conn).unwrap();
     let now = datetime!(2026-06-01 00:00 UTC);
-    let item = TodoItem::new_task("task_enum_format", "저장 포맷 확인", Actor::Oracle, now);
+    let item = TodoItem::new_task("task_enum_format", "저장 포맷 확인", Actor::Agent, now);
     let event = TodoEvent {
         id: "evt_enum_format".to_string(),
         at: now,
-        actor: Actor::Oracle,
+        actor: Actor::Agent,
         action: "propose_task".to_string(),
         object_type: item.item_type.as_str().to_string(),
         object_id: item.id.clone(),
@@ -364,10 +364,10 @@ fn repository_writes_canonical_enum_names() {
         (
             "task".to_string(),
             "proposed".to_string(),
-            "oracle".to_string()
+            "agent".to_string()
         )
     );
-    assert_eq!(event_row, ("oracle".to_string(), "task".to_string()));
+    assert_eq!(event_row, ("agent".to_string(), "task".to_string()));
 }
 
 #[test]

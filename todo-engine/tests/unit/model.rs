@@ -13,12 +13,12 @@ fn user_item_is_auto_approved() {
 }
 
 #[test]
-fn oracle_item_starts_proposed() {
-    let item = TodoItem::new("t1", ItemType::Task, "X", Actor::Oracle, NOW);
+fn agent_item_starts_proposed() {
+    let item = TodoItem::new("t1", ItemType::Task, "X", Actor::Agent, NOW);
     assert_eq!(item.status, ItemStatus::Proposed);
     assert_eq!(item.approved_by, None);
     assert_eq!(item.approved_at, None);
-    assert_eq!(item.proposed_by, Actor::Oracle);
+    assert_eq!(item.proposed_by, Actor::Agent);
 }
 
 #[test]
@@ -38,7 +38,7 @@ fn new_task_is_a_task() {
         ItemType::Task
     );
     assert_eq!(
-        TodoItem::new_task("t1", "X", Actor::Oracle, NOW).status,
+        TodoItem::new_task("t1", "X", Actor::Agent, NOW).status,
         ItemStatus::Proposed
     );
 }
@@ -61,7 +61,7 @@ fn item_type_round_trips_every_variant() {
 
 #[test]
 fn actor_round_trips_every_variant() {
-    for a in [Actor::User, Actor::Oracle, Actor::System] {
+    for a in [Actor::User, Actor::Agent, Actor::System] {
         assert_eq!(a.as_str().parse::<Actor>().unwrap(), a);
     }
     assert!("robot".parse::<Actor>().is_err());

@@ -111,7 +111,7 @@ const ITEM_COLUMN_ADDITIONS: &[(&str, &str)] = &[
     ("due", "TEXT"),
     ("scheduled", "TEXT"),
     ("horizon", "TEXT"),
-    ("proposed_by", "TEXT NOT NULL DEFAULT 'oracle'"),
+    ("proposed_by", "TEXT NOT NULL DEFAULT 'agent'"),
     ("approved_by", "TEXT"),
     ("approved_at", "TEXT"),
     ("completed_at", "TEXT"),

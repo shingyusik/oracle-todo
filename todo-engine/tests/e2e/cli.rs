@@ -62,12 +62,12 @@ fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
 
     let conn = Connection::open(home.db_path()).unwrap();
     conn.execute(
-        "UPDATE items SET type = ' TASK ', status = ' PROPOSED ', proposed_by = ' ORACLE ', created_at = '2026-05-22 17:28:01.459644', updated_at = '2026-05-22 17:28:01.459644' WHERE id = ?1",
+        "UPDATE items SET type = ' TASK ', status = ' PROPOSED ', proposed_by = ' AGENT ', created_at = '2026-05-22 17:28:01.459644', updated_at = '2026-05-22 17:28:01.459644' WHERE id = ?1",
         [task_id],
     )
     .unwrap();
     conn.execute(
-        "UPDATE events SET at = '2026-05-22 17:28:01.459644', actor = ' ORACLE ', object_type = ' TASK ' WHERE object_id = ?1",
+        "UPDATE events SET at = '2026-05-22 17:28:01.459644', actor = ' AGENT ', object_type = ' TASK ' WHERE object_id = ?1",
         [task_id],
     )
     .unwrap();
@@ -105,7 +105,7 @@ fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
         .unwrap();
     assert_eq!(item_values.0, "task");
     assert_eq!(item_values.1, "proposed");
-    assert_eq!(item_values.2, "oracle");
+    assert_eq!(item_values.2, "agent");
     assert_eq!(item_values.3, "2026-05-22T17:28:01.459644Z");
     assert_eq!(item_values.4, "2026-05-22T17:28:01.459644Z");
 
@@ -117,7 +117,7 @@ fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
         )
         .unwrap();
     assert_eq!(event_values.0, "2026-05-22T17:28:01.459644Z");
-    assert_eq!(event_values.1, "oracle");
+    assert_eq!(event_values.1, "agent");
     assert_eq!(event_values.2, "task");
 }
 

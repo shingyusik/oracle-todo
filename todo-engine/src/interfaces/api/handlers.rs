@@ -51,7 +51,7 @@ pub(super) async fn propose_task(
         .map(Actor::from_str)
         .transpose()
         .map_err(TodoError::Validation)?
-        .unwrap_or(Actor::Oracle);
+        .unwrap_or(Actor::Agent);
     let item = with_service(&state, |service| {
         service.propose_task(
             body.title,

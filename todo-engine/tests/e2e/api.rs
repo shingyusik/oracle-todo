@@ -84,7 +84,7 @@ async fn task_propose_and_items_use_same_service_path() {
     let item: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(item["title"], "DB 확인");
     assert_eq!(item["status"], "proposed");
-    assert_eq!(item["proposed_by"], "oracle");
+    assert_eq!(item["proposed_by"], "agent");
 
     let fresh_app = router(&db_path).unwrap();
     let response = fresh_app

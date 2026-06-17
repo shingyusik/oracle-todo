@@ -29,7 +29,7 @@ fn area_titles_resolve_in_service() {
 }
 
 #[test]
-fn oracle_task_requires_approval_before_activation() {
+fn agent_task_requires_approval_before_activation() {
     let mut service = TodoService::in_memory();
     let item = service
         .propose_task("앱 열고 DB 확인", Default::default())

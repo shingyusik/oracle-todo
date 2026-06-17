@@ -24,7 +24,7 @@ pub struct ProposeTask {
 impl Default for ProposeTask {
     fn default() -> Self {
         Self {
-            actor: Actor::Oracle,
+            actor: Actor::Agent,
             area: None,
             project_id: None,
             routine_id: None,
