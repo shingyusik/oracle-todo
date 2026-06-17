@@ -1,23 +1,23 @@
-# Monorepo Restructure — Design
+# Monorepo Restructure + `todo-engine` Rename — Design
 
 **Date:** 2026-06-17
 **Status:** Approved for planning
-**Scope:** Restructure only — move the existing Rust crate into a monorepo layout and reserve a `frontend/` slot. No frontend application is built in this effort; its stack is decided later.
+**Scope:** Restructure + rename only — move the existing Rust crate into a monorepo layout, rename it from `oracle-todo` to `todo-engine`, and reserve a `frontend/` slot. No frontend application is built in this effort; its stack is decided later.
 
 ## Goal
 
-Convert the single-crate `oracle-todo` repository into a **single-git-repo monorepo** (Cargo workspace) so that the Rust engine and a future web frontend live side by side as sibling packages, while preserving git history and all current build/test/runtime behavior.
+Convert the single-crate `oracle-todo` repository into a **single-git-repo monorepo** (Cargo workspace) so that the Rust engine and a future web frontend live side by side as sibling packages, and rename the Rust package from `oracle-todo` to `todo-engine`. Git history is preserved; runtime data location is deliberately left unchanged.
 
-This is one git repo with multiple packages — **not** a split into separate repositories.
+This is one git repo with multiple packages — **not** a split into separate repositories. The repository / monorepo root keeps the name `oracle-todo` (the product); only the Rust *package* becomes `todo-engine`.
 
 ## Chosen Layout (Approach A — flat)
 
 ```
-oracle-todo/                ← git repo root, also the Cargo workspace root
-  Cargo.toml                [workspace], members = ["todo"]
+oracle-todo/                ← git repo root (name unchanged), Cargo workspace root
+  Cargo.toml                [workspace], members = ["todo-engine"]
   Cargo.lock                workspace lock (moves to root)
-  todo/                     the existing Rust engine, moved here verbatim
-    Cargo.toml              [package] name = "oracle-todo"  (unchanged)
+  todo-engine/              the existing Rust engine, moved + renamed
+    Cargo.toml              [package] name = "todo-engine"
     src/
     tests/
   frontend/                 placeholder for the future web UI
@@ -34,9 +34,9 @@ Rejected alternatives:
 
 | From | To | Method |
 | --- | --- | --- |
-| `src/` | `todo/src/` | `git mv` (preserve history) |
-| `tests/` | `todo/tests/` | `git mv` |
-| `Cargo.toml` | `todo/Cargo.toml` | `git mv`, package section unchanged |
+| `src/` | `todo-engine/src/` | `git mv` (preserve history) |
+| `tests/` | `todo-engine/tests/` | `git mv` |
+| `Cargo.toml` | `todo-engine/Cargo.toml` | `git mv`, then edit `name` |
 | `Cargo.lock` | stays at root | becomes the workspace lock |
 
 New file: root `Cargo.toml` declaring the workspace.
@@ -49,11 +49,50 @@ New root `Cargo.toml`:
 
 ```toml
 [workspace]
-members = ["todo"]
+members = ["todo-engine"]
 resolver = "3"
 ```
 
-The member crate keeps `name = "oracle-todo"`, so the binary name, the `cargo run -p oracle-todo` invocation, and the runtime data home (`~/.hermes/oracle-todo/`) are all unchanged.
+Member `todo-engine/Cargo.toml` keeps every dependency, just changes the package name:
+
+```toml
+[package]
+name = "todo-engine"
+# version, edition, description, deps unchanged
+```
+
+Because the crate uses default bin/lib targets (no explicit `[[bin]]`/`[lib]`), renaming the package automatically renames **both** the library crate (`oracle_todo` → `todo_engine`) and the binary (`oracle-todo` → `todo-engine`). No `[[bin]]` stanza is needed.
+
+## Identifier Rename — `oracle-todo` → `todo-engine`
+
+The string `oracle-todo` appears in two distinct roles. Rename the **brand/package** role; keep the **data-home path** role so the live SQLite DB at `~/.hermes/oracle-todo/` is not orphaned.
+
+### RENAME (code)
+
+| Location | Current | New |
+| --- | --- | --- |
+| `Cargo.toml` | `name = "oracle-todo"` | `name = "todo-engine"` |
+| `src/main.rs:1,4` | `oracle_todo::…` | `todo_engine::…` |
+| `src/infrastructure/paths.rs:9` | env `ORACLE_TODO_HOME` | `TODO_ENGINE_HOME` |
+| `src/infrastructure/system.rs:15,16` | env `ORACLE_TODO_CONSOLE_LOG`, `ORACLE_TODO_FILE_LOG` | `TODO_ENGINE_CONSOLE_LOG`, `TODO_ENGINE_FILE_LOG` |
+| `src/infrastructure/system.rs:229,237` | env `ORACLE_TODO_LOG_MAX_BYTES`, `ORACLE_TODO_LOG_MAX_FILES` | `TODO_ENGINE_LOG_MAX_BYTES`, `TODO_ENGINE_LOG_MAX_FILES` |
+| `src/infrastructure/system.rs:171,222` | tracing target `oracle_todo::infrastructure::system` | `todo_engine::infrastructure::system` |
+| `src/interfaces/cli/mod.rs:24` | `#[command(name = "oracle-todo")]` | `#[command(name = "todo-engine")]` |
+| `src/interfaces/cli/mod.rs:28` | `env = "ORACLE_TODO_HOME"` | `env = "TODO_ENGINE_HOME"` |
+
+### KEEP (data-home path — do NOT change)
+
+| Location | Value | Reason |
+| --- | --- | --- |
+| `src/infrastructure/paths.rs:13` | `.hermes/oracle-todo` | live DB location; renaming orphans existing data |
+| `src/interfaces/cli/mod.rs:27` (doc comment path part) | `~/.hermes/oracle-todo` | same; update only the env-var name in this comment |
+
+### Open Decisions (recommend, confirm at spec review)
+
+| Item | Locations | Options | Recommendation |
+| --- | --- | --- | --- |
+| Log filename | `system.rs:18,187,260,270` `oracle-todo.log.jsonl` | keep / → `todo-engine.log.jsonl` | **Keep** — it lives inside the unchanged data home; renaming changes the on-disk filename for existing installs |
+| In-memory SQLite name | `api/mod.rs:73` `oracle_todo_api_` | keep / → `todo_engine_api_` | **Rename** — internal-only identifier, low risk, keeps branding consistent |
 
 ## Frontend Placeholder
 
@@ -62,37 +101,43 @@ The member crate keeps `name = "oracle-todo"`, so the binary name, the `cargo ru
 
 ## Docs Sync
 
-16 Markdown files reference `src/...` paths. After the move:
+16 current-state Markdown files reference `oracle-todo` / `ORACLE_TODO` / `src/` paths. After move + rename:
 
-- Update `src/...` references to `todo/src/...` across `README.md`, `CLAUDE.md`, `AGENTS.md`, and `docs/**`.
-- Confirm build/test commands in `CLAUDE.md` still hold — `cargo build` / `cargo test` run from the root work because it is now a workspace.
-- Note in `CLAUDE.md` / `docs/architecture/` that the crate lives under `todo/` and `frontend/` is a reserved package.
-- Run the `docs-tools` skill to keep documentation in sync with the new layout.
+- Path refs `src/…` → `todo-engine/src/…`.
+- Env-var refs `ORACLE_TODO_*` → `TODO_ENGINE_*`.
+- Binary / command refs `oracle-todo …` → `todo-engine …`; `cargo run -p oracle-todo` → `cargo run -p todo-engine`.
+- Crate/module refs `oracle_todo::…` → `todo_engine::…`.
+- **Keep** the data-home path `~/.hermes/oracle-todo/` everywhere it appears (data-home docs, `data-home.md`, `setup.md`).
+- This is a careful split, not a blind find-replace: the same file often contains both a renamed env var and a kept data-home path.
+- Run the `docs-tools` skill to keep documentation in sync.
 
-Historical artifacts under `docs/superpowers/plans/` and prior `specs/` are left as-is (they describe past states); only current-state docs are updated.
+Historical artifacts under `docs/superpowers/plans/` and the prior `docs/superpowers/specs/2026-06-16-*` files describe past states and are left as-is. Only current-state docs are updated.
 
 ## Out of Scope
 
-- Building or scaffolding the frontend application.
-- Choosing the frontend framework.
-- Wiring the frontend to the HTTP API.
+- Building or scaffolding the frontend application; choosing its framework; wiring it to the HTTP API.
 - Splitting the Rust crate into multiple crates.
-- Any change to runtime behavior, schema, data home, or the service layer.
+- Changing the runtime data home (`~/.hermes/oracle-todo/`), schema, or the service layer.
+- Renaming the git repository / monorepo root directory.
 
 ## Success Criteria (Verification)
 
-Run from the repo root after the restructure:
+Run from the repo root after the restructure + rename:
 
 1. `cargo build` — passes.
-2. `cargo test` — existing `unit`, `integration`, `e2e` suites stay green.
+2. `cargo test` — existing `unit`, `integration`, `e2e` suites stay green (tests asserting env-var names, command name, and the in-memory DB name are updated to match).
 3. `cargo fmt --check` — passes.
 4. `cargo clippy --all-targets --all-features -- -D warnings` — passes.
-5. `cargo run -p oracle-todo -- health` — DB reachable, schema baseline OK.
-6. `git log --follow todo/src/main.rs` — history follows through the move (history preserved).
-7. No remaining stale `src/...` path references in current-state docs (grep clean).
+5. `cargo run -p todo-engine -- health` — DB reachable at the unchanged `~/.hermes/oracle-todo/`, schema baseline OK.
+6. `git log --follow todo-engine/src/main.rs` — history follows through the move.
+7. `git grep -nE 'ORACLE_TODO|oracle_todo'` returns **only** intended survivors (the `.hermes/oracle-todo` data-home path, the log filename if kept) — no stray env vars, crate paths, or command names.
+8. `git grep -n '\.hermes/oracle-todo'` still present (data home intentionally unchanged).
+9. No stale `src/…` path references in current-state docs.
 
 ## Risks / Notes
 
-- **Path churn:** every doc and any tooling referencing `src/` must shift to `todo/src/`. Mitigated by the grep check in success criteria.
+- **Two roles of `oracle-todo`:** the rename must distinguish env/brand (rename) from data-home path (keep). The grep checks in success criteria guard this.
+- **Test fixtures:** e2e/integration tests assert env-var names, the clap command name, and log output targets — they move under `todo-engine/tests/` and need value updates in lockstep.
+- **Env-var break:** consumers exporting `ORACLE_TODO_*` must switch to `TODO_ENGINE_*`. No backward-compat alias is provided (call out in docs / migration notes).
 - **`.cargo/` config:** local-only and gitignored; not part of this change.
-- **IDE / CI:** any path-pinned config (CI workflows, editor settings) pointing at `src/` would need updating — none committed today, but verify before merge.
+- **CI / editor config:** any committed path- or name-pinned config would need updating — none committed today; verify before merge.
