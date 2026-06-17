@@ -21,11 +21,11 @@ use crate::infrastructure::sqlite::{
 use crate::infrastructure::system::{init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
-#[command(name = "oracle-todo")]
+#[command(name = "todo-engine")]
 #[command(about = "Policy-enforced Oracle ToDo engine")]
 struct Cli {
-    /// Data home. Defaults to ORACLE_TODO_HOME or ~/.hermes/oracle-todo.
-    #[arg(long, env = "ORACLE_TODO_HOME")]
+    /// Data home. Defaults to TODO_ENGINE_HOME or ~/.hermes/oracle-todo.
+    #[arg(long, env = "TODO_ENGINE_HOME")]
     home: Option<PathBuf>,
 
     #[command(subcommand)]

@@ -6,7 +6,7 @@ pub fn todo_home(explicit_home: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(home) = explicit_home {
         return Ok(home);
     }
-    if let Some(home) = std::env::var_os("ORACLE_TODO_HOME") {
+    if let Some(home) = std::env::var_os("TODO_ENGINE_HOME") {
         return Ok(PathBuf::from(home));
     }
     let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;

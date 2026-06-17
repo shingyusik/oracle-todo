@@ -12,10 +12,10 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub fn init_tracing(home: &Path) {
-    let console_level = level_from_env("ORACLE_TODO_CONSOLE_LOG", LevelFilter::INFO);
-    let file_level = level_from_env("ORACLE_TODO_FILE_LOG", LevelFilter::DEBUG);
+    let console_level = level_from_env("TODO_ENGINE_CONSOLE_LOG", LevelFilter::INFO);
+    let file_level = level_from_env("TODO_ENGINE_FILE_LOG", LevelFilter::DEBUG);
     let file_writer = RotatingJsonlMakeWriter::new(
-        home.join("logs/oracle-todo.log.jsonl"),
+        home.join("logs/todo-engine.log.jsonl"),
         log_max_bytes_from_env(),
         log_max_files_from_env(),
         file_level,
@@ -184,7 +184,7 @@ impl RotatingJsonlState {
             .path
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("oracle-todo.log.jsonl");
+            .unwrap_or("todo-engine.log.jsonl");
         self.path.with_file_name(format!("{file_name}.{index}"))
     }
 
@@ -226,7 +226,7 @@ fn log_write_fallback_warning(path: &Path, error: &io::Error) -> String {
 }
 
 fn log_max_bytes_from_env() -> u64 {
-    std::env::var("ORACLE_TODO_LOG_MAX_BYTES")
+    std::env::var("TODO_ENGINE_LOG_MAX_BYTES")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|value| *value > 0)
@@ -234,7 +234,7 @@ fn log_max_bytes_from_env() -> u64 {
 }
 
 fn log_max_files_from_env() -> usize {
-    std::env::var("ORACLE_TODO_LOG_MAX_FILES")
+    std::env::var("TODO_ENGINE_LOG_MAX_FILES")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(DEFAULT_LOG_MAX_FILES)
@@ -257,7 +257,7 @@ mod tests {
     fn rotation_record_respects_file_log_level() {
         for level in [LevelFilter::OFF, LevelFilter::ERROR, LevelFilter::WARN] {
             let state = RotatingJsonlState {
-                path: PathBuf::from("oracle-todo.log.jsonl"),
+                path: PathBuf::from("todo-engine.log.jsonl"),
                 max_bytes: 1,
                 max_files: 1,
                 level,
@@ -267,7 +267,7 @@ mod tests {
 
         for level in [LevelFilter::INFO, LevelFilter::DEBUG, LevelFilter::TRACE] {
             let state = RotatingJsonlState {
-                path: PathBuf::from("oracle-todo.log.jsonl"),
+                path: PathBuf::from("todo-engine.log.jsonl"),
                 max_bytes: 1,
                 max_files: 1,
                 level,

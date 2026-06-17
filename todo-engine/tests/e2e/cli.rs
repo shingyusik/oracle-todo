@@ -8,7 +8,7 @@ use rusqlite::Connection;
 fn init_creates_sqlite_database() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
@@ -22,9 +22,9 @@ fn init_creates_sqlite_database() {
 fn init_uses_todo_engine_home_environment() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
-        .env("ORACLE_TODO_HOME", home.path())
+        .env("TODO_ENGINE_HOME", home.path())
         .arg("init")
         .assert()
         .success()
@@ -37,13 +37,13 @@ fn init_uses_todo_engine_home_environment() {
 fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("oracle-todo")
+    let output = Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -72,7 +72,7 @@ fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
     )
     .unwrap();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "migrate-legacy-db"])
         .assert()
@@ -81,7 +81,7 @@ fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
         .stdout(contains("event_rows=1"))
         .stdout(contains("timestamp_fields=3"));
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "pending"])
         .assert()
@@ -125,13 +125,13 @@ fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
 fn task_propose_prints_json_item() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -152,7 +152,7 @@ fn task_propose_prints_json_item() {
 fn cli_writes_info_to_stderr_and_debug_to_file_without_changing_stdout() {
     let home = TestHome::new();
 
-    let output = Command::cargo_bin("oracle-todo")
+    let output = Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
@@ -170,7 +170,7 @@ fn cli_writes_info_to_stderr_and_debug_to_file_without_changing_stdout() {
     assert!(stderr.contains("command completed"));
     assert!(!stderr.contains("DEBUG"));
 
-    let records = read_jsonl_records(home.path().join("logs/oracle-todo.log.jsonl"));
+    let records = read_jsonl_records(home.path().join("logs/todo-engine.log.jsonl"));
     assert_jsonl_event(&records, "INFO", "command_started");
     assert_jsonl_event(&records, "INFO", "command_completed");
     assert_jsonl_event(&records, "DEBUG", "home_resolved");
@@ -181,13 +181,13 @@ fn cli_writes_info_to_stderr_and_debug_to_file_without_changing_stdout() {
 fn cli_logs_error_event_with_exit_code_to_file() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -203,7 +203,7 @@ fn cli_logs_error_event_with_exit_code_to_file() {
         .stderr(contains("ERROR"))
         .stderr(contains("Item not found: 없는영역"));
 
-    let records = read_jsonl_records(home.path().join("logs/oracle-todo.log.jsonl"));
+    let records = read_jsonl_records(home.path().join("logs/todo-engine.log.jsonl"));
     let error = find_jsonl_event(&records, "command_failed");
     assert_eq!(error["level"], "ERROR");
     assert_eq!(error["fields"]["command"], "task propose");
@@ -221,19 +221,19 @@ fn cli_rotates_tracing_jsonl_logs_with_configurable_backup_count() {
     let home = TestHome::new();
 
     for _ in 0..8 {
-        Command::cargo_bin("oracle-todo")
+        Command::cargo_bin("todo-engine")
             .unwrap()
-            .env("ORACLE_TODO_LOG_MAX_BYTES", "520")
-            .env("ORACLE_TODO_LOG_MAX_FILES", "2")
+            .env("TODO_ENGINE_LOG_MAX_BYTES", "520")
+            .env("TODO_ENGINE_LOG_MAX_FILES", "2")
             .args(["--home", home.path().to_str().unwrap(), "init"])
             .assert()
             .success();
     }
 
-    let log_path = home.path().join("logs/oracle-todo.log.jsonl");
-    let rotated_path = home.path().join("logs/oracle-todo.log.jsonl.1");
-    let second_rotated_path = home.path().join("logs/oracle-todo.log.jsonl.2");
-    let third_rotated_path = home.path().join("logs/oracle-todo.log.jsonl.3");
+    let log_path = home.path().join("logs/todo-engine.log.jsonl");
+    let rotated_path = home.path().join("logs/todo-engine.log.jsonl.1");
+    let second_rotated_path = home.path().join("logs/todo-engine.log.jsonl.2");
+    let third_rotated_path = home.path().join("logs/todo-engine.log.jsonl.3");
     assert!(log_path.exists());
     assert!(rotated_path.exists());
     assert!(second_rotated_path.exists());
@@ -255,15 +255,15 @@ fn cli_rotates_tracing_jsonl_logs_with_configurable_backup_count() {
 #[test]
 fn cli_file_log_error_filters_debug_info_and_rotation_records() {
     let home = TestHome::new();
-    let log_path = home.path().join("logs/oracle-todo.log.jsonl");
+    let log_path = home.path().join("logs/todo-engine.log.jsonl");
     std::fs::create_dir_all(log_path.parent().unwrap()).unwrap();
     std::fs::write(&log_path, "old log large enough to rotate\n").unwrap();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
-        .env("ORACLE_TODO_FILE_LOG", "error")
-        .env("ORACLE_TODO_LOG_MAX_BYTES", "1")
-        .env("ORACLE_TODO_LOG_MAX_FILES", "1")
+        .env("TODO_ENGINE_FILE_LOG", "error")
+        .env("TODO_ENGINE_LOG_MAX_BYTES", "1")
+        .env("TODO_ENGINE_LOG_MAX_FILES", "1")
         .args([
             "--home",
             home.path().to_str().unwrap(),
@@ -286,19 +286,19 @@ fn cli_file_log_error_filters_debug_info_and_rotation_records() {
         records
             .iter()
             .all(|record| record["fields"]["event"] != "log_rotated"),
-        "log_rotated should be filtered when ORACLE_TODO_FILE_LOG=error: {records:#?}"
+        "log_rotated should be filtered when TODO_ENGINE_FILE_LOG=error: {records:#?}"
     );
     assert!(
         records
             .iter()
             .all(|record| record["fields"]["event"] != "home_resolved"),
-        "DEBUG events should be filtered when ORACLE_TODO_FILE_LOG=error: {records:#?}"
+        "DEBUG events should be filtered when TODO_ENGINE_FILE_LOG=error: {records:#?}"
     );
     assert!(
         records
             .iter()
             .all(|record| record["fields"]["event"] != "command_started"),
-        "INFO events should be filtered when ORACLE_TODO_FILE_LOG=error: {records:#?}"
+        "INFO events should be filtered when TODO_ENGINE_FILE_LOG=error: {records:#?}"
     );
 }
 
@@ -326,13 +326,13 @@ fn assert_jsonl_event(records: &[serde_json::Value], level: &str, event: &str) {
 fn area_create_and_pending_show_current_cli_behavior() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -348,7 +348,7 @@ fn area_create_and_pending_show_current_cli_behavior() {
         .stdout(contains("\"type\":\"area\""))
         .stdout(contains("\"status\":\"active\""));
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -360,7 +360,7 @@ fn area_create_and_pending_show_current_cli_behavior() {
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -374,7 +374,7 @@ fn area_create_and_pending_show_current_cli_behavior() {
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "pending"])
         .assert()
@@ -387,13 +387,13 @@ fn area_create_and_pending_show_current_cli_behavior() {
 fn today_materializes_active_routines() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("oracle-todo")
+    let output = Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -414,7 +414,7 @@ fn today_materializes_active_routines() {
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let routine_id = routine["id"].as_str().unwrap();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -425,7 +425,7 @@ fn today_materializes_active_routines() {
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "today"])
         .assert()
@@ -437,7 +437,7 @@ fn today_materializes_active_routines() {
 fn export_subcommand_is_not_available() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "export"])
         .assert()
@@ -449,13 +449,13 @@ fn export_subcommand_is_not_available() {
 fn event_propose_prints_external_commitment_metadata() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -475,7 +475,7 @@ fn event_propose_prints_external_commitment_metadata() {
         .stdout(contains("\"commitment_type\":\"appointment\""))
         .stdout(contains("서울대병원"));
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -496,13 +496,13 @@ fn event_propose_prints_external_commitment_metadata() {
 fn list_project_propose_and_update_cover_cli_surface() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -514,7 +514,7 @@ fn list_project_propose_and_update_cover_cli_surface() {
         .assert()
         .success();
 
-    let output = Command::cargo_bin("oracle-todo")
+    let output = Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -543,7 +543,7 @@ fn list_project_propose_and_update_cover_cli_surface() {
     let project: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let project_id = project["id"].as_str().unwrap();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -562,7 +562,7 @@ fn list_project_propose_and_update_cover_cli_surface() {
         .stdout(contains("Rust cutover ready"))
         .stdout(contains("smoke tests pass"));
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -581,13 +581,13 @@ fn list_project_propose_and_update_cover_cli_surface() {
 fn lifecycle_commands_emit_json_status_changes() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    let proposed = Command::cargo_bin("oracle-todo")
+    let proposed = Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -604,7 +604,7 @@ fn lifecycle_commands_emit_json_status_changes() {
     let proposed: serde_json::Value = serde_json::from_slice(&proposed).unwrap();
     let proposed_id = proposed["id"].as_str().unwrap();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -618,7 +618,7 @@ fn lifecycle_commands_emit_json_status_changes() {
         .success()
         .stdout(contains("\"status\":\"approved\""));
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -635,7 +635,7 @@ fn lifecycle_commands_emit_json_status_changes() {
         ("버릴 일", "drop", "dropped"),
         ("취소할 일", "cancel", "cancelled"),
     ] {
-        let output = Command::cargo_bin("oracle-todo")
+        let output = Command::cargo_bin("todo-engine")
             .unwrap()
             .args([
                 "--home",
@@ -654,7 +654,7 @@ fn lifecycle_commands_emit_json_status_changes() {
         let item: serde_json::Value = serde_json::from_slice(&output).unwrap();
         let item_id = item["id"].as_str().unwrap();
 
-        Command::cargo_bin("oracle-todo")
+        Command::cargo_bin("todo-engine")
             .unwrap()
             .args(["--home", home.path().to_str().unwrap(), command, item_id])
             .assert()
@@ -662,7 +662,7 @@ fn lifecycle_commands_emit_json_status_changes() {
             .stdout(contains(format!("\"status\":\"{status}\"")));
     }
 
-    let pause_output = Command::cargo_bin("oracle-todo")
+    let pause_output = Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -681,14 +681,14 @@ fn lifecycle_commands_emit_json_status_changes() {
     let pause_item: serde_json::Value = serde_json::from_slice(&pause_output).unwrap();
     let pause_id = pause_item["id"].as_str().unwrap();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "pause", pause_id])
         .assert()
         .success()
         .stdout(contains("\"status\":\"paused\""));
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "resume", pause_id])
         .assert()
@@ -700,13 +700,13 @@ fn lifecycle_commands_emit_json_status_changes() {
 fn archive_list_shows_terminal_items() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("oracle-todo")
+    let output = Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -725,13 +725,13 @@ fn archive_list_shows_terminal_items() {
     let item: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let item_id = item["id"].as_str().unwrap();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "archive", item_id])
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "archive-list"])
         .assert()
@@ -743,13 +743,13 @@ fn archive_list_shows_terminal_items() {
 fn routine_materialize_covers_cli_intent() {
     let home = TestHome::new();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args(["--home", home.path().to_str().unwrap(), "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("oracle-todo")
+    let output = Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -770,7 +770,7 @@ fn routine_materialize_covers_cli_intent() {
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let routine_id = routine["id"].as_str().unwrap();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -781,7 +781,7 @@ fn routine_materialize_covers_cli_intent() {
         .assert()
         .success();
 
-    Command::cargo_bin("oracle-todo")
+    Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
