@@ -7,6 +7,5 @@ __pycache__/
 .DS_Store
 .env
 target/
-.oracle-todo/
 .cargo/
 logs/*
