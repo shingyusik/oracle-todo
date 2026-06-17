@@ -15,7 +15,7 @@ an obvious structure.
 ## Decision
 
 Recurrence is parsed by a small *pattern* grammar in `domain::occurrences`, not a fixed
-one-rule-per-string table. The verified behavior (from `src/domain/recurrence.rs`):
+one-rule-per-string table. The verified behavior (from `todo-engine/src/domain/recurrence.rs`):
 
 - **Alias normalization first.** `daily`/`매일` → `every day`, `weekly`/`매주` → `every week`,
   `monthly`/`매월` → `every month`, `yearly`/`매년` → `every year`. The raw rule is trimmed and

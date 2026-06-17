@@ -2,8 +2,9 @@
 
 ## Language and edition
 
-Rust 2024. The crate is `oracle_todo` (package `oracle-todo`), built as both a library and a
-binary (`oracle-todo`).
+Rust 2024. The crate is `todo_engine` (package `todo-engine`), built as both a library and a
+binary (`todo-engine`). It lives under `todo-engine/` in the Cargo workspace, alongside a
+reserved `frontend/` sibling package slot.
 
 ## The gate (must pass before every commit)
 

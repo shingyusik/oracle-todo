@@ -12,7 +12,7 @@ The CLI separates three streams:
   Markdown for views).
 - **stderr** — user-facing errors plus console tracing logs.
 - **file log** — structured JSONL tracing logs under
-  `ORACLE_TODO_HOME/logs/oracle-todo.log.jsonl`.
+  `TODO_ENGINE_HOME/logs/todo-engine.log.jsonl`.
 
 Do not write diagnostic or progress logs to stdout. Keep stdout parseable for scripts.
 
@@ -43,12 +43,12 @@ tracing::error!(
 
 ## Level configuration
 
-`src/infrastructure/system.rs` installs two `tracing_subscriber` layers:
+`todo-engine/src/infrastructure/system.rs` installs two `tracing_subscriber` layers:
 
 | Destination | Env var | Default |
 | --- | --- | --- |
-| stderr console logs | `ORACLE_TODO_CONSOLE_LOG` | `info` |
-| `logs/oracle-todo.log.jsonl` | `ORACLE_TODO_FILE_LOG` | `debug` |
+| stderr console logs | `TODO_ENGINE_CONSOLE_LOG` | `info` |
+| `logs/todo-engine.log.jsonl` | `TODO_ENGINE_FILE_LOG` | `debug` |
 
 Accepted levels are `off`, `error`, `warn`/`warning`, `info`, `debug`, and `trace`.
 Invalid values fall back to the destination default.

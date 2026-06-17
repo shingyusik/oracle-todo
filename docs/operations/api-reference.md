@@ -2,7 +2,7 @@
 
 The HTTP surface is an `axum` router built by `router(db_path)` over the same `TodoService`
 and the same database as the CLI. This reference is verified against the route table in
-`src/interfaces/api/mod.rs` and the handlers/DTOs in `api/handlers.rs` / `api/dto.rs`.
+`todo-engine/src/interfaces/api/mod.rs` and the handlers/DTOs in `api/handlers.rs` / `api/dto.rs`.
 
 Item-returning endpoints respond with the full `TodoItem` as JSON. Errors return
 `{"detail": "<message>"}` with a status derived from `TodoError`

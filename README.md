@@ -34,7 +34,7 @@ This repo is the active Rust engine workspace.
 
 ```bash
 cargo build
-cargo run -- init
+cargo run -p todo-engine -- init
 ```
 
 Default data directory:
@@ -43,32 +43,32 @@ Default data directory:
 ~/.hermes/oracle-todo/
 ├── todo.sqlite
 └── logs/
-    ├── oracle-todo.log.jsonl
-    ├── oracle-todo.log.jsonl.1
-    ├── oracle-todo.log.jsonl.2
-    └── oracle-todo.log.jsonl.3
+    ├── todo-engine.log.jsonl
+    ├── todo-engine.log.jsonl.1
+    ├── todo-engine.log.jsonl.2
+    └── todo-engine.log.jsonl.3
 ```
 
 Use another data directory:
 
 ```bash
-export ORACLE_TODO_HOME=/path/to/data
-cargo run -- init
+export TODO_ENGINE_HOME=/path/to/data
+cargo run -p todo-engine -- init
 # or
-cargo run -- --home /path/to/data init
+cargo run -p todo-engine -- --home /path/to/data init
 ```
 
 ## Quick usage
 
 ```bash
 # Create an ongoing area. Areas are active immediately.
-cargo run -- area create "재정" \
+cargo run -p todo-engine -- area create "재정" \
   --review-cycle weekly \
   --standard "월 1회 계정/자동화 상태 점검" \
   --note "월말 자동화까지 함께 확인"
 
 # Let Oracle propose a project. Proposed items require user approval in service/API flows.
-cargo run -- project propose "MoneyManager 안정화" \
+cargo run -p todo-engine -- project propose "MoneyManager 안정화" \
   --area "재정" \
   --outcome "가계부 운영 안정화" \
   --definition-of-done "원본 DB 백업과 브리핑이 매일 실패 없이 동작한다" \
@@ -76,7 +76,7 @@ cargo run -- project propose "MoneyManager 안정화" \
   --note "SQLite 백업 경로도 확인"
 
 # Add a task.
-cargo run -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인" \
+cargo run -p todo-engine -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인" \
   --area "재정" \
   --scheduled today \
   --priority 1 \
@@ -84,14 +84,14 @@ cargo run -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인" \
   --note "실행 로그도 확인"
 
 # Add a routine.
-cargo run -- routine propose "운동 기록 확인" \
+cargo run -p todo-engine -- routine propose "운동 기록 확인" \
   --area "건강" \
   --recurrence-rule "월-금" \
   --materialization-policy single_open \
   --note "아침 루틴"
 
 # Add an external event.
-cargo run -- event propose "치과 예약" "2026-06-12T10:30" \
+cargo run -p todo-engine -- event propose "치과 예약" "2026-06-12T10:30" \
   --area "건강" \
   --location "서울" \
   --with "치과" \
@@ -99,8 +99,8 @@ cargo run -- event propose "치과 예약" "2026-06-12T10:30" \
   --note "보험 서류 챙기기"
 
 # Read current views.
-cargo run -- pending
-cargo run -- today
+cargo run -p todo-engine -- pending
+cargo run -p todo-engine -- today
 ```
 
 ## Item types
@@ -312,27 +312,27 @@ The Rust domain parses status strings through the `ItemStatus` enum. App paths r
 CLI output has two layers:
 
 - **stdout**: user-facing command result, usually JSON or rendered Markdown.
-- **stderr**: user-facing errors plus console tracing logs at `ORACLE_TODO_CONSOLE_LOG` or `info`.
-- **file log**: structured JSONL tracing log at `ORACLE_TODO_HOME/logs/oracle-todo.log.jsonl`.
+- **stderr**: user-facing errors plus console tracing logs at `TODO_ENGINE_CONSOLE_LOG` or `info`.
+- **file log**: structured JSONL tracing log at `TODO_ENGINE_HOME/logs/todo-engine.log.jsonl`.
 
 File logging behavior:
 
 - Code emits logs with `tracing::{debug, info, warn, error}!`.
-- Console logs default to `INFO` and above; override with `ORACLE_TODO_CONSOLE_LOG=<level>`.
-- File logs default to `DEBUG` and above; override with `ORACLE_TODO_FILE_LOG=<level>`.
+- Console logs default to `INFO` and above; override with `TODO_ENGINE_CONSOLE_LOG=<level>`.
+- File logs default to `DEBUG` and above; override with `TODO_ENGINE_FILE_LOG=<level>`.
 - Each file line is a JSON object with tracing fields such as `timestamp`, `level`, `target`, and `fields`.
 - Command events include `command_started`, `command_completed`, and `command_failed`.
 - `command_completed` records include `duration_ms` and `exit_code: 0`.
 - `command_failed` records include the error message and mapped `exit_code`.
 - Default max file size: `1_048_576` bytes.
-- Override with `ORACLE_TODO_LOG_MAX_BYTES=<bytes>`.
+- Override with `TODO_ENGINE_LOG_MAX_BYTES=<bytes>`.
 - Default backup count: `3`.
-- Override with `ORACLE_TODO_LOG_MAX_FILES=<count>`.
-- Rotation shifts `oracle-todo.log.jsonl` to `oracle-todo.log.jsonl.1`, then `.2`, `.3`, up to the configured backup count.
+- Override with `TODO_ENGINE_LOG_MAX_FILES=<count>`.
+- Rotation shifts `todo-engine.log.jsonl` to `todo-engine.log.jsonl.1`, then `.2`, `.3`, up to the configured backup count.
 
 Error handling:
 
-- Domain/service errors use `TodoError` in `src/application/error.rs`.
+- Domain/service errors use `TodoError` in `todo-engine/src/application/error.rs`.
 - Policy/validation errors map to CLI exit code `2` and HTTP `400`.
 - Not-found errors map to CLI exit code `4` and HTTP `404`.
 - Storage/migration/internal errors map to CLI exit code `1` and HTTP `500`.
@@ -357,7 +357,7 @@ Every service-layer change creates a `TodoEvent` row.
 
 ## API
 
-`src/interfaces/api.rs` provides an `axum` router over the same service layer.
+`todo-engine/src/interfaces/api/mod.rs` provides an `axum` router over the same service layer.
 
 Endpoints:
 
@@ -394,9 +394,9 @@ Run smoke tests only against a copied data home:
 ```bash
 tmp_home="$(mktemp -d)"
 cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
-cargo run -- --home "$tmp_home" migrate-legacy-db
-cargo run -- --home "$tmp_home" pending
-cargo run -- --home "$tmp_home" today
+cargo run -p todo-engine -- --home "$tmp_home" migrate-legacy-db
+cargo run -p todo-engine -- --home "$tmp_home" pending
+cargo run -p todo-engine -- --home "$tmp_home" today
 ```
 
 SQLite schema initialization is additive for existing databases. `init_schema()` creates tables and ensures missing columns exist on older `items` tables, including:

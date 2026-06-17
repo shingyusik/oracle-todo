@@ -54,7 +54,7 @@ one:
 ```bash
 tmp_home="$(mktemp -d)"
 cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
-cargo run -- --home "$tmp_home" migrate-legacy-db
+cargo run -p todo-engine -- --home "$tmp_home" migrate-legacy-db
 ```
 
 See [data-home.md](data-home.md) and [verification-and-smoke.md](verification-and-smoke.md)

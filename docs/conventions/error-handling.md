@@ -2,7 +2,7 @@
 
 ## `TodoError`
 
-Domain/service errors are modeled by the `TodoError` enum in `src/application/error.rs`. It
+Domain/service errors are modeled by the `TodoError` enum in `todo-engine/src/application/error.rs`. It
 has **six variants** (verified against source):
 
 | Variant | `Display` form | Meaning |

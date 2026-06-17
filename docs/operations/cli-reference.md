@@ -1,11 +1,11 @@
 # CLI Reference
 
-The binary is `oracle-todo`. Invoke as `cargo run -- <subcommand> [args]` (or the built
-binary directly). This reference is verified against `src/interfaces/cli/mod.rs`.
+The binary is `todo-engine`. Invoke as `cargo run -p todo-engine -- <subcommand> [args]` (or
+the built binary directly). This reference is verified against `todo-engine/src/interfaces/cli/mod.rs`.
 
 ## Global flag
 
-- `--home <path>` (env `ORACLE_TODO_HOME`) — data home. See [data-home.md](data-home.md).
+- `--home <path>` (env `TODO_ENGINE_HOME`) — data home. See [data-home.md](data-home.md).
 
 Every run emits tracing logs to stderr and to the rotating JSONL file log (see
 [logging-and-rotation.md](logging-and-rotation.md)). Created/updated items are printed as a

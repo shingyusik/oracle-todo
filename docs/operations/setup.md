@@ -8,8 +8,8 @@ is required.
 ## Build and initialize
 
 ```bash
-cargo build                 # build the library + binary
-cargo run -- init           # create todo.sqlite at the data home
+cargo build                 # build the library + binary (workspace root)
+cargo run -p todo-engine -- init           # create todo.sqlite at the data home
 ```
 
 `init` creates the data home directory (if needed) and runs `init_schema`, which creates the
@@ -20,14 +20,14 @@ cargo run -- init           # create todo.sqlite at the data home
 By default the data home is `~/.hermes/oracle-todo/`. It is resolved (in order) from:
 
 1. the `--home <path>` flag,
-2. the `ORACLE_TODO_HOME` environment variable,
+2. the `TODO_ENGINE_HOME` environment variable,
 3. `$HOME/.hermes/oracle-todo` (errors if `HOME` is unset).
 
 ```bash
-export ORACLE_TODO_HOME=/path/to/data
-cargo run -- init
+export TODO_ENGINE_HOME=/path/to/data
+cargo run -p todo-engine -- init
 # or, per-invocation:
-cargo run -- --home /path/to/data init
+cargo run -p todo-engine -- --home /path/to/data init
 ```
 
 The full layout (`todo.sqlite`, `logs/`) and resolution rules are documented in
@@ -36,9 +36,9 @@ The full layout (`todo.sqlite`, `logs/`) and resolution rules are documented in
 ## Verify the install
 
 ```bash
-cargo run -- health         # prints "ok db=<path> user_version=<n>"
-cargo run -- pending        # proposed / approved / active work
-cargo run -- today          # today's task view
+cargo run -p todo-engine -- health         # prints "ok db=<path> user_version=<n>"
+cargo run -p todo-engine -- pending        # proposed / approved / active work
+cargo run -p todo-engine -- today          # today's task view
 ```
 
 ## Next steps

@@ -10,7 +10,7 @@ the policy invariants are unchanged across refactors.
 | --- | --- | --- | --- |
 | **unit** | `tests/unit.rs` | `tests/unit/` | Pure, no-I/O logic exercised through the crate's *public* API: recurrence, status, model, list filter, error mapping, the local-date clock helper, and the architecture boundary guard. |
 | **integration** | `tests/integration.rs` | `tests/integration/` | The library wired in-process: `TodoService` policy, the audit-event invariant, the SQLite repository, and routine materialization. |
-| **e2e** | `tests/e2e.rs` | `tests/e2e/` | The delivered interfaces end-to-end: the real `oracle-todo` binary via `assert_cmd` (`cli.rs`), and the full `axum` HTTP stack via `tower`'s `oneshot` (`api.rs`). |
+| **e2e** | `tests/e2e.rs` | `tests/e2e/` | The delivered interfaces end-to-end: the real `todo-engine` binary via `assert_cmd` (`cli.rs`), and the full `axum` HTTP stack via `tower`'s `oneshot` (`api.rs`). |
 
 ## The dispatcher pattern (and the cargo subfolder gotcha)
 
@@ -67,7 +67,7 @@ that `mod`s the support file uses a different subset of its helpers, support ite
 ## The architecture boundary guard
 
 `tests/unit/architecture.rs` is a test, not a doc: it reads every `.rs` file under
-`src/domain/` and fails if any references `crate::application`, `crate::infrastructure`,
+`todo-engine/src/domain/` and fails if any references `crate::application`, `crate::infrastructure`,
 `crate::interfaces`, `rusqlite`, or `axum`. This is how the inward-dependency rule is enforced
 mechanically — see [../architecture/layers.md](../architecture/layers.md).
 

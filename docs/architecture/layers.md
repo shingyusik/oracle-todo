@@ -1,10 +1,11 @@
 # Layers
 
-`oracle-todo` uses clean/hexagonal layering under `src/`. Dependencies point **inward**:
-`interfaces` and `infrastructure` depend on `application` and `domain`, never the reverse,
-and `domain` does no I/O. Each oversized file from the original layout has been split into a
-directory module of focused submodules; the public crate surface (`oracle_todo::…` paths)
-is intentionally small.
+`oracle-todo` uses clean/hexagonal layering under `todo-engine/src/`. Dependencies point
+**inward**: `interfaces` and `infrastructure` depend on `application` and `domain`, never the
+reverse, and `domain` does no I/O. The Rust crate lives in the `todo-engine/` workspace
+package (with `frontend/` reserved as a sibling slot). Each oversized file from the original
+layout has been split into a directory module of focused submodules; the public crate surface
+(`todo_engine::…` paths) is intentionally small.
 
 ## Layer map (refactored tree)
 
@@ -42,7 +43,7 @@ is intentionally small.
 The domain layer must stay pure — no references to `crate::application`,
 `crate::infrastructure`, `crate::interfaces`, or I/O crates such as `rusqlite` or `axum`.
 This is **enforced by a test**, not just by convention: `tests/unit/architecture.rs` scans
-every `.rs` file under `src/domain/` and fails the build if any of those forbidden strings
+every `.rs` file under `todo-engine/src/domain/` and fails the build if any of those forbidden strings
 appears. If you add an outward dependency to the domain, the unit test layer goes red.
 
 ## The `pub(super)` visibility convention
@@ -54,7 +55,7 @@ fields, helper methods, and free functions inside a split module are promoted to
 `pub(super)` (visible within the parent module tree), not `pub`.
 
 - `pub(super)` is crate-internal visibility widening — it does **not** add anything to the
-  public `oracle_todo::…` surface.
+  public `todo_engine::…` surface.
 - Examples: `TodoService`'s fields (`store`, `events`, `id_counter`, …) and helpers
   (`next_id`, `next_now`, `store_item_and_event`, …) are `pub(super)`; the `sqlite::mapping`
   conversion helpers are `pub(super)`; the `api` handlers, `ApiState`, and `ApiError` helpers

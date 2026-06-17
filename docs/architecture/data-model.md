@@ -45,7 +45,7 @@ see [decisions/adr-0003-approval-gating.md](decisions/adr-0003-approval-gating.m
 ## Status lifecycle
 
 The `status` column is the Rust enum `ItemStatus` (serialized lowercase). It has **11
-variants**, verified against `src/domain/status.rs`:
+variants**, verified against `todo-engine/src/domain/status.rs`:
 
 | Phase | Statuses |
 | --- | --- |

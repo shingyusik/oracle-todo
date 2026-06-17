@@ -43,18 +43,18 @@ database available:
 ```bash
 tmp_home="$(mktemp -d)"
 cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
-cargo run -- --home "$tmp_home" migrate-legacy-db
-cargo run -- --home "$tmp_home" pending
-cargo run -- --home "$tmp_home" today
+cargo run -p todo-engine -- --home "$tmp_home" migrate-legacy-db
+cargo run -p todo-engine -- --home "$tmp_home" pending
+cargo run -p todo-engine -- --home "$tmp_home" today
 ```
 
 Without a legacy database, start from a fresh init in a temp home:
 
 ```bash
 tmp_home="$(mktemp -d)"
-cargo run -- --home "$tmp_home" init
-cargo run -- --home "$tmp_home" pending
-cargo run -- --home "$tmp_home" today
+cargo run -p todo-engine -- --home "$tmp_home" init
+cargo run -p todo-engine -- --home "$tmp_home" pending
+cargo run -p todo-engine -- --home "$tmp_home" today
 ```
 
 The smoke passes when every command succeeds against the temp home and the live home remains
@@ -62,5 +62,5 @@ untouched. `*.sqlite` is gitignored, so a temp copy is never committed.
 
 ## Structure checks
 
-After a refactor, confirm: no `src/**/*.rs` is much over ~400 lines and
+After a refactor, confirm: no `todo-engine/src/**/*.rs` is much over ~400 lines and
 `docs/{architecture,conventions,operations}` are populated.

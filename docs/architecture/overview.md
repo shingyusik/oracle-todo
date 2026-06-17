@@ -6,6 +6,8 @@ item graph. Oracle (and other agents) may interpret and *propose* work, but the 
 itself enforces the operating system: approval gates, audit events, a status state
 machine, and read-only Second_Brain boundaries. Every external surface — CLI and HTTP API
 — is a thin view over the same Rust service layer and the same `todo.sqlite` database.
+The Rust crate lives in the `todo-engine/` workspace package (binary/lib `todo-engine`/`todo_engine`);
+`frontend/` is a reserved sibling package slot for a future UI.
 
 ## Pipeline
 
@@ -42,7 +44,7 @@ Telegram / CLI / Future Dashboard / Oracle
 
 ## Where to go next
 
-- [layers.md](layers.md) — the clean/hexagonal layer map of the refactored `src/` tree,
+- [layers.md](layers.md) — the clean/hexagonal layer map of the refactored `todo-engine/src/` tree,
   the inward-dependency rule, and the `pub(super)` visibility convention.
 - [data-model.md](data-model.md) — item types, the `ItemStatus` lifecycle, and the
   `events` audit contract (with links to the canonical column tables in `README.md`).

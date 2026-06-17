@@ -14,15 +14,15 @@ The full data model (item types, columns, status lifecycle, CLI/API surface) liv
 
 ## Architecture
 
-Clean/hexagonal layering under `src/`. Dependencies point inward — `interfaces` and `infrastructure` depend on `application` and `domain`, never the reverse; `domain` does no I/O.
+The Rust crate lives under `todo-engine/` (package/binary/lib `todo-engine`/`todo_engine`); `frontend/` is a reserved sibling package slot in the workspace. Clean/hexagonal layering under `todo-engine/src/`. Dependencies point inward — `interfaces` and `infrastructure` depend on `application` and `domain`, never the reverse; `domain` does no I/O.
 
 | Layer | Files | Responsibility |
 | --- | --- | --- |
-| `domain/` | `model.rs`, `status.rs`, `recurrence.rs` | Item types, `ItemStatus`, recurrence rules. Pure logic, no I/O. |
-| `application/` | `service/`, `ports.rs`, `error.rs` | `TodoService` policy + state machine, repository port trait, `TodoError`. |
-| `infrastructure/` | `sqlite/`, `paths.rs`, `system.rs` | `rusqlite` repository + schema, data-home resolution, clock/system. |
-| `interfaces/` | `cli/`, `api/` | `clap` CLI and `axum` HTTP router. Thin adapters over the service. |
-| (root) | `lib.rs`, `main.rs` | Crate wiring, binary entrypoint. |
+| `todo-engine/src/domain/` | `model.rs`, `status.rs`, `recurrence.rs` | Item types, `ItemStatus`, recurrence rules. Pure logic, no I/O. |
+| `todo-engine/src/application/` | `service/`, `ports.rs`, `error.rs` | `TodoService` policy + state machine, repository port trait, `TodoError`. |
+| `todo-engine/src/infrastructure/` | `sqlite/`, `paths.rs`, `system.rs` | `rusqlite` repository + schema, data-home resolution, clock/system. |
+| `todo-engine/src/interfaces/` | `cli/`, `api/` | `clap` CLI and `axum` HTTP router. Thin adapters over the service. |
+| `todo-engine/src/` (root) | `lib.rs`, `main.rs` | Crate wiring, binary entrypoint. |
 
 Each split layer (`service/`, `sqlite/`, `cli/`, `api/`) is a directory module; see `docs/architecture/layers.md` for the per-file breakdown and the `pub(super)` visibility convention.
 
@@ -38,12 +38,12 @@ Each split layer (`service/`, `sqlite/`, `cli/`, `api/`) is a directory module; 
 ## Commands
 
 ```bash
-cargo build                                              # build
-cargo run -- init                                        # create the SQLite DB at the data home
-cargo run -- health                                      # DB reachability + schema baseline
-cargo run -- pending                                     # proposed / approved / active work
-cargo run -- today                                       # today's materialized task view
-cargo test                                               # all tests
+cargo build                                              # build (workspace root)
+cargo run -p todo-engine -- init                         # create the SQLite DB at the data home
+cargo run -p todo-engine -- health                       # DB reachability + schema baseline
+cargo run -p todo-engine -- pending                      # proposed / approved / active work
+cargo run -p todo-engine -- today                        # today's materialized task view
+cargo test                                               # all tests (workspace root)
 cargo fmt --check                                        # format gate
 cargo clippy --all-targets --all-features -- -D warnings # lint gate (warnings are errors)
 ```
@@ -52,10 +52,10 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 
 ## Data Home & Configuration
 
-- Data home: `ORACLE_TODO_HOME` env var or `--home <path>`; default `~/.hermes/oracle-todo/`.
-- Layout: `todo.sqlite`, `logs/oracle-todo.log.jsonl(.1-.3)`.
-- Log levels: `ORACLE_TODO_CONSOLE_LOG` (default `info`), `ORACLE_TODO_FILE_LOG` (default `debug`).
-- Log rotation: `ORACLE_TODO_LOG_MAX_BYTES` (default `1_048_576`), `ORACLE_TODO_LOG_MAX_FILES` (default `3`).
+- Data home: `TODO_ENGINE_HOME` env var or `--home <path>`; default `~/.hermes/oracle-todo/`.
+- Layout: `todo.sqlite`, `logs/todo-engine.log.jsonl(.1-.3)`.
+- Log levels: `TODO_ENGINE_CONSOLE_LOG` (default `info`), `TODO_ENGINE_FILE_LOG` (default `debug`).
+- Log rotation: `TODO_ENGINE_LOG_MAX_BYTES` (default `1_048_576`), `TODO_ENGINE_LOG_MAX_FILES` (default `3`).
 - Exit codes / HTTP status: policy/validation → CLI `2` / HTTP `400`; not-found → CLI `4` / HTTP `404`; storage/internal → CLI `1` / HTTP `500`.
 
 ## Gotchas
@@ -64,7 +64,7 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 - **The live data home is canonical.** Never aim destructive experiments at `~/.hermes/oracle-todo/todo.sqlite` without explicit approval. Copy it to a temp home for smoke checks (`*.sqlite` is gitignored).
 - **Schema init is additive.** `init_schema()` creates tables and backfills missing columns on older `items` tables; `migrate-legacy-db` normalizes Python-era values. Don't drop or rewrite existing columns.
 - **Approval gating is policy, not UI.** Agent/Oracle-created items must stay `proposed` until user approval.
-- **Layered tests guard shared behavior.** `tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration suites assert CLI/API behavior agrees with the service layer — keep them green when changing shared behavior.
+- **Layered tests guard shared behavior.** `todo-engine/tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration suites assert CLI/API behavior agrees with the service layer — keep them green when changing shared behavior.
 
 ## Skills & Hooks
 
