@@ -38,6 +38,11 @@ then:
   canonical RFC 3339 representation. Only rows that actually change are rewritten.
 - Normalizes each `events` row similarly.
 - Runs inside a `BEGIN IMMEDIATE` transaction.
+
+> **Pre-rebrand databases:** `migrate-legacy-db` reads actor values through the engine, which
+> no longer recognizes the old `oracle` value and errors with `unknown actor: oracle`. If the
+> database predates the oracle → todo-engine rebrand, rewrite the actor values first — see
+> [Rebrand migration](#rebrand-migration-oracle--todo-engine) — then run `migrate-legacy-db`.
 - Returns a `LegacyMigrationReport { item_rows, event_rows, timestamp_fields }` counting the
   rows touched and timestamp fields converted; the CLI prints it as
   `migrated db=<db> item_rows=.. event_rows=.. timestamp_fields=..`.
@@ -65,7 +70,14 @@ for the full safe procedure.
 Earlier versions stored data under `~/.hermes/oracle-todo/` and used the actor value
 `oracle`. The current version uses `~/.todo-engine/` and the actor value `agent`.
 Existing data is not migrated automatically — the CLI warns when it detects the legacy
-home. To migrate once:
+home.
+
+> **Order matters:** run the SQL rewrite (step 2) *before* opening the database with this
+> version of the engine — including `migrate-legacy-db`. The engine no longer accepts the
+> `oracle` actor value and errors (`unknown actor: oracle`) on any row still holding it. The
+> `mv` and `UPDATE` below operate on files/SQLite directly, so do them first.
+
+To migrate once:
 
 1. Move the data home:
 
