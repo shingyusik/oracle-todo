@@ -2,7 +2,6 @@ use crate::support::TestHome;
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
-use rusqlite::Connection;
 
 #[test]
 fn init_creates_sqlite_database() {
@@ -31,94 +30,6 @@ fn init_uses_todo_engine_home_environment() {
         .stdout(contains("initialized"));
 
     assert!(home.db_path().exists());
-}
-
-#[test]
-fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
-    let home = TestHome::new();
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
-        .assert()
-        .success();
-
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "task",
-            "propose",
-            "Legacy row",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let task: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    let task_id = task["id"].as_str().unwrap();
-
-    let conn = Connection::open(home.db_path()).unwrap();
-    conn.execute(
-        "UPDATE items SET type = ' TASK ', status = ' PROPOSED ', proposed_by = ' AGENT ', created_at = '2026-05-22 17:28:01.459644', updated_at = '2026-05-22 17:28:01.459644' WHERE id = ?1",
-        [task_id],
-    )
-    .unwrap();
-    conn.execute(
-        "UPDATE events SET at = '2026-05-22 17:28:01.459644', actor = ' AGENT ', object_type = ' TASK ' WHERE object_id = ?1",
-        [task_id],
-    )
-    .unwrap();
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "migrate-legacy-db"])
-        .assert()
-        .success()
-        .stdout(contains("item_rows=1"))
-        .stdout(contains("event_rows=1"))
-        .stdout(contains("timestamp_fields=3"));
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "pending"])
-        .assert()
-        .success()
-        .stdout(contains("Legacy row"));
-
-    let item_values: (String, String, String, String, String) = conn
-        .query_row(
-            "SELECT type, status, proposed_by, created_at, updated_at FROM items WHERE id = ?1",
-            [task_id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            },
-        )
-        .unwrap();
-    assert_eq!(item_values.0, "task");
-    assert_eq!(item_values.1, "proposed");
-    assert_eq!(item_values.2, "agent");
-    assert_eq!(item_values.3, "2026-05-22T17:28:01.459644Z");
-    assert_eq!(item_values.4, "2026-05-22T17:28:01.459644Z");
-
-    let event_values: (String, String, String) = conn
-        .query_row(
-            "SELECT at, actor, object_type FROM events WHERE object_id = ?1",
-            [task_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(event_values.0, "2026-05-22T17:28:01.459644Z");
-    assert_eq!(event_values.1, "agent");
-    assert_eq!(event_values.2, "task");
 }
 
 #[test]

@@ -15,9 +15,7 @@ use crate::application::error::TodoError;
 use crate::application::service::TodoService;
 use crate::domain::{Actor, ItemStatus, ItemType};
 use crate::infrastructure::paths::{db_path, todo_home};
-use crate::infrastructure::sqlite::{
-    SqliteTodoRepository, connect, init_schema, migrate_legacy_storage, user_version,
-};
+use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
 use crate::infrastructure::system::{init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
@@ -38,9 +36,6 @@ enum Command {
     Init,
     /// Check database reachability and schema baseline.
     Health,
-    /// One-shot migration that normalizes legacy Python-era SQLite values into the Rust canonical format.
-    #[command(name = "migrate-legacy-db")]
-    MigrateLegacyDb,
     /// List items.
     List(ListArgs),
     /// Create and maintain areas.
@@ -303,7 +298,6 @@ pub fn run() -> Result<()> {
     let result = match cli.command {
         Command::Init => init(&home),
         Command::Health => health(&home),
-        Command::MigrateLegacyDb => migrate_legacy_db(&home),
         Command::List(args) => views::list(&home, args),
         Command::Area {
             command: AreaCommand::Create(args),
@@ -362,7 +356,6 @@ fn command_label(command: &Command) -> &'static str {
     match command {
         Command::Init => "init",
         Command::Health => "health",
-        Command::MigrateLegacyDb => "migrate-legacy-db",
         Command::List(_) => "list",
         Command::Area {
             command: AreaCommand::Create(_),
@@ -420,25 +413,6 @@ fn health(home: &Path) -> Result<()> {
     tracing::debug!(event = "database_opened", path = %db_path.display());
     let user_version = user_version(&conn)?;
     println!("ok db={} user_version={}", db_path.display(), user_version);
-    Ok(())
-}
-
-fn migrate_legacy_db(home: &Path) -> Result<()> {
-    std::fs::create_dir_all(home)?;
-    let db_path = db_path(home);
-    tracing::debug!(event = "database_path_resolved", path = %db_path.display());
-    let conn = connect_path(&db_path)?;
-    tracing::debug!(event = "database_opened", path = %db_path.display());
-    init_schema(&conn)?;
-    tracing::debug!(event = "schema_initialized", path = %db_path.display());
-    let report = migrate_legacy_storage(&conn)?;
-    println!(
-        "migrated db={} item_rows={} event_rows={} timestamp_fields={}",
-        db_path.display(),
-        report.item_rows,
-        report.event_rows,
-        report.timestamp_fields
-    );
     Ok(())
 }
 

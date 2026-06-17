@@ -3,11 +3,9 @@ use crate::domain::TodoEvent;
 use rusqlite::Connection;
 
 mod mapping;
-mod migrate_legacy;
 mod repo;
 mod schema;
 
-pub use migrate_legacy::{LegacyMigrationReport, migrate_legacy_storage};
 pub use schema::{init_schema, user_version};
 
 use mapping::{row_to_event, storage_error};
