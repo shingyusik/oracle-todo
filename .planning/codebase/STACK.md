@@ -72,7 +72,7 @@
 ## Configuration
 
 **Environment:**
-- `TODO_ENGINE_HOME` - Data home path (default: `~/.hermes/oracle-todo/`)
+- `TODO_ENGINE_HOME` - Data home path (default: `~/.todo-engine/`)
 - `TODO_ENGINE_CONSOLE_LOG` - Console log level (default: `info`)
 - `TODO_ENGINE_FILE_LOG` - File log level (default: `debug`)
 - `TODO_ENGINE_LOG_MAX_BYTES` - Log rotation threshold in bytes (default: `1048576` / 1 MB)

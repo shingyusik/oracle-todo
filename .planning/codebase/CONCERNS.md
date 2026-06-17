@@ -88,7 +88,7 @@
 
 **Approval gating logic duplicated in CLI and API:**
 - Files: `todo-engine/src/interfaces/cli/create.rs`, `todo-engine/src/interfaces/api/handlers.rs`, `todo-engine/src/application/service/creation.rs` (e.g., line 85 creates area as active immediately)
-- Why fragile: Both CLI and API handlers parse the `actor` parameter and decide whether to mark an item as `proposed` or `approved`. If the policy changes (e.g., "all Oracle items must now be proposed"), both places must be updated.
+- Why fragile: Both CLI and API handlers parse the `actor` parameter and decide whether to mark an item as `proposed` or `approved`. If the policy changes (e.g., "all agent items must now be proposed"), both places must be updated.
 - Safe modification: Centralize the "should be approved?" logic into `TodoService` methods. Have `propose_task()`, `propose_project()`, etc. take an `actor` parameter and decide internally. Remove `actor` parsing from CLI/API handlers.
 - Test coverage: Service-layer tests in `service_policy.rs` verify the policy, but API/CLI handlers have no tests that verify they correctly pass the actor. Add API/CLI handler tests.
 

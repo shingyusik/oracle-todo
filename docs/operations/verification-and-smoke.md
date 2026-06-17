@@ -37,12 +37,12 @@ that coverage was not measured rather than installing one.
 ## Copied-data smoke (never the live home)
 
 Run smoke checks only against a **copy** of the data home — never against the live
-`~/.hermes/oracle-todo/todo.sqlite` (see [data-home.md](data-home.md)). With a real legacy
+`~/.todo-engine/todo.sqlite` (see [data-home.md](data-home.md)). With a real legacy
 database available:
 
 ```bash
 tmp_home="$(mktemp -d)"
-cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
+cp ~/.todo-engine/todo.sqlite "$tmp_home/todo.sqlite"
 cargo run -p todo-engine -- --home "$tmp_home" migrate-legacy-db
 cargo run -p todo-engine -- --home "$tmp_home" pending
 cargo run -p todo-engine -- --home "$tmp_home" today

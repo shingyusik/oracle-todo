@@ -4,7 +4,7 @@
 
 ## APIs & External Services
 
-**None detected** - `oracle-todo` is a local-first, self-contained service with no outbound API calls.
+**None detected** - `todo-engine` is a local-first, self-contained service with no outbound API calls.
 
 The codebase enforces this principle: no HTTP client dependencies, no external service credentials, no webhook dispatch. The only external interface is inbound:
 - CLI commands from the user
@@ -15,7 +15,7 @@ The codebase enforces this principle: no HTTP client dependencies, no external s
 **Databases:**
 - SQLite (single-file, embedded)
   - Connection: `rusqlite` 0.32 crate with bundled SQLite
-  - Path: `<TODO_ENGINE_HOME>/todo.sqlite` (resolved via `TODO_ENGINE_HOME` env var or `~/.hermes/oracle-todo/`)
+  - Path: `<TODO_ENGINE_HOME>/todo.sqlite` (resolved via `TODO_ENGINE_HOME` env var or `~/.todo-engine/`)
   - Schema: `items` table (areas, projects, tasks, routines, events), `events` audit table
   - Locking: SQLite default (file-level locks, single writer)
   - Foreign keys: Enabled via `PRAGMA foreign_keys = ON` on connection init
@@ -34,11 +34,11 @@ The codebase enforces this principle: no HTTP client dependencies, no external s
 ## Authentication & Identity
 
 **Auth Provider:**
-- Custom/None - `oracle-todo` does not authenticate users
+- Custom/None - `todo-engine` does not authenticate users
   - CLI: No authentication (assumes single-user machine ownership)
   - HTTP API: No authentication layer (implementer responsibility; see `Actor` enum in domain)
-  - Identity model: `Actor` type in domain (`oracle_todo::domain::Actor`) tracks who created/approved items
-  - Actor variants: `user`, `oracle`, `agent`, `system` (open enum for extensibility)
+  - Identity model: `Actor` type in domain (`todo_engine::domain::Actor`) tracks who created/approved items
+  - Actor variants: `user`, `agent`, `system` (open enum for extensibility)
 
 **User Representation:**
 - `proposed_by` field (TEXT) on items — stores actor identifier (JSON string, typically username or ID)

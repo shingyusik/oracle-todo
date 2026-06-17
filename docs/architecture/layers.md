@@ -1,6 +1,6 @@
 # Layers
 
-`oracle-todo` uses clean/hexagonal layering under `todo-engine/src/`. Dependencies point
+`todo-engine` uses clean/hexagonal layering under `todo-engine/src/`. Dependencies point
 **inward**: `interfaces` and `infrastructure` depend on `application` and `domain`, never the
 reverse, and `domain` does no I/O. The Rust crate lives in the `todo-engine/` workspace
 package (with `frontend/` reserved as a sibling slot). Each oversized file from the original

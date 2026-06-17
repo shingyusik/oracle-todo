@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-`oracle-todo` — a policy-enforced, local-first personal ToDo engine (Rust 2024) for Oracle/Hermes workflows.
+`todo-engine` — a policy-enforced, local-first personal ToDo engine (Rust 2024) for agent workflows.
 
 - **SQLite is the source of truth.** CLI and HTTP API are both views over `todo.sqlite`.
 - **The Rust service layer enforces policy.** Every mutation goes through `TodoService`: validation plus a status state machine. CLI and API never bypass it.
-- **Approval gates agent work.** Oracle/agent-created items start as `proposed` and require user approval before activation; user-created items can start `approved`.
+- **Approval gates agent work.** Agent-created items start as `proposed` and require user approval before activation; user-created items can start `approved`.
 - **Audit events are mandatory.** Every service-layer mutation writes a `TodoEvent` row to the SQLite `events` table.
 - **Second_Brain refs are read-only.** `second_brain_refs` are reference input, never written back.
 
@@ -52,7 +52,7 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 
 ## Data Home & Configuration
 
-- Data home: `TODO_ENGINE_HOME` env var or `--home <path>`; default `~/.hermes/oracle-todo/`.
+- Data home: `TODO_ENGINE_HOME` env var or `--home <path>`; default `~/.todo-engine/`.
 - Layout: `todo.sqlite`, `logs/todo-engine.log.jsonl(.1-.3)`.
 - Log levels: `TODO_ENGINE_CONSOLE_LOG` (default `info`), `TODO_ENGINE_FILE_LOG` (default `debug`).
 - Log rotation: `TODO_ENGINE_LOG_MAX_BYTES` (default `1_048_576`), `TODO_ENGINE_LOG_MAX_FILES` (default `3`).
@@ -61,9 +61,9 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 ## Gotchas
 
 - **Don't bypass `TodoService`.** Direct repository writes skip validation, the state machine, and the audit event — breaking the core invariant. All mutations route through the service layer.
-- **The live data home is canonical.** Never aim destructive experiments at `~/.hermes/oracle-todo/todo.sqlite` without explicit approval. Copy it to a temp home for smoke checks (`*.sqlite` is gitignored).
+- **The live data home is canonical.** Never aim destructive experiments at `~/.todo-engine/todo.sqlite` without explicit approval. Copy it to a temp home for smoke checks (`*.sqlite` is gitignored).
 - **Schema init is additive.** `init_schema()` creates tables and backfills missing columns on older `items` tables; `migrate-legacy-db` normalizes Python-era values. Don't drop or rewrite existing columns.
-- **Approval gating is policy, not UI.** Agent/Oracle-created items must stay `proposed` until user approval.
+- **Approval gating is policy, not UI.** Agent-created items must stay `proposed` until user approval.
 - **Layered tests guard shared behavior.** `todo-engine/tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration suites assert CLI/API behavior agrees with the service layer — keep them green when changing shared behavior.
 
 ## Skills & Hooks

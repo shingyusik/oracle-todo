@@ -53,9 +53,33 @@ one:
 
 ```bash
 tmp_home="$(mktemp -d)"
-cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
+cp ~/.todo-engine/todo.sqlite "$tmp_home/todo.sqlite"
 cargo run -p todo-engine -- --home "$tmp_home" migrate-legacy-db
 ```
 
 See [data-home.md](data-home.md) and [verification-and-smoke.md](verification-and-smoke.md)
 for the full safe procedure.
+
+## Rebrand migration (oracle → todo-engine)
+
+Earlier versions stored data under `~/.hermes/oracle-todo/` and used the actor value
+`oracle`. The current version uses `~/.todo-engine/` and the actor value `agent`.
+Existing data is not migrated automatically — the CLI warns when it detects the legacy
+home. To migrate once:
+
+1. Move the data home:
+
+   ```bash
+   mv ~/.hermes/oracle-todo ~/.todo-engine
+   ```
+
+2. Rewrite the actor values in the database:
+
+   ```sql
+   UPDATE items  SET proposed_by = 'agent' WHERE proposed_by = 'oracle';
+   UPDATE items  SET approved_by = 'agent' WHERE approved_by = 'oracle';
+   UPDATE events SET actor       = 'agent' WHERE actor       = 'oracle';
+   ```
+
+3. Update any scripts that referenced the old `~/.hermes/oracle-todo` path or the
+   `oracle` actor value.

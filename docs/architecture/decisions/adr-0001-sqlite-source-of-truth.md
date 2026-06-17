@@ -6,7 +6,7 @@ Accepted (v1).
 
 ## Context
 
-`oracle-todo` is a local-first engine with several surfaces: a `clap` CLI and an `axum`
+`todo-engine` is a local-first engine with several surfaces: a `clap` CLI and an `axum`
 HTTP API. Different surfaces could each be tempted to hold their own state, cache, or file
 format. If more than one of them were authoritative, they would drift, and reconciling them
 would become the hard problem the engine is supposed to remove.

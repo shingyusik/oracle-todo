@@ -7,7 +7,7 @@
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
-│                         User / Oracle / CLI                         │
+│                         User / Agent / CLI                          │
 │                          `interfaces/`                              │
 ├──────────────────────────┬──────────────────────────────────────────┤
 │     CLI (clap)           │      API (axum)                          │
@@ -73,7 +73,7 @@
 | SQLite Schema | Initializes/evolves database schema, adds missing columns | `todo-engine/src/infrastructure/sqlite/schema.rs` |
 | SQLite Mapping | Converts rusqlite Row ↔ domain model (TodoItem, TodoEvent) | `todo-engine/src/infrastructure/sqlite/mapping.rs` |
 | Legacy Migration | Normalizes Python-era SQLite values to Rust canonical format | `todo-engine/src/infrastructure/sqlite/migrate_legacy.rs` |
-| Paths Resolution | Resolves data home directory (env var, explicit, or default `~/.hermes/oracle-todo/`) | `todo-engine/src/infrastructure/paths.rs` |
+| Paths Resolution | Resolves data home directory (env var, explicit, or default `~/.todo-engine/`) | `todo-engine/src/infrastructure/paths.rs` |
 | System & Tracing | Structured JSON logging with rotation, local date/time helpers | `todo-engine/src/infrastructure/system.rs` |
 | CLI Router | clap command parsing, dispatch, subcommand routing | `todo-engine/src/interfaces/cli/mod.rs` |
 | CLI Creators | Parse and execute area, task, project, routine, event proposal commands | `todo-engine/src/interfaces/cli/create.rs` |
@@ -158,8 +158,8 @@
 
 ### Approval Gate (Agent-Created Items)
 
-1. Oracle proposes task via API `/tasks/propose` with `actor: "oracle"`
-2. `TodoService::propose_task()` creates item with `proposed_by: Actor::Oracle`, `status: Proposed`
+1. An agent proposes a task via API `/tasks/propose` with `actor: "agent"`
+2. `TodoService::propose_task()` creates item with `proposed_by: Actor::Agent`, `status: Proposed`
 3. Item is stored and event is recorded (`action: "propose"`)
 4. CLI/API `pending` view shows `proposed` work separately from `active`
 5. User calls CLI `approve <id>` or API `PATCH /items/<id>/approve`
@@ -230,7 +230,7 @@
 - **Circular imports:** None — dependency rule enforced by unit test (`tests/unit/architecture.rs`)
 - **Deterministic testing:** In-memory service uses incrementing counters for IDs and a base datetime + offset for clock; persistent mode uses UUIDs and real-time
 - **Database transaction scope:** `save_item_and_event()` is atomic (item + event written together); no multi-step transactions
-- **Approval workflow:** Oracle-created items must have `approved_at` before `activate()` accepts them; user-created items may activate immediately
+- **Approval workflow:** Agent-created items must have `approved_at` before `activate()` accepts them; user-created items may activate immediately
 - **Recurrence materialization:** Happens on-demand via CLI/API command; not automatic. Routine must have `recurrence_rule` and `active` status to materialize.
 
 ## Anti-Patterns

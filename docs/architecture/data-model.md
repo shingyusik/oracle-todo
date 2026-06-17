@@ -1,6 +1,6 @@
 # Data Model
 
-`oracle-todo` stores everything in one SQLite `items` table plus an `events` audit table.
+`todo-engine` stores everything in one SQLite `items` table plus an `events` audit table.
 This page describes the item types, their invariants, the `ItemStatus` lifecycle, and the
 event contract. The **canonical column tables** (every column, its type, and meaning) live
 in [`README.md`](../../README.md) — see its "Shared item columns", per-type column tables,
@@ -23,7 +23,7 @@ created/managed types and their invariants:
   generated tasks link back via `routine_id` and are de-duplicated by `occurrence_key`.
   `materialization_policy` is `single_open` (default — at most one open generated task per
   routine) or `per_occurrence` (one task per occurrence in the window).
-- **`task`** — a concrete action item. Oracle-created tasks start `proposed`; user-created
+- **`task`** — a concrete action item. Agent-created tasks start `proposed`; user-created
   tasks start `approved`. May belong to an area, a (non-terminal) project, or a
   (non-terminal) routine.
 - **`event`** — an external commitment / scheduled appointment. Requires `scheduled`. Uses
@@ -36,7 +36,7 @@ lowercase strings (with `archive_item` snake-cased). Unknown strings are rejecte
 
 ## Actor
 
-The `proposed_by` / `approved_by` columns use the `Actor` enum: `user`, `oracle`, `system`
+The `proposed_by` / `approved_by` columns use the `Actor` enum: `user`, `agent`, `system`
 (serialized lowercase). At creation, an item authored by `user` is auto-approved
 (`status = approved`, `approved_by = user`, `approved_at = now`); any other actor leaves the
 item `proposed` with no approval markers. This is the mechanism behind approval gating —

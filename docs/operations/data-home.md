@@ -1,7 +1,7 @@
 # Data Home
 
 The **data home** is the directory that holds the canonical SQLite database and the
-operational logs. Everything `oracle-todo` persists lives under it.
+operational logs. Everything `todo-engine` persists lives under it.
 
 ## Resolution
 
@@ -9,7 +9,7 @@ The data home is resolved by `infrastructure::paths::todo_home`, in this order:
 
 1. `--home <path>` flag.
 2. `TODO_ENGINE_HOME` environment variable.
-3. `$HOME/.hermes/oracle-todo` (the default; errors if `HOME` is unset).
+3. `$HOME/.todo-engine` (the default; errors if `HOME` is unset).
 
 ```bash
 export TODO_ENGINE_HOME=/path/to/data
@@ -35,13 +35,13 @@ cargo run -p todo-engine -- --home /path/to/data init   # flag wins over the env
 
 ## Safety rule: never target the live home
 
-The live data home (`~/.hermes/oracle-todo/`) is canonical. **Never aim destructive
-experiments at `~/.hermes/oracle-todo/todo.sqlite` without explicit approval.** For any smoke
+The live data home (`~/.todo-engine/`) is canonical. **Never aim destructive
+experiments at `~/.todo-engine/todo.sqlite` without explicit approval.** For any smoke
 test or migration trial, copy the database into a fresh temporary home and operate there:
 
 ```bash
 tmp_home="$(mktemp -d)"
-cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
+cp ~/.todo-engine/todo.sqlite "$tmp_home/todo.sqlite"
 cargo run -p todo-engine -- --home "$tmp_home" pending
 ```
 

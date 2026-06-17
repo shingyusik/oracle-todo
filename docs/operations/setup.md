@@ -17,11 +17,11 @@ cargo run -p todo-engine -- init           # create todo.sqlite at the data home
 
 ## Data home
 
-By default the data home is `~/.hermes/oracle-todo/`. It is resolved (in order) from:
+By default the data home is `~/.todo-engine/`. It is resolved (in order) from:
 
 1. the `--home <path>` flag,
 2. the `TODO_ENGINE_HOME` environment variable,
-3. `$HOME/.hermes/oracle-todo` (errors if `HOME` is unset).
+3. `$HOME/.todo-engine` (errors if `HOME` is unset).
 
 ```bash
 export TODO_ENGINE_HOME=/path/to/data

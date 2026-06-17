@@ -1,4 +1,4 @@
-# ADR-0003: Approval gates agent/Oracle-created work
+# ADR-0003: Approval gates agent-created work
 
 ## Status
 
@@ -6,7 +6,7 @@ Accepted (v1).
 
 ## Context
 
-Oracle and other agents can propose work on the user's behalf. The whole point of the engine
+Agents can propose work on the user's behalf. The whole point of the engine
 is that the *software* — not the agent, and not a UI convention — decides what actually
 enters the user's active workload. Proposed work must be visible but inert until the user
 accepts it.
@@ -17,9 +17,9 @@ Creation actor determines the starting status, and activation is gated on approv
 
 - An item created by `Actor::User` is auto-approved at construction: `status = approved`,
   `approved_by = user`, `approved_at = now` (`TodoItem::new`).
-- An item created by any other actor (`oracle`, `system`) starts `proposed` with no approval
+- An item created by any other actor (`agent`, `system`) starts `proposed` with no approval
   markers. Agent-facing CLI subcommands (`task propose`, `project propose`, …) and the API
-  propose endpoints default the actor to `oracle`, so agent-created work is `proposed` by
+  propose endpoints default the actor to `agent`, so agent-created work is `proposed` by
   default.
 - An agent-created item cannot become `active` until it has been approved. Approval is an
   explicit transition (`approve` CLI subcommand / `POST /items/{id}/approve`).

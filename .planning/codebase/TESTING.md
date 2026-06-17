@@ -208,7 +208,7 @@ fn area_titles_resolve_in_service() {
 }
 
 #[test]
-fn oracle_task_requires_approval_before_activation() {
+fn agent_task_requires_approval_before_activation() {
     let mut service = TodoService::in_memory();
     let item = service.propose_task("앱 열고 DB 확인", Default::default()).unwrap();
     assert_eq!(item.status, ItemStatus::Proposed);
@@ -329,7 +329,7 @@ fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
     // Corrupt the row with legacy formatting
     let conn = Connection::open(home.db_path()).unwrap();
     conn.execute(
-        "UPDATE items SET type = ' TASK ', status = ' PROPOSED ', proposed_by = ' ORACLE ', … WHERE id = ?1",
+        "UPDATE items SET type = ' TASK ', status = ' PROPOSED ', proposed_by = ' AGENT ', … WHERE id = ?1",
         [task_id],
     ).unwrap();
 
@@ -421,7 +421,7 @@ async fn task_propose_and_items_use_same_service_path() {
     let item: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(item["title"], "DB 확인");
     assert_eq!(item["status"], "proposed");
-    assert_eq!(item["proposed_by"], "oracle");
+    assert_eq!(item["proposed_by"], "agent");
 
     // Fresh app, same data home → item should persist
     let fresh_app = router(&db_path).unwrap();
@@ -569,7 +569,7 @@ let mut service = TodoService::persistent(repo);
 
 ```rust
 #[test]
-fn oracle_task_requires_approval_before_activation() {
+fn agent_task_requires_approval_before_activation() {
     let mut service = TodoService::in_memory();
     let item = service.propose_task("task", Default::default()).unwrap();
 

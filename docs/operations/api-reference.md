@@ -34,14 +34,14 @@ Item-returning endpoints respond with the full `TodoItem` as JSON. Errors return
 
 - **`AreaBody`** — `title` (required), `review_cycle?`, `standard?`, `note?`.
 - **`TaskProposeBody`** — `title` (required), `area?`, `due?`, `scheduled?`, `priority?`,
-  `description?`, `note?`, `actor?` (default `oracle`).
+  `description?`, `note?`, `actor?` (default `agent`).
 - **`ProjectProposeBody`** — `title` (required), `area?`, `definition_of_done?`, `outcome?`,
-  `due?`, `note?`, `actor?` (default `oracle`).
+  `due?`, `note?`, `actor?` (default `agent`).
 - **`RoutineProposeBody`** — `title` (required), `area?`, `recurrence_rule?`,
-  `materialization_policy?` (default `single_open`), `note?`, `actor?` (default `oracle`).
+  `materialization_policy?` (default `single_open`), `note?`, `actor?` (default `agent`).
 - **`EventProposeBody`** — `title` (required), `scheduled` (required), `area?`, `project_id?`,
   `due?`, `priority?`, `description?`, `note?`, `location?`, `participants?` (array),
-  `commitment_type?` (default `appointment`), `actor?` (default `oracle`).
+  `commitment_type?` (default `appointment`), `actor?` (default `agent`).
 - **`ReasonBody`** — `reason?`. Optional on the transition endpoints that accept it.
 - **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
   `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,

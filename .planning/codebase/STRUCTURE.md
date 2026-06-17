@@ -5,7 +5,7 @@
 ## Directory Layout
 
 ```
-oracle-todo/                              # Workspace root (monorepo)
+todo-engine/                              # Workspace root (monorepo)
 ├── todo-engine/                          # Main Rust crate (binary + lib)
 │   ├── Cargo.toml
 │   ├── src/                              # Source tree
@@ -163,7 +163,7 @@ oracle-todo/                              # Workspace root (monorepo)
 
 **Configuration:**
 - Cargo workspace: `Cargo.toml` (root)
-- Data home: Resolved by `infrastructure/paths.rs:todo_home()` from `TODO_ENGINE_HOME` env var, `--home` CLI flag, or default `~/.hermes/oracle-todo/`
+- Data home: Resolved by `infrastructure/paths.rs:todo_home()` from `TODO_ENGINE_HOME` env var, `--home` CLI flag, or default `~/.todo-engine/`
 - Logging config: Environment variables `TODO_ENGINE_CONSOLE_LOG`, `TODO_ENGINE_FILE_LOG`, `TODO_ENGINE_LOG_MAX_BYTES`, `TODO_ENGINE_LOG_MAX_FILES`
 
 **Core Logic:**

@@ -34,7 +34,7 @@ cargo test
 - Serialized forms use `#[serde(rename_all = "...")]`:
   - `ItemStatus` variants → lowercase: `"proposed"`, `"active"`, `"completed"` (via `rename_all = "lowercase"`)
   - `ItemType` variants → snake_case: `"archive_item"` (via `rename_all = "snake_case"`)
-  - `Actor` variants → lowercase: `"user"`, `"oracle"`, `"system"` (via `rename_all = "lowercase"`)
+  - `Actor` variants → lowercase: `"user"`, `"agent"`, `"system"` (via `rename_all = "lowercase"`)
 - `FromStr` impls are **case-sensitive** and **trim whitespace** — e.g., `"  proposed  "` parses as `ItemStatus::Proposed`
 - Never rename public enum symbols; the serialized form and Rust name must stay synchronized
 
@@ -282,7 +282,7 @@ let area = area
     .map(Actor::from_str)
     .transpose()
     .map_err(TodoError::Validation)?
-    .unwrap_or(Actor::Oracle);
+    .unwrap_or(Actor::Agent);
 ```
 
 ### Error Context in `anyhow`

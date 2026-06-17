@@ -1,15 +1,15 @@
-# oracle-todo
+# todo-engine
 
-Policy-enforced personal ToDo engine for Oracle/Hermes workflows.
+Policy-enforced personal ToDo engine for agent workflows.
 
 ## Core model
 
-`oracle-todo` keeps areas, projects, tasks, routines, and events in one SQLite-backed item graph.
+`todo-engine` keeps areas, projects, tasks, routines, and events in one SQLite-backed item graph.
 
 - **SQLite source of truth**: CLI and API are views over `todo.sqlite`.
 - **Rust service layer enforces policy**: CLI/API use the same validation and state transitions.
 - **Audit events are mandatory**: every service-layer mutation writes an event row to SQLite `events`.
-- **User approval gates agent-created work**: Oracle-created items start as `proposed` until user approval.
+- **User approval gates agent-created work**: Agent-created items start as `proposed` until user approval.
 - **File logs are structured tracing logs**: CLI progress, success, and errors are written under `logs/` with rotation.
 
 ## Stack
@@ -25,7 +25,7 @@ Policy-enforced personal ToDo engine for Oracle/Hermes workflows.
 
 This repo is a monorepo: the Rust engine lives in `todo-engine/`, with a reserved `frontend/` package slot.
 
-- Data home default: `~/.hermes/oracle-todo/`
+- Data home default: `~/.todo-engine/`
 - Operating guardrails: `docs/operations/verification-and-smoke.md`, `docs/operations/data-home.md`
 
 ## Setup
@@ -38,7 +38,7 @@ cargo run -p todo-engine -- init
 Default data directory:
 
 ```text
-~/.hermes/oracle-todo/
+~/.todo-engine/
 ├── todo.sqlite
 └── logs/
     ├── todo-engine.log.jsonl
@@ -65,7 +65,7 @@ cargo run -p todo-engine -- area create "재정" \
   --standard "월 1회 계정/자동화 상태 점검" \
   --note "월말 자동화까지 함께 확인"
 
-# Let Oracle propose a project. Proposed items require user approval in service/API flows.
+# Let an agent propose a project. Proposed items require user approval in service/API flows.
 cargo run -p todo-engine -- project propose "MoneyManager 안정화" \
   --area "재정" \
   --outcome "가계부 운영 안정화" \
@@ -146,14 +146,14 @@ Required / useful columns:
 | `definition_of_done` | required to activate | Completion criteria. |
 | `due` | optional | Date or date-like string. |
 | `note` | optional | Short free-form memo. |
-| `proposed_by` | yes | `oracle`, `user`, or `system`. |
+| `proposed_by` | yes | `agent`, `user`, or `system`. |
 | `approved_by` / `approved_at` | required for agent-created activation | User approval marker. |
 
 ### Task
 
 Concrete action item.
 
-- Oracle-created tasks start as `proposed`.
+- Agent-created tasks start as `proposed`.
 - User-created tasks can start as `approved` when actor is `user`.
 - Tasks may belong to an area, project, or routine.
 - `today` includes task items in `proposed`, `approved`, or `active` status when `scheduled` is empty, `today`, or a date not later than today.
@@ -274,7 +274,7 @@ SQLite table: `items`.
 | `due` | nullable string | Deadline. |
 | `scheduled` | nullable string | Schedule or visibility date/time. |
 | `horizon` | nullable string | Planning horizon; available for future views. |
-| `proposed_by` | `user`, `oracle`, `system` | Creator actor. |
+| `proposed_by` | `user`, `agent`, `system` | Creator actor. |
 | `approved_by` | nullable actor | Approver. |
 | `approved_at` | nullable datetime | Approval timestamp. |
 | `completed_at` | nullable datetime | Completion timestamp. |
@@ -345,7 +345,7 @@ Every service-layer change creates a `TodoEvent` row.
 | --- | --- |
 | `id` | Event ID. |
 | `at` | Event timestamp. |
-| `actor` | `user`, `oracle`, or `system`. |
+| `actor` | `user`, `agent`, or `system`. |
 | `action` | Action name, e.g. `propose_task`, `approve`, `materialize_routine_task`. |
 | `object_type` | Affected item type. |
 | `object_id` | Affected item ID. |
@@ -391,7 +391,7 @@ Run smoke tests only against a copied data home:
 
 ```bash
 tmp_home="$(mktemp -d)"
-cp ~/.hermes/oracle-todo/todo.sqlite "$tmp_home/todo.sqlite"
+cp ~/.todo-engine/todo.sqlite "$tmp_home/todo.sqlite"
 cargo run -p todo-engine -- --home "$tmp_home" migrate-legacy-db
 cargo run -p todo-engine -- --home "$tmp_home" pending
 cargo run -p todo-engine -- --home "$tmp_home" today

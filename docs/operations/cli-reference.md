@@ -26,15 +26,15 @@ Create an active area. Flags: `--review-cycle`, `--standard`, `--note`.
 
 ### `project propose <title>`
 Propose a project. Flags: `--area`, `--definition-of-done`, `--outcome`, `--due`, `--note`,
-`--actor` (default `oracle`).
+`--actor` (default `agent`).
 
 ### `task propose <title>`
 Propose a task. Flags: `--area`, `--due`, `--scheduled`, `--priority <int>`, `--description`,
-`--note`, `--actor` (default `oracle`).
+`--note`, `--actor` (default `agent`).
 
 ### `routine propose <title>`
 Propose a routine. Flags: `--area`, `--recurrence-rule`, `--materialization-policy`
-(default `single_open`), `--note`, `--actor` (default `oracle`).
+(default `single_open`), `--note`, `--actor` (default `agent`).
 
 ### `routine materialize`
 Materialize due routine tasks. Flags: `--now <date>` (defaults to today's local date),
@@ -45,9 +45,9 @@ created task as JSON, or `No routine tasks materialized`.
 Propose an event. `<scheduled>` is a positional date/time string. Flags: `--area`,
 `--project-id`, `--due`, `--priority <int>`, `--description`, `--note`, `--location`,
 `--with <participant>` (repeatable), `--commitment-type` (default `appointment`),
-`--actor` (default `oracle`).
+`--actor` (default `agent`).
 
-> `--actor` accepts `oracle`, `user`, or `system`. A `user` actor auto-approves the created
+> `--actor` accepts `agent`, `user`, or `system`. A `user` actor auto-approves the created
 > item; any other actor leaves it `proposed` (see
 > [../architecture/decisions/adr-0003-approval-gating.md](../architecture/decisions/adr-0003-approval-gating.md)).
 
