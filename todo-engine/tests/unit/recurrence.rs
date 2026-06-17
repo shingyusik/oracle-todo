@@ -1,6 +1,6 @@
-use todo_engine::domain::{RecurrenceError, occurrences};
 use time::Weekday;
 use time::macros::date;
+use todo_engine::domain::{RecurrenceError, occurrences};
 
 #[test]
 fn daily_aliases_expand_each_day() {

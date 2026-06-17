@@ -1,7 +1,7 @@
+use time::macros::date;
 use todo_engine::application::error::TodoError;
 use todo_engine::application::service::{ProposeRoutine, ProposeTask, TodoService};
 use todo_engine::domain::{Actor, ItemStatus, ItemType, RecurrenceError, occurrences};
-use time::macros::date;
 
 fn occurrence_keys(items: &[todo_engine::domain::TodoItem]) -> Vec<String> {
     items

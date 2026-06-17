@@ -1,6 +1,6 @@
-use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoItem};
 use time::OffsetDateTime;
 use time::macros::datetime;
+use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoItem};
 
 const NOW: OffsetDateTime = datetime!(2026 - 05 - 31 12:00 UTC);
 

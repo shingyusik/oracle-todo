@@ -1,9 +1,9 @@
+use time::{OffsetDateTime, macros::datetime};
 use todo_engine::application::ports::{EventRepository, ListFilter, TodoRepository, TodoStore};
 use todo_engine::application::service::TodoService;
 use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
 use todo_engine::infrastructure::sqlite::SqliteTodoRepository;
 use todo_engine::infrastructure::sqlite::{connect, init_schema, user_version};
-use time::{OffsetDateTime, macros::datetime};
 
 #[test]
 fn init_schema_creates_items_and_events_tables() {
