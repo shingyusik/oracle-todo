@@ -48,7 +48,7 @@ cargo fmt --check                                        # format gate
 cargo clippy --all-targets --all-features -- -D warnings # lint gate (warnings are errors)
 ```
 
-CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`.
+CLI subcommands: `init`, `health`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`.
 
 ## Data Home & Configuration
 
@@ -62,7 +62,7 @@ CLI subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project
 
 - **Don't bypass `TodoService`.** Direct repository writes skip validation, the state machine, and the audit event — breaking the core invariant. All mutations route through the service layer.
 - **The live data home is canonical.** Never aim destructive experiments at `~/.todo-engine/todo.sqlite` without explicit approval. Copy it to a temp home for smoke checks (`*.sqlite` is gitignored).
-- **Schema init is additive.** `init_schema()` creates tables and backfills missing columns on older `items` tables; `migrate-legacy-db` normalizes Python-era values. Don't drop or rewrite existing columns.
+- **Schema init is additive.** `init_schema()` creates tables and backfills missing columns on older `items` tables. Don't drop or rewrite existing columns.
 - **Approval gating is policy, not UI.** Agent-created items must stay `proposed` until user approval.
 - **Layered tests guard shared behavior.** `todo-engine/tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration suites assert CLI/API behavior agrees with the service layer — keep them green when changing shared behavior.
 

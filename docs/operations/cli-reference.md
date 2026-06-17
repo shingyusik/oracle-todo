@@ -17,7 +17,6 @@ single JSON line on stdout; view commands print rendered Markdown.
 | --- | --- | --- |
 | `init` | Create the data home and the SQLite schema. | `initialized <db>` |
 | `health` | Check DB reachability and schema baseline. | `ok db=<db> user_version=<n>` |
-| `migrate-legacy-db` | One-shot normalization of legacy Python-era SQLite values; runs `init_schema` first. | `migrated db=<db> item_rows=.. event_rows=.. timestamp_fields=..` |
 
 ## Creation commands
 

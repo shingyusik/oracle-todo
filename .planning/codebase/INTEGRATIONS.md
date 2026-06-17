@@ -122,7 +122,7 @@ The codebase enforces this principle: no HTTP client dependencies, no external s
 
 **CLI Entry Point:**
 - `todo-engine/src/interfaces/cli/mod.rs` - Command parser and dispatch
-- Subcommands: `init`, `health`, `migrate-legacy-db`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`
+- Subcommands: `init`, `health`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`
 - Output: Markdown (human), JSON (structured), text (error messages)
 - Exit codes: 0 (success), 1 (internal error), 2 (validation error), 4 (not found)
 

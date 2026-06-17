@@ -38,13 +38,12 @@ todo-engine/                              # Workspace root (monorepo)
 │   │   │       ├── mod.rs                # connect(), SqliteTodoRepository struct, re-exports
 │   │   │       ├── schema.rs             # init_schema(), user_version(), column backfill
 │   │   │       ├── mapping.rs            # row_to_item(), item_to_params(), row_to_event(), conversions
-│   │   │       ├── repo.rs               # SqliteTodoRepository impls TodoStore, upsert SQL
-│   │   │       └── migrate_legacy.rs     # migrate_legacy_storage(), LegacyMigrationReport — Python-era normalization
+│   │   │       └── repo.rs               # SqliteTodoRepository impls TodoStore, upsert SQL
 │   │   │
 │   │   └── interfaces/                   # External surfaces (CLI & API)
 │   │       ├── mod.rs                    # Module structure
 │   │       ├── cli/                      # clap CLI
-│   │       │   ├── mod.rs                # Cli parser, Command routing, run(), system handlers (init, health, migrate-legacy-db)
+│   │       │   ├── mod.rs                # Cli parser, Command routing, run(), system handlers (init, health)
 │   │       │   ├── create.rs             # area_create(), project_propose(), task_propose(), routine_propose(), event_propose()
 │   │       │   ├── lifecycle.rs          # approve(), activate(), pause(), resume(), complete(), archive(), drop_item(), cancel(), update()
 │   │       │   ├── views.rs              # list(), archive_list(), pending(), today(), routine_materialize() — renderers

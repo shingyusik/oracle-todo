@@ -84,7 +84,7 @@ cargo test
   - Identify the responsibility boundaries
   - Split into a directory module with focused submodules
   - Worked example: `service.rs` → `application/service/{creation, transitions, update, materialization, queries}.rs`
-  - Another worked example: `sqlite.rs` → `infrastructure/sqlite/{schema, mapping, repo, migrate_legacy}.rs`
+  - Another worked example: `sqlite.rs` → `infrastructure/sqlite/{schema, mapping, repo}.rs`
 - Line breaks: respect natural boundaries (e.g., function definitions, match arms), not artificial line counts
 
 ## Visibility: `pub(super)` vs `pub`
@@ -153,7 +153,6 @@ Production code must not `panic!` or `.unwrap()` on expected error paths. All ex
 **Exception sites (documented invariants):**
 - Serializing a `TodoItem` to JSON (type serialization is guaranteed safe)
 - Month arithmetic that is mathematically always in range
-- Required timestamp expectations in `migrate_legacy.rs`: `.expect("created_at is required")`, `.expect("updated_at is required")`
 
 These `.expect()` sites are preserved verbatim across refactors. Do not introduce new `.expect()` on paths that can realistically fail.
 

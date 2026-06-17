@@ -72,7 +72,6 @@
 | SQLite Repository | Implements TodoStore, manages persistence, SQL generation, schema migrations | `todo-engine/src/infrastructure/sqlite/repo.rs` |
 | SQLite Schema | Initializes/evolves database schema, adds missing columns | `todo-engine/src/infrastructure/sqlite/schema.rs` |
 | SQLite Mapping | Converts rusqlite Row ↔ domain model (TodoItem, TodoEvent) | `todo-engine/src/infrastructure/sqlite/mapping.rs` |
-| Legacy Migration | Normalizes Python-era SQLite values to Rust canonical format | `todo-engine/src/infrastructure/sqlite/migrate_legacy.rs` |
 | Paths Resolution | Resolves data home directory (env var, explicit, or default `~/.todo-engine/`) | `todo-engine/src/infrastructure/paths.rs` |
 | System & Tracing | Structured JSON logging with rotation, local date/time helpers | `todo-engine/src/infrastructure/system.rs` |
 | CLI Router | clap command parsing, dispatch, subcommand routing | `todo-engine/src/interfaces/cli/mod.rs` |

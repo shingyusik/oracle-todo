@@ -47,10 +47,8 @@ The variant determines both the CLI exit code (`cli_exit_code`) and the HTTP sta
 Production code does not `panic!`/`unwrap` on expected error paths — failures become
 `TodoError` values. The few `.expect()` sites that remain are **documented invariants** that
 genuinely cannot fail (e.g. serializing a `TodoItem` to JSON, month arithmetic that is always
-in range) and the required-timestamp expectations in the legacy migrator
-(`migrate_legacy.rs`'s `.expect("created_at is required")` / `.expect("updated_at is required")`).
-These are preserved verbatim across refactors; do not introduce new `.expect()` on paths that
-can realistically fail.
+in range). These are preserved verbatim across refactors; do not introduce new `.expect()` on
+paths that can realistically fail.
 
 See [logging.md](logging.md) for how errors are recorded operationally, and
 [../operations/cli-reference.md](../operations/cli-reference.md) /

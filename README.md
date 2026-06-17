@@ -392,7 +392,6 @@ Run smoke tests only against a copied data home:
 ```bash
 tmp_home="$(mktemp -d)"
 cp ~/.todo-engine/todo.sqlite "$tmp_home/todo.sqlite"
-cargo run -p todo-engine -- --home "$tmp_home" migrate-legacy-db
 cargo run -p todo-engine -- --home "$tmp_home" pending
 cargo run -p todo-engine -- --home "$tmp_home" today
 ```

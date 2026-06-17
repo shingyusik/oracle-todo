@@ -24,7 +24,7 @@ Keep source files focused — roughly **under ~400 lines**. When a file outgrows
 into a directory module whose submodules each own one responsibility, rather than letting one
 file accumulate unrelated concerns. The refactored tree is the worked example: `service.rs`
 became `application/service/{creation,transitions,update,materialization,queries}.rs`;
-`sqlite.rs` became `infrastructure/sqlite/{schema,mapping,repo,migrate_legacy}.rs`; `cli.rs`
+`sqlite.rs` became `infrastructure/sqlite/{schema,mapping,repo}.rs`; `cli.rs`
 and `api.rs` were split the same way. See [../architecture/layers.md](../architecture/layers.md).
 
 ## Visibility: prefer `pub(super)` over `pub`

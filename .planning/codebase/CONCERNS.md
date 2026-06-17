@@ -166,12 +166,6 @@
 - Risk: Duplicate task generation in production with concurrent users.
 - Priority: High.
 
-**Migration and schema versioning:**
-- What's not tested: The `migrate-legacy-db` command and schema upgrade paths are not tested end-to-end. Tests may not cover corrupted or partial migrations.
-- Files: `todo-engine/src/infrastructure/sqlite/migrate_legacy.rs`, `todo-engine/src/infrastructure/sqlite/schema.rs`
-- Risk: Silent data corruption or loss during upgrades from older schema versions.
-- Priority: High.
-
 **Serialization round-trip integrity:**
 - What's not tested: JSON serialization of items and events is not tested for round-trip fidelity (serialize → deserialize → serialize should yield identical JSON). Floating-point or special value edge cases may be missed.
 - Files: `todo-engine/src/infrastructure/sqlite/mapping.rs`, tests

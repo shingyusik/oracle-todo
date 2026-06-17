@@ -295,52 +295,6 @@ fn init_uses_todo_engine_home_environment() {
 
     assert!(home.db_path().exists());
 }
-
-#[test]
-fn migrate_legacy_db_normalizes_existing_sqlite_rows() {
-    let home = TestHome::new();
-
-    // Init
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
-        .assert()
-        .success();
-
-    // Propose a task
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "task",
-            "propose",
-            "Legacy row",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    let task: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    let task_id = task["id"].as_str().unwrap();
-
-    // Corrupt the row with legacy formatting
-    let conn = Connection::open(home.db_path()).unwrap();
-    conn.execute(
-        "UPDATE items SET type = ' TASK ', status = ' PROPOSED ', proposed_by = ' AGENT ', … WHERE id = ?1",
-        [task_id],
-    ).unwrap();
-
-    // Run migration
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "migrate-legacy-db"])
-        .assert()
-        .success()
-        .stdout(contains("item_rows=1"));
-}
 ```
 
 **Patterns:**
