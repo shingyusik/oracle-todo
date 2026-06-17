@@ -69,8 +69,7 @@ for the full safe procedure.
 
 Earlier versions stored data under `~/.hermes/oracle-todo/` and used the actor value
 `oracle`. The current version uses `~/.todo-engine/` and the actor value `agent`.
-Existing data is not migrated automatically — the CLI warns when it detects the legacy
-home.
+Existing data is not migrated automatically.
 
 > **Order matters:** run the SQL rewrite (step 2) *before* opening the database with this
 > version of the engine — including `migrate-legacy-db`. The engine no longer accepts the

@@ -17,11 +17,6 @@ pub fn default_home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".todo-engine"))
 }
 
-/// The pre-rebrand data home: `$HOME/.hermes/oracle-todo` (for migration warnings only).
-pub fn legacy_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".hermes/oracle-todo"))
-}
-
 pub fn db_path(home: &Path) -> PathBuf {
     home.join("todo.sqlite")
 }

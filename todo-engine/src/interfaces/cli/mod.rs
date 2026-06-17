@@ -292,17 +292,6 @@ pub fn run() -> Result<()> {
     let command_name = command_label(&cli.command);
     let home = todo_home(cli.home)?;
     init_tracing(&home);
-    if let (Some(default), Some(legacy)) = (
-        crate::infrastructure::paths::default_home(),
-        crate::infrastructure::paths::legacy_home(),
-    ) && home == default
-        && legacy.exists()
-    {
-        tracing::warn!(
-            legacy = %legacy.display(),
-            "legacy data home detected; the default moved to ~/.todo-engine. Move your data and migrate actor values — see docs/operations/migration.md"
-        );
-    }
     tracing::debug!(event = "home_resolved", home = %home.display());
     tracing::info!(
         event = "command_started",
