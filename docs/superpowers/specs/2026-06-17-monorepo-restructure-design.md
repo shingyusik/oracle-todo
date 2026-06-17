@@ -79,6 +79,8 @@ The string `oracle-todo` appears in two distinct roles. Rename the **brand/packa
 | `src/infrastructure/system.rs:171,222` | tracing target `oracle_todo::infrastructure::system` | `todo_engine::infrastructure::system` |
 | `src/interfaces/cli/mod.rs:24` | `#[command(name = "oracle-todo")]` | `#[command(name = "todo-engine")]` |
 | `src/interfaces/cli/mod.rs:28` | `env = "ORACLE_TODO_HOME"` | `env = "TODO_ENGINE_HOME"` |
+| `src/infrastructure/system.rs:18,187,260,270` | log filename `oracle-todo.log.jsonl` | `todo-engine.log.jsonl` |
+| `src/interfaces/api/mod.rs:73` | in-memory db `oracle_todo_api_` | `todo_engine_api_` |
 
 ### KEEP (data-home path — do NOT change)
 
@@ -86,13 +88,6 @@ The string `oracle-todo` appears in two distinct roles. Rename the **brand/packa
 | --- | --- | --- |
 | `src/infrastructure/paths.rs:13` | `.hermes/oracle-todo` | live DB location; renaming orphans existing data |
 | `src/interfaces/cli/mod.rs:27` (doc comment path part) | `~/.hermes/oracle-todo` | same; update only the env-var name in this comment |
-
-### Open Decisions (recommend, confirm at spec review)
-
-| Item | Locations | Options | Recommendation |
-| --- | --- | --- | --- |
-| Log filename | `system.rs:18,187,260,270` `oracle-todo.log.jsonl` | keep / → `todo-engine.log.jsonl` | **Keep** — it lives inside the unchanged data home; renaming changes the on-disk filename for existing installs |
-| In-memory SQLite name | `api/mod.rs:73` `oracle_todo_api_` | keep / → `todo_engine_api_` | **Rename** — internal-only identifier, low risk, keeps branding consistent |
 
 ## Frontend Placeholder
 
@@ -107,7 +102,8 @@ The string `oracle-todo` appears in two distinct roles. Rename the **brand/packa
 - Env-var refs `ORACLE_TODO_*` → `TODO_ENGINE_*`.
 - Binary / command refs `oracle-todo …` → `todo-engine …`; `cargo run -p oracle-todo` → `cargo run -p todo-engine`.
 - Crate/module refs `oracle_todo::…` → `todo_engine::…`.
-- **Keep** the data-home path `~/.hermes/oracle-todo/` everywhere it appears (data-home docs, `data-home.md`, `setup.md`).
+- Log-filename refs `oracle-todo.log.jsonl` → `todo-engine.log.jsonl` (`logging-and-rotation.md`, `logging.md`).
+- **Keep** the data-home path `~/.hermes/oracle-todo/` everywhere it appears (`data-home.md`, `setup.md`).
 - This is a careful split, not a blind find-replace: the same file often contains both a renamed env var and a kept data-home path.
 - Run the `docs-tools` skill to keep documentation in sync.
 
@@ -130,8 +126,8 @@ Run from the repo root after the restructure + rename:
 4. `cargo clippy --all-targets --all-features -- -D warnings` — passes.
 5. `cargo run -p todo-engine -- health` — DB reachable at the unchanged `~/.hermes/oracle-todo/`, schema baseline OK.
 6. `git log --follow todo-engine/src/main.rs` — history follows through the move.
-7. `git grep -nE 'ORACLE_TODO|oracle_todo'` returns **only** intended survivors (the `.hermes/oracle-todo` data-home path, the log filename if kept) — no stray env vars, crate paths, or command names.
-8. `git grep -n '\.hermes/oracle-todo'` still present (data home intentionally unchanged).
+7. `git grep -nE 'ORACLE_TODO|oracle_todo'` (underscore/upper forms) returns **zero** hits — all env vars, crate paths, module/tracing targets, and the in-memory DB name are renamed.
+8. `git grep -n 'oracle-todo'` (hyphen form) returns **only** the data-home path survivors (`paths.rs` `.hermes/oracle-todo` + its CLI doc comment); nothing else.
 9. No stale `src/…` path references in current-state docs.
 
 ## Risks / Notes
@@ -139,5 +135,6 @@ Run from the repo root after the restructure + rename:
 - **Two roles of `oracle-todo`:** the rename must distinguish env/brand (rename) from data-home path (keep). The grep checks in success criteria guard this.
 - **Test fixtures:** e2e/integration tests assert env-var names, the clap command name, and log output targets — they move under `todo-engine/tests/` and need value updates in lockstep.
 - **Env-var break:** consumers exporting `ORACLE_TODO_*` must switch to `TODO_ENGINE_*`. No backward-compat alias is provided (call out in docs / migration notes).
+- **Orphaned rotated logs:** existing installs keep old `oracle-todo.log.jsonl(.1-3)` in `logs/`; new runs write `todo-engine.log.jsonl`. Cosmetic — logs are disposable, no migration needed.
 - **`.cargo/` config:** local-only and gitignored; not part of this change.
 - **CI / editor config:** any committed path- or name-pinned config would need updating — none committed today; verify before merge.
