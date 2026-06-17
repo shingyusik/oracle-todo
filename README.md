@@ -23,10 +23,8 @@ Policy-enforced personal ToDo engine for Oracle/Hermes workflows.
 
 ## Current status
 
-This repo is the active Rust engine workspace.
+This repo is a monorepo: the Rust engine lives in `todo-engine/`, with a reserved `frontend/` package slot.
 
-- Workspace: `/Users/singyusig/Desktop/02_Coding/oracle-todo-rust-refactor`
-- Branch: `refactor/rust-sqlite`
 - Data home default: `~/.hermes/oracle-todo/`
 - Operating guardrails: `docs/operations/verification-and-smoke.md`, `docs/operations/data-home.md`
 
