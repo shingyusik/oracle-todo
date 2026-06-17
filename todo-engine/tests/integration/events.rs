@@ -1,5 +1,5 @@
-use oracle_todo::application::service::{CreateArea, ProposeProject, TodoService};
-use oracle_todo::domain::Actor;
+use todo_engine::application::service::{CreateArea, ProposeProject, TodoService};
+use todo_engine::domain::Actor;
 
 #[test]
 fn every_mutation_records_event() {

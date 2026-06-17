@@ -1,6 +1,6 @@
-use oracle_todo::application::error::TodoError;
-use oracle_todo::application::service::{CreateArea, ProposeProject, ProposeTask, TodoService};
-use oracle_todo::domain::{Actor, ItemStatus, ItemType, terminal_status};
+use todo_engine::application::error::TodoError;
+use todo_engine::application::service::{CreateArea, ProposeProject, ProposeTask, TodoService};
+use todo_engine::domain::{Actor, ItemStatus, ItemType, terminal_status};
 
 #[test]
 fn area_titles_resolve_in_service() {
@@ -123,7 +123,7 @@ fn update_item_changes_core_fields_and_records_event() {
     let updated = service
         .update_item(
             &item.id,
-            oracle_todo::application::service::UpdateItem {
+            todo_engine::application::service::UpdateItem {
                 title: Some("새 제목".to_string()),
                 description: Some("설명".to_string()),
                 due: Some("2026-05-31".to_string()),
@@ -152,7 +152,7 @@ fn update_rejects_terminal_items_and_invalid_materialization_policy() {
     let error = service
         .update_item(
             &item.id,
-            oracle_todo::application::service::UpdateItem {
+            todo_engine::application::service::UpdateItem {
                 title: Some("수정".to_string()),
                 ..Default::default()
             },
@@ -168,7 +168,7 @@ fn update_rejects_terminal_items_and_invalid_materialization_policy() {
     let error = service
         .update_item(
             &item.id,
-            oracle_todo::application::service::UpdateItem {
+            todo_engine::application::service::UpdateItem {
                 materialization_policy: Some("many".to_string()),
                 ..Default::default()
             },
@@ -188,7 +188,7 @@ fn list_items_status_filter_can_show_terminal_items() {
     service.archive(&item.id, None).unwrap();
 
     let archived = service
-        .list_items(oracle_todo::application::ports::ListFilter {
+        .list_items(todo_engine::application::ports::ListFilter {
             status: Some(ItemStatus::Archived),
             ..Default::default()
         })
@@ -244,7 +244,7 @@ fn relationships_must_reference_expected_item_types() {
     let error = service
         .update_item(
             &task.id,
-            oracle_todo::application::service::UpdateItem {
+            todo_engine::application::service::UpdateItem {
                 routine_id: Some(project.id.clone()),
                 ..Default::default()
             },

@@ -168,7 +168,7 @@ impl RotatingJsonlState {
                 "event": "log_rotated",
                 "backup_count": self.max_files,
             },
-            "target": "oracle_todo::infrastructure::system",
+            "target": "todo_engine::infrastructure::system",
         });
         let mut line = serde_json::to_vec(&record)?;
         line.push(b'\n');
@@ -219,7 +219,7 @@ fn timestamp() -> String {
 
 fn log_write_fallback_warning(path: &Path, error: &io::Error) -> String {
     format!(
-        "WARN oracle_todo::infrastructure::system: failed to write log file path=\"{}\" error=\"{}\"",
+        "WARN todo_engine::infrastructure::system: failed to write log file path=\"{}\" error=\"{}\"",
         path.display(),
         error
     )

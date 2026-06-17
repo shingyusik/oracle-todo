@@ -19,7 +19,7 @@ fn init_creates_sqlite_database() {
 }
 
 #[test]
-fn init_uses_oracle_todo_home_environment() {
+fn init_uses_todo_engine_home_environment() {
     let home = TestHome::new();
 
     Command::cargo_bin("oracle-todo")

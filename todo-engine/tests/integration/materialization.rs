@@ -1,9 +1,9 @@
-use oracle_todo::application::error::TodoError;
-use oracle_todo::application::service::{ProposeRoutine, ProposeTask, TodoService};
-use oracle_todo::domain::{Actor, ItemStatus, ItemType, RecurrenceError, occurrences};
+use todo_engine::application::error::TodoError;
+use todo_engine::application::service::{ProposeRoutine, ProposeTask, TodoService};
+use todo_engine::domain::{Actor, ItemStatus, ItemType, RecurrenceError, occurrences};
 use time::macros::date;
 
-fn occurrence_keys(items: &[oracle_todo::domain::TodoItem]) -> Vec<String> {
+fn occurrence_keys(items: &[todo_engine::domain::TodoItem]) -> Vec<String> {
     items
         .iter()
         .map(|item| item.occurrence_key.clone().unwrap())

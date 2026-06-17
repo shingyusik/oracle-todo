@@ -1,4 +1,4 @@
-use oracle_todo::application::error::TodoError;
+use todo_engine::application::error::TodoError;
 
 #[test]
 fn cli_exit_codes_map_by_variant() {

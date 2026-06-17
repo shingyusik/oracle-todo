@@ -1,4 +1,4 @@
-use oracle_todo::domain::{RecurrenceError, occurrences};
+use todo_engine::domain::{RecurrenceError, occurrences};
 use time::Weekday;
 use time::macros::date;
 

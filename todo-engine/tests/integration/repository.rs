@@ -1,8 +1,8 @@
-use oracle_todo::application::ports::{EventRepository, ListFilter, TodoRepository, TodoStore};
-use oracle_todo::application::service::TodoService;
-use oracle_todo::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
-use oracle_todo::infrastructure::sqlite::SqliteTodoRepository;
-use oracle_todo::infrastructure::sqlite::{connect, init_schema, user_version};
+use todo_engine::application::ports::{EventRepository, ListFilter, TodoRepository, TodoStore};
+use todo_engine::application::service::TodoService;
+use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
+use todo_engine::infrastructure::sqlite::SqliteTodoRepository;
+use todo_engine::infrastructure::sqlite::{connect, init_schema, user_version};
 use time::{OffsetDateTime, macros::datetime};
 
 #[test]

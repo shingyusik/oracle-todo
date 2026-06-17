@@ -1,4 +1,4 @@
-use oracle_todo::domain::{ItemStatus, hidden_by_default_status, terminal_status};
+use todo_engine::domain::{ItemStatus, hidden_by_default_status, terminal_status};
 
 const ALL: [ItemStatus; 11] = [
     ItemStatus::Proposed,

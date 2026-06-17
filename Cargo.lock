@@ -681,30 +681,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "oracle-todo"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "axum",
- "clap",
- "http",
- "http-body-util",
- "predicates",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "time",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1071,6 +1047,30 @@ checksum = "71e552d1249bf61ac2a52db88179fd0673def1e1ad8243a00d9ec9ed71fee3dd"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "todo-engine"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "axum",
+ "clap",
+ "http",
+ "http-body-util",
+ "predicates",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

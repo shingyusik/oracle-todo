@@ -70,7 +70,7 @@ fn api_db_path(
 )> {
     if path == Path::new(":memory:") {
         let uri = format!(
-            "file:oracle_todo_api_{}?mode=memory&cache=shared",
+            "file:todo_engine_api_{}?mode=memory&cache=shared",
             uuid::Uuid::new_v4().simple()
         );
         let keeper = connect(&uri)?;
