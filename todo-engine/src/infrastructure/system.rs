@@ -279,10 +279,10 @@ mod tests {
     #[test]
     fn log_write_fallback_warning_includes_path_and_error() {
         let error = io::Error::new(io::ErrorKind::PermissionDenied, "permission denied");
-        let warning = log_write_fallback_warning(Path::new("/tmp/oracle/log.jsonl"), &error);
+        let warning = log_write_fallback_warning(Path::new("/tmp/te/log.jsonl"), &error);
 
         assert!(warning.contains("failed to write log file"));
-        assert!(warning.contains("path=\"/tmp/oracle/log.jsonl\""));
+        assert!(warning.contains("path=\"/tmp/te/log.jsonl\""));
         assert!(warning.contains("error=\"permission denied\""));
     }
 }

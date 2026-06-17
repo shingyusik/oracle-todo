@@ -2,7 +2,7 @@
 name = "todo-engine"
 version = "0.2.0"
 edition = "2024"
-description = "Policy-enforced Oracle ToDo engine"
+description = "Policy-enforced personal ToDo engine"
 
 [dependencies]
 anyhow = "1.0"

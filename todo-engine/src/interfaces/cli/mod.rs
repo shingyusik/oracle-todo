@@ -22,9 +22,9 @@ use crate::infrastructure::system::{init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
 #[command(name = "todo-engine")]
-#[command(about = "Policy-enforced Oracle ToDo engine")]
+#[command(about = "Policy-enforced personal ToDo engine")]
 struct Cli {
-    /// Data home. Defaults to TODO_ENGINE_HOME or ~/.hermes/oracle-todo.
+    /// Data home. Defaults to TODO_ENGINE_HOME or ~/.todo-engine.
     #[arg(long, env = "TODO_ENGINE_HOME")]
     home: Option<PathBuf>,
 
@@ -292,6 +292,17 @@ pub fn run() -> Result<()> {
     let command_name = command_label(&cli.command);
     let home = todo_home(cli.home)?;
     init_tracing(&home);
+    if let (Some(default), Some(legacy)) = (
+        crate::infrastructure::paths::default_home(),
+        crate::infrastructure::paths::legacy_home(),
+    ) && home == default
+        && legacy.exists()
+    {
+        tracing::warn!(
+            legacy = %legacy.display(),
+            "legacy data home detected; the default moved to ~/.todo-engine. Move your data and migrate actor values — see docs/operations/migration.md"
+        );
+    }
     tracing::debug!(event = "home_resolved", home = %home.display());
     tracing::info!(
         event = "command_started",

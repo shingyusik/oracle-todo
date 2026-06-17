@@ -9,8 +9,17 @@ pub fn todo_home(explicit_home: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(home) = std::env::var_os("TODO_ENGINE_HOME") {
         return Ok(PathBuf::from(home));
     }
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".hermes/oracle-todo"))
+    default_home().ok_or_else(|| anyhow!("HOME is not set"))
+}
+
+/// The default data home: `$HOME/.todo-engine`.
+pub fn default_home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".todo-engine"))
+}
+
+/// The pre-rebrand data home: `$HOME/.hermes/oracle-todo` (for migration warnings only).
+pub fn legacy_home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".hermes/oracle-todo"))
 }
 
 pub fn db_path(home: &Path) -> PathBuf {
