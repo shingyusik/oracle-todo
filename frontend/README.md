@@ -1,6 +1,21 @@
 # frontend
 
-Reserved package for the future web UI of the todo-engine monorepo.
+Next.js workbench frontend for `todo-engine`.
 
-Stack is undecided and will be chosen in a later effort. No build tooling
-lives here yet.
+## Commands
+
+```bash
+npm install
+npm run dev
+npm run test
+npm run typecheck
+npm run build
+```
+
+## Architecture
+
+- `src/app`: thin route entries.
+- `src/design`: tokens, copy, and layout constants.
+- `src/domain`: pure policy and navigation rules.
+- `src/features`: workbench model, controller hooks, and UI.
+- `tests`: architecture, domain, and presentation tests.
