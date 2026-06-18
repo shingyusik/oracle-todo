@@ -14,6 +14,7 @@ type SubSidebarProps = {
   activeLeafTabId: LeafTabId;
   plannerExpanded: boolean;
   onSelectTab: (tabId: WorkbenchTabId) => void;
+  ariaLabel: string;
 };
 
 export function SubSidebar({
@@ -22,9 +23,10 @@ export function SubSidebar({
   activeLeafTabId,
   plannerExpanded,
   onSelectTab,
+  ariaLabel,
 }: SubSidebarProps) {
   return (
-    <nav className="sub-sidebar" aria-label="Workspace sections">
+    <nav className="sub-sidebar" aria-label={ariaLabel}>
       {workspaceTabs.map((tab) => {
         const isPlanner = tab.id === "planner";
         const isActive =

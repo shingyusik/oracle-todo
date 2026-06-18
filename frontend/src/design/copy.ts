@@ -1,6 +1,11 @@
 export const workbenchCopy = {
   brandName: "Todo Engine",
   logoLabel: "Logo",
+  navigation: {
+    shellLabel: "Workbench navigation",
+    mainSidebarLabel: "Primary sections",
+    subSidebarLabel: "Workspace sections",
+  },
   disclosureLabel: "Show nested navigation",
   panelOverviewLabel: (title: string) => `${title} overview`,
   summaryCards: {

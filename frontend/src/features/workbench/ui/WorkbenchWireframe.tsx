@@ -15,13 +15,14 @@ type WorkbenchWireframeProps = {
 export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
   return (
     <div className="workbench-shell">
-      <aside className="workbench-nav" aria-label="Workbench navigation">
+      <aside className="workbench-nav" aria-label={workbenchCopy.navigation.shellLabel}>
         <div className="workbench-logo">{workbenchCopy.logoLabel}</div>
         <div className="workbench-nav-grid">
           <MainSidebar
             tabs={workbenchNavigation.mainTabs}
             activeTabId={controller.selection.mainTabId}
             onSelectTab={controller.selectTab}
+            ariaLabel={workbenchCopy.navigation.mainSidebarLabel}
           />
           <div className="workbench-rail" aria-hidden="true">
             <ChevronDown className="workbench-rail-icon" />
@@ -32,6 +33,7 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
             activeLeafTabId={controller.selection.leafTabId}
             plannerExpanded={controller.selection.plannerExpanded}
             onSelectTab={controller.selectTab}
+            ariaLabel={workbenchCopy.navigation.subSidebarLabel}
           />
         </div>
       </aside>
