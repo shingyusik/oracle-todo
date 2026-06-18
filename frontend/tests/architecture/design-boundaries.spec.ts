@@ -1,0 +1,46 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+import { workbenchCopy } from "@/design/copy";
+import { workbenchLayout } from "@/design/layout";
+import { designTokens } from "@/design/tokens";
+
+async function collectSourceFiles(relativeDir: string): Promise<string[]> {
+  const absoluteDir = path.join(process.cwd(), relativeDir);
+  const entries = await fs.readdir(absoluteDir, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const relativePath = path.join(relativeDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectSourceFiles(relativePath)));
+    } else if (/\.(ts|tsx)$/.test(entry.name)) {
+      files.push(relativePath);
+    }
+  }
+
+  return files;
+}
+
+describe("design system boundaries", () => {
+  it("exposes non-empty tokens, copy, and layout constants", () => {
+    expect(designTokens.colors.aloe).toBe("#c1fbd4");
+    expect(workbenchCopy.brandName).toBe("Todo Engine");
+    expect(workbenchLayout.mainSidebarWidthPx).toBe(112);
+  });
+
+  it("keeps raw hex colors out of feature components", async () => {
+    const files = await collectSourceFiles("src/features");
+    const violations: string[] = [];
+
+    for (const file of files) {
+      const source = await fs.readFile(path.join(process.cwd(), file), "utf8");
+      if (/#[0-9a-fA-F]{3,8}\b/.test(source)) {
+        violations.push(file);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+});
