@@ -6,6 +6,10 @@ import { workbenchCopy } from "@/design/copy";
 import { workbenchLayout } from "@/design/layout";
 import { designTokens } from "@/design/tokens";
 
+async function readSource(relativePath: string): Promise<string> {
+  return fs.readFile(path.join(process.cwd(), relativePath), "utf8");
+}
+
 async function collectSourceFiles(relativeDir: string): Promise<string[]> {
   const absoluteDir = path.join(process.cwd(), relativeDir);
   const entries = await fs.readdir(absoluteDir, { withFileTypes: true });
@@ -42,5 +46,38 @@ describe("design system boundaries", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it("keeps CSS layout variables aligned with typed layout constants", async () => {
+    const source = await readSource("src/styles/globals.css");
+    const totalSidebarWidth =
+      workbenchLayout.mainSidebarWidthPx +
+      workbenchLayout.separatorRailWidthPx +
+      workbenchLayout.subSidebarWidthPx;
+
+    expect(source).toContain(
+      `--workbench-main-sidebar-width: ${workbenchLayout.mainSidebarWidthPx}px;`,
+    );
+    expect(source).toContain(
+      `--workbench-separator-rail-width: ${workbenchLayout.separatorRailWidthPx}px;`,
+    );
+    expect(source).toContain(
+      `--workbench-sub-sidebar-width: ${workbenchLayout.subSidebarWidthPx}px;`,
+    );
+    expect(source).toContain(
+      `--workbench-total-sidebar-width: ${totalSidebarWidth}px;`,
+    );
+    expect(source).toContain(
+      `@media (max-width: ${workbenchLayout.mobileBreakpointPx - 1}px)`,
+    );
+    expect(source).toContain(
+      "grid-template-columns: var(--workbench-total-sidebar-width) minmax(0, 1fr);",
+    );
+    expect(source).toContain(
+      "grid-template-columns: var(--workbench-main-sidebar-width) var(--workbench-separator-rail-width) var(--workbench-sub-sidebar-width);",
+    );
+    expect(source).toContain(
+      "grid-auto-columns: minmax(var(--workbench-main-sidebar-width), 1fr);",
+    );
   });
 });

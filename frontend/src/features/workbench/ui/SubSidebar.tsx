@@ -42,7 +42,7 @@ export function SubSidebar({
             >
               {tab.label}
             </button>
-            {isPlanner ? (
+            {isPlanner && plannerExpanded ? (
               <div className="planner-tab-list" data-expanded={plannerExpanded}>
                 {plannerTabs.map((plannerTab) => (
                   <button

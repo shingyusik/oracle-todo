@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 describe("WorkbenchPageClient", () => {
-  it("renders the main and sub sidebar navigation", () => {
+  it("renders workspace sub navigation for the workspace context", async () => {
+    const user = userEvent.setup();
     render(<WorkbenchPageClient />);
 
     expect(
@@ -18,16 +19,49 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByRole("button", { name: "Workspace" }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Areas" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
     expect(screen.getByRole("button", { name: "Areas" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Planner" }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Yearly" })).toBeNull();
+  });
+
+  it("shows an empty sub sidebar for main tabs without child sections", async () => {
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    expect(screen.queryByRole("button", { name: "Areas" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+
+    expect(screen.getByRole("heading", { name: "ToDo" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Areas" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Planner" })).toBeNull();
+  });
+
+  it("keeps planner children hidden until planner is selected", async () => {
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    expect(screen.getByRole("button", { name: "Planner" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Yearly" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+
+    expect(screen.getByRole("button", { name: "Yearly" })).toBeInTheDocument();
   });
 
   it("changes the main panel when a tab is clicked", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);
 
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Projects" }));
 
     expect(
@@ -40,6 +74,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);
 
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Planner" }));
     expect(
       screen.getByRole("heading", { name: "Yearly" }),

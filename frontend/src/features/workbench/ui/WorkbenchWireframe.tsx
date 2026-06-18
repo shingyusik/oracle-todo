@@ -13,6 +13,8 @@ type WorkbenchWireframeProps = {
 };
 
 export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
+  const showWorkspaceTabs = controller.selection.mainTabId === "workspace";
+
   return (
     <div className="workbench-shell">
       <aside className="workbench-nav" aria-label={workbenchCopy.navigation.shellLabel}>
@@ -28,8 +30,8 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
             <ChevronDown className="workbench-rail-icon" />
           </div>
           <SubSidebar
-            workspaceTabs={workbenchNavigation.workspaceTabs}
-            plannerTabs={workbenchNavigation.plannerTabs}
+            workspaceTabs={showWorkspaceTabs ? workbenchNavigation.workspaceTabs : []}
+            plannerTabs={showWorkspaceTabs ? workbenchNavigation.plannerTabs : []}
             activeLeafTabId={controller.selection.leafTabId}
             plannerExpanded={controller.selection.plannerExpanded}
             onSelectTab={controller.selectTab}
