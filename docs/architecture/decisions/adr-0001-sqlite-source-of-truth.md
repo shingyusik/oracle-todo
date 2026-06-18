@@ -29,4 +29,4 @@ store. The CLI and API are both *views* over it:
   must run against a *copy* of the data home, never the live `todo.sqlite`
   (see [../../operations/data-home.md](../../operations/data-home.md)).
 - Schema changes must be additive so existing databases keep working
-  (see [../../operations/migration.md](../../operations/migration.md)).
+  (see [../data-model.md](../data-model.md#schema-initialization-additive)).

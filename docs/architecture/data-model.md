@@ -90,3 +90,24 @@ The `before`/`after` snapshots are produced by serializing the `TodoItem`, so th
 is a complete change history. See `README.md`'s "Event log" table for the column reference,
 and [decisions/adr-0002-service-layer-policy.md](decisions/adr-0002-service-layer-policy.md)
 for why the event is written atomically with the item.
+
+## Schema initialization (additive)
+
+`init_schema` runs whenever the engine opens the database (via `init`, the CLI service
+factory, and the API service factory). It is **additive and idempotent** — verified against
+`todo-engine/src/infrastructure/sqlite/schema.rs`:
+
+- `CREATE TABLE IF NOT EXISTS items (...)` and `CREATE TABLE IF NOT EXISTS events (...)` —
+  never drops or rewrites existing tables.
+- `ensure_item_columns` reads `PRAGMA table_info(items)` and `ALTER TABLE items ADD COLUMN`
+  for any column from the canonical set that an older database is missing (e.g. `note`,
+  `materialization_policy`, `occurrence_key`, `last_materialized_at`). Existing columns are
+  left untouched.
+- Indexes are created with `IF NOT EXISTS`, including a unique index on
+  `(routine_id, occurrence_key)` (where both are non-null) that guards routine occurrence
+  de-duplication.
+- `PRAGMA user_version = 1` marks the schema baseline (reported by `health`).
+- The whole thing runs in a transaction; on error it rolls back.
+
+An older `items` table is upgraded in place on the next open — no separate "create then
+migrate" step is needed. Columns are only added, never dropped or rewritten.

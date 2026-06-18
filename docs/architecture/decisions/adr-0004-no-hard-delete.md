@@ -35,4 +35,4 @@ transitions stamp `archived_at` and write an audit event like any other mutation
 - Storage grows monotonically in v1; pruning, if ever needed, is a deliberate future
   decision with its own ADR, not an ad-hoc delete.
 - Schema initialization is additive for the same reason — existing rows and columns are
-  never dropped (see [../../operations/migration.md](../../operations/migration.md)).
+  never dropped (see [../data-model.md](../data-model.md#schema-initialization-additive)).
