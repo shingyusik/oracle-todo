@@ -2,6 +2,17 @@ export const workbenchCopy = {
   brandName: "Todo Engine",
   logoLabel: "Logo",
   disclosureLabel: "Show nested navigation",
+  panelOverviewLabel: (title: string) => `${title} overview`,
+  summaryCards: {
+    focus: {
+      label: "Focus",
+    },
+    status: {
+      label: "Status",
+      title: "Ready",
+      summary: "This static shell is prepared for service-backed data.",
+    },
+  },
   panels: {
     dashboard: {
       title: "Dashboard",

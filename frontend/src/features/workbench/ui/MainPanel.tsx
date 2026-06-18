@@ -14,17 +14,19 @@ export function MainPanel({ panel }: MainPanelProps) {
         <h1 id="panel-title">{panel.title}</h1>
         <p className="panel-summary">{panel.summary}</p>
       </section>
-      <section className="panel-grid" aria-label={`${panel.title} overview`}>
-        <article className="summary-card">
-          <span className="summary-card-label">Focus</span>
-          <strong>{panel.title}</strong>
-          <p>{panel.summary}</p>
-        </article>
-        <article className="summary-card summary-card-accent">
-          <span className="summary-card-label">Status</span>
-          <strong>Ready</strong>
-          <p>This static shell is prepared for service-backed data.</p>
-        </article>
+      <section className="panel-grid" aria-label={panel.overviewLabel}>
+        {panel.summaryCards.map((summaryCard, index) => (
+          <article
+            className={
+              index === 0 ? "summary-card" : "summary-card summary-card-accent"
+            }
+            key={summaryCard.label}
+          >
+            <span className="summary-card-label">{summaryCard.label}</span>
+            <strong>{summaryCard.title}</strong>
+            <p>{summaryCard.summary}</p>
+          </article>
+        ))}
       </section>
     </main>
   );
