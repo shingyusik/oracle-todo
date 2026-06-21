@@ -19,7 +19,21 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
   return (
     <div className="workbench-shell">
       <aside className="workbench-nav" aria-label={workbenchCopy.navigation.shellLabel}>
-        <div className="workbench-logo">{workbenchCopy.logoLabel}</div>
+        <div className="workbench-logo">
+          <img
+            className="workbench-logo-image"
+            src="/merovingian-mark.png"
+            alt={workbenchCopy.logoAlt}
+          />
+          <div className="workbench-logo-copy">
+            <span className="workbench-logo-wordmark">
+              {workbenchCopy.logoWordmark}
+            </span>
+            <span className="workbench-logo-tagline">
+              {workbenchCopy.logoTagline}
+            </span>
+          </div>
+        </div>
         <div className="workbench-nav-grid">
           <MainSidebar
             tabs={workbenchNavigation.mainTabs}

@@ -8,6 +8,18 @@ import { describe, expect, it } from "vitest";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 describe("WorkbenchPageClient", () => {
+  it("renders the Merovingian logo image", () => {
+    render(<WorkbenchPageClient />);
+
+    expect(
+      screen.getByRole("img", { name: "Merovingian" }),
+    ).toHaveAttribute("src", "/merovingian-mark.png");
+    expect(screen.getByText("MEROVINGIAN")).toBeInTheDocument();
+    expect(
+      screen.getByText("CONTROL. ANALYZE. OPTIMIZE."),
+    ).toBeInTheDocument();
+  });
+
   it("renders workspace and planner as todo sub navigation items", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);

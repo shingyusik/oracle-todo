@@ -6,6 +6,9 @@ import "@/styles/globals.css";
 export const metadata: Metadata = {
   title: "Todo Engine",
   description: "Local-first todo workbench",
+  icons: {
+    icon: "/merovingian-mark.png",
+  },
 };
 
 type RootLayoutProps = {

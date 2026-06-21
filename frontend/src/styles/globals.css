@@ -69,10 +69,41 @@ button {
 }
 
 .workbench-logo {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   border-bottom: 1px solid var(--color-hairline-light);
-  font-weight: 550;
+  padding: 0 12px;
+}
+
+.workbench-logo-image {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.workbench-logo-copy {
+  min-width: 0;
+}
+
+.workbench-logo-wordmark,
+.workbench-logo-tagline {
+  display: block;
+  white-space: nowrap;
+}
+
+.workbench-logo-wordmark {
+  font-size: 16px;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.workbench-logo-tagline {
+  margin-top: 4px;
+  font-size: 7px;
+  line-height: 1;
+  letter-spacing: 0;
 }
 
 .workbench-nav-grid {

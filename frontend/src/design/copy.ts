@@ -1,6 +1,9 @@
 export const workbenchCopy = {
   brandName: "Todo Engine",
   logoLabel: "Logo",
+  logoAlt: "Merovingian",
+  logoWordmark: "MEROVINGIAN",
+  logoTagline: "CONTROL. ANALYZE. OPTIMIZE.",
   navigation: {
     shellLabel: "Workbench navigation",
     mainSidebarLabel: "Primary sections",

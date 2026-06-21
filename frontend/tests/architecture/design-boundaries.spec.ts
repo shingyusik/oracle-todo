@@ -84,4 +84,10 @@ describe("design system boundaries", () => {
       "grid-auto-columns: minmax(var(--workbench-main-sidebar-width), 1fr);",
     );
   });
+
+  it("uses the Merovingian asset as the favicon", async () => {
+    const source = await readSource("src/app/layout.tsx");
+
+    expect(source).toContain('icon: "/merovingian-mark.png"');
+  });
 });
