@@ -1,49 +1,81 @@
+import { ChevronDown } from "lucide-react";
 import React from "react";
 
 import type {
   LeafTabId,
   NavigationTab,
   PlannerTabId,
+  TodoChildTabId,
   WorkbenchTabId,
   WorkspaceChildTabId,
 } from "@/domain/workbench/navigation";
 
 type SubSidebarProps = {
+  id: string;
+  todoTabs: readonly NavigationTab<TodoChildTabId>[];
   workspaceTabs: readonly NavigationTab<WorkspaceChildTabId>[];
   plannerTabs: readonly NavigationTab<PlannerTabId>[];
   activeLeafTabId: LeafTabId;
+  workspaceExpanded: boolean;
   plannerExpanded: boolean;
   onSelectTab: (tabId: WorkbenchTabId) => void;
   ariaLabel: string;
 };
 
 export function SubSidebar({
+  id,
+  todoTabs,
   workspaceTabs,
   plannerTabs,
   activeLeafTabId,
+  workspaceExpanded,
   plannerExpanded,
   onSelectTab,
   ariaLabel,
 }: SubSidebarProps) {
   return (
-    <nav className="sub-sidebar" aria-label={ariaLabel}>
-      {workspaceTabs.map((tab) => {
+    <nav id={id} className="sub-sidebar" aria-label={ariaLabel}>
+      {todoTabs.map((tab) => {
+        const isWorkspace = tab.id === "workspace";
         const isPlanner = tab.id === "planner";
         const isActive =
-          tab.id === activeLeafTabId || (isPlanner && plannerExpanded);
+          (isWorkspace && workspaceExpanded) || (isPlanner && plannerExpanded);
 
         return (
           <div key={tab.id} className="sub-sidebar-group">
             <button
               type="button"
-              className="sub-sidebar-tab"
+              className="sub-sidebar-tab sub-sidebar-tab-parent"
+              aria-expanded={isActive}
               data-active={isActive}
+              data-expanded={isActive}
               onClick={() => onSelectTab(tab.id)}
             >
-              {tab.label}
+              <span>{tab.label}</span>
+              <ChevronDown
+                className="sub-sidebar-chevron"
+                aria-hidden="true"
+              />
             </button>
+
+            {isWorkspace && workspaceExpanded ? (
+              <div className="nested-tab-list" data-expanded={workspaceExpanded}>
+                {workspaceTabs.map((workspaceTab) => (
+                  <button
+                    key={workspaceTab.id}
+                    type="button"
+                    className="sub-sidebar-tab sub-sidebar-tab-nested"
+                    data-active={workspaceTab.id === activeLeafTabId}
+                    onClick={() => onSelectTab(workspaceTab.id)}
+                  >
+                    {workspaceTab.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
             {isPlanner && plannerExpanded ? (
-              <div className="planner-tab-list" data-expanded={plannerExpanded}>
+              <div className="nested-tab-list" data-expanded={plannerExpanded}>
                 {plannerTabs.map((plannerTab) => (
                   <button
                     key={plannerTab.id}

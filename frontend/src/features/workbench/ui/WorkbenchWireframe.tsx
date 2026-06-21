@@ -1,4 +1,3 @@
-import { ChevronDown } from "lucide-react";
 import React from "react";
 
 import { workbenchCopy } from "@/design/copy";
@@ -13,7 +12,9 @@ type WorkbenchWireframeProps = {
 };
 
 export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
-  const showWorkspaceTabs = controller.selection.mainTabId === "workspace";
+  const showTodoTabs = controller.selection.mainTabId === "todo";
+  const showWorkspaceTabs = showTodoTabs && controller.selection.workspaceExpanded;
+  const showPlannerTabs = showTodoTabs && controller.selection.plannerExpanded;
 
   return (
     <div className="workbench-shell">
@@ -26,13 +27,13 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
             onSelectTab={controller.selectTab}
             ariaLabel={workbenchCopy.navigation.mainSidebarLabel}
           />
-          <div className="workbench-rail" aria-hidden="true">
-            <ChevronDown className="workbench-rail-icon" />
-          </div>
           <SubSidebar
+            id="workspace-sections"
+            todoTabs={showTodoTabs ? workbenchNavigation.todoTabs : []}
             workspaceTabs={showWorkspaceTabs ? workbenchNavigation.workspaceTabs : []}
-            plannerTabs={showWorkspaceTabs ? workbenchNavigation.plannerTabs : []}
+            plannerTabs={showPlannerTabs ? workbenchNavigation.plannerTabs : []}
             activeLeafTabId={controller.selection.leafTabId}
+            workspaceExpanded={controller.selection.workspaceExpanded}
             plannerExpanded={controller.selection.plannerExpanded}
             onSelectTab={controller.selectTab}
             ariaLabel={workbenchCopy.navigation.subSidebarLabel}

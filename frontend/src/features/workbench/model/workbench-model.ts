@@ -24,6 +24,7 @@ export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
   selectTab: (tabId: WorkbenchTabId) => void;
+  toggleWorkspaceExpansion: () => void;
 };
 
 export function createPanelModel(leafTabId: LeafTabId): WorkbenchPanelModel {

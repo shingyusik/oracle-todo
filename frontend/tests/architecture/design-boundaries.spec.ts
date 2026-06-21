@@ -74,8 +74,12 @@ describe("design system boundaries", () => {
       "grid-template-columns: var(--workbench-total-sidebar-width) minmax(0, 1fr);",
     );
     expect(source).toContain(
+      "grid-template-columns: var(--workbench-main-sidebar-width) var(--workbench-sub-sidebar-width);",
+    );
+    expect(source).not.toContain(
       "grid-template-columns: var(--workbench-main-sidebar-width) var(--workbench-separator-rail-width) var(--workbench-sub-sidebar-width);",
     );
+    expect(workbenchLayout.separatorRailWidthPx).toBe(0);
     expect(source).toContain(
       "grid-auto-columns: minmax(var(--workbench-main-sidebar-width), 1fr);",
     );

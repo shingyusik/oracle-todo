@@ -7,6 +7,8 @@ import {
   type WorkbenchTabId,
   resolveInitialSelection,
   resolveSelection,
+  toggleTodoGroupExpansion,
+  toggleWorkspaceExpansion,
 } from "@/domain/workbench/navigation";
 import {
   type WorkbenchController,
@@ -25,6 +27,17 @@ export function useWorkbenchController(): WorkbenchController {
   return {
     selection,
     panel,
-    selectTab: (tabId: WorkbenchTabId) => setSelection(resolveSelection(tabId)),
+    selectTab: (tabId: WorkbenchTabId) =>
+      setSelection((currentSelection) => {
+        if (tabId === "workspace" || tabId === "planner") {
+          return toggleTodoGroupExpansion(currentSelection, tabId);
+        }
+
+        return resolveSelection(tabId, currentSelection);
+      }),
+    toggleWorkspaceExpansion: () =>
+      setSelection((currentSelection) =>
+        toggleWorkspaceExpansion(currentSelection),
+      ),
   };
 }
