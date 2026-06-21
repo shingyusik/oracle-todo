@@ -1,9 +1,17 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
 
 describe("useWorkbenchController", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("starts on the dashboard panel", () => {
     const { result } = renderHook(() => useWorkbenchController());
 

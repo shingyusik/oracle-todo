@@ -41,6 +41,7 @@ Each split layer (`service/`, `sqlite/`, `cli/`, `api/`) is a directory module; 
 cargo build                                              # build (workspace root)
 cargo run -p todo-engine -- init                         # create the SQLite DB at the data home
 cargo run -p todo-engine -- health                       # DB reachability + schema baseline
+cargo run -p todo-engine -- api                          # serve the HTTP API on 127.0.0.1:3002
 cargo run -p todo-engine -- pending                      # proposed / approved / active work
 cargo run -p todo-engine -- today                        # today's materialized task view
 cargo test                                               # all tests (workspace root)
@@ -48,7 +49,7 @@ cargo fmt --check                                        # format gate
 cargo clippy --all-targets --all-features -- -D warnings # lint gate (warnings are errors)
 ```
 
-CLI subcommands: `init`, `health`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`.
+CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`.
 
 ## Data Home & Configuration
 

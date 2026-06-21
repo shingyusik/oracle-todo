@@ -8,6 +8,9 @@ Item-returning endpoints respond with the full `TodoItem` as JSON. Errors return
 `{"detail": "<message>"}` with a status derived from `TodoError`
 (see [../conventions/error-handling.md](../conventions/error-handling.md)).
 
+Run the local server with `cargo run -p todo-engine -- api`; it binds to
+`127.0.0.1:3002` by default. Use `--host` and `--port` to override that address.
+
 ## Routes
 
 | Method | Path | Handler | Body / query |

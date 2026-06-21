@@ -4,6 +4,7 @@ mod markdown;
 mod output;
 mod views;
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -36,6 +37,8 @@ enum Command {
     Init,
     /// Check database reachability and schema baseline.
     Health,
+    /// Serve the HTTP API.
+    Api(ApiArgs),
     /// List items.
     List(ListArgs),
     /// Create and maintain areas.
@@ -149,6 +152,14 @@ struct ListArgs {
     query: Option<String>,
     #[arg(long)]
     include_archived: bool,
+}
+
+#[derive(Debug, Args)]
+struct ApiArgs {
+    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST))]
+    host: IpAddr,
+    #[arg(long, default_value_t = 3002)]
+    port: u16,
 }
 
 #[derive(Debug, Args)]
@@ -298,6 +309,7 @@ pub fn run() -> Result<()> {
     let result = match cli.command {
         Command::Init => init(&home),
         Command::Health => health(&home),
+        Command::Api(args) => api(&home, args),
         Command::List(args) => views::list(&home, args),
         Command::Area {
             command: AreaCommand::Create(args),
@@ -356,6 +368,7 @@ fn command_label(command: &Command) -> &'static str {
     match command {
         Command::Init => "init",
         Command::Health => "health",
+        Command::Api(_) => "api",
         Command::List(_) => "list",
         Command::Area {
             command: AreaCommand::Create(_),
@@ -414,6 +427,24 @@ fn health(home: &Path) -> Result<()> {
     let user_version = user_version(&conn)?;
     println!("ok db={} user_version={}", db_path.display(), user_version);
     Ok(())
+}
+
+fn api(home: &Path, args: ApiArgs) -> Result<()> {
+    std::fs::create_dir_all(home)?;
+    let db_path = db_path(home);
+    tracing::debug!(event = "database_path_resolved", path = %db_path.display());
+    let conn = connect_path(&db_path)?;
+    init_schema(&conn)?;
+    drop(conn);
+
+    let addr = SocketAddr::new(args.host, args.port);
+    let router = crate::interfaces::api::router(&db_path)?;
+    println!("serving http://{addr}");
+    tokio::runtime::Runtime::new()?.block_on(async {
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, router).await?;
+        anyhow::Ok(())
+    })
 }
 
 pub(super) fn service(home: &Path) -> Result<TodoService> {

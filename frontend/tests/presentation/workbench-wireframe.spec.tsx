@@ -1,13 +1,17 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 describe("WorkbenchPageClient", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the Merovingian logo image", () => {
     render(<WorkbenchPageClient />);
 
@@ -160,6 +164,38 @@ describe("WorkbenchPageClient", () => {
       screen.getByRole("heading", { name: "Projects" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Outcome pipeline")).toBeInTheDocument();
+  });
+
+  it("loads selected workspace items from todo-engine into a table", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          id: "area-1",
+          type: "area",
+          title: "Health",
+          status: "active",
+          review_cycle: "weekly",
+          standard: "Move daily",
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/todo-engine/items?type=area"),
+    );
+    expect(screen.getByRole("table", { name: "Areas items" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "active" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "weekly" })).toBeInTheDocument();
   });
 
   it("selects yearly when planner is clicked and daily when daily is clicked", async () => {

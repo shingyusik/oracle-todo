@@ -14,6 +14,29 @@ export type WorkbenchPanelModel = {
   summaryCards: WorkbenchSummaryCardModel[];
 };
 
+export type WorkspaceItemModel = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  area_id?: string | null;
+  project_id?: string | null;
+  routine_id?: string | null;
+  review_cycle?: string | null;
+  standard?: string | null;
+  outcome?: string | null;
+  recurrence_rule?: string | null;
+  due?: string | null;
+  scheduled?: string | null;
+  priority?: number | null;
+  updated_at?: string | null;
+};
+
+export type WorkspaceItemsModel = {
+  status: "idle" | "loading" | "loaded" | "error";
+  items: WorkspaceItemModel[];
+};
+
 export type WorkbenchSummaryCardModel = {
   label: string;
   title: string;
@@ -23,6 +46,7 @@ export type WorkbenchSummaryCardModel = {
 export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
+  workspaceItems: WorkspaceItemsModel;
   selectTab: (tabId: WorkbenchTabId) => void;
   toggleWorkspaceExpansion: () => void;
 };

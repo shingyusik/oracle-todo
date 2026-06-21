@@ -95,6 +95,13 @@ describe("design system boundaries", () => {
     expect(source).toContain('icon: "/merovingian-mark.png"');
   });
 
+  it("proxies todo-engine API requests to the Rust server port", async () => {
+    const source = await readSource("next.config.mjs");
+
+    expect(source).toContain("/todo-engine/:path*");
+    expect(source).toContain("http://127.0.0.1:3002/:path*");
+  });
+
   it("keeps todo parent hierarchy bars visible beside the dark sidebar", async () => {
     const source = await readSource("src/styles/globals.css");
 

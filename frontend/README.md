@@ -12,6 +12,16 @@ npm run typecheck
 npm run build
 ```
 
+Run the Rust API beside the frontend:
+
+```bash
+cargo run -p todo-engine -- api
+npm run dev -- --port 3001
+```
+
+The frontend calls `/todo-engine/*`; `next.config.mjs` proxies those requests to
+`http://127.0.0.1:3002/*`.
+
 ## Architecture
 
 - `src/app`: thin route entries.

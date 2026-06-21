@@ -17,6 +17,7 @@ single JSON line on stdout; view commands print rendered Markdown.
 | --- | --- | --- |
 | `init` | Create the data home and the SQLite schema. | `initialized <db>` |
 | `health` | Check DB reachability and schema baseline. | `ok db=<db> user_version=<n>` |
+| `api` | Serve the HTTP API. Flags: `--host` (default `127.0.0.1`), `--port` (default `3002`). | `serving http://<host>:<port>` |
 
 ## Creation commands
 

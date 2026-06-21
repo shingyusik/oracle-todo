@@ -33,6 +33,16 @@ fn init_uses_todo_engine_home_environment() {
 }
 
 #[test]
+fn api_command_exposes_default_port() {
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["api", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("3002"));
+}
+
+#[test]
 fn task_propose_prints_json_item() {
     let home = TestHome::new();
 

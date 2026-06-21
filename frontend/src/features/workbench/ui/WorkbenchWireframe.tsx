@@ -54,7 +54,10 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
           />
         </div>
       </aside>
-      <MainPanel panel={controller.panel} />
+      <MainPanel
+        panel={controller.panel}
+        workspaceItems={controller.workspaceItems}
+      />
     </div>
   );
 }
