@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { CalendarDays, ChevronDown, Folder } from "lucide-react";
 import React from "react";
 
 import type {
@@ -38,6 +38,7 @@ export function SubSidebar({
       {todoTabs.map((tab) => {
         const isWorkspace = tab.id === "workspace";
         const isPlanner = tab.id === "planner";
+        const ParentIcon = isWorkspace ? Folder : CalendarDays;
         const isActive =
           (isWorkspace && workspaceExpanded) || (isPlanner && plannerExpanded);
 
@@ -51,7 +52,13 @@ export function SubSidebar({
               data-expanded={isActive}
               onClick={() => onSelectTab(tab.id)}
             >
-              <span>{tab.label}</span>
+              <span className="sub-sidebar-parent-label">
+                <ParentIcon
+                  className="sub-sidebar-parent-icon"
+                  aria-hidden="true"
+                />
+                {tab.label}
+              </span>
               <ChevronDown
                 className="sub-sidebar-chevron"
                 aria-hidden="true"

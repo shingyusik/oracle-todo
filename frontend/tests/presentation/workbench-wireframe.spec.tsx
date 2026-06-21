@@ -75,6 +75,19 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Yearly" })).toBeNull();
   });
 
+  it("marks todo group tabs as parent navigation", async () => {
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+
+    const workspaceTab = screen.getByRole("button", { name: "Workspace" });
+    expect(workspaceTab).toContainElement(
+      workspaceTab.querySelector(".sub-sidebar-parent-icon"),
+    );
+    expect(workspaceTab).toHaveClass("sub-sidebar-tab-parent");
+  });
+
   it("opens planner children from the planner sibling tab", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);
