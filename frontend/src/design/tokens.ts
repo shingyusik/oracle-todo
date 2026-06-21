@@ -7,6 +7,7 @@ export const designTokens = {
     ink: "#000000",
     onDark: "#ffffff",
     aloe: "#c1fbd4",
+    aloeStrong: "#3fae6a",
     pistachio: "#d4f9e0",
     hairlineLight: "#e4e4e7",
     hairlineDark: "#1e2c31",

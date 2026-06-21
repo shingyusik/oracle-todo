@@ -30,6 +30,7 @@ async function collectSourceFiles(relativeDir: string): Promise<string[]> {
 describe("design system boundaries", () => {
   it("exposes non-empty tokens, copy, and layout constants", () => {
     expect(designTokens.colors.aloe).toBe("#c1fbd4");
+    expect(designTokens.colors.aloeStrong).toBe("#3fae6a");
     expect(workbenchCopy.brandName).toBe("Todo Engine");
     expect(workbenchLayout.mainSidebarWidthPx).toBe(112);
   });
@@ -64,6 +65,8 @@ describe("design system boundaries", () => {
     expect(source).toContain(
       `--workbench-sub-sidebar-width: ${workbenchLayout.subSidebarWidthPx}px;`,
     );
+    expect(workbenchLayout.subSidebarWidthPx).toBeGreaterThanOrEqual(148);
+    expect(workbenchLayout.subSidebarWidthPx).toBeLessThanOrEqual(152);
     expect(source).toContain(
       `--workbench-total-sidebar-width: ${totalSidebarWidth}px;`,
     );
@@ -83,11 +86,27 @@ describe("design system boundaries", () => {
     expect(source).toContain(
       "grid-auto-columns: minmax(var(--workbench-main-sidebar-width), 1fr);",
     );
+    expect(source).toContain(".sub-sidebar-tab {\n  color: var(--color-ink);\n  font-size: 14px;");
   });
 
   it("uses the Merovingian asset as the favicon", async () => {
     const source = await readSource("src/app/layout.tsx");
 
     expect(source).toContain('icon: "/merovingian-mark.png"');
+  });
+
+  it("keeps todo parent hierarchy bars visible beside the dark sidebar", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toContain("--color-aloe-strong: #3fae6a;");
+    expect(source).toContain(
+      "box-shadow: inset 3px 0 0 var(--color-aloe-strong);",
+    );
+    expect(source).not.toContain(
+      "box-shadow: inset 3px 0 0 var(--color-shade-50);",
+    );
+    expect(source).not.toContain(
+      ".sub-sidebar-tab-parent[data-active=\"true\"] {\n  background: var(--color-pistachio);\n  box-shadow: inset 3px 0 0 var(--color-ink);",
+    );
   });
 });

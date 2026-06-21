@@ -6,6 +6,7 @@
   --color-ink: #000000;
   --color-on-dark: #ffffff;
   --color-aloe: #c1fbd4;
+  --color-aloe-strong: #3fae6a;
   --color-pistachio: #d4f9e0;
   --color-hairline-light: #e4e4e7;
   --color-hairline-dark: #1e2c31;
@@ -22,8 +23,8 @@
   --radius-pill: 9999px;
   --workbench-main-sidebar-width: 112px;
   --workbench-separator-rail-width: 0px;
-  --workbench-sub-sidebar-width: 132px;
-  --workbench-total-sidebar-width: 244px;
+  --workbench-sub-sidebar-width: 148px;
+  --workbench-total-sidebar-width: 260px;
 }
 
 * {
@@ -148,14 +149,15 @@ button {
 
 .sub-sidebar-tab {
   color: var(--color-ink);
+  font-size: 14px;
 }
 
 .sub-sidebar-tab-parent {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 0 12px;
+  gap: 6px;
+  padding: 0 8px;
   background: var(--color-canvas-cream);
   box-shadow: inset 3px 0 0 transparent;
   font-weight: 560;
@@ -163,21 +165,23 @@ button {
 
 .sub-sidebar-parent-label {
   display: inline-flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .sub-sidebar-parent-icon {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
   flex: 0 0 auto;
   color: var(--color-shade-60);
 }
 
 .sub-sidebar-chevron {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   flex: 0 0 auto;
   transition: transform 120ms ease;
 }
@@ -193,7 +197,7 @@ button {
 
 .sub-sidebar-tab-parent[data-active="true"] {
   background: var(--color-pistachio);
-  box-shadow: inset 3px 0 0 var(--color-ink);
+  box-shadow: inset 3px 0 0 var(--color-aloe-strong);
 }
 
 .sub-sidebar-tab-parent[data-active="true"] .sub-sidebar-parent-icon {
