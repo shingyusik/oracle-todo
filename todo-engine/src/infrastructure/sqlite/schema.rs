@@ -80,6 +80,11 @@ fn init_schema_inner(conn: &Connection) -> TodoResult<()> {
             ON items(routine_id, occurrence_key)
             WHERE routine_id IS NOT NULL AND occurrence_key IS NOT NULL;
 
+        CREATE INDEX IF NOT EXISTS idx_items_parent_id ON items(parent_id);
+        CREATE INDEX IF NOT EXISTS idx_items_scheduled ON items(scheduled);
+        CREATE INDEX IF NOT EXISTS idx_items_type_horizon_scheduled
+            ON items(type, horizon, scheduled);
+
         CREATE INDEX IF NOT EXISTS idx_events_at ON events(at);
         CREATE INDEX IF NOT EXISTS idx_events_object_id ON events(object_id);
 
