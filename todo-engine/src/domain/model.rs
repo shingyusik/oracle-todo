@@ -14,6 +14,7 @@ pub enum ItemType {
     Event,
     Review,
     ArchiveItem,
+    Goal,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -150,6 +151,7 @@ impl ItemType {
             ItemType::Event => "event",
             ItemType::Review => "review",
             ItemType::ArchiveItem => "archive_item",
+            ItemType::Goal => "goal",
         }
     }
 }
@@ -166,6 +168,7 @@ impl FromStr for ItemType {
             "event" => Ok(ItemType::Event),
             "review" => Ok(ItemType::Review),
             "archive_item" => Ok(ItemType::ArchiveItem),
+            "goal" => Ok(ItemType::Goal),
             _ => Err(format!("unknown item type: {value}")),
         }
     }

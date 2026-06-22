@@ -53,6 +53,7 @@ fn item_type_round_trips_every_variant() {
         ItemType::Event,
         ItemType::Review,
         ItemType::ArchiveItem,
+        ItemType::Goal,
     ] {
         assert_eq!(t.as_str().parse::<ItemType>().unwrap(), t);
     }
