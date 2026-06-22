@@ -14,7 +14,7 @@ This milestone grafts a hierarchical period-goal planning layer onto the existin
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Domain + Schema Foundation** - `Goal` item type, the period-anchor normalization helper (LYNCHPIN), and additive indexes — the one-way decisions (completed 2026-06-22)
-- [ ] **Phase 2: Service Policy — Goal Create, Link & Validation** - All planning mutations and the list read primitive routed through `TodoService` with strict validation
+- [x] **Phase 2: Service Policy — Goal Create, Link & Validation** - All planning mutations and the list read primitive routed through `TodoService` with strict validation (completed 2026-06-22)
 - [ ] **Phase 3: Date View** - Tasks grouped by `scheduled` date for a day or range, with explicit buckets for undated work
 - [ ] **Phase 4: Period View (goal-tree rollup)** - The goal at a `(horizon, period)` plus its descendant goal+task subtree, structure only
 - [ ] **Phase 5: CLI + API Surface (parity-locked)** - Goal/link/view commands and mirrored HTTP endpoints over the same service methods
@@ -60,7 +60,7 @@ Plans:
 - [x] 02-01-PLAN.md — Additive plumbing: `UpdateItem.parent_id` + `ListFilter` horizon/parent/scheduled fields & `apply_list_filter` predicates (LINK-01, VIEW-01) — Wave 1
 - [x] 02-02-PLAN.md — Goal create + anchor validation + nesting (cycle/inversion) + duplicate policy via `propose_goal`/`service/goal.rs` (GOAL-01/03/04/05, CORE-01) — Wave 1
 - [x] 02-03-PLAN.md — Task→goal linking tests + persistent VIEW-01 list-filter parity test (LINK-01/02, VIEW-01) — Wave 2
-- [ ] 02-04-PLAN.md — SC5 docs deliverable: Goal item-type + ItemStatus-for-goals (no-cascade-in-v1) in README + ADR-0006 — Wave 2
+- [x] 02-04-PLAN.md — SC5 docs deliverable: Goal item-type + ItemStatus-for-goals (no-cascade-in-v1) in README + ADR-0006 — Wave 2
 
 ### Phase 3: Date View
 
@@ -125,7 +125,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
-| 2. Service Policy — Goal Create, Link & Validation | 3/4 | In Progress|  |
+| 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
 | 3. Date View | 0/TBD | Not started | - |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |

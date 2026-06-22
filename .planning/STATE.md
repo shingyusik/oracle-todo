@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-link-task-view-tests-PLAN.md
-last_updated: "2026-06-22T10:31:00.000Z"
-last_activity: 2026-06-22 -- Completed Phase 02 Plan 03
+stopped_at: Completed 02-04-itemstatus-goals-docs-PLAN.md
+last_updated: "2026-06-22T10:37:51.000Z"
+last_activity: 2026-06-22 -- Completed Phase 02 Plan 04 (Phase 02 complete)
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
-  percent: 40
+  completed_plans: 7
+  percent: 47
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 
 ## Current Position
 
-Phase: 02 (service-policy-goal-create-link-validation) — EXECUTING
-Plan: 4 of 4
-Status: Executing Phase 02
-Last activity: 2026-06-22 -- Completed Phase 02 Plan 03
+Phase: 02 (service-policy-goal-create-link-validation) — COMPLETE
+Plan: 4 of 4 (all complete)
+Status: Phase 02 complete — ready to transition to Phase 03
+Last activity: 2026-06-22 -- Completed Phase 02 Plan 04 (Phase 02 complete)
 
-Progress: [████░░░░░░] 40%
+Progress: [████▌░░░░░] 47%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [████░░░░░░] 40%
 | Phase 02 P01 | 4 | 2 tasks | 6 files |
 | Phase 02 P02 | 18 | 2 tasks | 5 files |
 | Phase 02 P03 | 3 | 2 tasks | 3 files |
+| Phase 02 P04 | 1 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,7 @@ Recent decisions affecting current work:
 - [Phase 2 Plan 02]: Goal-create policy lives in service/goal.rs; propose_goal validates anchor -> nesting -> duplicate before TodoItem::new, then stores via store_item_and_event (action "propose_goal", CORE-01). Goal anchor does NOT inherit the task "today" sentinel — explicit ISO date required (GOAL-03). Parent rule uses strict Horizon::is_coarser_than (equal rejected, no Ord). Cycle/depth DoS guard = visited HashSet + named MAX_GOAL_DEPTH=64 ancestor walk (defensive vs legacy data; new goal has no id so self-cycle impossible at create). Duplicate identity = (horizon, canonical scheduled, parent_id) triple, top-level parent_id=None. tests/integration/goal_policy.rs proves SC1/SC2/SC3a/SC3b and is the file 02-03 extends.
 - [Phase 2 Plan 01]: CLI/API arg wiring for UpdateItem.parent_id and the new ListFilter fields (horizon/parent_id/scheduled) is deferred to later Phase 2 plans; struct-literal call sites set the new fields to None so this plan stays pure additive plumbing. UpdateItem.parent_id is validated as a non-terminal Goal via the existing ensure_relation helper on the audited update_item path (no bespoke bypass, CORE-01). repo.rs is untouched — list_items already delegates to apply_list_filter, so the new predicates cover the persistent path for free.
 - [Phase 2 Plan 03]: Test-only plan (production code already shipped in Wave 1). SC4 link tests appended to tests/integration/goal_policy.rs prove task->goal linking via the audited update_item path (parent_id + scheduled set, update_item event emitted) plus non-Goal and terminal-parent Policy rejections via ensure_relation. New tests/integration/goal_view.rs proves VIEW-01 against the PERSISTENT SQLite store (TodoService::persistent over a temp todo.sqlite), not just in-memory, confirming repo.rs apply_list_filter parity for horizon/parent_id/(horizon,scheduled). goal_view uses tempfile::tempdir() directly (repository.rs idiom) since tests/support::TestHome is only registered in e2e.rs.
+- [Phase 2 Plan 04]: SC5 docs-only deliverable. Goal ItemStatus semantics LOCKED in README (### Goal item-type subsection + ## Status lifecycle note) and ADR-0006: a Goal reuses the existing ItemStatus lifecycle unchanged (NO new states — health states on_track/at_risk deferred to v2 as derived signals); a goal is active for its period (activate has no Goal-specific precondition in v1); completed/dropped/cancelled are user-driven terminal and do NOT cascade to child goals or linked tasks in v1 (only routine->generated-tasks cascades). This resolves the Phase 2 documentation blocker so the Phase 4 rollup cannot re-litigate goal status meaning.
 
 ### Pending Todos
 
@@ -88,7 +90,7 @@ None yet.
 [Issues that affect future work]
 
 - [Phase 4]: Period-view goal-tree rollup is flagged for deeper performance research — recursive rollup collides with the pre-existing in-memory full-table-scan debt (CONCERNS.md). Decide single-load-in-memory vs. SQL-pushdown at Phase 4 planning; consider `--research-phase`.
-- [Phase 2]: `ItemStatus` meaning for goals must be documented (recommend: goal is `Active` for its period; `Completed`/`Dropped` are user-driven, no cascade to children in v1).
+- [RESOLVED Phase 2 Plan 04]: `ItemStatus` meaning for goals documented in README (### Goal subsection + ## Status lifecycle note) and ADR-0006 — goal is `active` for its period; `completed`/`dropped`/`cancelled` are user-driven terminal; no cascade to child goals or linked tasks in v1.
 
 ## Deferred Items
 
@@ -100,6 +102,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T10:31:00.000Z
-Stopped at: Completed 02-03-link-task-view-tests-PLAN.md
+Last session: 2026-06-22T10:37:51.000Z
+Stopped at: Completed 02-04-itemstatus-goals-docs-PLAN.md (Phase 02 complete)
 Resume file: None
