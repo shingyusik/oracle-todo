@@ -15,6 +15,7 @@ pub struct UpdateItem {
     pub materialization_policy: Option<String>,
     pub area: Option<String>,
     pub project_id: Option<String>,
+    pub parent_id: Option<String>,
     pub routine_id: Option<String>,
     pub due: Option<String>,
     pub scheduled: Option<String>,
@@ -78,6 +79,9 @@ impl TodoService {
         if let Some(project_id) = request.project_id {
             item.project_id =
                 self.ensure_relation(Some(project_id), ItemType::Project, "Project")?;
+        }
+        if let Some(parent_id) = request.parent_id {
+            item.parent_id = self.ensure_relation(Some(parent_id), ItemType::Goal, "Goal parent")?;
         }
         if let Some(routine_id) = request.routine_id {
             item.routine_id =

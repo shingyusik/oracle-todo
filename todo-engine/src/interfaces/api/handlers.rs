@@ -206,6 +206,7 @@ pub(super) async fn update_item(
                 materialization_policy: body.materialization_policy,
                 area: body.area,
                 project_id: body.project_id,
+                parent_id: None,
                 routine_id: body.routine_id,
                 due: body.due,
                 scheduled: body.scheduled,
