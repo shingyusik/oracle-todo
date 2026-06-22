@@ -71,29 +71,29 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GOAL-01 | TBD | Pending |
-| GOAL-02 | TBD | Pending |
-| GOAL-03 | TBD | Pending |
-| GOAL-04 | TBD | Pending |
-| GOAL-05 | TBD | Pending |
-| LINK-01 | TBD | Pending |
-| LINK-02 | TBD | Pending |
-| VIEW-01 | TBD | Pending |
-| VIEW-02 | TBD | Pending |
-| VIEW-03 | TBD | Pending |
-| VIEW-04 | TBD | Pending |
-| VIEW-05 | TBD | Pending |
-| SURF-01 | TBD | Pending |
-| SURF-02 | TBD | Pending |
-| CORE-01 | TBD | Pending |
-| CORE-02 | TBD | Pending |
-| CORE-03 | TBD | Pending |
+| GOAL-01 | Phase 2 | Pending |
+| GOAL-02 | Phase 1 | Pending |
+| GOAL-03 | Phase 2 | Pending |
+| GOAL-04 | Phase 2 | Pending |
+| GOAL-05 | Phase 2 | Pending |
+| LINK-01 | Phase 2 | Pending |
+| LINK-02 | Phase 2 | Pending |
+| VIEW-01 | Phase 2 | Pending |
+| VIEW-02 | Phase 3 | Pending |
+| VIEW-03 | Phase 4 | Pending |
+| VIEW-04 | Phase 4 | Pending |
+| VIEW-05 | Phase 3 | Pending |
+| SURF-01 | Phase 5 | Pending |
+| SURF-02 | Phase 5 | Pending |
+| CORE-01 | Phase 2 | Pending |
+| CORE-02 | Phase 1 | Pending |
+| CORE-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0 (roadmapper to fill)
-- Unmapped: 17 ⚠️
+- Mapped to phases: 17 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-22*
-*Last updated: 2026-06-22 after initial definition*
+*Last updated: 2026-06-22 after roadmap creation (traceability mapped)*
