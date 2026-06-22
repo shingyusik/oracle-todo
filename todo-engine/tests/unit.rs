@@ -6,6 +6,8 @@ mod clock;
 mod error_mapping;
 #[path = "unit/filter.rs"]
 mod filter;
+#[path = "unit/horizon.rs"]
+mod horizon;
 #[path = "unit/model.rs"]
 mod model;
 #[path = "unit/recurrence.rs"]
