@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-02-goal-itemtype-PLAN.md
-last_updated: "2026-06-22T09:56:18.856Z"
-last_activity: 2026-06-22 -- Phase 2 planning complete
+stopped_at: Completed 02-01-plumbing-update-listfilter-PLAN.md
+last_updated: "2026-06-22T10:09:38.000Z"
+last_activity: 2026-06-22 -- Completed Phase 02 Plan 01
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 20
+  total_plans: 7
+  completed_plans: 4
+  percent: 27
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-22)
 
 **Core value:** A user can set a big goal for a period (year/month/week), break it top-down into tasks, and see those tasks by date — all through the same policy-enforced engine.
-**Current focus:** Phase 01 — domain-schema-foundation
+**Current focus:** Phase 02 — service-policy-goal-create-link-validation
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-22 -- Phase 2 planning complete
+Phase: 02 (service-policy-goal-create-link-validation) — EXECUTING
+Plan: 2 of 4
+Status: Executing Phase 02
+Last activity: 2026-06-22 -- Completed Phase 02 Plan 01
 
-Progress: [█░░░░░░░░░] 13%
+Progress: [███░░░░░░░] 27%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [█░░░░░░░░░] 13%
 | Phase 01 P01 | 8 | 2 tasks | 4 files |
 | Phase 01 P02 | 6 | 2 tasks | 4 files |
 | Phase 01 P03 | 4 | 2 tasks | 3 files |
+| Phase 02 P01 | 4 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 1 Plan 01]: Week start = ISO Monday; normalization may land in the prior calendar year (2026-01-01 -> 2025-12-29); engine never clamps to Jan 1 and never auto-snaps (strict reject is Phase 2). LOCKED.
 - [Phase 1 Plan 02]: `ItemType::Goal` maps to `"goal"`; the SC3 SQLite round-trip flows through `as_str`/`FromStr` via `mapping.rs` (generic over `ItemType`, no edit needed), NOT serde. Serde `snake_case` independently governs only the JSON `type` field. Zero schema added — Goal reuses the existing `type` column (CORE-02 additive).
 - [Phase ?]: [Phase 1 Plan 03]: Three additive planning indexes (idx_items_parent_id, idx_items_scheduled, composite idx_items_type_horizon_scheduled) added via CREATE INDEX IF NOT EXISTS inside init_schema_inner; no ALTER TABLE, no period_key, user_version stays 1. SC4 test locks the additive-only contract on a populated copy.
+- [Phase 2 Plan 01]: CLI/API arg wiring for UpdateItem.parent_id and the new ListFilter fields (horizon/parent_id/scheduled) is deferred to later Phase 2 plans; struct-literal call sites set the new fields to None so this plan stays pure additive plumbing. UpdateItem.parent_id is validated as a non-terminal Goal via the existing ensure_relation helper on the audited update_item path (no bespoke bypass, CORE-01). repo.rs is untouched — list_items already delegates to apply_list_filter, so the new predicates cover the persistent path for free.
 
 ### Pending Todos
 
@@ -94,6 +96,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T08:54:49.442Z
-Stopped at: Completed 01-02-goal-itemtype-PLAN.md
+Last session: 2026-06-22T10:09:38.000Z
+Stopped at: Completed 02-01-plumbing-update-listfilter-PLAN.md
 Resume file: None
