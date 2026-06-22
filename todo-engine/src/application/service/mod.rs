@@ -9,6 +9,7 @@ use crate::application::ports::{ListFilter, TodoStore};
 use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, terminal_status};
 
 mod creation;
+mod goal;
 mod materialization;
 mod queries;
 mod transitions;
