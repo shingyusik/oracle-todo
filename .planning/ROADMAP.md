@@ -122,7 +122,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Domain + Schema Foundation | 3/3 | Complete   | 2026-06-22 |
+| 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 0/TBD | Not started | - |
 | 3. Date View | 0/TBD | Not started | - |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
