@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 
 - [x] 01-01-PLAN.md — Horizon enum + period-anchor normalization helper (LYNCHPIN) + boundary unit tests (SC1, SC2)
-- [ ] 01-02-PLAN.md — `ItemType::Goal` variant + SQLite round-trip test (SC3)
+- [x] 01-02-PLAN.md — `ItemType::Goal` variant + SQLite round-trip test (SC3)
 - [ ] 01-03-PLAN.md — additive `init_schema()` planning indexes + migration-on-copy test (SC4)
 
 ### Phase 2: Service Policy — Goal Create, Link & Validation
@@ -122,7 +122,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Domain + Schema Foundation | 1/3 | In Progress|  |
+| 1. Domain + Schema Foundation | 2/3 | In Progress|  |
 | 2. Service Policy — Goal Create, Link & Validation | 0/TBD | Not started | - |
 | 3. Date View | 0/TBD | Not started | - |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
