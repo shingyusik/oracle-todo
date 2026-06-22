@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-02-goal-create-validate-nest-PLAN.md
-last_updated: "2026-06-22T11:00:00.000Z"
-last_activity: 2026-06-22 -- Completed Phase 02 Plan 02
+stopped_at: Completed 02-03-link-task-view-tests-PLAN.md
+last_updated: "2026-06-22T10:31:00.000Z"
+last_activity: 2026-06-22 -- Completed Phase 02 Plan 03
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 7
-  completed_plans: 5
-  percent: 33
+  completed_plans: 6
+  percent: 40
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 ## Current Position
 
 Phase: 02 (service-policy-goal-create-link-validation) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Executing Phase 02
-Last activity: 2026-06-22 -- Completed Phase 02 Plan 02
+Last activity: 2026-06-22 -- Completed Phase 02 Plan 03
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 01 P03 | 4 | 2 tasks | 3 files |
 | Phase 02 P01 | 4 | 2 tasks | 6 files |
 | Phase 02 P02 | 18 | 2 tasks | 5 files |
+| Phase 02 P03 | 3 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 1 Plan 03]: Three additive planning indexes (idx_items_parent_id, idx_items_scheduled, composite idx_items_type_horizon_scheduled) added via CREATE INDEX IF NOT EXISTS inside init_schema_inner; no ALTER TABLE, no period_key, user_version stays 1. SC4 test locks the additive-only contract on a populated copy.
 - [Phase 2 Plan 02]: Goal-create policy lives in service/goal.rs; propose_goal validates anchor -> nesting -> duplicate before TodoItem::new, then stores via store_item_and_event (action "propose_goal", CORE-01). Goal anchor does NOT inherit the task "today" sentinel — explicit ISO date required (GOAL-03). Parent rule uses strict Horizon::is_coarser_than (equal rejected, no Ord). Cycle/depth DoS guard = visited HashSet + named MAX_GOAL_DEPTH=64 ancestor walk (defensive vs legacy data; new goal has no id so self-cycle impossible at create). Duplicate identity = (horizon, canonical scheduled, parent_id) triple, top-level parent_id=None. tests/integration/goal_policy.rs proves SC1/SC2/SC3a/SC3b and is the file 02-03 extends.
 - [Phase 2 Plan 01]: CLI/API arg wiring for UpdateItem.parent_id and the new ListFilter fields (horizon/parent_id/scheduled) is deferred to later Phase 2 plans; struct-literal call sites set the new fields to None so this plan stays pure additive plumbing. UpdateItem.parent_id is validated as a non-terminal Goal via the existing ensure_relation helper on the audited update_item path (no bespoke bypass, CORE-01). repo.rs is untouched — list_items already delegates to apply_list_filter, so the new predicates cover the persistent path for free.
+- [Phase 2 Plan 03]: Test-only plan (production code already shipped in Wave 1). SC4 link tests appended to tests/integration/goal_policy.rs prove task->goal linking via the audited update_item path (parent_id + scheduled set, update_item event emitted) plus non-Goal and terminal-parent Policy rejections via ensure_relation. New tests/integration/goal_view.rs proves VIEW-01 against the PERSISTENT SQLite store (TodoService::persistent over a temp todo.sqlite), not just in-memory, confirming repo.rs apply_list_filter parity for horizon/parent_id/(horizon,scheduled). goal_view uses tempfile::tempdir() directly (repository.rs idiom) since tests/support::TestHome is only registered in e2e.rs.
 
 ### Pending Todos
 
@@ -98,6 +100,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T11:00:00.000Z
-Stopped at: Completed 02-02-goal-create-validate-nest-PLAN.md
+Last session: 2026-06-22T10:31:00.000Z
+Stopped at: Completed 02-03-link-task-view-tests-PLAN.md
 Resume file: None

@@ -17,12 +17,12 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 
 ### Task Linking (LINK)
 
-- [ ] **LINK-01**: User can link an existing task to a goal via `parent_id`.
-- [ ] **LINK-02**: User can set a task's `scheduled` date, which anchors it in the date view.
+- [x] **LINK-01**: User can link an existing task to a goal via `parent_id`.
+- [x] **LINK-02**: User can set a task's `scheduled` date, which anchors it in the date view.
 
 ### Views (VIEW)
 
-- [ ] **VIEW-01**: User can list goals/tasks filtered by horizon, period, and parent (the read primitive the views compose).
+- [x] **VIEW-01**: User can list goals/tasks filtered by horizon, period, and parent (the read primitive the views compose).
 - [ ] **VIEW-02**: Date view — user can see tasks grouped by `scheduled` date for a single day and for an arbitrary `[from, to]` range; tasks with no `scheduled` date are surfaced in an explicit bucket, not dropped.
 - [ ] **VIEW-03**: Period view — user can see the goal(s) for a given `(horizon, period)` plus their descendant goal+task subtree (structure only; no completion rollup).
 - [ ] **VIEW-04**: Unscheduled-in-goal surfacing — user can see tasks linked under a goal that have no `scheduled` date.
@@ -76,9 +76,9 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 | GOAL-03 | Phase 2 | Complete |
 | GOAL-04 | Phase 2 | Complete |
 | GOAL-05 | Phase 2 | Complete |
-| LINK-01 | Phase 2 | Pending |
-| LINK-02 | Phase 2 | Pending |
-| VIEW-01 | Phase 2 | Pending |
+| LINK-01 | Phase 2 | Complete |
+| LINK-02 | Phase 2 | Complete |
+| VIEW-01 | Phase 2 | Complete |
 | VIEW-02 | Phase 3 | Pending |
 | VIEW-03 | Phase 4 | Pending |
 | VIEW-04 | Phase 4 | Pending |
