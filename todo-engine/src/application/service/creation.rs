@@ -1,6 +1,6 @@
 use super::TodoService;
 use crate::application::error::{TodoError, TodoResult};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoItem};
+use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
 
 pub struct CreateArea {
     pub title: String,
@@ -43,6 +43,15 @@ pub struct ProposeProject {
     pub definition_of_done: Option<String>,
     pub outcome: Option<String>,
     pub due: Option<String>,
+    pub actor: Actor,
+    pub note: Option<String>,
+}
+
+pub struct ProposeGoal {
+    pub title: String,
+    pub horizon: String,
+    pub scheduled: String,
+    pub parent_id: Option<String>,
     pub actor: Actor,
     pub note: Option<String>,
 }
@@ -125,6 +134,31 @@ impl TodoService {
         item.due = request.due;
         item.note = request.note;
         self.store_item_and_event(item.proposed_by, "propose_project", None, item, None)
+    }
+
+    pub fn propose_goal(&mut self, request: ProposeGoal) -> TodoResult<TodoItem> {
+        let horizon = request
+            .horizon
+            .parse::<Horizon>()
+            .map_err(TodoError::Validation)?;
+        // Validate anchor -> nesting -> duplicate before building the item.
+        let canonical = self.validate_goal_anchor(horizon, &request.scheduled)?;
+        self.validate_goal_nesting(request.parent_id.as_deref(), horizon)?;
+        self.ensure_goal_not_duplicate(horizon, &canonical, request.parent_id.as_deref())?;
+
+        let now = self.next_now();
+        let mut item = TodoItem::new(
+            self.next_id("goal"),
+            ItemType::Goal,
+            request.title,
+            request.actor,
+            now,
+        );
+        item.horizon = Some(horizon.as_str().to_string());
+        item.scheduled = Some(canonical);
+        item.parent_id = request.parent_id;
+        item.note = request.note;
+        self.store_item_and_event(item.proposed_by, "propose_goal", None, item, None)
     }
 
     pub fn propose_routine(&mut self, request: ProposeRoutine) -> TodoResult<TodoItem> {

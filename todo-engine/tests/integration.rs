@@ -1,5 +1,7 @@
 #[path = "integration/events.rs"]
 mod events;
+#[path = "integration/goal_policy.rs"]
+mod goal_policy;
 #[path = "integration/goal_roundtrip.rs"]
 mod goal_roundtrip;
 #[path = "integration/materialization.rs"]

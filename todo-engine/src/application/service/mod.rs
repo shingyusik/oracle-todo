@@ -15,7 +15,9 @@ mod queries;
 mod transitions;
 mod update;
 
-pub use creation::{CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask};
+pub use creation::{
+    CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
+};
 pub use update::UpdateItem;
 
 pub struct TodoService {
