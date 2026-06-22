@@ -29,10 +29,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. The week-start convention is locked and documented as ISO Monday next to the helper (recorded as a Key Decision), so no view can later bucket the same period two ways.
   3. A `goal`-typed row round-trips through the SQLite mapping (write then read) without error on the current binary, and the `Horizon` enum exposes the coarser-than ordering the parent rules will use.
   4. `init_schema()` adds the planning indexes (`parent_id`, `scheduled`, `(type, horizon, scheduled)`) on an existing data-home copy with no dropped or rewritten columns and no new `period_key` column.
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — Horizon enum + period-anchor normalization helper (LYNCHPIN) + boundary unit tests (SC1, SC2)
+- [ ] 01-02-PLAN.md — `ItemType::Goal` variant + SQLite round-trip test (SC3)
+- [ ] 01-03-PLAN.md — additive `init_schema()` planning indexes + migration-on-copy test (SC4)
 
 ### Phase 2: Service Policy — Goal Create, Link & Validation
 **Goal**: A user (or agent) can create a period goal, nest goals, and link a dated task to a goal — every path validated and audited through the single `TodoService` mutation path, and the read primitive the views will compose exists.
@@ -99,7 +101,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Domain + Schema Foundation | 0/TBD | Not started | - |
+| 1. Domain + Schema Foundation | 0/3 | Not started | - |
 | 2. Service Policy — Goal Create, Link & Validation | 0/TBD | Not started | - |
 | 3. Date View | 0/TBD | Not started | - |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
