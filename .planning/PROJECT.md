@@ -22,15 +22,16 @@ A user can set a big goal for a period (year/month/week), break it top-down into
 - ✓ CLI surface (`init`, `health`, `list`, item CRUD, status transitions, `pending`, `today`) — existing
 - ✓ axum HTTP API mirroring CLI/service behavior on `127.0.0.1:3002` — existing
 - ✓ Item fields available as planning hooks: `parent_id`, `due`, `scheduled`, `horizon` (reserved, unused) — existing
+- ✓ New `Goal` item type representing a period goal at year / month / week horizon — Phase 2
+- ✓ A goal is anchored to a specific period via `(horizon, scheduled)` (strict canonical anchor, no `today` sentinel) — Phase 2
+- ✓ Goals nest flexibly via `parent_id` (level-skipping allowed; strictly-coarser horizon enforced, cycles rejected) — Phase 2
+- ✓ A task connects to a goal via `parent_id` and carries a `scheduled` date (audited `update_item` path) — Phase 2
+- ✓ Service-layer read primitive: `ListFilter` `horizon` / `parent_id` / `scheduled` predicates over both in-memory and persistent SQLite list paths — Phase 2
 
 ### Active
 
 <!-- This milestone. Hypotheses until shipped and validated. -->
 
-- [ ] New `Goal` item type representing a period goal at year / month / week horizon
-- [ ] A goal is anchored to a specific period via `(horizon, scheduled)` — e.g. month goal = `horizon:month` + `scheduled:2026-06-01`
-- [ ] Goals nest flexibly via `parent_id` (level-skipping allowed; a sub-goal or task may attach at any level)
-- [ ] A task connects to a goal via `parent_id` and carries a `scheduled` date
 - [ ] Date view: list tasks grouped by `scheduled` date for a given day/range
 - [ ] Period views: week / month / year views roll up the goal tree (goals + their decomposed tasks)
 - [ ] All planning mutations route through `TodoService` (validation, state machine, audit event, approval gating reused — no new bypass)
@@ -90,4 +91,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-22 after initialization*
+*Last updated: 2026-06-22 — Phase 2 complete (Service Policy: goal create, link & validation)*
