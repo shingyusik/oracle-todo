@@ -10,7 +10,7 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 ### Goals (GOAL)
 
 - [ ] **GOAL-01**: User can create a period goal at a year / month / week horizon via a new `Goal` item type (reusing the existing status lifecycle, approval gating, and audit events).
-- [ ] **GOAL-02**: A goal is anchored to a specific period via `(horizon, scheduled)`, with `scheduled` normalized to the canonical period start — year = Jan 1, month = 1st of month, week = ISO Monday.
+- [x] **GOAL-02**: A goal is anchored to a specific period via `(horizon, scheduled)`, with `scheduled` normalized to the canonical period start — year = Jan 1, month = 1st of month, week = ISO Monday.
 - [ ] **GOAL-03**: The service validates a goal's `scheduled` anchor (rejects unparseable or non-canonical dates) instead of silently dropping it.
 - [ ] **GOAL-04**: User can nest goals via `parent_id` with level-skipping allowed; the service rejects cycles and inverted nesting (a finer-horizon goal cannot parent a coarser-horizon goal).
 - [ ] **GOAL-05**: The service rejects creating a duplicate goal for the same `(horizon, scheduled, parent_id)`.
@@ -72,7 +72,7 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | GOAL-01 | Phase 2 | Pending |
-| GOAL-02 | Phase 1 | Pending |
+| GOAL-02 | Phase 1 | Complete |
 | GOAL-03 | Phase 2 | Pending |
 | GOAL-04 | Phase 2 | Pending |
 | GOAL-05 | Phase 2 | Pending |
@@ -90,6 +90,7 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 | CORE-03 | Phase 5 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 17 total
 - Mapped to phases: 17 ✓
 - Unmapped: 0

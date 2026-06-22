@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-06-22T08:01:29.331Z"
-last_activity: 2026-06-22 — Roadmap created; 17/17 requirements mapped across 5 phases
+status: executing
+stopped_at: Completed 01-01-horizon-anchor-PLAN.md
+last_updated: "2026-06-22T08:44:22.412Z"
+last_activity: 2026-06-22 -- Phase 01 execution started
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-22)
 
 **Core value:** A user can set a big goal for a period (year/month/week), break it top-down into tasks, and see those tasks by date — all through the same policy-enforced engine.
-**Current focus:** Phase 1 — Domain + Schema Foundation
+**Current focus:** Phase 01 — domain-schema-foundation
 
 ## Current Position
 
-Phase: 1 of 5 (Domain + Schema Foundation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-06-22 — Roadmap created; 17/17 requirements mapped across 5 phases
+Phase: 01 (domain-schema-foundation) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-06-22 -- Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 01 P01 | 8 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,7 @@ Recent decisions affecting current work:
 - [Project]: `Goal` is a new `ItemType` variant (not a separate table) — reuses status lifecycle, approval gating, audit, and the reserved `horizon` field.
 - [Project]: Period identity = `(horizon, scheduled)` over existing columns; schema stays additive (enum variant + indexes only, no `period_key` column).
 - [Project]: Backward/forward binary compatibility is OUT OF SCOPE — always assume the latest binary; no `user_version` gating built.
+- [Phase ?]: [Phase 1 Plan 01]: Week start = ISO Monday; normalization may land in the prior calendar year (2026-01-01 -> 2025-12-29); engine never clamps to Jan 1 and never auto-snaps (strict reject is Phase 2). LOCKED.
 
 ### Pending Todos
 
@@ -88,6 +90,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T08:01:29.320Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-domain-schema-foundation/01-CONTEXT.md
+Last session: 2026-06-22T08:44:22.402Z
+Stopped at: Completed 01-01-horizon-anchor-PLAN.md
+Resume file: None
