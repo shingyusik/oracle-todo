@@ -36,7 +36,7 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 ### Invariants (CORE)
 
 - [ ] **CORE-01**: All planning mutations route through `TodoService` (validation, status state machine, audit event) — no direct repository writes.
-- [ ] **CORE-02**: Schema changes are additive only — `Goal` enum variant plus indexes; no dropped/rewritten columns and no new `period_key` column (period derives from `(horizon, scheduled)`).
+- [x] **CORE-02**: Schema changes are additive only — `Goal` enum variant plus indexes; no dropped/rewritten columns and no new `period_key` column (period derives from `(horizon, scheduled)`).
 - [ ] **CORE-03**: New date/period view logic lives in the application/service layer shared by CLI and API (not in adapter code), so CLI and API stay in parity.
 
 ## v2 Requirements
@@ -86,7 +86,7 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 | SURF-01 | Phase 5 | Pending |
 | SURF-02 | Phase 5 | Pending |
 | CORE-01 | Phase 2 | Pending |
-| CORE-02 | Phase 1 | Pending |
+| CORE-02 | Phase 1 | Complete |
 | CORE-03 | Phase 5 | Pending |
 
 **Coverage:**

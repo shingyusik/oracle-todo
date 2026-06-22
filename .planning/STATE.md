@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: verifying
 stopped_at: Completed 01-02-goal-itemtype-PLAN.md
-last_updated: "2026-06-22T09:00:00.000Z"
-last_activity: 2026-06-22 -- Completed 01-02 (ItemType::Goal + SC3 round-trip)
+last_updated: "2026-06-22T08:55:17.316Z"
+last_activity: "2026-06-22 -- Completed 01-02 (ItemType::Goal + SC3 round-trip)"
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 13
+  completed_plans: 3
+  percent: 20
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 
 Phase: 01 (domain-schema-foundation) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-22 -- Completed 01-02 (ItemType::Goal + SC3 round-trip)
 
 Progress: [█░░░░░░░░░] 13%
@@ -54,6 +54,7 @@ Progress: [█░░░░░░░░░] 13%
 *Updated after each plan completion*
 | Phase 01 P01 | 8 | 2 tasks | 4 files |
 | Phase 01 P02 | 6 | 2 tasks | 4 files |
+| Phase 01 P03 | 4 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,7 @@ Recent decisions affecting current work:
 - [Project]: Backward/forward binary compatibility is OUT OF SCOPE — always assume the latest binary; no `user_version` gating built.
 - [Phase ?]: [Phase 1 Plan 01]: Week start = ISO Monday; normalization may land in the prior calendar year (2026-01-01 -> 2025-12-29); engine never clamps to Jan 1 and never auto-snaps (strict reject is Phase 2). LOCKED.
 - [Phase 1 Plan 02]: `ItemType::Goal` maps to `"goal"`; the SC3 SQLite round-trip flows through `as_str`/`FromStr` via `mapping.rs` (generic over `ItemType`, no edit needed), NOT serde. Serde `snake_case` independently governs only the JSON `type` field. Zero schema added — Goal reuses the existing `type` column (CORE-02 additive).
+- [Phase ?]: [Phase 1 Plan 03]: Three additive planning indexes (idx_items_parent_id, idx_items_scheduled, composite idx_items_type_horizon_scheduled) added via CREATE INDEX IF NOT EXISTS inside init_schema_inner; no ALTER TABLE, no period_key, user_version stays 1. SC4 test locks the additive-only contract on a populated copy.
 
 ### Pending Todos
 
@@ -92,6 +94,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T09:00:00.000Z
+Last session: 2026-06-22T08:54:49.442Z
 Stopped at: Completed 01-02-goal-itemtype-PLAN.md
 Resume file: None
