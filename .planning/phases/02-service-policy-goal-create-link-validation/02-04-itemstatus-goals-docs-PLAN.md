@@ -64,7 +64,7 @@ Output: Updated README and a new ADR recording the goal status semantics + no-ca
     Do NOT invent scope beyond what 02-02 implemented (no rollup, no health states — those are v2).
   </action>
   <verify>
-    <automated>cd "D:/02_Area/oracle-todo" && grep -A40 '^### Goal' README.md | grep -v '^#' | grep -qi 'horizon' && grep -A6 '^## Status lifecycle' README.md | grep -v '^#' | grep -qi 'cascade'</automated>
+    <automated>cd "D:/02_Area/oracle-todo" && grep -A40 '^### Goal' README.md | grep -v '^#' | grep -qi 'horizon' && grep -A20 '^## Status lifecycle' README.md | grep -v '^#' | grep -qi 'cascade'</automated>
     <human-check>Read the new README `### Goal` subsection and the `## Status lifecycle` goal note. Confirm they match the implemented behavior (canonical anchor, strict reject, no `today`, strictly-coarser parent, no cascade in v1) and read consistently with the surrounding item-type subsections.</human-check>
   </verify>
   <acceptance_criteria>

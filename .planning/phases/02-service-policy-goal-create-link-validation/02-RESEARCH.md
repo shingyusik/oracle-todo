@@ -347,21 +347,24 @@ The persistent path delegates to `store.list_items(filter)` (queries.rs:30). `[A
 | A4 | `MAX_GOAL_DEPTH` constant value (suggest 64) | Nesting check | Wrong cap only affects pathological depth; low risk; pick a named constant |
 | A5 | Reuse `Validation` for anchor errors and `Policy` for nesting/duplicate (no new error variant) | Error type | Both map to 2/400 already; if a distinct variant is wanted for messaging, it's additive — low risk |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the persistent `list_items` filter in Rust or in SQL?**
    - What we know: in-memory path reuses `apply_list_filter` (queries.rs:21-29); persistent path delegates to `store.list_items` (queries.rs:30).
    - What's unclear: whether `infrastructure/sqlite/repo.rs::list_items` reuses `apply_list_filter` or builds SQL. Not read in this pass.
    - Recommendation: planner's first task reads `repo.rs::list_items`; add the two/three new filter fields to whichever mechanism it uses, and a persistent integration test for VIEW-01.
+   - **RESOLVED (02-PATTERNS.md):** `repo.rs::list_items` loads all rows then delegates to the shared `apply_list_filter` (repo.rs:39) — it filters in Rust, not SQL. The new `ListFilter` fields work for both the in-memory and persistent backends from a single `ports.rs` edit; `repo.rs` needs no code change (verify-only). Bound-param SQLi note applies only to writes (`save_item_on`), which are untouched.
 
 2. **Typed `link_task` wrapper vs. plain `update_item` with `parent_id`?**
    - What we know: `update_item` is the single audited update path; adding `parent_id` is additive.
    - What's unclear: surface preference for Phase 5.
    - Recommendation: implement `parent_id` on `UpdateItem` now (required regardless); a thin `link_task(task_id, goal_id, scheduled)` that delegates can be added if the planner wants clearer intent — it must NOT bypass `update_item`.
+   - **RESOLVED (plans 02-01/02-03):** chose plain `update_item` + additive `UpdateItem.parent_id` (no bespoke `link_task` wrapper); both the parent link and the `scheduled` set route through the single audited `update_item` path.
 
 3. **Where exactly to record the ItemStatus-for-goals semantics (SC5)?**
    - What we know: STATE.md flags it as a Phase 2 documentation blocker; recommendation is "goal is `Active` for its period; `Completed`/`Dropped` are user-driven; no cascade to children in v1."
    - Recommendation: record in `README.md` (add a short "Goal" item-type subsection mirroring the existing Task/Project subsections, README:104+) AND in `docs/architecture/decisions/` as a decision record. Use the `docs-tools` skill for the doc sync.
+   - **RESOLVED (plan 02-04):** recorded in README `### Goal` subsection + `## Status lifecycle` goal note, plus `docs/architecture/decisions/adr-0006-goal-itemstatus-semantics.md`, via the `docs-tools` skill.
 
 ## ItemStatus-for-Goals Decision (SC5 deliverable)
 

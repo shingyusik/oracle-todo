@@ -55,7 +55,6 @@ Plans:
   5. A user can list goals/tasks filtered by horizon, period, and parent, and the documented `ItemStatus` meaning for goals (no cascade to children in v1) is recorded.
 
 **Plans**: 4 plans
-
 Plans:
 
 - [ ] 02-01-PLAN.md — Additive plumbing: `UpdateItem.parent_id` + `ListFilter` horizon/parent/scheduled fields & `apply_list_filter` predicates (LINK-01, VIEW-01) — Wave 1
