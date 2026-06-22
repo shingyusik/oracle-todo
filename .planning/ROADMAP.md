@@ -58,7 +58,7 @@ Plans:
 Plans:
 
 - [x] 02-01-PLAN.md — Additive plumbing: `UpdateItem.parent_id` + `ListFilter` horizon/parent/scheduled fields & `apply_list_filter` predicates (LINK-01, VIEW-01) — Wave 1
-- [ ] 02-02-PLAN.md — Goal create + anchor validation + nesting (cycle/inversion) + duplicate policy via `propose_goal`/`service/goal.rs` (GOAL-01/03/04/05, CORE-01) — Wave 1
+- [x] 02-02-PLAN.md — Goal create + anchor validation + nesting (cycle/inversion) + duplicate policy via `propose_goal`/`service/goal.rs` (GOAL-01/03/04/05, CORE-01) — Wave 1
 - [ ] 02-03-PLAN.md — Task→goal linking tests + persistent VIEW-01 list-filter parity test (LINK-01/02, VIEW-01) — Wave 2
 - [ ] 02-04-PLAN.md — SC5 docs deliverable: Goal item-type + ItemStatus-for-goals (no-cascade-in-v1) in README + ADR-0006 — Wave 2
 
@@ -125,7 +125,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
-| 2. Service Policy — Goal Create, Link & Validation | 1/4 | In progress | - |
+| 2. Service Policy — Goal Create, Link & Validation | 2/4 | In progress | - |
 | 3. Date View | 0/TBD | Not started | - |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |

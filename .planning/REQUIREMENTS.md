@@ -9,11 +9,11 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 
 ### Goals (GOAL)
 
-- [ ] **GOAL-01**: User can create a period goal at a year / month / week horizon via a new `Goal` item type (reusing the existing status lifecycle, approval gating, and audit events).
+- [x] **GOAL-01**: User can create a period goal at a year / month / week horizon via a new `Goal` item type (reusing the existing status lifecycle, approval gating, and audit events).
 - [x] **GOAL-02**: A goal is anchored to a specific period via `(horizon, scheduled)`, with `scheduled` normalized to the canonical period start — year = Jan 1, month = 1st of month, week = ISO Monday.
-- [ ] **GOAL-03**: The service validates a goal's `scheduled` anchor (rejects unparseable or non-canonical dates) instead of silently dropping it.
-- [ ] **GOAL-04**: User can nest goals via `parent_id` with level-skipping allowed; the service rejects cycles and inverted nesting (a finer-horizon goal cannot parent a coarser-horizon goal).
-- [ ] **GOAL-05**: The service rejects creating a duplicate goal for the same `(horizon, scheduled, parent_id)`.
+- [x] **GOAL-03**: The service validates a goal's `scheduled` anchor (rejects unparseable or non-canonical dates) instead of silently dropping it.
+- [x] **GOAL-04**: User can nest goals via `parent_id` with level-skipping allowed; the service rejects cycles and inverted nesting (a finer-horizon goal cannot parent a coarser-horizon goal).
+- [x] **GOAL-05**: The service rejects creating a duplicate goal for the same `(horizon, scheduled, parent_id)`.
 
 ### Task Linking (LINK)
 
@@ -35,7 +35,7 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 
 ### Invariants (CORE)
 
-- [ ] **CORE-01**: All planning mutations route through `TodoService` (validation, status state machine, audit event) — no direct repository writes.
+- [x] **CORE-01**: All planning mutations route through `TodoService` (validation, status state machine, audit event) — no direct repository writes.
 - [x] **CORE-02**: Schema changes are additive only — `Goal` enum variant plus indexes; no dropped/rewritten columns and no new `period_key` column (period derives from `(horizon, scheduled)`).
 - [ ] **CORE-03**: New date/period view logic lives in the application/service layer shared by CLI and API (not in adapter code), so CLI and API stay in parity.
 
@@ -71,11 +71,11 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GOAL-01 | Phase 2 | Pending |
+| GOAL-01 | Phase 2 | Complete |
 | GOAL-02 | Phase 1 | Complete |
-| GOAL-03 | Phase 2 | Pending |
-| GOAL-04 | Phase 2 | Pending |
-| GOAL-05 | Phase 2 | Pending |
+| GOAL-03 | Phase 2 | Complete |
+| GOAL-04 | Phase 2 | Complete |
+| GOAL-05 | Phase 2 | Complete |
 | LINK-01 | Phase 2 | Pending |
 | LINK-02 | Phase 2 | Pending |
 | VIEW-01 | Phase 2 | Pending |
@@ -85,7 +85,7 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 | VIEW-05 | Phase 3 | Pending |
 | SURF-01 | Phase 5 | Pending |
 | SURF-02 | Phase 5 | Pending |
-| CORE-01 | Phase 2 | Pending |
+| CORE-01 | Phase 2 | Complete |
 | CORE-02 | Phase 1 | Complete |
 | CORE-03 | Phase 5 | Pending |
 
