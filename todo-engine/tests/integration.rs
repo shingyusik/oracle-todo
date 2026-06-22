@@ -6,5 +6,7 @@ mod goal_roundtrip;
 mod materialization;
 #[path = "integration/repository.rs"]
 mod repository;
+#[path = "integration/schema_indexes.rs"]
+mod schema_indexes;
 #[path = "integration/service_policy.rs"]
 mod service_policy;
