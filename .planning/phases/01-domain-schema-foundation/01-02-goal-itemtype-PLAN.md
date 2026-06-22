@@ -14,7 +14,7 @@ autonomous: true
 requirements: [GOAL-02]
 must_haves:
   truths:
-    - "The engine recognizes a `Goal` item type: `ItemType::Goal` exists and maps to the string \"goal\" via as_str/FromStr/serde (D-01 pattern; supports GOAL-02's `Goal`-as-ItemType anchoring)."
+    - "The engine recognizes a `Goal` item type: `ItemType::Goal` exists and maps to the string \"goal\". The SQLite round-trip (SC3) flows through `as_str`/`FromStr` via `mapping.rs` (NOT serde); serde `snake_case` independently yields \"goal\" only for the separate JSON path (D-01 pattern; supports GOAL-02's `Goal`-as-ItemType anchoring)."
     - "A `goal`-typed item round-trips through the SQLite mapping (write then read) without error on the current binary (SC3)."
     - "The `as_str` match stays exhaustive with no wildcard, so the compiler forces every future variant to be handled."
   artifacts:
@@ -101,7 +101,7 @@ Output: `ItemType::Goal` in `model.rs`; a confirmed (likely no-edit) `mapping.rs
   <verify>
     <automated>cargo build -p todo-engine && cargo clippy --all-targets --all-features -- -D warnings && cargo test -p todo-engine --test unit model</automated>
   </verify>
-  <done>`ItemType::Goal` exists and maps to `"goal"` through as_str/FromStr/serde; the exhaustive `as_str` match compiles (compiler-enforced, no wildcard); clippy is clean; the unit round-trip test passes with `Goal` included. `mapping.rs` is confirmed (or minimally edited with a recorded reason).</done>
+  <done>`ItemType::Goal` exists and maps to `"goal"`. The SQLite round-trip (SC3) is carried by `as_str`/`FromStr` through `mapping.rs`, not serde; serde `snake_case` only governs the separate JSON `type` field. The exhaustive `as_str` match compiles (compiler-enforced, no wildcard); clippy is clean; the unit round-trip test passes with `Goal` included. `mapping.rs` is confirmed (or minimally edited with a recorded reason).</done>
 </task>
 
 <task type="auto" tdd="true">
