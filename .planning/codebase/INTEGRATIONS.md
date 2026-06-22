@@ -1,150 +1,76 @@
 # External Integrations
 
-**Analysis Date:** 2026-06-17
+**Analysis Date:** 2026-06-22
 
 ## APIs & External Services
 
-**None detected** - `todo-engine` is a local-first, self-contained service with no outbound API calls.
+**None (local-first design):**
+- No third-party SDKs, cloud APIs, or external service clients detected. The system is intentionally local-first: SQLite is the source of truth and the CLI + HTTP API are both views over it.
 
-The codebase enforces this principle: no HTTP client dependencies, no external service credentials, no webhook dispatch. The only external interface is inbound:
-- CLI commands from the user
-- HTTP API requests from clients (Telegram bots, dashboards, agents)
+**Internal HTTP API (self-hosted):**
+- Rust `axum` server exposed by the `api` CLI subcommand (`todo-engine/src/interfaces/cli/mod.rs:440`).
+  - Bind: `--host` / `--port` (default port `3002`), via `tokio::net::TcpListener` (`mod.rs:444`).
+  - Routes defined in `todo-engine/src/interfaces/api/mod.rs:31-49`: `/health`, `/areas`, `/projects/propose`, `/routines/propose`, `/events/propose`, `/tasks/propose`, `/items`, `/items/archive`, `/items/:id` (+ `/approve`, `/activate`, `/pause`, `/resume`, `/complete`, `/archive`, `/drop`, `/cancel`).
+  - Frontend consumes it via Next.js rewrite: `/todo-engine/*` → `http://127.0.0.1:3002/*` (`frontend/next.config.mjs`).
 
 ## Data Storage
 
 **Databases:**
-- SQLite (single-file, embedded)
-  - Connection: `rusqlite` 0.32 crate with bundled SQLite
-  - Path: `<TODO_ENGINE_HOME>/todo.sqlite` (resolved via `TODO_ENGINE_HOME` env var or `~/.todo-engine/`)
-  - Schema: `items` table (areas, projects, tasks, routines, events), `events` audit table
-  - Locking: SQLite default (file-level locks, single writer)
-  - Foreign keys: Enabled via `PRAGMA foreign_keys = ON` on connection init
-  - Source: `todo-engine/src/infrastructure/sqlite/` (repo, schema, migration logic)
+- SQLite - The sole datastore and source of truth.
+  - File: `todo.sqlite` at the data home (`todo-engine/src/infrastructure/paths.rs`, `db_path`).
+  - Client: `rusqlite` 0.32 (bundled), repository in `todo-engine/src/infrastructure/sqlite/repo.rs`; schema in `schema.rs` (additive `init_schema`).
+  - In-memory mode (`:memory:`) supported for tests via shared-cache URI with a kept-alive connection (`todo-engine/src/interfaces/api/mod.rs:65-85`).
+  - Tables: `items`, `events` (audit log). JSON-encoded columns `second_brain_refs` and `metadata`.
 
 **File Storage:**
-- Local filesystem only
-  - SQLite database: `<data-home>/todo.sqlite`
-  - Logs: `<data-home>/logs/todo-engine.log.jsonl` (JSONL format, rotated backups)
-  - No cloud storage, no S3, no file sharing integrations
+- Local filesystem only. Data home layout: `todo.sqlite` plus `logs/todo-engine.log.jsonl(.1-.3)`.
 
 **Caching:**
-- In-memory only (Rust service layer holds item/event state in request scope)
-- No Redis, no memcached, no persistent cache layer
+- None.
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- Custom/None - `todo-engine` does not authenticate users
-  - CLI: No authentication (assumes single-user machine ownership)
-  - HTTP API: No authentication layer (implementer responsibility; see `Actor` enum in domain)
-  - Identity model: `Actor` type in domain (`todo_engine::domain::Actor`) tracks who created/approved items
-  - Actor variants: `user`, `agent`, `system` (open enum for extensibility)
-
-**User Representation:**
-- `proposed_by` field (TEXT) on items — stores actor identifier (JSON string, typically username or ID)
-- `approved_by` field (TEXT) on items — stores approver identifier
-- No password hashing, no session management, no RBAC at the engine layer
+- None. The HTTP API has no authentication/authorization middleware; it binds locally (default `127.0.0.1`-class usage) for a single user.
+- Actor model (not auth): requests carry an `Actor` (`Agent` or `User`) parsed in `parse_actor_or_default` (`todo-engine/src/interfaces/api/mod.rs:103`), defaulting to `Agent`. This drives approval-gating policy, not identity verification.
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None detected - No external error tracking service (Sentry, Rollbar, etc.)
-- Error handling: Custom `TodoError` enum with policy/validation/storage/internal variants
-- Error exit codes: CLI (2 = policy violation, 4 = not found, 1 = storage), HTTP (400, 404, 500)
-- Location: `todo-engine/src/application/error.rs`
+- None (no Sentry/external tracker). Errors surface as typed `TodoError` mapped to HTTP status / CLI exit codes (`todo-engine/src/application/error.rs`, `api/mod.rs:136-147`).
 
 **Logs:**
-- **Console output:** stderr (structured text, INFO level by default)
-- **File logs:** JSONL format to `<data-home>/logs/todo-engine.log.jsonl`
-- **Levels:**
-  - Console: `TODO_ENGINE_CONSOLE_LOG` env var (default `info`)
-  - File: `TODO_ENGINE_FILE_LOG` env var (default `debug`)
-- **Rotation:** File grows to `TODO_ENGINE_LOG_MAX_BYTES` (default 1 MB), rotates to `.1`, `.2`, `.3` (max files: `TODO_ENGINE_LOG_MAX_FILES`, default 3)
-- **Framework:** `tracing` + `tracing-subscriber` (structured event logs with span context)
-- **Location:** `todo-engine/src/infrastructure/system.rs` (rotation logic)
+- `tracing` + `tracing-subscriber` with JSON file output and console output. Rotating JSONL files in `<data-home>/logs/`. Levels and rotation controlled by `TODO_ENGINE_*` env vars.
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Not detected - No deployment platform specified
-- Deployment model: User-managed (self-hosted)
-- Supported platforms: Linux, macOS, Windows (any platform with Rust toolchain)
+- Not applicable. Distributed/run as a local binary; no deployment platform config detected.
 
 **CI Pipeline:**
-- Not detected - No GitHub Actions, GitLab CI, or build server config in codebase
-- Local build gates (see `CLAUDE.md` for manual checks):
-  - `cargo fmt --check` - Format validation
-  - `cargo clippy --all-targets --all-features -- -D warnings` - Linting (warnings as errors)
-  - `cargo test` - Unit, integration, e2e tests
-
-**Build Requirements:**
-- Rust 1.70+ (Edition 2024)
-- Cargo
-- SQLite bundled (no external SQLite dependency)
+- None detected (no `.github/workflows/`, no CI config files in the repo).
 
 ## Environment Configuration
 
 **Required env vars:**
-- `HOME` - System home directory (used if `TODO_ENGINE_HOME` not set)
-
-**Optional env vars:**
-- `TODO_ENGINE_HOME` - Override data home path
-- `TODO_ENGINE_CONSOLE_LOG` - Console log level (info, debug, warn, error)
-- `TODO_ENGINE_FILE_LOG` - File log level (info, debug, warn, error)
-- `TODO_ENGINE_LOG_MAX_BYTES` - Log rotation size in bytes
-- `TODO_ENGINE_LOG_MAX_FILES` - Number of rotated backups to keep
+- None strictly required (sensible defaults). Optional: `TODO_ENGINE_HOME`, `TODO_ENGINE_CONSOLE_LOG`, `TODO_ENGINE_FILE_LOG`, `TODO_ENGINE_LOG_MAX_BYTES`, `TODO_ENGINE_LOG_MAX_FILES`. Falls back to `$HOME/.todo-engine`.
 
 **Secrets location:**
-- No secrets management layer detected
-- Sensitive data: None stored by engine (no API keys, no credentials)
-- Machine-local data home: User must control access via OS file permissions
-- `.env` files: Listed in `.gitignore` but not used by the engine (developer choice)
+- None. No API keys or credentials are used. `.env` is gitignored but no loader exists and no secrets are referenced in code.
 
 ## Webhooks & Callbacks
 
-**Incoming Webhooks:**
-- HTTP API endpoints (user-driven, not event-triggered callbacks)
-- Endpoints: See `todo-engine/src/interfaces/api/mod.rs`
-  - `POST /health` - Health check
-  - `POST /areas` - Create area
-  - `POST /projects/propose`, `/routines/propose`, `/events/propose`, `/tasks/propose` - Propose items
-  - `GET /items`, `GET /items/archive` - List items
-  - `PATCH /items/:id` - Update item
-  - `POST /items/:id/{approve,activate,pause,resume,complete,archive,drop,cancel}` - State transitions
-- No long-polling, no streaming, no WebSocket support
-- No authentication middleware (delegated to HTTP server or reverse proxy)
+**Incoming:**
+- None.
 
-**Outgoing Webhooks:**
-- None - Engine does not dispatch events to external systems
-- Output channels: CLI stdout/stderr, HTTP API responses, SQLite database changes
+**Outgoing:**
+- None.
 
-## Command Dispatch & Interfaces
+## Reference Inputs
 
-**CLI Entry Point:**
-- `todo-engine/src/interfaces/cli/mod.rs` - Command parser and dispatch
-- Subcommands: `init`, `health`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`
-- Output: Markdown (human), JSON (structured), text (error messages)
-- Exit codes: 0 (success), 1 (internal error), 2 (validation error), 4 (not found)
-
-**HTTP API:**
-- `todo-engine/src/interfaces/api/mod.rs` - Axum router
-- Port: Not specified in code (defaults to 127.0.0.1:3000 if run via HTTP wrapper, not built-in)
-- Request/Response: JSON body, standard HTTP status codes
-- Error responses: `{ "error": "message" }` with appropriate status (400, 404, 500)
-
-## Service Layer & Policy
-
-**Core Service:**
-- `TodoService` in `todo-engine/src/application/service/mod.rs`
-- All mutations route through service (no direct database writes)
-- Policy enforcement: status state machine, approval gating, validation
-- Audit events: Every mutation writes a `TodoEvent` to SQLite before returning
-
-**Repository Ports:**
-- Traits in `todo-engine/src/application/ports.rs`
-- Implementations: `SqliteTodoRepository` in `todo-engine/src/infrastructure/sqlite/repo.rs`
-- Interface: `TodoRepository` (save/get/list), `EventRepository` (save events), `TodoStore` (combined)
+**Second Brain refs:**
+- `second_brain_refs` is a read-only JSON column on items (`todo-engine/src/domain/model.rs:61`, `schema.rs:49`). Treated as reference input only; never written back to any external system.
 
 ---
 
-*Integration audit: 2026-06-17*
+*Integration audit: 2026-06-22*

@@ -1,139 +1,91 @@
 # Technology Stack
 
-**Analysis Date:** 2026-06-17
+**Analysis Date:** 2026-06-22
 
 ## Languages
 
 **Primary:**
-- Rust 2024 (Edition 2024) - Core service layer, CLI, HTTP API, database abstraction
+- Rust (edition 2024) - Core `todo-engine` crate: domain, application, infrastructure, and interfaces layers under `todo-engine/src/`.
 
 **Secondary:**
-- None detected
+- TypeScript (^5.5.0) - Next.js workbench frontend under `frontend/src/`.
+- SQL - SQLite schema/queries embedded in `todo-engine/src/infrastructure/sqlite/schema.rs` and `repo.rs`.
 
 ## Runtime
 
 **Environment:**
-- Rust toolchain (1.70+, Edition 2024)
+- Rust toolchain with edition 2024 + resolver 3 (`Cargo.toml`). No pinned `rust-toolchain.toml`; a recent stable/nightly supporting edition 2024 is required.
+- Tokio async runtime (`tokio` 1, features `macros`, `rt-multi-thread`, `net`) for the HTTP API server (`todo-engine/src/interfaces/cli/mod.rs:443`).
+- Node.js for the frontend (`@types/node` ^20.14.0; Next.js 14 targets Node 18+).
 
 **Package Manager:**
-- Cargo (workspace-based)
-- Lockfile: `Cargo.lock` present (1496 lines)
+- Cargo (workspace at root `Cargo.toml`, members `["todo-engine"]`).
+  - Lockfile: present (`Cargo.lock`).
+- npm for frontend (`frontend/package.json`).
+  - Lockfile: present (`frontend/package-lock.json`).
 
 ## Frameworks
 
-**Core:**
-- `axum` 0.7 - HTTP API framework (routing, extractors, middleware)
-- `clap` 4.5 - CLI framework (command parsing, argument validation with derive macros)
-- `rusqlite` 0.32 - SQLite database driver (bundled SQLite compiled in)
+**Core (Rust):**
+- `axum` 0.7 - HTTP router/server for the API interface (`todo-engine/src/interfaces/api/mod.rs`).
+- `clap` 4.5 (features `derive`, `env`) - CLI argument parsing (`todo-engine/src/interfaces/cli/mod.rs`).
+- `rusqlite` 0.32 (feature `bundled`) - SQLite access; bundled means SQLite compiles in, no system dependency.
+- `tower` 0.5 (dev) - Service utilities used in API tests.
 
-**Error Handling:**
-- `thiserror` 2 - Error type derivation and Display formatting
+**Core (Frontend):**
+- `next` ^14.2.0 - App Router framework (`frontend/src/app/`).
+- `react` / `react-dom` ^18.3.0 - UI rendering.
+- `lucide-react` ^0.563.0 - Icon set.
 
-**Serialization:**
-- `serde` 1 - Serialization traits and macros
-- `serde_json` 1 - JSON serialization/deserialization
+**Testing:**
+- Rust: `assert_cmd` 2 + `predicates` 3 (CLI e2e), `tempfile` 3.15 (temp data homes), `http` 1 / `http-body-util` 0.1 / `tower` 0.5 (API integration). Three test binaries under `todo-engine/tests/{unit,integration,e2e}`.
+- Frontend: `vitest` ^3.2.4 with `jsdom` ^29.0.1, `@testing-library/{react,jest-dom,user-event}` (`frontend/vitest.config.ts`).
 
-**Time & Dates:**
-- `time` 0.3 - Date/time parsing, formatting, RFC3339 support with local-offset
-
-**Async Runtime:**
-- `tokio` 1 - Async execution (multi-threaded runtime, network I/O)
-
-**Logging & Tracing:**
-- `tracing` 0.1 - Structured logging facade
-- `tracing-subscriber` 0.3 - Log formatting, filtering, JSON output, log rotation support
-
-**Utilities:**
-- `uuid` 1 - UUID v4 generation for unique IDs
-- `anyhow` 1 - Flexible error handling with context
+**Build/Dev:**
+- Cargo - Rust build/test (`cargo build`, `cargo test`, `cargo fmt`, `cargo clippy`).
+- Next CLI - `next dev`, `next build` (`frontend/package.json`).
+- `tsc` - Type checking via `npm run typecheck`.
 
 ## Key Dependencies
 
-**Critical:**
-- `rusqlite` 0.32 - SQLite driver with bundled build; source of truth for all data persistence
-- `axum` 0.7 - HTTP API surface; routes all external API requests
-- `clap` 4.5 - CLI parser; routes all command-line inputs
-- `tokio` 1 - Async runtime for HTTP server and I/O operations
+**Critical (Rust):**
+- `serde` 1 + `serde_json` 1 - Serialization for DTOs, JSON columns (`second_brain_refs`, `metadata`), and API payloads.
+- `time` 0.3 (features `formatting`, `parsing`, `macros`, `serde`, `serde-well-known`, `local-offset`) - Timestamps and recurrence date handling.
+- `uuid` 1 (feature `v4`) - Item ID generation and in-memory shared-cache DB naming (`todo-engine/src/interfaces/api/mod.rs:73`).
+- `anyhow` 1.0 - Application-level error context.
+- `thiserror` 2 - Typed `TodoError` in `todo-engine/src/application/error.rs`.
 
 **Infrastructure:**
-- `tracing` + `tracing-subscriber` - Structured JSON logging to files with rotation
-- `time` 0.3 - RFC3339 timestamps, local timezone support, ISO 8601 parsing
-- `serde` + `serde_json` - Domain model serialization (events, items, DTOs)
-- `uuid` 1 - Unique identifiers for items and events
-
-**Testing:**
-- `assert_cmd` 2 - CLI output assertion (dev-dependency)
-- `predicates` 3 - Predicate-based assertions (dev-dependency)
-- `tempfile` 3.15 - Temporary directories for test databases (dev-dependency)
-- `tower` 0.5 - Test middleware and routing utilities (dev-dependency)
-- `http` 1 - HTTP constants and types for API testing (dev-dependency)
-- `http-body-util` 0.1 - HTTP body utilities for response testing (dev-dependency)
+- `tracing` 0.1 + `tracing-subscriber` 0.3 (features `env-filter`, `fmt`, `json`) - Structured logging to console and rotating JSONL files.
 
 ## Configuration
 
-**Environment:**
-- `TODO_ENGINE_HOME` - Data home path (default: `~/.todo-engine/`)
-- `TODO_ENGINE_CONSOLE_LOG` - Console log level (default: `info`)
-- `TODO_ENGINE_FILE_LOG` - File log level (default: `debug`)
-- `TODO_ENGINE_LOG_MAX_BYTES` - Log rotation threshold in bytes (default: `1048576` / 1 MB)
-- `TODO_ENGINE_LOG_MAX_FILES` - Number of rotated log files to retain (default: `3`)
-- `HOME` - System home directory; used to compute default data home if `TODO_ENGINE_HOME` is unset
+**Environment (Rust):**
+- `TODO_ENGINE_HOME` - Data home directory; default `$HOME/.todo-engine` (`todo-engine/src/infrastructure/paths.rs`).
+- `TODO_ENGINE_CONSOLE_LOG` (default `info`), `TODO_ENGINE_FILE_LOG` (default `debug`) - Log levels.
+- `TODO_ENGINE_LOG_MAX_BYTES` (default `1_048_576`), `TODO_ENGINE_LOG_MAX_FILES` (default `3`) - Log rotation.
+- `--home <path>`, `--host`, `--port` (default `3002`) - CLI flags (`todo-engine/src/interfaces/cli/mod.rs:161`).
+- `.env` file: gitignored; not present/committed. No `.env` loader detected in Rust code (env read directly via `std::env`).
 
 **Build:**
-- `.cargo/config.toml` - Machine-local build settings (single job, no debuginfo for low-memory builds)
-- Workspace resolver: version 3
+- `Cargo.toml` (root workspace + `todo-engine/Cargo.toml` package).
+- `.cargo/config.toml` - Machine-local low-memory build settings (`jobs = 1`, `[profile.dev] debug = 0`). Gitignored; not committed.
+
+**Frontend:**
+- `frontend/next.config.mjs` - Rewrites `/todo-engine/:path*` to `http://127.0.0.1:3002/:path*`.
+- `frontend/tsconfig.json` - TypeScript compiler config.
+- `frontend/vitest.config.ts` - Test runner config.
 
 ## Platform Requirements
 
 **Development:**
-- Rust 1.70+ (Edition 2024)
-- Cargo package manager
-- SQLite build tools (bundled via `rusqlite`)
-- ~1 GB RAM minimum (configurable via `.cargo/config.toml`)
+- Rust toolchain (edition 2024 capable); host with enough memory for rustc/LLVM (`.cargo/config.toml` serializes jobs and disables debuginfo to avoid OOM).
+- Node.js 18+ and npm for frontend work.
+- No system SQLite required (`rusqlite` bundled).
 
 **Production:**
-- Linux, macOS, or Windows with Rust runtime
-- SQLite library (bundled)
-- ~20-50 MB disk for database and logs per year
-- ~100 MB heap for service process
-
-## Workspace Structure
-
-**Members:**
-- `todo-engine/` - Main Rust crate (binary + library)
-- `frontend/` - Reserved for future UI package (placeholder)
-
-**Entry Points:**
-- `todo-engine/src/main.rs` - CLI binary entrypoint
-- `todo-engine/src/lib.rs` - Library exports (service, domain, infrastructure interfaces)
-- `todo-engine/src/interfaces/api/mod.rs` - HTTP API router (axum)
-- `todo-engine/src/interfaces/cli/mod.rs` - CLI command dispatch (clap)
-
-## Build Commands
-
-```bash
-cargo build                                    # Build the workspace (debug mode)
-cargo build --release                         # Build with optimizations
-cargo run -p todo-engine -- <command>         # Run the CLI
-cargo test                                    # Run all tests
-cargo fmt --check                            # Format gate
-cargo clippy --all-targets --all-features -- -D warnings # Lint gate
-```
-
-## Data Persistence
-
-**Database:**
-- SQLite single-file database (`todo.sqlite`)
-- Location: `<TODO_ENGINE_HOME>/todo.sqlite`
-- Schema version tracked via `PRAGMA user_version`
-- Foreign keys enabled, indices on high-query columns
-
-**Logging:**
-- JSONL format (structured logs as newline-delimited JSON)
-- Location: `<TODO_ENGINE_HOME>/logs/todo-engine.log.jsonl`
-- Rotation: 4 files max (main + 3 backups) at `1_048_576` bytes each
-- Backups named: `.log.jsonl.1`, `.log.jsonl.2`, `.log.jsonl.3`
+- Single self-contained Rust binary (`todo-engine`) serving CLI and HTTP API; SQLite file is the source of truth. Local-first; no external service deployment target detected. Frontend is an optional Next.js workbench proxying to the local API.
 
 ---
 
-*Stack analysis: 2026-06-17*
+*Stack analysis: 2026-06-22*

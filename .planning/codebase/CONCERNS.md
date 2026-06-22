@@ -1,183 +1,110 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-06-17
+**Analysis Date:** 2026-06-22
 
 ## Tech Debt
 
-**Unchecked serialization panics in event creation:**
-- Issue: `serde_json::to_value(&item).expect("TodoItem serialization cannot fail")` at line 126 of `todo-engine/src/application/service/mod.rs` will panic if serialization fails. This is treated as a never-fail assertion, but it's not guaranteed.
-- Files: `todo-engine/src/application/service/mod.rs` (line 126)
-- Impact: Process crash if a TodoItem becomes unserializable (e.g., metadata contains values that cannot be serialized to JSON). This blocks event audit logging for that mutation.
-- Fix approach: Replace `.expect()` with proper error handling using `map_err()`, converting serialization failures to `TodoError::Internal`. Propagate the error up the call stack.
+**In-memory list filtering instead of SQL WHERE clauses:**
+- Issue: `list_items` selects every row in the `items` table (`SELECT ... ORDER BY created_at, id` with no predicate) and `apply_list_filter` filters in Rust. All `ListFilter` criteria (status, type, area_id, project_id, routine_id, free-text `query`, archived) are applied after the full table is materialized into a `Vec<TodoItem>`.
+- Files: `todo-engine/src/infrastructure/sqlite/repo.rs:29` (`list_items`), `todo-engine/src/application/ports.rs:29` (`apply_list_filter`)
+- Impact: O(table size) memory and CPU per list/query call regardless of how selective the filter is. Indexes (`idx_items_status`, `idx_items_type`, `idx_items_area_id`, etc.) defined in `schema.rs:74` are never used because no query references them.
+- Fix approach: Push `ListFilter` into the SQL `WHERE` clause (parameterized) so existing indexes are exercised; keep `apply_list_filter` only for the free-text `query` portion if SQL `LIKE` is undesirable, or move that to `LIKE` as well.
 
-**Concurrent API requests share single SQLite connection per route:**
-- Issue: Each API handler creates a fresh `TodoService` and opens a new `rusqlite::Connection` in `with_service()` at `todo-engine/src/interfaces/api/mod.rs` line 87-92. SQLite allows concurrent reads but only one writer at a time; if two handlers mutate simultaneously, one will block or conflict.
-- Files: `todo-engine/src/interfaces/api/mod.rs` (lines 52-93)
-- Impact: Race conditions during concurrent mutations (e.g., two parallel approve + activate calls on the same item may partially succeed or leave the item in an inconsistent state). No transaction-level isolation across requests.
-- Fix approach: Implement a connection pool (e.g., `rusqlite::Connection` managed by `Arc<Mutex<>>` at router creation time), or switch to a higher-level async database layer that handles queuing. Ensure single-writer-at-a-time discipline with explicit transaction management across request boundaries.
+**Materialization fans out repeated full-table scans:**
+- Issue: `materialize_routines` calls `list_items` once per routine via `open_generated_task_exists_for_routine`, `generated_task_exists_for_occurrence`, and `generated_tasks_for_routine` — each of which is a full-table load + in-memory filter (see tech debt item above). For N routines this is multiple full scans per routine.
+- Files: `todo-engine/src/application/service/materialization.rs:35`, `:53`, `:118`, `:130`, `:141`
+- Impact: Materialization cost grows quadratically with table size as routine count and item count increase.
+- Fix approach: Once SQL-side filtering lands, these existence checks become indexed point lookups (the `idx_items_routine_occurrence` unique index already exists for the occurrence case).
 
-**Serialization assumes TodoItem structure never changes:**
-- Issue: The `expect("TodoItem serialization cannot fail")` comment assumes the struct will always be JSON-serializable. If future code adds non-serializable fields (e.g., `Rc<T>`, `Arc<Mutex<T>>`), serialization will fail silently or panic.
-- Files: `todo-engine/src/application/service/mod.rs` (line 126), `todo-engine/src/application/service/transitions.rs` (multiple uses of `serde_json::to_value()`), `todo-engine/src/application/service/materialization.rs` (line 100), `todo-engine/src/application/service/update.rs` (line 34)
-- Impact: Audit trail becomes incomplete for items that fail to serialize; mutation may succeed in the database but fail to log the event.
-- Fix approach: Add unit tests that verify all TodoItem variants serialize without error. Use `#[serde(skip)]` or proper serialization traits for non-standard fields. Replace `.expect()` with error propagation.
+**Schema initialization runs on every API request:**
+- Issue: `service()` opens a fresh connection and calls `init_schema(&conn)` for every HTTP request before constructing `TodoService`. `init_schema` runs the full `CREATE TABLE IF NOT EXISTS` / `ensure_item_columns` / `CREATE INDEX` batch each time.
+- Files: `todo-engine/src/interfaces/api/mod.rs:52` (`service`), `:60-61`
+- Impact: Per-request DDL overhead (`PRAGMA table_info`, conditional `ALTER`, index creation) and an extra connection open/close on the hot path.
+- Fix approach: Run schema init once at router construction (`router`), then have `service()` only open a connection (or reuse a pooled one).
 
 ## Known Bugs
 
-**API memory router does not isolate requests:**
-- Symptoms: Multiple HTTP requests to a memory-backed router (`:memory:` SQLite) share the same in-memory state across disconnected router instances.
-- Files: `todo-engine/src/interfaces/api/mod.rs` (lines 69-84), `todo-engine/tests/e2e/api.rs` (lines 107-136 test memory state persistence)
-- Trigger: Create two separate `router(":memory:")` instances and make mutations in both. The second router will inherit state from the first if they share the same URI.
-- Workaround: Each memory router should use a unique URI (currently done via `uuid::Uuid::new_v4()` at line 74), but test isolation is fragile; tests run in parallel and may reuse the same URI by collision (low probability but possible).
-- Root cause: SQLite's shared in-memory cache at URI level; colliding UUIDs would cause data leaks between test instances.
-
-**Routine materialization not idempotent under concurrent calls:**
-- Symptoms: If `materialize_routines()` is called twice in parallel (e.g., two API requests call it simultaneously), the uniqueness check at `todo-engine/src/application/service/materialization.rs` lines 35-41 may race: both threads check if an open task exists, both see "no," and both create a task.
-- Files: `todo-engine/src/application/service/materialization.rs` (lines 9-71), specifically lines 35-41 and 54-57
-- Trigger: Concurrent calls to `/today` endpoint (which materializes routines) or to a custom `materialize_routines` endpoint.
-- Workaround: Serialize all materialization calls through a single-threaded runner, or add database-level unique constraints on (routine_id, occurrence_key) pairs (partially in place at line 79-81 of `schema.rs`, but not enforced before insertion in memory).
-- Root cause: TOCTOU (time-of-check-time-of-use) race in the in-memory check; SQLite's unique index only prevents insert, not the race in application logic.
+**No confirmed bugs found.** No `TODO`/`FIXME`/`HACK`/`unimplemented!`/`todo!`/`panic!` markers exist in `todo-engine/src` (the only `TODO` text matches are the project name). The `.expect(...)` calls present are all on documented invariants (validated dates, infallible serialization, pre-checked `Option`s):
+- `todo-engine/src/domain/recurrence.rs:294,307,311`
+- `todo-engine/src/application/service/mod.rs:126`
+- `todo-engine/src/application/service/transitions.rs:290,294`
 
 ## Security Considerations
 
-**No input validation on title or description fields:**
-- Risk: User-provided strings (`title`, `description`, `note`) are directly inserted into JSON audit events and SQLite without length limits or content validation. XSS risk in API responses if consumed by web frontend without escaping.
-- Files: `todo-engine/src/application/service/creation.rs` (all creation methods), `todo-engine/src/interfaces/api/handlers.rs` (all propose/create handlers)
-- Current mitigation: Audit events are stored as plain JSON; responses are served as JSON (not HTML), so XSS is limited to JSON consumers. No SQL injection risk (parameterized queries used throughout).
-- Recommendations: Add field length limits (e.g., title ≤ 256 chars, description ≤ 4096 chars) in `TodoService` creation methods. Reject or truncate oversized input with `Validation` errors. Add unit tests for boundary cases.
+**Local-first, no network auth surface (by design):**
+- Risk: The HTTP API (`axum` router in `todo-engine/src/interfaces/api/mod.rs`) has no authentication/authorization layer. Anyone who can reach the bound port can mutate the DB, including approving agent-proposed items (the core approval gate).
+- Files: `todo-engine/src/interfaces/api/mod.rs:28` (`router`), `handlers.rs`
+- Current mitigation: Local-first design; the engine is intended to bind locally and the OS user owns the data home. SQL is fully parameterized (`params![...]` / `?N` placeholders) in `repo.rs` and `sqlite/mod.rs`, so injection is not a vector.
+- Recommendations: If the API is ever exposed beyond loopback, add an auth token / bind-address guard. Document the loopback-only assumption explicitly near `router`.
 
-**second_brain_refs marked read-only in spec but not enforced in code:**
-- Risk: The CLAUDE.md spec states `second_brain_refs` are "read-only" and "never written back," but there is no runtime enforcement. If API code or CLI accidentally writes to `second_brain_refs`, the invariant is silently broken.
-- Files: `todo-engine/src/domain/model.rs` (line 61), `todo-engine/src/infrastructure/sqlite/mapping.rs` (line 77), `todo-engine/src/infrastructure/sqlite/repo.rs` (lines 134, 164), `todo-engine/src/infrastructure/sqlite/schema.rs` (lines 49, 120)
-- Current mitigation: No write code paths exist in current codebase; audit events capture `after` state which includes `second_brain_refs`, but no mutation code modifies it.
-- Recommendations: Add a compile-time or runtime guard (e.g., a service method that validates `second_brain_refs` is unchanged between creation and mutation). Document the invariant in code comments. Add integration test that attempts write and confirms rejection.
-
-**API error responses expose internal error types:**
-- Risk: `TodoError` variants (Policy, Storage, Migration, Internal) are serialized directly to HTTP JSON responses (line 145 of `todo-engine/src/interfaces/api/mod.rs`). Internal errors may leak implementation details (e.g., database path, connection string fragments).
-- Files: `todo-engine/src/interfaces/api/mod.rs` (lines 125-147)
-- Current mitigation: `Storage` and `Internal` errors map to HTTP 500; the error message is the `.to_string()` of the Rust error, which is generic (e.g., "storage error: ..."). No sensitive data is explicitly logged.
-- Recommendations: Create a separate `ApiErrorResponse` type that sanitizes `Internal` errors before serialization (e.g., "Internal server error" instead of the raw message). Log full errors server-side with structured tracing, expose only error codes to clients.
+**Actor self-attribution on the API approval gate:**
+- Risk: `parse_actor_or_default` lets the caller declare its own `Actor` (defaulting to `Agent`). The approval gate's integrity depends on callers not falsely claiming `Actor::User`. There is no server-side trust boundary distinguishing a real user from an agent.
+- Files: `todo-engine/src/interfaces/api/mod.rs:103` (`parse_actor_or_default`)
+- Current mitigation: CLI vs API separation; policy enforced in `TodoService`. The threat is only meaningful if an untrusted agent can call the API directly.
+- Recommendations: Tie actor identity to a transport-level signal (separate endpoint/token for user vs agent) rather than a request-supplied field if approval integrity must hold against a hostile agent.
 
 ## Performance Bottlenecks
 
-**Full table scans on every list/query operation:**
-- Problem: `list_items()` in `todo-engine/src/infrastructure/sqlite/repo.rs` (lines 29-40) does `SELECT * FROM items` without filtering at the SQL level. Filtering (`ListFilter`) is applied in-memory after fetching all rows. With thousands of items, this loads the entire table into RAM.
-- Files: `todo-engine/src/infrastructure/sqlite/repo.rs` (lines 29-40), `todo-engine/src/application/ports.rs` (list filter applied in-memory)
-- Cause: Parameterized WHERE clauses are complex to build dynamically in Rust; the current code prioritizes simplicity over efficiency.
-- Improvement path: Move filter logic into SQL queries (e.g., `WHERE status = ? AND item_type = ? ...`). Build WHERE clauses dynamically using string concatenation (with safety checks) or a query builder library. Measure impact on queries with 10k+ items.
+**SQLite concurrency: no `busy_timeout` and no WAL mode:**
+- Problem: `connect()` opens a plain `Connection::open(path)` with no `PRAGMA busy_timeout` and no `PRAGMA journal_mode = WAL`. The API opens a new connection per request and serializes writes through transactions, but concurrent requests against the same file-backed DB can hit immediate `SQLITE_BUSY` errors (surfaced as `TodoError::Storage` → HTTP 500).
+- Files: `todo-engine/src/infrastructure/sqlite/mod.rs:13` (`connect`)
+- Cause: Default SQLite locking with no retry window; multiple connections (one per in-flight request) compete for the write lock.
+- Improvement path: Set `PRAGMA busy_timeout` and consider `journal_mode = WAL` in `connect()` to allow concurrent readers and a retry window for writers.
 
-**Routine materialization iterates all active routines on every call:**
-- Problem: `materialize_routines()` at `todo-engine/src/application/service/materialization.rs` (line 18) lists all active routines every time, then checks existence of generated tasks for each. With hundreds of routines, this is O(n) database queries.
-- Files: `todo-engine/src/application/service/materialization.rs` (lines 9-71)
-- Cause: No caching; each call to `/today` or `materialize_routines` re-queries the full routine set.
-- Improvement path: Cache the result of `list_items(Routine, Active)` at the API layer, or add a database column `last_materialized_window` to skip routines that don't need re-materialization. Batch existence checks into a single SQL query instead of per-routine lookups.
-
-**Each API request opens a new database connection:**
-- Problem: `with_service()` at line 87 of `todo-engine/src/interfaces/api/mod.rs` calls `service()`, which calls `connect()`, which opens a new `rusqlite::Connection`. This is expensive (I/O + schema validation).
-- Files: `todo-engine/src/interfaces/api/mod.rs` (lines 52-62)
-- Cause: Simple design; no connection pooling.
-- Improvement path: Implement a connection pool (e.g., using `r2d2-sqlite` or `rusqlite`'s built-in connection caching). Create the pool at router initialization and reuse connections across requests.
+**Per-request connection churn in the API:**
+- Problem: Every request opens and tears down a SQLite connection (`service()` → `connect()` → `init_schema()`), rather than reusing a connection or pool.
+- Files: `todo-engine/src/interfaces/api/mod.rs:52-63`
+- Cause: `ApiState` carries only `db_path` (plus a `keeper` used solely to keep an in-memory `:memory:` DB alive for tests, which `service()` ignores via `let _keeper = ...`).
+- Improvement path: Introduce a connection pool (e.g. shared `Arc<Mutex<Connection>>` for the file-backed path, mirroring the `keeper` pattern already used for `:memory:`), and move schema init out of the request path.
 
 ## Fragile Areas
 
-**Status transition state machine not centralized:**
-- Files: `todo-engine/src/application/service/transitions.rs` (all methods), `todo-engine/src/domain/status.rs` (status enum), `todo-engine/tests/integration/service_policy.rs` (policy tests)
-- Why fragile: Validation logic for state transitions is scattered across methods like `approve()`, `activate()`, `complete()`, etc. Each method checks pre-conditions (e.g., "must be proposed to approve"). If a new status is added, all transition methods must be audited and updated. Tests cover the happy path but edge cases (e.g., approving an approved item) may not be exhaustively tested.
-- Safe modification: Add a centralized state transition matrix at the top of `transitions.rs` (e.g., a HashMap of allowed transitions). Add unit tests for all pairwise transitions. Validate new status additions against the matrix before merge.
-- Test coverage: Integration tests in `tests/integration/service_policy.rs` cover key policies, but no tests for invalid transitions (e.g., trying to complete an archived item). Add negative test cases.
+**API `keeper` field is wired but unused on the file path:**
+- Files: `todo-engine/src/interfaces/api/mod.rs:25` (`ApiState.keeper`), `:53` (`let _keeper = &state.keeper;`)
+- Why fragile: `keeper` exists only to keep a shared-cache `:memory:` DB alive for tests; `service()` explicitly discards it and re-opens from `db_path`. A future change that assumes `keeper` is the live connection (or that file and memory paths behave the same) will silently diverge between test and production behavior.
+- Safe modification: When refactoring connection handling, unify the file and `:memory:` paths so the same connection-acquisition logic is exercised by tests and production.
+- Test coverage: e2e API tests (`todo-engine/tests/e2e/api.rs`, 624 lines) run against the `:memory:` keeper path, which is NOT the production code path through `connect()` per request. Concurrency and per-request schema-init behavior on the file path is not exercised.
 
-**Approval gating logic duplicated in CLI and API:**
-- Files: `todo-engine/src/interfaces/cli/create.rs`, `todo-engine/src/interfaces/api/handlers.rs`, `todo-engine/src/application/service/creation.rs` (e.g., line 85 creates area as active immediately)
-- Why fragile: Both CLI and API handlers parse the `actor` parameter and decide whether to mark an item as `proposed` or `approved`. If the policy changes (e.g., "all agent items must now be proposed"), both places must be updated.
-- Safe modification: Centralize the "should be approved?" logic into `TodoService` methods. Have `propose_task()`, `propose_project()`, etc. take an `actor` parameter and decide internally. Remove `actor` parsing from CLI/API handlers.
-- Test coverage: Service-layer tests in `service_policy.rs` verify the policy, but API/CLI handlers have no tests that verify they correctly pass the actor. Add API/CLI handler tests.
-
-**Materialization policy is a string, not an enum:**
-- Files: `todo-engine/src/application/service/materialization.rs` (line 33, match on string), `todo-engine/src/domain/model.rs` (materialization_policy field)
-- Why fragile: `materialization_policy` is stored as a string and matched on at runtime. Typos or new policies require code changes in two places (schema + service logic). No compile-time safety.
-- Safe modification: Create an enum `MaterializationPolicy { SingleOpen, PerOccurrence }` in `domain/`, derive serialization, and use it in the model. Update repo mapping to convert string ↔ enum. Add database migration to normalize existing strings.
-- Test coverage: No tests for unsupported materialization policies; the error case at line 62-65 is never exercised.
-
-**Clone-heavy TodoService state management:**
-- Files: `todo-engine/src/application/service/mod.rs` (lines 28-31 ServiceStore enum), tests clone items repeatedly
-- Why fragile: TodoService holds mutable state (store, events, counters). Tests and code that modify items often clone them before/after mutations. With large items or many events, this is wasteful and could become a performance issue.
-- Safe modification: Use references and owned buffers more carefully. Consider separating mutable service state (store, events) from immutable query logic. Profile clone costs in a test with 1k+ items.
-- Test coverage: No benchmarks; impact is unknown for large datasets.
+**Additive-only schema migration with no version branching:**
+- Files: `todo-engine/src/infrastructure/sqlite/schema.rs:124` (`ensure_item_columns`), `:93` (`ITEM_COLUMN_ADDITIONS`)
+- Why fragile: Migration is intentionally additive (add missing columns, never drop/rewrite — see CLAUDE.md). `user_version` is set to `1` unconditionally (`schema.rs:86`) and never read to branch behavior. Any future change requiring a column rename, type change, or data backfill has no migration mechanism and would have to be bolted on.
+- Safe modification: Keep additions in `ITEM_COLUMN_ADDITIONS`. For anything non-additive, introduce a real versioned migration step keyed off `user_version` (already exposed via `user_version()`).
+- Test coverage: `todo-engine/tests/integration/repository.rs` (403 lines) covers schema/repo behavior; confirm it includes an "old table missing columns" backfill case before relying on `ensure_item_columns`.
 
 ## Scaling Limits
 
-**SQLite single-writer bottleneck:**
-- Current capacity: ~100 concurrent readers, 1 writer at a time. With 10 concurrent users making changes, writes will queue.
-- Limit: Beyond ~500 active items and 10+ concurrent API users, SQLite locking will cause noticeable latency (100s of ms).
-- Scaling path: Migrate to PostgreSQL or MySQL if concurrent write throughput is needed. For local-first use cases, keep SQLite but implement write-ahead-log (WAL) mode (not currently enabled) to improve concurrency.
-
-**In-memory ID/event counters increment forever:**
-- Current capacity: `u64` counters for ID and event generation (lines 23-25 of `mod.rs`). In production, persistent mode uses UUID v4, so no overflow. In-memory mode increments forever.
-- Limit: In-memory tests run for 2^64 operations without counter reset (essentially no limit in practice, but a code smell).
-- Scaling path: Not critical for in-memory testing. If in-memory mode is used in production, add counter resets or use UUIDs instead.
-
-**No audit log retention policy:**
-- Current capacity: All events are inserted into the `events` table indefinitely. With 10 tasks/day, this is ~3650 events/year.
-- Limit: After 10 years, the events table has 36k rows; queries remain fast but backup/restore times grow. No documented retention policy.
-- Scaling path: Add optional archival (e.g., "move events older than 2 years to archive table" or "truncate old events"). Implement as optional CLI command. Document retention expectations in `docs/operations/data-home.md`.
+**Single-file SQLite, full-table reads:**
+- Current capacity: Comfortable for a personal/local workload (the intended use). Each list/query/materialization pass loads the entire `items` table into memory.
+- Limit: Performance degrades linearly (materialization quadratically) as the `items` table grows into tens of thousands of rows, because no query is index-backed (see Tech Debt).
+- Scaling path: SQL-side filtering + connection reuse (both covered above). The data model and indexes are already in place to support this.
 
 ## Dependencies at Risk
 
-**No dependencies on deprecated or unmaintained libraries:**
-- Risk: None detected. Dependencies are stable (rusqlite, axum, serde, time, clap).
-- Migration plan: N/A.
-
-**Time crate version lock:**
-- Risk: The `time` crate is pinned to a specific version in `Cargo.toml`. If a security fix is released in a newer version, the project won't automatically pick it up.
-- Impact: Potential vulnerability in date/time parsing if a CVE is discovered.
-- Migration plan: Regularly audit `time` crate for security updates; bump version in CI.
+**No dependencies flagged.** Stack is mainstream and actively maintained (`rusqlite`, `axum`, `clap`, `serde`, `time`, `uuid`, `thiserror`, `anyhow`). No vendored or abandoned crates observed in `todo-engine/src`. Run `cargo audit` periodically as the only standing recommendation.
 
 ## Missing Critical Features
 
-**No concurrent write support for multi-user scenarios:**
-- Problem: The spec says "local-first personal ToDo engine," implying single-user. But if the API is exposed to multiple users or clients, writes will conflict. No locking, versioning, or conflict resolution.
-- Blocks: Sharing a todo.sqlite between two processes (e.g., mobile app + web app) without manual sync or conflict resolution.
-
-**No soft-delete recovery mechanism:**
-- Problem: Items can be archived, cancelled, or dropped, but there is no "undelete" or "recovery" feature. If a user accidentally archives an important item, there is no UI to restore it.
-- Blocks: User safety in production; requires manual SQLite editing to recover.
-
-**No API rate limiting or authentication:**
-- Problem: The HTTP API has no auth layer and no rate limiting. Any client can hit any endpoint.
-- Blocks: Deployment in multi-tenant or shared environments.
+**No retry/backoff for transient SQLite contention:**
+- Problem: Storage errors (including `SQLITE_BUSY`) map straight to `TodoError::Storage` → CLI exit `1` / HTTP `500` with no retry.
+- Files: `todo-engine/src/application/error.rs:13`, `todo-engine/src/infrastructure/sqlite/mapping.rs` (`storage_error`)
+- Blocks: Reliable concurrent API usage. Pairs with the missing `busy_timeout` concern above.
 
 ## Test Coverage Gaps
 
-**API handler error cases not tested:**
-- What's not tested: API handlers do not have tests for invalid JSON, missing required fields, or out-of-range values. Tests only exercise happy paths.
-- Files: `todo-engine/tests/e2e/api.rs`, `todo-engine/src/interfaces/api/handlers.rs`
-- Risk: API could crash or return 500 for recoverable errors (e.g., negative priority) when it should return 400 with a message.
-- Priority: High.
+**Production API connection path (file-backed) is not exercised:**
+- What's not tested: e2e API tests use the `:memory:` shared-cache `keeper`, but `service()` re-opens from `db_path` and re-runs `init_schema` per request for file-backed DBs. Per-request schema-init cost and concurrent-write contention on a real file are untested.
+- Files: `todo-engine/tests/e2e/api.rs`, `todo-engine/src/interfaces/api/mod.rs:52-85`
+- Risk: Concurrency/`SQLITE_BUSY` regressions and file-path-specific bugs ship unnoticed.
+- Priority: Medium
 
-**Status transition edge cases:**
-- What's not tested: Tests cover normal transitions (proposed → approved → active → completed), but not invalid ones (e.g., active → proposed, or completed → completed). Policy validation may be incomplete.
-- Files: `todo-engine/tests/integration/service_policy.rs`
-- Risk: A policy bug (e.g., allowing a disallowed transition) could corrupt the work graph.
-- Priority: High.
+**Concurrency / parallel-request behavior:**
+- What's not tested: No test issues concurrent mutating requests against the same DB to assert lock/serialization behavior.
+- Files: `todo-engine/tests/e2e/api.rs`
+- Risk: Lock contention surfaces only in production.
+- Priority: Medium
 
-**Concurrent materialization race conditions:**
-- What's not tested: No tests for concurrent calls to `materialize_routines()` or parallel requests to `/today`. The uniqueness check for generated tasks is not tested under contention.
-- Files: `todo-engine/tests/integration/materialization.rs`
-- Risk: Duplicate task generation in production with concurrent users.
-- Priority: High.
-
-**Serialization round-trip integrity:**
-- What's not tested: JSON serialization of items and events is not tested for round-trip fidelity (serialize → deserialize → serialize should yield identical JSON). Floating-point or special value edge cases may be missed.
-- Files: `todo-engine/src/infrastructure/sqlite/mapping.rs`, tests
-- Risk: Audit trail divergence if serialization is lossy.
-- Priority: Medium.
-
-**Database corruption recovery:**
-- What's not tested: No tests for handling a corrupted or incomplete database (e.g., missing column, invalid constraint). The schema upgrade logic may fail silently.
-- Files: `todo-engine/src/infrastructure/sqlite/schema.rs`, `ensure_item_columns()`
-- Risk: Unrecoverable database errors in production with no user-friendly error messages.
-- Priority: Medium.
+**Otherwise strong coverage:** Three test binaries (`unit`, `integration`, `e2e`, ~3000 lines total) including an architecture-boundary test (`tests/unit/architecture.rs`), error mapping (`tests/unit/error_mapping.rs`), recurrence/materialization (`tests/integration/materialization.rs`, 447 lines), and CLI/API parity e2e suites. Coverage breadth is good; the gaps above are specifically around the file-backed concurrent runtime path.
 
 ---
 
-*Concerns audit: 2026-06-17*
+*Concerns audit: 2026-06-22*
