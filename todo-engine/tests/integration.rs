@@ -4,6 +4,8 @@ mod events;
 mod goal_policy;
 #[path = "integration/goal_roundtrip.rs"]
 mod goal_roundtrip;
+#[path = "integration/goal_view.rs"]
+mod goal_view;
 #[path = "integration/materialization.rs"]
 mod materialization;
 #[path = "integration/repository.rs"]
