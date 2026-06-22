@@ -254,7 +254,7 @@ SQLite table: `items`.
 | Column | Type / values | Meaning |
 | --- | --- | --- |
 | `id` | string, primary key | Stable item ID. |
-| `type` | `area`, `project`, `routine`, `task`, `event`, `review`, `archive_item` | Item kind. |
+| `type` | `area`, `project`, `routine`, `task`, `event`, `review`, `archive_item`, `goal` | Item kind. |
 | `title` | string | Human-readable title. |
 | `status` | enum | Lifecycle status. |
 | `area_id` | nullable item ID | Owning area. |
@@ -273,7 +273,7 @@ SQLite table: `items`.
 | `priority` | nullable int | Sort/attention priority. |
 | `due` | nullable string | Deadline. |
 | `scheduled` | nullable string | Schedule or visibility date/time. |
-| `horizon` | nullable string | Planning horizon; available for future views. |
+| `horizon` | nullable `year` / `month` / `week` | Planning horizon (domain `Horizon` enum); part of the `(type, horizon, scheduled)` planning index. |
 | `proposed_by` | `user`, `agent`, `system` | Creator actor. |
 | `approved_by` | nullable actor | Approver. |
 | `approved_at` | nullable datetime | Approval timestamp. |

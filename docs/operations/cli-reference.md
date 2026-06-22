@@ -85,7 +85,7 @@ Update mutable fields. Flags (all optional): `--title`, `--description`, `--note
 
 `--status` accepts: `proposed`, `approved`, `active`, `waiting`, `paused`, `completed`,
 `cancelled`, `dropped`, `archived`, `someday`, `rejected`. `--type` accepts: `area`,
-`project`, `routine`, `task`, `event`, `review`, `archive_item`. Invalid values are rejected
+`project`, `routine`, `task`, `event`, `review`, `archive_item`, `goal`. Invalid values are rejected
 with a helpful message and a validation exit code.
 
 ## Exit codes

@@ -10,7 +10,7 @@ service layer enforces on top of them.
 ## Item types
 
 The `type` column (Rust enum `ItemType`, serialized in `snake_case`) is one of:
-`area`, `project`, `routine`, `task`, `event`, `review`, `archive_item`. The actively
+`area`, `project`, `routine`, `task`, `event`, `review`, `archive_item`, `goal`. The actively
 created/managed types and their invariants:
 
 - **`area`** — a long-lived responsibility domain (e.g. `재정`, `건강`). Created `active`
@@ -30,6 +30,10 @@ created/managed types and their invariants:
   `metadata` for location, participants, and commitment type. Listed separately from tasks.
 - **`review`** — a scheduled review/checkpoint item (reserved type).
 - **`archive_item`** — a historical/terminal item type (reserved type).
+- **`goal`** — a period-scoped planning goal (reserved type). Recognized and persisted with
+  an optional `horizon` (`year` / `month` / `week`) and round-trips through SQLite; there is
+  no dedicated creation command — the service-layer create/link/validation path is a separate
+  planning-layer concern.
 
 `ItemType` round-trips through `ItemType::as_str()` / `FromStr` using these exact canonical
 lowercase strings (with `archive_item` snake-cased). Unknown strings are rejected.
@@ -105,7 +109,9 @@ factory, and the API service factory). It is **additive and idempotent** — ver
   left untouched.
 - Indexes are created with `IF NOT EXISTS`, including a unique index on
   `(routine_id, occurrence_key)` (where both are non-null) that guards routine occurrence
-  de-duplication.
+  de-duplication, and the planning indexes `idx_items_parent_id` (`parent_id`),
+  `idx_items_scheduled` (`scheduled`), and composite `idx_items_type_horizon_scheduled`
+  (`type, horizon, scheduled`).
 - `PRAGMA user_version = 1` marks the schema baseline (reported by `health`).
 - The whole thing runs in a transaction; on error it rolls back.
 
