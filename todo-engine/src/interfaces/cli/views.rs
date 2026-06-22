@@ -13,7 +13,10 @@ pub(super) fn list(home: &Path, args: ListArgs) -> Result<()> {
         item_type: args.item_type,
         area_id: args.area_id,
         project_id: args.project_id,
+        parent_id: None,
         routine_id: args.routine_id,
+        horizon: None,
+        scheduled: None,
         query: args.query,
         include_archived: args.include_archived,
     })?;

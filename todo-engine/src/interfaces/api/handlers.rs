@@ -167,7 +167,10 @@ pub(super) async fn list_items(
             .unwrap_or(false),
         area_id: query.area_id.and_then(non_empty_string),
         project_id: query.project_id.and_then(non_empty_string),
+        parent_id: None,
         routine_id: query.routine_id.and_then(non_empty_string),
+        horizon: None,
+        scheduled: None,
         query: query.query.and_then(non_empty_string),
     };
     let mut items = with_service(&state, |service| service.list_items(filter))?;

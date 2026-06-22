@@ -67,3 +67,63 @@ fn type_and_query_filters_select_expected_rows() {
         ["p"]
     );
 }
+
+#[test]
+fn horizon_parent_and_scheduled_filters_select_expected_rows() {
+    let mut month_a = item("ma", ItemType::Task, ItemStatus::Active);
+    month_a.horizon = Some("month".into());
+    month_a.parent_id = Some("goal-1".into());
+    month_a.scheduled = Some("2026-06-01".into());
+
+    let mut month_b = item("mb", ItemType::Task, ItemStatus::Active);
+    month_b.horizon = Some("month".into());
+    month_b.parent_id = Some("goal-2".into());
+    month_b.scheduled = Some("2026-07-01".into());
+
+    let mut week_a = item("wa", ItemType::Task, ItemStatus::Active);
+    week_a.horizon = Some("week".into());
+    week_a.parent_id = Some("goal-1".into());
+    week_a.scheduled = Some("2026-06-01".into());
+
+    let items = vec![month_a, month_b, week_a];
+
+    // horizon: month selects both month rows
+    let by_horizon = apply_list_filter(
+        items.clone(),
+        ListFilter {
+            horizon: Some("month".into()),
+            ..ListFilter::default()
+        },
+    );
+    assert_eq!(
+        by_horizon.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+        ["ma", "mb"]
+    );
+
+    // parent_id: goal-1 selects the two children of goal-1
+    let by_parent = apply_list_filter(
+        items.clone(),
+        ListFilter {
+            parent_id: Some("goal-1".into()),
+            ..ListFilter::default()
+        },
+    );
+    assert_eq!(
+        by_parent.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+        ["ma", "wa"]
+    );
+
+    // exact (horizon, scheduled) period match selects only the month row for that period
+    let by_period = apply_list_filter(
+        items,
+        ListFilter {
+            horizon: Some("month".into()),
+            scheduled: Some("2026-06-01".into()),
+            ..ListFilter::default()
+        },
+    );
+    assert_eq!(
+        by_period.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+        ["ma"]
+    );
+}

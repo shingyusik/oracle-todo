@@ -21,7 +21,10 @@ pub struct ListFilter {
     pub item_type: Option<ItemType>,
     pub area_id: Option<String>,
     pub project_id: Option<String>,
+    pub parent_id: Option<String>,
     pub routine_id: Option<String>,
+    pub horizon: Option<String>,
+    pub scheduled: Option<String>,
     pub query: Option<String>,
     pub include_archived: bool,
 }
@@ -57,9 +60,27 @@ pub fn apply_list_filter(
         })
         .filter(|item| {
             filter
+                .parent_id
+                .as_ref()
+                .is_none_or(|parent_id| item.parent_id.as_ref() == Some(parent_id))
+        })
+        .filter(|item| {
+            filter
                 .routine_id
                 .as_ref()
                 .is_none_or(|routine_id| item.routine_id.as_ref() == Some(routine_id))
+        })
+        .filter(|item| {
+            filter
+                .horizon
+                .as_ref()
+                .is_none_or(|horizon| item.horizon.as_ref() == Some(horizon))
+        })
+        .filter(|item| {
+            filter
+                .scheduled
+                .as_ref()
+                .is_none_or(|scheduled| item.scheduled.as_ref() == Some(scheduled))
         })
         .filter(|item| {
             filter.query.as_ref().is_none_or(|query| {

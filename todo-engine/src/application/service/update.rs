@@ -81,7 +81,8 @@ impl TodoService {
                 self.ensure_relation(Some(project_id), ItemType::Project, "Project")?;
         }
         if let Some(parent_id) = request.parent_id {
-            item.parent_id = self.ensure_relation(Some(parent_id), ItemType::Goal, "Goal parent")?;
+            item.parent_id =
+                self.ensure_relation(Some(parent_id), ItemType::Goal, "Goal parent")?;
         }
         if let Some(routine_id) = request.routine_id {
             item.routine_id =
