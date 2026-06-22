@@ -1,5 +1,5 @@
 use todo_engine::application::error::TodoError;
-use todo_engine::application::service::{ProposeGoal, TodoService, UpdateItem};
+use todo_engine::application::service::{ProposeGoal, ProposeProject, TodoService, UpdateItem};
 use todo_engine::domain::{Actor, ItemStatus};
 
 fn goal(actor: Actor, horizon: &str, scheduled: &str, parent_id: Option<&str>) -> ProposeGoal {
@@ -129,4 +129,127 @@ fn goal_duplicate_triple_is_rejected() {
         .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
         .unwrap_err();
     assert!(matches!(duplicate, TodoError::Policy(_)));
+}
+
+// SC4 (positive): linking a task to a goal via the audited update_item path sets
+// parent_id + scheduled (LINK-01/LINK-02) and emits an `update_item` event (CORE-01).
+#[test]
+fn link_task_to_goal_sets_parent_and_scheduled_via_audited_path() {
+    let mut service = TodoService::in_memory();
+
+    let goal = service
+        .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
+        .unwrap();
+    let task = service
+        .propose_task(
+            "decomposed task",
+            todo_engine::application::service::ProposeTask {
+                actor: Actor::User,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let linked = service
+        .update_item(
+            &task.id,
+            UpdateItem {
+                parent_id: Some(goal.id.clone()),
+                scheduled: Some("2026-06-08".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(linked.parent_id.as_deref(), Some(goal.id.as_str()));
+    assert_eq!(linked.scheduled.as_deref(), Some("2026-06-08"));
+    assert_eq!(service.events().last().unwrap().action, "update_item");
+}
+
+// SC4 (negative, non-Goal parent): linking a task to a non-Goal item is rejected
+// with Policy ("Goal parent must be goal: ..") via ensure_relation.
+#[test]
+fn link_task_to_non_goal_parent_is_rejected() {
+    let mut service = TodoService::in_memory();
+
+    let project = service
+        .propose_project(ProposeProject {
+            title: "a project".to_string(),
+            area: None,
+            definition_of_done: None,
+            outcome: None,
+            due: None,
+            actor: Actor::User,
+            note: None,
+        })
+        .unwrap();
+    let task = service
+        .propose_task(
+            "task",
+            todo_engine::application::service::ProposeTask {
+                actor: Actor::User,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let error = service
+        .update_item(
+            &task.id,
+            UpdateItem {
+                parent_id: Some(project.id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+    match error {
+        TodoError::Policy(message) => assert!(
+            message.contains("Goal parent must be goal"),
+            "unexpected policy message: {message}"
+        ),
+        other => panic!("expected Policy error, got {other:?}"),
+    }
+}
+
+// SC4 (negative, terminal parent): linking a task to a terminal goal is rejected
+// with Policy ("Goal parent is terminal: ..") via ensure_relation.
+#[test]
+fn link_task_to_terminal_goal_parent_is_rejected() {
+    let mut service = TodoService::in_memory();
+
+    let goal = service
+        .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
+        .unwrap();
+    // Drive the goal to a terminal status before attempting the link.
+    let dropped = service.drop(&goal.id, Some("no longer pursued")).unwrap();
+    assert_eq!(dropped.status, ItemStatus::Dropped);
+
+    let task = service
+        .propose_task(
+            "task",
+            todo_engine::application::service::ProposeTask {
+                actor: Actor::User,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let error = service
+        .update_item(
+            &task.id,
+            UpdateItem {
+                parent_id: Some(goal.id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+    match error {
+        TodoError::Policy(message) => assert!(
+            message.contains("terminal"),
+            "unexpected policy message: {message}"
+        ),
+        other => panic!("expected Policy error, got {other:?}"),
+    }
 }
