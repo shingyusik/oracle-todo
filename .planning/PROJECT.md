@@ -27,12 +27,12 @@ A user can set a big goal for a period (year/month/week), break it top-down into
 - ✓ Goals nest flexibly via `parent_id` (level-skipping allowed; strictly-coarser horizon enforced, cycles rejected) — Phase 2
 - ✓ A task connects to a goal via `parent_id` and carries a `scheduled` date (audited `update_item` path) — Phase 2
 - ✓ Service-layer read primitive: `ListFilter` `horizon` / `parent_id` / `scheduled` predicates over both in-memory and persistent SQLite list paths — Phase 2
+- ✓ Date view: `agenda` (single-date `scheduled` ∪ `due`, deduped) + `date_range` ([from, to] scheduled-only), in `queries.rs`, side-effect-free, deterministic order, store-parity proven — Phase 3
 
 ### Active
 
 <!-- This milestone. Hypotheses until shipped and validated. -->
 
-- [ ] Date view: list tasks grouped by `scheduled` date for a given day/range
 - [ ] Period views: week / month / year views roll up the goal tree (goals + their decomposed tasks)
 - [ ] All planning mutations route through `TodoService` (validation, state machine, audit event, approval gating reused — no new bypass)
 - [ ] Schema changes are additive only (extend `items`; no dropped/rewritten columns)
@@ -91,4 +91,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-22 — Phase 2 complete (Service Policy: goal create, link & validation)*
+*Last updated: 2026-06-23 — Phase 3 complete (Date View: `agenda` + `date_range` service queries)*
