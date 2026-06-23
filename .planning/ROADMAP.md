@@ -82,7 +82,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — In-memory unit tests: range ordering, unscheduled-never-dropped, agenda union+dedup, open-only, no-overdue-roll (VIEW-02, VIEW-05) — Wave 2
+- [x] 03-02-PLAN.md — In-memory unit tests: range ordering, unscheduled-never-dropped, agenda union+dedup, open-only, no-overdue-roll (VIEW-02, VIEW-05) — Wave 2
 - [ ] 03-03-PLAN.md — Persistent SQLite integration tests: store parity + side-effect-free (SC4/CORE-03) (VIEW-02, VIEW-05) — Wave 2
 
 ### Phase 4: Period View (goal-tree rollup)
@@ -131,6 +131,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
-| 3. Date View | 1/3 | In Progress|  |
+| 3. Date View | 2/3 | In Progress|  |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |
