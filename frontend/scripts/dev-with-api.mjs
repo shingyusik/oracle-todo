@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,7 +45,20 @@ process.on("SIGTERM", () => {
   process.exit(143);
 });
 
-start("cargo", ["run", "-p", "todo-engine", "--", "api"], {
-  cwd: workspaceRoot,
-});
+if (!(await apiAvailable())) {
+  start("cargo", ["run", "-p", "todo-engine", "--", "api"], {
+    cwd: workspaceRoot,
+  });
+}
 start("npm", ["run", "dev", "--", "--port", "3001"], { cwd: frontendDir });
+
+function apiAvailable() {
+  return new Promise((resolveAvailable) => {
+    const socket = net.connect(3002, "127.0.0.1");
+    socket.once("connect", () => {
+      socket.end();
+      resolveAvailable(true);
+    });
+    socket.once("error", () => resolveAvailable(false));
+  });
+}

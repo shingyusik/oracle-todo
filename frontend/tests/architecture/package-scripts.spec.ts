@@ -21,6 +21,7 @@ describe("frontend package scripts", () => {
     const source = await fs.readFile("scripts/dev-with-api.mjs", "utf8");
 
     expect(source).toContain("workspaceRoot");
+    expect(source).toContain("apiAvailable");
     expect(source).toContain('start("cargo", ["run", "-p", "todo-engine", "--", "api"]');
     expect(source).toContain("cwd: workspaceRoot");
   });
