@@ -5,7 +5,8 @@ the built binary directly). This reference is verified against `todo-engine/src/
 
 ## Global flag
 
-- `--home <path>` (env `TODO_ENGINE_HOME`) — data home. See [data-home.md](data-home.md).
+- `--home <path>` (env `TODO_ENGINE_HOME`, including from `.env`) — data home. See
+  [data-home.md](data-home.md).
 
 Every run emits tracing logs to stderr and to the rotating JSONL file log (see
 [logging-and-rotation.md](logging-and-rotation.md)). Created/updated items are printed as a

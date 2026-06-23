@@ -20,11 +20,15 @@ cargo run -p todo-engine -- init           # create todo.sqlite at the data home
 By default the data home is `~/.todo-engine/`. It is resolved (in order) from:
 
 1. the `--home <path>` flag,
-2. the `TODO_ENGINE_HOME` environment variable,
-3. `$HOME/.todo-engine` (errors if `HOME` is unset).
+2. an existing `TODO_ENGINE_HOME` process environment variable,
+3. `TODO_ENGINE_HOME` loaded from the nearest `.env` file in the current directory or a parent,
+4. `$HOME/.todo-engine` (errors if `HOME` is unset).
 
 ```bash
 export TODO_ENGINE_HOME=/path/to/data
+cargo run -p todo-engine -- init
+# or:
+echo 'TODO_ENGINE_HOME=/path/to/data' > .env
 cargo run -p todo-engine -- init
 # or, per-invocation:
 cargo run -p todo-engine -- --home /path/to/data init

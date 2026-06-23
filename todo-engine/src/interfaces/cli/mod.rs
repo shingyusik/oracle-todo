@@ -294,6 +294,7 @@ struct UpdateArgs {
 }
 
 pub fn run() -> Result<()> {
+    dotenvy::dotenv().ok();
     let cli = Cli::parse();
     let command_name = command_label(&cli.command);
     let home = todo_home(cli.home)?;

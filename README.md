@@ -52,6 +52,7 @@ Use another data directory:
 ```bash
 export TODO_ENGINE_HOME=/path/to/data
 cargo run -p todo-engine -- init
+# or put TODO_ENGINE_HOME=/path/to/data in .env
 # or
 cargo run -p todo-engine -- --home /path/to/data init
 ```

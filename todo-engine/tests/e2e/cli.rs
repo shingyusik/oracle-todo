@@ -33,6 +33,36 @@ fn init_uses_todo_engine_home_environment() {
 }
 
 #[test]
+fn init_loads_todo_engine_home_from_dotenv() {
+    let home = TestHome::new();
+    let cwd = tempfile::tempdir().expect("create dotenv cwd");
+    let fallback_home = tempfile::tempdir().expect("create fallback home");
+    std::fs::write(
+        cwd.path().join(".env"),
+        format!("TODO_ENGINE_HOME={}\n", home.path().display()),
+    )
+    .expect("write .env");
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .current_dir(cwd.path())
+        .env_remove("TODO_ENGINE_HOME")
+        .env("HOME", fallback_home.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(contains(home.db_path().to_string_lossy().as_ref()));
+
+    assert!(home.db_path().exists());
+    assert!(
+        !fallback_home
+            .path()
+            .join(".todo-engine/todo.sqlite")
+            .exists()
+    );
+}
+
+#[test]
 fn api_command_exposes_default_port() {
     Command::cargo_bin("todo-engine")
         .unwrap()

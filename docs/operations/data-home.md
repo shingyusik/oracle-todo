@@ -8,12 +8,16 @@ operational logs. Everything `todo-engine` persists lives under it.
 The data home is resolved by `infrastructure::paths::todo_home`, in this order:
 
 1. `--home <path>` flag.
-2. `TODO_ENGINE_HOME` environment variable.
-3. `$HOME/.todo-engine` (the default; errors if `HOME` is unset).
+2. Existing `TODO_ENGINE_HOME` process environment variable.
+3. `TODO_ENGINE_HOME` loaded from the nearest `.env` file in the current directory or a parent.
+4. `$HOME/.todo-engine` (the default; errors if `HOME` is unset).
 
 ```bash
 export TODO_ENGINE_HOME=/path/to/data
 cargo run -p todo-engine -- --home /path/to/data init   # flag wins over the env var
+
+echo 'TODO_ENGINE_HOME=/path/to/data' > .env
+cargo run -p todo-engine -- init
 ```
 
 ## Layout

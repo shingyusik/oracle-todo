@@ -8,6 +8,7 @@ description = "Policy-enforced personal ToDo engine"
 anyhow = "1.0"
 axum = "0.7"
 clap = { version = "4.5", features = ["derive", "env"] }
+dotenvy = "0.15"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

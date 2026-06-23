@@ -53,7 +53,7 @@ CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `task`, `ro
 
 ## Data Home & Configuration
 
-- Data home: `TODO_ENGINE_HOME` env var or `--home <path>`; default `~/.todo-engine/`.
+- Data home: `--home <path>`, `TODO_ENGINE_HOME`, or `TODO_ENGINE_HOME` in `.env`; default `~/.todo-engine/`.
 - Layout: `todo.sqlite`, `logs/todo-engine.log.jsonl(.1-.3)`.
 - Log levels: `TODO_ENGINE_CONSOLE_LOG` (default `info`), `TODO_ENGINE_FILE_LOG` (default `debug`).
 - Log rotation: `TODO_ENGINE_LOG_MAX_BYTES` (default `1_048_576`), `TODO_ENGINE_LOG_MAX_FILES` (default `3`).
