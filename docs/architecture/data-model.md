@@ -45,6 +45,8 @@ The `proposed_by` / `approved_by` columns use the `Actor` enum: `user`, `agent`,
 (`status = approved`, `approved_by = user`, `approved_at = now`); any other actor leaves the
 item `proposed` with no approval markers. This is the mechanism behind approval gating —
 see [decisions/adr-0003-approval-gating.md](decisions/adr-0003-approval-gating.md).
+SQLite reads treat legacy `oracle` actor values as `agent`; new writes use only the canonical
+`user`, `agent`, and `system` values.
 
 ## Status lifecycle
 

@@ -104,6 +104,28 @@ fn saving_item_and_event_persists_to_sqlite() {
 }
 
 #[test]
+fn repository_reads_legacy_oracle_actor_as_agent() {
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    conn.execute_batch(
+        r#"
+        INSERT INTO items (id, type, title, status, proposed_by, created_at, updated_at)
+        VALUES ('task_legacy_actor', 'task', 'legacy', 'proposed', 'oracle', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
+        INSERT INTO events (id, at, actor, action, object_type, object_id)
+        VALUES ('evt_legacy_actor', '2026-06-01T00:00:00Z', 'oracle', 'propose_task', 'task', 'task_legacy_actor');
+        "#,
+    )
+    .unwrap();
+
+    let mut repo = SqliteTodoRepository::new(conn);
+    let item = repo.get_item("task_legacy_actor").unwrap().unwrap();
+    let events = repo.list_events_for_item("task_legacy_actor").unwrap();
+
+    assert_eq!(item.proposed_by, Actor::Agent);
+    assert_eq!(events[0].actor, Actor::Agent);
+}
+
+#[test]
 fn sqlite_backed_service_persists_items_and_events() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("todo.sqlite");

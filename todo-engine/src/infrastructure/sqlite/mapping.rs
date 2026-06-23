@@ -113,6 +113,10 @@ pub(super) fn parse_status(value: &str) -> TodoResult<ItemStatus> {
 }
 
 pub(super) fn parse_actor(value: &str) -> TodoResult<Actor> {
+    if value.trim() == "oracle" {
+        return Ok(Actor::Agent);
+    }
+
     Actor::from_str(value).map_err(TodoError::Storage)
 }
 
