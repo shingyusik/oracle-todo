@@ -1,3 +1,5 @@
+#[path = "integration/date_view.rs"]
+mod date_view;
 #[path = "integration/events.rs"]
 mod events;
 #[path = "integration/goal_policy.rs"]
