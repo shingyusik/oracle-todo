@@ -23,10 +23,10 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 ### Views (VIEW)
 
 - [x] **VIEW-01**: User can list goals/tasks filtered by horizon, period, and parent (the read primitive the views compose).
-- [ ] **VIEW-02**: Date view — user can see tasks grouped by `scheduled` date for a single day and for an arbitrary `[from, to]` range; tasks with no `scheduled` date are surfaced in an explicit bucket, not dropped.
+- [x] **VIEW-02**: Date view — user can see tasks grouped by `scheduled` date for a single day and for an arbitrary `[from, to]` range; tasks with no `scheduled` date are surfaced in an explicit bucket, not dropped.
 - [ ] **VIEW-03**: Period view — user can see the goal(s) for a given `(horizon, period)` plus their descendant goal+task subtree (structure only; no completion rollup).
 - [ ] **VIEW-04**: Unscheduled-in-goal surfacing — user can see tasks linked under a goal that have no `scheduled` date.
-- [ ] **VIEW-05**: Agenda spanning scheduled + due — for a given date, user can see both tasks scheduled for that day and tasks due that day.
+- [x] **VIEW-05**: Agenda spanning scheduled + due — for a given date, user can see both tasks scheduled for that day and tasks due that day.
 
 ### Surface (SURF)
 
@@ -37,7 +37,7 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 
 - [x] **CORE-01**: All planning mutations route through `TodoService` (validation, status state machine, audit event) — no direct repository writes.
 - [x] **CORE-02**: Schema changes are additive only — `Goal` enum variant plus indexes; no dropped/rewritten columns and no new `period_key` column (period derives from `(horizon, scheduled)`).
-- [ ] **CORE-03**: New date/period view logic lives in the application/service layer shared by CLI and API (not in adapter code), so CLI and API stay in parity.
+- [x] **CORE-03**: New date/period view logic lives in the application/service layer shared by CLI and API (not in adapter code), so CLI and API stay in parity.
 
 ## v2 Requirements
 
@@ -79,15 +79,15 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 | LINK-01 | Phase 2 | Complete |
 | LINK-02 | Phase 2 | Complete |
 | VIEW-01 | Phase 2 | Complete |
-| VIEW-02 | Phase 3 | Pending |
+| VIEW-02 | Phase 3 | Complete |
 | VIEW-03 | Phase 4 | Pending |
 | VIEW-04 | Phase 4 | Pending |
-| VIEW-05 | Phase 3 | Pending |
+| VIEW-05 | Phase 3 | Complete |
 | SURF-01 | Phase 5 | Pending |
 | SURF-02 | Phase 5 | Pending |
 | CORE-01 | Phase 2 | Complete |
 | CORE-02 | Phase 1 | Complete |
-| CORE-03 | Phase 5 | Pending |
+| CORE-03 | Phase 5 | Complete |
 
 **Coverage:**
 

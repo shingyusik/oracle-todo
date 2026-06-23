@@ -78,7 +78,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — `agenda` + `date_range` pure date-view methods on `TodoService` in `queries.rs` (VIEW-02, VIEW-05, CORE-03) — Wave 1
+- [x] 03-01-PLAN.md — `agenda` + `date_range` pure date-view methods on `TodoService` in `queries.rs` (VIEW-02, VIEW-05, CORE-03) — Wave 1
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -131,6 +131,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
-| 3. Date View | 0/3 | Not started | - |
+| 3. Date View | 1/3 | In Progress|  |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |
