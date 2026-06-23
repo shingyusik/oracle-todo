@@ -2,6 +2,8 @@
 mod architecture;
 #[path = "unit/clock.rs"]
 mod clock;
+#[path = "unit/date_view.rs"]
+mod date_view;
 #[path = "unit/error_mapping.rs"]
 mod error_mapping;
 #[path = "unit/filter.rs"]
