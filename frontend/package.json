@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:with-api": "node scripts/dev-with-api.mjs",
     "build": "next build",
     "test": "vitest run --no-file-parallelism",
     "typecheck": "tsc --noEmit"

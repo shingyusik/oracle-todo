@@ -7,20 +7,21 @@ Next.js workbench frontend for `todo-engine`.
 ```bash
 npm install
 npm run dev
+npm run dev:with-api
 npm run test
 npm run typecheck
 npm run build
 ```
 
-Run the Rust API beside the frontend:
+Run the frontend with the Rust API:
 
 ```bash
-cargo run -p todo-engine -- api
-npm run dev -- --port 3001
+npm run dev:with-api
 ```
 
 The frontend calls `/todo-engine/*`; `next.config.mjs` proxies those requests to
-`http://127.0.0.1:3002/*`.
+`http://127.0.0.1:3002/*`. `npm run dev:with-api` starts the Rust API from the
+workspace root, so `TODO_ENGINE_HOME` from the root `.env` selects the SQLite data home.
 
 ## Architecture
 
