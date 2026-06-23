@@ -17,18 +17,6 @@ describe("useWorkbenchController", () => {
 
     expect(result.current.selection.leafTabId).toBe("dashboard");
     expect(result.current.panel.title).toBe("Dashboard");
-    expect(result.current.panel.summaryCards).toEqual([
-      {
-        label: "Focus",
-        title: "Dashboard",
-        summary: "Review proposed, approved, and active work from one place.",
-      },
-      {
-        label: "Status",
-        title: "Ready",
-        summary: "This static shell is prepared for service-backed data.",
-      },
-    ]);
   });
 
   it("selects areas under todo when workspace is clicked", () => {

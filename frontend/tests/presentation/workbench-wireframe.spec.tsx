@@ -24,6 +24,23 @@ describe("WorkbenchPageClient", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not render static overview cards", () => {
+    render(<WorkbenchPageClient />);
+
+    expect(screen.queryByLabelText("Dashboard overview")).toBeNull();
+    expect(screen.queryByText("Focus")).toBeNull();
+    expect(screen.queryByText("Ready")).toBeNull();
+  });
+
+  it("does not render static panel intro copy", () => {
+    render(<WorkbenchPageClient />);
+
+    expect(screen.queryByText("Local command center")).toBeNull();
+    expect(
+      screen.queryByText("Review proposed, approved, and active work from one place."),
+    ).toBeNull();
+  });
+
   it("renders workspace and planner as todo sub navigation items", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);
@@ -50,7 +67,6 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Workspace" }));
 
-    expect(screen.getByRole("heading", { name: "Areas" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -70,7 +86,10 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "ToDo" }));
 
-    expect(screen.getByRole("heading", { name: "ToDo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ToDo" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
     expect(
       screen.getByRole("button", { name: "Workspace" }),
     ).toBeInTheDocument();
@@ -104,9 +123,6 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Planner" }));
 
-    expect(
-      screen.getByRole("heading", { name: "Yearly" }),
-    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Yearly" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Areas" })).toBeNull();
   });
@@ -149,7 +165,10 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Planner" }));
     expect(screen.queryByRole("button", { name: "Yearly" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "ToDo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ToDo" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
   });
 
   it("changes the main panel when a tab is clicked", async () => {
@@ -160,10 +179,10 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Projects" }));
 
-    expect(
-      screen.getByRole("heading", { name: "Projects" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Outcome pipeline")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Projects" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
   });
 
   it("loads selected workspace items from todo-engine into a table", async () => {
@@ -307,12 +326,16 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Planner" }));
-    expect(
-      screen.getByRole("heading", { name: "Yearly" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Yearly" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
 
     await user.click(screen.getByRole("button", { name: "Daily" }));
-    expect(screen.getByRole("heading", { name: "Daily" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Daily" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
   });
 
 });

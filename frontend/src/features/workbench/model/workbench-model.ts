@@ -8,10 +8,6 @@ import type {
 export type WorkbenchPanelModel = {
   id: LeafTabId;
   title: string;
-  eyebrow: string;
-  summary: string;
-  overviewLabel: string;
-  summaryCards: WorkbenchSummaryCardModel[];
 };
 
 export type WorkspaceItemModel = {
@@ -46,12 +42,6 @@ export type WorkspaceItemsModel = {
   };
 };
 
-export type WorkbenchSummaryCardModel = {
-  label: string;
-  title: string;
-  summary: string;
-};
-
 export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
@@ -66,20 +56,5 @@ export function createPanelModel(leafTabId: LeafTabId): WorkbenchPanelModel {
   return {
     id: leafTabId,
     title: panel.title,
-    eyebrow: panel.eyebrow,
-    summary: panel.summary,
-    overviewLabel: workbenchCopy.panelOverviewLabel(panel.title),
-    summaryCards: [
-      {
-        label: workbenchCopy.summaryCards.focus.label,
-        title: panel.title,
-        summary: panel.summary,
-      },
-      {
-        label: workbenchCopy.summaryCards.status.label,
-        title: workbenchCopy.summaryCards.status.title,
-        summary: workbenchCopy.summaryCards.status.summary,
-      },
-    ],
   };
 }
