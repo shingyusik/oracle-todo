@@ -1,5 +1,6 @@
 import React from "react";
 
+import type { LeafTabId } from "@/domain/workbench/navigation";
 import type {
   WorkbenchPanelModel,
   WorkspaceItemModel,
@@ -9,6 +10,11 @@ import type {
 type MainPanelProps = {
   panel: WorkbenchPanelModel;
   workspaceItems: WorkspaceItemsModel;
+};
+
+type ItemColumn = {
+  label: string;
+  value: (item: WorkspaceItemModel, workspaceItems: WorkspaceItemsModel) => string;
 };
 
 export function MainPanel({ panel, workspaceItems }: MainPanelProps) {
@@ -76,19 +82,19 @@ function WorkspaceItemsTable({ panel, workspaceItems }: MainPanelProps) {
       <table className="items-table" aria-label={`${panel.title} items`}>
         <thead>
           <tr>
-            <th scope="col">Title</th>
-            <th scope="col">Status</th>
-            <th scope="col">Detail</th>
-            <th scope="col">Updated</th>
+            {columnsForPanel(panel.id).map((column) => (
+              <th scope="col" key={column.label}>
+                {column.label}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {workspaceItems.items.map((item) => (
             <tr key={item.id}>
-              <td>{item.title}</td>
-              <td>{item.status}</td>
-              <td>{itemDetail(item)}</td>
-              <td>{formatDate(item.updated_at)}</td>
+              {columnsForPanel(panel.id).map((column) => (
+                <td key={column.label}>{column.value(item, workspaceItems)}</td>
+              ))}
             </tr>
           ))}
         </tbody>
@@ -97,17 +103,78 @@ function WorkspaceItemsTable({ panel, workspaceItems }: MainPanelProps) {
   );
 }
 
-function itemDetail(item: WorkspaceItemModel): string {
-  return (
-    item.review_cycle ??
-    item.standard ??
-    item.outcome ??
-    item.recurrence_rule ??
-    item.scheduled ??
-    item.due ??
-    item.priority?.toString() ??
-    "-"
-  );
+const sharedColumns: ItemColumn[] = [
+  { label: "Title", value: (item) => item.title },
+  { label: "Status", value: (item) => item.status },
+];
+
+const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
+  areas: [
+    ...sharedColumns,
+    { label: "Review Cycle", value: (item) => displayValue(item.review_cycle) },
+    { label: "Standard", value: (item) => displayValue(item.standard) },
+    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Updated", value: (item) => formatDate(item.updated_at) },
+  ],
+  projects: [
+    ...sharedColumns,
+    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
+    {
+      label: "Definition of Done",
+      value: (item) => displayValue(item.definition_of_done),
+    },
+    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Updated", value: (item) => formatDate(item.updated_at) },
+  ],
+  tasks: [
+    ...sharedColumns,
+    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
+    {
+      label: "Project",
+      value: (item, items) => relatedTitle(items.relatedItems.projects, item.project_id),
+    },
+    {
+      label: "Routine",
+      value: (item, items) => relatedTitle(items.relatedItems.routines, item.routine_id),
+    },
+    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Updated", value: (item) => formatDate(item.updated_at) },
+  ],
+  routines: [
+    ...sharedColumns,
+    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
+    {
+      label: "Recurrence Rule",
+      value: (item) => displayValue(item.recurrence_rule),
+    },
+    {
+      label: "Materialization Policy",
+      value: (item) => displayValue(item.materialization_policy),
+    },
+    { label: "Note", value: (item) => displayValue(item.note) },
+    {
+      label: "Last Materialized",
+      value: (item) => formatDate(item.last_materialized_at),
+    },
+  ],
+};
+
+function columnsForPanel(panelId: LeafTabId): ItemColumn[] {
+  return itemColumns[panelId] ?? [
+    ...sharedColumns,
+    { label: "Updated", value: (item) => formatDate(item.updated_at) },
+  ];
+}
+
+function relatedTitle(
+  titlesById: Record<string, string>,
+  id: string | null | undefined,
+): string {
+  return id ? (titlesById[id] ?? id) : "-";
+}
+
+function displayValue(value: string | number | null | undefined): string {
+  return value?.toString() || "-";
 }
 
 function formatDate(value: string | null | undefined): string {

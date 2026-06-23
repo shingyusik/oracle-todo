@@ -13,9 +13,12 @@ import {
 } from "@/domain/workbench/navigation";
 import {
   type WorkbenchController,
+  type WorkspaceItemModel,
   type WorkspaceItemsModel,
   createPanelModel,
 } from "@/features/workbench/model/workbench-model";
+
+type WorkspaceItemType = "area" | "project" | "routine" | "task";
 
 const workspaceItemTypes: Partial<Record<LeafTabId, string>> = {
   areas: "area",
@@ -24,14 +27,28 @@ const workspaceItemTypes: Partial<Record<LeafTabId, string>> = {
   tasks: "task",
 };
 
+const relatedItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
+  projects: ["area"],
+  routines: ["area"],
+  tasks: ["area", "project", "routine"],
+};
+
+const emptyWorkspaceItems: WorkspaceItemsModel = {
+  status: "idle",
+  items: [],
+  relatedItems: {
+    areas: {},
+    projects: {},
+    routines: {},
+  },
+};
+
 export function useWorkbenchController(): WorkbenchController {
   const [selection, setSelection] = useState<WorkbenchSelection>(() =>
     resolveInitialSelection(),
   );
-  const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItemsModel>({
-    status: "idle",
-    items: [],
-  });
+  const [workspaceItems, setWorkspaceItems] =
+    useState<WorkspaceItemsModel>(emptyWorkspaceItems);
   const panel = useMemo(
     () => createPanelModel(selection.leafTabId),
     [selection.leafTabId],
@@ -40,29 +57,29 @@ export function useWorkbenchController(): WorkbenchController {
   useEffect(() => {
     const itemType = workspaceItemTypes[selection.leafTabId];
     if (!itemType) {
-      setWorkspaceItems({ status: "idle", items: [] });
+      setWorkspaceItems(emptyWorkspaceItems);
       return;
     }
 
     let cancelled = false;
-    setWorkspaceItems({ status: "loading", items: [] });
+    setWorkspaceItems({ ...emptyWorkspaceItems, status: "loading" });
 
-    fetch(`/todo-engine/items?type=${itemType}`)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`todo-engine returned ${response.status}`);
-        }
-
-        return response.json();
-      })
-      .then((items) => {
+    Promise.all([
+      fetchWorkspaceItems(itemType),
+      ...((relatedItemTypes[selection.leafTabId] ?? []).map(fetchWorkspaceItems)),
+    ])
+      .then(([items, ...relatedItems]) => {
         if (!cancelled) {
-          setWorkspaceItems({ status: "loaded", items });
+          setWorkspaceItems({
+            status: "loaded",
+            items,
+            relatedItems: buildRelatedItems(relatedItems.flat()),
+          });
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setWorkspaceItems({ status: "error", items: [] });
+          setWorkspaceItems({ ...emptyWorkspaceItems, status: "error" });
         }
       });
 
@@ -88,4 +105,35 @@ export function useWorkbenchController(): WorkbenchController {
         toggleWorkspaceExpansion(currentSelection),
       ),
   };
+}
+
+function fetchWorkspaceItems(
+  itemType: WorkspaceItemType | string,
+): Promise<WorkspaceItemModel[]> {
+  return fetch(`/todo-engine/items?type=${itemType}`).then((response) => {
+    if (!response.ok) {
+      throw new Error(`todo-engine returned ${response.status}`);
+    }
+
+    return response.json();
+  });
+}
+
+function buildRelatedItems(items: WorkspaceItemModel[]) {
+  return {
+    areas: titlesById(items, "area"),
+    projects: titlesById(items, "project"),
+    routines: titlesById(items, "routine"),
+  };
+}
+
+function titlesById(
+  items: WorkspaceItemModel[],
+  itemType: WorkspaceItemType,
+): Record<string, string> {
+  return Object.fromEntries(
+    items
+      .filter((item) => item.type === itemType)
+      .map((item) => [item.id, item.title]),
+  );
 }

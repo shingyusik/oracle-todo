@@ -22,19 +22,28 @@ export type WorkspaceItemModel = {
   area_id?: string | null;
   project_id?: string | null;
   routine_id?: string | null;
+  definition_of_done?: string | null;
   review_cycle?: string | null;
   standard?: string | null;
+  note?: string | null;
   outcome?: string | null;
   recurrence_rule?: string | null;
+  materialization_policy?: string | null;
   due?: string | null;
   scheduled?: string | null;
   priority?: number | null;
+  last_materialized_at?: string | null;
   updated_at?: string | null;
 };
 
 export type WorkspaceItemsModel = {
   status: "idle" | "loading" | "loaded" | "error";
   items: WorkspaceItemModel[];
+  relatedItems: {
+    areas: Record<string, string>;
+    projects: Record<string, string>;
+    routines: Record<string, string>;
+  };
 };
 
 export type WorkbenchSummaryCardModel = {

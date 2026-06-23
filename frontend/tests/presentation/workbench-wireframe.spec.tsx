@@ -178,6 +178,7 @@ describe("WorkbenchPageClient", () => {
           status: "active",
           review_cycle: "weekly",
           standard: "Move daily",
+          note: "Morning review",
           created_at: "2026-06-21T00:00:00Z",
           updated_at: "2026-06-21T00:00:00Z",
         },
@@ -196,6 +197,108 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "active" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "weekly" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("cell", { name: "Morning review" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows linked workspace item titles in item-specific columns", async () => {
+    const user = userEvent.setup();
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=area": [
+        {
+          id: "area-1",
+          type: "area",
+          title: "Health",
+          status: "active",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      "/todo-engine/items?type=project": [
+        {
+          id: "project-1",
+          type: "project",
+          title: "Recovery Plan",
+          status: "active",
+          area_id: "area-1",
+          definition_of_done: "Walk without pain",
+          note: "Check weekly",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      "/todo-engine/items?type=routine": [
+        {
+          id: "routine-1",
+          type: "routine",
+          title: "Stretch",
+          status: "active",
+          area_id: "area-1",
+          recurrence_rule: "daily",
+          materialization_policy: "single_open",
+          note: "After coffee",
+          last_materialized_at: "2026-06-21T07:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      "/todo-engine/items?type=task": [
+        {
+          id: "task-1",
+          type: "task",
+          title: "Book physio",
+          status: "approved",
+          area_id: "area-1",
+          project_id: "project-1",
+          routine_id: "routine-1",
+          note: "Call before noon",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+    };
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => responses[url] ?? [],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("cell", { name: "Walk without pain" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Check weekly" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("cell", { name: "Recovery Plan" }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Stretch" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("cell", { name: "Call before noon" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("cell", { name: "daily" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("cell", { name: "single_open" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "After coffee" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "2026-06-21" })).toBeInTheDocument();
   });
 
   it("selects yearly when planner is clicked and daily when daily is clicked", async () => {
