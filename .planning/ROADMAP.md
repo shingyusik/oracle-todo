@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Domain + Schema Foundation** - `Goal` item type, the period-anchor normalization helper (LYNCHPIN), and additive indexes — the one-way decisions (completed 2026-06-22)
 - [x] **Phase 2: Service Policy — Goal Create, Link & Validation** - All planning mutations and the list read primitive routed through `TodoService` with strict validation (completed 2026-06-22)
-- [ ] **Phase 3: Date View** - Tasks grouped by `scheduled` date for a day or range, with explicit buckets for undated work
+- [x] **Phase 3: Date View** - Tasks grouped by `scheduled` date for a day or range, with explicit buckets for undated work (completed 2026-06-23)
 - [ ] **Phase 4: Period View (goal-tree rollup)** - The goal at a `(horizon, period)` plus its descendant goal+task subtree, structure only
 - [ ] **Phase 5: CLI + API Surface (parity-locked)** - Goal/link/view commands and mirrored HTTP endpoints over the same service methods
 
@@ -83,7 +83,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 03-02-PLAN.md — In-memory unit tests: range ordering, unscheduled-never-dropped, agenda union+dedup, open-only, no-overdue-roll (VIEW-02, VIEW-05) — Wave 2
-- [ ] 03-03-PLAN.md — Persistent SQLite integration tests: store parity + side-effect-free (SC4/CORE-03) (VIEW-02, VIEW-05) — Wave 2
+- [x] 03-03-PLAN.md — Persistent SQLite integration tests: store parity + side-effect-free (SC4/CORE-03) (VIEW-02, VIEW-05) — Wave 2
 
 ### Phase 4: Period View (goal-tree rollup)
 
@@ -131,6 +131,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
-| 3. Date View | 2/3 | In Progress|  |
+| 3. Date View | 3/3 | Complete   | 2026-06-23 |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |
