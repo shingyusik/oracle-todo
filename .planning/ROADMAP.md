@@ -131,6 +131,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
-| 3. Date View | 3/3 | Complete   | 2026-06-23 |
+| 3. Date View | 3/3 | Complete    | 2026-06-23 |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |
