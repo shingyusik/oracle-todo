@@ -52,6 +52,37 @@ impl TodoService {
             .collect())
     }
 
+    /// Single-date agenda (VIEW-05 / SC3, D-02): open tasks where
+    /// `scheduled == date OR due == date`. A single date naturally dedups by id
+    /// (each item is retained at most once). Due-included rows are NOT tagged
+    /// (D-04) — the adapter discriminates via the `scheduled`/`due` fields.
+    /// A junk `date` propagates `TodoError::Validation` from `parse_day`.
+    pub fn agenda(&mut self, date: &str) -> TodoResult<Vec<TodoItem>> {
+        let day = parse_day(date)?;
+        let mut items = self.open_tasks()?;
+        items.retain(|item| {
+            iso_day(item.scheduled.as_deref()) == Some(day)
+                || iso_day(item.due.as_deref()) == Some(day)
+        });
+        sort_date_view(&mut items);
+        Ok(items)
+    }
+
+    /// Arbitrary `[from, to]` range (VIEW-02 / SC1, D-03): open tasks whose
+    /// `scheduled` falls within the inclusive bounds, scheduled-ONLY (no
+    /// due-spanning — that is single-date agenda only). `time::Date` is `Ord`, so
+    /// the bounds compare directly; non-ISO/None `scheduled` is excluded from the
+    /// range match. Junk `from`/`to` propagate `TodoError::Validation`.
+    pub fn date_range(&mut self, from: &str, to: &str) -> TodoResult<Vec<TodoItem>> {
+        let (from, to) = (parse_day(from)?, parse_day(to)?);
+        let mut items = self.open_tasks()?;
+        items.retain(|item| {
+            iso_day(item.scheduled.as_deref()).is_some_and(|day| from <= day && day <= to)
+        });
+        sort_date_view(&mut items);
+        Ok(items)
+    }
+
     /// Open (`Proposed`/`Approved`/`Active`) tasks only, the shared base for the
     /// date-view methods. Composes `list_items` so InMemory and Persistent stores
     /// agree (SC4 parity); the open-only narrowing is the D-05 allowlist.
