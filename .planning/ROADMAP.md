@@ -74,11 +74,16 @@ Plans:
   3. For a given date, the agenda surfaces both tasks scheduled for that day and tasks due that day (spanning `scheduled` + `due`).
   4. The view logic lives in `application/service/queries.rs` and is side-effect-free (no routine materialization), so it returns identical results regardless of caller.
 
-**Plans**: TBD
-
+**Plans**: 3 plans
 Plans:
+**Wave 1**
 
-- [ ] 03-01: TBD
+- [ ] 03-01-PLAN.md — `agenda` + `date_range` pure date-view methods on `TodoService` in `queries.rs` (VIEW-02, VIEW-05, CORE-03) — Wave 1
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — In-memory unit tests: range ordering, unscheduled-never-dropped, agenda union+dedup, open-only, no-overdue-roll (VIEW-02, VIEW-05) — Wave 2
+- [ ] 03-03-PLAN.md — Persistent SQLite integration tests: store parity + side-effect-free (SC4/CORE-03) (VIEW-02, VIEW-05) — Wave 2
 
 ### Phase 4: Period View (goal-tree rollup)
 
@@ -126,6 +131,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
-| 3. Date View | 0/TBD | Not started | - |
+| 3. Date View | 0/3 | Not started | - |
 | 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |
