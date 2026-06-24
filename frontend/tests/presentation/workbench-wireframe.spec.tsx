@@ -588,4 +588,32 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
   });
 
+  it("shows only supported goal horizons and requires a scheduled date", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).endsWith("/propose")) {
+          return Promise.resolve({ ok: true, json: async () => ({}) });
+        }
+
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+
+    const horizon = screen.getByLabelText("Horizon");
+    expect(horizon).toBeInTheDocument();
+    expect(horizon).toHaveTextContent("week");
+    expect(horizon).toHaveTextContent("month");
+    expect(horizon).toHaveTextContent("year");
+    expect(horizon).not.toHaveTextContent("quarter");
+    expect(screen.getByLabelText("Scheduled")).toBeRequired();
+  });
+
 });

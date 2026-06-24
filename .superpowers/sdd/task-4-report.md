@@ -137,3 +137,68 @@ Output:
 - The trap now follows actual form order instead of a hard-coded button pair, so Title/Scheduled/Horizon stay reachable by keyboard.
 - The fix stays local to the dialog and does not add a new abstraction or dependency.
 - The test exercises open, forward tabbing, wraparound, and Escape close in one focused path.
+
+---
+
+## Goal horizon and scheduled-date fix
+
+### Fix implemented
+
+- Removed the unsupported `quarter` option from the goal creation horizon select.
+- Stopped inventing a fallback scheduled date for goals in the controller; the form now passes through the user-provided scheduled value.
+- Marked the goal Scheduled field as required so the native date input blocks empty goal submissions.
+
+### Files changed
+
+- `frontend/src/features/workbench/hooks/useWorkbenchController.ts`
+- `frontend/src/features/workbench/ui/MainPanel.tsx`
+- `frontend/tests/presentation/use-workbench-controller.spec.tsx`
+- `frontend/tests/presentation/workbench-wireframe.spec.tsx`
+
+### TDD Evidence for the fix
+
+**RED**
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/use-workbench-controller.spec.tsx tests/presentation/workbench-wireframe.spec.tsx
+```
+
+Output:
+
+```text
+FAIL  tests/presentation/workbench-wireframe.spec.tsx > WorkbenchPageClient > shows only supported goal horizons and requires a scheduled date
+Expected element not to have text content: quarter
+
+FAIL  tests/presentation/use-workbench-controller.spec.tsx > useWorkbenchController > does not invent a fallback scheduled date for goals
+Expected body to omit generated scheduled fallback
+Received body:
+{"title":"New goal","horizon":"year","scheduled":"2026-06-01","actor":"user"}
+```
+
+**GREEN**
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/use-workbench-controller.spec.tsx tests/presentation/workbench-wireframe.spec.tsx
+npm run typecheck
+```
+
+Output:
+
+```text
+✓ tests/presentation/workbench-wireframe.spec.tsx (19 tests)
+✓ tests/presentation/use-workbench-controller.spec.tsx (9 tests)
+
+> tsc --noEmit
+```
+
+### Self-review
+
+- The fix is narrowly scoped to the goal creation path and leaves event scheduling untouched.
+- The controller now sends the user-entered scheduled date verbatim instead of manufacturing a period start.
+- The UI test covers both the supported horizon list and the required scheduled field, so the regression stays pinned down.

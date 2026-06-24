@@ -206,4 +206,51 @@ describe("useWorkbenchController", () => {
     );
     expect(result.current.detailItem?.id).toBe("task-new");
   });
+
+  it("does not invent a fallback scheduled date for goals", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose") {
+        expect(init).toEqual(expect.objectContaining({ method: "POST" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-new",
+            type: "goal",
+            title: "New goal",
+            status: "approved",
+          }),
+        });
+      }
+
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("goals");
+    });
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({
+        title: "New goal",
+        horizon: "year",
+      });
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/goals/propose",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "New goal",
+          horizon: "year",
+          actor: "user",
+        }),
+      }),
+    );
+    expect(result.current.detailItem?.id).toBe("goal-new");
+  });
 });

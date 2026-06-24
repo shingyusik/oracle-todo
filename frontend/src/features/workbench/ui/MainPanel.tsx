@@ -236,9 +236,10 @@ function CreationDialog({ controller }: CreationDialogProps) {
   const [horizon, setHorizon] = React.useState("month");
   const formRef = useRef<HTMLFormElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const isGoal = controller.panel.id === "goals";
   const needsScheduled =
-    controller.panel.id === "events" || controller.panel.id === "goals";
-  const needsHorizon = controller.panel.id === "goals";
+    controller.panel.id === "events" || isGoal;
+  const needsHorizon = isGoal;
 
   useEffect(() => {
     titleInputRef.current?.focus();
@@ -302,6 +303,7 @@ function CreationDialog({ controller }: CreationDialogProps) {
               type="date"
               value={scheduled}
               onChange={(event) => setScheduled(event.target.value)}
+              required={isGoal}
             />
           </label>
         ) : null}
@@ -314,7 +316,6 @@ function CreationDialog({ controller }: CreationDialogProps) {
             >
               <option value="week">week</option>
               <option value="month">month</option>
-              <option value="quarter">quarter</option>
               <option value="year">year</option>
             </select>
           </label>

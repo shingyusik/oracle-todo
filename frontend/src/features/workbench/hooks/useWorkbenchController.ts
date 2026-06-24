@@ -224,7 +224,7 @@ function createItemRequest(
     return postJson("/todo-engine/goals/propose", {
       title,
       horizon: form.horizon || "month",
-      scheduled: form.scheduled || `${new Date().toISOString().slice(0, 7)}-01`,
+      scheduled: form.scheduled,
       actor: "user",
     });
   }
