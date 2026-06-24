@@ -70,3 +70,65 @@ Tests  37 passed (37)
 ## Concerns if any
 
 - Relation clearing to blank is not implemented as a special case; this stays minimal and follows the current optional PATCH shape.
+
+---
+
+## Task 6 Review Fix Report
+
+### Fix implemented
+
+- Relation inline selects no longer offer a usable blank clear action for existing area/project/routine values.
+- The placeholder option is disabled, and empty selection changes are ignored before any PATCH call is made.
+
+### Files changed
+
+- `frontend/src/features/workbench/ui/MainPanel.tsx`
+- `frontend/tests/presentation/workbench-wireframe.spec.tsx`
+
+### TDD Evidence
+
+#### RED
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/workbench-wireframe.spec.tsx
+```
+
+Output:
+
+```text
+✕ WorkbenchPageClient > disables the relation placeholder for an existing relation
+  → expect(element).toBeDisabled()
+✕ WorkbenchPageClient > does not PATCH a relation when the placeholder value is cleared
+  → expected "spy" to not be called with arguments: [ '/todo-engine/items/task-1', …(1) ]
+```
+
+#### GREEN
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/use-workbench-controller.spec.tsx tests/presentation/workbench-wireframe.spec.tsx
+npm run typecheck
+```
+
+Output:
+
+```text
+✓ tests/presentation/workbench-wireframe.spec.tsx (27 tests)
+✓ tests/presentation/use-workbench-controller.spec.tsx (12 tests)
+Test Files  2 passed (2)
+Tests  39 passed (39)
+
+> todo-engine-frontend@0.1.0 typecheck
+> tsc --noEmit
+```
+
+### Self-review
+
+- Kept the fix local to the shared relation select renderer instead of expanding backend semantics.
+- Covered both the UI affordance and the empty-value PATCH regression with focused tests.
+- Left existing inline editing behavior untouched for non-relation fields.

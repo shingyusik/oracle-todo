@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -854,6 +854,97 @@ describe("WorkbenchPageClient", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
+  });
+
+  it("disables the relation placeholder for an existing relation", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("/items?type=area")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => [{ id: "area-1", type: "area", title: "Health", status: "active" }],
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: "task-1",
+              type: "task",
+              title: "One",
+              status: "approved",
+              area_id: "area-1",
+            },
+          ],
+        });
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const areaSelect = await screen.findByLabelText("Area for One");
+    expect(within(areaSelect).getByRole("option", { name: "-" })).toBeDisabled();
+  });
+
+  it("does not PATCH a relation when the placeholder value is cleared", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes("/items/task-1") && init?.method === "PATCH") {
+        expect(init.body).not.toBe(JSON.stringify({ area: "" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            area_id: "area-1",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "area-1",
+            type: "area",
+            title: "Health",
+            status: "active",
+          },
+          {
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            area_id: "area-1",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const areaSelect = await screen.findByLabelText("Area for One");
+    fireEvent.change(areaSelect, { target: { value: "" } });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/todo-engine/items/task-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ area: "" }),
+      }),
+    );
   });
 
 });

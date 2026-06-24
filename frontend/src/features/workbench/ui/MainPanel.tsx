@@ -484,12 +484,18 @@ function InlineRelationSelect({
       onClick={stopRowEvent}
       onKeyDown={stopRowEvent}
       onChange={(event) => {
-        if (event.target.value !== selectedValue) {
-          onCommit(event.target.value);
+        const nextValue = event.target.value;
+
+        if (!nextValue || nextValue === selectedValue) {
+          return;
         }
+
+        onCommit(nextValue);
       }}
     >
-      <option value="">-</option>
+      <option value="" disabled>
+        -
+      </option>
       {Object.entries(options).map(([id, title]) => (
         <option key={id} value={id}>
           {title}
