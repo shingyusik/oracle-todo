@@ -718,4 +718,40 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
   });
 
+  it("keeps checkbox keyboard selection from opening details", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "task-1", type: "task", title: "One", status: "approved" },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const checkbox = screen.getByRole("checkbox", { name: "Select One" });
+    await user.click(checkbox);
+    expect(screen.getByRole("button", { name: "Archive selected items" })).toBeEnabled();
+
+    checkbox.focus();
+    expect(checkbox).toHaveFocus();
+
+    await user.keyboard("{Space}");
+    expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive selected items" })).toBeEnabled();
+
+    checkbox.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive selected items" })).toBeEnabled();
+  });
+
 });

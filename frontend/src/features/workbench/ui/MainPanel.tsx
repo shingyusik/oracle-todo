@@ -224,6 +224,7 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
                     type="checkbox"
                     aria-label={`Select ${item.title}`}
                     checked={controller.selectedItemIds.includes(item.id)}
+                    onKeyDown={(event) => event.stopPropagation()}
                     onClick={(event) => event.stopPropagation()}
                     onChange={() => controller.toggleItemSelection(item.id)}
                   />
