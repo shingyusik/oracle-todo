@@ -94,7 +94,6 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     ...sharedColumns,
     { label: "Review Cycle", value: (item) => displayValue(item.review_cycle) },
     { label: "Standard", value: (item) => displayValue(item.standard) },
-    { label: "Note", value: (item) => displayValue(item.note) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
   projects: [
@@ -104,7 +103,6 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
       label: "Definition of Done",
       value: (item) => displayValue(item.definition_of_done),
     },
-    { label: "Note", value: (item) => displayValue(item.note) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
   tasks: [
@@ -118,7 +116,6 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
       label: "Routine",
       value: (item, items) => relatedTitle(items.relatedItems.routines, item.routine_id),
     },
-    { label: "Note", value: (item) => displayValue(item.note) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
   routines: [
@@ -132,11 +129,32 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
       label: "Materialization Policy",
       value: (item) => displayValue(item.materialization_policy),
     },
-    { label: "Note", value: (item) => displayValue(item.note) },
     {
       label: "Last Materialized",
       value: (item) => formatDate(item.last_materialized_at),
     },
+  ],
+  events: [
+    ...sharedColumns,
+    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
+    { label: "Starts At", value: (item) => displayValue(item.scheduled) },
+    { label: "Location", value: (item) => displayValue(item.metadata_?.location) },
+    {
+      label: "With",
+      value: (item) => displayValue(item.metadata_?.participants?.join(", ")),
+    },
+    { label: "Updated", value: (item) => formatDate(item.updated_at) },
+  ],
+  goals: [
+    ...sharedColumns,
+    { label: "Horizon", value: (item) => displayValue(item.horizon) },
+    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
+    { label: "Due", value: (item) => displayValue(item.due) },
+    {
+      label: "Parent",
+      value: (item, items) => relatedTitle(items.relatedItems.goals, item.parent_id),
+    },
+    { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
 };
 

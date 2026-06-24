@@ -18,18 +18,26 @@ export type WorkspaceItemModel = {
   area_id?: string | null;
   project_id?: string | null;
   routine_id?: string | null;
+  parent_id?: string | null;
   definition_of_done?: string | null;
   review_cycle?: string | null;
   standard?: string | null;
   note?: string | null;
   outcome?: string | null;
+  horizon?: string | null;
   recurrence_rule?: string | null;
   materialization_policy?: string | null;
   due?: string | null;
   scheduled?: string | null;
   priority?: number | null;
+  created_at?: string | null;
   last_materialized_at?: string | null;
   updated_at?: string | null;
+  metadata_?: {
+    location?: string;
+    participants?: string[];
+    commitment_type?: string;
+  };
 };
 
 export type WorkspaceItemsModel = {
@@ -37,6 +45,7 @@ export type WorkspaceItemsModel = {
   items: WorkspaceItemModel[];
   relatedItems: {
     areas: Record<string, string>;
+    goals: Record<string, string>;
     projects: Record<string, string>;
     routines: Record<string, string>;
   };

@@ -18,19 +18,23 @@ import {
   createPanelModel,
 } from "@/features/workbench/model/workbench-model";
 
-type WorkspaceItemType = "area" | "project" | "routine" | "task";
+type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 
 const workspaceItemTypes: Partial<Record<LeafTabId, string>> = {
   areas: "area",
   projects: "project",
   routines: "routine",
   tasks: "task",
+  events: "event",
+  goals: "goal",
 };
 
 const relatedItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
   projects: ["area"],
   routines: ["area"],
   tasks: ["area", "project", "routine"],
+  events: ["area", "project"],
+  goals: ["goal"],
 };
 
 const emptyWorkspaceItems: WorkspaceItemsModel = {
@@ -38,6 +42,7 @@ const emptyWorkspaceItems: WorkspaceItemsModel = {
   items: [],
   relatedItems: {
     areas: {},
+    goals: {},
     projects: {},
     routines: {},
   },
@@ -122,6 +127,7 @@ function fetchWorkspaceItems(
 function buildRelatedItems(items: WorkspaceItemModel[]) {
   return {
     areas: titlesById(items, "area"),
+    goals: titlesById(items, "goal"),
     projects: titlesById(items, "project"),
     routines: titlesById(items, "routine"),
   };

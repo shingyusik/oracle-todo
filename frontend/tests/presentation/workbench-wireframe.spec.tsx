@@ -216,9 +216,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "active" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "weekly" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("cell", { name: "Morning review" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "Morning review" })).toBeNull();
   });
 
   it("shows linked workspace item titles in item-specific columns", async () => {
@@ -272,6 +270,31 @@ describe("WorkbenchPageClient", () => {
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
+      "/todo-engine/items?type=event": [
+        {
+          id: "event-1",
+          type: "event",
+          title: "Planning review",
+          status: "approved",
+          area_id: "area-1",
+          scheduled: "2026-06-24T10:00:00Z",
+          metadata_: { location: "Desk", participants: ["Me"] },
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      "/todo-engine/items?type=goal": [
+        {
+          id: "goal-1",
+          type: "goal",
+          title: "June outcome",
+          status: "approved",
+          horizon: "month",
+          scheduled: "2026-06-01",
+          due: "2026-06-30",
+          parent_id: null,
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
     };
     const fetchMock = vi.fn((url: string) =>
       Promise.resolve({
@@ -292,7 +315,7 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByRole("cell", { name: "Walk without pain" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Check weekly" })).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "Check weekly" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
@@ -303,9 +326,7 @@ describe("WorkbenchPageClient", () => {
     );
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Stretch" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("cell", { name: "Call before noon" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "Call before noon" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Routines" }));
 
@@ -316,8 +337,28 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByRole("cell", { name: "single_open" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "After coffee" })).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "After coffee" })).toBeNull();
     expect(screen.getByRole("cell", { name: "2026-06-21" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Events" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("cell", { name: "Planning review" }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("cell", { name: "Desk" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Me" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("cell", { name: "June outcome" }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("cell", { name: "month" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "2026-06-30" })).toBeInTheDocument();
   });
 
   it("selects yearly when planner is clicked and daily when daily is clicked", async () => {

@@ -29,6 +29,12 @@ export const workbenchCopy = {
     tasks: {
       title: "Tasks",
     },
+    events: {
+      title: "Events",
+    },
+    goals: {
+      title: "Goals",
+    },
     yearly: {
       title: "Yearly",
     },

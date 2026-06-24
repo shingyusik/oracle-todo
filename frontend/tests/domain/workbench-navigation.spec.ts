@@ -45,6 +45,21 @@ describe("workbench navigation", () => {
     });
   });
 
+  it("resolves events and goals under workspace", () => {
+    expect(resolveSelection("events")).toEqual({
+      mainTabId: "todo",
+      leafTabId: "events",
+      workspaceExpanded: true,
+      plannerExpanded: false,
+    });
+    expect(resolveSelection("goals")).toEqual({
+      mainTabId: "todo",
+      leafTabId: "goals",
+      workspaceExpanded: true,
+      plannerExpanded: false,
+    });
+  });
+
   it("collapses workspace children back to the todo panel", () => {
     expect(toggleWorkspaceExpansion(resolveSelection("routines"))).toEqual({
       mainTabId: "todo",
@@ -111,6 +126,8 @@ describe("workbench navigation", () => {
       "projects",
       "routines",
       "tasks",
+      "events",
+      "goals",
     ]);
   });
 });
