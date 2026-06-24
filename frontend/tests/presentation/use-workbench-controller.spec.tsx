@@ -353,4 +353,52 @@ describe("useWorkbenchController", () => {
     expect(result.current.detailItem?.note).toBe("Saved note");
     expect(result.current.workspaceItems.items[0]?.note).toBe("Saved note");
   });
+
+  it("transitions a workspace item and updates list state", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/activate") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({}),
+          }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "approved" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+
+    await vi.waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    await act(async () => {
+      await result.current.transitionWorkspaceItem("task-1", "activate");
+    });
+
+    expect(result.current.workspaceItems.items[0]?.status).toBe("active");
+  });
 });

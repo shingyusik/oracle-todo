@@ -16,6 +16,7 @@ import {
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
+  type WorkspaceItemTransitionAction,
   type WorkspaceItemsModel,
   createPanelModel,
 } from "@/features/workbench/model/workbench-model";
@@ -49,6 +50,13 @@ const emptyWorkspaceItems: WorkspaceItemsModel = {
     routines: {},
   },
 };
+
+function replaceWorkspaceItem(
+  items: WorkspaceItemModel[],
+  updated: WorkspaceItemModel,
+): WorkspaceItemModel[] {
+  return items.map((item) => (item.id === updated.id ? updated : item));
+}
 
 export function useWorkbenchController(): WorkbenchController {
   const [selection, setSelection] = useState<WorkbenchSelection>(() =>
@@ -163,6 +171,25 @@ export function useWorkbenchController(): WorkbenchController {
       setCreationDialogOpen(false);
     },
     openDetailView: (item) => setDetailItem(item),
+    patchWorkspaceItem: async (itemId, patch) => {
+      const updated = await patchItem(itemId, patch);
+      setDetailItem((current) => (current?.id === updated.id ? updated : current));
+      setWorkspaceItems((current) => ({
+        ...current,
+        items: replaceWorkspaceItem(current.items, updated),
+      }));
+    },
+    transitionWorkspaceItem: async (
+      itemId: string,
+      action: WorkspaceItemTransitionAction,
+    ) => {
+      const updated = await postJson(`/todo-engine/items/${itemId}/${action}`, {});
+      setDetailItem((current) => (current?.id === updated.id ? updated : current));
+      setWorkspaceItems((current) => ({
+        ...current,
+        items: replaceWorkspaceItem(current.items, updated),
+      }));
+    },
     saveDetailItem: async (patch) => {
       if (!detailItem) {
         return;
@@ -172,7 +199,7 @@ export function useWorkbenchController(): WorkbenchController {
       setDetailItem(updated);
       setWorkspaceItems((current) => ({
         ...current,
-        items: current.items.map((item) => (item.id === updated.id ? updated : item)),
+        items: replaceWorkspaceItem(current.items, updated),
       }));
     },
     closeDetailView: () => setDetailItem(null),

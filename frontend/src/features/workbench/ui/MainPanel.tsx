@@ -14,7 +14,11 @@ type MainPanelProps = {
 
 type ItemColumn = {
   label: string;
-  value: (item: WorkspaceItemModel, workspaceItems: WorkspaceItemsModel) => string;
+  value: (
+    item: WorkspaceItemModel,
+    workspaceItems: WorkspaceItemsModel,
+    controller: WorkbenchController,
+  ) => React.ReactNode;
 };
 
 export function MainPanel({ controller }: MainPanelProps) {
@@ -230,7 +234,7 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
                   />
                 </td>
                 {columnsForPanel(panel.id).map((column) => (
-                  <td key={column.label}>{column.value(item, workspaceItems)}</td>
+                  <td key={column.label}>{column.value(item, workspaceItems, controller)}</td>
                 ))}
               </tr>
             ))}
@@ -384,9 +388,175 @@ function CreationDialog({ controller }: CreationDialogProps) {
   );
 }
 
+function stopRowEvent(event: React.SyntheticEvent<HTMLElement>) {
+  event.stopPropagation();
+}
+
+function InlineTextInput({
+  label,
+  type = "text",
+  value,
+  onCommit,
+}: {
+  label: string;
+  type?: "text" | "date";
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = React.useState(value);
+
+  React.useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <input
+      className="inline-cell-control"
+      type={type}
+      aria-label={label}
+      value={draft}
+      onClick={stopRowEvent}
+      onKeyDown={stopRowEvent}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft !== value) {
+          onCommit(draft);
+        }
+      }}
+    />
+  );
+}
+
+function InlineNumberInput({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: number | null | undefined;
+  onCommit: (value: number) => void;
+}) {
+  const currentValue = value?.toString() ?? "";
+  const [draft, setDraft] = React.useState(currentValue);
+
+  React.useEffect(() => {
+    setDraft(currentValue);
+  }, [currentValue]);
+
+  return (
+    <input
+      className="inline-cell-control inline-cell-number"
+      type="number"
+      aria-label={label}
+      value={draft}
+      onClick={stopRowEvent}
+      onKeyDown={stopRowEvent}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft === currentValue || draft.trim() === "") {
+          return;
+        }
+
+        onCommit(Number(draft));
+      }}
+    />
+  );
+}
+
+function InlineRelationSelect({
+  label,
+  value,
+  options,
+  onCommit,
+}: {
+  label: string;
+  value: string | null | undefined;
+  options: Record<string, string>;
+  onCommit: (value: string) => void;
+}) {
+  const selectedValue = value ?? "";
+
+  return (
+    <select
+      className="inline-cell-control"
+      aria-label={label}
+      value={selectedValue}
+      onClick={stopRowEvent}
+      onKeyDown={stopRowEvent}
+      onChange={(event) => {
+        if (event.target.value !== selectedValue) {
+          onCommit(event.target.value);
+        }
+      }}
+    >
+      <option value="">-</option>
+      {Object.entries(options).map(([id, title]) => (
+        <option key={id} value={id}>
+          {title}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function StatusSelect({
+  item,
+  controller,
+}: {
+  item: WorkspaceItemModel;
+  controller: WorkbenchController;
+}) {
+  const supportedStatuses = ["approved", "active", "paused", "completed"];
+
+  return (
+    <select
+      className="inline-cell-control"
+      aria-label={`Status for ${item.title}`}
+      value={item.status}
+      onClick={stopRowEvent}
+      onKeyDown={stopRowEvent}
+      onChange={(event) => {
+        const status = event.target.value;
+
+        if (status === item.status) {
+          return;
+        }
+        if (status === "approved") {
+          void controller.transitionWorkspaceItem(item.id, "approve");
+        }
+        if (status === "active") {
+          void controller.transitionWorkspaceItem(
+            item.id,
+            item.status === "paused" ? "resume" : "activate",
+          );
+        }
+        if (status === "paused") {
+          void controller.transitionWorkspaceItem(item.id, "pause");
+        }
+        if (status === "completed") {
+          void controller.transitionWorkspaceItem(item.id, "complete");
+        }
+      }}
+    >
+      {!supportedStatuses.includes(item.status) ? (
+        <option value={item.status}>{item.status}</option>
+      ) : null}
+      <option value="approved">approved</option>
+      <option value="active">active</option>
+      <option value="paused">paused</option>
+      <option value="completed">completed</option>
+    </select>
+  );
+}
+
 const sharedColumns: ItemColumn[] = [
   { label: "Title", value: (item) => item.title },
-  { label: "Status", value: (item) => item.status },
+  {
+    label: "Status",
+    value: (item, _items, controller) => (
+      <StatusSelect item={item} controller={controller} />
+    ),
+  },
 ];
 
 const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
@@ -398,7 +568,17 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   projects: [
     ...sharedColumns,
-    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
+    {
+      label: "Area",
+      value: (item, items, controller) => (
+        <InlineRelationSelect
+          label={`Area for ${item.title}`}
+          value={item.area_id}
+          options={items.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
+      ),
+    },
     {
       label: "Definition of Done",
       value: (item) => displayValue(item.definition_of_done),
@@ -407,20 +587,94 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   tasks: [
     ...sharedColumns,
-    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
+    {
+      label: "Area",
+      value: (item, items, controller) => (
+        <InlineRelationSelect
+          label={`Area for ${item.title}`}
+          value={item.area_id}
+          options={items.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
+      ),
+    },
     {
       label: "Project",
-      value: (item, items) => relatedTitle(items.relatedItems.projects, item.project_id),
+      value: (item, items, controller) => (
+        <InlineRelationSelect
+          label={`Project for ${item.title}`}
+          value={item.project_id}
+          options={items.relatedItems.projects}
+          onCommit={(project_id) =>
+            void controller.patchWorkspaceItem(item.id, { project_id })
+          }
+        />
+      ),
     },
     {
       label: "Routine",
-      value: (item, items) => relatedTitle(items.relatedItems.routines, item.routine_id),
+      value: (item, items, controller) => (
+        <InlineRelationSelect
+          label={`Routine for ${item.title}`}
+          value={item.routine_id}
+          options={items.relatedItems.routines}
+          onCommit={(routine_id) =>
+            void controller.patchWorkspaceItem(item.id, { routine_id })
+          }
+        />
+      ),
+    },
+    {
+      label: "Due",
+      value: (item, _items, controller) => (
+        <InlineTextInput
+          label={`Due for ${item.title}`}
+          type="date"
+          value={item.due ?? ""}
+          onCommit={(due) => void controller.patchWorkspaceItem(item.id, { due })}
+        />
+      ),
+    },
+    {
+      label: "Scheduled",
+      value: (item, _items, controller) => (
+        <InlineTextInput
+          label={`Scheduled for ${item.title}`}
+          type="date"
+          value={formatDateValue(item.scheduled)}
+          onCommit={(scheduled) =>
+            void controller.patchWorkspaceItem(item.id, { scheduled })
+          }
+        />
+      ),
+    },
+    {
+      label: "Priority",
+      value: (item, _items, controller) => (
+        <InlineNumberInput
+          label={`Priority for ${item.title}`}
+          value={item.priority}
+          onCommit={(priority) =>
+            void controller.patchWorkspaceItem(item.id, { priority })
+          }
+        />
+      ),
     },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
   routines: [
     ...sharedColumns,
-    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
+    {
+      label: "Area",
+      value: (item, items, controller) => (
+        <InlineRelationSelect
+          label={`Area for ${item.title}`}
+          value={item.area_id}
+          options={items.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
+      ),
+    },
     {
       label: "Recurrence Rule",
       value: (item) => displayValue(item.recurrence_rule),
@@ -436,8 +690,30 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   events: [
     ...sharedColumns,
-    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
-    { label: "Starts At", value: (item) => displayValue(item.scheduled) },
+    {
+      label: "Area",
+      value: (item, items, controller) => (
+        <InlineRelationSelect
+          label={`Area for ${item.title}`}
+          value={item.area_id}
+          options={items.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
+      ),
+    },
+    {
+      label: "Starts At",
+      value: (item, _items, controller) => (
+        <InlineTextInput
+          label={`Scheduled for ${item.title}`}
+          type="date"
+          value={formatDateValue(item.scheduled)}
+          onCommit={(scheduled) =>
+            void controller.patchWorkspaceItem(item.id, { scheduled })
+          }
+        />
+      ),
+    },
     { label: "Location", value: (item) => displayValue(item.metadata_?.location) },
     {
       label: "With",
@@ -448,8 +724,41 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   goals: [
     ...sharedColumns,
     { label: "Horizon", value: (item) => displayValue(item.horizon) },
-    { label: "Area", value: (item, items) => relatedTitle(items.relatedItems.areas, item.area_id) },
-    { label: "Due", value: (item) => displayValue(item.due) },
+    {
+      label: "Area",
+      value: (item, items, controller) => (
+        <InlineRelationSelect
+          label={`Area for ${item.title}`}
+          value={item.area_id}
+          options={items.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
+      ),
+    },
+    {
+      label: "Scheduled",
+      value: (item, _items, controller) => (
+        <InlineTextInput
+          label={`Scheduled for ${item.title}`}
+          type="date"
+          value={formatDateValue(item.scheduled)}
+          onCommit={(scheduled) =>
+            void controller.patchWorkspaceItem(item.id, { scheduled })
+          }
+        />
+      ),
+    },
+    {
+      label: "Due",
+      value: (item, _items, controller) => (
+        <InlineTextInput
+          label={`Due for ${item.title}`}
+          type="date"
+          value={item.due ?? ""}
+          onCommit={(due) => void controller.patchWorkspaceItem(item.id, { due })}
+        />
+      ),
+    },
     {
       label: "Parent",
       value: (item, items) => relatedTitle(items.relatedItems.goals, item.parent_id),
@@ -474,6 +783,10 @@ function relatedTitle(
 
 function displayValue(value: string | number | null | undefined): string {
   return value?.toString() || "-";
+}
+
+function formatDateValue(value: string | null | undefined): string {
+  return value?.slice(0, 10) || "";
 }
 
 function formatDate(value: string | null | undefined): string {

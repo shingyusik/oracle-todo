@@ -68,6 +68,13 @@ export type WorkspaceItemPatch = {
   routine_id?: string;
 };
 
+export type WorkspaceItemTransitionAction =
+  | "approve"
+  | "activate"
+  | "pause"
+  | "resume"
+  | "complete";
+
 export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
@@ -87,6 +94,11 @@ export type WorkbenchController = {
   closeCreationDialog: () => void;
   createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
   openDetailView: (item: WorkspaceItemModel) => void;
+  patchWorkspaceItem: (itemId: string, patch: WorkspaceItemPatch) => Promise<void>;
+  transitionWorkspaceItem: (
+    itemId: string,
+    action: WorkspaceItemTransitionAction,
+  ) => Promise<void>;
   saveDetailItem: (patch: WorkspaceItemPatch) => Promise<void>;
   closeDetailView: () => void;
 };
