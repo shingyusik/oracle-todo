@@ -512,7 +512,7 @@ function StatusSelect({
   item: WorkspaceItemModel;
   controller: WorkbenchController;
 }) {
-  const supportedStatuses = ["approved", "active", "paused", "completed"];
+  const supportedStatuses = statusOptionsForItem(item);
 
   return (
     <select
@@ -544,15 +544,42 @@ function StatusSelect({
         }
       }}
     >
-      {!supportedStatuses.includes(item.status) ? (
-        <option value={item.status}>{item.status}</option>
-      ) : null}
-      <option value="approved">approved</option>
-      <option value="active">active</option>
-      <option value="paused">paused</option>
-      <option value="completed">completed</option>
+      {supportedStatuses.map((status) => (
+        <option key={status} value={status}>
+          {status}
+        </option>
+      ))}
     </select>
   );
+}
+
+function statusOptionsForItem(item: WorkspaceItemModel): string[] {
+  const options = [item.status];
+  const canRun = ["project", "task", "routine", "event"].includes(item.type);
+  const canActivate =
+    canRun &&
+    (item.type !== "project" || hasText(item.definition_of_done)) &&
+    (item.type !== "routine" || hasText(item.recurrence_rule)) &&
+    (item.type !== "event" || hasText(item.scheduled));
+
+  if (item.status === "proposed") {
+    options.push("approved");
+  }
+  if (item.status === "approved" && canActivate) {
+    options.push("active");
+  }
+  if (item.status === "paused" && canActivate) {
+    options.push("active");
+  }
+  if (item.status === "active" && canRun) {
+    options.push("paused", "completed");
+  }
+
+  return options;
+}
+
+function hasText(value: string | null | undefined): boolean {
+  return Boolean(value?.trim());
 }
 
 const sharedColumns: ItemColumn[] = [
@@ -582,6 +609,17 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
           value={item.area_id}
           options={items.relatedItems.areas}
           onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
+      ),
+    },
+    {
+      label: "Due",
+      value: (item, _items, controller) => (
+        <InlineTextInput
+          label={`Due for ${item.title}`}
+          type="date"
+          value={item.due ?? ""}
+          onCommit={(due) => void controller.patchWorkspaceItem(item.id, { due })}
         />
       ),
     },
@@ -738,19 +776,6 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
           value={item.area_id}
           options={items.relatedItems.areas}
           onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
-        />
-      ),
-    },
-    {
-      label: "Scheduled",
-      value: (item, _items, controller) => (
-        <InlineTextInput
-          label={`Scheduled for ${item.title}`}
-          type="date"
-          value={formatDateValue(item.scheduled)}
-          onCommit={(scheduled) =>
-            void controller.patchWorkspaceItem(item.id, { scheduled })
-          }
         />
       ),
     },

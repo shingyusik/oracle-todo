@@ -7,6 +7,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
+async function statusOptions(title: string): Promise<string[]> {
+  const select = await screen.findByLabelText(`Status for ${title}`);
+
+  return within(select)
+    .getAllByRole("option")
+    .map((option) => option.textContent ?? "");
+}
+
 describe("WorkbenchPageClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -238,6 +246,7 @@ describe("WorkbenchPageClient", () => {
           title: "Recovery Plan",
           status: "active",
           area_id: "area-1",
+          due: "2026-06-30",
           definition_of_done: "Walk without pain",
           note: "Check weekly",
           updated_at: "2026-06-21T00:00:00Z",
@@ -323,6 +332,7 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByRole("cell", { name: "Walk without pain" }),
     ).toBeInTheDocument();
+    expect(screen.getByLabelText("Due for Recovery Plan")).toHaveValue("2026-06-30");
     expect(screen.queryByRole("cell", { name: "Check weekly" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
@@ -370,6 +380,7 @@ describe("WorkbenchPageClient", () => {
       2,
     );
     expect(screen.getByRole("cell", { name: "month" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Scheduled for June outcome")).toBeNull();
     expect(screen.getByLabelText("Due for June outcome")).toHaveValue("2026-06-30");
   });
 
@@ -806,6 +817,55 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
   });
 
+  it("patches an inline project due edit through the item PATCH endpoint", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes("/items/project-1") && init?.method === "PATCH") {
+        expect(init.body).toBe(JSON.stringify({ due: "2026-07-01" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "project-1",
+            type: "project",
+            title: "Plan",
+            status: "approved",
+            due: "2026-07-01",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "project-1",
+            type: "project",
+            title: "Plan",
+            status: "approved",
+            due: "2026-06-30",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+
+    const due = await screen.findByLabelText("Due for Plan");
+    await user.clear(due);
+    await user.type(due, "2026-07-01");
+    await user.tab();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/project-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(screen.queryByRole("heading", { name: "Plan" })).not.toBeInTheDocument();
+  });
+
   it("transitions inline status without opening details", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
@@ -854,6 +914,101 @@ describe("WorkbenchPageClient", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
+  });
+
+  it("shows only service-allowed inline status transitions", async () => {
+    const user = userEvent.setup();
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=area": [
+        { id: "area-1", type: "area", title: "Area", status: "active" },
+      ],
+      "/todo-engine/items?type=project": [
+        {
+          id: "project-1",
+          type: "project",
+          title: "Project without DoD",
+          status: "approved",
+        },
+        {
+          id: "project-2",
+          type: "project",
+          title: "Project with DoD",
+          status: "approved",
+          definition_of_done: "Done",
+        },
+      ],
+      "/todo-engine/items?type=routine": [
+        {
+          id: "routine-1",
+          type: "routine",
+          title: "Routine without rule",
+          status: "approved",
+        },
+        {
+          id: "routine-2",
+          type: "routine",
+          title: "Paused routine",
+          status: "paused",
+          recurrence_rule: "daily",
+        },
+      ],
+      "/todo-engine/items?type=event": [
+        {
+          id: "event-1",
+          type: "event",
+          title: "Event without scheduled",
+          status: "approved",
+        },
+        {
+          id: "event-2",
+          type: "event",
+          title: "Scheduled event",
+          status: "active",
+          scheduled: "2026-06-24T10:00:00Z",
+        },
+      ],
+      "/todo-engine/items?type=goal": [
+        { id: "goal-1", type: "goal", title: "Goal", status: "active" },
+      ],
+      "/todo-engine/items?type=task": [
+        { id: "task-1", type: "task", title: "Proposed task", status: "proposed" },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({ ok: true, json: async () => responses[url] ?? [] }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+    expect(await statusOptions("Project without DoD")).toEqual(["approved"]);
+    expect(await statusOptions("Project with DoD")).toEqual(["approved", "active"]);
+
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    expect(await statusOptions("Routine without rule")).toEqual(["approved"]);
+    expect(await statusOptions("Paused routine")).toEqual(["paused", "active"]);
+
+    await user.click(screen.getByRole("button", { name: "Events" }));
+    expect(await statusOptions("Event without scheduled")).toEqual(["approved"]);
+    expect(await statusOptions("Scheduled event")).toEqual([
+      "active",
+      "paused",
+      "completed",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    expect(await statusOptions("Area")).toEqual(["active"]);
+
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+    expect(await statusOptions("Goal")).toEqual(["active"]);
+
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    expect(await statusOptions("Proposed task")).toEqual(["proposed", "approved"]);
   });
 
   it("disables the relation placeholder for an existing relation", async () => {
