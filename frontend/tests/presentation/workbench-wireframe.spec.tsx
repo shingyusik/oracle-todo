@@ -616,4 +616,26 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Scheduled")).toBeRequired();
   });
 
+  it("requires scheduled for event creation", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).endsWith("/propose")) {
+          return Promise.resolve({ ok: true, json: async () => ({}) });
+        }
+
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Events" }));
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+
+    expect(screen.getByLabelText("Scheduled")).toBeRequired();
+  });
+
 });

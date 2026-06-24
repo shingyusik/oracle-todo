@@ -202,3 +202,67 @@ Output:
 - The fix is narrowly scoped to the goal creation path and leaves event scheduling untouched.
 - The controller now sends the user-entered scheduled date verbatim instead of manufacturing a period start.
 - The UI test covers both the supported horizon list and the required scheduled field, so the regression stays pinned down.
+
+---
+
+## Event scheduled required fix
+
+### Fix implemented
+
+- Removed the event creation fallback that invented today's date when `scheduled` was blank.
+- Marked the event `Scheduled` field as required in the native date input.
+- Added focused regression tests for the event controller payload and event creation dialog requirement.
+
+### Files changed
+
+- `frontend/src/features/workbench/hooks/useWorkbenchController.ts`
+- `frontend/src/features/workbench/ui/MainPanel.tsx`
+- `frontend/tests/presentation/use-workbench-controller.spec.tsx`
+- `frontend/tests/presentation/workbench-wireframe.spec.tsx`
+
+### TDD Evidence for the fix
+
+**RED**
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/use-workbench-controller.spec.tsx tests/presentation/workbench-wireframe.spec.tsx
+```
+
+Output:
+
+```text
+FAIL  tests/presentation/use-workbench-controller.spec.tsx > useWorkbenchController > posts the user-provided scheduled value for events
+expected "spy" to be called with arguments: [ '/todo-engine/events/propose', …(1) ]
+Received body: {"title":"New event","scheduled":"2026-06-24","actor":"user"}
+
+FAIL  tests/presentation/workbench-wireframe.spec.tsx > WorkbenchPageClient > requires scheduled for event creation
+Received element is not required:
+  <input type="date" value="" />
+```
+
+**GREEN**
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/use-workbench-controller.spec.tsx tests/presentation/workbench-wireframe.spec.tsx
+npm run typecheck
+```
+
+Output:
+
+```text
+✓ tests/presentation/workbench-wireframe.spec.tsx (20 tests)
+✓ tests/presentation/use-workbench-controller.spec.tsx (10 tests)
+> tsc --noEmit
+```
+
+### Self-review
+
+- The fix is minimal and keeps event creation aligned with the API contract.
+- The UI now blocks empty scheduled dates before submit instead of relying on controller fallback.
+- The regression tests pin both the payload and the required attribute, so this specific bug should stay closed.

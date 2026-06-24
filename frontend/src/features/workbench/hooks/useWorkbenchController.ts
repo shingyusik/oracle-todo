@@ -216,7 +216,7 @@ function createItemRequest(
   if (panelId === "events") {
     return postJson("/todo-engine/events/propose", {
       title,
-      scheduled: form.scheduled || new Date().toISOString().slice(0, 10),
+      scheduled: form.scheduled,
       actor: "user",
     });
   }

@@ -303,7 +303,7 @@ function CreationDialog({ controller }: CreationDialogProps) {
               type="date"
               value={scheduled}
               onChange={(event) => setScheduled(event.target.value)}
-              required={isGoal}
+              required={needsScheduled}
             />
           </label>
         ) : null}

@@ -253,4 +253,51 @@ describe("useWorkbenchController", () => {
     );
     expect(result.current.detailItem?.id).toBe("goal-new");
   });
+
+  it("posts the user-provided scheduled value for events", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/events/propose") {
+        expect(init).toEqual(expect.objectContaining({ method: "POST" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "event-new",
+            type: "event",
+            title: "New event",
+            status: "approved",
+          }),
+        });
+      }
+
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("events");
+    });
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({
+        title: "New event",
+        scheduled: "",
+      });
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/events/propose",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "New event",
+          scheduled: "",
+          actor: "user",
+        }),
+      }),
+    );
+    expect(result.current.detailItem?.id).toBe("event-new");
+  });
 });
