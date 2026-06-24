@@ -365,6 +365,9 @@ describe("WorkbenchPageClient", () => {
         screen.getByRole("cell", { name: "Planning review" }),
       ).toBeInTheDocument(),
     );
+    expect(screen.getByLabelText("Scheduled for Planning review")).toHaveValue(
+      "2026-06-24T10:00",
+    );
     expect(screen.getByRole("cell", { name: "Desk" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Me" })).toBeInTheDocument();
 
@@ -866,6 +869,59 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "Plan" })).not.toBeInTheDocument();
   });
 
+  it("patches an inline event start edit without dropping the time", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes("/items/event-1") && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({ scheduled: "2026-06-25T11:30:00Z" }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "event-1",
+            type: "event",
+            title: "Review",
+            status: "approved",
+            scheduled: "2026-06-25T11:30:00Z",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "event-1",
+            type: "event",
+            title: "Review",
+            status: "approved",
+            scheduled: "2026-06-24T10:00:00Z",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Events" }));
+
+    const scheduled = await screen.findByLabelText("Scheduled for Review");
+    expect(scheduled).toHaveValue("2026-06-24T10:00");
+
+    await user.clear(scheduled);
+    await user.type(scheduled, "2026-06-25T11:30");
+    await user.tab();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/event-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(screen.queryByRole("heading", { name: "Review" })).not.toBeInTheDocument();
+  });
+
   it("transitions inline status without opening details", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
@@ -968,7 +1024,10 @@ describe("WorkbenchPageClient", () => {
         },
       ],
       "/todo-engine/items?type=goal": [
-        { id: "goal-1", type: "goal", title: "Goal", status: "active" },
+        { id: "goal-1", type: "goal", title: "Proposed goal", status: "proposed" },
+        { id: "goal-2", type: "goal", title: "Approved goal", status: "approved" },
+        { id: "goal-3", type: "goal", title: "Active goal", status: "active" },
+        { id: "goal-4", type: "goal", title: "Paused goal", status: "paused" },
       ],
       "/todo-engine/items?type=task": [
         { id: "task-1", type: "task", title: "Proposed task", status: "proposed" },
@@ -994,7 +1053,10 @@ describe("WorkbenchPageClient", () => {
     expect(await statusOptions("Paused routine")).toEqual(["paused", "active"]);
 
     await user.click(screen.getByRole("button", { name: "Events" }));
-    expect(await statusOptions("Event without scheduled")).toEqual(["approved"]);
+    expect(await statusOptions("Event without scheduled")).toEqual([
+      "approved",
+      "active",
+    ]);
     expect(await statusOptions("Scheduled event")).toEqual([
       "active",
       "paused",
@@ -1005,7 +1067,14 @@ describe("WorkbenchPageClient", () => {
     expect(await statusOptions("Area")).toEqual(["active"]);
 
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    expect(await statusOptions("Goal")).toEqual(["active"]);
+    expect(await statusOptions("Proposed goal")).toEqual(["proposed", "approved"]);
+    expect(await statusOptions("Approved goal")).toEqual(["approved", "active"]);
+    expect(await statusOptions("Active goal")).toEqual([
+      "active",
+      "paused",
+      "completed",
+    ]);
+    expect(await statusOptions("Paused goal")).toEqual(["paused", "active"]);
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
     expect(await statusOptions("Proposed task")).toEqual(["proposed", "approved"]);

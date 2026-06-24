@@ -399,7 +399,7 @@ function InlineTextInput({
   onCommit,
 }: {
   label: string;
-  type?: "text" | "date";
+  type?: "text" | "date" | "datetime-local";
   value: string;
   onCommit: (value: string) => void;
 }) {
@@ -555,12 +555,11 @@ function StatusSelect({
 
 function statusOptionsForItem(item: WorkspaceItemModel): string[] {
   const options = [item.status];
-  const canRun = ["project", "task", "routine", "event"].includes(item.type);
+  const canRun = item.type !== "area";
   const canActivate =
     canRun &&
     (item.type !== "project" || hasText(item.definition_of_done)) &&
-    (item.type !== "routine" || hasText(item.recurrence_rule)) &&
-    (item.type !== "event" || hasText(item.scheduled));
+    (item.type !== "routine" || hasText(item.recurrence_rule));
 
   if (item.status === "proposed") {
     options.push("approved");
@@ -750,10 +749,12 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
       value: (item, _items, controller) => (
         <InlineTextInput
           label={`Scheduled for ${item.title}`}
-          type="date"
-          value={formatDateValue(item.scheduled)}
+          type="datetime-local"
+          value={formatDateTimeLocalValue(item.scheduled)}
           onCommit={(scheduled) =>
-            void controller.patchWorkspaceItem(item.id, { scheduled })
+            void controller.patchWorkspaceItem(item.id, {
+              scheduled: formatDateTimeCommitValue(scheduled),
+            })
           }
         />
       ),
@@ -818,6 +819,18 @@ function displayValue(value: string | number | null | undefined): string {
 
 function formatDateValue(value: string | null | undefined): string {
   return value?.slice(0, 10) || "";
+}
+
+function formatDateTimeLocalValue(value: string | null | undefined): string {
+  const match = value?.trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+
+  return match ? `${match[1]}T${match[2]}` : "";
+}
+
+function formatDateTimeCommitValue(value: string): string {
+  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?/);
+
+  return match ? `${match[1]}T${match[2]}:${match[3] ?? "00"}Z` : value;
 }
 
 function formatDate(value: string | null | undefined): string {
