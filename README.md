@@ -394,6 +394,7 @@ Endpoints:
 - `POST /routines/propose`: propose routine.
 - `POST /events/propose`: propose event.
 - `POST /tasks/propose`: propose task.
+- `POST /goals/propose`: propose goal.
 - `PATCH /items/{id}`: update mutable item fields through the shared service layer.
 - `POST /items/{id}/approve`: approve item.
 - `POST /items/{id}/activate`: activate item.

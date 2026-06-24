@@ -700,6 +700,128 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
+  it("saves project detail definition of done through the item PATCH endpoint", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/project-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({
+            title: "Plan",
+            note: "",
+            definition_of_done: "Ship review fixes",
+            due: "2026-06-30",
+          }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "project-1",
+            type: "project",
+            title: "Plan",
+            status: "approved",
+            definition_of_done: "Ship review fixes",
+            due: "2026-06-30",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=project"
+            ? [
+                {
+                  id: "project-1",
+                  type: "project",
+                  title: "Plan",
+                  status: "approved",
+                  definition_of_done: "Old DoD",
+                  due: "2026-06-30",
+                },
+              ]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+
+    await user.click(await screen.findByRole("cell", { name: "Plan" }));
+    await user.clear(screen.getByLabelText("Definition of Done"));
+    await user.type(screen.getByLabelText("Definition of Done"), "Ship review fixes");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/project-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
+  it("saves routine detail recurrence rule through the item PATCH endpoint", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({
+            title: "Stretch",
+            note: "",
+            recurrence_rule: "weekly",
+            materialization_policy: "single_open",
+          }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "routine-1",
+            type: "routine",
+            title: "Stretch",
+            status: "approved",
+            recurrence_rule: "weekly",
+            materialization_policy: "single_open",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=routine"
+            ? [
+                {
+                  id: "routine-1",
+                  type: "routine",
+                  title: "Stretch",
+                  status: "approved",
+                  recurrence_rule: "daily",
+                  materialization_policy: "single_open",
+                },
+              ]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+
+    await user.click(await screen.findByRole("cell", { name: "Stretch" }));
+    await user.clear(screen.getByLabelText("Recurrence Rule"));
+    await user.type(screen.getByLabelText("Recurrence Rule"), "weekly");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/routine-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
   it("opens a detail view from the keyboard", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string) =>

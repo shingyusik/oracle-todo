@@ -6,6 +6,7 @@ import type {
   WorkbenchController,
   WorkspaceItemModel,
   WorkspaceItemsModel,
+  WorkspaceItemPatch,
 } from "@/features/workbench/model/workbench-model";
 
 type MainPanelProps = {
@@ -39,16 +40,18 @@ export function MainPanel({ controller }: MainPanelProps) {
 
 function DetailView({ controller }: MainPanelProps) {
   const item = controller.detailItem;
-  const [title, setTitle] = React.useState(item?.title ?? "");
-  const [note, setNote] = React.useState(item?.note ?? "");
+  const [draft, setDraft] = React.useState(() => detailDraftForItem(item));
 
   React.useEffect(() => {
-    setTitle(item?.title ?? "");
-    setNote(item?.note ?? "");
+    setDraft(detailDraftForItem(item));
   }, [item]);
 
   if (!item) {
     return null;
+  }
+
+  function setField(field: keyof DetailDraft, value: string) {
+    setDraft((current) => ({ ...current, [field]: value }));
   }
 
   return (
@@ -61,8 +64,12 @@ function DetailView({ controller }: MainPanelProps) {
         <h2>Properties</h2>
         <label className="field-label">
           Title
-          <input value={title} onChange={(event) => setTitle(event.target.value)} />
+          <input
+            value={draft.title}
+            onChange={(event) => setField("title", event.target.value)}
+          />
         </label>
+        <DetailTypeFields item={item} draft={draft} setField={setField} />
         <div className="property-row">
           <span>Status</span>
           <span>{item.status}</span>
@@ -78,14 +85,288 @@ function DetailView({ controller }: MainPanelProps) {
       </div>
       <label className="field-label detail-note">
         Note
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} />
+        <textarea
+          value={draft.note}
+          onChange={(event) => setField("note", event.target.value)}
+        />
       </label>
       <div className="detail-actions">
-        <button type="button" onClick={() => void controller.saveDetailItem({ title, note })}>
+        <button
+          type="button"
+          onClick={() => void controller.saveDetailItem(detailPatchForItem(item, draft))}
+        >
           Save
         </button>
       </div>
     </section>
+  );
+}
+
+type DetailDraft = {
+  title: string;
+  note: string;
+  outcome: string;
+  definition_of_done: string;
+  review_cycle: string;
+  standard: string;
+  recurrence_rule: string;
+  materialization_policy: string;
+  due: string;
+  scheduled: string;
+  priority: string;
+};
+
+type StringWorkspaceItemPatchField = {
+  [Key in keyof WorkspaceItemPatch]: WorkspaceItemPatch[Key] extends string | undefined
+    ? Key
+    : never;
+}[keyof WorkspaceItemPatch] & string;
+
+function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
+  return {
+    title: item?.title ?? "",
+    note: item?.note ?? "",
+    outcome: item?.outcome ?? "",
+    definition_of_done: item?.definition_of_done ?? "",
+    review_cycle: item?.review_cycle ?? "",
+    standard: item?.standard ?? "",
+    recurrence_rule: item?.recurrence_rule ?? "",
+    materialization_policy: item?.materialization_policy ?? "single_open",
+    due: item?.due ?? "",
+    scheduled:
+      item?.type === "event"
+        ? formatDateTimeLocalValue(item.scheduled)
+        : formatDateValue(item?.scheduled),
+    priority: item?.priority?.toString() ?? "",
+  };
+}
+
+function detailPatchForItem(
+  item: WorkspaceItemModel,
+  draft: DetailDraft,
+): WorkspaceItemPatch {
+  const patch: WorkspaceItemPatch = {
+    title: draft.title,
+    note: draft.note,
+  };
+
+  if (item.type === "project") {
+    addStringPatch(patch, "outcome", draft.outcome, item.outcome);
+    addStringPatch(
+      patch,
+      "definition_of_done",
+      draft.definition_of_done,
+      item.definition_of_done,
+    );
+    addStringPatch(patch, "due", draft.due, item.due);
+  }
+  if (item.type === "routine") {
+    addStringPatch(
+      patch,
+      "recurrence_rule",
+      draft.recurrence_rule,
+      item.recurrence_rule,
+    );
+    addStringPatch(
+      patch,
+      "materialization_policy",
+      draft.materialization_policy,
+      item.materialization_policy,
+    );
+  }
+  if (item.type === "task") {
+    addStringPatch(patch, "due", draft.due, item.due);
+    addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
+    addPriorityPatch(patch, draft.priority);
+  }
+  if (item.type === "event") {
+    addStringPatch(
+      patch,
+      "scheduled",
+      formatDateTimeCommitValue(draft.scheduled),
+      item.scheduled,
+    );
+    addStringPatch(patch, "due", draft.due, item.due);
+    addPriorityPatch(patch, draft.priority);
+  }
+  if (item.type === "area") {
+    addStringPatch(patch, "review_cycle", draft.review_cycle, item.review_cycle);
+    addStringPatch(patch, "standard", draft.standard, item.standard);
+  }
+  if (item.type === "goal") {
+    addStringPatch(patch, "due", draft.due, item.due);
+  }
+
+  return patch;
+}
+
+function addStringPatch(
+  patch: WorkspaceItemPatch,
+  field: StringWorkspaceItemPatchField,
+  value: string,
+  currentValue: string | null | undefined,
+) {
+  if (currentValue != null || value !== "") {
+    patch[field] = value;
+  }
+}
+
+function addPriorityPatch(patch: WorkspaceItemPatch, priority: string) {
+  if (priority.trim() !== "") {
+    patch.priority = Number(priority);
+  }
+}
+
+function DetailTypeFields({
+  item,
+  draft,
+  setField,
+}: {
+  item: WorkspaceItemModel;
+  draft: DetailDraft;
+  setField: (field: keyof DetailDraft, value: string) => void;
+}) {
+  if (item.type === "project") {
+    return (
+      <>
+        <DetailTextField
+          label="Definition of Done"
+          value={draft.definition_of_done}
+          onChange={(value) => setField("definition_of_done", value)}
+        />
+        <DetailTextField
+          label="Due"
+          type="date"
+          value={draft.due}
+          onChange={(value) => setField("due", value)}
+        />
+        <DetailTextField
+          label="Outcome"
+          value={draft.outcome}
+          onChange={(value) => setField("outcome", value)}
+        />
+      </>
+    );
+  }
+  if (item.type === "routine") {
+    return (
+      <>
+        <DetailTextField
+          label="Recurrence Rule"
+          value={draft.recurrence_rule}
+          onChange={(value) => setField("recurrence_rule", value)}
+        />
+        <label className="field-label">
+          Materialization Policy
+          <select
+            value={draft.materialization_policy}
+            onChange={(event) => setField("materialization_policy", event.target.value)}
+          >
+            <option value="single_open">single_open</option>
+            <option value="per_occurrence">per_occurrence</option>
+          </select>
+        </label>
+      </>
+    );
+  }
+  if (item.type === "task") {
+    return (
+      <>
+        <DetailTextField
+          label="Due"
+          type="date"
+          value={draft.due}
+          onChange={(value) => setField("due", value)}
+        />
+        <DetailTextField
+          label="Scheduled"
+          type="date"
+          value={draft.scheduled}
+          onChange={(value) => setField("scheduled", value)}
+        />
+        <DetailTextField
+          label="Priority"
+          type="number"
+          value={draft.priority}
+          onChange={(value) => setField("priority", value)}
+        />
+      </>
+    );
+  }
+  if (item.type === "event") {
+    return (
+      <>
+        <DetailTextField
+          label="Starts At"
+          type="datetime-local"
+          value={draft.scheduled}
+          onChange={(value) => setField("scheduled", value)}
+        />
+        <DetailTextField
+          label="Due"
+          type="date"
+          value={draft.due}
+          onChange={(value) => setField("due", value)}
+        />
+        <DetailTextField
+          label="Priority"
+          type="number"
+          value={draft.priority}
+          onChange={(value) => setField("priority", value)}
+        />
+      </>
+    );
+  }
+  if (item.type === "area") {
+    return (
+      <>
+        <DetailTextField
+          label="Review Cycle"
+          value={draft.review_cycle}
+          onChange={(value) => setField("review_cycle", value)}
+        />
+        <DetailTextField
+          label="Standard"
+          value={draft.standard}
+          onChange={(value) => setField("standard", value)}
+        />
+      </>
+    );
+  }
+  if (item.type === "goal") {
+    return (
+      <DetailTextField
+        label="Due"
+        type="date"
+        value={draft.due}
+        onChange={(value) => setField("due", value)}
+      />
+    );
+  }
+
+  return null;
+}
+
+function DetailTextField({
+  label,
+  type = "text",
+  value,
+  onChange,
+}: {
+  label: string;
+  type?: "text" | "date" | "datetime-local" | "number";
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="field-label">
+      {label}
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
   );
 }
 

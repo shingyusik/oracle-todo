@@ -60,6 +60,12 @@ export type CreateWorkspaceItemForm = {
 export type WorkspaceItemPatch = {
   title?: string;
   note?: string;
+  outcome?: string;
+  definition_of_done?: string;
+  review_cycle?: string;
+  standard?: string;
+  recurrence_rule?: string;
+  materialization_policy?: string;
   due?: string;
   scheduled?: string;
   priority?: number;

@@ -151,12 +151,22 @@ export function useWorkbenchController(): WorkbenchController {
     cancelArchiveSelected: () => setArchiveConfirmationOpen(false),
     confirmArchiveSelected: async () => {
       const idsToArchive = selectedItemIds;
-      await Promise.all(idsToArchive.map(postArchiveItem));
+      const results = await Promise.allSettled(
+        idsToArchive.map(async (id) => {
+          await postArchiveItem(id);
+          return id;
+        }),
+      );
+      const archivedIds = results
+        .filter((result): result is PromiseFulfilledResult<string> => result.status === "fulfilled")
+        .map((result) => result.value);
+      const failedIds = idsToArchive.filter((id) => !archivedIds.includes(id));
+
       setWorkspaceItems((current) => ({
         ...current,
-        items: current.items.filter((item) => !idsToArchive.includes(item.id)),
+        items: current.items.filter((item) => !archivedIds.includes(item.id)),
       }));
-      setSelectedItemIds([]);
+      setSelectedItemIds(failedIds);
       setArchiveConfirmationOpen(false);
     },
     openCreationDialog: () => setCreationDialogOpen(true),

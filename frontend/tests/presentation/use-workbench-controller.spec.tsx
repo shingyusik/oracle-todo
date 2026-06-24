@@ -164,6 +164,54 @@ describe("useWorkbenchController", () => {
     expect(result.current.archiveConfirmationOpen).toBe(false);
   });
 
+  it("keeps failed archive rows selected while removing successful rows", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/items/task-1/archive") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "task-1", status: "archived" }),
+        });
+      }
+      if (url === "/todo-engine/items/task-2/archive") {
+        return Promise.resolve({ ok: false, json: async () => ({}) });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "approved" },
+          { id: "task-2", type: "task", title: "Two", status: "approved" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+
+    await vi.waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    act(() => {
+      result.current.toggleItemSelection("task-1");
+      result.current.toggleItemSelection("task-2");
+      result.current.requestArchiveSelected();
+    });
+
+    await act(async () => result.current.confirmArchiveSelected());
+
+    expect(result.current.workspaceItems.items.map((item) => item.id)).toEqual([
+      "task-2",
+    ]);
+    expect(result.current.selectedItemIds).toEqual(["task-2"]);
+    expect(result.current.archiveConfirmationOpen).toBe(false);
+  });
+
   it("creates a task from the active workspace table and opens it", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/tasks/propose") {
