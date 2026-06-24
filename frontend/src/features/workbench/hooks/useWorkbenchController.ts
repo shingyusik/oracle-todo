@@ -54,10 +54,17 @@ export function useWorkbenchController(): WorkbenchController {
   );
   const [workspaceItems, setWorkspaceItems] =
     useState<WorkspaceItemsModel>(emptyWorkspaceItems);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const panel = useMemo(
     () => createPanelModel(selection.leafTabId),
     [selection.leafTabId],
   );
+
+  useEffect(() => {
+    setSelectedItemIds([]);
+    setArchiveConfirmationOpen(false);
+  }, [selection.leafTabId]);
 
   useEffect(() => {
     const itemType = workspaceItemTypes[selection.leafTabId];
@@ -97,6 +104,8 @@ export function useWorkbenchController(): WorkbenchController {
     selection,
     panel,
     workspaceItems,
+    selectedItemIds,
+    archiveConfirmationOpen,
     selectTab: (tabId: WorkbenchTabId) =>
       setSelection((currentSelection) => {
         if (tabId === "workspace" || tabId === "planner") {
@@ -109,6 +118,31 @@ export function useWorkbenchController(): WorkbenchController {
       setSelection((currentSelection) =>
         toggleWorkspaceExpansion(currentSelection),
       ),
+    toggleItemSelection: (itemId: string) =>
+      setSelectedItemIds((current) =>
+        current.includes(itemId)
+          ? current.filter((id) => id !== itemId)
+          : [...current, itemId],
+      ),
+    toggleVisibleSelection: () =>
+      setSelectedItemIds((current) => {
+        const visibleIds = workspaceItems.items.map((item) => item.id);
+
+        return visibleIds.every((id) => current.includes(id)) ? [] : visibleIds;
+      }),
+    requestArchiveSelected: () =>
+      setArchiveConfirmationOpen(selectedItemIds.length > 0),
+    cancelArchiveSelected: () => setArchiveConfirmationOpen(false),
+    confirmArchiveSelected: async () => {
+      const idsToArchive = selectedItemIds;
+      await Promise.all(idsToArchive.map(postArchiveItem));
+      setWorkspaceItems((current) => ({
+        ...current,
+        items: current.items.filter((item) => !idsToArchive.includes(item.id)),
+      }));
+      setSelectedItemIds([]);
+      setArchiveConfirmationOpen(false);
+    },
   };
 }
 
@@ -116,6 +150,20 @@ function fetchWorkspaceItems(
   itemType: WorkspaceItemType | string,
 ): Promise<WorkspaceItemModel[]> {
   return fetch(`/todo-engine/items?type=${itemType}`).then((response) => {
+    if (!response.ok) {
+      throw new Error(`todo-engine returned ${response.status}`);
+    }
+
+    return response.json();
+  });
+}
+
+function postArchiveItem(itemId: string): Promise<WorkspaceItemModel> {
+  return fetch(`/todo-engine/items/${itemId}/archive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: "Archived from workspace table" }),
+  }).then((response) => {
     if (!response.ok) {
       throw new Error(`todo-engine returned ${response.status}`);
     }

@@ -1,15 +1,15 @@
 import React from "react";
+import { Plus, Trash2 } from "lucide-react";
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
 import type {
-  WorkbenchPanelModel,
+  WorkbenchController,
   WorkspaceItemModel,
   WorkspaceItemsModel,
 } from "@/features/workbench/model/workbench-model";
 
 type MainPanelProps = {
-  panel: WorkbenchPanelModel;
-  workspaceItems: WorkspaceItemsModel;
+  controller: WorkbenchController;
 };
 
 type ItemColumn = {
@@ -17,15 +17,17 @@ type ItemColumn = {
   value: (item: WorkspaceItemModel, workspaceItems: WorkspaceItemsModel) => string;
 };
 
-export function MainPanel({ panel, workspaceItems }: MainPanelProps) {
+export function MainPanel({ controller }: MainPanelProps) {
   return (
     <main className="main-panel">
-      <WorkspaceItemsTable panel={panel} workspaceItems={workspaceItems} />
+      <WorkspaceItemsTable controller={controller} />
     </main>
   );
 }
 
-function WorkspaceItemsTable({ panel, workspaceItems }: MainPanelProps) {
+function WorkspaceItemsTable({ controller }: MainPanelProps) {
+  const { panel, workspaceItems } = controller;
+
   if (workspaceItems.status === "idle") {
     return null;
   }
@@ -60,9 +62,40 @@ function WorkspaceItemsTable({ panel, workspaceItems }: MainPanelProps) {
 
   return (
     <section className="items-section">
+      <div className="items-toolbar">
+        <button
+          className="items-toolbar-button"
+          type="button"
+          aria-label="Add item"
+        >
+          <Plus size={16} aria-hidden="true" />
+        </button>
+        <button
+          className="items-toolbar-button"
+          type="button"
+          aria-label="Archive selected items"
+          disabled={controller.selectedItemIds.length === 0}
+          onClick={controller.requestArchiveSelected}
+        >
+          <Trash2 size={16} aria-hidden="true" />
+        </button>
+      </div>
       <table className="items-table" aria-label={`${panel.title} items`}>
         <thead>
           <tr>
+            <th scope="col">
+              <input
+                type="checkbox"
+                aria-label="Select all visible items"
+                checked={
+                  workspaceItems.items.length > 0 &&
+                  workspaceItems.items.every((item) =>
+                    controller.selectedItemIds.includes(item.id),
+                  )
+                }
+                onChange={controller.toggleVisibleSelection}
+              />
+            </th>
             {columnsForPanel(panel.id).map((column) => (
               <th scope="col" key={column.label}>
                 {column.label}
@@ -73,6 +106,15 @@ function WorkspaceItemsTable({ panel, workspaceItems }: MainPanelProps) {
         <tbody>
           {workspaceItems.items.map((item) => (
             <tr key={item.id}>
+              <td>
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${item.title}`}
+                  checked={controller.selectedItemIds.includes(item.id)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => controller.toggleItemSelection(item.id)}
+                />
+              </td>
               {columnsForPanel(panel.id).map((column) => (
                 <td key={column.label}>{column.value(item, workspaceItems)}</td>
               ))}
@@ -80,6 +122,30 @@ function WorkspaceItemsTable({ panel, workspaceItems }: MainPanelProps) {
           ))}
         </tbody>
       </table>
+      {controller.archiveConfirmationOpen ? (
+        <div className="confirmation-backdrop">
+          <section
+            className="confirmation-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Archive selected items?"
+          >
+            <h2>Archive selected items?</h2>
+            <p>
+              {controller.selectedItemIds.length} items will be moved to archive.
+              You can still find them in Archive.
+            </p>
+            <div className="dialog-actions">
+              <button type="button" onClick={controller.cancelArchiveSelected}>
+                Cancel
+              </button>
+              <button type="button" onClick={controller.confirmArchiveSelected}>
+                Archive
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

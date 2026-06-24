@@ -117,4 +117,50 @@ describe("useWorkbenchController", () => {
       plannerExpanded: false,
     });
   });
+
+  it("archives selected workspace rows after confirmation", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).endsWith("/archive")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "task-1", status: "archived" }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "approved" },
+          { id: "task-2", type: "task", title: "Two", status: "approved" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+
+    await vi.waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    act(() => result.current.toggleItemSelection("task-1"));
+    expect(result.current.selectedItemIds).toEqual(["task-1"]);
+
+    act(() => result.current.requestArchiveSelected());
+    expect(result.current.archiveConfirmationOpen).toBe(true);
+
+    await act(async () => result.current.confirmArchiveSelected());
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/archive",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(result.current.selectedItemIds).toEqual([]);
+    expect(result.current.archiveConfirmationOpen).toBe(false);
+  });
 });

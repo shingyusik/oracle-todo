@@ -391,4 +391,46 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("enables trash only for selected rows and confirms archive", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).endsWith("/archive")) {
+        return Promise.resolve({ ok: true, json: async () => ({}) });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "approved" },
+          { id: "task-2", type: "task", title: "Two", status: "approved" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const trash = await screen.findByRole("button", {
+      name: "Archive selected items",
+    });
+    expect(trash).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: "Select One" }));
+    expect(trash).toBeEnabled();
+
+    await user.click(trash);
+    expect(
+      screen.getByRole("dialog", { name: "Archive selected items?" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/archive",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
 });

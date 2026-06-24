@@ -55,8 +55,15 @@ export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
   workspaceItems: WorkspaceItemsModel;
+  selectedItemIds: string[];
+  archiveConfirmationOpen: boolean;
   selectTab: (tabId: WorkbenchTabId) => void;
   toggleWorkspaceExpansion: () => void;
+  toggleItemSelection: (itemId: string) => void;
+  toggleVisibleSelection: () => void;
+  requestArchiveSelected: () => void;
+  cancelArchiveSelected: () => void;
+  confirmArchiveSelected: () => Promise<void>;
 };
 
 export function createPanelModel(leafTabId: LeafTabId): WorkbenchPanelModel {

@@ -222,6 +222,30 @@ button {
   overflow-x: auto;
 }
 
+.items-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.items-toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  color: var(--color-ink);
+}
+
+.items-toolbar-button:disabled {
+  cursor: not-allowed;
+  color: var(--color-shade-40);
+}
+
 .items-table {
   width: 100%;
   min-width: 620px;
@@ -256,6 +280,28 @@ button {
   background: var(--color-canvas-light);
   padding: 16px;
   color: var(--color-shade-60);
+}
+
+.confirmation-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 28%);
+}
+
+.confirmation-dialog {
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas-light);
+  padding: 20px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @media (max-width: 767px) {
