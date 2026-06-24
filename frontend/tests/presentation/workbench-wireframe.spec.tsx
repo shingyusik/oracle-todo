@@ -546,4 +546,46 @@ describe("WorkbenchPageClient", () => {
     ).toBeInTheDocument();
   });
 
+  it("focuses and traps the creation dialog through every control, and closes it on escape", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).endsWith("/propose")) {
+          return Promise.resolve({ ok: true, json: async () => ({}) });
+        }
+
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Create Goals item" });
+    expect(dialog).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
+
+    await user.tab();
+    expect(screen.getByLabelText("Scheduled")).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByLabelText("Horizon")).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Create" })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByLabelText("Title")).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
+  });
+
 });

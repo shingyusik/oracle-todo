@@ -78,3 +78,62 @@ Tests  25 passed (25)
 ## Concerns if any
 
 - Create failures currently bubble as thrown promise errors without dedicated inline error UI; that appears acceptable for Task 4 but will likely want follow-up polish when Task 5 expands the detail flow.
+
+---
+
+## Focus trap fix
+
+### Fix implemented
+
+- Moved creation-dialog initial focus from `Cancel` to the `Title` input.
+- Reworked the creation-dialog Tab trap so it walks the form's actual focusable controls and wraps only at the ends.
+- Kept `Escape` closing the dialog.
+
+### Files changed
+
+- `frontend/src/features/workbench/ui/MainPanel.tsx`
+- `frontend/tests/presentation/workbench-wireframe.spec.tsx`
+
+### TDD Evidence for the fix
+
+**RED**
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/workbench-wireframe.spec.tsx -t "focuses and traps the creation dialog through every control, and closes it on escape"
+```
+
+Output:
+
+```text
+Expected element with focus:
+  <input ... />
+Received element with focus:
+  <button type="button">Cancel</button>
+```
+
+**GREEN**
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/use-workbench-controller.spec.tsx tests/presentation/workbench-wireframe.spec.tsx
+npm run typecheck
+```
+
+Output:
+
+```text
+✓ tests/presentation/workbench-wireframe.spec.tsx (18 tests)
+✓ tests/presentation/use-workbench-controller.spec.tsx (8 tests)
+> tsc --noEmit
+```
+
+### Self-review
+
+- The trap now follows actual form order instead of a hard-coded button pair, so Title/Scheduled/Horizon stay reachable by keyboard.
+- The fix stays local to the dialog and does not add a new abstraction or dependency.
+- The test exercises open, forward tabbing, wraparound, and Escape close in one focused path.
