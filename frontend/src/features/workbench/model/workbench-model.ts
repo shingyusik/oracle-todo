@@ -51,12 +51,20 @@ export type WorkspaceItemsModel = {
   };
 };
 
+export type CreateWorkspaceItemForm = {
+  title: string;
+  scheduled?: string;
+  horizon?: string;
+};
+
 export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
   workspaceItems: WorkspaceItemsModel;
   selectedItemIds: string[];
   archiveConfirmationOpen: boolean;
+  creationDialogOpen: boolean;
+  detailItem: WorkspaceItemModel | null;
   selectTab: (tabId: WorkbenchTabId) => void;
   toggleWorkspaceExpansion: () => void;
   toggleItemSelection: (itemId: string) => void;
@@ -64,6 +72,10 @@ export type WorkbenchController = {
   requestArchiveSelected: () => void;
   cancelArchiveSelected: () => void;
   confirmArchiveSelected: () => Promise<void>;
+  openCreationDialog: () => void;
+  closeCreationDialog: () => void;
+  createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
+  closeDetailView: () => void;
 };
 
 export function createPanelModel(leafTabId: LeafTabId): WorkbenchPanelModel {

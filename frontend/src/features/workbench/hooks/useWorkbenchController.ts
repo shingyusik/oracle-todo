@@ -12,6 +12,7 @@ import {
   toggleWorkspaceExpansion,
 } from "@/domain/workbench/navigation";
 import {
+  type CreateWorkspaceItemForm,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemsModel,
@@ -56,6 +57,8 @@ export function useWorkbenchController(): WorkbenchController {
     useState<WorkspaceItemsModel>(emptyWorkspaceItems);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
+  const [creationDialogOpen, setCreationDialogOpen] = useState(false);
+  const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const panel = useMemo(
     () => createPanelModel(selection.leafTabId),
     [selection.leafTabId],
@@ -64,6 +67,8 @@ export function useWorkbenchController(): WorkbenchController {
   useEffect(() => {
     setSelectedItemIds([]);
     setArchiveConfirmationOpen(false);
+    setCreationDialogOpen(false);
+    setDetailItem(null);
   }, [selection.leafTabId]);
 
   useEffect(() => {
@@ -106,6 +111,8 @@ export function useWorkbenchController(): WorkbenchController {
     workspaceItems,
     selectedItemIds,
     archiveConfirmationOpen,
+    creationDialogOpen,
+    detailItem,
     selectTab: (tabId: WorkbenchTabId) =>
       setSelection((currentSelection) => {
         if (tabId === "workspace" || tabId === "planner") {
@@ -143,6 +150,18 @@ export function useWorkbenchController(): WorkbenchController {
       setSelectedItemIds([]);
       setArchiveConfirmationOpen(false);
     },
+    openCreationDialog: () => setCreationDialogOpen(true),
+    closeCreationDialog: () => setCreationDialogOpen(false),
+    createWorkspaceItem: async (form) => {
+      const item = await createItemRequest(selection.leafTabId, form);
+      setWorkspaceItems((current) => ({
+        ...current,
+        items: [item, ...current.items],
+      }));
+      setDetailItem(item);
+      setCreationDialogOpen(false);
+    },
+    closeDetailView: () => setDetailItem(null),
   };
 }
 
@@ -163,6 +182,61 @@ function postArchiveItem(itemId: string): Promise<WorkspaceItemModel> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason: "Archived from workspace table" }),
+  }).then((response) => {
+    if (!response.ok) {
+      throw new Error(`todo-engine returned ${response.status}`);
+    }
+
+    return response.json();
+  });
+}
+
+function createItemRequest(
+  panelId: LeafTabId,
+  form: CreateWorkspaceItemForm,
+): Promise<WorkspaceItemModel> {
+  const title = form.title.trim();
+
+  if (panelId === "areas") {
+    return postJson("/todo-engine/areas", { title });
+  }
+  if (panelId === "projects") {
+    return postJson("/todo-engine/projects/propose", { title, actor: "user" });
+  }
+  if (panelId === "tasks") {
+    return postJson("/todo-engine/tasks/propose", { title, actor: "user" });
+  }
+  if (panelId === "routines") {
+    return postJson("/todo-engine/routines/propose", {
+      title,
+      actor: "user",
+      materialization_policy: "single_open",
+    });
+  }
+  if (panelId === "events") {
+    return postJson("/todo-engine/events/propose", {
+      title,
+      scheduled: form.scheduled || new Date().toISOString().slice(0, 10),
+      actor: "user",
+    });
+  }
+  if (panelId === "goals") {
+    return postJson("/todo-engine/goals/propose", {
+      title,
+      horizon: form.horizon || "month",
+      scheduled: form.scheduled || `${new Date().toISOString().slice(0, 7)}-01`,
+      actor: "user",
+    });
+  }
+
+  throw new Error(`Cannot create item from ${panelId}`);
+}
+
+function postJson(url: string, body: unknown): Promise<WorkspaceItemModel> {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   }).then((response) => {
     if (!response.ok) {
       throw new Error(`todo-engine returned ${response.status}`);

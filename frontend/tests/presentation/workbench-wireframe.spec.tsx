@@ -509,4 +509,41 @@ describe("WorkbenchPageClient", () => {
     });
   });
 
+  it("opens a creation dialog and creates a row", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/tasks/propose") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-new",
+            type: "task",
+            title: "New task",
+            status: "approved",
+          }),
+        });
+      }
+
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Create Tasks item" }),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Title"), "New task");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "New task" }),
+    ).toBeInTheDocument();
+  });
+
 });

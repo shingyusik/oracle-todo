@@ -163,4 +163,47 @@ describe("useWorkbenchController", () => {
     expect(result.current.selectedItemIds).toEqual([]);
     expect(result.current.archiveConfirmationOpen).toBe(false);
   });
+
+  it("creates a task from the active workspace table and opens it", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/tasks/propose") {
+        expect(init).toEqual(expect.objectContaining({ method: "POST" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-new",
+            type: "task",
+            title: "New task",
+            status: "approved",
+          }),
+        });
+      }
+
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+
+    act(() => result.current.openCreationDialog());
+    expect(result.current.creationDialogOpen).toBe(true);
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({ title: "New task" });
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/tasks/propose",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ title: "New task", actor: "user" }),
+      }),
+    );
+    expect(result.current.detailItem?.id).toBe("task-new");
+  });
 });

@@ -18,6 +18,26 @@ type ItemColumn = {
 };
 
 export function MainPanel({ controller }: MainPanelProps) {
+  if (controller.detailItem) {
+    return (
+      <main className="main-panel">
+        <section className="detail-panel" aria-label={`${controller.detailItem.title} details`}>
+          <div className="items-toolbar">
+            <button
+              className="items-toolbar-button"
+              type="button"
+              aria-label="Close detail view"
+              onClick={controller.closeDetailView}
+            >
+              Back
+            </button>
+          </div>
+          <h1>{controller.detailItem.title}</h1>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="main-panel">
       <WorkspaceItemsTable controller={controller} />
@@ -29,6 +49,8 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
   const { panel, workspaceItems } = controller;
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const archiveButtonRef = useRef<HTMLButtonElement | null>(null);
+  const createCancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const createSubmitButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
 
   const visibleSelectionCount = workspaceItems.items.reduce(
@@ -53,6 +75,12 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
     }
   }, [controller.archiveConfirmationOpen]);
 
+  useEffect(() => {
+    if (controller.creationDialogOpen) {
+      createCancelButtonRef.current?.focus();
+    }
+  }, [controller.creationDialogOpen]);
+
   function handleDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -74,6 +102,30 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
     } else if (!event.shiftKey && isArchiveFocused) {
       event.preventDefault();
       cancelButtonRef.current?.focus();
+    }
+  }
+
+  function handleCreationDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      controller.closeCreationDialog();
+      return;
+    }
+
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const isCancelFocused = activeElement === createCancelButtonRef.current;
+    const isSubmitFocused = activeElement === createSubmitButtonRef.current;
+
+    if (event.shiftKey && isCancelFocused) {
+      event.preventDefault();
+      createSubmitButtonRef.current?.focus();
+    } else if (!event.shiftKey && isSubmitFocused) {
+      event.preventDefault();
+      createCancelButtonRef.current?.focus();
     }
   }
 
@@ -101,14 +153,6 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
     );
   }
 
-  if (workspaceItems.items.length === 0) {
-    return (
-      <section className="items-section" aria-label={`${panel.title} items`}>
-        <p className="items-message">No {panel.title.toLowerCase()} found.</p>
-      </section>
-    );
-  }
-
   return (
     <section className="items-section">
       <div className="items-toolbar">
@@ -116,6 +160,7 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
           className="items-toolbar-button"
           type="button"
           aria-label="Add item"
+          onClick={controller.openCreationDialog}
         >
           <Plus size={16} aria-hidden="true" />
         </button>
@@ -129,44 +174,48 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
           <Trash2 size={16} aria-hidden="true" />
         </button>
       </div>
-      <table className="items-table" aria-label={`${panel.title} items`}>
-        <thead>
-          <tr>
-            <th scope="col">
-              <input
-                ref={selectAllCheckboxRef}
-                type="checkbox"
-                aria-label="Select all visible items"
-                checked={allVisibleSelected}
-                onChange={controller.toggleVisibleSelection}
-              />
-            </th>
-            {columnsForPanel(panel.id).map((column) => (
-              <th scope="col" key={column.label}>
-                {column.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {workspaceItems.items.map((item) => (
-            <tr key={item.id}>
-              <td>
+      {workspaceItems.items.length === 0 ? (
+        <p className="items-message">No {panel.title.toLowerCase()} found.</p>
+      ) : (
+        <table className="items-table" aria-label={`${panel.title} items`}>
+          <thead>
+            <tr>
+              <th scope="col">
                 <input
+                  ref={selectAllCheckboxRef}
                   type="checkbox"
-                  aria-label={`Select ${item.title}`}
-                  checked={controller.selectedItemIds.includes(item.id)}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={() => controller.toggleItemSelection(item.id)}
+                  aria-label="Select all visible items"
+                  checked={allVisibleSelected}
+                  onChange={controller.toggleVisibleSelection}
                 />
-              </td>
+              </th>
               {columnsForPanel(panel.id).map((column) => (
-                <td key={column.label}>{column.value(item, workspaceItems)}</td>
+                <th scope="col" key={column.label}>
+                  {column.label}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {workspaceItems.items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${item.title}`}
+                    checked={controller.selectedItemIds.includes(item.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={() => controller.toggleItemSelection(item.id)}
+                  />
+                </td>
+                {columnsForPanel(panel.id).map((column) => (
+                  <td key={column.label}>{column.value(item, workspaceItems)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
       {controller.archiveConfirmationOpen ? (
         <div className="confirmation-backdrop">
           <section
@@ -200,7 +249,98 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
           </section>
         </div>
       ) : null}
+      {controller.creationDialogOpen ? (
+        <CreationDialog
+          controller={controller}
+          cancelButtonRef={createCancelButtonRef}
+          submitButtonRef={createSubmitButtonRef}
+          onKeyDown={handleCreationDialogKeyDown}
+        />
+      ) : null}
     </section>
+  );
+}
+
+type CreationDialogProps = {
+  controller: WorkbenchController;
+  cancelButtonRef: React.MutableRefObject<HTMLButtonElement | null>;
+  submitButtonRef: React.MutableRefObject<HTMLButtonElement | null>;
+  onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+};
+
+function CreationDialog({
+  controller,
+  cancelButtonRef,
+  submitButtonRef,
+  onKeyDown,
+}: CreationDialogProps) {
+  const [title, setTitle] = React.useState("");
+  const [scheduled, setScheduled] = React.useState("");
+  const [horizon, setHorizon] = React.useState("month");
+  const needsScheduled =
+    controller.panel.id === "events" || controller.panel.id === "goals";
+  const needsHorizon = controller.panel.id === "goals";
+
+  return (
+    <div className="confirmation-backdrop">
+      <form
+        className="confirmation-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Create ${controller.panel.title} item`}
+        onKeyDown={onKeyDown}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void controller.createWorkspaceItem({ title, scheduled, horizon });
+        }}
+      >
+        <h2>Create {controller.panel.title} item</h2>
+        <label className="field-label">
+          Title
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            required
+          />
+        </label>
+        {needsScheduled ? (
+          <label className="field-label">
+            Scheduled
+            <input
+              type="date"
+              value={scheduled}
+              onChange={(event) => setScheduled(event.target.value)}
+            />
+          </label>
+        ) : null}
+        {needsHorizon ? (
+          <label className="field-label">
+            Horizon
+            <select
+              value={horizon}
+              onChange={(event) => setHorizon(event.target.value)}
+            >
+              <option value="week">week</option>
+              <option value="month">month</option>
+              <option value="quarter">quarter</option>
+              <option value="year">year</option>
+            </select>
+          </label>
+        ) : null}
+        <div className="dialog-actions">
+          <button
+            ref={cancelButtonRef}
+            type="button"
+            onClick={controller.closeCreationDialog}
+          >
+            Cancel
+          </button>
+          <button ref={submitButtonRef} type="submit">
+            Create
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
