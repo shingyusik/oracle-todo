@@ -638,4 +638,52 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Scheduled")).toBeRequired();
   });
 
+  it("opens a detail view and saves note edits", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes("/items/task-1") && init?.method === "PATCH") {
+        expect(init.body).toBe(JSON.stringify({ title: "One", note: "Saved note" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            note: "Saved note",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "approved", note: "Old note" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+    expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
+    expect(screen.getByText("Properties")).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Note"));
+    await user.type(screen.getByLabelText("Note"), "Saved note");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
+  });
+
 });

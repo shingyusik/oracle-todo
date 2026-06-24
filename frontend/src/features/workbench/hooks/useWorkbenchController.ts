@@ -15,6 +15,7 @@ import {
   type CreateWorkspaceItemForm,
   type WorkbenchController,
   type WorkspaceItemModel,
+  type WorkspaceItemPatch,
   type WorkspaceItemsModel,
   createPanelModel,
 } from "@/features/workbench/model/workbench-model";
@@ -161,6 +162,19 @@ export function useWorkbenchController(): WorkbenchController {
       setDetailItem(item);
       setCreationDialogOpen(false);
     },
+    openDetailView: (item) => setDetailItem(item),
+    saveDetailItem: async (patch) => {
+      if (!detailItem) {
+        return;
+      }
+
+      const updated = await patchItem(detailItem.id, patch);
+      setDetailItem(updated);
+      setWorkspaceItems((current) => ({
+        ...current,
+        items: current.items.map((item) => (item.id === updated.id ? updated : item)),
+      }));
+    },
     closeDetailView: () => setDetailItem(null),
   };
 }
@@ -182,6 +196,23 @@ function postArchiveItem(itemId: string): Promise<WorkspaceItemModel> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason: "Archived from workspace table" }),
+  }).then((response) => {
+    if (!response.ok) {
+      throw new Error(`todo-engine returned ${response.status}`);
+    }
+
+    return response.json();
+  });
+}
+
+function patchItem(
+  itemId: string,
+  patch: WorkspaceItemPatch,
+): Promise<WorkspaceItemModel> {
+  return fetch(`/todo-engine/items/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
   }).then((response) => {
     if (!response.ok) {
       throw new Error(`todo-engine returned ${response.status}`);

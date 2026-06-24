@@ -300,4 +300,57 @@ describe("useWorkbenchController", () => {
     );
     expect(result.current.detailItem?.id).toBe("event-new");
   });
+
+  it("saves the open detail item and updates list state", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "PATCH",
+            body: JSON.stringify({ title: "One", note: "Saved note" }),
+          }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            note: "Saved note",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "approved", note: "Old note" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+
+    await vi.waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    act(() => result.current.openDetailView(result.current.workspaceItems.items[0]!));
+    expect(result.current.detailItem?.note).toBe("Old note");
+
+    await act(async () => {
+      await result.current.saveDetailItem({ title: "One", note: "Saved note" });
+    });
+
+    expect(result.current.detailItem?.note).toBe("Saved note");
+    expect(result.current.workspaceItems.items[0]?.note).toBe("Saved note");
+  });
 });

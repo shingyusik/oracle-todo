@@ -21,19 +21,7 @@ export function MainPanel({ controller }: MainPanelProps) {
   if (controller.detailItem) {
     return (
       <main className="main-panel">
-        <section className="detail-panel" aria-label={`${controller.detailItem.title} details`}>
-          <div className="items-toolbar">
-            <button
-              className="items-toolbar-button"
-              type="button"
-              aria-label="Close detail view"
-              onClick={controller.closeDetailView}
-            >
-              Back
-            </button>
-          </div>
-          <h1>{controller.detailItem.title}</h1>
-        </section>
+        <DetailView controller={controller} />
       </main>
     );
   }
@@ -42,6 +30,58 @@ export function MainPanel({ controller }: MainPanelProps) {
     <main className="main-panel">
       <WorkspaceItemsTable controller={controller} />
     </main>
+  );
+}
+
+function DetailView({ controller }: MainPanelProps) {
+  const item = controller.detailItem;
+  const [title, setTitle] = React.useState(item?.title ?? "");
+  const [note, setNote] = React.useState(item?.note ?? "");
+
+  React.useEffect(() => {
+    setTitle(item?.title ?? "");
+    setNote(item?.note ?? "");
+  }, [item]);
+
+  if (!item) {
+    return null;
+  }
+
+  return (
+    <section className="detail-view" aria-label={`${item.title} details`}>
+      <button type="button" className="detail-back" onClick={controller.closeDetailView}>
+        Back
+      </button>
+      <h1>{item.title}</h1>
+      <div className="detail-properties">
+        <h2>Properties</h2>
+        <label className="field-label">
+          Title
+          <input value={title} onChange={(event) => setTitle(event.target.value)} />
+        </label>
+        <div className="property-row">
+          <span>Status</span>
+          <span>{item.status}</span>
+        </div>
+        <div className="property-row">
+          <span>Type</span>
+          <span>{item.type}</span>
+        </div>
+        <div className="property-row">
+          <span>Updated</span>
+          <span>{formatDate(item.updated_at)}</span>
+        </div>
+      </div>
+      <label className="field-label detail-note">
+        Note
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} />
+      </label>
+      <div className="detail-actions">
+        <button type="button" onClick={() => void controller.saveDetailItem({ title, note })}>
+          Save
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -166,7 +206,7 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
           </thead>
           <tbody>
             {workspaceItems.items.map((item) => (
-              <tr key={item.id}>
+              <tr key={item.id} onClick={() => controller.openDetailView(item)}>
                 <td>
                   <input
                     type="checkbox"

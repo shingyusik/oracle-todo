@@ -57,6 +57,17 @@ export type CreateWorkspaceItemForm = {
   horizon?: string;
 };
 
+export type WorkspaceItemPatch = {
+  title?: string;
+  note?: string;
+  due?: string;
+  scheduled?: string;
+  priority?: number;
+  area?: string;
+  project_id?: string;
+  routine_id?: string;
+};
+
 export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
@@ -75,6 +86,8 @@ export type WorkbenchController = {
   openCreationDialog: () => void;
   closeCreationDialog: () => void;
   createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
+  openDetailView: (item: WorkspaceItemModel) => void;
+  saveDetailItem: (patch: WorkspaceItemPatch) => Promise<void>;
   closeDetailView: () => void;
 };
 
