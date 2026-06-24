@@ -682,8 +682,40 @@ describe("WorkbenchPageClient", () => {
       expect.objectContaining({ method: "PATCH" }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("button", { name: "< Back" }));
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
+  });
+
+  it("opens a detail view from the keyboard", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "approved" },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const row = screen.getByRole("button", { name: "Open details for One" });
+    row.focus();
+    expect(row).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const reopenedRow = screen.getByRole("button", { name: "Open details for One" });
+    reopenedRow.focus();
+
+    await user.keyboard("{Space}");
+    expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
   });
 
 });

@@ -50,7 +50,7 @@ function DetailView({ controller }: MainPanelProps) {
   return (
     <section className="detail-view" aria-label={`${item.title} details`}>
       <button type="button" className="detail-back" onClick={controller.closeDetailView}>
-        Back
+        {"< Back"}
       </button>
       <h1>{item.title}</h1>
       <div className="detail-properties">
@@ -206,7 +206,19 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
           </thead>
           <tbody>
             {workspaceItems.items.map((item) => (
-              <tr key={item.id} onClick={() => controller.openDetailView(item)}>
+              <tr
+                key={item.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open details for ${item.title}`}
+                onClick={() => controller.openDetailView(item)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+                    event.preventDefault();
+                    controller.openDetailView(item);
+                  }
+                }}
+              >
                 <td>
                   <input
                     type="checkbox"

@@ -278,6 +278,11 @@ button {
   cursor: pointer;
 }
 
+.items-table tbody tr[role="button"]:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -2px;
+}
+
 .items-message {
   margin: 0;
   border: 1px solid var(--color-hairline-light);
