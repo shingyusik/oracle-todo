@@ -18,6 +18,7 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `GET` | `/health` | `health` | — (returns `{"ok": true}`) |
 | `POST` | `/areas` | `create_area` | `AreaBody` |
 | `POST` | `/projects/propose` | `propose_project` | `ProjectProposeBody` |
+| `POST` | `/goals/propose` | `propose_goal` | `GoalProposeBody` |
 | `POST` | `/routines/propose` | `propose_routine` | `RoutineProposeBody` |
 | `POST` | `/events/propose` | `propose_event` | `EventProposeBody` |
 | `POST` | `/tasks/propose` | `propose_task` | `TaskProposeBody` |
@@ -40,6 +41,8 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
   `description?`, `note?`, `actor?` (default `agent`).
 - **`ProjectProposeBody`** — `title` (required), `area?`, `definition_of_done?`, `outcome?`,
   `due?`, `note?`, `actor?` (default `agent`).
+- **`GoalProposeBody`** — `title` (required), `horizon` (required: `year`, `month`, or `week`),
+  `scheduled` (required canonical period start date), `parent_id?`, `actor?`, `note?`.
 - **`RoutineProposeBody`** — `title` (required), `area?`, `recurrence_rule?`,
   `materialization_policy?` (default `single_open`), `note?`, `actor?` (default `agent`).
 - **`EventProposeBody`** — `title` (required), `scheduled` (required), `area?`, `project_id?`,

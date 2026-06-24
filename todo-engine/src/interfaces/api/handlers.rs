@@ -6,8 +6,8 @@ use axum::extract::{Path as AxumPath, Query, State};
 use serde_json::json;
 
 use super::dto::{
-    AreaBody, EventProposeBody, ItemsQuery, ProjectProposeBody, ReasonBody, RoutineProposeBody,
-    TaskProposeBody, UpdateBody,
+    AreaBody, EventProposeBody, GoalProposeBody, ItemsQuery, ProjectProposeBody, ReasonBody,
+    RoutineProposeBody, TaskProposeBody, UpdateBody,
 };
 use super::{
     ApiResult, ApiState, non_empty, non_empty_string, parse_actor_or_default, parse_bool,
@@ -16,7 +16,7 @@ use super::{
 use crate::application::error::TodoError;
 use crate::application::ports::ListFilter;
 use crate::application::service::{
-    CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, UpdateItem,
+    CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask, UpdateItem,
 };
 use crate::domain::{Actor, ItemStatus, ItemType, TodoItem};
 
@@ -83,6 +83,25 @@ pub(super) async fn propose_project(
             definition_of_done: body.definition_of_done,
             outcome: body.outcome,
             due: body.due,
+            actor,
+            note: body.note,
+        })
+    })?;
+    Ok(Json(item))
+}
+
+pub(super) async fn propose_goal(
+    State(state): State<ApiState>,
+    body: std::result::Result<Json<GoalProposeBody>, JsonRejection>,
+) -> ApiResult<Json<TodoItem>> {
+    let Json(body) = body.map_err(validation_rejection)?;
+    let actor = parse_actor_or_default(body.actor.as_deref())?;
+    let item = with_service(&state, |service| {
+        service.propose_goal(ProposeGoal {
+            title: body.title,
+            horizon: body.horizon,
+            scheduled: body.scheduled,
+            parent_id: body.parent_id,
             actor,
             note: body.note,
         })

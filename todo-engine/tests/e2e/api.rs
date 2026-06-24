@@ -397,6 +397,27 @@ async fn operational_propose_routes_return_persisted_items() {
     assert_eq!(event["metadata_"]["location"], "회의실");
     assert_eq!(event["metadata_"]["participants"][0], "팀");
 
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"6월 운영 목표",
+            "horizon":"month",
+            "scheduled":"2026-06-01",
+            "actor":"user",
+            "note":"월간 운영 안정화"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    assert_eq!(goal["type"], "goal");
+    assert_eq!(goal["status"], "approved");
+    assert_eq!(goal["horizon"], "month");
+    assert_eq!(goal["scheduled"], "2026-06-01");
+    assert_eq!(goal["note"], "월간 운영 안정화");
+
     let response = empty_request(router(&db_path).unwrap(), "GET", "/items?type=project").await;
     assert_eq!(response.status(), 200);
     let items = body_json(response).await;

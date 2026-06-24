@@ -32,6 +32,16 @@ pub(super) struct ProjectProposeBody {
 }
 
 #[derive(Deserialize)]
+pub(super) struct GoalProposeBody {
+    pub title: String,
+    pub horizon: String,
+    pub scheduled: String,
+    pub parent_id: Option<String>,
+    pub actor: Option<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub(super) struct RoutineProposeBody {
     pub title: String,
     pub area: Option<String>,
