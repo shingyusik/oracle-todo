@@ -288,10 +288,18 @@ describe("WorkbenchPageClient", () => {
           type: "goal",
           title: "June outcome",
           status: "approved",
+          area_id: "area-1",
           horizon: "month",
           scheduled: "2026-06-01",
           due: "2026-06-30",
-          parent_id: null,
+          parent_id: "goal-root",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+        {
+          id: "goal-root",
+          type: "goal",
+          title: "Root objective",
+          status: "approved",
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
@@ -356,6 +364,10 @@ describe("WorkbenchPageClient", () => {
       expect(
         screen.getByRole("cell", { name: "June outcome" }),
       ).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
+    expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(
+      2,
     );
     expect(screen.getByRole("cell", { name: "month" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "2026-06-30" })).toBeInTheDocument();

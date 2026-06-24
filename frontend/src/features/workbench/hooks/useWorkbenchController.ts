@@ -34,7 +34,7 @@ const relatedItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
   routines: ["area"],
   tasks: ["area", "project", "routine"],
   events: ["area", "project"],
-  goals: ["goal"],
+  goals: ["area", "goal"],
 };
 
 const emptyWorkspaceItems: WorkspaceItemsModel = {
