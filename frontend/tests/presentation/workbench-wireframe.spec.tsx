@@ -433,4 +433,80 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("focuses and traps the archive dialog, and closes it on escape", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).endsWith("/archive")) {
+          return Promise.resolve({ ok: true, json: async () => ({}) });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "task-1", type: "task", title: "One", status: "approved" },
+          ],
+        });
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select One" }));
+    await user.click(screen.getByRole("button", { name: "Archive selected items" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Archive selected items?" });
+    expect(dialog).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus(),
+    );
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Archive" })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Archive selected items?" })).toBeNull();
+  });
+
+  it("marks the select-all checkbox indeterminate for partial selection", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).endsWith("/archive")) {
+          return Promise.resolve({ ok: true, json: async () => ({}) });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "task-1", type: "task", title: "One", status: "approved" },
+            { id: "task-2", type: "task", title: "Two", status: "approved" },
+          ],
+        });
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const selectAll = screen.getByRole("checkbox", { name: "Select all visible items" }) as HTMLInputElement;
+    expect(selectAll.checked).toBe(false);
+    expect(selectAll.indeterminate).toBe(false);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select One" }));
+    await waitFor(() => {
+      expect(selectAll.checked).toBe(false);
+      expect(selectAll.indeterminate).toBe(true);
+    });
+  });
+
 });

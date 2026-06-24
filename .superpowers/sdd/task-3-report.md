@@ -80,3 +80,67 @@ Tests  21 passed (21)
 ## Concerns if any
 
 - No inline error UI exists yet for partial or failed archive requests; current behavior leaves error handling to the thrown promise path.
+
+---
+
+## Fix report: accessibility review follow-up
+
+### Fix implemented
+
+- Moved initial focus into the archive confirmation dialog when it opens.
+- Added Escape-to-close on the dialog.
+- Added a minimal Tab / Shift+Tab loop between the dialog buttons while it is open.
+- Wired the select-all header checkbox to the `indeterminate` state when only some visible rows are selected.
+
+### Files changed
+
+- `frontend/src/features/workbench/ui/MainPanel.tsx`
+- `frontend/tests/presentation/workbench-wireframe.spec.tsx`
+
+### TDD Evidence for the fix
+
+#### RED
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/workbench-wireframe.spec.tsx
+```
+
+Output:
+
+```text
+WorkbenchPageClient > focuses and traps the archive dialog, and closes it on escape
+  → expect(element).toHaveFocus()
+WorkbenchPageClient > marks the select-all checkbox indeterminate for partial selection
+  → expected false to be true
+```
+
+#### GREEN
+
+Command:
+
+```bash
+cd frontend
+npm run test -- tests/presentation/use-workbench-controller.spec.tsx tests/presentation/workbench-wireframe.spec.tsx
+npm run typecheck
+```
+
+Output:
+
+```text
+✓ tests/presentation/workbench-wireframe.spec.tsx (16 tests)
+✓ tests/presentation/use-workbench-controller.spec.tsx (7 tests)
+
+Test Files  2 passed (2)
+Tests  23 passed (23)
+
+> tsc --noEmit
+```
+
+### Self-review
+
+- The dialog stays in the same component and uses native button focus, so the fix stays small and easy to reason about.
+- The checkbox `indeterminate` state is derived from visible rows only, which matches the table selection model.
+- I did not add a larger modal abstraction or a separate focus-trap dependency because the existing dialog only needs two focusable controls.

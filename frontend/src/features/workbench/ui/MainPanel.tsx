@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
@@ -27,6 +27,55 @@ export function MainPanel({ controller }: MainPanelProps) {
 
 function WorkspaceItemsTable({ controller }: MainPanelProps) {
   const { panel, workspaceItems } = controller;
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const archiveButtonRef = useRef<HTMLButtonElement | null>(null);
+  const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
+
+  const visibleSelectionCount = workspaceItems.items.reduce(
+    (count, item) => count + Number(controller.selectedItemIds.includes(item.id)),
+    0,
+  );
+  const allVisibleSelected =
+    workspaceItems.items.length > 0 &&
+    visibleSelectionCount === workspaceItems.items.length;
+  const partiallySelected =
+    visibleSelectionCount > 0 && visibleSelectionCount < workspaceItems.items.length;
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = partiallySelected;
+    }
+  }, [partiallySelected]);
+
+  useEffect(() => {
+    if (controller.archiveConfirmationOpen) {
+      cancelButtonRef.current?.focus();
+    }
+  }, [controller.archiveConfirmationOpen]);
+
+  function handleDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      controller.cancelArchiveSelected();
+      return;
+    }
+
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const isCancelFocused = activeElement === cancelButtonRef.current;
+    const isArchiveFocused = activeElement === archiveButtonRef.current;
+
+    if (event.shiftKey && isCancelFocused) {
+      event.preventDefault();
+      archiveButtonRef.current?.focus();
+    } else if (!event.shiftKey && isArchiveFocused) {
+      event.preventDefault();
+      cancelButtonRef.current?.focus();
+    }
+  }
 
   if (workspaceItems.status === "idle") {
     return null;
@@ -85,14 +134,10 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
           <tr>
             <th scope="col">
               <input
+                ref={selectAllCheckboxRef}
                 type="checkbox"
                 aria-label="Select all visible items"
-                checked={
-                  workspaceItems.items.length > 0 &&
-                  workspaceItems.items.every((item) =>
-                    controller.selectedItemIds.includes(item.id),
-                  )
-                }
+                checked={allVisibleSelected}
                 onChange={controller.toggleVisibleSelection}
               />
             </th>
@@ -129,6 +174,7 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
             role="dialog"
             aria-modal="true"
             aria-label="Archive selected items?"
+            onKeyDown={handleDialogKeyDown}
           >
             <h2>Archive selected items?</h2>
             <p>
@@ -136,10 +182,18 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
               You can still find them in Archive.
             </p>
             <div className="dialog-actions">
-              <button type="button" onClick={controller.cancelArchiveSelected}>
+              <button
+                ref={cancelButtonRef}
+                type="button"
+                onClick={controller.cancelArchiveSelected}
+              >
                 Cancel
               </button>
-              <button type="button" onClick={controller.confirmArchiveSelected}>
+              <button
+                ref={archiveButtonRef}
+                type="button"
+                onClick={controller.confirmArchiveSelected}
+              >
                 Archive
               </button>
             </div>
