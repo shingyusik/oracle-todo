@@ -86,6 +86,10 @@ impl TodoRepository for SqliteTodoRepository {
                      UNION
                      SELECT i.id FROM items i
                      JOIN subtree s ON i.parent_id = s.id
+                     -- D-11: only descend through goal parents so the CTE working set
+                     -- matches the InMemory frontier (goal->goal only). A goal whose
+                     -- parent is a task is unreachable in both stores.
+                     JOIN items p ON s.id = p.id AND p.type = 'goal'
                      WHERE i.type IN ('goal', 'task')
                  )
                  SELECT id FROM subtree
