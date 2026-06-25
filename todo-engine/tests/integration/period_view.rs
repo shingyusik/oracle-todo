@@ -435,3 +435,201 @@ fn period_view_is_side_effect_free_persistent() {
     let _ = service.period_view(Horizon::Month, "2026-06-15").unwrap();
     assert_eq!(service.events().len(), before);
 }
+
+// ---------------------------------------------------------------------------
+// Plan 04-03 Task 2: SC3 store-level anomaly fixtures. The validating service API
+// (propose_goal -> validate_goal_nesting, goal.rs:50) REJECTS cycles and
+// over-coarse nesting at create time, so the cycle/orphan/over-depth fixtures
+// must be injected as RAW SQLite rows, bypassing the service-layer validation.
+// These prove SC3/D-08/D-09: period_view TERMINATES and returns Ok with
+// anomaly_count bumped — never hangs, never Errs — on adversarial legacy data.
+//
+// All fixtures live in a per-test tempfile home (never the live data home,
+// CLAUDE.md). `*.sqlite` is gitignored.
+// ---------------------------------------------------------------------------
+
+// Open a raw SQLite connection over a temp home, init the schema, and hand BOTH
+// the live `Connection` (for raw row injection that bypasses TodoService) and a
+// deferred builder that wraps the SAME connection in a persistent service once
+// injection is done. The TempDir is returned so the home outlives the service.
+struct RawHome {
+    _dir: tempfile::TempDir,
+    conn: rusqlite::Connection,
+}
+
+fn raw_home() -> RawHome {
+    let dir = tempfile::tempdir().expect("create test home");
+    let db_path = dir.path().join("todo.sqlite");
+    let conn = connect(db_path.to_str().expect("utf-8 db path")).unwrap();
+    init_schema(&conn).unwrap();
+    RawHome { _dir: dir, conn }
+}
+
+// Insert a goal row DIRECTLY via SQL, bypassing propose_goal/validate_goal_nesting.
+// Only the NOT-NULL columns plus (horizon, scheduled, parent_id) are set; the
+// defaulted columns (materialization_policy/second_brain_refs/metadata) fall back
+// to their schema DEFAULTs. Mirrors the repo.rs column contract. `parent_id` may
+// reference a not-yet-existing id ONLY if the FK is satisfiable at insert time —
+// for cycles, insert with parent_id = NULL then UPDATE (see cycle test).
+fn insert_goal_row(
+    conn: &rusqlite::Connection,
+    id: &str,
+    title: &str,
+    horizon: &str,
+    scheduled: &str,
+    parent_id: Option<&str>,
+) {
+    conn.execute(
+        "INSERT INTO items
+            (id, type, title, status, proposed_by, created_at, updated_at,
+             horizon, scheduled, parent_id)
+         VALUES (?1, 'goal', ?2, 'active', 'user', ?3, ?3, ?4, ?5, ?6)",
+        rusqlite::params![
+            id,
+            title,
+            "2026-06-01T00:00:00Z",
+            horizon,
+            scheduled,
+            parent_id,
+        ],
+    )
+    .expect("raw goal insert");
+}
+
+// Build a persistent service over a raw connection after injection is complete.
+fn service_over(conn: rusqlite::Connection) -> TodoService {
+    TodoService::persistent(SqliteTodoRepository::new(conn))
+}
+
+// SC3 / T-04-07 (DoS): a 2-node parent_id CYCLE (A->B->A) injected at the store
+// level. Because parent_id has a forward FK (REFERENCES items(id)), the cycle is
+// built by inserting A and B with parent_id = NULL, then UPDATE-ing each to point
+// at the other (an UPDATE after both rows exist satisfies the FK). At least one
+// node anchors to the requested period so it is a CTE seed/root. The call must
+// return Ok, bump anomaly_count, and the test COMPLETING is the non-hang proof
+// (SQL UNION bounds the load; the in-memory visited-set bounds the walk).
+#[test]
+fn cycle_is_severed_no_error() {
+    let home = raw_home();
+
+    // Both nodes at (month, 2026-06-01) so the cycle is reachable from the seed.
+    // Distinct parent_id identities are irrelevant here (raw insert bypasses the
+    // GOAL-05 duplicate check too).
+    insert_goal_row(&home.conn, "goal-A", "cycle-A", "month", "2026-06-01", None);
+    insert_goal_row(&home.conn, "goal-B", "cycle-B", "month", "2026-06-01", None);
+    // Form the A<->B cycle now that both rows exist (FK satisfied).
+    home.conn
+        .execute(
+            "UPDATE items SET parent_id = ?1 WHERE id = ?2",
+            rusqlite::params!["goal-B", "goal-A"],
+        )
+        .unwrap();
+    home.conn
+        .execute(
+            "UPDATE items SET parent_id = ?1 WHERE id = ?2",
+            rusqlite::params!["goal-A", "goal-B"],
+        )
+        .unwrap();
+
+    let mut service = service_over(home.conn);
+
+    // Must terminate and return Ok despite the cycle.
+    let view = service.period_view(Horizon::Month, "2026-06-01").unwrap();
+    assert!(
+        view.anomaly_count >= 1,
+        "cycle must bump anomaly_count (got {})",
+        view.anomaly_count
+    );
+}
+
+// SC3: a goal whose parent_id points to a NON-EXISTENT id. The FK is checked, so
+// the orphan is created by inserting the goal at (month, 2026-06-01) as a root,
+// then re-pointing its parent_id to a dangling id via a deferred/standalone
+// UPDATE. period_view must return Ok and not panic. The orphan is simply
+// unreachable as a child (its parent is not in the working set), so it surfaces
+// as a normal root here — the key SC3 guarantee is Ok + no panic on malformed
+// parent linkage.
+#[test]
+fn orphan_parent_no_error() {
+    let home = raw_home();
+
+    // A real root at the period.
+    insert_goal_row(&home.conn, "root", "real-root", "month", "2026-06-01", None);
+    // A child of the root, then re-point its parent at a dangling id. The schema
+    // FK would reject a forward reference to a missing id at insert time, so we
+    // disable FK enforcement for THIS injection only (the legacy/corrupt-data
+    // scenario SC3 defends against) then restore it.
+    home.conn
+        .execute_batch("PRAGMA foreign_keys = OFF;")
+        .unwrap();
+    insert_goal_row(
+        &home.conn,
+        "orphan",
+        "orphan-goal",
+        "week",
+        "2026-06-08",
+        Some("does-not-exist"),
+    );
+    home.conn
+        .execute_batch("PRAGMA foreign_keys = ON;")
+        .unwrap();
+
+    let mut service = service_over(home.conn);
+
+    // Malformed parent linkage must NOT error or panic (D-09).
+    let view = service.period_view(Horizon::Month, "2026-06-01").unwrap();
+    // The orphan is unreachable from the period root, so it is absent; the real
+    // root is present. (Plan 01's walk treats an unreachable orphan as simply not
+    // in the working set — no anomaly bump required for unreachability.)
+    let titles: Vec<&str> = view.roots.iter().map(|n| n.goal.title.as_str()).collect();
+    assert!(titles.contains(&"real-root"));
+    assert!(!titles.contains(&"orphan-goal"));
+}
+
+// SC3 / T-04-07 (DoS): a parent_id chain DEEPER than MAX_GOAL_DEPTH (65 nodes),
+// root anchored to the period. period_view must return Ok with anomaly_count
+// bumped and the returned tree depth NOT exceeding the cap. Inserted root-first so
+// each row's parent_id FK is satisfied at insert time.
+#[test]
+fn depth_cap_truncates_persistent() {
+    let home = raw_home();
+
+    // Chain of 65 goals: g0 (root at the period) -> g1 -> ... -> g64. 65 > the
+    // 64 MAX_GOAL_DEPTH cap, so the deepest link is severed as an anomaly.
+    const CHAIN_LEN: usize = 65;
+    insert_goal_row(&home.conn, "g0", "g0", "month", "2026-06-01", None);
+    for i in 1..CHAIN_LEN {
+        let id = format!("g{i}");
+        let parent = format!("g{}", i - 1);
+        // Finer horizon strings are irrelevant to the CTE seed (only g0 matches
+        // the period); the recursive step pulls children by parent_id regardless.
+        insert_goal_row(&home.conn, &id, &id, "week", "2026-06-08", Some(&parent));
+    }
+
+    let mut service = service_over(home.conn);
+
+    let view = service.period_view(Horizon::Month, "2026-06-01").unwrap();
+    assert!(
+        view.anomaly_count >= 1,
+        "over-depth chain must bump anomaly_count (got {})",
+        view.anomaly_count
+    );
+
+    // The returned tree depth must not exceed the cap. Measure max depth via the
+    // structure-capturing key (depth component).
+    let max_depth = tree_keys(&view)
+        .iter()
+        .map(|(_, depth, _)| *depth)
+        .max()
+        .unwrap_or(0);
+    assert!(
+        max_depth < MAX_GOAL_DEPTH,
+        "returned tree depth {max_depth} must be bounded by MAX_GOAL_DEPTH {MAX_GOAL_DEPTH}"
+    );
+}
+
+// MAX_GOAL_DEPTH is pub(super) in goal.rs and not re-exported to the test crate;
+// mirror the locked value here for the depth-bound assertion. If the production
+// cap changes, the depth_cap_truncates_persistent chain length / this constant
+// move together.
+const MAX_GOAL_DEPTH: usize = 64;

@@ -20,3 +20,13 @@ Out-of-scope discoveries logged during execution. NOT fixed in this plan.
   the parallel e2e test harness (a shared-process env var leaks across tests).
 - **Action:** NOT fixed here (out of scope). Carry forward for a CLI/dotenv
   hardening pass.
+
+## Pre-existing fmt debt: `infrastructure/sqlite/repo.rs`
+
+- **Found during:** Plan 04-03 `cargo fmt --check`.
+- **Symptom:** `cargo fmt --check` reports one diff in `repo.rs::load_period_subtree`
+  (a `statement.query(...)` call rustfmt wants collapsed to one line).
+- **Scope:** Lives in Plan 04-02's `repo.rs` (not touched by this test-only plan;
+  `repo.rs` is absent from this plan's git diff). Pre-existing formatting debt.
+- **Action:** NOT fixed here (out of scope per SCOPE BOUNDARY — only the
+  current task's files are reformatted). Carry forward for a `cargo fmt` sweep.
