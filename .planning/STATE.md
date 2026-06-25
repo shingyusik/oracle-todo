@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 04.1 context gathered
-last_updated: "2026-06-25T06:20:09.685Z"
-last_activity: 2026-06-25 -- Phase 04.1 planning complete
+stopped_at: Phase 04.1 Plan 01 complete
+last_updated: "2026-06-25T06:33:29Z"
+last_activity: 2026-06-25 -- Phase 04.1 Plan 01 complete (queries.rs anomaly_count + comparator fixes)
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 13
+  total_plans: 16
   completed_plans: 13
   percent: 67
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-22)
 
 **Core value:** A user can set a big goal for a period (year/month/week), break it top-down into tasks, and see those tasks by date — all through the same policy-enforced engine.
-**Current focus:** Phase 04.1 — fix-period-view-code-review-findings (inserted)
+**Current focus:** Phase 04.1 — fix-period-view-code-review-findings
 
 ## Current Position
 
-Phase: 04.1
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-25 -- Phase 04.1 planning complete
+Phase: 04.1 (fix-period-view-code-review-findings) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 04.1 (Plan 01 complete)
+Last activity: 2026-06-25 -- Phase 04.1 Plan 01 complete (queries.rs anomaly_count + comparator fixes)
 
 Progress: [████████░░] 80%
 
@@ -68,6 +68,7 @@ Progress: [████████░░] 80%
 | Phase 04 P01 | 18 | 2 tasks | 5 files |
 | Phase 04 P02 | 12 | 2 tasks | 5 files |
 | Phase 04 P03 | 9 | 2 tasks | 2 files |
+| Phase 04.1 P01 | 6 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,7 @@ Recent decisions affecting current work:
 - [Phase 4 Plan 01]: PeriodView/GoalNode is the single shared serde nested type in queries.rs (D-01), fed by both stores; loaders diverge only in producing the flat working set. period_view(horizon, period) accepts ANY in-period date and normalizes via normalize_to_period_start (no caller math). assemble() builds the tree store-agnostically: roots = exact (horizon, period_key) matches (D-02, siblings all roots — two same-anchor roots need DISTINCT parent_id per GOAL-05), descent follows parent_id across periods (D-03), tasks sorted unscheduled-last (D-05), child_goals scheduled-asc (D-06); visited-set + reused goal.rs MAX_GOAL_DEPTH (now pub(super)) sever cycle/over-depth into anomaly_count, NEVER Err (SC3/D-09). D-07 status policy (MUST be applied identically in the Plan 02 CTE): terminal GOALS kept + traversed THROUGH (ADR-0006 no-cascade); TASKS filtered to OPEN_STATUSES; InMemory loader loads goals with include_archived:true (not list_items hidden-by-default). Persistent loader arm is exactly unimplemented!("Plan 02: persistent CTE loader") for Plan 02 to remove. tree_keys()/seed_goal_tree() reusable by Plan 03 parity; true over-depth/cyclic anomaly fixtures deferred to Plan 03 (service API cannot build >64/cyclic chains).
 - [Phase 4 Plan 02]: OPEN_STATUSES promoted to domain/status.rs as the single cross-ring source of truth (re-exported via domain/mod.rs); both the application-ring InMemory loader and the infrastructure-ring CTE loader derive their task-status predicate from it (no literal drift — the Plan 03 parity test's invariant). New TodoRepository::load_period_subtree(horizon: &str, period_key: &str) trait method (ports.rs); SqliteTodoRepository impl uses ONE WITH RECURSIVE CTE: seed `type='goal' AND horizon=?1 AND scheduled=?2` (idx_items_type_horizon_scheduled), recursive `JOIN subtree ON i.parent_id=s.id WHERE i.type IN('goal','task')` (idx_items_parent_id), UNION (not UNION ALL) as SQL cycle guard. Outer WHERE applies the asymmetric D-07 predicate: goals at ANY status (terminal traversed through), tasks `status IN(<OPEN_STATUSES placeholders>)`, tasks NOT filtered by scheduled (VIEW-04). All inputs bound as params (no interpolation, V5.3/T-04-04). Persistent arm of period_view now calls store.load_period_subtree(horizon.as_str(), &period_key); both store arms feed the single shared assemble() (D-11). list_items + schema.rs untouched (D-10 fence). 7 in-memory period_view tests green; clippy clean.
 - [Phase 4 Plan 03]: Phase 4 COMPLETE (VIEW-03/VIEW-04 done). Test-only plan locking the Persistent CTE path + cross-store parity + SC3 anomaly safety. persistent_service() copied verbatim from date_view.rs. parity_in_memory_vs_persistent (D-11, MANDATORY): identical seed (live + terminal task under same goal) through both stores -> equal tree_keys() (title,depth,kind, NEVER raw ids) + equal anomaly_count; terminal task absent in BOTH, live present in BOTH (D-07 absence-parity). SC3 anomaly fixtures injected as RAW SQLite rows bypassing validate_goal_nesting: cycle = insert A,B with parent_id NULL then two UPDATEs to form A<->B (UPDATE after both exist satisfies the forward FK a self/mutual insert cannot); orphan = PRAGMA foreign_keys=OFF around a dangling-parent INSERT; over-depth = 65-node chain > MAX_GOAL_DEPTH(64, mirrored as test const). All three return Ok + anomaly_count>=1 (orphan: Ok+no-panic, unreachable so absent, no count), suite TERMINATES (non-hang proof). anomaly_count = one severed child-goal branch in build_node (re-visit cycle OR depth>cap). No InMemory-side anomaly fixture: ServiceStore::InMemory(HashMap) is pub(super)/not test-constructible; raw-SQLite fixture exercises the SAME shared assemble() guard. 13/13 period_view tests green; 60/60 integration; 49/49 unit; clippy clean. Pre-existing repo.rs fmt debt + cli dotenv e2e failure logged to deferred-items (out of scope).
+- [Phase 04.1 Plan 01]: anomaly_count over-count fixed (WR-02/IN-01) — root_ids migrated Vec->HashSet (kills O(roots x goals) scan); build_node gains a root_ids: &HashSet param and a `if root_ids.contains(&child.id) { continue; }` short-circuit placed FIRST in the child loop (before visited/depth), so two same-period (D-02 sibling) roots no longer bump the count. Genuine over-depth still counts (depth_cap fixtures). The two byte-identical sort closures collapsed into one free fn schedule_then_created_order; sort_date_view/sort_child_goals delegate via sort_by (byte-identical order). DEVIATION [Rule 1]: cycle_is_severed_no_error fixture asserted the OLD over-count (its "cycle" is two same-period roots); under D-04 a single-parent cycle is only loadable if a cycle node is a period root, and re-visiting a root is correctly not an anomaly — so it now correctly yields anomaly_count==0; the fixture assertion was updated to match the plan's own must-have. period_view 13/13, integration 60/60, unit 49/49, clippy clean.
 - [Phase ?]: [Phase 3 Plan 03]: SC4 store parity proven via parity_in_memory_vs_persistent — one seed_fixture run through both in_memory and persistent stores, compared by stable (title, scheduled) key not raw ids. Side-effect-free proven via events().len() unchanged across agenda+date_range. date_view.rs registered first in integration.rs; persistent_service mirrored from goal_view.rs.
 
 ### Pending Todos
