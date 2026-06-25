@@ -18,6 +18,7 @@ mod update;
 pub use creation::{
     CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
 };
+pub use queries::{GoalNode, PeriodView};
 pub use update::UpdateItem;
 
 pub struct TodoService {
