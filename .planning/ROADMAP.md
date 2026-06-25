@@ -113,6 +113,23 @@ Plans:
 
 - [x] 04-03-PLAN.md — Persistent subtree test + `parity_in_memory_vs_persistent` (D-11) + SC3 store-level cycle/orphan/over-depth anomaly fixtures + side-effect-free (VIEW-03, VIEW-04) — Wave 3
 
+### Phase 04.1: Fix period-view code review findings (INSERTED)
+
+**Goal:** Resolve all 04-REVIEW.md findings so the cross-store parity contract is true rather than coincidental: make the SQL CTE and in-memory walk produce the same flat working set (locked to Path A / D-01 — CTE goal-only descent, not the doc-weakening route), stop `anomaly_count` over-counting valid D-02 sibling-root nesting, and add a `goal→task→goal` parity fixture that actually exercises the divergence — plus the minor cleanups (HashSet root lookup, shared sort comparator, single-sourced test depth cap). No change to the rendered `PeriodView` output.
+**Requirements**: None new — advisory cleanup of Phase 4 (VIEW-03 / VIEW-04 already satisfied)
+**Depends on:** Phase 4
+**Plans:** 3 plans
+
+Plans:
+**Wave 1** *(parallel — no file overlap)*
+
+- [ ] 04.1-01-PLAN.md — queries.rs production fixes: shared `schedule_then_created_order` comparator (D-05/IN-02) + HashSet `root_ids` and root-aware anomaly skip (D-04/IN-01/WR-02) — Wave 1
+- [ ] 04.1-02-PLAN.md — repo.rs CTE goal-only descent (`JOIN items p ... p.type = 'goal'`, D-01/WR-01) + D-11 comment and accurate parity docs (D-03/WR-03) — Wave 1
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 04.1-03-PLAN.md — single-source `MAX_GOAL_DEPTH` via `pub use` (D-06/IN-03) + `insert_task_row` helper & `goal→task→goal` cross-store parity fixture (D-07/WR-04) + valid sibling-root `anomaly_count == 0` fixture (D-08/WR-02 regression) — Wave 2
+
 ### Phase 5: CLI + API Surface (parity-locked)
 
 **Goal**: The whole planning layer is usable from both the CLI and the HTTP API, with the two surfaces provably in parity because they call the same service methods and never re-implement policy.
