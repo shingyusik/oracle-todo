@@ -118,13 +118,13 @@ Plans:
 **Goal:** Resolve all 04-REVIEW.md findings so the cross-store parity contract is true rather than coincidental: make the SQL CTE and in-memory walk produce the same flat working set (locked to Path A / D-01 — CTE goal-only descent, not the doc-weakening route), stop `anomaly_count` over-counting valid D-02 sibling-root nesting, and add a `goal→task→goal` parity fixture that actually exercises the divergence — plus the minor cleanups (HashSet root lookup, shared sort comparator, single-sourced test depth cap). No change to the rendered `PeriodView` output.
 **Requirements**: None new — advisory cleanup of Phase 4 (VIEW-03 / VIEW-04 already satisfied)
 **Depends on:** Phase 4
-**Plans:** 3 plans
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1** *(parallel — no file overlap)*
 
 - [x] 04.1-01-PLAN.md — queries.rs production fixes: shared `schedule_then_created_order` comparator (D-05/IN-02) + HashSet `root_ids` and root-aware anomaly skip (D-04/IN-01/WR-02) — Wave 1 ✅
-- [ ] 04.1-02-PLAN.md — repo.rs CTE goal-only descent (`JOIN items p ... p.type = 'goal'`, D-01/WR-01) + D-11 comment and accurate parity docs (D-03/WR-03) — Wave 1
+- [x] 04.1-02-PLAN.md — repo.rs CTE goal-only descent (`JOIN items p ... p.type = 'goal'`, D-01/WR-01) + D-11 comment and accurate parity docs (D-03/WR-03) — Wave 1
 
 **Wave 2** *(blocked on Wave 1)*
 
