@@ -91,4 +91,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-25 — Phase 4 complete (Period View: `period_view` goal-tree rollup over both stores, store-parity proven)*
+*Last updated: 2026-06-25 — Phase 04.1 complete (resolved 04-REVIEW findings: cross-store parity true by construction via goal-only CTE descent, anomaly_count no longer over-counts D-02 sibling roots, regression fixtures added; no rendered-output change)*
