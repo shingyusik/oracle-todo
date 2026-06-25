@@ -335,7 +335,7 @@ fn parity_in_memory_vs_persistent() {
 
 **Note:** No external/compliance/security claims are assumed. The genuinely open *decisions* (not assumptions) are D-07 status policy and the load-strategy choice — both are addressed with grounded recommendations below and in Open Questions.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **D-07: Task (and goal) status visibility in the structure view**
    - What we know: The date view uses an **open-only allowlist** (`OPEN_STATUSES` = Proposed/Approved/Active, queries.rs:10) and `apply_list_filter` hides `hidden_by_default_status` rows by default. ADR-0006 says goal terminality does **not** cascade — a terminal goal can have live children, and a live goal can have terminal tasks.
@@ -345,14 +345,17 @@ fn parity_in_memory_vs_persistent() {
      - **Tasks:** reuse the **open-only `OPEN_STATUSES` allowlist** (D-05/date-view consistency) — a structure view of *actionable* decomposition is the common need, and it matches the date view's task semantics so the two views agree on which tasks "exist." This is the lower-surprise default and reuses existing constants.
      - Apply the chosen predicate **identically in the SQL CTE and the InMemory loader** (Pitfall 4). Final call is the planner's, but this split (goals: all; tasks: open-only) is the most defensible and the cheapest to implement.
    - Note: whichever is chosen, the recursive CTE's *traversal* should still descend through terminal **goals** (else live grandchildren are lost) even if you later filter terminal goals from display — i.e. filter at display, traverse fully.
+   - **RESOLVED (Phase 4 planning, D-07):** Goals = keep terminal goals in the structure AND traverse THROUGH them (live grandchildren survive, per ADR-0006); Tasks = open-only via the `OPEN_STATUSES` allowlist (Proposed/Approved/Active). The predicate is applied identically on the SQL CTE (04-02) and InMemory loader (04-01), sourced from the single `OPEN_STATUSES` constant.
 
 2. **Load strategy: recursive CTE vs hybrid — final pick**
    - What we know: CTE does it in one indexed query; hybrid (indexed goal `WHERE` + one `parent_id IN (...)` task fetch) needs a host-side goal walk and ≥2 queries.
    - **Recommendation:** **Recursive CTE.** It is the single-query, single-load answer that most directly satisfies SC3's "load the working set ONCE," exercises both relevant indexes, and keeps the host code simple (one prepared statement, reuse `row_to_item`). The hybrid is the documented fallback if a CTE complication arises (e.g. needing different visibility rules for goals vs tasks in one query — solvable with a `CASE`/typed UNION branch, see Pitfall 4 option).
+   - **RESOLVED (Phase 4 planning, D-10):** Recursive CTE (`load_period_subtree` in repo.rs, 04-02) — a single `WITH RECURSIVE` query seeded on the period roots and walking `parent_id`, confined to a new method (global `list_items` scan untouched). Hybrid load rejected as unnecessary.
 
 3. **Where does `PeriodView`/`GoalNode` live and what is "period meta"?**
    - What we know: Must be a single shared `serde`-serializable type in `queries.rs` (CORE-03/SC4).
    - Recommendation: Define both types in `queries.rs`, `#[derive(Debug, Clone, Serialize, Deserialize)]`. Period meta = at minimum the requested `horizon` (string) and the normalized `period_key` (string), so adapters can render a header without re-deriving. Include the anomaly signal (`anomaly_count: usize` recommended over `truncated: bool` — a count is strictly more informative and the adapter can render "⚠ N nodes truncated" or nothing if 0).
+   - **RESOLVED (Phase 4 planning, D-01/D-09):** `PeriodView`/`GoalNode` live in `application/service/queries.rs` (04-01), both `#[derive(Debug, Clone, Serialize, Deserialize)]`. Period meta = `horizon: String` + `period_key: String`; anomaly signal = `anomaly_count: usize` (chosen over `truncated: bool`).
 
 ## Environment Availability
 
