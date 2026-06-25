@@ -446,8 +446,21 @@ fn parity_goal_task_goal_cross_store() {
     // so each FK is satisfied at insert time (Pitfall-4).
     let home = raw_home();
     insert_goal_row(&home.conn, "G1", "g1-root", "month", "2026-06-01", None);
-    insert_task_row(&home.conn, "T", "t-under-goal", Some("2026-06-11"), Some("G1"));
-    insert_goal_row(&home.conn, "G2", "g2-under-task", "week", "2026-06-08", Some("T"));
+    insert_task_row(
+        &home.conn,
+        "T",
+        "t-under-goal",
+        Some("2026-06-11"),
+        Some("G1"),
+    );
+    insert_goal_row(
+        &home.conn,
+        "G2",
+        "g2-under-task",
+        "week",
+        "2026-06-08",
+        Some("T"),
+    );
     let mut disk = service_over(home.conn);
     let disk_view = disk.period_view(Horizon::Month, "2026-06-01").unwrap();
 
@@ -473,10 +486,16 @@ fn parity_goal_task_goal_cross_store() {
     // G2 is absent from the persistent tree keys; T (open) is present.
     let disk_keys = tree_keys(&disk_view);
     assert!(
-        !disk_keys.iter().any(|(title, _, _)| title == "g2-under-task"),
+        !disk_keys
+            .iter()
+            .any(|(title, _, _)| title == "g2-under-task"),
         "G2 (goal under a task) must not leak into the persistent tree (D-01)"
     );
-    assert!(disk_keys.iter().any(|(title, _, _)| title == "t-under-goal"));
+    assert!(
+        disk_keys
+            .iter()
+            .any(|(title, _, _)| title == "t-under-goal")
+    );
 }
 
 // SC3/CORE-03: the persistent `period_view` writes NO audit event — the SQL load
@@ -679,6 +698,44 @@ fn orphan_parent_no_error() {
     let titles: Vec<&str> = view.roots.iter().map(|n| n.goal.title.as_str()).collect();
     assert!(titles.contains(&"real-root"));
     assert!(!titles.contains(&"orphan-goal"));
+}
+
+// D-08 / WR-02 regression — a VALID sibling-root config must NOT over-count. Raw-
+// inject root R1 at (month, 2026-06-01) with parent_id = None, and root R2 at the
+// SAME (month, 2026-06-01) but with parent_id = Some("R1"). Both are exact period
+// matches, so both are roots by D-02 (sibling roots with distinct parent_id, GOAL-05).
+// Insert R1 BEFORE R2 so the FK is satisfied directly — no PRAGMA toggle needed.
+//
+// Before the Plan 01 D-04 fix, R2 (pre-marked `visited` as a root) would fail
+// `visited.insert` when reached in R1's child bucket and bump anomaly_count to >= 1
+// (the WR-02 over-count). After the fix, the `root_ids.contains(&R2)` short-circuit
+// skips R2 in R1's child loop without counting. This fixture is that regression guard.
+#[test]
+fn sibling_root_nesting_is_not_an_anomaly() {
+    let home = raw_home();
+    insert_goal_row(&home.conn, "R1", "root-1", "month", "2026-06-01", None);
+    insert_goal_row(
+        &home.conn,
+        "R2",
+        "root-2",
+        "month",
+        "2026-06-01",
+        Some("R1"),
+    );
+
+    let mut service = service_over(home.conn);
+    let view = service.period_view(Horizon::Month, "2026-06-01").unwrap();
+
+    // D-04: a valid sibling-root (R2 anchored at the period under R1) must NOT
+    // over-count — it is a top-level sibling, not a severed branch.
+    assert_eq!(
+        view.anomaly_count, 0,
+        "valid sibling-root must not over-count (D-04 / WR-02); got {}",
+        view.anomaly_count
+    );
+    // Both surface as top-level sibling roots (D-02).
+    let titles: Vec<&str> = view.roots.iter().map(|n| n.goal.title.as_str()).collect();
+    assert!(titles.contains(&"root-1") && titles.contains(&"root-2"));
 }
 
 // SC3 / T-04-07 (DoS): a parent_id chain DEEPER than MAX_GOAL_DEPTH (65 nodes),
