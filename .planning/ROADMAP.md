@@ -97,12 +97,21 @@ Plans:
   3. The traversal loads the working set once and walks it in memory (no `list_items` inside the recursion) and terminates safely on cyclic or orphaned legacy data via a visited set and depth cap.
   4. The view logic lives in `application/service/queries.rs` returning a single shared `PeriodView` type both adapters will serialize.
 
-**Plans**: TBD
-**Research**: This phase is flagged for deeper performance research during planning — the recursive goal-tree rollup collides with the pre-existing in-memory full-table-scan debt (CONCERNS.md). The single-load-in-memory-tree vs. SQL-pushdown decision and index usage warrant `--research-phase`.
+**Plans**: 3 plans
+**Research**: Completed (04-RESEARCH.md) — load strategy locked to a confined SQLite `WITH RECURSIVE` CTE in repo.rs (D-10), with an equivalent InMemory Rust loader and an explicit cross-store parity test (D-11). No new dependencies.
 
 Plans:
+**Wave 1**
 
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md — Shared `PeriodView`/`GoalNode` type + `period_view` method + in-memory `assemble()` walk (visited-set + depth cap + anomaly) + InMemory loader + in-memory behavior tests (VIEW-03, VIEW-04) — Wave 1
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 04-02-PLAN.md — Recursive-CTE `load_period_subtree` in repo.rs + `TodoRepository` trait method + Persistent arm of `period_view` (D-10 SQL pushdown) (VIEW-03, VIEW-04) — Wave 2
+
+**Wave 3** *(blocked on Waves 1-2)*
+
+- [ ] 04-03-PLAN.md — Persistent subtree test + `parity_in_memory_vs_persistent` (D-11) + SC3 store-level cycle/orphan/over-depth anomaly fixtures + side-effect-free (VIEW-03, VIEW-04) — Wave 3
 
 ### Phase 5: CLI + API Surface (parity-locked)
 
@@ -132,5 +141,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
 | 3. Date View | 3/3 | Complete    | 2026-06-23 |
-| 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
+| 4. Period View (goal-tree rollup) | 0/3 | Planned     | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |
