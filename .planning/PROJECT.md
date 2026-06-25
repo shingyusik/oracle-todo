@@ -28,12 +28,12 @@ A user can set a big goal for a period (year/month/week), break it top-down into
 - ✓ A task connects to a goal via `parent_id` and carries a `scheduled` date (audited `update_item` path) — Phase 2
 - ✓ Service-layer read primitive: `ListFilter` `horizon` / `parent_id` / `scheduled` predicates over both in-memory and persistent SQLite list paths — Phase 2
 - ✓ Date view: `agenda` (single-date `scheduled` ∪ `due`, deduped) + `date_range` ([from, to] scheduled-only), in `queries.rs`, side-effect-free, deterministic order, store-parity proven — Phase 3
+- ✓ Period view: `period_view(horizon, period)` rolls up the goal tree (goals + decomposed tasks) over both InMemory and Persistent (SQLite recursive-CTE) stores via one shared in-memory `assemble()` walk — depth-capped, cycle-safe (never errors), side-effect-free, store-parity proven (VIEW-03 / VIEW-04) — Phase 4
 
 ### Active
 
 <!-- This milestone. Hypotheses until shipped and validated. -->
 
-- [ ] Period views: week / month / year views roll up the goal tree (goals + their decomposed tasks)
 - [ ] All planning mutations route through `TodoService` (validation, state machine, audit event, approval gating reused — no new bypass)
 - [ ] Schema changes are additive only (extend `items`; no dropped/rewritten columns)
 - [ ] CLI subcommands for creating goals, linking tasks, and the date/period views
@@ -91,4 +91,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-23 — Phase 3 complete (Date View: `agenda` + `date_range` service queries)*
+*Last updated: 2026-06-25 — Phase 04.1 complete (resolved 04-REVIEW findings: cross-store parity true by construction via goal-only CTE descent, anomaly_count no longer over-counts D-02 sibling roots, regression fixtures added; no rendered-output change)*

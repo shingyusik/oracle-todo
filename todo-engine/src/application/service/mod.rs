@@ -18,7 +18,23 @@ mod update;
 pub use creation::{
     CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
 };
+pub use queries::{GoalNode, PeriodView};
 pub use update::UpdateItem;
+
+/// Single source of truth for the goal-depth cap on the public `service` path
+/// (D-06 / IN-03).
+///
+/// The production const stays `pub(super) const MAX_GOAL_DEPTH` in `goal.rs`. A
+/// bare `pub use goal::MAX_GOAL_DEPTH;` re-export does not compile in Rust 2024
+/// (E0364: cannot re-export a `pub(super)` item as `pub`, RESEARCH A1's
+/// documented fallback). A `#[cfg(test)]` gate would not reach the *integration*
+/// test crate (it links the non-`cfg(test)` library build), so this public
+/// accessor *binds* the production value — readable from the parent module —
+/// rather than hand-mirroring `64`. The integration test crate imports this
+/// instead of declaring its own const: still exactly one source of truth. The
+/// widened surface is a single non-sensitive integer cap (threat T-04.1-05:
+/// accept).
+pub const MAX_GOAL_DEPTH: usize = goal::MAX_GOAL_DEPTH;
 
 pub struct TodoService {
     pub(super) store: ServiceStore,

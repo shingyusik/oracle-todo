@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Domain + Schema Foundation** - `Goal` item type, the period-anchor normalization helper (LYNCHPIN), and additive indexes — the one-way decisions (completed 2026-06-22)
 - [x] **Phase 2: Service Policy — Goal Create, Link & Validation** - All planning mutations and the list read primitive routed through `TodoService` with strict validation (completed 2026-06-22)
 - [x] **Phase 3: Date View** - Tasks grouped by `scheduled` date for a day or range, with explicit buckets for undated work (completed 2026-06-23)
-- [ ] **Phase 4: Period View (goal-tree rollup)** - The goal at a `(horizon, period)` plus its descendant goal+task subtree, structure only
+- [x] **Phase 4: Period View (goal-tree rollup)** - The goal at a `(horizon, period)` plus its descendant goal+task subtree, structure only (completed 2026-06-25)
 - [ ] **Phase 5: CLI + API Surface (parity-locked)** - Goal/link/view commands and mirrored HTTP endpoints over the same service methods
 
 ## Phase Details
@@ -97,12 +97,38 @@ Plans:
   3. The traversal loads the working set once and walks it in memory (no `list_items` inside the recursion) and terminates safely on cyclic or orphaned legacy data via a visited set and depth cap.
   4. The view logic lives in `application/service/queries.rs` returning a single shared `PeriodView` type both adapters will serialize.
 
-**Plans**: TBD
-**Research**: This phase is flagged for deeper performance research during planning — the recursive goal-tree rollup collides with the pre-existing in-memory full-table-scan debt (CONCERNS.md). The single-load-in-memory-tree vs. SQL-pushdown decision and index usage warrant `--research-phase`.
+**Plans**: 3 plans
+**Research**: Completed (04-RESEARCH.md) — load strategy locked to a confined SQLite `WITH RECURSIVE` CTE in repo.rs (D-10), with an equivalent InMemory Rust loader and an explicit cross-store parity test (D-11). No new dependencies.
 
 Plans:
+**Wave 1**
 
-- [ ] 04-01: TBD
+- [x] 04-01-PLAN.md — Shared `PeriodView`/`GoalNode` type + `period_view` method + in-memory `assemble()` walk (visited-set + depth cap + anomaly) + InMemory loader + in-memory behavior tests (VIEW-03, VIEW-04) — Wave 1
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [x] 04-02-PLAN.md — Recursive-CTE `load_period_subtree` in repo.rs + `TodoRepository` trait method + Persistent arm of `period_view` (D-10 SQL pushdown) (VIEW-03, VIEW-04) — Wave 2
+
+**Wave 3** *(blocked on Waves 1-2)*
+
+- [x] 04-03-PLAN.md — Persistent subtree test + `parity_in_memory_vs_persistent` (D-11) + SC3 store-level cycle/orphan/over-depth anomaly fixtures + side-effect-free (VIEW-03, VIEW-04) — Wave 3
+
+### Phase 04.1: Fix period-view code review findings (INSERTED)
+
+**Goal:** Resolve all 04-REVIEW.md findings so the cross-store parity contract is true rather than coincidental: make the SQL CTE and in-memory walk produce the same flat working set (locked to Path A / D-01 — CTE goal-only descent, not the doc-weakening route), stop `anomaly_count` over-counting valid D-02 sibling-root nesting, and add a `goal→task→goal` parity fixture that actually exercises the divergence — plus the minor cleanups (HashSet root lookup, shared sort comparator, single-sourced test depth cap). No change to the rendered `PeriodView` output.
+**Requirements**: None new — advisory cleanup of Phase 4 (VIEW-03 / VIEW-04 already satisfied)
+**Depends on:** Phase 4
+**Plans:** 3/3 plans complete
+
+Plans:
+**Wave 1** *(parallel — no file overlap)*
+
+- [x] 04.1-01-PLAN.md — queries.rs production fixes: shared `schedule_then_created_order` comparator (D-05/IN-02) + HashSet `root_ids` and root-aware anomaly skip (D-04/IN-01/WR-02) — Wave 1 ✅
+- [x] 04.1-02-PLAN.md — repo.rs CTE goal-only descent (`JOIN items p ... p.type = 'goal'`, D-01/WR-01) + D-11 comment and accurate parity docs (D-03/WR-03) — Wave 1
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [x] 04.1-03-PLAN.md — single-source `MAX_GOAL_DEPTH` via `pub use` (D-06/IN-03) + `insert_task_row` helper & `goal→task→goal` cross-store parity fixture (D-07/WR-04) + valid sibling-root `anomaly_count == 0` fixture (D-08/WR-02 regression) — Wave 2
 
 ### Phase 5: CLI + API Surface (parity-locked)
 
@@ -132,5 +158,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
 | 3. Date View | 3/3 | Complete    | 2026-06-23 |
-| 4. Period View (goal-tree rollup) | 0/TBD | Not started | - |
+| 4. Period View (goal-tree rollup) | 3/3 | Complete    | 2026-06-25 |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |

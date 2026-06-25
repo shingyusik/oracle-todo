@@ -24,8 +24,8 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 
 - [x] **VIEW-01**: User can list goals/tasks filtered by horizon, period, and parent (the read primitive the views compose).
 - [x] **VIEW-02**: Date view — user can see tasks grouped by `scheduled` date for a single day and for an arbitrary `[from, to]` range; tasks with no `scheduled` date are surfaced in an explicit bucket, not dropped.
-- [ ] **VIEW-03**: Period view — user can see the goal(s) for a given `(horizon, period)` plus their descendant goal+task subtree (structure only; no completion rollup).
-- [ ] **VIEW-04**: Unscheduled-in-goal surfacing — user can see tasks linked under a goal that have no `scheduled` date.
+- [x] **VIEW-03**: Period view — user can see the goal(s) for a given `(horizon, period)` plus their descendant goal+task subtree (structure only; no completion rollup).
+- [x] **VIEW-04**: Unscheduled-in-goal surfacing — user can see tasks linked under a goal that have no `scheduled` date.
 - [x] **VIEW-05**: Agenda spanning scheduled + due — for a given date, user can see both tasks scheduled for that day and tasks due that day.
 
 ### Surface (SURF)
@@ -80,8 +80,8 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 | LINK-02 | Phase 2 | Complete |
 | VIEW-01 | Phase 2 | Complete |
 | VIEW-02 | Phase 3 | Complete |
-| VIEW-03 | Phase 4 | Pending |
-| VIEW-04 | Phase 4 | Pending |
+| VIEW-03 | Phase 4 | Complete |
+| VIEW-04 | Phase 4 | Complete |
 | VIEW-05 | Phase 3 | Complete |
 | SURF-01 | Phase 5 | Pending |
 | SURF-02 | Phase 5 | Pending |
