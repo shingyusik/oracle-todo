@@ -424,6 +424,61 @@ fn parity_in_memory_vs_persistent() {
     assert!(disk_keys.iter().any(|(title, _, _)| title == "task-live"));
 }
 
+// D-07 / WR-04 — cross-store parity for the `goal(root) -> task -> goal` shape, the
+// exact topology where WR-01's divergence lived. The validating service API rejects
+// goal-under-task (validate_goal_nesting), so the persistent half is raw-injected;
+// the in-memory half cannot be raw-built (ServiceStore::InMemory is pub(super)).
+//
+// RESEARCH Open Question 1 resolved with the recommended loader-level comparison
+// (option b, no production test hook): seed the in-memory side with the
+// rendered-EQUIVALENT VALID shape the API permits — `goal G1(root)` with an open
+// task T under it, G2 simply NOT created (because under Plan 02's D-01 CTE fix G2 is
+// provably unreachable in the persistent store too: its parent is a task, so the
+// goal-only descent drops it). The assertion then proves the persistent
+// goal->task->goal view's tree_keys + anomaly_count EQUAL the in-memory goal->task
+// view's — i.e. G2 does NOT leak into the persistent tree. If Plan 02's fix were
+// absent/wrong, G2 would surface in the persistent tree and tree_keys would diverge,
+// failing this test (the WR-01 divergence guard). Compare tree_keys (title, depth,
+// kind) — NEVER raw ids (in-memory `goal_000001`, persistent UUIDs).
+#[test]
+fn parity_goal_task_goal_cross_store() {
+    // Persistent half: raw-inject goal G1(root) -> task T -> goal G2, parent-first
+    // so each FK is satisfied at insert time (Pitfall-4).
+    let home = raw_home();
+    insert_goal_row(&home.conn, "G1", "g1-root", "month", "2026-06-01", None);
+    insert_task_row(&home.conn, "T", "t-under-goal", Some("2026-06-11"), Some("G1"));
+    insert_goal_row(&home.conn, "G2", "g2-under-task", "week", "2026-06-08", Some("T"));
+    let mut disk = service_over(home.conn);
+    let disk_view = disk.period_view(Horizon::Month, "2026-06-01").unwrap();
+
+    // In-memory-equivalent half: the valid `goal G1 -> open task T` the API permits
+    // (G2 is unreachable in the persistent store too, so it is correctly absent here).
+    let mut mem = TodoService::in_memory();
+    let g1 = mem
+        .propose_goal(goal("g1-root", "month", "2026-06-01", None))
+        .unwrap();
+    open_task(&mut mem, "t-under-goal", &g1.id, Some("2026-06-11"));
+    let mem_view = mem.period_view(Horizon::Month, "2026-06-01").unwrap();
+
+    // The persistent goal->task->goal working set is {G1, T}: G1 rendered, T inlined,
+    // G2 ABSENT — identical structure to the in-memory goal->task view (D-01 enforced).
+    assert_eq!(
+        tree_keys(&disk_view),
+        tree_keys(&mem_view),
+        "goal->task->goal must render identically to goal->task (G2 must NOT leak, WR-01)"
+    );
+    // Anomaly parity: both clean, both 0 (G2 dropped pre-walk, not severed-as-anomaly).
+    assert_eq!(disk_view.anomaly_count, mem_view.anomaly_count);
+    assert_eq!(disk_view.anomaly_count, 0);
+    // G2 is absent from the persistent tree keys; T (open) is present.
+    let disk_keys = tree_keys(&disk_view);
+    assert!(
+        !disk_keys.iter().any(|(title, _, _)| title == "g2-under-task"),
+        "G2 (goal under a task) must not leak into the persistent tree (D-01)"
+    );
+    assert!(disk_keys.iter().any(|(title, _, _)| title == "t-under-goal"));
+}
+
 // SC3/CORE-03: the persistent `period_view` writes NO audit event — the SQL load
 // is a pure read (mirrors date_view.rs:141-152).
 #[test]
@@ -494,6 +549,28 @@ fn insert_goal_row(
         ],
     )
     .expect("raw goal insert");
+}
+
+// Insert a TASK row DIRECTLY via SQL, mirroring insert_goal_row's column contract
+// but with type='task' and an OPEN status ('active'). A terminal status would be
+// filtered out by the D-07 open-only task predicate (Pitfall-5), so 'active' keeps
+// the task visible under its parent goal. Tasks need no `horizon` column for the
+// CTE — only the goal seed must match the requested period. `parent_id` must
+// reference an already-inserted id (insert parent-first to satisfy the FK).
+fn insert_task_row(
+    conn: &rusqlite::Connection,
+    id: &str,
+    title: &str,
+    scheduled: Option<&str>,
+    parent_id: Option<&str>,
+) {
+    conn.execute(
+        "INSERT INTO items
+            (id, type, title, status, proposed_by, created_at, updated_at, scheduled, parent_id)
+         VALUES (?1, 'task', ?2, 'active', 'user', ?3, ?3, ?4, ?5)",
+        rusqlite::params![id, title, "2026-06-01T00:00:00Z", scheduled, parent_id],
+    )
+    .expect("raw task insert");
 }
 
 // Build a persistent service over a raw connection after injection is complete.
