@@ -144,7 +144,14 @@ impl TodoService {
             ServiceStore::InMemory(_) => {
                 self.load_period_subtree_in_memory(horizon, &period_key)?
             }
-            ServiceStore::Persistent(_) => unimplemented!("Plan 02: persistent CTE loader"),
+            // D-10/D-11: the Persistent store pushes the working-set load down to
+            // the indexed recursive-CTE loader (Task 1). It produces the SAME
+            // flat working set as the InMemory loader (goals at any status,
+            // tasks open-only), so the shared `assemble()` below yields identical
+            // tree shape across stores (parity proven in Plan 03).
+            ServiceStore::Persistent(store) => {
+                store.load_period_subtree(horizon.as_str(), &period_key)?
+            }
         };
 
         let (roots, anomaly_count) = assemble(working_set, horizon, &period_key);
