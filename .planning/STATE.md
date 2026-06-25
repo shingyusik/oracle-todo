@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: verifying
 stopped_at: Completed 04.1-02-PLAN.md
-last_updated: "2026-06-25T06:44:26.913Z"
+last_updated: "2026-06-25T06:54:38.633Z"
 last_activity: 2026-06-25 -- Phase 04.1 Plan 01 complete (queries.rs anomaly_count + comparator fixes)
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
-  completed_plans: 15
-  percent: 67
+  completed_plans: 16
+  percent: 83
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 
 Phase: 04.1 (fix-period-view-code-review-findings) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-25 -- Phase 04.1 Plan 01 complete (queries.rs anomaly_count + comparator fixes)
 
 Progress: [████████░░] 80%
@@ -70,6 +70,7 @@ Progress: [████████░░] 80%
 | Phase 04 P03 | 9 | 2 tasks | 2 files |
 | Phase 04.1 P01 | 6 | 2 tasks | 2 files |
 | Phase 04.1 P02 | 9 | 2 tasks | 2 files |
+| Phase 04.1 P03 | 9 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,7 @@ Recent decisions affecting current work:
 - [Phase 04.1 Plan 01]: anomaly_count over-count fixed (WR-02/IN-01) — root_ids migrated Vec->HashSet (kills O(roots x goals) scan); build_node gains a root_ids: &HashSet param and a `if root_ids.contains(&child.id) { continue; }` short-circuit placed FIRST in the child loop (before visited/depth), so two same-period (D-02 sibling) roots no longer bump the count. Genuine over-depth still counts (depth_cap fixtures). The two byte-identical sort closures collapsed into one free fn schedule_then_created_order; sort_date_view/sort_child_goals delegate via sort_by (byte-identical order). DEVIATION [Rule 1]: cycle_is_severed_no_error fixture asserted the OLD over-count (its "cycle" is two same-period roots); under D-04 a single-parent cycle is only loadable if a cycle node is a period root, and re-visiting a root is correctly not an anomaly — so it now correctly yields anomaly_count==0; the fixture assertion was updated to match the plan's own must-have. period_view 13/13, integration 60/60, unit 49/49, clippy clean.
 - [Phase ?]: [Phase 3 Plan 03]: SC4 store parity proven via parity_in_memory_vs_persistent — one seed_fixture run through both in_memory and persistent stores, compared by stable (title, scheduled) key not raw ids. Side-effect-free proven via events().len() unchanged across agenda+date_range. date_view.rs registered first in integration.rs; persistent_service mirrored from goal_view.rs.
 - [Phase ?]: [Phase 04.1 Plan 02]: D-01/WR-01 — period-view recursive CTE constrained to goal-parent descent via JOIN items p ON s.id = p.id AND p.type = 'goal' (tests the PARENT row s.id, not child i). For goal->task->goal the CTE working set becomes {G1, T} (G2 dropped, parent is a task), identical to the InMemory frontier walk — D-11 parity now true by construction in SQL, not by an assemble coincidence. Kept WHERE i.type IN('goal','task') (direct-under-goal tasks still load) + the deduplicating UNION cycle guard; no new bound parameter. D-03/WR-03: ports.rs + repo.rs parity docs kept the same-flat-working-set wording (now literally true) and tightened to cite the goal-only descent as enforcement; Path B doc-weakening rejected. D-02 verify-only: rendered output unchanged (G2 was never a rendered node). DEVIATION [Rule 3]: ran cargo fmt on ports.rs/repo.rs to clear pre-existing fmt debt blocking the Task 2 gate. period_view 13/13, integration 60/60, unit 49/49, clippy clean; pre-existing dotenv e2e failure left deferred.
+- [Phase 04.1 Plan 03]: Phase 04.1 COMPLETE — Wave-1 fixes regression-locked. MAX_GOAL_DEPTH single-sourced via a `pub const MAX_GOAL_DEPTH = goal::MAX_GOAL_DEPTH;` accessor in service/mod.rs (DEVIATION [Rule 3]: `pub use` of a pub(super) const fails E0364 in Rust 2024; a #[cfg(test)] gate would not reach the integration test crate which links the non-cfg(test) lib — so an ungated accessor binding, NOT a hand-mirrored 64; threat T-04.1-05 accept). Hand-mirrored test const deleted, accessor imported. insert_task_row raw helper added (type='task', open status 'active', no horizon). parity_goal_task_goal_cross_store (D-07/WR-04): raw G1->T->G2 persistent vs in-memory goal->task equivalent — proves G2 (goal under task) does NOT leak under D-01, anomaly parity 0; resolved RESEARCH Open Question 1 via loader-level comparison (option b), no production InMemory test hook (pub(super) ServiceStore boundary unchanged). sibling_root_nesting_is_not_an_anomaly (D-08/WR-02): raw R1(parent None)+R2(parent R1) both (month,2026-06-01) asserts anomaly_count==0 — D-04 over-count regression guard. DEVIATION [Rule 3]: cargo fmt on new fixtures. period_view 15/15, integration 62/62, unit 49/49, lib 2/2, clippy+fmt clean. Pre-existing CLI dotenv e2e failure (init resolves default home not .env TODO_ENGINE_HOME) left deferred (out of scope, logged to deferred-items.md).
 
 ### Pending Todos
 
@@ -120,6 +122,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T06:44:26.900Z
+Last session: 2026-06-25T06:53:58.572Z
 Stopped at: Completed 04.1-02-PLAN.md
 Resume file: None
