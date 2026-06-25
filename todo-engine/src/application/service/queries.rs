@@ -9,17 +9,8 @@ use super::{ServiceStore, TodoService, parse_day};
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{ListFilter, apply_list_filter};
 use crate::domain::{
-    Horizon, ItemStatus, ItemType, TodoItem, normalize_to_period_start, terminal_status,
+    Horizon, ItemType, OPEN_STATUSES, TodoItem, normalize_to_period_start, terminal_status,
 };
-
-/// D-05 open-only allowlist: only these statuses surface in date-view reads.
-/// Copied from `today_tasks`; do NOT rely on `list_items` hidden-by-default
-/// alone (it leaks Completed/Waiting/Paused/Someday/Rejected).
-const OPEN_STATUSES: [ItemStatus; 3] = [
-    ItemStatus::Proposed,
-    ItemStatus::Approved,
-    ItemStatus::Active,
-];
 
 /// D-01: the single shared, serde-serializable nested period-view tree. The same
 /// type and the same `assemble` walk are fed by BOTH the InMemory loader (this

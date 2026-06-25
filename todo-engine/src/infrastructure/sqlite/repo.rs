@@ -7,7 +7,8 @@ use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{
     EventRepository, ListFilter, TodoRepository, TodoStore, apply_list_filter,
 };
-use crate::domain::{TodoEvent, TodoItem};
+use crate::domain::{OPEN_STATUSES, TodoEvent, TodoItem};
+use rusqlite::types::ToSql;
 use rusqlite::{Connection, OptionalExtension, params};
 
 impl TodoRepository for SqliteTodoRepository {
@@ -37,6 +38,82 @@ impl TodoRepository for SqliteTodoRepository {
             items.push(row_to_item(row)?);
         }
         Ok(apply_list_filter(items, filter))
+    }
+
+    /// D-10 indexed working-set loader for `period_view`. One `WITH RECURSIVE`
+    /// CTE walks `parent_id` downward from the period's root goals — exercising
+    /// `idx_items_type_horizon_scheduled` (seed) and `idx_items_parent_id`
+    /// (recursive step) instead of the `list_items` full-table scan. A
+    /// deduplicating `UNION` (never the appending variant) collapses the
+    /// reachable id set, which is the SQL-level cycle guard for any legacy
+    /// `parent_id` back-edges (T-04-05).
+    ///
+    /// D-07 visibility parity (CRITICAL): the task-status predicate is GENERATED
+    /// from the single [`OPEN_STATUSES`] source of truth shared with the
+    /// InMemory loader — never a hand-typed status literal list — so the two
+    /// stores cannot drift. The predicate is ASYMMETRIC: GOAL rows are kept at
+    /// ANY status (terminal goals stay in the structure AND are traversed so a
+    /// live grandchild can outlive a terminal parent, ADR-0006), while TASK rows
+    /// are restricted to the open statuses. Tasks are NOT filtered by
+    /// `scheduled` — unscheduled tasks must survive (VIEW-04).
+    ///
+    /// All inputs are bound as parameters (`?N`); nothing is `format!`-ed into
+    /// the SQL (V5.3 / T-04-04). The `IN (...)` placeholder list is built from
+    /// the COUNT of open statuses, and the status strings are appended to the
+    /// bound params — still no value interpolation.
+    fn load_period_subtree(
+        &mut self,
+        horizon: &str,
+        period_key: &str,
+    ) -> TodoResult<Vec<TodoItem>> {
+        // Placeholder list `?3, ?4, ...` for the open-status allowlist, generated
+        // from OPEN_STATUSES so the predicate stays byte-equivalent to the
+        // InMemory loader. ?1 = horizon, ?2 = period_key, then the statuses.
+        let status_placeholders = (0..OPEN_STATUSES.len())
+            .map(|offset| format!("?{}", offset + 3))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        // The seed selects root goals at (horizon, period_key); the recursive
+        // step pulls in any goal/task whose parent is already reachable. The
+        // outer WHERE then applies the asymmetric D-07 status predicate: goals
+        // at any status, tasks open-only.
+        let suffix = format!(
+            "WHERE id IN (
+                 WITH RECURSIVE subtree(id) AS (
+                     SELECT id FROM items
+                     WHERE type = 'goal' AND horizon = ?1 AND scheduled = ?2
+                     UNION
+                     SELECT i.id FROM items i
+                     JOIN subtree s ON i.parent_id = s.id
+                     WHERE i.type IN ('goal', 'task')
+                 )
+                 SELECT id FROM subtree
+             )
+             AND (type = 'goal' OR (type = 'task' AND status IN ({status_placeholders})))"
+        );
+
+        // Bind order matches the placeholders: horizon, period_key, then the
+        // open-status strings. No value is ever interpolated into the SQL text.
+        let mut params: Vec<&dyn ToSql> = vec![&horizon, &period_key];
+        let status_values: Vec<&'static str> =
+            OPEN_STATUSES.iter().map(|status| status.as_str()).collect();
+        for status in &status_values {
+            params.push(status);
+        }
+
+        let mut statement = self
+            .conn
+            .prepare(item_select_sql(&suffix).as_str())
+            .map_err(storage_error)?;
+        let mut rows = statement
+            .query(params.as_slice())
+            .map_err(storage_error)?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            items.push(row_to_item(row)?);
+        }
+        Ok(items)
     }
 }
 

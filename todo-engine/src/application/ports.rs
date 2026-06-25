@@ -1,10 +1,26 @@
 use crate::application::error::TodoResult;
+#[cfg(doc)]
+use crate::domain::OPEN_STATUSES;
 use crate::domain::{ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status};
 
 pub trait TodoRepository: Send {
     fn save_item(&mut self, item: &TodoItem) -> TodoResult<()>;
     fn get_item(&mut self, id: &str) -> TodoResult<Option<TodoItem>>;
     fn list_items(&mut self, filter: ListFilter) -> TodoResult<Vec<TodoItem>>;
+
+    /// D-10 SQL-pushdown loader for `period_view`: return the flat period-view
+    /// working set (root goals anchored to `(horizon, period_key)` + every
+    /// descendant goal/task reachable via `parent_id`) in ONE indexed query.
+    /// The same D-07 visibility predicate as the InMemory loader is applied:
+    /// goals are kept at ANY status (terminal goals are traversed through, per
+    /// ADR-0006), tasks are restricted to [`OPEN_STATUSES`]. The returned set is
+    /// fed unchanged to the shared `assemble()` walk, so the Persistent and
+    /// InMemory stores produce identical tree shape (D-11).
+    fn load_period_subtree(
+        &mut self,
+        horizon: &str,
+        period_key: &str,
+    ) -> TodoResult<Vec<TodoItem>>;
 }
 
 pub trait EventRepository: Send {
