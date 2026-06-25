@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Domain + Schema Foundation** - `Goal` item type, the period-anchor normalization helper (LYNCHPIN), and additive indexes — the one-way decisions (completed 2026-06-22)
 - [x] **Phase 2: Service Policy — Goal Create, Link & Validation** - All planning mutations and the list read primitive routed through `TodoService` with strict validation (completed 2026-06-22)
 - [x] **Phase 3: Date View** - Tasks grouped by `scheduled` date for a day or range, with explicit buckets for undated work (completed 2026-06-23)
-- [ ] **Phase 4: Period View (goal-tree rollup)** - The goal at a `(horizon, period)` plus its descendant goal+task subtree, structure only
+- [x] **Phase 4: Period View (goal-tree rollup)** - The goal at a `(horizon, period)` plus its descendant goal+task subtree, structure only (completed 2026-06-25)
 - [ ] **Phase 5: CLI + API Surface (parity-locked)** - Goal/link/view commands and mirrored HTTP endpoints over the same service methods
 
 ## Phase Details
@@ -111,7 +111,7 @@ Plans:
 
 **Wave 3** *(blocked on Waves 1-2)*
 
-- [ ] 04-03-PLAN.md — Persistent subtree test + `parity_in_memory_vs_persistent` (D-11) + SC3 store-level cycle/orphan/over-depth anomaly fixtures + side-effect-free (VIEW-03, VIEW-04) — Wave 3
+- [x] 04-03-PLAN.md — Persistent subtree test + `parity_in_memory_vs_persistent` (D-11) + SC3 store-level cycle/orphan/over-depth anomaly fixtures + side-effect-free (VIEW-03, VIEW-04) — Wave 3
 
 ### Phase 5: CLI + API Surface (parity-locked)
 
@@ -141,5 +141,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
 | 3. Date View | 3/3 | Complete    | 2026-06-23 |
-| 4. Period View (goal-tree rollup) | 2/3 | In Progress | - |
+| 4. Period View (goal-tree rollup) | 3/3 | Complete    | 2026-06-25 |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |

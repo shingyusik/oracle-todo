@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-06-25T03:30:00.000Z"
-last_activity: 2026-06-25 -- Phase 04 Plan 02 complete
+stopped_at: Completed 04-03-PLAN.md (Phase 04 complete)
+last_updated: "2026-06-25T03:31:00.000Z"
+last_activity: 2026-06-25 -- Phase 04 complete (Plan 03 done)
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
-  percent: 71
+  completed_plans: 13
+  percent: 80
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 
 ## Current Position
 
-Phase: 04 (period-view-goal-tree-rollup) — EXECUTING
-Plan: 3 of 3
-Status: Executing Phase 04
-Last activity: 2026-06-25 -- Phase 04 Plan 02 complete
+Phase: 04 (period-view-goal-tree-rollup) — COMPLETE
+Plan: 3 of 3 (done)
+Status: Phase 04 complete; next is Phase 05 (CLI + API Surface)
+Last activity: 2026-06-25 -- Phase 04 complete (Plan 03 done)
 
-Progress: [███████░░░] 71%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Progress: [███████░░░] 71%
 | Phase 03 P03 | 4 | 2 tasks | 2 files |
 | Phase 04 P01 | 18 | 2 tasks | 5 files |
 | Phase 04 P02 | 12 | 2 tasks | 5 files |
+| Phase 04 P03 | 9 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 3 Plan 01]: agenda/date_range are pure side-effect-free TodoService reads composing list_items (no store branch = SC4 CLI/API parity free). agenda = scheduled==D OR due==D union deduped by id (D-02); date_range = scheduled-only inclusive range (D-03). Open-only via explicit OPEN_STATUSES allowlist, NOT list_items hidden-by-default. iso_day = leading-10-char parse_day.ok() so None/sentinel/junk = unscheduled (D-07). sort_date_view = scheduled asc, unscheduled last, created_at->id (D-08). No DateView (D-01), no due-tag (D-04), no overdue roll (D-06), no materialize (SC4).
 - [Phase 4 Plan 01]: PeriodView/GoalNode is the single shared serde nested type in queries.rs (D-01), fed by both stores; loaders diverge only in producing the flat working set. period_view(horizon, period) accepts ANY in-period date and normalizes via normalize_to_period_start (no caller math). assemble() builds the tree store-agnostically: roots = exact (horizon, period_key) matches (D-02, siblings all roots — two same-anchor roots need DISTINCT parent_id per GOAL-05), descent follows parent_id across periods (D-03), tasks sorted unscheduled-last (D-05), child_goals scheduled-asc (D-06); visited-set + reused goal.rs MAX_GOAL_DEPTH (now pub(super)) sever cycle/over-depth into anomaly_count, NEVER Err (SC3/D-09). D-07 status policy (MUST be applied identically in the Plan 02 CTE): terminal GOALS kept + traversed THROUGH (ADR-0006 no-cascade); TASKS filtered to OPEN_STATUSES; InMemory loader loads goals with include_archived:true (not list_items hidden-by-default). Persistent loader arm is exactly unimplemented!("Plan 02: persistent CTE loader") for Plan 02 to remove. tree_keys()/seed_goal_tree() reusable by Plan 03 parity; true over-depth/cyclic anomaly fixtures deferred to Plan 03 (service API cannot build >64/cyclic chains).
 - [Phase 4 Plan 02]: OPEN_STATUSES promoted to domain/status.rs as the single cross-ring source of truth (re-exported via domain/mod.rs); both the application-ring InMemory loader and the infrastructure-ring CTE loader derive their task-status predicate from it (no literal drift — the Plan 03 parity test's invariant). New TodoRepository::load_period_subtree(horizon: &str, period_key: &str) trait method (ports.rs); SqliteTodoRepository impl uses ONE WITH RECURSIVE CTE: seed `type='goal' AND horizon=?1 AND scheduled=?2` (idx_items_type_horizon_scheduled), recursive `JOIN subtree ON i.parent_id=s.id WHERE i.type IN('goal','task')` (idx_items_parent_id), UNION (not UNION ALL) as SQL cycle guard. Outer WHERE applies the asymmetric D-07 predicate: goals at ANY status (terminal traversed through), tasks `status IN(<OPEN_STATUSES placeholders>)`, tasks NOT filtered by scheduled (VIEW-04). All inputs bound as params (no interpolation, V5.3/T-04-04). Persistent arm of period_view now calls store.load_period_subtree(horizon.as_str(), &period_key); both store arms feed the single shared assemble() (D-11). list_items + schema.rs untouched (D-10 fence). 7 in-memory period_view tests green; clippy clean.
+- [Phase 4 Plan 03]: Phase 4 COMPLETE (VIEW-03/VIEW-04 done). Test-only plan locking the Persistent CTE path + cross-store parity + SC3 anomaly safety. persistent_service() copied verbatim from date_view.rs. parity_in_memory_vs_persistent (D-11, MANDATORY): identical seed (live + terminal task under same goal) through both stores -> equal tree_keys() (title,depth,kind, NEVER raw ids) + equal anomaly_count; terminal task absent in BOTH, live present in BOTH (D-07 absence-parity). SC3 anomaly fixtures injected as RAW SQLite rows bypassing validate_goal_nesting: cycle = insert A,B with parent_id NULL then two UPDATEs to form A<->B (UPDATE after both exist satisfies the forward FK a self/mutual insert cannot); orphan = PRAGMA foreign_keys=OFF around a dangling-parent INSERT; over-depth = 65-node chain > MAX_GOAL_DEPTH(64, mirrored as test const). All three return Ok + anomaly_count>=1 (orphan: Ok+no-panic, unreachable so absent, no count), suite TERMINATES (non-hang proof). anomaly_count = one severed child-goal branch in build_node (re-visit cycle OR depth>cap). No InMemory-side anomaly fixture: ServiceStore::InMemory(HashMap) is pub(super)/not test-constructible; raw-SQLite fixture exercises the SAME shared assemble() guard. 13/13 period_view tests green; 60/60 integration; 49/49 unit; clippy clean. Pre-existing repo.rs fmt debt + cli dotenv e2e failure logged to deferred-items (out of scope).
 - [Phase ?]: [Phase 3 Plan 03]: SC4 store parity proven via parity_in_memory_vs_persistent — one seed_fixture run through both in_memory and persistent stores, compared by stable (title, scheduled) key not raw ids. Side-effect-free proven via events().len() unchanged across agenda+date_range. date_view.rs registered first in integration.rs; persistent_service mirrored from goal_view.rs.
 
 ### Pending Todos
@@ -113,6 +115,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T03:30:00.000Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-06-25T03:31:00.000Z
+Stopped at: Completed 04-03-PLAN.md (Phase 04 complete)
 Resume file: None
