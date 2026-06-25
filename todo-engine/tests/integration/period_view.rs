@@ -501,13 +501,26 @@ fn service_over(conn: rusqlite::Connection) -> TodoService {
     TodoService::persistent(SqliteTodoRepository::new(conn))
 }
 
-// SC3 / T-04-07 (DoS): a 2-node parent_id CYCLE (A->B->A) injected at the store
-// level. Because parent_id has a forward FK (REFERENCES items(id)), the cycle is
-// built by inserting A and B with parent_id = NULL, then UPDATE-ing each to point
-// at the other (an UPDATE after both rows exist satisfies the FK). At least one
-// node anchors to the requested period so it is a CTE seed/root. The call must
-// return Ok, bump anomaly_count, and the test COMPLETING is the non-hang proof
-// (SQL UNION bounds the load; the in-memory visited-set bounds the walk).
+// SC3 / T-04-07 (DoS): a 2-node parent_id CYCLE (A<->B) injected at the store
+// level, where BOTH nodes anchor to the requested (month, 2026-06-01) period.
+// Because parent_id has a forward FK (REFERENCES items(id)), the cycle is built by
+// inserting A and B with parent_id = NULL, then UPDATE-ing each to point at the
+// other (an UPDATE after both rows exist satisfies the FK).
+//
+// D-04 (04.1) reclassification: because A and B are BOTH exact (month, 2026-06-01)
+// matches, they are valid D-02 SIBLING ROOTS, not an anomaly. With strict
+// single-parent topology a cycle can only ever be loaded into the working set when
+// at least one cycle node is itself a period root (a non-root cycle is unreachable
+// from any seed), and re-visiting a root is correctly NOT counted (it is already
+// emitted as a top-level sibling). So the correct post-fix result here is
+// anomaly_count == 0 — exactly the WR-02 over-count this plan removes. The genuine
+// sever-and-count path (depth/visited) is still exercised by the over-depth
+// fixtures (`depth_cap_truncates` / `depth_cap_truncates_persistent`), and the
+// sibling-root==0 invariant is locked independently by the Plan 03 D-08 fixture.
+//
+// The call must still return Ok and the test COMPLETING is the non-hang proof (SQL
+// UNION bounds the load; the in-memory visited-set bounds the walk despite the
+// store-level cycle).
 #[test]
 fn cycle_is_severed_no_error() {
     let home = raw_home();
@@ -533,13 +546,18 @@ fn cycle_is_severed_no_error() {
 
     let mut service = service_over(home.conn);
 
-    // Must terminate and return Ok despite the cycle.
+    // Must terminate and return Ok despite the store-level cycle (non-hang proof).
     let view = service.period_view(Horizon::Month, "2026-06-01").unwrap();
-    assert!(
-        view.anomaly_count >= 1,
-        "cycle must bump anomaly_count (got {})",
+    // D-04: two same-period nodes are valid sibling roots, NOT an anomaly. Re-visiting
+    // a root is intercepted by `root_ids.contains` and skipped without bumping.
+    assert_eq!(
+        view.anomaly_count, 0,
+        "two same-period sibling roots must NOT over-count (D-04 / WR-02); got {}",
         view.anomaly_count
     );
+    // Both same-period nodes still surface as top-level sibling roots (D-02).
+    let titles: Vec<&str> = view.roots.iter().map(|n| n.goal.title.as_str()).collect();
+    assert!(titles.contains(&"cycle-A") && titles.contains(&"cycle-B"));
 }
 
 // SC3: a goal whose parent_id points to a NON-EXISTENT id. The FK is checked, so

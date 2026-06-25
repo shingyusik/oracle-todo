@@ -293,14 +293,14 @@ fn assemble(
 ) -> (Vec<GoalNode>, usize) {
     let mut goals_by_parent: HashMap<Option<String>, Vec<TodoItem>> = HashMap::new();
     let mut tasks_by_parent: HashMap<String, Vec<TodoItem>> = HashMap::new();
-    let mut root_ids: Vec<String> = Vec::new();
+    let mut root_ids: HashSet<String> = HashSet::new();
 
     for item in working_set {
         if item.item_type == ItemType::Goal {
             if item.horizon.as_deref() == Some(horizon.as_str())
                 && item.scheduled.as_deref() == Some(period_key)
             {
-                root_ids.push(item.id.clone());
+                root_ids.insert(item.id.clone());
             }
             goals_by_parent
                 .entry(item.parent_id.clone())
@@ -337,6 +337,7 @@ fn assemble(
                 goal,
                 &goals_by_parent,
                 &tasks_by_parent,
+                &root_ids,
                 &mut visited,
                 1,
                 &mut anomaly_count,
@@ -354,6 +355,7 @@ fn build_node(
     goal: TodoItem,
     goals_by_parent: &HashMap<Option<String>, Vec<TodoItem>>,
     tasks_by_parent: &HashMap<String, Vec<TodoItem>>,
+    root_ids: &HashSet<String>,
     visited: &mut HashSet<String>,
     depth: usize,
     anomaly_count: &mut usize,
@@ -371,6 +373,12 @@ fn build_node(
 
     let mut child_goals = Vec::new();
     for child in children {
+        if root_ids.contains(&child.id) {
+            // Already emitted as a top-level sibling root (D-02) — NOT an anomaly.
+            // This check MUST precede `visited.insert` so a genuine non-root
+            // cycle/over-depth re-visit still bumps `anomaly_count` below.
+            continue;
+        }
         if depth + 1 > MAX_GOAL_DEPTH || !visited.insert(child.id.clone()) {
             // Over-depth or cycle (re-visit): sever this branch, count it, never Err.
             *anomaly_count += 1;
@@ -380,6 +388,7 @@ fn build_node(
             child,
             goals_by_parent,
             tasks_by_parent,
+            root_ids,
             visited,
             depth + 1,
             anomaly_count,
