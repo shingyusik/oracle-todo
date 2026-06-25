@@ -103,7 +103,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Shared `PeriodView`/`GoalNode` type + `period_view` method + in-memory `assemble()` walk (visited-set + depth cap + anomaly) + InMemory loader + in-memory behavior tests (VIEW-03, VIEW-04) — Wave 1
+- [x] 04-01-PLAN.md — Shared `PeriodView`/`GoalNode` type + `period_view` method + in-memory `assemble()` walk (visited-set + depth cap + anomaly) + InMemory loader + in-memory behavior tests (VIEW-03, VIEW-04) — Wave 1
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -141,5 +141,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Domain + Schema Foundation | 3/3 | Complete    | 2026-06-22 |
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
 | 3. Date View | 3/3 | Complete    | 2026-06-23 |
-| 4. Period View (goal-tree rollup) | 0/3 | Planned     | - |
+| 4. Period View (goal-tree rollup) | 1/3 | In Progress | - |
 | 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |

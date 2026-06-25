@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-06-25T02:53:15.077Z"
-last_activity: 2026-06-25 -- Phase 4 planning complete
+last_updated: "2026-06-25T03:15:00.000Z"
+last_activity: 2026-06-25 -- Phase 04 Plan 01 complete
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 10
-  completed_plans: 10
-  percent: 60
+  total_plans: 13
+  completed_plans: 11
+  percent: 65
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-22)
 
 **Core value:** A user can set a big goal for a period (year/month/week), break it top-down into tasks, and see those tasks by date — all through the same policy-enforced engine.
-**Current focus:** Phase 03 — date-view
+**Current focus:** Phase 04 — period-view-goal-tree-rollup
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-25 -- Phase 4 planning complete
+Phase: 04 (period-view-goal-tree-rollup) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 04
+Last activity: 2026-06-25 -- Phase 04 Plan 01 complete
 
-Progress: [████▌░░░░░] 47%
+Progress: [██████▌░░░] 65%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [████▌░░░░░] 47%
 | Phase 03 P01 | 2 | 2 tasks | 1 files |
 | Phase 03 P02 | 3 | 2 tasks | 2 files |
 | Phase 03 P03 | 4 | 2 tasks | 2 files |
+| Phase 04 P01 | 18 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,7 @@ Recent decisions affecting current work:
 - [Phase 2 Plan 03]: Test-only plan (production code already shipped in Wave 1). SC4 link tests appended to tests/integration/goal_policy.rs prove task->goal linking via the audited update_item path (parent_id + scheduled set, update_item event emitted) plus non-Goal and terminal-parent Policy rejections via ensure_relation. New tests/integration/goal_view.rs proves VIEW-01 against the PERSISTENT SQLite store (TodoService::persistent over a temp todo.sqlite), not just in-memory, confirming repo.rs apply_list_filter parity for horizon/parent_id/(horizon,scheduled). goal_view uses tempfile::tempdir() directly (repository.rs idiom) since tests/support::TestHome is only registered in e2e.rs.
 - [Phase 2 Plan 04]: SC5 docs-only deliverable. Goal ItemStatus semantics LOCKED in README (### Goal item-type subsection + ## Status lifecycle note) and ADR-0006: a Goal reuses the existing ItemStatus lifecycle unchanged (NO new states — health states on_track/at_risk deferred to v2 as derived signals); a goal is active for its period (activate has no Goal-specific precondition in v1); completed/dropped/cancelled are user-driven terminal and do NOT cascade to child goals or linked tasks in v1 (only routine->generated-tasks cascades). This resolves the Phase 2 documentation blocker so the Phase 4 rollup cannot re-litigate goal status meaning.
 - [Phase ?]: [Phase 3 Plan 01]: agenda/date_range are pure side-effect-free TodoService reads composing list_items (no store branch = SC4 CLI/API parity free). agenda = scheduled==D OR due==D union deduped by id (D-02); date_range = scheduled-only inclusive range (D-03). Open-only via explicit OPEN_STATUSES allowlist, NOT list_items hidden-by-default. iso_day = leading-10-char parse_day.ok() so None/sentinel/junk = unscheduled (D-07). sort_date_view = scheduled asc, unscheduled last, created_at->id (D-08). No DateView (D-01), no due-tag (D-04), no overdue roll (D-06), no materialize (SC4).
+- [Phase 4 Plan 01]: PeriodView/GoalNode is the single shared serde nested type in queries.rs (D-01), fed by both stores; loaders diverge only in producing the flat working set. period_view(horizon, period) accepts ANY in-period date and normalizes via normalize_to_period_start (no caller math). assemble() builds the tree store-agnostically: roots = exact (horizon, period_key) matches (D-02, siblings all roots — two same-anchor roots need DISTINCT parent_id per GOAL-05), descent follows parent_id across periods (D-03), tasks sorted unscheduled-last (D-05), child_goals scheduled-asc (D-06); visited-set + reused goal.rs MAX_GOAL_DEPTH (now pub(super)) sever cycle/over-depth into anomaly_count, NEVER Err (SC3/D-09). D-07 status policy (MUST be applied identically in the Plan 02 CTE): terminal GOALS kept + traversed THROUGH (ADR-0006 no-cascade); TASKS filtered to OPEN_STATUSES; InMemory loader loads goals with include_archived:true (not list_items hidden-by-default). Persistent loader arm is exactly unimplemented!("Plan 02: persistent CTE loader") for Plan 02 to remove. tree_keys()/seed_goal_tree() reusable by Plan 03 parity; true over-depth/cyclic anomaly fixtures deferred to Plan 03 (service API cannot build >64/cyclic chains).
 - [Phase ?]: [Phase 3 Plan 03]: SC4 store parity proven via parity_in_memory_vs_persistent — one seed_fixture run through both in_memory and persistent stores, compared by stable (title, scheduled) key not raw ids. Side-effect-free proven via events().len() unchanged across agenda+date_range. date_view.rs registered first in integration.rs; persistent_service mirrored from goal_view.rs.
 
 ### Pending Todos
@@ -109,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T01:41:35.755Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-period-view-goal-tree-rollup/04-CONTEXT.md
+Last session: 2026-06-25T03:15:00.000Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
