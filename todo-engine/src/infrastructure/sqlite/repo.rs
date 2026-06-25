@@ -48,6 +48,13 @@ impl TodoRepository for SqliteTodoRepository {
     /// reachable id set, which is the SQL-level cycle guard for any legacy
     /// `parent_id` back-edges (T-04-05).
     ///
+    /// D-01 goal-parent descent: the recursive step joins back to the parent row
+    /// and keeps only children whose parent is a goal, so this loader produces
+    /// the SAME flat working set as the InMemory frontier walk (goal->goal only)
+    /// — the two stores cannot drift even on adversarial `goal -> task -> goal`
+    /// linkage (a goal under a task is unreachable in both). This makes D-11 true
+    /// by construction in SQL, not by an `assemble` implementation detail.
+    ///
     /// D-07 visibility parity (CRITICAL): the task-status predicate is GENERATED
     /// from the single [`OPEN_STATUSES`] source of truth shared with the
     /// InMemory loader — never a hand-typed status literal list — so the two
@@ -110,9 +117,7 @@ impl TodoRepository for SqliteTodoRepository {
             .conn
             .prepare(item_select_sql(&suffix).as_str())
             .map_err(storage_error)?;
-        let mut rows = statement
-            .query(params.as_slice())
-            .map_err(storage_error)?;
+        let mut rows = statement.query(params.as_slice()).map_err(storage_error)?;
         let mut items = Vec::new();
         while let Some(row) = rows.next().map_err(storage_error)? {
             items.push(row_to_item(row)?);

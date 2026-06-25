@@ -15,12 +15,12 @@ pub trait TodoRepository: Send {
     /// goals are kept at ANY status (terminal goals are traversed through, per
     /// ADR-0006), tasks are restricted to [`OPEN_STATUSES`]. The returned set is
     /// fed unchanged to the shared `assemble()` walk, so the Persistent and
-    /// InMemory stores produce identical tree shape (D-11).
-    fn load_period_subtree(
-        &mut self,
-        horizon: &str,
-        period_key: &str,
-    ) -> TodoResult<Vec<TodoItem>>;
+    /// InMemory stores produce identical tree shape (D-11). The recursive CTE
+    /// descends only through *goal* parents (D-01), so this flat working set is
+    /// identical to the InMemory frontier walk by construction — not merely by
+    /// an `assemble` coincidence.
+    fn load_period_subtree(&mut self, horizon: &str, period_key: &str)
+    -> TodoResult<Vec<TodoItem>>;
 }
 
 pub trait EventRepository: Send {
