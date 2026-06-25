@@ -1,5 +1,5 @@
 use todo_engine::application::service::{
-    PeriodView, ProposeGoal, ProposeTask, TodoService, UpdateItem,
+    MAX_GOAL_DEPTH, PeriodView, ProposeGoal, ProposeTask, TodoService, UpdateItem,
 };
 use todo_engine::domain::{Actor, Horizon};
 use todo_engine::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
@@ -645,9 +645,3 @@ fn depth_cap_truncates_persistent() {
         "returned tree depth {max_depth} must be bounded by MAX_GOAL_DEPTH {MAX_GOAL_DEPTH}"
     );
 }
-
-// MAX_GOAL_DEPTH is pub(super) in goal.rs and not re-exported to the test crate;
-// mirror the locked value here for the depth-bound assertion. If the production
-// cap changes, the depth_cap_truncates_persistent chain length / this constant
-// move together.
-const MAX_GOAL_DEPTH: usize = 64;
