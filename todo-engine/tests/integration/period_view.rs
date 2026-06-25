@@ -2,6 +2,20 @@ use todo_engine::application::service::{
     PeriodView, ProposeGoal, ProposeTask, TodoService, UpdateItem,
 };
 use todo_engine::domain::{Actor, Horizon};
+use todo_engine::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
+
+// Stand up a persistent service over a temp SQLite home (copied verbatim from
+// date_view.rs:10-17 — NOT shared outside e2e, so each integration test file
+// carries its own copy). `connect` + `init_schema` + `SqliteTodoRepository::new`
+// + `TodoService::persistent` so the assertions exercise the real SQL CTE path.
+fn persistent_service() -> (tempfile::TempDir, TodoService) {
+    let dir = tempfile::tempdir().expect("create test home");
+    let db_path = dir.path().join("todo.sqlite");
+    let conn = connect(db_path.to_str().expect("utf-8 db path")).unwrap();
+    init_schema(&conn).unwrap();
+    let repo = SqliteTodoRepository::new(conn);
+    (dir, TodoService::persistent(repo))
+}
 
 // ProposeGoal builder adapted from goal_view.rs:6 — DISTINCT titles double as
 // stable structure keys (never raw ids; in-memory seeds `goal_000001`).
@@ -298,6 +312,123 @@ fn depth_cap_truncates() {
 #[test]
 fn period_view_is_side_effect_free() {
     let mut service = TodoService::in_memory();
+    seed_goal_tree(&mut service);
+
+    let before = service.events().len();
+    let _ = service.period_view(Horizon::Month, "2026-06-15").unwrap();
+    assert_eq!(service.events().len(), before);
+}
+
+// ---------------------------------------------------------------------------
+// Plan 04-03 Task 1: Persistent SQL CTE path, cross-store parity, persistent
+// side-effect-freedom. The store-level anomaly fixtures (cycle/orphan/depth) are
+// in Task 2 below.
+// ---------------------------------------------------------------------------
+
+// SC1/VIEW-03 over the REAL SQLite CTE path: the same `seed_goal_tree` fixture,
+// run through a persistent service, builds the documented subtree shape. Adds a
+// terminal GOAL (completed week child) and a terminal TASK under month-A to prove
+// the CTE's ASYMMETRIC D-07 predicate: terminal goals are KEPT and traversed
+// through; terminal tasks are EXCLUDED (open-only).
+#[test]
+fn persistent_period_view_builds_subtree() {
+    let (_home, mut service) = persistent_service();
+    let seed = seed_goal_tree(&mut service);
+
+    // Terminal GOAL (D-07: kept + traversed). Complete the week child under
+    // month-A; ADR-0006 no-cascade keeps it in the structure.
+    service.complete(&seed.week_child, None).unwrap();
+
+    // Terminal TASK (D-07: excluded, open-only). Add then complete a task under
+    // month-A so it is terminal at view time.
+    let terminal_task = open_task(
+        &mut service,
+        "task-terminal",
+        &seed.month_a,
+        Some("2026-06-12"),
+    );
+    service.complete(&terminal_task, None).unwrap();
+
+    let view = service.period_view(Horizon::Month, "2026-06-01").unwrap();
+
+    assert_eq!(view.horizon, "month");
+    assert_eq!(view.period_key, "2026-06-01");
+    assert_eq!(view.anomaly_count, 0);
+
+    let keys = tree_keys(&view);
+
+    // Two sibling month roots present via the SQL CTE.
+    let root_titles: Vec<&str> = view.roots.iter().map(|n| n.goal.title.as_str()).collect();
+    assert!(root_titles.contains(&"month-june-A"));
+    assert!(root_titles.contains(&"month-june-B"));
+    assert_eq!(view.roots.len(), 2);
+
+    // D-07 asymmetry on the SQL path: the TERMINAL GOAL is STILL present and
+    // traversed (the scheduled task under it still appears), while the TERMINAL
+    // TASK is absent (open-only filter).
+    assert!(
+        keys.iter()
+            .any(|(title, depth, kind)| title == "week-jun08" && *depth == 1 && *kind == "goal"),
+        "terminal goal must be kept + traversed (D-07)"
+    );
+    assert!(
+        keys.iter()
+            .any(|(title, _, kind)| title == "task-scheduled" && *kind == "task"),
+        "an open task under the terminal goal must still surface"
+    );
+    assert!(
+        !keys.iter().any(|(title, _, _)| title == "task-terminal"),
+        "terminal task must be excluded by the open-only CTE predicate (D-07)"
+    );
+}
+
+// SC4/CORE-03/D-11 — MANDATORY cross-store parity. The IDENTICAL fixture runs
+// through both an in-memory and a persistent store; the structure-capturing
+// `tree_keys()` sequences (title, depth, kind) must be EQUAL — never raw ids,
+// since in-memory uses `goal_000001`/`task_000001` and persistent uses UUIDs.
+// The seed includes BOTH a terminal task and a live task under the same goal so
+// the D-07 task-visibility predicate is exercised on BOTH loaders.
+#[test]
+fn parity_in_memory_vs_persistent() {
+    fn seed_with_terminal_and_live_task(service: &mut TodoService) {
+        let seed = seed_goal_tree(service);
+        // A LIVE (open) task under month-A — must appear in BOTH stores.
+        open_task(service, "task-live", &seed.month_a, Some("2026-06-11"));
+        // A TERMINAL task under month-A — must appear in NEITHER store (D-07).
+        let terminal = open_task(service, "task-dead", &seed.month_a, Some("2026-06-13"));
+        service.complete(&terminal, None).unwrap();
+    }
+
+    let mut mem = TodoService::in_memory();
+    let (_dir, mut disk) = persistent_service();
+
+    seed_with_terminal_and_live_task(&mut mem);
+    seed_with_terminal_and_live_task(&mut disk);
+
+    let mem_view = mem.period_view(Horizon::Month, "2026-06-01").unwrap();
+    let disk_view = disk.period_view(Horizon::Month, "2026-06-01").unwrap();
+
+    // The structure-capturing key sequences are equal across stores (D-11).
+    assert_eq!(tree_keys(&mem_view), tree_keys(&disk_view));
+    // Clean seed: both anomaly_counts are 0.
+    assert_eq!(mem_view.anomaly_count, disk_view.anomaly_count);
+    assert_eq!(mem_view.anomaly_count, 0);
+
+    // Cross-store D-07 absence-parity: the terminal task is absent in BOTH, the
+    // live task is present in BOTH — the two loaders filter task status identically.
+    let mem_keys = tree_keys(&mem_view);
+    let disk_keys = tree_keys(&disk_view);
+    assert!(!mem_keys.iter().any(|(title, _, _)| title == "task-dead"));
+    assert!(!disk_keys.iter().any(|(title, _, _)| title == "task-dead"));
+    assert!(mem_keys.iter().any(|(title, _, _)| title == "task-live"));
+    assert!(disk_keys.iter().any(|(title, _, _)| title == "task-live"));
+}
+
+// SC3/CORE-03: the persistent `period_view` writes NO audit event — the SQL load
+// is a pure read (mirrors date_view.rs:141-152).
+#[test]
+fn period_view_is_side_effect_free_persistent() {
+    let (_home, mut service) = persistent_service();
     seed_goal_tree(&mut service);
 
     let before = service.events().len();
