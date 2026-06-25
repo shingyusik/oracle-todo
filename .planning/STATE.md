@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-06-25T03:15:00.000Z"
-last_activity: 2026-06-25 -- Phase 04 Plan 01 complete
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-06-25T03:30:00.000Z"
+last_activity: 2026-06-25 -- Phase 04 Plan 02 complete
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
-  percent: 65
+  completed_plans: 12
+  percent: 71
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 ## Current Position
 
 Phase: 04 (period-view-goal-tree-rollup) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Executing Phase 04
-Last activity: 2026-06-25 -- Phase 04 Plan 01 complete
+Last activity: 2026-06-25 -- Phase 04 Plan 02 complete
 
-Progress: [██████▌░░░] 65%
+Progress: [███████░░░] 71%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [██████▌░░░] 65%
 | Phase 03 P02 | 3 | 2 tasks | 2 files |
 | Phase 03 P03 | 4 | 2 tasks | 2 files |
 | Phase 04 P01 | 18 | 2 tasks | 5 files |
+| Phase 04 P02 | 12 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,7 @@ Recent decisions affecting current work:
 - [Phase 2 Plan 04]: SC5 docs-only deliverable. Goal ItemStatus semantics LOCKED in README (### Goal item-type subsection + ## Status lifecycle note) and ADR-0006: a Goal reuses the existing ItemStatus lifecycle unchanged (NO new states — health states on_track/at_risk deferred to v2 as derived signals); a goal is active for its period (activate has no Goal-specific precondition in v1); completed/dropped/cancelled are user-driven terminal and do NOT cascade to child goals or linked tasks in v1 (only routine->generated-tasks cascades). This resolves the Phase 2 documentation blocker so the Phase 4 rollup cannot re-litigate goal status meaning.
 - [Phase ?]: [Phase 3 Plan 01]: agenda/date_range are pure side-effect-free TodoService reads composing list_items (no store branch = SC4 CLI/API parity free). agenda = scheduled==D OR due==D union deduped by id (D-02); date_range = scheduled-only inclusive range (D-03). Open-only via explicit OPEN_STATUSES allowlist, NOT list_items hidden-by-default. iso_day = leading-10-char parse_day.ok() so None/sentinel/junk = unscheduled (D-07). sort_date_view = scheduled asc, unscheduled last, created_at->id (D-08). No DateView (D-01), no due-tag (D-04), no overdue roll (D-06), no materialize (SC4).
 - [Phase 4 Plan 01]: PeriodView/GoalNode is the single shared serde nested type in queries.rs (D-01), fed by both stores; loaders diverge only in producing the flat working set. period_view(horizon, period) accepts ANY in-period date and normalizes via normalize_to_period_start (no caller math). assemble() builds the tree store-agnostically: roots = exact (horizon, period_key) matches (D-02, siblings all roots — two same-anchor roots need DISTINCT parent_id per GOAL-05), descent follows parent_id across periods (D-03), tasks sorted unscheduled-last (D-05), child_goals scheduled-asc (D-06); visited-set + reused goal.rs MAX_GOAL_DEPTH (now pub(super)) sever cycle/over-depth into anomaly_count, NEVER Err (SC3/D-09). D-07 status policy (MUST be applied identically in the Plan 02 CTE): terminal GOALS kept + traversed THROUGH (ADR-0006 no-cascade); TASKS filtered to OPEN_STATUSES; InMemory loader loads goals with include_archived:true (not list_items hidden-by-default). Persistent loader arm is exactly unimplemented!("Plan 02: persistent CTE loader") for Plan 02 to remove. tree_keys()/seed_goal_tree() reusable by Plan 03 parity; true over-depth/cyclic anomaly fixtures deferred to Plan 03 (service API cannot build >64/cyclic chains).
+- [Phase 4 Plan 02]: OPEN_STATUSES promoted to domain/status.rs as the single cross-ring source of truth (re-exported via domain/mod.rs); both the application-ring InMemory loader and the infrastructure-ring CTE loader derive their task-status predicate from it (no literal drift — the Plan 03 parity test's invariant). New TodoRepository::load_period_subtree(horizon: &str, period_key: &str) trait method (ports.rs); SqliteTodoRepository impl uses ONE WITH RECURSIVE CTE: seed `type='goal' AND horizon=?1 AND scheduled=?2` (idx_items_type_horizon_scheduled), recursive `JOIN subtree ON i.parent_id=s.id WHERE i.type IN('goal','task')` (idx_items_parent_id), UNION (not UNION ALL) as SQL cycle guard. Outer WHERE applies the asymmetric D-07 predicate: goals at ANY status (terminal traversed through), tasks `status IN(<OPEN_STATUSES placeholders>)`, tasks NOT filtered by scheduled (VIEW-04). All inputs bound as params (no interpolation, V5.3/T-04-04). Persistent arm of period_view now calls store.load_period_subtree(horizon.as_str(), &period_key); both store arms feed the single shared assemble() (D-11). list_items + schema.rs untouched (D-10 fence). 7 in-memory period_view tests green; clippy clean.
 - [Phase ?]: [Phase 3 Plan 03]: SC4 store parity proven via parity_in_memory_vs_persistent — one seed_fixture run through both in_memory and persistent stores, compared by stable (title, scheduled) key not raw ids. Side-effect-free proven via events().len() unchanged across agenda+date_range. date_view.rs registered first in integration.rs; persistent_service mirrored from goal_view.rs.
 
 ### Pending Todos
@@ -111,6 +113,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T03:15:00.000Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-06-25T03:30:00.000Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
