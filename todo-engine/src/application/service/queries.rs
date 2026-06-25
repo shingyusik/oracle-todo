@@ -245,19 +245,24 @@ fn iso_day(value: Option<&str>) -> Option<Date> {
     parse_day(value?.get(..10)?).ok()
 }
 
+/// D-08 deterministic order: `iso_day(scheduled)` ascending with `None`
+/// (unscheduled) LAST, then `created_at`, then `id`. Single source for both
+/// `sort_date_view` and `sort_child_goals` (D-05/IN-02 — no duplicated closure).
+fn schedule_then_created_order(left: &TodoItem, right: &TodoItem) -> std::cmp::Ordering {
+    let ka = iso_day(left.scheduled.as_deref());
+    let kb = iso_day(right.scheduled.as_deref());
+    ka.is_none()
+        .cmp(&kb.is_none())
+        .then_with(|| ka.cmp(&kb))
+        .then_with(|| left.created_at.cmp(&right.created_at))
+        .then_with(|| left.id.cmp(&right.id))
+}
+
 /// D-08 deterministic order: primary key is `iso_day(scheduled)` ascending with
 /// `None` (unscheduled) LAST, then the existing `created_at -> id` tie-break
 /// reused from `list_items`. No priority/alpha sort, no new semantics.
 fn sort_date_view(items: &mut [TodoItem]) {
-    items.sort_by(|left, right| {
-        let ka = iso_day(left.scheduled.as_deref());
-        let kb = iso_day(right.scheduled.as_deref());
-        ka.is_none()
-            .cmp(&kb.is_none())
-            .then_with(|| ka.cmp(&kb))
-            .then_with(|| left.created_at.cmp(&right.created_at))
-            .then_with(|| left.id.cmp(&right.id))
-    });
+    items.sort_by(schedule_then_created_order);
 }
 
 /// Format a `Date` back to the engine's canonical `YYYY-MM-DD` anchor string (the
@@ -389,15 +394,8 @@ fn build_node(
 }
 
 /// D-06 child-goal order: `iso_day(scheduled)` ascending (unscheduled last), then
-/// the existing `created_at -> id` tie-break.
+/// the existing `created_at -> id` tie-break. Delegates to the single shared
+/// `schedule_then_created_order` comparator (D-05/IN-02).
 fn sort_child_goals(goals: &mut [TodoItem]) {
-    goals.sort_by(|left, right| {
-        let ka = iso_day(left.scheduled.as_deref());
-        let kb = iso_day(right.scheduled.as_deref());
-        ka.is_none()
-            .cmp(&kb.is_none())
-            .then_with(|| ka.cmp(&kb))
-            .then_with(|| left.created_at.cmp(&right.created_at))
-            .then_with(|| left.id.cmp(&right.id))
-    });
+    goals.sort_by(schedule_then_created_order);
 }
