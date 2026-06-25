@@ -8,7 +8,7 @@ use crate::domain::{Horizon, ItemType, is_period_start};
 /// Maximum depth of the goal ancestor chain walked during nesting validation.
 /// Bounds the traversal so a cyclic/legacy `parent_id` chain cannot drive an
 /// unbounded loop (DoS guard, T-02-05).
-const MAX_GOAL_DEPTH: usize = 64;
+pub(super) const MAX_GOAL_DEPTH: usize = 64;
 
 impl TodoService {
     /// Validate and canonicalize a goal's period anchor.
