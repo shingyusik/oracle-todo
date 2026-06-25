@@ -574,6 +574,93 @@ async fn service_errors_return_detail_body() {
 }
 
 #[tokio::test]
+async fn goal_query_filters_and_parent_patch_reach_service_layer() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"2026 목표",
+            "horizon":"year",
+            "scheduled":"2026-01-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let year_goal = body_json(response).await;
+    let year_goal_id = year_goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"6월 목표",
+            "horizon":"month",
+            "scheduled":"2026-06-01",
+            "parent_id": year_goal_id,
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let month_goal = body_json(response).await;
+    let month_goal_id = month_goal["id"].as_str().unwrap();
+
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        format!("/items?type=goal&parent_id={year_goal_id}"),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["id"], month_goal_id);
+
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        "/items?type=goal&horizon=month&scheduled=2026-06-01",
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["id"], month_goal_id);
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"목표에 연결", "actor":"user"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    let task_id = task["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{task_id}"),
+        json!({
+            "parent_id": month_goal_id,
+            "scheduled": "2026-06-08"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    assert_eq!(task["parent_id"], month_goal_id);
+    assert_eq!(task["scheduled"], "2026-06-08");
+}
+
+#[tokio::test]
 async fn request_validation_errors_return_detail_body() {
     let app = router(":memory:").unwrap();
     let response = app

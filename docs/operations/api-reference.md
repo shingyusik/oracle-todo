@@ -51,14 +51,14 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 - **`ReasonBody`** — `reason?`. Optional on the transition endpoints that accept it.
 - **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
   `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,
-  `materialization_policy`, `area`, `project_id`, `routine_id`, `due`, `scheduled`,
-  `priority`, `reason`.
+  `materialization_policy`, `area`, `project_id`, `parent_id`, `routine_id`, `due`,
+  `scheduled`, `priority`, `reason`.
 
 ## Query: `GET /items`
 
 `ItemsQuery` parameters (all optional strings): `status`, `type` (the `item_type`, exposed on
-the wire as `type` via `#[serde(rename = "type")]`), `area_id`, `project_id`, `routine_id`,
-`query`, `include_archived`. Empty strings are ignored; `include_archived` accepts
+the wire as `type` via `#[serde(rename = "type")]`), `area_id`, `project_id`, `parent_id`,
+`routine_id`, `horizon`, `scheduled`, `query`, `include_archived`. Empty strings are ignored; `include_archived` accepts
 `true/1/yes/on` and `false/0/no/off`. Results are sorted by `created_at` descending, then by
 `id` descending.
 
