@@ -209,8 +209,10 @@ impl TodoService {
                 if frontier.contains(&goal.id) {
                     continue;
                 }
-                if let Some(parent_id) = goal.parent_id.as_deref()
-                    && frontier.contains(parent_id)
+                if goal
+                    .parent_id
+                    .as_deref()
+                    .is_some_and(|parent_id| frontier.contains(parent_id))
                 {
                     frontier.insert(goal.id.clone());
                     added = true;
