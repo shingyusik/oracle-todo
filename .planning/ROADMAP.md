@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Service Policy — Goal Create, Link & Validation** - All planning mutations and the list read primitive routed through `TodoService` with strict validation (completed 2026-06-22)
 - [x] **Phase 3: Date View** - Tasks grouped by `scheduled` date for a day or range, with explicit buckets for undated work (completed 2026-06-23)
 - [x] **Phase 4: Period View (goal-tree rollup)** - The goal at a `(horizon, period)` plus its descendant goal+task subtree, structure only (completed 2026-06-25)
-- [ ] **Phase 5: CLI + API Surface (parity-locked)** - Goal/link/view commands and mirrored HTTP endpoints over the same service methods
+- [x] **Phase 5: CLI + API Surface (parity-locked)** - Goal/link/view commands and mirrored HTTP endpoints over the same service methods (completed 2026-06-26)
 
 ## Phase Details
 
@@ -152,7 +152,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — both surfaces must exist)*
 
-- [ ] 05-03-PLAN.md — Paired CLI+API e2e tests: state parity, present-but-invalid rejection parity (SC3), agent-default `proposed` gating (SC4), `parent_id` non-null regression (SURF-01, SURF-02) — Wave 2
+- [x] 05-03-PLAN.md — Paired CLI+API e2e tests: state parity, present-but-invalid rejection parity (SC3), agent-default `proposed` gating (SC4), `parent_id` non-null regression (SURF-01, SURF-02) — Wave 2
 
 ## Progress
 
@@ -165,4 +165,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
 | 3. Date View | 3/3 | Complete    | 2026-06-23 |
 | 4. Period View (goal-tree rollup) | 3/3 | Complete    | 2026-06-25 |
-| 5. CLI + API Surface (parity-locked) | 2/3 | In Progress|  |
+| 5. CLI + API Surface (parity-locked) | 3/3 | Complete    | 2026-06-26 |

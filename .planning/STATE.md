@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-06-26T02:30:00.000Z"
-last_activity: 2026-06-26 -- Phase 05 Plan 02 (API surface) executed
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-06-26T02:40:00.000Z"
+last_activity: 2026-06-26 -- Phase 05 Plan 03 (paired CLI+API e2e parity tests) executed
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 19
-  completed_plans: 18
-  percent: 89
+  completed_plans: 19
+  percent: 95
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 
 ## Current Position
 
-Phase: 05 (cli-api-surface-parity-locked) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-06-26 -- Phase 05 Plan 02 (API surface) executed
+Phase: 05 (cli-api-surface-parity-locked) — COMPLETE
+Plan: 3 of 3 (all complete)
+Status: Phase 5 complete — ready for verification
+Last activity: 2026-06-26 -- Phase 05 Plan 03 (paired CLI+API e2e parity tests) executed
 
-Progress: [█████████░] 89%
+Progress: [█████████▒] 95%
 
 ## Performance Metrics
 
@@ -74,6 +74,7 @@ Progress: [█████████░] 89%
 | Phase 04.1 P03 | 9 | 3 tasks | 2 files |
 | Phase 05 P01 | 12 | 3 tasks | 4 files |
 | Phase 05 P02 | 6 | 3 tasks | 3 files |
+| Phase 05 P03 | 9 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 04.1 Plan 02]: D-01/WR-01 — period-view recursive CTE constrained to goal-parent descent via JOIN items p ON s.id = p.id AND p.type = 'goal' (tests the PARENT row s.id, not child i). For goal->task->goal the CTE working set becomes {G1, T} (G2 dropped, parent is a task), identical to the InMemory frontier walk — D-11 parity now true by construction in SQL, not by an assemble coincidence. Kept WHERE i.type IN('goal','task') (direct-under-goal tasks still load) + the deduplicating UNION cycle guard; no new bound parameter. D-03/WR-03: ports.rs + repo.rs parity docs kept the same-flat-working-set wording (now literally true) and tightened to cite the goal-only descent as enforcement; Path B doc-weakening rejected. D-02 verify-only: rendered output unchanged (G2 was never a rendered node). DEVIATION [Rule 3]: ran cargo fmt on ports.rs/repo.rs to clear pre-existing fmt debt blocking the Task 2 gate. period_view 13/13, integration 60/60, unit 49/49, clippy clean; pre-existing dotenv e2e failure left deferred.
 - [Phase 04.1 Plan 03]: Phase 04.1 COMPLETE — Wave-1 fixes regression-locked. MAX_GOAL_DEPTH single-sourced via a `pub const MAX_GOAL_DEPTH = goal::MAX_GOAL_DEPTH;` accessor in service/mod.rs (DEVIATION [Rule 3]: `pub use` of a pub(super) const fails E0364 in Rust 2024; a #[cfg(test)] gate would not reach the integration test crate which links the non-cfg(test) lib — so an ungated accessor binding, NOT a hand-mirrored 64; threat T-04.1-05 accept). Hand-mirrored test const deleted, accessor imported. insert_task_row raw helper added (type='task', open status 'active', no horizon). parity_goal_task_goal_cross_store (D-07/WR-04): raw G1->T->G2 persistent vs in-memory goal->task equivalent — proves G2 (goal under task) does NOT leak under D-01, anomaly parity 0; resolved RESEARCH Open Question 1 via loader-level comparison (option b), no production InMemory test hook (pub(super) ServiceStore boundary unchanged). sibling_root_nesting_is_not_an_anomaly (D-08/WR-02): raw R1(parent None)+R2(parent R1) both (month,2026-06-01) asserts anomaly_count==0 — D-04 over-count regression guard. DEVIATION [Rule 3]: cargo fmt on new fixtures. period_view 15/15, integration 62/62, unit 49/49, lib 2/2, clippy+fmt clean. Pre-existing CLI dotenv e2e failure (init resolves default home not .env TODO_ENGINE_HOME) left deferred (out of scope, logged to deferred-items.md).
 - [Phase ?]: [Phase 5 Plan 01]: CLI surface added as thin clap adapters over the existing TodoService — goal propose (agent-default proposed, SC4), flat JSON-only agenda/date-range/period views (D-01, render_items untouched), and update --parent-id task->goal linking via the audited update_item path (D-07). Only the period handler parses Horizon (map_err -> TodoError::Validation -> exit 2); all other args forwarded as raw strings (no policy in cli/, CORE-03). build+clippy+fmt green; unit 49, integration 62, lib 2 pass. Pre-existing dotenv e2e failure remains deferred.
+- [Phase 5 Plan 03]: Phase 5 COMPLETE — paired CLI+API e2e parity tests close SURF-01/SURF-02 with proof. 8 new tests (4 `#[test]` in tests/e2e/cli.rs, 4 `#[tokio::test]` in tests/e2e/api.rs), test-only, no production symbols. State parity (SC3/SC4): a goal via `goal propose` and via `POST /goals/propose` both yield type=goal/status=proposed/proposed_by=agent on each surface (asserted independently per file, the existing idiom — no cross-surface helper). Rejection parity (SC3, Pitfall 3): present-but-invalid `--horizon bogus` / `?horizon=bogus` => CLI exit 2 / HTTP 400+detail (both route TodoError::Validation); missing-param rejections intentionally NOT used for strict parity (clap usage != axum QueryRejection). View parity: agenda/date-range are JSON arrays, period carries period_key+roots on both surfaces (D-01 JSON-only). Pitfall-1 locked: `patch_item_parent_id_links_and_is_not_null` asserts `!is_null()` AND equals goal id, so a revert of handlers.rs:212 to `parent_id: None` fails loudly. SC4 non-bypass reinforced: API goal returns proposed, asserted not active. No deviations. lib 2/2, unit 49/49, integration 62/62, e2e 37/38 (the 1 failure = documented deferred dotenv test); clippy -D warnings + fmt clean. cargo's e2e binary aborts on the dotenv failure, so unit/integration verified via `--test unit --test integration`.
 - [Phase 5 Plan 02]: HTTP API surface mirrors the CLI half as thin axum adapters over the same TodoService (SURF-02, CORE-03). POST /goals/propose clones /projects/propose (parse_actor_or_default default Agent => agent goal starts proposed, SC4). Three GET /views/* read routes (agenda?date=, date-range?from=&to=, period?horizon=&period=, D-10/D-11) call agenda/date_range/period_view and serialize Vec<TodoItem>/PeriodView (call+serialize only, no view logic). Only view_period parses Horizon (the enum-typed signature); agenda/date-range pass raw &str. parent_id wired through BOTH UpdateBody DTO AND update_item handler (de-hardcoded parent_id: None -> body.parent_id) so PATCH /items/:id persists task->goal links instead of silently no-op'ing (Pitfall 1, LINK-01/LINK-02). No deviations. build+clippy+fmt green; unit 49, integration 62, lib 2 pass; e2e 29/30 (pre-existing dotenv failure deferred). Behavioral parity/SC4/Pitfall-1 proofs owned by Plan 05-03.
 
 ### Pending Todos
@@ -127,6 +129,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-26T02:30:00.000Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-06-26T02:40:00.000Z
+Stopped at: Completed 05-03-PLAN.md
 Resume file: None
