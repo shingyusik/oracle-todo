@@ -85,6 +85,7 @@ pub(super) struct UpdateBody {
     pub materialization_policy: Option<String>,
     pub area: Option<String>,
     pub project_id: Option<String>,
+    pub parent_id: Option<String>,
     pub routine_id: Option<String>,
     pub due: Option<String>,
     pub scheduled: Option<String>,
