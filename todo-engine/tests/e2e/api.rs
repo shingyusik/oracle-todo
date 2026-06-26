@@ -573,6 +573,134 @@ async fn request_validation_errors_return_detail_body() {
 }
 
 #[tokio::test]
+async fn goal_propose_returns_proposed_item() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({"title":"Q3 OKR","horizon":"month","scheduled":"2026-06-01"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let item = body_json(response).await;
+    // Mirrors the CLI assertion (goal_propose_prints_proposed_json) => state parity.
+    assert_eq!(item["type"], "goal");
+    assert_eq!(item["status"], "proposed");
+    assert_eq!(item["proposed_by"], "agent");
+    // SC4 non-bypass: no body field sets status; an agent-created goal cannot
+    // be created `active` directly — the service state machine returns `proposed`.
+    assert_ne!(item["status"], "active");
+}
+
+#[tokio::test]
+async fn view_routes_return_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        "/views/agenda?date=2026-06-26",
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let agenda = body_json(response).await;
+    assert!(agenda.is_array(), "agenda body must be a JSON array");
+
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        "/views/date-range?from=2026-06-01&to=2026-06-30",
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let range = body_json(response).await;
+    assert!(range.is_array(), "date-range body must be a JSON array");
+
+    // Same PeriodView shape (period_key + roots) the CLI emits => view parity.
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        "/views/period?horizon=month&period=2026-06-01",
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let period = body_json(response).await;
+    assert!(
+        period["period_key"].is_string(),
+        "period body must carry period_key"
+    );
+    assert!(
+        period["roots"].is_array(),
+        "period body must carry a roots array"
+    );
+}
+
+#[tokio::test]
+async fn patch_item_parent_id_links_and_is_not_null() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({"title":"분기 목표","horizon":"month","scheduled":"2026-06-01"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    let goal_id = goal["id"].as_str().unwrap().to_string();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"목표에 연결할 일"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    let task_id = task["id"].as_str().unwrap().to_string();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{task_id}"),
+        json!({"parent_id": goal_id, "scheduled":"2026-06-29"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let linked = body_json(response).await;
+    // Pitfall-1 regression guard: parent_id must be the goal id, NOT null
+    // (locks the handlers.rs:212 de-hardcode against a silent revert).
+    assert!(!linked["parent_id"].is_null());
+    assert_eq!(linked["parent_id"], goal_id);
+    assert_eq!(linked["scheduled"], "2026-06-29");
+}
+
+#[tokio::test]
+async fn view_period_bad_horizon_returns_400() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    // Present-but-invalid horizon => TodoError::Validation => HTTP 400 with a
+    // detail body. Pairs with the CLI exit-2 test => SC3 rejection parity.
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        "/views/period?horizon=bogus&period=2026-06-01",
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert!(body["detail"].is_string(), "400 body must carry a detail");
+}
+
+#[tokio::test]
 async fn exports_today_md_route_is_not_available() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
