@@ -29,15 +29,16 @@ A user can set a big goal for a period (year/month/week), break it top-down into
 - ✓ Service-layer read primitive: `ListFilter` `horizon` / `parent_id` / `scheduled` predicates over both in-memory and persistent SQLite list paths — Phase 2
 - ✓ Date view: `agenda` (single-date `scheduled` ∪ `due`, deduped) + `date_range` ([from, to] scheduled-only), in `queries.rs`, side-effect-free, deterministic order, store-parity proven — Phase 3
 - ✓ Period view: `period_view(horizon, period)` rolls up the goal tree (goals + decomposed tasks) over both InMemory and Persistent (SQLite recursive-CTE) stores via one shared in-memory `assemble()` walk — depth-capped, cycle-safe (never errors), side-effect-free, store-parity proven (VIEW-03 / VIEW-04) — Phase 4
+- ✓ CLI subcommands for creating goals, linking tasks, and the date/period views (`goal propose`, flat `agenda`/`date-range`/`period`, `update --parent-id`) — Phase 5 (SURF-01)
+- ✓ HTTP API endpoints mirroring the new CLI/service behavior (`POST /goals/propose`, `GET /views/*`, `parent_id` on `PATCH /items/:id`); CLI/API parity locked by paired e2e tests — Phase 5 (SURF-02)
+- ✓ All planning mutations route through `TodoService` (interface adapters add no policy/validation/view logic — parse-and-call only) — Phase 5 (CORE-03)
+- ✓ Schema changes are additive only (extend `items`; no dropped/rewritten columns) — held across milestone (no schema change in Phase 5)
 
 ### Active
 
 <!-- This milestone. Hypotheses until shipped and validated. -->
 
-- [ ] All planning mutations route through `TodoService` (validation, state machine, audit event, approval gating reused — no new bypass)
-- [ ] Schema changes are additive only (extend `items`; no dropped/rewritten columns)
-- [ ] CLI subcommands for creating goals, linking tasks, and the date/period views
-- [ ] HTTP API endpoints mirroring the new CLI/service behavior (CLI/API parity preserved)
+All milestone v1.0 requirements are now validated (see Validated above). Milestone ready for `/gsd-complete-milestone`.
 
 ### Out of Scope
 
@@ -91,4 +92,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-25 — Phase 04.1 complete (resolved 04-REVIEW findings: cross-store parity true by construction via goal-only CTE descent, anomaly_count no longer over-counts D-02 sibling roots, regression fixtures added; no rendered-output change)*
+*Last updated: 2026-06-26 — Phase 5 complete (CLI + API surface, parity-locked: `goal propose`, flat `agenda`/`date-range`/`period` JSON views, task→goal `--parent-id` linking, and mirrored HTTP endpoints over the same `TodoService`; 8 paired CLI/API e2e parity tests; SURF-01/SURF-02/CORE-03 validated). Final milestone phase — all Active requirements now validated; milestone v1.0 ready for completion.*
