@@ -6,8 +6,8 @@ use axum::extract::{Path as AxumPath, Query, State};
 use serde_json::json;
 
 use super::dto::{
-    AreaBody, EventProposeBody, GoalProposeBody, ItemsQuery, ProjectProposeBody, ReasonBody,
-    RoutineProposeBody, TaskProposeBody, UpdateBody,
+    AgendaQuery, AreaBody, DateRangeQuery, EventProposeBody, GoalProposeBody, ItemsQuery,
+    PeriodQuery, ProjectProposeBody, ReasonBody, RoutineProposeBody, TaskProposeBody, UpdateBody,
 };
 use super::{
     ApiResult, ApiState, non_empty, non_empty_string, parse_actor_or_default, parse_bool,
@@ -16,9 +16,10 @@ use super::{
 use crate::application::error::TodoError;
 use crate::application::ports::ListFilter;
 use crate::application::service::{
-    CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask, UpdateItem,
+    CreateArea, PeriodView, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
+    UpdateItem,
 };
-use crate::domain::{Actor, ItemStatus, ItemType, TodoItem};
+use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
 
 pub(super) async fn health() -> Json<serde_json::Value> {
     Json(json!({"ok": true}))
@@ -205,6 +206,35 @@ pub(super) async fn list_items(
 pub(super) async fn archive_items(State(state): State<ApiState>) -> ApiResult<Json<Vec<TodoItem>>> {
     let items = with_service(&state, |service| service.archive_items())?;
     Ok(Json(items))
+}
+
+pub(super) async fn view_agenda(
+    State(state): State<ApiState>,
+    Query(q): Query<AgendaQuery>,
+) -> ApiResult<Json<Vec<TodoItem>>> {
+    Ok(Json(with_service(&state, |s| s.agenda(&q.date))?))
+}
+
+pub(super) async fn view_date_range(
+    State(state): State<ApiState>,
+    Query(q): Query<DateRangeQuery>,
+) -> ApiResult<Json<Vec<TodoItem>>> {
+    Ok(Json(with_service(&state, |s| {
+        s.date_range(&q.from, &q.to)
+    })?))
+}
+
+pub(super) async fn view_period(
+    State(state): State<ApiState>,
+    Query(q): Query<PeriodQuery>,
+) -> ApiResult<Json<PeriodView>> {
+    let horizon = q
+        .horizon
+        .parse::<Horizon>()
+        .map_err(TodoError::Validation)?;
+    Ok(Json(with_service(&state, |s| {
+        s.period_view(horizon, &q.period)
+    })?))
 }
 
 pub(super) async fn update_item(

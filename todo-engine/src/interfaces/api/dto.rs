@@ -93,6 +93,23 @@ pub(super) struct UpdateBody {
 }
 
 #[derive(Deserialize)]
+pub(super) struct AgendaQuery {
+    pub date: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct DateRangeQuery {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct PeriodQuery {
+    pub horizon: String,
+    pub period: String,
+}
+
+#[derive(Deserialize)]
 pub(super) struct ItemsQuery {
     pub status: Option<String>,
     #[serde(rename = "type")]
