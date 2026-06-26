@@ -147,7 +147,7 @@ Plans:
 Plans:
 **Wave 1** *(parallel — CLI and API files do not overlap)*
 
-- [ ] 05-01-PLAN.md — CLI surface: `goal propose` + flat `agenda`/`date-range`/`period` views (JSON-only) + `--parent-id` on `update` (SURF-01) — Wave 1
+- [x] 05-01-PLAN.md — CLI surface: `goal propose` + flat `agenda`/`date-range`/`period` views (JSON-only) + `--parent-id` on `update` (SURF-01) — Wave 1
 - [ ] 05-02-PLAN.md — API surface: `POST /goals/propose` + `GET /views/{agenda,date-range,period}` + `parent_id` on update DTO/handler (SURF-02, CORE-03) — Wave 1
 
 **Wave 2** *(blocked on Wave 1 — both surfaces must exist)*
@@ -165,4 +165,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
 | 3. Date View | 3/3 | Complete    | 2026-06-23 |
 | 4. Period View (goal-tree rollup) | 3/3 | Complete    | 2026-06-25 |
-| 5. CLI + API Surface (parity-locked) | 0/3 | In progress | - |
+| 5. CLI + API Surface (parity-locked) | 1/3 | In Progress|  |

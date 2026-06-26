@@ -30,7 +30,7 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 
 ### Surface (SURF)
 
-- [ ] **SURF-01**: CLI subcommands for creating goals, linking tasks, and every view (JSON output; new views emit JSON only — see Phase 5 CONTEXT D-01/D-02; legacy Markdown views unchanged).
+- [x] **SURF-01**: CLI subcommands for creating goals, linking tasks, and every view (JSON output; new views emit JSON only — see Phase 5 CONTEXT D-01/D-02; legacy Markdown views unchanged).
 - [ ] **SURF-02**: HTTP API endpoints mirroring the new CLI surface, reusing `TodoService` (CLI/API parity preserved, asserted by paired e2e tests).
 
 ### Invariants (CORE)
@@ -83,7 +83,7 @@ Populated during roadmap creation (gsd-roadmapper). Each requirement maps to exa
 | VIEW-03 | Phase 4 | Complete |
 | VIEW-04 | Phase 4 | Complete |
 | VIEW-05 | Phase 3 | Complete |
-| SURF-01 | Phase 5 | Pending |
+| SURF-01 | Phase 5 | Complete |
 | SURF-02 | Phase 5 | Pending |
 | CORE-01 | Phase 2 | Complete |
 | CORE-02 | Phase 1 | Complete |
