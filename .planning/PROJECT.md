@@ -67,12 +67,31 @@ All milestone v1.0 requirements are now validated (see Validated above). Milesto
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| `Goal` as a new `ItemType` (not reuse Project / not separate table) | Reuses status lifecycle, audit, approval gating, and the `horizon` field; minimal new machinery | — Pending |
-| Period anchored by `(horizon, scheduled)` instead of a new `period_key` column | Keeps schema change to the item-type enum; no additive column needed | — Pending |
-| Flexible nesting via `parent_id` (level-skipping allowed) | Real planning skips levels (month → task directly); strict chain too rigid | — Pending |
-| Task→goal link via `parent_id` + task `scheduled` date | Goal tree powers period views; `scheduled` powers date view; both needed | — Pending |
-| Progress rollup deferred to v2 | Keep v1 scope to tree + date views; aggregation is additive later | — Pending |
-| Backend + CLI + HTTP API this milestone; frontend later | User scoped "db와 관련 cli"; API kept for CLI/API parity | — Pending |
+| `Goal` as a new `ItemType` (not reuse Project / not separate table) | Reuses status lifecycle, audit, approval gating, and the `horizon` field; minimal new machinery | ✓ Shipped v1.0 — Goal round-trips through SQLite with zero schema change |
+| Period anchored by `(horizon, scheduled)` instead of a new `period_key` column | Keeps schema change to the item-type enum; no additive column needed | ✓ Shipped v1.0 — period identity derives from `(horizon, scheduled)`, no `period_key` |
+| Flexible nesting via `parent_id` (level-skipping allowed) | Real planning skips levels (month → task directly); strict chain too rigid | ✓ Shipped v1.0 — level-skipping allowed; cycles + horizon-inversion rejected |
+| Task→goal link via `parent_id` + task `scheduled` date | Goal tree powers period views; `scheduled` powers date view; both needed | ✓ Shipped v1.0 — audited `update_item` link path; powers both views |
+| Progress rollup deferred to v2 | Keep v1 scope to tree + date views; aggregation is additive later | ✓ Held — period views ship structure-only; rollup remains v2 (ROLL-01/02) |
+| Backend + CLI + HTTP API this milestone; frontend later | User scoped "db와 관련 cli"; API kept for CLI/API parity | ✓ Shipped v1.0 (backend); a workspace item-table frontend (`feature/workspace-item-table-editing`) was merged onto main post-milestone as a v1.x/v2 seed |
+
+## Current State
+
+**Shipped: v1.0 Planning Layer (2026-06-26)** — 6 phases, 19 plans, 35 tasks. All 17 v1
+requirements (GOAL×5, LINK×2, VIEW×5, SURF×2, CORE×3) satisfied and milestone-audited
+(`milestones/v1.0-MILESTONE-AUDIT.md`, passed; re-audited clean after the frontend merge).
+
+- **Backend** (`todo-engine/`, ~5.1k LOC Rust src + tests): `Goal` item type, period-anchor
+  normalization, goal create/nest/link policy through `TodoService`, agenda/date-range/period
+  views over InMemory + SQLite (recursive CTE) with proven store parity, parity-locked CLI +
+  HTTP API. Gates green (build/clippy `-D warnings`/fmt); unit 49, integration 62, e2e 38/39.
+- **Frontend** (`frontend/`): a workspace item-table editing UI (React/TSX) landed on main via
+  `feature/workspace-item-table-editing` (merge `e00bb3b`) — first consumer of the API surface,
+  not yet test-verified in this environment (deps not installed). Seeds a future frontend milestone.
+- **Known tech debt** (non-blocking): Nyquist coverage partial (phases 01/02/03/04.1); code-review
+  WR-01 (API approve/complete lack `--reason`); CLI `list` does not expose the parent/horizon/scheduled
+  filters the API exposes. v2 backlog: COVER-01, ROLL-01/02, KR-01, CARRY-01.
+- **Known deferred bug**: `cli::init_loads_todo_engine_home_from_dotenv` (init resolves default home,
+  not `.env TODO_ENGINE_HOME`) — carried since Phase 3, out of scope.
 
 ## Evolution
 
@@ -92,4 +111,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 — Phase 5 complete (CLI + API surface, parity-locked: `goal propose`, flat `agenda`/`date-range`/`period` JSON views, task→goal `--parent-id` linking, and mirrored HTTP endpoints over the same `TodoService`; 8 paired CLI/API e2e parity tests; SURF-01/SURF-02/CORE-03 validated). Final milestone phase — all Active requirements now validated; milestone v1.0 ready for completion.*
+*Last updated: 2026-06-26 — after v1.0 Planning Layer milestone (shipped). 6 phases / 19 plans / 35 tasks; all 17 v1 requirements validated and milestone-audited (passed, re-audited clean after the `feature/workspace-item-table-editing` merge). Next: `/gsd-new-milestone` (likely frontend planning UI over the shipped API).*
