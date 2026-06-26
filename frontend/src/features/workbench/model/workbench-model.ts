@@ -18,18 +18,26 @@ export type WorkspaceItemModel = {
   area_id?: string | null;
   project_id?: string | null;
   routine_id?: string | null;
+  parent_id?: string | null;
   definition_of_done?: string | null;
   review_cycle?: string | null;
   standard?: string | null;
   note?: string | null;
   outcome?: string | null;
+  horizon?: string | null;
   recurrence_rule?: string | null;
   materialization_policy?: string | null;
   due?: string | null;
   scheduled?: string | null;
   priority?: number | null;
+  created_at?: string | null;
   last_materialized_at?: string | null;
   updated_at?: string | null;
+  metadata_?: {
+    location?: string;
+    participants?: string[];
+    commitment_type?: string;
+  };
 };
 
 export type WorkspaceItemsModel = {
@@ -37,17 +45,68 @@ export type WorkspaceItemsModel = {
   items: WorkspaceItemModel[];
   relatedItems: {
     areas: Record<string, string>;
+    goals: Record<string, string>;
     projects: Record<string, string>;
     routines: Record<string, string>;
   };
 };
 
+export type CreateWorkspaceItemForm = {
+  title: string;
+  scheduled?: string;
+  horizon?: string;
+};
+
+export type WorkspaceItemPatch = {
+  title?: string;
+  note?: string;
+  outcome?: string;
+  definition_of_done?: string;
+  review_cycle?: string;
+  standard?: string;
+  recurrence_rule?: string;
+  materialization_policy?: string;
+  due?: string;
+  scheduled?: string;
+  priority?: number;
+  area?: string;
+  project_id?: string;
+  routine_id?: string;
+};
+
+export type WorkspaceItemTransitionAction =
+  | "approve"
+  | "activate"
+  | "pause"
+  | "resume"
+  | "complete";
+
 export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
   workspaceItems: WorkspaceItemsModel;
+  selectedItemIds: string[];
+  archiveConfirmationOpen: boolean;
+  creationDialogOpen: boolean;
+  detailItem: WorkspaceItemModel | null;
   selectTab: (tabId: WorkbenchTabId) => void;
   toggleWorkspaceExpansion: () => void;
+  toggleItemSelection: (itemId: string) => void;
+  toggleVisibleSelection: () => void;
+  requestArchiveSelected: () => void;
+  cancelArchiveSelected: () => void;
+  confirmArchiveSelected: () => Promise<void>;
+  openCreationDialog: () => void;
+  closeCreationDialog: () => void;
+  createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
+  openDetailView: (item: WorkspaceItemModel) => void;
+  patchWorkspaceItem: (itemId: string, patch: WorkspaceItemPatch) => Promise<void>;
+  transitionWorkspaceItem: (
+    itemId: string,
+    action: WorkspaceItemTransitionAction,
+  ) => Promise<void>;
+  saveDetailItem: (patch: WorkspaceItemPatch) => Promise<void>;
+  closeDetailView: () => void;
 };
 
 export function createPanelModel(leafTabId: LeafTabId): WorkbenchPanelModel {

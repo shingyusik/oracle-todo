@@ -397,6 +397,27 @@ async fn operational_propose_routes_return_persisted_items() {
     assert_eq!(event["metadata_"]["location"], "회의실");
     assert_eq!(event["metadata_"]["participants"][0], "팀");
 
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"6월 운영 목표",
+            "horizon":"month",
+            "scheduled":"2026-06-01",
+            "actor":"user",
+            "note":"월간 운영 안정화"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    assert_eq!(goal["type"], "goal");
+    assert_eq!(goal["status"], "approved");
+    assert_eq!(goal["horizon"], "month");
+    assert_eq!(goal["scheduled"], "2026-06-01");
+    assert_eq!(goal["note"], "월간 운영 안정화");
+
     let response = empty_request(router(&db_path).unwrap(), "GET", "/items?type=project").await;
     assert_eq!(response.status(), 200);
     let items = body_json(response).await;
@@ -550,6 +571,93 @@ async fn service_errors_return_detail_body() {
     assert_eq!(response.status(), 404);
     let body = body_json(response).await;
     assert!(body["detail"].as_str().unwrap().contains("missing"));
+}
+
+#[tokio::test]
+async fn goal_query_filters_and_parent_patch_reach_service_layer() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"2026 목표",
+            "horizon":"year",
+            "scheduled":"2026-01-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let year_goal = body_json(response).await;
+    let year_goal_id = year_goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"6월 목표",
+            "horizon":"month",
+            "scheduled":"2026-06-01",
+            "parent_id": year_goal_id,
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let month_goal = body_json(response).await;
+    let month_goal_id = month_goal["id"].as_str().unwrap();
+
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        format!("/items?type=goal&parent_id={year_goal_id}"),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["id"], month_goal_id);
+
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        "/items?type=goal&horizon=month&scheduled=2026-06-01",
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let items = body_json(response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["id"], month_goal_id);
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"목표에 연결", "actor":"user"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    let task_id = task["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{task_id}"),
+        json!({
+            "parent_id": month_goal_id,
+            "scheduled": "2026-06-08"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    assert_eq!(task["parent_id"], month_goal_id);
+    assert_eq!(task["scheduled"], "2026-06-08");
 }
 
 #[tokio::test]

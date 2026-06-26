@@ -222,6 +222,30 @@ button {
   overflow-x: auto;
 }
 
+.items-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.items-toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  color: var(--color-ink);
+}
+
+.items-toolbar-button:disabled {
+  cursor: not-allowed;
+  color: var(--color-shade-40);
+}
+
 .items-table {
   width: 100%;
   min-width: 620px;
@@ -250,12 +274,108 @@ button {
   font-size: 14px;
 }
 
+.inline-cell-control {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 6px 8px;
+  color: inherit;
+}
+
+.inline-cell-number {
+  min-width: 72px;
+}
+
+.items-table tbody tr {
+  cursor: pointer;
+}
+
+.items-table tbody tr[role="button"]:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -2px;
+}
+
 .items-message {
   margin: 0;
   border: 1px solid var(--color-hairline-light);
   background: var(--color-canvas-light);
   padding: 16px;
   color: var(--color-shade-60);
+}
+
+.confirmation-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 28%);
+}
+
+.confirmation-dialog {
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas-light);
+  padding: 20px;
+}
+
+.field-label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--color-shade-70);
+}
+
+.field-label input,
+.field-label select,
+.field-label textarea {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 8px 10px;
+}
+
+.detail-view {
+  max-width: 880px;
+}
+
+.detail-back {
+  margin-bottom: 18px;
+}
+
+.detail-properties {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.property-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid var(--color-hairline-light);
+  padding-bottom: 8px;
+}
+
+.detail-note textarea {
+  min-height: 280px;
+  resize: vertical;
+}
+
+.detail-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @media (max-width: 767px) {

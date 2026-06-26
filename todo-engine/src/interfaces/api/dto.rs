@@ -117,7 +117,10 @@ pub(super) struct ItemsQuery {
     pub item_type: Option<String>,
     pub area_id: Option<String>,
     pub project_id: Option<String>,
+    pub parent_id: Option<String>,
     pub routine_id: Option<String>,
+    pub horizon: Option<String>,
+    pub scheduled: Option<String>,
     pub query: Option<String>,
     pub include_archived: Option<String>,
 }

@@ -1,6 +1,12 @@
 export type MainTabId = "dashboard" | "todo";
 export type TodoChildTabId = "workspace" | "planner";
-export type WorkspaceChildTabId = "areas" | "projects" | "routines" | "tasks";
+export type WorkspaceChildTabId =
+  | "areas"
+  | "projects"
+  | "routines"
+  | "tasks"
+  | "events"
+  | "goals";
 export type PlannerTabId = "yearly" | "monthly" | "weekly" | "daily";
 export type LeafTabId = MainTabId | WorkspaceChildTabId | PlannerTabId;
 export type WorkbenchTabId =
@@ -35,6 +41,8 @@ export const workbenchNavigation = {
     { id: "projects", label: "Projects" },
     { id: "routines", label: "Routines" },
     { id: "tasks", label: "Tasks" },
+    { id: "events", label: "Events" },
+    { id: "goals", label: "Goals" },
   ] satisfies NavigationTab<WorkspaceChildTabId>[],
   plannerTabs: [
     { id: "yearly", label: "Yearly" },
@@ -49,6 +57,8 @@ const workspaceLeafTabIds = new Set<WorkbenchTabId>([
   "projects",
   "routines",
   "tasks",
+  "events",
+  "goals",
 ]);
 const plannerLeafTabIds = new Set<WorkbenchTabId>([
   "yearly",

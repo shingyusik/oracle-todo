@@ -9,6 +9,7 @@ __pycache__/
 target/
 .cargo/
 logs/*
+.mock-data/
 frontend/.next/
 frontend/node_modules/
 frontend/tsconfig.tsbuildinfo

@@ -387,13 +387,14 @@ Every service-layer change creates a `TodoEvent` row.
 Endpoints:
 
 - `GET /health`: health check.
-- `GET /items`: list items. Supports `status`, `type`, `area_id`, `project_id`, `routine_id`, `query`, `include_archived`.
+- `GET /items`: list items. Supports `status`, `type`, `area_id`, `project_id`, `parent_id`, `routine_id`, `horizon`, `scheduled`, `query`, `include_archived`.
 - `GET /items/archive`: list terminal/archive items.
 - `POST /areas`: create area.
 - `POST /projects/propose`: propose project.
 - `POST /routines/propose`: propose routine.
 - `POST /events/propose`: propose event.
 - `POST /tasks/propose`: propose task.
+- `POST /goals/propose`: propose goal.
 - `PATCH /items/{id}`: update mutable item fields through the shared service layer.
 - `POST /items/{id}/approve`: approve item.
 - `POST /items/{id}/activate`: activate item.
