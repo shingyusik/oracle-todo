@@ -51,6 +51,11 @@ enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+    /// Manage goals.
+    Goal {
+        #[command(subcommand)]
+        command: GoalCommand,
+    },
     /// Manage tasks.
     Task {
         #[command(subcommand)]
@@ -103,6 +108,12 @@ enum AreaCommand {
 enum ProjectCommand {
     /// Propose a project.
     Propose(ProjectProposeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum GoalCommand {
+    /// Propose a goal.
+    Propose(GoalProposeArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -173,6 +184,21 @@ struct ProjectProposeArgs {
     outcome: Option<String>,
     #[arg(long)]
     due: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long, default_value = "agent", value_parser = parse_actor)]
+    actor: Actor,
+}
+
+#[derive(Debug, Args)]
+struct GoalProposeArgs {
+    title: String,
+    #[arg(long)]
+    horizon: String,
+    #[arg(long)]
+    scheduled: String,
+    #[arg(long = "parent")]
+    parent_id: Option<String>,
     #[arg(long)]
     note: Option<String>,
     #[arg(long, default_value = "agent", value_parser = parse_actor)]
@@ -318,6 +344,9 @@ pub fn run() -> Result<()> {
         Command::Project {
             command: ProjectCommand::Propose(args),
         } => create::project_propose(&home, args),
+        Command::Goal {
+            command: GoalCommand::Propose(args),
+        } => create::goal_propose(&home, args),
         Command::Task {
             command: TaskCommand::Propose(args),
         } => create::task_propose(&home, args),
@@ -377,6 +406,9 @@ fn command_label(command: &Command) -> &'static str {
         Command::Project {
             command: ProjectCommand::Propose(_),
         } => "project propose",
+        Command::Goal {
+            command: GoalCommand::Propose(_),
+        } => "goal propose",
         Command::Task {
             command: TaskCommand::Propose(_),
         } => "task propose",

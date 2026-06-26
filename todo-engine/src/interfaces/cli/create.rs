@@ -3,11 +3,11 @@ use std::path::Path;
 
 use super::output::print_json;
 use super::{
-    AreaCreateArgs, EventProposeArgs, ProjectProposeArgs, RoutineProposeArgs, TaskProposeArgs,
-    service,
+    AreaCreateArgs, EventProposeArgs, GoalProposeArgs, ProjectProposeArgs, RoutineProposeArgs,
+    TaskProposeArgs, service,
 };
 use crate::application::service::{
-    CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask,
+    CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
 };
 
 pub(super) fn task_propose(home: &Path, args: TaskProposeArgs) -> Result<()> {
@@ -37,6 +37,20 @@ pub(super) fn project_propose(home: &Path, args: ProjectProposeArgs) -> Result<(
         definition_of_done: args.definition_of_done,
         outcome: args.outcome,
         due: args.due,
+        actor: args.actor,
+        note: args.note,
+    })?;
+    print_json(&item)?;
+    Ok(())
+}
+
+pub(super) fn goal_propose(home: &Path, args: GoalProposeArgs) -> Result<()> {
+    let mut service = service(home)?;
+    let item = service.propose_goal(ProposeGoal {
+        title: args.title,
+        horizon: args.horizon,
+        scheduled: args.scheduled,
+        parent_id: args.parent_id,
         actor: args.actor,
         note: args.note,
     })?;
