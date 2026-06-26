@@ -96,6 +96,13 @@ enum Command {
     Pending,
     /// Show today's materialized task view.
     Today,
+    /// Show items scheduled or due on a date (JSON).
+    Agenda(AgendaArgs),
+    /// Show items scheduled within an inclusive date range (JSON).
+    #[command(name = "date-range")]
+    DateRange(DateRangeArgs),
+    /// Show the goal-tree period view for a horizon and period (JSON).
+    Period(PeriodArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -319,6 +326,25 @@ struct UpdateArgs {
     reason: Option<String>,
 }
 
+#[derive(Debug, Args)]
+struct AgendaArgs {
+    date: String,
+}
+
+#[derive(Debug, Args)]
+struct DateRangeArgs {
+    from: String,
+    to: String,
+}
+
+#[derive(Debug, Args)]
+struct PeriodArgs {
+    #[arg(long)]
+    horizon: String,
+    #[arg(long)]
+    period: String,
+}
+
 pub fn run() -> Result<()> {
     dotenvy::dotenv().ok();
     let cli = Cli::parse();
@@ -371,6 +397,9 @@ pub fn run() -> Result<()> {
         Command::ArchiveList => views::archive_list(&home),
         Command::Pending => views::pending(&home),
         Command::Today => views::today(&home),
+        Command::Agenda(args) => views::agenda(&home, args),
+        Command::DateRange(args) => views::date_range(&home, args),
+        Command::Period(args) => views::period(&home, args),
     };
 
     let duration_ms = elapsed_millis(started_at);
@@ -433,6 +462,9 @@ fn command_label(command: &Command) -> &'static str {
         Command::ArchiveList => "archive-list",
         Command::Pending => "pending",
         Command::Today => "today",
+        Command::Agenda(_) => "agenda",
+        Command::DateRange(_) => "date-range",
+        Command::Period(_) => "period",
     }
 }
 
