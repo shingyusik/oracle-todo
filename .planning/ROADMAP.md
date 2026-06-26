@@ -142,11 +142,17 @@ Plans:
   3. Every new command/endpoint has a paired e2e CLI + API test asserting the two surfaces yield the same item state and the same rejections.
   4. Agent-created goals via either surface are verified to start `Proposed` and require approval, confirming approval gating is not bypassable from the API.
 
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
+**Wave 1** *(parallel — CLI and API files do not overlap)*
 
-- [ ] 05-01: TBD
+- [ ] 05-01-PLAN.md — CLI surface: `goal propose` + flat `agenda`/`date-range`/`period` views (JSON-only) + `--parent-id` on `update` (SURF-01) — Wave 1
+- [ ] 05-02-PLAN.md — API surface: `POST /goals/propose` + `GET /views/{agenda,date-range,period}` + `parent_id` on update DTO/handler (SURF-02, CORE-03) — Wave 1
+
+**Wave 2** *(blocked on Wave 1 — both surfaces must exist)*
+
+- [ ] 05-03-PLAN.md — Paired CLI+API e2e tests: state parity, present-but-invalid rejection parity (SC3), agent-default `proposed` gating (SC4), `parent_id` non-null regression (SURF-01, SURF-02) — Wave 2
 
 ## Progress
 
@@ -159,4 +165,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Service Policy — Goal Create, Link & Validation | 4/4 | Complete    | 2026-06-22 |
 | 3. Date View | 3/3 | Complete    | 2026-06-23 |
 | 4. Period View (goal-tree rollup) | 3/3 | Complete    | 2026-06-25 |
-| 5. CLI + API Surface (parity-locked) | 0/TBD | Not started | - |
+| 5. CLI + API Surface (parity-locked) | 0/3 | In progress | - |

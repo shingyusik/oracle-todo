@@ -1,10 +1,11 @@
 ---
 phase: 5
 slug: cli-api-surface-parity-locked
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: planned
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-26
+updated: 2026-06-26
 ---
 
 # Phase 5 — Validation Strategy
@@ -29,6 +30,7 @@ created: 2026-06-26
 ## Sampling Rate
 
 - **After every task commit:** `cargo test --test e2e` + `cargo clippy --all-targets --all-features -- -D warnings`
+  - (Wave-1 production tasks 05-01 / 05-02 build the surface; their per-task gate is `cargo build -p todo-engine` + `cargo clippy -- -D warnings` because the e2e assertions live in Wave-2 plan 05-03.)
 - **After every plan wave:** `cargo test` (all three binaries — e2e/integration parity must stay green per CLAUDE.md)
 - **Before `/gsd-verify-work`:** `cargo fmt --check` + `cargo clippy -- -D warnings` + full `cargo test` green (modulo the documented pre-existing dotenv failure noted in RESEARCH)
 - **Max feedback latency:** ~20 s per-task quick run; ~60 s per-wave full suite
@@ -37,30 +39,32 @@ created: 2026-06-26
 
 ## Per-Task Verification Map
 
-> Populated after plans are created (task IDs come from the PLAN.md files). The phase→test mapping below is the source contract from `05-RESEARCH.md` §Validation Architecture; the per-task rows are filled by the Nyquist validation pass / Wave 0 once `05-NN-PLAN.md` task IDs exist.
+> Task IDs resolved from the created PLAN.md files. The phase→test mapping is the source contract from `05-RESEARCH.md` §Validation Architecture.
 
-| Req ID | Behavior | Test Type | Automated Command | File |
-|--------|----------|-----------|-------------------|------|
-| SURF-01 | CLI `goal propose` returns proposed goal JSON | e2e (CLI) | `cargo test --test e2e cli` | extend `tests/e2e/cli.rs` |
-| SURF-01 | CLI `agenda`/`date-range`/`period` emit JSON | e2e (CLI) | `cargo test --test e2e cli` | extend `tests/e2e/cli.rs` |
-| SURF-01 | CLI `update --parent-id` links task to goal | e2e (CLI) | `cargo test --test e2e cli` | extend `tests/e2e/cli.rs` |
-| SURF-02 | API `POST /goals/propose` mirrors CLI | e2e (API) | `cargo test --test e2e api` | extend `tests/e2e/api.rs` |
-| SURF-02 | API `GET /views/{agenda,date-range,period}` | e2e (API) | `cargo test --test e2e api` | extend `tests/e2e/api.rs` |
-| SURF-02 | API `PATCH /items/:id {parent_id}` links | e2e (API) | `cargo test --test e2e api` | extend `tests/e2e/api.rs` |
-| SC3 | CLI+API yield same item state AND same rejections (paired) | e2e (both) | `cargo test --test e2e` | both files |
-| SC4 | Agent-created goal (either surface) starts `proposed` | e2e (both) | `cargo test --test e2e` | both files |
+| Plan-Task | Req ID(s) | Behavior | Test Type | Automated Command | Status |
+|-----------|-----------|----------|-----------|-------------------|--------|
+| 05-01 T1 | SURF-01, SC4 | CLI `goal propose` produces proposed-goal JSON | build/clippy (CLI surface) → proven by 05-03 T1 | `cargo build -p todo-engine` + `cargo test --test e2e cli` | ⬜ |
+| 05-01 T2 | SURF-01 | CLI `agenda`/`date-range`/`period` emit JSON; bad horizon ⇒ exit 2 | build/clippy → proven by 05-03 T1 | `cargo build -p todo-engine` + `cargo test --test e2e cli` | ⬜ |
+| 05-01 T3 | SURF-01, LINK-01/02 | CLI `update --parent-id` links task to goal | build/clippy → proven by 05-03 T1 | `cargo build -p todo-engine` + `cargo test --test e2e cli` | ⬜ |
+| 05-02 T1 | SURF-02, SC4 | API `POST /goals/propose` mirrors CLI | build/clippy → proven by 05-03 T2 | `cargo build -p todo-engine` + `cargo test --test e2e api` | ⬜ |
+| 05-02 T2 | SURF-02, CORE-03 | API `GET /views/{agenda,date-range,period}` | build/clippy → proven by 05-03 T2 | `cargo build -p todo-engine` + `cargo test --test e2e api` | ⬜ |
+| 05-02 T3 | SURF-02, LINK-01/02 | API `PATCH /items/:id {parent_id}` links (non-null) | build/clippy → proven by 05-03 T2 | `cargo build -p todo-engine` + `cargo test --test e2e api` | ⬜ |
+| 05-03 T1 | SURF-01, SC3, SC4 | CLI e2e: JSON output, proposed gating, link, exit-2 rejection | e2e (CLI) | `cargo test --test e2e cli` | ⬜ |
+| 05-03 T2 | SURF-02, SC3, SC4 | API e2e: 200 + proposed, views JSON, parent_id non-null, 400 rejection | e2e (API) | `cargo test --test e2e api` | ⬜ |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+**Sampling-continuity check:** No 3 consecutive tasks lack an automated `<automated>` gate — every task has `cargo build`/`cargo test`/`cargo clippy`. Wave-1 surface tasks (05-01/05-02) are build-gated and their behavior is asserted one wave later by 05-03 (the dedicated test plan), satisfying the Nyquist contract that every SURF requirement maps to an automated e2e command.
 
 ---
 
 ## Wave 0 Requirements
 
-**Existing infrastructure covers all phase requirements.** `tests/e2e/{cli,api}.rs` already exist with the exact harness needed (`TestHome`, `Command::cargo_bin`, `router(..)` + `oneshot`, `json_request`/`empty_request`/`body_json` helpers). New tests are added as `#[test]`/`#[tokio::test]` fns in those files — no new fixture/config/framework install required. `wave_0_complete` will be set true once the planner confirms no new harness file is introduced.
+**Existing infrastructure covers all phase requirements — no new harness file introduced.** `tests/e2e/{cli,api}.rs` already exist with the exact harness needed (`TestHome`, `Command::cargo_bin`, `router(..)` + `oneshot`, `json_request`/`empty_request`/`body_json` helpers). New tests are added as `#[test]`/`#[tokio::test]` fns in those files — no new fixture/config/framework install required. `wave_0_complete: true` (planner confirmed no new harness file is needed).
 
-- [ ] Test framework — already present (`cargo test`, no install)
-- [ ] Shared fixtures — `TestHome` + e2e helpers already in `tests/e2e/`
-- [ ] SC3 parity helper (optional) — planner may add a small CLI-vs-API comparison helper in `tests/e2e/`, or assert independently in both files (matches current idiom `task_propose_and_items_use_same_service_path`)
+- [x] Test framework — already present (`cargo test`, no install)
+- [x] Shared fixtures — `TestHome` + e2e helpers already in `tests/e2e/`
+- [x] SC3 parity helper — assert independently in both files (matches current idiom `task_propose_and_items_use_same_service_path`); no shared cross-surface helper needed
 
 ---
 
@@ -72,11 +76,11 @@ All phase behaviors have automated verification. New CLI commands and HTTP endpo
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (none — existing harness suffices)
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved (planning complete 2026-06-26)
