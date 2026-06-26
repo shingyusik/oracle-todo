@@ -137,7 +137,7 @@ Plans:
 **Requirements**: SURF-01, SURF-02, CORE-03
 **Success Criteria** (what must be TRUE):
 
-  1. A user can create goals, link tasks, and run every view (date/week/month/year) from the CLI, with both Markdown and JSON output per the existing convention.
+  1. A user can create goals, link tasks, and run every view (date/week/month/year) from the CLI, with JSON output (new views emit JSON only — Markdown deferred per Phase 5 CONTEXT D-01/D-02).
   2. The HTTP API exposes mirrored endpoints for the same operations, calling the identical `TodoService` methods (no policy or view logic in handlers).
   3. Every new command/endpoint has a paired e2e CLI + API test asserting the two surfaces yield the same item state and the same rejections.
   4. Agent-created goals via either surface are verified to start `Proposed` and require approval, confirming approval gating is not bypassable from the API.

@@ -30,7 +30,7 @@ Requirements for this milestone. Each maps to a roadmap phase. All P1 items deri
 
 ### Surface (SURF)
 
-- [ ] **SURF-01**: CLI subcommands for creating goals, linking tasks, and every view (Markdown + JSON output per existing convention).
+- [ ] **SURF-01**: CLI subcommands for creating goals, linking tasks, and every view (JSON output; new views emit JSON only — see Phase 5 CONTEXT D-01/D-02; legacy Markdown views unchanged).
 - [ ] **SURF-02**: HTTP API endpoints mirroring the new CLI surface, reusing `TodoService` (CLI/API parity preserved, asserted by paired e2e tests).
 
 ### Invariants (CORE)
