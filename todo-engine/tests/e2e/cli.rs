@@ -691,6 +691,207 @@ fn archive_list_shows_terminal_items() {
 }
 
 #[test]
+fn goal_propose_prints_proposed_json() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["--home", home.path().to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "goal",
+            "propose",
+            "Q3 OKR",
+            "--horizon",
+            "month",
+            "--scheduled",
+            "2026-06-01",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("\"type\":\"goal\""))
+        .stdout(contains("\"status\":\"proposed\""))
+        .stdout(contains("\"proposed_by\":\"agent\""));
+}
+
+#[test]
+fn agenda_date_range_period_emit_json() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["--home", home.path().to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    // agenda <date> emits a JSON array (not a Markdown table) — D-01.
+    let agenda = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "agenda",
+            "2026-06-26",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let agenda: serde_json::Value = serde_json::from_slice(&agenda).unwrap();
+    assert!(agenda.is_array(), "agenda stdout must be a JSON array");
+
+    // date-range <from> <to> emits a JSON array.
+    let range = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "date-range",
+            "2026-06-01",
+            "2026-06-30",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let range: serde_json::Value = serde_json::from_slice(&range).unwrap();
+    assert!(range.is_array(), "date-range stdout must be a JSON array");
+
+    // period --horizon --period emits a PeriodView JSON object with period_key + roots.
+    let period = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "period",
+            "--horizon",
+            "month",
+            "--period",
+            "2026-06-01",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let period: serde_json::Value = serde_json::from_slice(&period).unwrap();
+    assert!(
+        period["period_key"].is_string(),
+        "period stdout must carry period_key"
+    );
+    assert!(
+        period["roots"].is_array(),
+        "period stdout must carry a roots array"
+    );
+}
+
+#[test]
+fn update_parent_id_links_task_to_goal() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["--home", home.path().to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    let goal = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "goal",
+            "propose",
+            "분기 목표",
+            "--horizon",
+            "month",
+            "--scheduled",
+            "2026-06-01",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let goal: serde_json::Value = serde_json::from_slice(&goal).unwrap();
+    let goal_id = goal["id"].as_str().unwrap();
+
+    let task = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "task",
+            "propose",
+            "목표에 연결할 일",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let task: serde_json::Value = serde_json::from_slice(&task).unwrap();
+    let task_id = task["id"].as_str().unwrap();
+
+    let linked = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "update",
+            task_id,
+            "--parent-id",
+            goal_id,
+            "--scheduled",
+            "2026-06-29",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let linked: serde_json::Value = serde_json::from_slice(&linked).unwrap();
+    assert_eq!(linked["parent_id"], goal_id);
+    assert_eq!(linked["scheduled"], "2026-06-29");
+}
+
+#[test]
+fn period_bad_horizon_exits_two() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["--home", home.path().to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    // Present-but-invalid horizon => TodoError::Validation => exit code 2.
+    // This is the CLI half of the SC3 rejection-parity pair (API half: HTTP 400).
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "period",
+            "--horizon",
+            "bogus",
+            "--period",
+            "2026-06-01",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
 fn routine_materialize_covers_cli_intent() {
     let home = TestHome::new();
 
