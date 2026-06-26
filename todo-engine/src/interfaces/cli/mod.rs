@@ -314,6 +314,8 @@ struct UpdateArgs {
     area: Option<String>,
     #[arg(long)]
     project_id: Option<String>,
+    #[arg(long = "parent-id")]
+    parent_id: Option<String>,
     #[arg(long)]
     routine_id: Option<String>,
     #[arg(long)]

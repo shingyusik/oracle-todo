@@ -77,7 +77,7 @@ pub(super) fn update(home: &Path, args: UpdateArgs) -> Result<()> {
             materialization_policy: args.materialization_policy,
             area: args.area,
             project_id: args.project_id,
-            parent_id: None,
+            parent_id: args.parent_id,
             routine_id: args.routine_id,
             due: args.due,
             scheduled: args.scheduled,
