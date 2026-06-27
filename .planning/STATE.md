@@ -1,34 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: Awaiting next milestone
-stopped_at: Completed 05-03-PLAN.md
-last_updated: "2026-06-26T04:44:25.664Z"
-last_activity: 2026-06-26 — Milestone v1.0 completed and archived
+milestone: v1.1
+milestone_name: Frontend Planning Workbench MVP
+status: planning
+last_updated: "2026-06-27T07:03:50.740Z"
+last_activity: 2026-06-27
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 19
-  completed_plans: 19
-  percent: 100
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-22)
+See: .planning/PROJECT.md (updated 2026-06-27)
 
-**Core value:** A user can set a big goal for a period (year/month/week), break it top-down into tasks, and see those tasks by date — all through the same policy-enforced engine.
-**Current focus:** Phase 05 — cli-api-surface-parity-locked
+**Core value:** A user can run daily planning from the browser while every mutation still goes through the policy-enforced todo-engine service.
+**Current focus:** Milestone v1.1 — Frontend Planning Workbench MVP
 
 ## Current Position
 
-Phase: Milestone v1.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-26 — Milestone v1.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-27 — Milestone v1.1 started
 
 ## Performance Metrics
 
@@ -48,6 +47,9 @@ Last activity: 2026-06-26 — Milestone v1.0 completed and archived
 | 04 | 3 | - | - |
 | 04.1 | 3 | - | - |
 | 05 | 3 | - | - |
+| 06 | 0 | - | - |
+| 07 | 0 | - | - |
+| 08 | 0 | - | - |
 
 **Recent Trend:**
 

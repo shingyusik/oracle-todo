@@ -2,11 +2,21 @@
 
 ## What This Is
 
-`todo-engine` is a policy-enforced, local-first personal ToDo engine (Rust 2024) for agent workflows, with SQLite as the single source of truth and CLI + HTTP API as views over it. This milestone adds a **planning layer**: hierarchical period goals (yearly / monthly / weekly) that decompose top-down into tasks, plus date-based and goal-tree views so existing tasks can be planned, scheduled, and reviewed by period.
+`todo-engine` is a policy-enforced, local-first personal ToDo engine (Rust 2024) for agent workflows, with SQLite as the single source of truth and CLI + HTTP API as views over it. The shipped planning layer supports hierarchical period goals (yearly / monthly / weekly), top-down task decomposition, date-based views, and goal-tree views. The current milestone adds a frontend workbench MVP over that API so daily planning and workspace item management are usable from the browser.
 
 ## Core Value
 
-A user can set a big goal for a period (year/month/week), break it top-down into tasks, and see those tasks by date — all through the same policy-enforced engine (validation, status state machine, audit events, approval gating). If everything else fails, top-down goal → task decomposition with date visibility must work.
+A user can set a big goal for a period (year/month/week), break it top-down into tasks, and then run the day from a browser workbench: see the agenda, create dated tasks/events, adjust schedule fields, and move items through the same policy-enforced status lifecycle.
+
+## Current Milestone: v1.1 Frontend Planning Workbench MVP
+
+**Goal:** Make the shipped planning API usable from the frontend for daily planning and workspace item management.
+
+**Target features:**
+- Daily Planner: select a date, view agenda items, transition status, edit scheduled/due fields, and create task/event items for that date.
+- Workspace Table Polish: tune Areas / Projects / Routines / Tasks / Events / Goals columns around the fields users actually need to scan.
+- Inline Editing: expose supported relation/date/priority/status edits through the existing service-backed API paths.
+- Minimal API Support: add only thin API support where the frontend would otherwise become awkward or duplicate backend policy.
 
 ## Requirements
 
@@ -38,12 +48,18 @@ A user can set a big goal for a period (year/month/week), break it top-down into
 
 <!-- This milestone. Hypotheses until shipped and validated. -->
 
-All milestone v1.0 requirements are now validated (see Validated above). Milestone ready for `/gsd-complete-milestone`.
+- Daily planner frontend over `GET /views/agenda` with date selection and item list.
+- Daily planner mutations for status transitions, scheduled/due edits, and same-date task/event creation.
+- Workspace table column definitions and inline editing behavior tuned per item type.
+- Minimal API additions allowed only when they keep the frontend thin and preserve `TodoService` as the mutation policy boundary.
 
 ### Out of Scope
 
-- Progress rollup / completion-rate aggregation in period views — deferred to v2 (v1 ships goal-tree + date views only)
-- Frontend (Next.js `frontend/`) planning UI — deferred to a later milestone; this milestone is backend (DB + service + CLI + API)
+- Progress rollup / completion-rate aggregation in period views — deferred beyond v1.1
+- Weekly / Monthly / Yearly planner UI — deferred beyond v1.1
+- Goal tree / period-view dedicated frontend — deferred beyond v1.1
+- Drag-and-drop calendar scheduling — deferred beyond v1.1
+- New frontend design system — existing workbench patterns stay the base for v1.1
 - New goal-specific status states — reuse the existing `ItemStatus` lifecycle rather than inventing planning-only states
 - Second_Brain write-back — `second_brain_refs` stay read-only (existing invariant)
 - Concerns surfaced in the codebase map (in-memory filtering, WAL/busy_timeout, API auth) — not this milestone unless a planning requirement forces it
@@ -58,7 +74,9 @@ All milestone v1.0 requirements are now validated (see Validated above). Milesto
 ## Constraints
 
 - **Tech stack**: Rust 2024, rusqlite (bundled SQLite), axum 0.7, clap 4.5, tokio, tracing — match existing dependencies, no new heavy deps without reason.
+- **Frontend stack**: Next.js 14, React 18, TypeScript, lucide-react, Vitest/testing-library — use existing workbench structure and installed dependencies.
 - **Architecture**: All mutations through `TodoService`; never bypass to the repository. Domain stays I/O-free. — preserves the core invariant.
+- **Frontend scope**: Reuse existing workbench controller/model/table patterns before introducing new abstractions.
 - **Schema**: Additive only — `init_schema()` creates tables and backfills missing columns; do not drop or rewrite existing columns. — protects existing live data homes.
 - **Data safety**: Never aim destructive experiments at `~/.todo-engine/todo.sqlite`; copy to a temp home for smoke checks. — live data home is canonical.
 - **Period identity**: Goals identified by `(horizon, scheduled)` combo; no new schema column for period key — reuse existing fields.
@@ -73,6 +91,8 @@ All milestone v1.0 requirements are now validated (see Validated above). Milesto
 | Task→goal link via `parent_id` + task `scheduled` date | Goal tree powers period views; `scheduled` powers date view; both needed | ✓ Shipped v1.0 — audited `update_item` link path; powers both views |
 | Progress rollup deferred to v2 | Keep v1 scope to tree + date views; aggregation is additive later | ✓ Held — period views ship structure-only; rollup remains v2 (ROLL-01/02) |
 | Backend + CLI + HTTP API this milestone; frontend later | User scoped "db와 관련 cli"; API kept for CLI/API parity | ✓ Shipped v1.0 (backend); a workspace item-table frontend (`feature/workspace-item-table-editing`) was merged onto main post-milestone as a v1.x/v2 seed |
+| Daily planner first for frontend | One daily workflow creates immediate browser value without forcing Weekly/Monthly/Goal-tree UI design | Active v1.1 — ship Daily plus workspace table polish before broader planner surfaces |
+| Minimal API support only | Frontend should stay thin, but API should absorb awkward policy-shaped gaps | Active v1.1 — add small API support only when existing endpoints make the UI duplicate service logic |
 
 ## Current State
 
@@ -93,6 +113,10 @@ requirements (GOAL×5, LINK×2, VIEW×5, SURF×2, CORE×3) satisfied and milesto
 - **Known deferred bug**: `cli::init_loads_todo_engine_home_from_dotenv` (init resolves default home,
   not `.env TODO_ENGINE_HOME`) — carried since Phase 3, out of scope.
 
+**Active: v1.1 Frontend Planning Workbench MVP (started 2026-06-27)** — Daily Planner plus
+Workspace table polish over the shipped API. Scope is frontend-first with minimal API support only
+when it keeps UI code thin and policy-compliant.
+
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
@@ -111,4 +135,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 — after v1.0 Planning Layer milestone (shipped). 6 phases / 19 plans / 35 tasks; all 17 v1 requirements validated and milestone-audited (passed, re-audited clean after the `feature/workspace-item-table-editing` merge). Next: `/gsd-new-milestone` (likely frontend planning UI over the shipped API).*
+*Last updated: 2026-06-27 — v1.1 Frontend Planning Workbench MVP started: Daily Planner plus Workspace table polish over the shipped planning API.*
