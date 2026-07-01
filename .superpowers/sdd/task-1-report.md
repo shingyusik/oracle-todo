@@ -75,3 +75,77 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out
 
 - The task brief’s requested file ownership list did not include the CLI initializer that also constructs `UpdateItem`; one minimal compile-fix there was necessary.
 - Verification was limited to the required RED/GREEN targeted e2e test from the brief, not the full test suite.
+
+---
+
+## Review fix follow-up
+
+### What was fixed
+
+- Goal horizon updates now stay on the existing `TodoService::update_item` path but re-run goal policy checks before mutating:
+  - horizon parsing
+  - canonical `(horizon, scheduled)` anchor validation
+  - duplicate goal triple rejection
+- Event metadata patch fields (`location`, `participants`, `commitment_type`) are now rejected for non-event items.
+- Event metadata success cases still persist through the same audited `store_item_and_event` flow.
+
+### TDD evidence
+
+#### RED
+
+Command:
+
+```bash
+cargo test -p todo-engine --test e2e api_patch_
+```
+
+Observed failure:
+
+```text
+test api::api_patch_rejects_event_metadata_for_non_event_items ... FAILED
+test api::api_patch_rejects_invalid_goal_horizon_anchor ... FAILED
+```
+
+Failure details:
+
+```text
+assertion `left == right` failed
+  left: 200
+ right: 400
+```
+
+This confirmed PATCH was still accepting invalid goal horizon state and non-event metadata updates.
+
+#### GREEN
+
+Command:
+
+```bash
+cargo test -p todo-engine --test e2e api_patch_
+```
+
+Observed success:
+
+```text
+running 4 tests
+test api::api_patch_rejects_event_metadata_for_non_event_items ... ok
+test api::api_patch_rejects_invalid_goal_horizon_anchor ... ok
+test api::api_patch_updates_event_metadata ... ok
+test api::api_patch_updates_goal_horizon_with_valid_anchor ... ok
+```
+
+### Additional regression checks
+
+Commands:
+
+```bash
+cargo test -p todo-engine --test integration goal_policy
+cargo test -p todo-engine --test integration service_policy
+```
+
+Observed success:
+
+```text
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 53 filtered out
+```

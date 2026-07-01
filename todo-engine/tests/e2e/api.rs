@@ -557,7 +557,45 @@ async fn patch_item_and_archive_endpoint_use_persisted_state() {
 }
 
 #[tokio::test]
-async fn api_patch_updates_goal_horizon_and_event_metadata() {
+async fn api_patch_updates_goal_horizon_with_valid_anchor() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"분기 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    let goal_id = goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{goal_id}"),
+        json!({
+            "horizon":"year",
+            "scheduled":"2026-01-01"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    assert_eq!(goal["horizon"], "year");
+    assert_eq!(goal["scheduled"], "2026-01-01");
+}
+
+#[tokio::test]
+async fn api_patch_rejects_invalid_goal_horizon_anchor() {
     let home = TestHome::new();
     let db_path = home.db_path();
     init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
@@ -585,9 +623,21 @@ async fn api_patch_updates_goal_horizon_and_event_metadata() {
         json!({"horizon":"year"}),
     )
     .await;
-    assert_eq!(response.status(), 200);
-    let goal = body_json(response).await;
-    assert_eq!(goal["horizon"], "year");
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("canonical start of its year period")
+    );
+}
+
+#[tokio::test]
+async fn api_patch_updates_event_metadata() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
 
     let response = json_request(
         router(&db_path).unwrap(),
@@ -622,6 +672,43 @@ async fn api_patch_updates_goal_horizon_and_event_metadata() {
     assert_eq!(event["metadata_"]["participants"][0], "나");
     assert_eq!(event["metadata_"]["participants"][1], "팀");
     assert_eq!(event["metadata_"]["commitment_type"], "review");
+}
+
+#[tokio::test]
+async fn api_patch_rejects_event_metadata_for_non_event_items() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({
+            "title":"일반 작업",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    let task_id = task["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{task_id}"),
+        json!({"location":"회의실"}),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("Event metadata fields can only be updated on event items")
+    );
 }
 
 #[tokio::test]
