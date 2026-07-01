@@ -59,8 +59,11 @@ export type CreateWorkspaceItemForm = {
 
 export type WorkspaceItemPatch = {
   title?: string;
+  description?: string;
   note?: string;
   outcome?: string;
+  horizon?: string;
+  parent_id?: string;
   definition_of_done?: string;
   review_cycle?: string;
   standard?: string;
@@ -72,6 +75,9 @@ export type WorkspaceItemPatch = {
   area?: string;
   project_id?: string;
   routine_id?: string;
+  location?: string;
+  participants?: string[];
+  commitment_type?: string;
 };
 
 export type WorkspaceItemTransitionAction =
