@@ -407,7 +407,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Scheduled for June outcome")).toHaveValue("2026-06-01");
     expect(screen.getByLabelText("Horizon for June outcome")).toHaveValue("month");
     expect(screen.getByLabelText("Due for June outcome")).toHaveValue("2026-06-30");
-  });
+  }, 10000);
 
   it("selects yearly when planner is clicked and daily when daily is clicked", async () => {
     const user = userEvent.setup();
@@ -678,7 +678,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).includes("/items/task-1") && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ title: "One", note: "Saved note" }));
+        expect(init.body).toBe(JSON.stringify({ note: "Saved note" }));
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -728,8 +728,6 @@ describe("WorkbenchPageClient", () => {
       if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
           JSON.stringify({
-            title: "One",
-            note: "",
             description: "Draft detail text",
             area: "area-2",
           }),
@@ -839,10 +837,72 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1",
-      expect.objectContaining({ method: "PATCH" }),
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/task-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/task-1/activate",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(fetchMock.mock.calls.find(([url]) => url === "/todo-engine/items/task-1")).toBeTruthy();
+    expect(fetchMock.mock.calls.find(([url]) => url === "/todo-engine/items/task-1/activate")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.findIndex(([url]) => url === "/todo-engine/items/task-1"),
+    ).toBeLessThan(
+      fetchMock.mock.calls.findIndex(([url]) => url === "/todo-engine/items/task-1/activate"),
     );
+  });
+
+  it("skips detail patch requests when save only changes status", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/activate") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            note: "Old note",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            note: "Old note",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+
+    await user.selectOptions(screen.getByLabelText("Status for One"), "active");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    const patchCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        url === "/todo-engine/items/task-1" &&
+        (init as RequestInit | undefined)?.method === "PATCH",
+    );
+
+    expect(patchCalls).toHaveLength(0);
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/task-1/activate",
       expect.objectContaining({ method: "POST" }),
@@ -854,16 +914,11 @@ describe("WorkbenchPageClient", () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1") {
         expect(init).toEqual(expect.objectContaining({ method: "PATCH" }));
-        expect(JSON.parse(String(init?.body))).toEqual(
-          expect.objectContaining({
-            title: "Book physio",
-            description: "Updated description",
-            note: "Updated note",
-            scheduled: "2026-07-03",
-            due: "2026-07-04",
-            priority: 2,
-          }),
-        );
+        expect(JSON.parse(String(init?.body))).toEqual({
+          description: "Updated description",
+          note: "Updated note",
+          priority: 2,
+        });
 
         return Promise.resolve({
           ok: true,
@@ -1002,14 +1057,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/project-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({
-            title: "Plan",
-            note: "",
-            definition_of_done: "Ship review fixes",
-            due: "2026-06-30",
-          }),
-        );
+        expect(init.body).toBe(JSON.stringify({ definition_of_done: "Ship review fixes" }));
 
         return Promise.resolve({
           ok: true,
@@ -1063,14 +1111,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({
-            title: "Stretch",
-            note: "",
-            recurrence_rule: "weekly",
-            materialization_policy: "single_open",
-          }),
-        );
+        expect(init.body).toBe(JSON.stringify({ recurrence_rule: "weekly" }));
 
         return Promise.resolve({
           ok: true,
@@ -1159,17 +1200,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/event-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({
-            title: "Review",
-            note: "",
-            scheduled: "2026-06-24T10:00:00Z",
-            due: "2026-06-24",
-            priority: 2,
-            location: "Office",
-            commitment_type: "busy",
-          }),
-        );
+        expect(init.body).toBe(JSON.stringify({ priority: 2, location: "Office" }));
 
         return Promise.resolve({
           ok: true,

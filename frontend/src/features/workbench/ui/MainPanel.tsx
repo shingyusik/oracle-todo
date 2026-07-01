@@ -58,7 +58,10 @@ function DetailView({ controller }: MainPanelProps) {
   }
 
   async function saveDraft() {
-    await controller.saveDetailItem(detailPatchForItem(detailItem, draft));
+    const patch = detailPatchForItem(detailItem, draft);
+    if (Object.keys(patch).length > 0) {
+      await controller.saveDetailItem(patch);
+    }
 
     const transition = transitionActionForStatus(detailItem.status, draft.status);
     if (transition) {
@@ -173,11 +176,10 @@ function detailPatchForItem(
   item: WorkspaceItemModel,
   draft: DetailDraft,
 ): WorkspaceItemPatch {
-  const patch: WorkspaceItemPatch = {
-    title: draft.title,
-    note: draft.note,
-  };
+  const patch: WorkspaceItemPatch = {};
 
+  addStringPatch(patch, "title", draft.title, item.title);
+  addStringPatch(patch, "note", draft.note, item.note);
   addStringPatch(patch, "description", draft.description, itemDescription(item));
   if (draft.area !== (item.area_id ?? "")) {
     patch.area = draft.area;
@@ -219,7 +221,7 @@ function detailPatchForItem(
   if (item.type === "task") {
     addStringPatch(patch, "due", draft.due, item.due);
     addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
-    addPriorityPatch(patch, draft.priority);
+    addPriorityPatch(patch, draft.priority, item.priority);
   }
   if (item.type === "event") {
     const participants = draft.participants
@@ -235,7 +237,7 @@ function detailPatchForItem(
       item.scheduled,
     );
     addStringPatch(patch, "due", draft.due, item.due);
-    addPriorityPatch(patch, draft.priority);
+    addPriorityPatch(patch, draft.priority, item.priority);
     addStringPatch(patch, "location", draft.location, item.metadata_?.location);
     if (draft.participants !== currentParticipants) {
       patch.participants = participants;
@@ -266,13 +268,17 @@ function addStringPatch(
   value: string,
   currentValue: string | null | undefined,
 ) {
-  if (currentValue != null || value !== "") {
+  if (value !== (currentValue ?? "")) {
     patch[field] = value;
   }
 }
 
-function addPriorityPatch(patch: WorkspaceItemPatch, priority: string) {
-  if (priority.trim() !== "") {
+function addPriorityPatch(
+  patch: WorkspaceItemPatch,
+  priority: string,
+  currentPriority?: number | null,
+) {
+  if (priority.trim() !== "" && Number(priority) !== currentPriority) {
     patch.priority = Number(priority);
   }
 }
