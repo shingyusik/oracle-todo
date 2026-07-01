@@ -992,7 +992,7 @@ function startsAtColumn(): ItemColumn {
     label: "Starts At",
     value: (item, _items, controller) => (
       <InlineTextInput
-        label={`Scheduled for ${item.title}`}
+        label={`Starts At for ${item.title}`}
         type="datetime-local"
         value={formatDateTimeLocalValue(item.scheduled)}
         onCommit={(scheduled) =>
@@ -1168,7 +1168,6 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   goals: [
     ...sharedColumns,
-    areaColumn(),
     horizonColumn(),
     scheduledDateColumn(),
     dueColumn(),

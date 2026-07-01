@@ -374,7 +374,7 @@ describe("WorkbenchPageClient", () => {
         screen.getByRole("cell", { name: "Planning review" }),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByLabelText("Scheduled for Planning review")).toHaveValue(
+    expect(screen.getByLabelText("Starts At for Planning review")).toHaveValue(
       "2026-06-24T10:00",
     );
     expect(screen.getByRole("cell", { name: "Desk" })).toBeInTheDocument();
@@ -387,7 +387,6 @@ describe("WorkbenchPageClient", () => {
         screen.getByRole("cell", { name: "June outcome" }),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(
       2,
     );
@@ -1039,7 +1038,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Events" }));
 
-    const scheduled = await screen.findByLabelText("Scheduled for Review");
+    const scheduled = await screen.findByLabelText("Starts At for Review");
     expect(scheduled).toHaveValue("2026-06-24T10:00");
 
     await user.clear(scheduled);
