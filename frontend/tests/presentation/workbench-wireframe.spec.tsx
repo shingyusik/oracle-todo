@@ -15,6 +15,20 @@ async function statusOptions(title: string): Promise<string[]> {
     .map((option) => option.textContent ?? "");
 }
 
+function expectFieldBefore(firstLabel: string, secondLabel: string) {
+  const first = screen.getByLabelText(firstLabel).closest(".field-label");
+  const second = screen.getByLabelText(secondLabel).closest(".field-label");
+
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+  if (!first || !second) {
+    throw new Error(`Missing fields for order assertion: ${firstLabel}, ${secondLabel}`);
+  }
+  expect(
+    first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+}
+
 describe("WorkbenchPageClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -784,6 +798,9 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Note")).toHaveValue("Original note");
     expect(screen.getByText("2026-07-01")).toBeInTheDocument();
     expect(screen.getByText("2026-07-02")).toBeInTheDocument();
+    expectFieldBefore("Scheduled", "Due");
+    expectFieldBefore("Due", "Priority");
+    expectFieldBefore("Priority", "Description");
 
     await user.clear(screen.getByLabelText("Description"));
     await user.type(screen.getByLabelText("Description"), "Updated description");
@@ -972,6 +989,119 @@ describe("WorkbenchPageClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/routine-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
+  it("shows routine last materialized in detail as readonly", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [
+          {
+            id: "routine-1",
+            type: "routine",
+            title: "Stretch",
+            status: "approved",
+            recurrence_rule: "daily",
+            materialization_policy: "single_open",
+            note: "After coffee",
+            last_materialized_at: "2026-06-21T07:00:00Z",
+            created_at: "2026-06-20T00:00:00Z",
+            updated_at: "2026-06-22T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await user.click(await screen.findByRole("cell", { name: "Stretch" }));
+
+    const properties = screen.getByText("Properties").closest(".detail-properties");
+    expect(within(properties as HTMLElement).getByText("Last Materialized")).toBeInTheDocument();
+    expect(within(properties as HTMLElement).getByText("2026-06-21")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Last Materialized")).toBeNull();
+  });
+
+  it("omits unchanged event participants from the detail PATCH body", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/event-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({
+            title: "Review",
+            note: "",
+            scheduled: "2026-06-24T10:00:00Z",
+            due: "2026-06-24",
+            priority: 2,
+            location: "Office",
+            commitment_type: "busy",
+          }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "event-1",
+            type: "event",
+            title: "Review",
+            status: "approved",
+            scheduled: "2026-06-24T10:00:00Z",
+            due: "2026-06-24",
+            priority: 2,
+            metadata_: {
+              location: "Office",
+              participants: ["Me", "Team"],
+              commitment_type: "busy",
+            },
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=event"
+            ? [
+                {
+                  id: "event-1",
+                  type: "event",
+                  title: "Review",
+                  status: "approved",
+                  scheduled: "2026-06-24T10:00:00Z",
+                  due: "2026-06-24",
+                  priority: 1,
+                  metadata_: {
+                    location: "Desk",
+                    participants: ["Me", "Team"],
+                    commitment_type: "busy",
+                  },
+                },
+              ]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Events" }));
+
+    await user.click(await screen.findByRole("cell", { name: "Review" }));
+    await user.clear(screen.getByLabelText("Location"));
+    await user.type(screen.getByLabelText("Location"), "Office");
+    await user.clear(screen.getByLabelText("Priority"));
+    await user.type(screen.getByLabelText("Priority"), "2");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/event-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });

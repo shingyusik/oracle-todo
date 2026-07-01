@@ -196,6 +196,12 @@ function detailPatchForItem(
     addPriorityPatch(patch, draft.priority);
   }
   if (item.type === "event") {
+    const participants = draft.participants
+      .split(",")
+      .map((participant) => participant.trim())
+      .filter(Boolean);
+    const currentParticipants = item.metadata_?.participants?.join(", ") ?? "";
+
     addStringPatch(
       patch,
       "scheduled",
@@ -205,10 +211,9 @@ function detailPatchForItem(
     addStringPatch(patch, "due", draft.due, item.due);
     addPriorityPatch(patch, draft.priority);
     addStringPatch(patch, "location", draft.location, item.metadata_?.location);
-    patch.participants = draft.participants
-      .split(",")
-      .map((participant) => participant.trim())
-      .filter(Boolean);
+    if (draft.participants !== currentParticipants) {
+      patch.participants = participants;
+    }
     addStringPatch(
       patch,
       "commitment_type",
@@ -271,11 +276,6 @@ function DetailTypeFields({
           <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
         </div>
         <DetailTextField
-          label="Definition of Done"
-          value={draft.definition_of_done}
-          onChange={(value) => setField("definition_of_done", value)}
-        />
-        <DetailTextField
           label="Due"
           type="date"
           value={draft.due}
@@ -285,6 +285,11 @@ function DetailTypeFields({
           label="Outcome"
           value={draft.outcome}
           onChange={(value) => setField("outcome", value)}
+        />
+        <DetailTextField
+          label="Definition of Done"
+          value={draft.definition_of_done}
+          onChange={(value) => setField("definition_of_done", value)}
         />
         <DetailTextAreaField
           label="Note"
@@ -321,6 +326,10 @@ function DetailTypeFields({
           value={draft.note}
           onChange={(value) => setField("note", value)}
         />
+        <div className="property-row">
+          <span>Last Materialized</span>
+          <span>{formatDate(item.last_materialized_at)}</span>
+        </div>
       </>
     );
   }
@@ -339,10 +348,11 @@ function DetailTypeFields({
           <span>Routine</span>
           <span>{relatedTitle(workspaceItems.relatedItems.routines, item.routine_id)}</span>
         </div>
-        <DetailTextAreaField
-          label="Description"
-          value={draft.description}
-          onChange={(value) => setField("description", value)}
+        <DetailTextField
+          label="Scheduled"
+          type="date"
+          value={draft.scheduled}
+          onChange={(value) => setField("scheduled", value)}
         />
         <DetailTextField
           label="Due"
@@ -351,16 +361,15 @@ function DetailTypeFields({
           onChange={(value) => setField("due", value)}
         />
         <DetailTextField
-          label="Scheduled"
-          type="date"
-          value={draft.scheduled}
-          onChange={(value) => setField("scheduled", value)}
-        />
-        <DetailTextField
           label="Priority"
           type="number"
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
+        />
+        <DetailTextAreaField
+          label="Description"
+          value={draft.description}
+          onChange={(value) => setField("description", value)}
         />
         <DetailTextAreaField
           label="Note"
@@ -381,11 +390,6 @@ function DetailTypeFields({
           <span>Project</span>
           <span>{relatedTitle(workspaceItems.relatedItems.projects, item.project_id)}</span>
         </div>
-        <DetailTextAreaField
-          label="Description"
-          value={draft.description}
-          onChange={(value) => setField("description", value)}
-        />
         <DetailTextField
           label="Starts At"
           type="datetime-local"
@@ -404,6 +408,16 @@ function DetailTypeFields({
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
         />
+        <DetailTextAreaField
+          label="Description"
+          value={draft.description}
+          onChange={(value) => setField("description", value)}
+        />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
         <DetailTextField
           label="Location"
           value={draft.location}
@@ -418,11 +432,6 @@ function DetailTypeFields({
           label="Commitment Type"
           value={draft.commitment_type}
           onChange={(value) => setField("commitment_type", value)}
-        />
-        <DetailTextAreaField
-          label="Note"
-          value={draft.note}
-          onChange={(value) => setField("note", value)}
         />
       </>
     );
