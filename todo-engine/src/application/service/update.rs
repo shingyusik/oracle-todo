@@ -193,10 +193,8 @@ impl TodoService {
             item.priority = Some(priority);
         }
         if let Some(location) = location {
-            item.metadata.insert(
-                "location".to_string(),
-                serde_json::Value::String(location),
-            );
+            item.metadata
+                .insert("location".to_string(), serde_json::Value::String(location));
         }
         if let Some(participants) = participants {
             item.metadata.insert(
@@ -218,12 +216,6 @@ impl TodoService {
 
         let now = self.next_now();
         item.updated_at = now;
-        self.store_item_and_event(
-            Actor::User,
-            "update_item",
-            before,
-            item,
-            reason.as_deref(),
-        )
+        self.store_item_and_event(Actor::User, "update_item", before, item, reason.as_deref())
     }
 }
