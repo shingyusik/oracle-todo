@@ -212,6 +212,75 @@ describe("useWorkbenchController", () => {
     expect(result.current.archiveConfirmationOpen).toBe(false);
   });
 
+  it("patches detail-only and metadata workspace fields", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/event-1") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "PATCH",
+            body: JSON.stringify({
+              description: "Bring agenda",
+              note: "Confirm room",
+              location: "Desk",
+              participants: ["Me", "Team"],
+              commitment_type: "review",
+            }),
+          }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "event-1",
+            type: "event",
+            title: "Review",
+            status: "approved",
+            description: "Bring agenda",
+            note: "Confirm room",
+            metadata_: {
+              location: "Desk",
+              participants: ["Me", "Team"],
+              commitment_type: "review",
+            },
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "event-1", type: "event", title: "Review", status: "approved" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("events");
+    });
+
+    await vi.waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    act(() => result.current.openDetailView(result.current.workspaceItems.items[0]!));
+
+    await act(async () => {
+      await result.current.saveDetailItem({
+        description: "Bring agenda",
+        note: "Confirm room",
+        location: "Desk",
+        participants: ["Me", "Team"],
+        commitment_type: "review",
+      });
+    });
+
+    expect(result.current.detailItem?.metadata_?.location).toBe("Desk");
+  });
+
   it("creates a task from the active workspace table and opens it", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/tasks/propose") {
