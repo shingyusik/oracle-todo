@@ -224,7 +224,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "active" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "weekly" })).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "Morning review" })).toBeNull();
+    expect(screen.getByRole("cell", { name: "Morning review" })).toBeInTheDocument();
   });
 
   it("shows linked workspace item titles in item-specific columns", async () => {
@@ -275,7 +275,9 @@ describe("WorkbenchPageClient", () => {
           area_id: "area-1",
           project_id: "project-1",
           routine_id: "routine-1",
+          description: "Call clinic and confirm insurance",
           note: "Call before noon",
+          created_at: "2026-06-20T00:00:00Z",
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
@@ -333,7 +335,7 @@ describe("WorkbenchPageClient", () => {
       screen.getByRole("cell", { name: "Walk without pain" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Due for Recovery Plan")).toHaveValue("2026-06-30");
-    expect(screen.queryByRole("cell", { name: "Check weekly" })).toBeNull();
+    expect(screen.getByRole("cell", { name: "Check weekly" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
@@ -344,7 +346,14 @@ describe("WorkbenchPageClient", () => {
     );
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Stretch" })).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "Call before noon" })).toBeNull();
+    expect(
+      screen.getByRole("cell", { name: "Call clinic and confirm insurance" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Call before noon" })).toBeInTheDocument();
+    expect(screen.getAllByRole("cell", { name: "2026-06-20" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("cell", { name: "2026-06-21" }).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Description for Book physio")).toBeNull();
+    expect(screen.queryByLabelText("Note for Book physio")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Routines" }));
 
@@ -355,8 +364,8 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByRole("cell", { name: "single_open" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "After coffee" })).toBeNull();
-    expect(screen.getByRole("cell", { name: "2026-06-21" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "After coffee" })).toBeInTheDocument();
+    expect(screen.getAllByRole("cell", { name: "2026-06-21" }).length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Events" }));
 
@@ -382,8 +391,8 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(
       2,
     );
-    expect(screen.getByRole("cell", { name: "month" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Scheduled for June outcome")).toBeNull();
+    expect(screen.getByLabelText("Scheduled for June outcome")).toHaveValue("2026-06-01");
+    expect(screen.getByLabelText("Horizon for June outcome")).toHaveValue("month");
     expect(screen.getByLabelText("Due for June outcome")).toHaveValue("2026-06-30");
   });
 
