@@ -15,6 +15,20 @@ async function statusOptions(title: string): Promise<string[]> {
     .map((option) => option.textContent ?? "");
 }
 
+function expectFieldBefore(firstLabel: string, secondLabel: string) {
+  const first = screen.getByLabelText(firstLabel).closest(".field-label");
+  const second = screen.getByLabelText(secondLabel).closest(".field-label");
+
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+  if (!first || !second) {
+    throw new Error(`Missing fields for order assertion: ${firstLabel}, ${secondLabel}`);
+  }
+  expect(
+    first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+}
+
 describe("WorkbenchPageClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -224,7 +238,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "active" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "weekly" })).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "Morning review" })).toBeNull();
+    expect(screen.getByRole("cell", { name: "Morning review" })).toBeInTheDocument();
   });
 
   it("shows linked workspace item titles in item-specific columns", async () => {
@@ -275,7 +289,9 @@ describe("WorkbenchPageClient", () => {
           area_id: "area-1",
           project_id: "project-1",
           routine_id: "routine-1",
+          description: "Call clinic and confirm insurance",
           note: "Call before noon",
+          created_at: "2026-06-20T00:00:00Z",
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
@@ -333,7 +349,7 @@ describe("WorkbenchPageClient", () => {
       screen.getByRole("cell", { name: "Walk without pain" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Due for Recovery Plan")).toHaveValue("2026-06-30");
-    expect(screen.queryByRole("cell", { name: "Check weekly" })).toBeNull();
+    expect(screen.getByRole("cell", { name: "Check weekly" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
@@ -344,7 +360,14 @@ describe("WorkbenchPageClient", () => {
     );
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Stretch" })).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "Call before noon" })).toBeNull();
+    expect(
+      screen.getByRole("cell", { name: "Call clinic and confirm insurance" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Call before noon" })).toBeInTheDocument();
+    expect(screen.getAllByRole("cell", { name: "2026-06-20" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("cell", { name: "2026-06-21" }).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Description for Book physio")).toBeNull();
+    expect(screen.queryByLabelText("Note for Book physio")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Routines" }));
 
@@ -355,8 +378,8 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByRole("cell", { name: "single_open" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "After coffee" })).toBeNull();
-    expect(screen.getByRole("cell", { name: "2026-06-21" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "After coffee" })).toBeInTheDocument();
+    expect(screen.getAllByRole("cell", { name: "2026-06-21" }).length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Events" }));
 
@@ -365,7 +388,7 @@ describe("WorkbenchPageClient", () => {
         screen.getByRole("cell", { name: "Planning review" }),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByLabelText("Scheduled for Planning review")).toHaveValue(
+    expect(screen.getByLabelText("Starts At for Planning review")).toHaveValue(
       "2026-06-24T10:00",
     );
     expect(screen.getByRole("cell", { name: "Desk" })).toBeInTheDocument();
@@ -378,14 +401,13 @@ describe("WorkbenchPageClient", () => {
         screen.getByRole("cell", { name: "June outcome" }),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(
       2,
     );
-    expect(screen.getByRole("cell", { name: "month" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Scheduled for June outcome")).toBeNull();
+    expect(screen.getByLabelText("Scheduled for June outcome")).toHaveValue("2026-06-01");
+    expect(screen.getByLabelText("Horizon for June outcome")).toHaveValue("month");
     expect(screen.getByLabelText("Due for June outcome")).toHaveValue("2026-06-30");
-  });
+  }, 10000);
 
   it("selects yearly when planner is clicked and daily when daily is clicked", async () => {
     const user = userEvent.setup();
@@ -656,7 +678,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).includes("/items/task-1") && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ title: "One", note: "Saved note" }));
+        expect(init.body).toBe(JSON.stringify({ note: "Saved note" }));
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -700,18 +722,342 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
+  it("keeps detail long-text drafts while status and relation edits wait for Save", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({
+            description: "Draft detail text",
+            area: "area-2",
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            description: "Draft detail text",
+            area_id: "area-2",
+            project_id: "project-1",
+            routine_id: "routine-1",
+          }),
+        });
+      }
+
+      if (url === "/todo-engine/items/task-1/activate") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            area_id: "area-2",
+            description: "Draft detail text",
+            project_id: "project-1",
+            routine_id: "routine-1",
+          }),
+        });
+      }
+
+      if (url === "/todo-engine/items?type=area") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "area-1", type: "area", title: "Health", status: "active" },
+            { id: "area-2", type: "area", title: "Career", status: "active" },
+          ],
+        });
+      }
+
+      if (url === "/todo-engine/items?type=project") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "project-1", type: "project", title: "Plan", status: "active" },
+          ],
+        });
+      }
+
+      if (url === "/todo-engine/items?type=routine") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "routine-1", type: "routine", title: "Stretch", status: "active" },
+          ],
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            area_id: "area-1",
+            project_id: "project-1",
+            routine_id: "routine-1",
+            description: "Original description",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+
+    expect(screen.getByLabelText("Status for One")).toBeInTheDocument();
+    expect(screen.getByLabelText("Area for One")).toBeInTheDocument();
+    expect(screen.queryByText("Type")).toBeNull();
+    expectFieldBefore("Status for One", "Area for One");
+
+    await user.clear(screen.getByLabelText("Description"));
+    await user.type(screen.getByLabelText("Description"), "Draft detail text");
+    await user.selectOptions(screen.getByLabelText("Status for One"), "active");
+    await user.selectOptions(screen.getByLabelText("Area for One"), "area-2");
+
+    expect(screen.getByLabelText("Description")).toHaveValue("Draft detail text");
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/todo-engine/items/task-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/activate",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/task-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/task-1/activate",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(fetchMock.mock.calls.find(([url]) => url === "/todo-engine/items/task-1")).toBeTruthy();
+    expect(fetchMock.mock.calls.find(([url]) => url === "/todo-engine/items/task-1/activate")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.findIndex(([url]) => url === "/todo-engine/items/task-1"),
+    ).toBeLessThan(
+      fetchMock.mock.calls.findIndex(([url]) => url === "/todo-engine/items/task-1/activate"),
+    );
+  });
+
+  it("skips detail patch requests when save only changes status", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/activate") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            note: "Old note",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            note: "Old note",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+
+    await user.selectOptions(screen.getByLabelText("Status for One"), "active");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    const patchCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        url === "/todo-engine/items/task-1" &&
+        (init as RequestInit | undefined)?.method === "PATCH",
+    );
+
+    expect(patchCalls).toHaveLength(0);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/activate",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("shows the same task fields in the table and detail while editing long fields only in detail", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1") {
+        expect(init).toEqual(expect.objectContaining({ method: "PATCH" }));
+        expect(JSON.parse(String(init?.body))).toEqual({
+          description: "Updated description",
+          note: "Updated note",
+          priority: 2,
+        });
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Book physio",
+            status: "approved",
+            scheduled: "2026-07-03",
+            due: "2026-07-04",
+            priority: 2,
+            description: "Updated description",
+            note: "Updated note",
+            created_at: "2026-07-01T00:00:00Z",
+            updated_at: "2026-07-02T00:00:00Z",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "task-1",
+            type: "task",
+            title: "Book physio",
+            status: "approved",
+            scheduled: "2026-07-03",
+            due: "2026-07-04",
+            priority: 1,
+            description: "Original description",
+            note: "Original note",
+            created_at: "2026-07-01T00:00:00Z",
+            updated_at: "2026-07-02T00:00:00Z",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    expect(
+      await screen.findByRole("cell", { name: "Original description" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Original note" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Description for Book physio")).toBeNull();
+
+    await user.click(screen.getByRole("cell", { name: "Book physio" }));
+
+    expect(screen.getByLabelText("Title")).toHaveValue("Book physio");
+    expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-07-03");
+    expect(screen.getByLabelText("Due")).toHaveValue("2026-07-04");
+    expect(screen.getByLabelText("Priority")).toHaveValue(1);
+    expect(screen.getByLabelText("Description")).toHaveValue("Original description");
+    expect(screen.getByLabelText("Note")).toHaveValue("Original note");
+    expect(screen.getByText("2026-07-01")).toBeInTheDocument();
+    expect(screen.getByText("2026-07-02")).toBeInTheDocument();
+    expectFieldBefore("Scheduled", "Due");
+    expectFieldBefore("Due", "Priority");
+    expectFieldBefore("Priority", "Description");
+
+    await user.clear(screen.getByLabelText("Description"));
+    await user.type(screen.getByLabelText("Description"), "Updated description");
+    await user.clear(screen.getByLabelText("Note"));
+    await user.type(screen.getByLabelText("Note"), "Updated note");
+    await user.clear(screen.getByLabelText("Priority"));
+    await user.type(screen.getByLabelText("Priority"), "2");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByDisplayValue("Updated description")).toBeInTheDocument();
+  });
+
+  it("shows the same goal fields in the table and detail", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "June outcome",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-06-01",
+            due: "2026-06-30",
+            parent_id: "goal-root",
+            note: "Ship the monthly target",
+            created_at: "2026-06-01T00:00:00Z",
+            updated_at: "2026-06-02T00:00:00Z",
+          },
+          {
+            id: "goal-root",
+            type: "goal",
+            title: "Root objective",
+            status: "active",
+            horizon: "year",
+            scheduled: "2026-01-01",
+            due: "2026-12-31",
+            note: "",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    expect(await screen.findByRole("cell", { name: "month" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Scheduled for June outcome")).toHaveValue("2026-06-01");
+    expect(screen.getByLabelText("Due for June outcome")).toHaveValue("2026-06-30");
+    expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(2);
+    expect(screen.getByRole("cell", { name: "Ship the monthly target" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("cell", { name: "June outcome" }));
+
+    expect(screen.getByLabelText("Horizon")).toHaveValue("month");
+    expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-06-01");
+    expect(screen.getByLabelText("Due")).toHaveValue("2026-06-30");
+    expect(screen.getByLabelText("Parent")).toHaveValue("goal-root");
+    expect(screen.getByLabelText("Note")).toHaveValue("Ship the monthly target");
+    expect(screen.getByText("2026-06-01")).toBeInTheDocument();
+    expect(screen.getByText("2026-06-02")).toBeInTheDocument();
+  });
+
   it("saves project detail definition of done through the item PATCH endpoint", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/project-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({
-            title: "Plan",
-            note: "",
-            definition_of_done: "Ship review fixes",
-            due: "2026-06-30",
-          }),
-        );
+        expect(init.body).toBe(JSON.stringify({ definition_of_done: "Ship review fixes" }));
 
         return Promise.resolve({
           ok: true,
@@ -765,14 +1111,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({
-            title: "Stretch",
-            note: "",
-            recurrence_rule: "weekly",
-            materialization_policy: "single_open",
-          }),
-        );
+        expect(init.body).toBe(JSON.stringify({ recurrence_rule: "weekly" }));
 
         return Promise.resolve({
           ok: true,
@@ -818,6 +1157,109 @@ describe("WorkbenchPageClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/routine-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
+  it("shows routine last materialized in detail as readonly", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [
+          {
+            id: "routine-1",
+            type: "routine",
+            title: "Stretch",
+            status: "approved",
+            recurrence_rule: "daily",
+            materialization_policy: "single_open",
+            note: "After coffee",
+            last_materialized_at: "2026-06-21T07:00:00Z",
+            created_at: "2026-06-20T00:00:00Z",
+            updated_at: "2026-06-22T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await user.click(await screen.findByRole("cell", { name: "Stretch" }));
+
+    const properties = screen.getByText("Properties").closest(".detail-properties");
+    expect(within(properties as HTMLElement).getByText("Last Materialized")).toBeInTheDocument();
+    expect(within(properties as HTMLElement).getByText("2026-06-21")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Last Materialized")).toBeNull();
+  });
+
+  it("omits unchanged event participants from the detail PATCH body", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/event-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(JSON.stringify({ priority: 2, location: "Office" }));
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "event-1",
+            type: "event",
+            title: "Review",
+            status: "approved",
+            scheduled: "2026-06-24T10:00:00Z",
+            due: "2026-06-24",
+            priority: 2,
+            metadata_: {
+              location: "Office",
+              participants: ["Me", "Team"],
+              commitment_type: "busy",
+            },
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=event"
+            ? [
+                {
+                  id: "event-1",
+                  type: "event",
+                  title: "Review",
+                  status: "approved",
+                  scheduled: "2026-06-24T10:00:00Z",
+                  due: "2026-06-24",
+                  priority: 1,
+                  metadata_: {
+                    location: "Desk",
+                    participants: ["Me", "Team"],
+                    commitment_type: "busy",
+                  },
+                },
+              ]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Events" }));
+
+    await user.click(await screen.findByRole("cell", { name: "Review" }));
+    await user.clear(screen.getByLabelText("Location"));
+    await user.type(screen.getByLabelText("Location"), "Office");
+    await user.clear(screen.getByLabelText("Priority"));
+    await user.type(screen.getByLabelText("Priority"), "2");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/event-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -1030,7 +1472,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Events" }));
 
-    const scheduled = await screen.findByLabelText("Scheduled for Review");
+    const scheduled = await screen.findByLabelText("Starts At for Review");
     expect(scheduled).toHaveValue("2026-06-24T10:00");
 
     await user.clear(scheduled);

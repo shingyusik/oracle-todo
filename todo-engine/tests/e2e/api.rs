@@ -1,6 +1,8 @@
+use crate::support::TestHome;
 use axum::body::Body;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use todo_engine::infrastructure::sqlite::init_schema;
 use todo_engine::interfaces::api::router;
 use tower::ServiceExt;
 
@@ -552,6 +554,231 @@ async fn patch_item_and_archive_endpoint_use_persisted_state() {
     let items = body_json(response).await;
     assert_eq!(items.as_array().unwrap().len(), 1);
     assert_eq!(items[0]["title"], "수정 후");
+}
+
+#[tokio::test]
+async fn api_patch_updates_goal_horizon_with_valid_anchor() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"분기 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    let goal_id = goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{goal_id}"),
+        json!({
+            "horizon":"year",
+            "scheduled":"2026-01-01"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    assert_eq!(goal["horizon"], "year");
+    assert_eq!(goal["scheduled"], "2026-01-01");
+}
+
+#[tokio::test]
+async fn api_patch_rejects_invalid_goal_horizon_anchor() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"분기 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    let goal_id = goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{goal_id}"),
+        json!({"horizon":"year"}),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("canonical start of its year period")
+    );
+}
+
+#[tokio::test]
+async fn api_patch_rejects_invalid_goal_parent() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"연간 목표",
+            "horizon":"year",
+            "scheduled":"2026-01-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let year_goal = body_json(response).await;
+    let year_goal_id = year_goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"루트 월간 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let root_month_goal = body_json(response).await;
+    let root_month_goal_id = root_month_goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"중첩 월간 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "parent_id": year_goal_id,
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{root_month_goal_id}"),
+        json!({ "parent_id": year_goal_id }),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("Goal already exists")
+    );
+}
+
+#[tokio::test]
+async fn api_patch_updates_event_metadata() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/events/propose",
+        json!({
+            "title":"점검 미팅",
+            "scheduled":"2026-07-01T09:00:00Z",
+            "actor":"user",
+            "commitment_type":"meeting"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let event = body_json(response).await;
+    let event_id = event["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{event_id}"),
+        json!({
+            "location":"회의실",
+            "participants":["나", "팀"],
+            "commitment_type":"review"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let event = body_json(response).await;
+    assert_eq!(event["metadata_"]["location"], "회의실");
+    assert_eq!(event["metadata_"]["participants"][0], "나");
+    assert_eq!(event["metadata_"]["participants"][1], "팀");
+    assert_eq!(event["metadata_"]["commitment_type"], "review");
+}
+
+#[tokio::test]
+async fn api_patch_rejects_event_metadata_for_non_event_items() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({
+            "title":"일반 작업",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    let task_id = task["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{task_id}"),
+        json!({"location":"회의실"}),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("Event metadata fields can only be updated on event items")
+    );
 }
 
 #[tokio::test]

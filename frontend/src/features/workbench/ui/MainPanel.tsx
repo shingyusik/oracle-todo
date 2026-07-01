@@ -7,6 +7,7 @@ import type {
   WorkspaceItemModel,
   WorkspaceItemsModel,
   WorkspaceItemPatch,
+  WorkspaceItemTransitionAction,
 } from "@/features/workbench/model/workbench-model";
 
 type MainPanelProps = {
@@ -50,8 +51,22 @@ function DetailView({ controller }: MainPanelProps) {
     return null;
   }
 
+  const detailItem = item;
+
   function setField(field: keyof DetailDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveDraft() {
+    const patch = detailPatchForItem(detailItem, draft);
+    if (Object.keys(patch).length > 0) {
+      await controller.saveDetailItem(patch);
+    }
+
+    const transition = transitionActionForStatus(detailItem.status, draft.status);
+    if (transition) {
+      await controller.transitionWorkspaceItem(detailItem.id, transition);
+    }
   }
 
   return (
@@ -69,32 +84,28 @@ function DetailView({ controller }: MainPanelProps) {
             onChange={(event) => setField("title", event.target.value)}
           />
         </label>
-        <DetailTypeFields item={item} draft={draft} setField={setField} />
+        <DetailStatusField
+          item={item}
+          value={draft.status}
+          onChange={(value) => setField("status", value)}
+        />
+        <DetailTypeFields
+          item={item}
+          draft={draft}
+          setField={setField}
+          workspaceItems={controller.workspaceItems}
+        />
         <div className="property-row">
-          <span>Status</span>
-          <span>{item.status}</span>
-        </div>
-        <div className="property-row">
-          <span>Type</span>
-          <span>{item.type}</span>
+          <span>Created</span>
+          <span>{formatDate(item.created_at)}</span>
         </div>
         <div className="property-row">
           <span>Updated</span>
           <span>{formatDate(item.updated_at)}</span>
         </div>
       </div>
-      <label className="field-label detail-note">
-        Note
-        <textarea
-          value={draft.note}
-          onChange={(event) => setField("note", event.target.value)}
-        />
-      </label>
       <div className="detail-actions">
-        <button
-          type="button"
-          onClick={() => void controller.saveDetailItem(detailPatchForItem(item, draft))}
-        >
+        <button type="button" onClick={() => void saveDraft()}>
           Save
         </button>
       </div>
@@ -104,13 +115,23 @@ function DetailView({ controller }: MainPanelProps) {
 
 type DetailDraft = {
   title: string;
+  status: string;
+  area: string;
+  project_id: string;
+  routine_id: string;
+  parent_id: string;
+  description: string;
   note: string;
   outcome: string;
+  horizon: string;
   definition_of_done: string;
   review_cycle: string;
   standard: string;
   recurrence_rule: string;
   materialization_policy: string;
+  location: string;
+  participants: string;
+  commitment_type: string;
   due: string;
   scheduled: string;
   priority: string;
@@ -125,13 +146,23 @@ type StringWorkspaceItemPatchField = {
 function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
   return {
     title: item?.title ?? "",
+    status: item?.status ?? "",
+    area: item?.area_id ?? "",
+    project_id: item?.project_id ?? "",
+    routine_id: item?.routine_id ?? "",
+    parent_id: item?.parent_id ?? "",
+    description: itemDescription(item) ?? "",
     note: item?.note ?? "",
     outcome: item?.outcome ?? "",
+    horizon: item?.horizon ?? "month",
     definition_of_done: item?.definition_of_done ?? "",
     review_cycle: item?.review_cycle ?? "",
     standard: item?.standard ?? "",
     recurrence_rule: item?.recurrence_rule ?? "",
     materialization_policy: item?.materialization_policy ?? "single_open",
+    location: item?.metadata_?.location ?? "",
+    participants: item?.metadata_?.participants?.join(", ") ?? "",
+    commitment_type: item?.metadata_?.commitment_type ?? "",
     due: item?.due ?? "",
     scheduled:
       item?.type === "event"
@@ -145,10 +176,23 @@ function detailPatchForItem(
   item: WorkspaceItemModel,
   draft: DetailDraft,
 ): WorkspaceItemPatch {
-  const patch: WorkspaceItemPatch = {
-    title: draft.title,
-    note: draft.note,
-  };
+  const patch: WorkspaceItemPatch = {};
+
+  addStringPatch(patch, "title", draft.title, item.title);
+  addStringPatch(patch, "note", draft.note, item.note);
+  addStringPatch(patch, "description", draft.description, itemDescription(item));
+  if (draft.area !== (item.area_id ?? "")) {
+    patch.area = draft.area;
+  }
+  if (draft.project_id !== (item.project_id ?? "")) {
+    patch.project_id = draft.project_id;
+  }
+  if (draft.routine_id !== (item.routine_id ?? "")) {
+    patch.routine_id = draft.routine_id;
+  }
+  if (draft.parent_id !== (item.parent_id ?? "")) {
+    patch.parent_id = draft.parent_id;
+  }
 
   if (item.type === "project") {
     addStringPatch(patch, "outcome", draft.outcome, item.outcome);
@@ -177,9 +221,15 @@ function detailPatchForItem(
   if (item.type === "task") {
     addStringPatch(patch, "due", draft.due, item.due);
     addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
-    addPriorityPatch(patch, draft.priority);
+    addPriorityPatch(patch, draft.priority, item.priority);
   }
   if (item.type === "event") {
+    const participants = draft.participants
+      .split(",")
+      .map((participant) => participant.trim())
+      .filter(Boolean);
+    const currentParticipants = item.metadata_?.participants?.join(", ") ?? "";
+
     addStringPatch(
       patch,
       "scheduled",
@@ -187,13 +237,25 @@ function detailPatchForItem(
       item.scheduled,
     );
     addStringPatch(patch, "due", draft.due, item.due);
-    addPriorityPatch(patch, draft.priority);
+    addPriorityPatch(patch, draft.priority, item.priority);
+    addStringPatch(patch, "location", draft.location, item.metadata_?.location);
+    if (draft.participants !== currentParticipants) {
+      patch.participants = participants;
+    }
+    addStringPatch(
+      patch,
+      "commitment_type",
+      draft.commitment_type,
+      item.metadata_?.commitment_type,
+    );
   }
   if (item.type === "area") {
     addStringPatch(patch, "review_cycle", draft.review_cycle, item.review_cycle);
     addStringPatch(patch, "standard", draft.standard, item.standard);
   }
   if (item.type === "goal") {
+    addStringPatch(patch, "horizon", draft.horizon, item.horizon);
+    addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
     addStringPatch(patch, "due", draft.due, item.due);
   }
 
@@ -206,33 +268,46 @@ function addStringPatch(
   value: string,
   currentValue: string | null | undefined,
 ) {
-  if (currentValue != null || value !== "") {
+  if (value !== (currentValue ?? "")) {
     patch[field] = value;
   }
 }
 
-function addPriorityPatch(patch: WorkspaceItemPatch, priority: string) {
-  if (priority.trim() !== "") {
+function addPriorityPatch(
+  patch: WorkspaceItemPatch,
+  priority: string,
+  currentPriority?: number | null,
+) {
+  if (priority.trim() !== "" && Number(priority) !== currentPriority) {
     patch.priority = Number(priority);
   }
+}
+
+function itemDescription(item: WorkspaceItemModel | null | undefined): string | null | undefined {
+  return (item as WorkspaceItemModel & { description?: string | null } | null | undefined)
+    ?.description;
 }
 
 function DetailTypeFields({
   item,
   draft,
   setField,
+  workspaceItems,
 }: {
   item: WorkspaceItemModel;
   draft: DetailDraft;
   setField: (field: keyof DetailDraft, value: string) => void;
+  workspaceItems: WorkspaceItemsModel;
 }) {
   if (item.type === "project") {
     return (
       <>
-        <DetailTextField
-          label="Definition of Done"
-          value={draft.definition_of_done}
-          onChange={(value) => setField("definition_of_done", value)}
+        <DetailRelationField
+          label="Area"
+          controlLabel={`Area for ${item.title}`}
+          value={draft.area}
+          options={workspaceItems.relatedItems.areas}
+          onChange={(area) => setField("area", area)}
         />
         <DetailTextField
           label="Due"
@@ -245,12 +320,29 @@ function DetailTypeFields({
           value={draft.outcome}
           onChange={(value) => setField("outcome", value)}
         />
+        <DetailTextField
+          label="Definition of Done"
+          value={draft.definition_of_done}
+          onChange={(value) => setField("definition_of_done", value)}
+        />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
       </>
     );
   }
   if (item.type === "routine") {
     return (
       <>
+        <DetailRelationField
+          label="Area"
+          controlLabel={`Area for ${item.title}`}
+          value={draft.area}
+          options={workspaceItems.relatedItems.areas}
+          onChange={(area) => setField("area", area)}
+        />
         <DetailTextField
           label="Recurrence Rule"
           value={draft.recurrence_rule}
@@ -266,17 +358,41 @@ function DetailTypeFields({
             <option value="per_occurrence">per_occurrence</option>
           </select>
         </label>
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
+        <div className="property-row">
+          <span>Last Materialized</span>
+          <span>{formatDate(item.last_materialized_at)}</span>
+        </div>
       </>
     );
   }
   if (item.type === "task") {
     return (
       <>
-        <DetailTextField
-          label="Due"
-          type="date"
-          value={draft.due}
-          onChange={(value) => setField("due", value)}
+        <DetailRelationField
+          label="Area"
+          controlLabel={`Area for ${item.title}`}
+          value={draft.area}
+          options={workspaceItems.relatedItems.areas}
+          onChange={(area) => setField("area", area)}
+        />
+        <DetailRelationField
+          label="Project"
+          controlLabel={`Project for ${item.title}`}
+          value={draft.project_id}
+          options={workspaceItems.relatedItems.projects}
+          onChange={(project_id) => setField("project_id", project_id)}
+        />
+        <DetailRelationField
+          label="Routine"
+          controlLabel={`Routine for ${item.title}`}
+          value={draft.routine_id}
+          options={workspaceItems.relatedItems.routines}
+          onChange={(routine_id) => setField("routine_id", routine_id)}
         />
         <DetailTextField
           label="Scheduled"
@@ -285,10 +401,26 @@ function DetailTypeFields({
           onChange={(value) => setField("scheduled", value)}
         />
         <DetailTextField
+          label="Due"
+          type="date"
+          value={draft.due}
+          onChange={(value) => setField("due", value)}
+        />
+        <DetailTextField
           label="Priority"
           type="number"
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
+        />
+        <DetailTextAreaField
+          label="Description"
+          value={draft.description}
+          onChange={(value) => setField("description", value)}
+        />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
         />
       </>
     );
@@ -296,6 +428,20 @@ function DetailTypeFields({
   if (item.type === "event") {
     return (
       <>
+        <DetailRelationField
+          label="Area"
+          controlLabel={`Area for ${item.title}`}
+          value={draft.area}
+          options={workspaceItems.relatedItems.areas}
+          onChange={(area) => setField("area", area)}
+        />
+        <DetailRelationField
+          label="Project"
+          controlLabel={`Project for ${item.title}`}
+          value={draft.project_id}
+          options={workspaceItems.relatedItems.projects}
+          onChange={(project_id) => setField("project_id", project_id)}
+        />
         <DetailTextField
           label="Starts At"
           type="datetime-local"
@@ -314,6 +460,31 @@ function DetailTypeFields({
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
         />
+        <DetailTextAreaField
+          label="Description"
+          value={draft.description}
+          onChange={(value) => setField("description", value)}
+        />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
+        <DetailTextField
+          label="Location"
+          value={draft.location}
+          onChange={(value) => setField("location", value)}
+        />
+        <DetailTextField
+          label="Participants"
+          value={draft.participants}
+          onChange={(value) => setField("participants", value)}
+        />
+        <DetailTextField
+          label="Commitment Type"
+          value={draft.commitment_type}
+          onChange={(value) => setField("commitment_type", value)}
+        />
       </>
     );
   }
@@ -330,21 +501,64 @@ function DetailTypeFields({
           value={draft.standard}
           onChange={(value) => setField("standard", value)}
         />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
       </>
     );
   }
   if (item.type === "goal") {
     return (
-      <DetailTextField
-        label="Due"
-        type="date"
-        value={draft.due}
-        onChange={(value) => setField("due", value)}
-      />
+      <>
+        <label className="field-label">
+          Horizon
+          <select value={draft.horizon} onChange={(event) => setField("horizon", event.target.value)}>
+            <option value="week">week</option>
+            <option value="month">month</option>
+            <option value="year">year</option>
+          </select>
+        </label>
+        <DetailTextField
+          label="Scheduled"
+          type="date"
+          value={draft.scheduled}
+          onChange={(value) => setField("scheduled", value)}
+        />
+        <DetailTextField
+          label="Due"
+          type="date"
+          value={draft.due}
+          onChange={(value) => setField("due", value)}
+        />
+        <DetailRelationField
+          label="Parent"
+          controlLabel={`Parent for ${item.title}`}
+          value={draft.parent_id}
+          options={workspaceItems.relatedItems.goals}
+          onChange={(parent_id) => setField("parent_id", parent_id)}
+        />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
+      </>
     );
   }
 
   return null;
+}
+
+function DetailInlineField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return <label className="field-label">{label}{children}</label>;
 }
 
 function DetailTextField({
@@ -359,14 +573,63 @@ function DetailTextField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="field-label">
-      {label}
+    <DetailInlineField label={label}>
       <input
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
-    </label>
+    </DetailInlineField>
+  );
+}
+
+function DetailTextAreaField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <DetailInlineField label={label}>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} />
+    </DetailInlineField>
+  );
+}
+
+function DetailRelationField({
+  label,
+  controlLabel,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  controlLabel: string;
+  value: string;
+  options: Record<string, string>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <DetailInlineField label={label}>
+      <select
+        className="inline-cell-control"
+        aria-label={controlLabel}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="" disabled>
+          -
+        </option>
+        {Object.entries(options).map(([id, title]) => (
+          <option key={id} value={id}>
+            {title}
+          </option>
+        ))}
+      </select>
+    </DetailInlineField>
   );
 }
 
@@ -786,6 +1049,45 @@ function InlineRelationSelect({
   );
 }
 
+function InlineSelect({
+  label,
+  value,
+  options,
+  onCommit,
+}: {
+  label: string;
+  value: string | null | undefined;
+  options: string[];
+  onCommit: (value: string) => void;
+}) {
+  const selectedValue = value ?? "";
+
+  return (
+    <select
+      className="inline-cell-control"
+      aria-label={label}
+      value={selectedValue}
+      onClick={stopRowEvent}
+      onKeyDown={stopRowEvent}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+
+        if (nextValue === selectedValue) {
+          return;
+        }
+
+        onCommit(nextValue);
+      }}
+    >
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function StatusSelect({
   item,
   controller,
@@ -834,6 +1136,35 @@ function StatusSelect({
   );
 }
 
+function DetailStatusField({
+  item,
+  value,
+  onChange,
+}: {
+  item: WorkspaceItemModel;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const supportedStatuses = statusOptionsForItem(item);
+
+  return (
+    <DetailInlineField label="Status">
+      <select
+        className="inline-cell-control"
+        aria-label={`Status for ${item.title}`}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {supportedStatuses.map((status) => (
+          <option key={status} value={status}>
+            {status}
+          </option>
+        ))}
+      </select>
+    </DetailInlineField>
+  );
+}
+
 function statusOptionsForItem(item: WorkspaceItemModel): string[] {
   const options = [item.status];
   const canRun = item.type !== "area";
@@ -858,6 +1189,29 @@ function statusOptionsForItem(item: WorkspaceItemModel): string[] {
   return options;
 }
 
+function transitionActionForStatus(
+  currentStatus: string,
+  nextStatus: string,
+): WorkspaceItemTransitionAction | null {
+  if (nextStatus === currentStatus) {
+    return null;
+  }
+  if (nextStatus === "approved") {
+    return "approve";
+  }
+  if (nextStatus === "active") {
+    return currentStatus === "paused" ? "resume" : "activate";
+  }
+  if (nextStatus === "paused") {
+    return "pause";
+  }
+  if (nextStatus === "completed") {
+    return "complete";
+  }
+
+  return null;
+}
+
 function hasText(value: string | null | undefined): boolean {
   return Boolean(value?.trim());
 }
@@ -872,210 +1226,269 @@ const sharedColumns: ItemColumn[] = [
   },
 ];
 
+function areaColumn(): ItemColumn {
+  return {
+    label: "Area",
+    value: (item, items, controller) => (
+      <InlineRelationSelect
+        label={`Area for ${item.title}`}
+        value={item.area_id}
+        options={items.relatedItems.areas}
+        onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+      />
+    ),
+  };
+}
+
+function projectColumn(): ItemColumn {
+  return {
+    label: "Project",
+    value: (item, items, controller) => (
+      <InlineRelationSelect
+        label={`Project for ${item.title}`}
+        value={item.project_id}
+        options={items.relatedItems.projects}
+        onCommit={(project_id) =>
+          void controller.patchWorkspaceItem(item.id, { project_id })
+        }
+      />
+    ),
+  };
+}
+
+function routineColumn(): ItemColumn {
+  return {
+    label: "Routine",
+    value: (item, items, controller) => (
+      <InlineRelationSelect
+        label={`Routine for ${item.title}`}
+        value={item.routine_id}
+        options={items.relatedItems.routines}
+        onCommit={(routine_id) =>
+          void controller.patchWorkspaceItem(item.id, { routine_id })
+        }
+      />
+    ),
+  };
+}
+
+function dueColumn(): ItemColumn {
+  return {
+    label: "Due",
+    value: (item, _items, controller) => (
+      <InlineTextInput
+        label={`Due for ${item.title}`}
+        type="date"
+        value={item.due ?? ""}
+        onCommit={(due) => void controller.patchWorkspaceItem(item.id, { due })}
+      />
+    ),
+  };
+}
+
+function scheduledDateColumn(): ItemColumn {
+  return {
+    label: "Scheduled",
+    value: (item, _items, controller) => (
+      <InlineTextInput
+        label={`Scheduled for ${item.title}`}
+        type="date"
+        value={formatDateValue(item.scheduled)}
+        onCommit={(scheduled) =>
+          void controller.patchWorkspaceItem(item.id, { scheduled })
+        }
+      />
+    ),
+  };
+}
+
+function startsAtColumn(): ItemColumn {
+  return {
+    label: "Starts At",
+    value: (item, _items, controller) => (
+      <InlineTextInput
+        label={`Starts At for ${item.title}`}
+        type="datetime-local"
+        value={formatDateTimeLocalValue(item.scheduled)}
+        onCommit={(scheduled) =>
+          void controller.patchWorkspaceItem(item.id, {
+            scheduled: formatDateTimeCommitValue(scheduled),
+          })
+        }
+      />
+    ),
+  };
+}
+
+function priorityColumn(): ItemColumn {
+  return {
+    label: "Priority",
+    value: (item, _items, controller) => (
+      <InlineNumberInput
+        label={`Priority for ${item.title}`}
+        value={item.priority}
+        onCommit={(priority) =>
+          void controller.patchWorkspaceItem(item.id, { priority })
+        }
+      />
+    ),
+  };
+}
+
+function horizonColumn(): ItemColumn {
+  return {
+    label: "Horizon",
+    value: (item, _items, controller) => (
+      <InlineSelect
+        label={`Horizon for ${item.title}`}
+        value={item.horizon}
+        options={["week", "month", "year"]}
+        onCommit={(horizon) => void controller.patchWorkspaceItem(item.id, { horizon })}
+      />
+    ),
+  };
+}
+
+function parentGoalColumn(): ItemColumn {
+  return {
+    label: "Parent",
+    value: (item, items, controller) => (
+      <InlineRelationSelect
+        label={`Parent for ${item.title}`}
+        value={item.parent_id}
+        options={items.relatedItems.goals}
+        onCommit={(parent_id) =>
+          void controller.patchWorkspaceItem(item.id, { parent_id })
+        }
+      />
+    ),
+  };
+}
+
+function locationColumn(): ItemColumn {
+  return {
+    label: "Location",
+    value: (item, _items, controller) => (
+      <InlineTextInput
+        label={`Location for ${item.title}`}
+        value={item.metadata_?.location ?? ""}
+        onCommit={(location) =>
+          void controller.patchWorkspaceItem(item.id, { location })
+        }
+      />
+    ),
+  };
+}
+
+function commitmentTypeColumn(): ItemColumn {
+  return {
+    label: "Commitment Type",
+    value: (item, _items, controller) => (
+      <InlineTextInput
+        label={`Commitment Type for ${item.title}`}
+        value={item.metadata_?.commitment_type ?? ""}
+        onCommit={(commitment_type) =>
+          void controller.patchWorkspaceItem(item.id, { commitment_type })
+        }
+      />
+    ),
+  };
+}
+
 const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   areas: [
     ...sharedColumns,
-    { label: "Review Cycle", value: (item) => displayValue(item.review_cycle) },
+    {
+      label: "Review Cycle",
+      value: (item, _items, controller) => (
+        <InlineTextInput
+          label={`Review Cycle for ${item.title}`}
+          value={item.review_cycle ?? ""}
+          onCommit={(review_cycle) =>
+            void controller.patchWorkspaceItem(item.id, { review_cycle })
+          }
+        />
+      ),
+    },
     { label: "Standard", value: (item) => displayValue(item.standard) },
+    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
   projects: [
     ...sharedColumns,
-    {
-      label: "Area",
-      value: (item, items, controller) => (
-        <InlineRelationSelect
-          label={`Area for ${item.title}`}
-          value={item.area_id}
-          options={items.relatedItems.areas}
-          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
-        />
-      ),
-    },
-    {
-      label: "Due",
-      value: (item, _items, controller) => (
-        <InlineTextInput
-          label={`Due for ${item.title}`}
-          type="date"
-          value={item.due ?? ""}
-          onCommit={(due) => void controller.patchWorkspaceItem(item.id, { due })}
-        />
-      ),
-    },
-    {
-      label: "Definition of Done",
-      value: (item) => displayValue(item.definition_of_done),
-    },
+    areaColumn(),
+    dueColumn(),
+    { label: "Outcome", value: (item) => displayValue(item.outcome) },
+    { label: "Definition of Done", value: (item) => displayValue(item.definition_of_done) },
+    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
   tasks: [
     ...sharedColumns,
-    {
-      label: "Area",
-      value: (item, items, controller) => (
-        <InlineRelationSelect
-          label={`Area for ${item.title}`}
-          value={item.area_id}
-          options={items.relatedItems.areas}
-          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
-        />
-      ),
-    },
-    {
-      label: "Project",
-      value: (item, items, controller) => (
-        <InlineRelationSelect
-          label={`Project for ${item.title}`}
-          value={item.project_id}
-          options={items.relatedItems.projects}
-          onCommit={(project_id) =>
-            void controller.patchWorkspaceItem(item.id, { project_id })
-          }
-        />
-      ),
-    },
-    {
-      label: "Routine",
-      value: (item, items, controller) => (
-        <InlineRelationSelect
-          label={`Routine for ${item.title}`}
-          value={item.routine_id}
-          options={items.relatedItems.routines}
-          onCommit={(routine_id) =>
-            void controller.patchWorkspaceItem(item.id, { routine_id })
-          }
-        />
-      ),
-    },
-    {
-      label: "Due",
-      value: (item, _items, controller) => (
-        <InlineTextInput
-          label={`Due for ${item.title}`}
-          type="date"
-          value={item.due ?? ""}
-          onCommit={(due) => void controller.patchWorkspaceItem(item.id, { due })}
-        />
-      ),
-    },
-    {
-      label: "Scheduled",
-      value: (item, _items, controller) => (
-        <InlineTextInput
-          label={`Scheduled for ${item.title}`}
-          type="date"
-          value={formatDateValue(item.scheduled)}
-          onCommit={(scheduled) =>
-            void controller.patchWorkspaceItem(item.id, { scheduled })
-          }
-        />
-      ),
-    },
-    {
-      label: "Priority",
-      value: (item, _items, controller) => (
-        <InlineNumberInput
-          label={`Priority for ${item.title}`}
-          value={item.priority}
-          onCommit={(priority) =>
-            void controller.patchWorkspaceItem(item.id, { priority })
-          }
-        />
-      ),
-    },
+    areaColumn(),
+    projectColumn(),
+    routineColumn(),
+    scheduledDateColumn(),
+    dueColumn(),
+    priorityColumn(),
+    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
+    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
   routines: [
     ...sharedColumns,
-    {
-      label: "Area",
-      value: (item, items, controller) => (
-        <InlineRelationSelect
-          label={`Area for ${item.title}`}
-          value={item.area_id}
-          options={items.relatedItems.areas}
-          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
-        />
-      ),
-    },
-    {
-      label: "Recurrence Rule",
-      value: (item) => displayValue(item.recurrence_rule),
-    },
+    areaColumn(),
+    { label: "Recurrence Rule", value: (item) => displayValue(item.recurrence_rule) },
     {
       label: "Materialization Policy",
-      value: (item) => displayValue(item.materialization_policy),
-    },
-    {
-      label: "Last Materialized",
-      value: (item) => formatDate(item.last_materialized_at),
-    },
-  ],
-  events: [
-    ...sharedColumns,
-    {
-      label: "Area",
-      value: (item, items, controller) => (
-        <InlineRelationSelect
-          label={`Area for ${item.title}`}
-          value={item.area_id}
-          options={items.relatedItems.areas}
-          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
-        />
-      ),
-    },
-    {
-      label: "Starts At",
       value: (item, _items, controller) => (
-        <InlineTextInput
-          label={`Scheduled for ${item.title}`}
-          type="datetime-local"
-          value={formatDateTimeLocalValue(item.scheduled)}
-          onCommit={(scheduled) =>
-            void controller.patchWorkspaceItem(item.id, {
-              scheduled: formatDateTimeCommitValue(scheduled),
-            })
+        <InlineSelect
+          label={`Materialization Policy for ${item.title}`}
+          value={item.materialization_policy}
+          options={["single_open", "per_occurrence"]}
+          onCommit={(materialization_policy) =>
+            void controller.patchWorkspaceItem(item.id, { materialization_policy })
           }
         />
       ),
     },
-    { label: "Location", value: (item) => displayValue(item.metadata_?.location) },
+    { label: "Note", value: (item) => displayValue(item.note) },
     {
-      label: "With",
+      label: "Last Materialized",
+      value: (item) => formatDate(item.last_materialized_at),
+    },
+    { label: "Created", value: (item) => formatDate(item.created_at) },
+    { label: "Updated", value: (item) => formatDate(item.updated_at) },
+  ],
+  events: [
+    ...sharedColumns,
+    areaColumn(),
+    projectColumn(),
+    startsAtColumn(),
+    dueColumn(),
+    priorityColumn(),
+    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
+    { label: "Note", value: (item) => displayValue(item.note) },
+    locationColumn(),
+    {
+      label: "Participants",
       value: (item) => displayValue(item.metadata_?.participants?.join(", ")),
     },
+    commitmentTypeColumn(),
+    { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
   goals: [
     ...sharedColumns,
-    { label: "Horizon", value: (item) => displayValue(item.horizon) },
-    {
-      label: "Area",
-      value: (item, items, controller) => (
-        <InlineRelationSelect
-          label={`Area for ${item.title}`}
-          value={item.area_id}
-          options={items.relatedItems.areas}
-          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
-        />
-      ),
-    },
-    {
-      label: "Due",
-      value: (item, _items, controller) => (
-        <InlineTextInput
-          label={`Due for ${item.title}`}
-          type="date"
-          value={item.due ?? ""}
-          onCommit={(due) => void controller.patchWorkspaceItem(item.id, { due })}
-        />
-      ),
-    },
-    {
-      label: "Parent",
-      value: (item, items) => relatedTitle(items.relatedItems.goals, item.parent_id),
-    },
+    horizonColumn(),
+    scheduledDateColumn(),
+    dueColumn(),
+    parentGoalColumn(),
+    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
 };

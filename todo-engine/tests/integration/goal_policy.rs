@@ -59,9 +59,9 @@ fn goal_anchor_rejects_today_unparseable_and_non_canonical() {
     assert!(matches!(empty, TodoError::Validation(_)));
 }
 
-// SC3a: horizon inversion / equality and parent cycles are rejected with Policy.
+// SC3a: horizon inversion / equality and invalid parent updates are rejected with Policy.
 #[test]
-fn goal_nesting_rejects_horizon_inversion_and_cycle() {
+fn goal_nesting_rejects_horizon_inversion_and_parent_updates() {
     let mut service = TodoService::in_memory();
 
     // A week-goal parent cannot host a month-goal child (parent not strictly coarser).
@@ -92,16 +92,14 @@ fn goal_nesting_rejects_horizon_inversion_and_cycle() {
         .unwrap_err();
     assert!(matches!(equal, TodoError::Policy(_)));
 
-    // Manufacture a cycle: month-goal B parents to year-goal A, then point A->B.
+    // update_item uses the same nesting policy and rejects pointing A under B.
     let a = service
         .propose_goal(goal(Actor::User, "year", "2028-01-01", None))
         .unwrap();
     let b = service
         .propose_goal(goal(Actor::User, "month", "2028-06-01", Some(&a.id)))
         .unwrap();
-    // update_item validates parent is a non-terminal Goal but not the nesting
-    // chain, so it can introduce the cyclic A->B->A edge for this guard test.
-    service
+    let invalid_parent_update = service
         .update_item(
             &a.id,
             UpdateItem {
@@ -109,12 +107,8 @@ fn goal_nesting_rejects_horizon_inversion_and_cycle() {
                 ..Default::default()
             },
         )
-        .unwrap();
-    // 2024-01-01 is a Monday (canonical week start).
-    let cycle = service
-        .propose_goal(goal(Actor::User, "week", "2024-01-01", Some(&b.id)))
         .unwrap_err();
-    assert!(matches!(cycle, TodoError::Policy(_)));
+    assert!(matches!(invalid_parent_update, TodoError::Policy(_)));
 }
 
 // SC3b: a duplicate (horizon, canonical scheduled, parent_id) triple is rejected.
