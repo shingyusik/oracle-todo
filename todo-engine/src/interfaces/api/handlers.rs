@@ -262,7 +262,11 @@ pub(super) async fn update_item(
                 routine_id: body.routine_id,
                 due: body.due,
                 scheduled: body.scheduled,
+                horizon: body.horizon,
                 priority: body.priority,
+                location: body.location,
+                participants: body.participants,
+                commitment_type: body.commitment_type,
                 reason: body.reason,
             },
         )

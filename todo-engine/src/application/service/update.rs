@@ -19,7 +19,11 @@ pub struct UpdateItem {
     pub routine_id: Option<String>,
     pub due: Option<String>,
     pub scheduled: Option<String>,
+    pub horizon: Option<String>,
     pub priority: Option<i64>,
+    pub location: Option<String>,
+    pub participants: Option<Vec<String>>,
+    pub commitment_type: Option<String>,
     pub reason: Option<String>,
 }
 
@@ -94,8 +98,34 @@ impl TodoService {
         if let Some(scheduled) = request.scheduled {
             item.scheduled = Some(scheduled);
         }
+        if let Some(horizon) = request.horizon {
+            item.horizon = Some(horizon);
+        }
         if let Some(priority) = request.priority {
             item.priority = Some(priority);
+        }
+        if let Some(location) = request.location {
+            item.metadata.insert(
+                "location".to_string(),
+                serde_json::Value::String(location),
+            );
+        }
+        if let Some(participants) = request.participants {
+            item.metadata.insert(
+                "participants".to_string(),
+                serde_json::Value::Array(
+                    participants
+                        .into_iter()
+                        .map(serde_json::Value::String)
+                        .collect(),
+                ),
+            );
+        }
+        if let Some(commitment_type) = request.commitment_type {
+            item.metadata.insert(
+                "commitment_type".to_string(),
+                serde_json::Value::String(commitment_type),
+            );
         }
 
         let now = self.next_now();

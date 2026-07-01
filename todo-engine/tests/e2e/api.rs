@@ -1,6 +1,8 @@
 use axum::body::Body;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use crate::support::TestHome;
+use todo_engine::infrastructure::sqlite::init_schema;
 use todo_engine::interfaces::api::router;
 use tower::ServiceExt;
 
@@ -552,6 +554,74 @@ async fn patch_item_and_archive_endpoint_use_persisted_state() {
     let items = body_json(response).await;
     assert_eq!(items.as_array().unwrap().len(), 1);
     assert_eq!(items[0]["title"], "수정 후");
+}
+
+#[tokio::test]
+async fn api_patch_updates_goal_horizon_and_event_metadata() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"분기 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    let goal_id = goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{goal_id}"),
+        json!({"horizon":"year"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let goal = body_json(response).await;
+    assert_eq!(goal["horizon"], "year");
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/events/propose",
+        json!({
+            "title":"점검 미팅",
+            "scheduled":"2026-07-01T09:00:00Z",
+            "actor":"user",
+            "commitment_type":"meeting"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let event = body_json(response).await;
+    let event_id = event["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{event_id}"),
+        json!({
+            "location":"회의실",
+            "participants":["나", "팀"],
+            "commitment_type":"review"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let event = body_json(response).await;
+    assert_eq!(event["metadata_"]["location"], "회의실");
+    assert_eq!(event["metadata_"]["participants"][0], "나");
+    assert_eq!(event["metadata_"]["participants"][1], "팀");
+    assert_eq!(event["metadata_"]["commitment_type"], "review");
 }
 
 #[tokio::test]

@@ -89,7 +89,11 @@ pub(super) struct UpdateBody {
     pub routine_id: Option<String>,
     pub due: Option<String>,
     pub scheduled: Option<String>,
+    pub horizon: Option<String>,
     pub priority: Option<i64>,
+    pub location: Option<String>,
+    pub participants: Option<Vec<String>>,
+    pub commitment_type: Option<String>,
     pub reason: Option<String>,
 }
 
