@@ -722,9 +722,33 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
-  it("uses editable detail status and relation controls while hiding type", async () => {
+  it("keeps detail long-text drafts while status and relation edits wait for Save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({
+            title: "One",
+            note: "",
+            description: "Draft detail text",
+            area: "area-2",
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            description: "Draft detail text",
+            area_id: "area-2",
+            project_id: "project-1",
+            routine_id: "routine-1",
+          }),
+        });
+      }
+
       if (url === "/todo-engine/items/task-1/activate") {
         return Promise.resolve({
           ok: true,
@@ -733,23 +757,8 @@ describe("WorkbenchPageClient", () => {
             type: "task",
             title: "One",
             status: "active",
-            area_id: "area-1",
-            project_id: "project-1",
-            routine_id: "routine-1",
-          }),
-        });
-      }
-
-      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ area: "area-2" }));
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "task-1",
-            type: "task",
-            title: "One",
-            status: "active",
             area_id: "area-2",
+            description: "Draft detail text",
             project_id: "project-1",
             routine_id: "routine-1",
           }),
@@ -795,6 +804,7 @@ describe("WorkbenchPageClient", () => {
             area_id: "area-1",
             project_id: "project-1",
             routine_id: "routine-1",
+            description: "Original description",
           },
         ],
       });
@@ -810,17 +820,32 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Status for One")).toBeInTheDocument();
     expect(screen.getByLabelText("Area for One")).toBeInTheDocument();
     expect(screen.queryByText("Type")).toBeNull();
+    expectFieldBefore("Status for One", "Area for One");
 
+    await user.clear(screen.getByLabelText("Description"));
+    await user.type(screen.getByLabelText("Description"), "Draft detail text");
     await user.selectOptions(screen.getByLabelText("Status for One"), "active");
-    expect(fetchMock).toHaveBeenCalledWith(
+    await user.selectOptions(screen.getByLabelText("Area for One"), "area-2");
+
+    expect(screen.getByLabelText("Description")).toHaveValue("Draft detail text");
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/todo-engine/items/task-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
       "/todo-engine/items/task-1/activate",
       expect.objectContaining({ method: "POST" }),
     );
 
-    await user.selectOptions(screen.getByLabelText("Area for One"), "area-2");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/task-1",
       expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/activate",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 
