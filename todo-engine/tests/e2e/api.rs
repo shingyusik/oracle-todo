@@ -634,6 +634,76 @@ async fn api_patch_rejects_invalid_goal_horizon_anchor() {
 }
 
 #[tokio::test]
+async fn api_patch_rejects_invalid_goal_parent() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"연간 목표",
+            "horizon":"year",
+            "scheduled":"2026-01-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let year_goal = body_json(response).await;
+    let year_goal_id = year_goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"루트 월간 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let root_month_goal = body_json(response).await;
+    let root_month_goal_id = root_month_goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"중첩 월간 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "parent_id": year_goal_id,
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{root_month_goal_id}"),
+        json!({ "parent_id": year_goal_id }),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("Goal already exists")
+    );
+}
+
+#[tokio::test]
 async fn api_patch_updates_event_metadata() {
     let home = TestHome::new();
     let db_path = home.db_path();

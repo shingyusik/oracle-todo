@@ -722,6 +722,108 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
+  it("uses editable detail status and relation controls while hiding type", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/activate") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            area_id: "area-1",
+            project_id: "project-1",
+            routine_id: "routine-1",
+          }),
+        });
+      }
+
+      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(JSON.stringify({ area: "area-2" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            area_id: "area-2",
+            project_id: "project-1",
+            routine_id: "routine-1",
+          }),
+        });
+      }
+
+      if (url === "/todo-engine/items?type=area") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "area-1", type: "area", title: "Health", status: "active" },
+            { id: "area-2", type: "area", title: "Career", status: "active" },
+          ],
+        });
+      }
+
+      if (url === "/todo-engine/items?type=project") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "project-1", type: "project", title: "Plan", status: "active" },
+          ],
+        });
+      }
+
+      if (url === "/todo-engine/items?type=routine") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "routine-1", type: "routine", title: "Stretch", status: "active" },
+          ],
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "approved",
+            area_id: "area-1",
+            project_id: "project-1",
+            routine_id: "routine-1",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+
+    expect(screen.getByLabelText("Status for One")).toBeInTheDocument();
+    expect(screen.getByLabelText("Area for One")).toBeInTheDocument();
+    expect(screen.queryByText("Type")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("Status for One"), "active");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/activate",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    await user.selectOptions(screen.getByLabelText("Area for One"), "area-2");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
   it("shows the same task fields in the table and detail while editing long fields only in detail", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

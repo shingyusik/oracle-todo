@@ -74,15 +74,11 @@ function DetailView({ controller }: MainPanelProps) {
           draft={draft}
           setField={setField}
           workspaceItems={controller.workspaceItems}
+          controller={controller}
         />
-        <div className="property-row">
-          <span>Status</span>
-          <span>{item.status}</span>
-        </div>
-        <div className="property-row">
-          <span>Type</span>
-          <span>{item.type}</span>
-        </div>
+        <DetailInlineField label="Status">
+          <StatusSelect item={item} controller={controller} />
+        </DetailInlineField>
         <div className="property-row">
           <span>Created</span>
           <span>{formatDate(item.created_at)}</span>
@@ -110,7 +106,6 @@ type DetailDraft = {
   note: string;
   outcome: string;
   horizon: string;
-  parent_id: string;
   definition_of_done: string;
   review_cycle: string;
   standard: string;
@@ -137,7 +132,6 @@ function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
     note: item?.note ?? "",
     outcome: item?.outcome ?? "",
     horizon: item?.horizon ?? "month",
-    parent_id: item?.parent_id ?? "",
     definition_of_done: item?.definition_of_done ?? "",
     review_cycle: item?.review_cycle ?? "",
     standard: item?.standard ?? "",
@@ -229,7 +223,6 @@ function detailPatchForItem(
     addStringPatch(patch, "horizon", draft.horizon, item.horizon);
     addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
     addStringPatch(patch, "due", draft.due, item.due);
-    addStringPatch(patch, "parent_id", draft.parent_id, item.parent_id);
   }
 
   return patch;
@@ -262,19 +255,24 @@ function DetailTypeFields({
   draft,
   setField,
   workspaceItems,
+  controller,
 }: {
   item: WorkspaceItemModel;
   draft: DetailDraft;
   setField: (field: keyof DetailDraft, value: string) => void;
   workspaceItems: WorkspaceItemsModel;
+  controller: WorkbenchController;
 }) {
   if (item.type === "project") {
     return (
       <>
-        <div className="property-row">
-          <span>Area</span>
-          <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
-        </div>
+        <DetailRelationField
+          label="Area"
+          controlLabel={`Area for ${item.title}`}
+          value={item.area_id}
+          options={workspaceItems.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
         <DetailTextField
           label="Due"
           type="date"
@@ -302,10 +300,13 @@ function DetailTypeFields({
   if (item.type === "routine") {
     return (
       <>
-        <div className="property-row">
-          <span>Area</span>
-          <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
-        </div>
+        <DetailRelationField
+          label="Area"
+          controlLabel={`Area for ${item.title}`}
+          value={item.area_id}
+          options={workspaceItems.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
         <DetailTextField
           label="Recurrence Rule"
           value={draft.recurrence_rule}
@@ -336,18 +337,31 @@ function DetailTypeFields({
   if (item.type === "task") {
     return (
       <>
-        <div className="property-row">
-          <span>Area</span>
-          <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
-        </div>
-        <div className="property-row">
-          <span>Project</span>
-          <span>{relatedTitle(workspaceItems.relatedItems.projects, item.project_id)}</span>
-        </div>
-        <div className="property-row">
-          <span>Routine</span>
-          <span>{relatedTitle(workspaceItems.relatedItems.routines, item.routine_id)}</span>
-        </div>
+        <DetailRelationField
+          label="Area"
+          controlLabel={`Area for ${item.title}`}
+          value={item.area_id}
+          options={workspaceItems.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
+        <DetailRelationField
+          label="Project"
+          controlLabel={`Project for ${item.title}`}
+          value={item.project_id}
+          options={workspaceItems.relatedItems.projects}
+          onCommit={(project_id) =>
+            void controller.patchWorkspaceItem(item.id, { project_id })
+          }
+        />
+        <DetailRelationField
+          label="Routine"
+          controlLabel={`Routine for ${item.title}`}
+          value={item.routine_id}
+          options={workspaceItems.relatedItems.routines}
+          onCommit={(routine_id) =>
+            void controller.patchWorkspaceItem(item.id, { routine_id })
+          }
+        />
         <DetailTextField
           label="Scheduled"
           type="date"
@@ -382,14 +396,22 @@ function DetailTypeFields({
   if (item.type === "event") {
     return (
       <>
-        <div className="property-row">
-          <span>Area</span>
-          <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
-        </div>
-        <div className="property-row">
-          <span>Project</span>
-          <span>{relatedTitle(workspaceItems.relatedItems.projects, item.project_id)}</span>
-        </div>
+        <DetailRelationField
+          label="Area"
+          controlLabel={`Area for ${item.title}`}
+          value={item.area_id}
+          options={workspaceItems.relatedItems.areas}
+          onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
+        />
+        <DetailRelationField
+          label="Project"
+          controlLabel={`Project for ${item.title}`}
+          value={item.project_id}
+          options={workspaceItems.relatedItems.projects}
+          onCommit={(project_id) =>
+            void controller.patchWorkspaceItem(item.id, { project_id })
+          }
+        />
         <DetailTextField
           label="Starts At"
           type="datetime-local"
@@ -480,17 +502,15 @@ function DetailTypeFields({
           value={draft.due}
           onChange={(value) => setField("due", value)}
         />
-        <label className="field-label">
-          Parent
-          <select value={draft.parent_id} onChange={(event) => setField("parent_id", event.target.value)}>
-            <option value="">-</option>
-            {Object.entries(workspaceItems.relatedItems.goals).map(([id, title]) => (
-              <option key={id} value={id}>
-                {title}
-              </option>
-            ))}
-          </select>
-        </label>
+        <DetailRelationField
+          label="Parent"
+          controlLabel={`Parent for ${item.title}`}
+          value={item.parent_id}
+          options={workspaceItems.relatedItems.goals}
+          onCommit={(parent_id) =>
+            void controller.patchWorkspaceItem(item.id, { parent_id })
+          }
+        />
         <DetailTextAreaField
           label="Note"
           value={draft.note}
@@ -501,6 +521,16 @@ function DetailTypeFields({
   }
 
   return null;
+}
+
+function DetailInlineField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return <label className="field-label">{label}{children}</label>;
 }
 
 function DetailTextField({
@@ -515,14 +545,13 @@ function DetailTextField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="field-label">
-      {label}
+    <DetailInlineField label={label}>
       <input
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
-    </label>
+    </DetailInlineField>
   );
 }
 
@@ -536,10 +565,34 @@ function DetailTextAreaField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="field-label">
-      {label}
+    <DetailInlineField label={label}>
       <textarea value={value} onChange={(event) => onChange(event.target.value)} />
-    </label>
+    </DetailInlineField>
+  );
+}
+
+function DetailRelationField({
+  label,
+  controlLabel,
+  value,
+  options,
+  onCommit,
+}: {
+  label: string;
+  controlLabel: string;
+  value: string | null | undefined;
+  options: Record<string, string>;
+  onCommit: (value: string) => void;
+}) {
+  return (
+    <DetailInlineField label={label}>
+      <InlineRelationSelect
+        label={controlLabel}
+        value={value}
+        options={options}
+        onCommit={onCommit}
+      />
+    </DetailInlineField>
   );
 }
 

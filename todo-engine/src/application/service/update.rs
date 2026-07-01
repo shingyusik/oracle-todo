@@ -79,7 +79,10 @@ impl TodoService {
             ));
         }
 
-        if item.item_type == ItemType::Goal && (horizon.is_some() || scheduled.is_some()) {
+        let mut next_goal_parent_id = None;
+        if item.item_type == ItemType::Goal
+            && (parent_id.is_some() || horizon.is_some() || scheduled.is_some())
+        {
             let next_horizon = horizon
                 .as_deref()
                 .or(item.horizon.as_deref())
@@ -90,8 +93,13 @@ impl TodoService {
                 .as_deref()
                 .or(item.scheduled.as_deref())
                 .ok_or_else(|| TodoError::Policy("Goal missing scheduled anchor".to_string()))?;
+            let resolved_parent_id = if parent_id.is_some() {
+                self.ensure_relation(parent_id.clone(), ItemType::Goal, "Goal parent")?
+            } else {
+                item.parent_id.clone()
+            };
             let canonical_scheduled = self.validate_goal_anchor(next_horizon, next_scheduled)?;
-            self.validate_goal_nesting(item.parent_id.as_deref(), next_horizon)?;
+            self.validate_goal_nesting(resolved_parent_id.as_deref(), next_horizon)?;
 
             let duplicate = self
                 .list_items(ListFilter {
@@ -103,17 +111,18 @@ impl TodoService {
                     existing.id != item.id
                         && existing.horizon.as_deref() == Some(next_horizon.as_str())
                         && existing.scheduled.as_deref() == Some(canonical_scheduled.as_str())
-                        && existing.parent_id == item.parent_id
+                        && existing.parent_id == resolved_parent_id
                 });
             if duplicate {
                 return Err(TodoError::Policy(format!(
                     "Goal already exists for ({}, {}, {})",
                     next_horizon.as_str(),
                     canonical_scheduled,
-                    item.parent_id.as_deref().unwrap_or("<root>")
+                    resolved_parent_id.as_deref().unwrap_or("<root>")
                 )));
             }
 
+            next_goal_parent_id = Some(resolved_parent_id);
             item.horizon = Some(next_horizon.as_str().to_string());
             item.scheduled = Some(canonical_scheduled);
         }
@@ -160,7 +169,11 @@ impl TodoService {
             item.project_id =
                 self.ensure_relation(Some(project_id), ItemType::Project, "Project")?;
         }
-        if let Some(parent_id) = parent_id {
+        if item.item_type == ItemType::Goal {
+            if let Some(parent_id) = next_goal_parent_id {
+                item.parent_id = parent_id;
+            }
+        } else if let Some(parent_id) = parent_id {
             item.parent_id =
                 self.ensure_relation(Some(parent_id), ItemType::Goal, "Goal parent")?;
         }
