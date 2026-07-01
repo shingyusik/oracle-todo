@@ -69,7 +69,12 @@ function DetailView({ controller }: MainPanelProps) {
             onChange={(event) => setField("title", event.target.value)}
           />
         </label>
-        <DetailTypeFields item={item} draft={draft} setField={setField} />
+        <DetailTypeFields
+          item={item}
+          draft={draft}
+          setField={setField}
+          workspaceItems={controller.workspaceItems}
+        />
         <div className="property-row">
           <span>Status</span>
           <span>{item.status}</span>
@@ -79,17 +84,14 @@ function DetailView({ controller }: MainPanelProps) {
           <span>{item.type}</span>
         </div>
         <div className="property-row">
+          <span>Created</span>
+          <span>{formatDate(item.created_at)}</span>
+        </div>
+        <div className="property-row">
           <span>Updated</span>
           <span>{formatDate(item.updated_at)}</span>
         </div>
       </div>
-      <label className="field-label detail-note">
-        Note
-        <textarea
-          value={draft.note}
-          onChange={(event) => setField("note", event.target.value)}
-        />
-      </label>
       <div className="detail-actions">
         <button
           type="button"
@@ -104,13 +106,19 @@ function DetailView({ controller }: MainPanelProps) {
 
 type DetailDraft = {
   title: string;
+  description: string;
   note: string;
   outcome: string;
+  horizon: string;
+  parent_id: string;
   definition_of_done: string;
   review_cycle: string;
   standard: string;
   recurrence_rule: string;
   materialization_policy: string;
+  location: string;
+  participants: string;
+  commitment_type: string;
   due: string;
   scheduled: string;
   priority: string;
@@ -125,13 +133,19 @@ type StringWorkspaceItemPatchField = {
 function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
   return {
     title: item?.title ?? "",
+    description: itemDescription(item) ?? "",
     note: item?.note ?? "",
     outcome: item?.outcome ?? "",
+    horizon: item?.horizon ?? "month",
+    parent_id: item?.parent_id ?? "",
     definition_of_done: item?.definition_of_done ?? "",
     review_cycle: item?.review_cycle ?? "",
     standard: item?.standard ?? "",
     recurrence_rule: item?.recurrence_rule ?? "",
     materialization_policy: item?.materialization_policy ?? "single_open",
+    location: item?.metadata_?.location ?? "",
+    participants: item?.metadata_?.participants?.join(", ") ?? "",
+    commitment_type: item?.metadata_?.commitment_type ?? "",
     due: item?.due ?? "",
     scheduled:
       item?.type === "event"
@@ -149,6 +163,8 @@ function detailPatchForItem(
     title: draft.title,
     note: draft.note,
   };
+
+  addStringPatch(patch, "description", draft.description, itemDescription(item));
 
   if (item.type === "project") {
     addStringPatch(patch, "outcome", draft.outcome, item.outcome);
@@ -188,13 +204,27 @@ function detailPatchForItem(
     );
     addStringPatch(patch, "due", draft.due, item.due);
     addPriorityPatch(patch, draft.priority);
+    addStringPatch(patch, "location", draft.location, item.metadata_?.location);
+    patch.participants = draft.participants
+      .split(",")
+      .map((participant) => participant.trim())
+      .filter(Boolean);
+    addStringPatch(
+      patch,
+      "commitment_type",
+      draft.commitment_type,
+      item.metadata_?.commitment_type,
+    );
   }
   if (item.type === "area") {
     addStringPatch(patch, "review_cycle", draft.review_cycle, item.review_cycle);
     addStringPatch(patch, "standard", draft.standard, item.standard);
   }
   if (item.type === "goal") {
+    addStringPatch(patch, "horizon", draft.horizon, item.horizon);
+    addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
     addStringPatch(patch, "due", draft.due, item.due);
+    addStringPatch(patch, "parent_id", draft.parent_id, item.parent_id);
   }
 
   return patch;
@@ -217,18 +247,29 @@ function addPriorityPatch(patch: WorkspaceItemPatch, priority: string) {
   }
 }
 
+function itemDescription(item: WorkspaceItemModel | null | undefined): string | null | undefined {
+  return (item as WorkspaceItemModel & { description?: string | null } | null | undefined)
+    ?.description;
+}
+
 function DetailTypeFields({
   item,
   draft,
   setField,
+  workspaceItems,
 }: {
   item: WorkspaceItemModel;
   draft: DetailDraft;
   setField: (field: keyof DetailDraft, value: string) => void;
+  workspaceItems: WorkspaceItemsModel;
 }) {
   if (item.type === "project") {
     return (
       <>
+        <div className="property-row">
+          <span>Area</span>
+          <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
+        </div>
         <DetailTextField
           label="Definition of Done"
           value={draft.definition_of_done}
@@ -245,12 +286,21 @@ function DetailTypeFields({
           value={draft.outcome}
           onChange={(value) => setField("outcome", value)}
         />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
       </>
     );
   }
   if (item.type === "routine") {
     return (
       <>
+        <div className="property-row">
+          <span>Area</span>
+          <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
+        </div>
         <DetailTextField
           label="Recurrence Rule"
           value={draft.recurrence_rule}
@@ -266,12 +316,34 @@ function DetailTypeFields({
             <option value="per_occurrence">per_occurrence</option>
           </select>
         </label>
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
       </>
     );
   }
   if (item.type === "task") {
     return (
       <>
+        <div className="property-row">
+          <span>Area</span>
+          <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
+        </div>
+        <div className="property-row">
+          <span>Project</span>
+          <span>{relatedTitle(workspaceItems.relatedItems.projects, item.project_id)}</span>
+        </div>
+        <div className="property-row">
+          <span>Routine</span>
+          <span>{relatedTitle(workspaceItems.relatedItems.routines, item.routine_id)}</span>
+        </div>
+        <DetailTextAreaField
+          label="Description"
+          value={draft.description}
+          onChange={(value) => setField("description", value)}
+        />
         <DetailTextField
           label="Due"
           type="date"
@@ -290,12 +362,30 @@ function DetailTypeFields({
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
         />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
       </>
     );
   }
   if (item.type === "event") {
     return (
       <>
+        <div className="property-row">
+          <span>Area</span>
+          <span>{relatedTitle(workspaceItems.relatedItems.areas, item.area_id)}</span>
+        </div>
+        <div className="property-row">
+          <span>Project</span>
+          <span>{relatedTitle(workspaceItems.relatedItems.projects, item.project_id)}</span>
+        </div>
+        <DetailTextAreaField
+          label="Description"
+          value={draft.description}
+          onChange={(value) => setField("description", value)}
+        />
         <DetailTextField
           label="Starts At"
           type="datetime-local"
@@ -314,6 +404,26 @@ function DetailTypeFields({
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
         />
+        <DetailTextField
+          label="Location"
+          value={draft.location}
+          onChange={(value) => setField("location", value)}
+        />
+        <DetailTextField
+          label="Participants"
+          value={draft.participants}
+          onChange={(value) => setField("participants", value)}
+        />
+        <DetailTextField
+          label="Commitment Type"
+          value={draft.commitment_type}
+          onChange={(value) => setField("commitment_type", value)}
+        />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
       </>
     );
   }
@@ -330,17 +440,54 @@ function DetailTypeFields({
           value={draft.standard}
           onChange={(value) => setField("standard", value)}
         />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
       </>
     );
   }
   if (item.type === "goal") {
     return (
-      <DetailTextField
-        label="Due"
-        type="date"
-        value={draft.due}
-        onChange={(value) => setField("due", value)}
-      />
+      <>
+        <label className="field-label">
+          Horizon
+          <select value={draft.horizon} onChange={(event) => setField("horizon", event.target.value)}>
+            <option value="week">week</option>
+            <option value="month">month</option>
+            <option value="year">year</option>
+          </select>
+        </label>
+        <DetailTextField
+          label="Scheduled"
+          type="date"
+          value={draft.scheduled}
+          onChange={(value) => setField("scheduled", value)}
+        />
+        <DetailTextField
+          label="Due"
+          type="date"
+          value={draft.due}
+          onChange={(value) => setField("due", value)}
+        />
+        <label className="field-label">
+          Parent
+          <select value={draft.parent_id} onChange={(event) => setField("parent_id", event.target.value)}>
+            <option value="">-</option>
+            {Object.entries(workspaceItems.relatedItems.goals).map(([id, title]) => (
+              <option key={id} value={id}>
+                {title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
+        />
+      </>
     );
   }
 
@@ -366,6 +513,23 @@ function DetailTextField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+    </label>
+  );
+}
+
+function DetailTextAreaField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="field-label">
+      {label}
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -1118,7 +1282,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     scheduledDateColumn(),
     dueColumn(),
     priorityColumn(),
-    { label: "Description", value: (item) => displayValue(item.description) },
+    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
     { label: "Note", value: (item) => displayValue(item.note) },
     { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
@@ -1155,7 +1319,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     startsAtColumn(),
     dueColumn(),
     priorityColumn(),
-    { label: "Description", value: (item) => displayValue(item.description) },
+    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
     { label: "Note", value: (item) => displayValue(item.note) },
     locationColumn(),
     {

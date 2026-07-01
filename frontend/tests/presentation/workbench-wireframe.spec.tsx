@@ -708,6 +708,152 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
+  it("shows the same task fields in the table and detail while editing long fields only in detail", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1") {
+        expect(init).toEqual(expect.objectContaining({ method: "PATCH" }));
+        expect(JSON.parse(String(init?.body))).toEqual(
+          expect.objectContaining({
+            title: "Book physio",
+            description: "Updated description",
+            note: "Updated note",
+            scheduled: "2026-07-03",
+            due: "2026-07-04",
+            priority: 2,
+          }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Book physio",
+            status: "approved",
+            scheduled: "2026-07-03",
+            due: "2026-07-04",
+            priority: 2,
+            description: "Updated description",
+            note: "Updated note",
+            created_at: "2026-07-01T00:00:00Z",
+            updated_at: "2026-07-02T00:00:00Z",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "task-1",
+            type: "task",
+            title: "Book physio",
+            status: "approved",
+            scheduled: "2026-07-03",
+            due: "2026-07-04",
+            priority: 1,
+            description: "Original description",
+            note: "Original note",
+            created_at: "2026-07-01T00:00:00Z",
+            updated_at: "2026-07-02T00:00:00Z",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    expect(
+      await screen.findByRole("cell", { name: "Original description" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Original note" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Description for Book physio")).toBeNull();
+
+    await user.click(screen.getByRole("cell", { name: "Book physio" }));
+
+    expect(screen.getByLabelText("Title")).toHaveValue("Book physio");
+    expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-07-03");
+    expect(screen.getByLabelText("Due")).toHaveValue("2026-07-04");
+    expect(screen.getByLabelText("Priority")).toHaveValue(1);
+    expect(screen.getByLabelText("Description")).toHaveValue("Original description");
+    expect(screen.getByLabelText("Note")).toHaveValue("Original note");
+    expect(screen.getByText("2026-07-01")).toBeInTheDocument();
+    expect(screen.getByText("2026-07-02")).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Description"));
+    await user.type(screen.getByLabelText("Description"), "Updated description");
+    await user.clear(screen.getByLabelText("Note"));
+    await user.type(screen.getByLabelText("Note"), "Updated note");
+    await user.clear(screen.getByLabelText("Priority"));
+    await user.type(screen.getByLabelText("Priority"), "2");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByDisplayValue("Updated description")).toBeInTheDocument();
+  });
+
+  it("shows the same goal fields in the table and detail", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "June outcome",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-06-01",
+            due: "2026-06-30",
+            parent_id: "goal-root",
+            note: "Ship the monthly target",
+            created_at: "2026-06-01T00:00:00Z",
+            updated_at: "2026-06-02T00:00:00Z",
+          },
+          {
+            id: "goal-root",
+            type: "goal",
+            title: "Root objective",
+            status: "active",
+            horizon: "year",
+            scheduled: "2026-01-01",
+            due: "2026-12-31",
+            note: "",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    expect(await screen.findByRole("cell", { name: "month" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Scheduled for June outcome")).toHaveValue("2026-06-01");
+    expect(screen.getByLabelText("Due for June outcome")).toHaveValue("2026-06-30");
+    expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(2);
+    expect(screen.getByRole("cell", { name: "Ship the monthly target" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("cell", { name: "June outcome" }));
+
+    expect(screen.getByLabelText("Horizon")).toHaveValue("month");
+    expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-06-01");
+    expect(screen.getByLabelText("Due")).toHaveValue("2026-06-30");
+    expect(screen.getByLabelText("Parent")).toHaveValue("goal-root");
+    expect(screen.getByLabelText("Note")).toHaveValue("Ship the monthly target");
+    expect(screen.getByText("2026-06-01")).toBeInTheDocument();
+    expect(screen.getByText("2026-06-02")).toBeInTheDocument();
+  });
+
   it("saves project detail definition of done through the item PATCH endpoint", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
