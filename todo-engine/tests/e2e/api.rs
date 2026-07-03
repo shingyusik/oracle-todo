@@ -106,6 +106,31 @@ async fn task_propose_and_items_use_same_service_path() {
 }
 
 #[tokio::test]
+async fn parallel_item_reads_do_not_rerun_schema_migration() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let app = router(&db_path).unwrap();
+
+    let handles = (0..24).map(|index| {
+        let app = app.clone();
+        let uri = match index % 6 {
+            0 => "/items?type=area",
+            1 => "/items?type=project",
+            2 => "/items?type=routine",
+            3 => "/items?type=task",
+            4 => "/items?type=event",
+            _ => "/items?type=goal",
+        };
+
+        tokio::spawn(async move { empty_request(app, "GET", uri).await.status() })
+    });
+
+    for handle in handles {
+        assert_eq!(handle.await.unwrap(), 200);
+    }
+}
+
+#[tokio::test]
 async fn memory_router_keeps_state_for_multiple_requests() {
     let app = router(":memory:").unwrap();
     let response = app

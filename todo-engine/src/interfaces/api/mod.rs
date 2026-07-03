@@ -62,7 +62,6 @@ fn service(state: &ApiState) -> ApiResult<TodoService> {
         )
     })?;
     let conn = connect(path)?;
-    init_schema(&conn)?;
     Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
 }
 
@@ -85,7 +84,13 @@ fn api_db_path(
         ));
     }
 
-    Ok((path.to_path_buf(), None))
+    let path = path.to_path_buf();
+    let conn = connect(
+        path.to_str()
+            .with_context(|| format!("database path is not valid UTF-8: {}", path.display()))?,
+    )?;
+    init_schema(&conn)?;
+    Ok((path, None))
 }
 
 pub(super) fn with_service<T>(
