@@ -23,6 +23,8 @@ type ItemColumn = {
   ) => React.ReactNode;
 };
 
+const reviewCycleOptions = ["daily", "weekly", "monthly", "quarterly"];
+
 export function MainPanel({ controller }: MainPanelProps) {
   if (controller.detailItem) {
     return (
@@ -491,11 +493,20 @@ function DetailTypeFields({
   if (item.type === "area") {
     return (
       <>
-        <DetailTextField
-          label="Review Cycle"
-          value={draft.review_cycle}
-          onChange={(value) => setField("review_cycle", value)}
-        />
+        <label className="field-label">
+          Review Cycle
+          <select
+            value={draft.review_cycle}
+            onChange={(event) => setField("review_cycle", event.target.value)}
+          >
+            <option value="">-</option>
+            {reviewCycleOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
         <DetailTextField
           label="Standard"
           value={draft.standard}
@@ -1401,9 +1412,10 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     {
       label: "Review Cycle",
       value: (item, _items, controller) => (
-        <InlineTextInput
+        <InlineSelect
           label={`Review Cycle for ${item.title}`}
           value={item.review_cycle ?? ""}
+          options={reviewCycleOptions}
           onCommit={(review_cycle) =>
             void controller.patchWorkspaceItem(item.id, { review_cycle })
           }
