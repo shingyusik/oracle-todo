@@ -15,6 +15,15 @@ async function statusOptions(title: string): Promise<string[]> {
     .map((option) => option.textContent ?? "");
 }
 
+async function enabledStatusOptions(title: string): Promise<string[]> {
+  const select = await screen.findByLabelText(`Status for ${title}`);
+
+  return within(select)
+    .getAllByRole("option")
+    .filter((option) => !(option as HTMLOptionElement).disabled)
+    .map((option) => option.textContent ?? "");
+}
+
 function expectFieldBefore(firstLabel: string, secondLabel: string) {
   const first = screen.getByLabelText(firstLabel).closest(".field-label");
   const second = screen.getByLabelText(secondLabel).closest(".field-label");
@@ -1536,7 +1545,55 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
   });
 
-  it("shows only service-allowed inline status transitions", async () => {
+  it("archives an area from the inline status select", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/area-1/archive") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({}),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "area-1",
+            type: "area",
+            title: "Area",
+            status: "archived",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "area-1",
+            type: "area",
+            title: "Area",
+            status: "active",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    const status = await screen.findByLabelText("Status for Area");
+    await user.selectOptions(status, "archived");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/area-1/archive",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("shows every status while enabling only service-allowed inline transitions", async () => {
     const user = userEvent.setup();
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=area": [
@@ -1609,39 +1666,48 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
 
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await statusOptions("Project without DoD")).toEqual(["approved"]);
-    expect(await statusOptions("Project with DoD")).toEqual(["approved", "active"]);
+    expect(await statusOptions("Project without DoD")).toEqual([
+      "proposed",
+      "approved",
+      "active",
+      "paused",
+      "completed",
+      "archived",
+    ]);
+    expect(await enabledStatusOptions("Project without DoD")).toEqual(["approved"]);
+    expect(await enabledStatusOptions("Project with DoD")).toEqual(["approved", "active"]);
 
     await user.click(screen.getByRole("button", { name: "Routines" }));
-    expect(await statusOptions("Routine without rule")).toEqual(["approved"]);
-    expect(await statusOptions("Paused routine")).toEqual(["paused", "active"]);
+    expect(await enabledStatusOptions("Routine without rule")).toEqual(["approved"]);
+    expect(await enabledStatusOptions("Paused routine")).toEqual(["active", "paused"]);
 
     await user.click(screen.getByRole("button", { name: "Events" }));
-    expect(await statusOptions("Event without scheduled")).toEqual([
+    expect(await enabledStatusOptions("Event without scheduled")).toEqual([
       "approved",
       "active",
     ]);
-    expect(await statusOptions("Scheduled event")).toEqual([
+    expect(await enabledStatusOptions("Scheduled event")).toEqual([
       "active",
       "paused",
       "completed",
     ]);
 
     await user.click(screen.getByRole("button", { name: "Areas" }));
-    expect(await statusOptions("Area")).toEqual(["active"]);
+    expect(await statusOptions("Area")).toEqual(["active", "archived"]);
+    expect(await enabledStatusOptions("Area")).toEqual(["active", "archived"]);
 
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    expect(await statusOptions("Proposed goal")).toEqual(["proposed", "approved"]);
-    expect(await statusOptions("Approved goal")).toEqual(["approved", "active"]);
-    expect(await statusOptions("Active goal")).toEqual([
+    expect(await enabledStatusOptions("Proposed goal")).toEqual(["proposed", "approved"]);
+    expect(await enabledStatusOptions("Approved goal")).toEqual(["approved", "active"]);
+    expect(await enabledStatusOptions("Active goal")).toEqual([
       "active",
       "paused",
       "completed",
     ]);
-    expect(await statusOptions("Paused goal")).toEqual(["paused", "active"]);
+    expect(await enabledStatusOptions("Paused goal")).toEqual(["active", "paused"]);
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
-    expect(await statusOptions("Proposed task")).toEqual(["proposed", "approved"]);
+    expect(await enabledStatusOptions("Proposed task")).toEqual(["proposed", "approved"]);
   });
 
   it("disables the relation placeholder for an existing relation", async () => {

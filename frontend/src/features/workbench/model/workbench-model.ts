@@ -85,7 +85,8 @@ export type WorkspaceItemTransitionAction =
   | "activate"
   | "pause"
   | "resume"
-  | "complete";
+  | "complete"
+  | "archive";
 
 export type WorkbenchController = {
   selection: WorkbenchSelection;

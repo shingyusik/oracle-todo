@@ -24,6 +24,15 @@ type ItemColumn = {
 };
 
 const reviewCycleOptions = ["daily", "weekly", "monthly", "quarterly"];
+const statusOptions = [
+  "proposed",
+  "approved",
+  "active",
+  "paused",
+  "completed",
+  "archived",
+];
+const areaStatusOptions = ["active", "archived"];
 
 export function MainPanel({ controller }: MainPanelProps) {
   if (controller.detailItem) {
@@ -1106,7 +1115,8 @@ function StatusSelect({
   item: WorkspaceItemModel;
   controller: WorkbenchController;
 }) {
-  const supportedStatuses = statusOptionsForItem(item);
+  const enabledStatuses = enabledStatusOptionsForItem(item);
+  const visibleStatuses = visibleStatusOptionsForItem(item);
 
   return (
     <select
@@ -1117,29 +1127,17 @@ function StatusSelect({
       onKeyDown={stopRowEvent}
       onChange={(event) => {
         const status = event.target.value;
+        const action = transitionActionForStatus(item.status, status);
 
-        if (status === item.status) {
+        if (!action) {
           return;
         }
-        if (status === "approved") {
-          void controller.transitionWorkspaceItem(item.id, "approve");
-        }
-        if (status === "active") {
-          void controller.transitionWorkspaceItem(
-            item.id,
-            item.status === "paused" ? "resume" : "activate",
-          );
-        }
-        if (status === "paused") {
-          void controller.transitionWorkspaceItem(item.id, "pause");
-        }
-        if (status === "completed") {
-          void controller.transitionWorkspaceItem(item.id, "complete");
-        }
+
+        void controller.transitionWorkspaceItem(item.id, action);
       }}
     >
-      {supportedStatuses.map((status) => (
-        <option key={status} value={status}>
+      {visibleStatuses.map((status) => (
+        <option key={status} value={status} disabled={!enabledStatuses.includes(status)}>
           {status}
         </option>
       ))}
@@ -1156,7 +1154,8 @@ function DetailStatusField({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const supportedStatuses = statusOptionsForItem(item);
+  const enabledStatuses = enabledStatusOptionsForItem(item);
+  const visibleStatuses = visibleStatusOptionsForItem(item);
 
   return (
     <DetailInlineField label="Status">
@@ -1166,8 +1165,8 @@ function DetailStatusField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        {supportedStatuses.map((status) => (
-          <option key={status} value={status}>
+        {visibleStatuses.map((status) => (
+          <option key={status} value={status} disabled={!enabledStatuses.includes(status)}>
             {status}
           </option>
         ))}
@@ -1176,7 +1175,11 @@ function DetailStatusField({
   );
 }
 
-function statusOptionsForItem(item: WorkspaceItemModel): string[] {
+function visibleStatusOptionsForItem(item: WorkspaceItemModel): string[] {
+  return item.type === "area" ? areaStatusOptions : statusOptions;
+}
+
+function enabledStatusOptionsForItem(item: WorkspaceItemModel): string[] {
   const options = [item.status];
   const canRun = item.type !== "area";
   const canActivate =
@@ -1195,6 +1198,9 @@ function statusOptionsForItem(item: WorkspaceItemModel): string[] {
   }
   if (item.status === "active" && canRun) {
     options.push("paused", "completed");
+  }
+  if (item.status === "active" && item.type === "area") {
+    options.push("archived");
   }
 
   return options;
@@ -1218,6 +1224,9 @@ function transitionActionForStatus(
   }
   if (nextStatus === "completed") {
     return "complete";
+  }
+  if (nextStatus === "archived") {
+    return "archive";
   }
 
   return null;
