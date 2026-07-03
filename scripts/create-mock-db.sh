@@ -29,6 +29,8 @@ json_id() {
 }
 
 today="$(date +%F)"
+year_start="$(date +%Y)-01-01"
+month_start="${today%??}01"
 
 run init >/dev/null
 
@@ -49,6 +51,21 @@ project="$(run project propose "Workbench mock 데이터 점검" \
   --due "$today" | json_id)"
 run activate "$project" --reason "mock seed" >/dev/null
 
+year_goal="$(run goal propose "올해 Workbench 품질 기준 세우기" \
+  --actor user \
+  --horizon year \
+  --scheduled "$year_start" \
+  --note "goal 테이블용 year 샘플" | json_id)"
+run activate "$year_goal" --reason "mock seed" >/dev/null
+
+month_goal="$(run goal propose "이번 달 UI 데이터 흐름 검증" \
+  --actor user \
+  --horizon month \
+  --scheduled "$month_start" \
+  --parent "$year_goal" \
+  --note "goal 테이블용 month 샘플" | json_id)"
+run activate "$month_goal" --reason "mock seed" >/dev/null
+
 active_task="$(run task propose "Workbench 테이블 편집 플로우 점검" \
   --actor user \
   --area "$dev_area" \
@@ -56,6 +73,7 @@ active_task="$(run task propose "Workbench 테이블 편집 플로우 점검" \
   --priority 1 \
   --description "행 선택, 상태 전환, 상세 패널 표시를 확인" | json_id)"
 run update "$active_task" --project-id "$project" --reason "mock seed link" >/dev/null
+run update "$active_task" --parent-id "$month_goal" --reason "mock seed goal link" >/dev/null
 run activate "$active_task" --reason "mock seed" >/dev/null
 
 run task propose "Mock API 응답 확인" \
@@ -94,6 +112,16 @@ run event propose "Mock API 데모 미팅" "${today}T15:00" \
   --with "backend" \
   --commitment-type meeting \
   --note "event 카드 표시 확인" >/dev/null
+
+run event propose "목표 리뷰 캘린더 샘플" "${today}T17:00" \
+  --actor user \
+  --area "$dev_area" \
+  --project-id "$project" \
+  --location "회의실 A" \
+  --with "planning" \
+  --commitment-type review \
+  --description "goal/event 테이블 표시 확인용" \
+  --note "event 테이블용 추가 샘플" >/dev/null
 
 run health
 echo "TODO_ENGINE_HOME=$home"
