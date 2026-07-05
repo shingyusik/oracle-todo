@@ -104,6 +104,13 @@ fn recurrence_matrix_covers_supported_cases() {
             vec!["2026-05-25", "2026-06-01"],
         ),
         (
+            "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO",
+            "2026-05-26",
+            21,
+            1,
+            vec!["2026-05-25", "2026-06-08"],
+        ),
+        (
             "weekdays",
             "2026-05-26",
             7,

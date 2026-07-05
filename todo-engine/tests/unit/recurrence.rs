@@ -104,6 +104,118 @@ fn yearly_interval_skips_off_years() {
 }
 
 #[test]
+fn rrule_daily_interval_expands_from_window_start() {
+    let got = occurrences(
+        "RRULE:FREQ=DAILY;INTERVAL=2",
+        date!(2026 - 01 - 01),
+        date!(2026 - 01 - 07),
+    )
+    .unwrap();
+    assert_eq!(
+        got,
+        vec![
+            date!(2026 - 01 - 01),
+            date!(2026 - 01 - 03),
+            date!(2026 - 01 - 05),
+            date!(2026 - 01 - 07),
+        ]
+    );
+}
+
+#[test]
+fn rrule_weekly_byday_matches_requested_weekdays() {
+    let got = occurrences(
+        "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR",
+        date!(2026 - 06 - 01),
+        date!(2026 - 06 - 07),
+    )
+    .unwrap();
+    assert_eq!(
+        got,
+        vec![
+            date!(2026 - 06 - 01),
+            date!(2026 - 06 - 03),
+            date!(2026 - 06 - 05),
+        ]
+    );
+}
+
+#[test]
+fn prefixless_rrule_like_rule_is_rejected() {
+    assert!(
+        occurrences(
+            "FREQ=WEEKLY;BYDAY=MO",
+            date!(2026 - 06 - 01),
+            date!(2026 - 06 - 30),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn rrule_monthly_positive_monthday_skips_invalid_months() {
+    let got = occurrences(
+        "RRULE:FREQ=MONTHLY;BYMONTHDAY=31",
+        date!(2026 - 01 - 01),
+        date!(2026 - 03 - 31),
+    )
+    .unwrap();
+    assert_eq!(got, vec![date!(2026 - 01 - 31), date!(2026 - 03 - 31)]);
+}
+
+#[test]
+fn rrule_yearly_positive_monthday_skips_invalid_dates() {
+    let got = occurrences(
+        "RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=31",
+        date!(2026 - 06 - 01),
+        date!(2028 - 12 - 31),
+    )
+    .unwrap();
+    assert!(got.is_empty());
+}
+
+#[test]
+fn rrule_monthly_last_day_uses_month_end() {
+    let got = occurrences(
+        "RRULE:FREQ=MONTHLY;BYMONTHDAY=-1",
+        date!(2026 - 01 - 01),
+        date!(2026 - 02 - 28),
+    )
+    .unwrap();
+    assert_eq!(got, vec![date!(2026 - 01 - 31), date!(2026 - 02 - 28)]);
+}
+
+#[test]
+fn rrule_yearly_interval_uses_month_and_monthday() {
+    let got = occurrences(
+        "RRULE:FREQ=YEARLY;INTERVAL=2;BYMONTH=3;BYMONTHDAY=15",
+        date!(2026 - 01 - 01),
+        date!(2030 - 12 - 31),
+    )
+    .unwrap();
+    assert_eq!(
+        got,
+        vec![
+            date!(2026 - 03 - 15),
+            date!(2028 - 03 - 15),
+            date!(2030 - 03 - 15),
+        ]
+    );
+}
+
+#[test]
+fn unsupported_rrule_field_is_rejected() {
+    assert!(
+        occurrences(
+            "RRULE:FREQ=WEEKLY;COUNT=3",
+            date!(2026 - 01 - 01),
+            date!(2026 - 01 - 31),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn unanchored_monthly_honors_interval() {
     // An unanchored `every N months` rule emits the 1st of every Nth month in the
     // window, anchored to the start month. (Anchored monthly and yearly rules also

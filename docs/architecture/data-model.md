@@ -80,10 +80,10 @@ values rather than silently coercing them.
 
 ## Recurrence rules
 
-Routine `recurrence_rule` strings are parsed by `domain::occurrences` using a *pattern*
-grammar (`every N <unit>` plus weekday/monthly anchors and Korean/English aliases), not a
-fixed one-rule-per-string table. The full grammar and the supported examples are documented
-in [decisions/adr-0005-recurrence-pattern-parsing.md](decisions/adr-0005-recurrence-pattern-parsing.md)
+Routine `recurrence_rule` strings are parsed by `domain::occurrences`. New rules use RRULE
+strings such as `RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR`; legacy natural-language strings
+remain readable for existing data. The supported RRULE subset is documented in
+[decisions/adr-0005-recurrence-pattern-parsing.md](decisions/adr-0005-recurrence-pattern-parsing.md)
 and in `README.md`'s "Supported recurrence examples" table.
 
 ## Event log (audit contract)

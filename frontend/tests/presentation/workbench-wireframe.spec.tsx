@@ -1177,7 +1177,11 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ recurrence_rule: "every 2 weeks" }));
+        expect(init.body).toBe(
+          JSON.stringify({
+            recurrence_rule: "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR",
+          }),
+        );
 
         return Promise.resolve({
           ok: true,
@@ -1218,15 +1222,112 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(await screen.findByRole("cell", { name: "Stretch" }));
     expect(screen.queryByLabelText("Recurrence Rule")).toBeNull();
-    await user.clear(screen.getByLabelText("Recurrence Interval"));
-    await user.type(screen.getByLabelText("Recurrence Interval"), "2");
-    await user.selectOptions(screen.getByLabelText("Recurrence Unit"), "weeks");
+    await user.clear(screen.getByLabelText("Every"));
+    await user.type(screen.getByLabelText("Every"), "2");
+    await user.selectOptions(screen.getByLabelText("Frequency"), "weekly");
+    await user.click(screen.getByLabelText("Monday"));
+    await user.click(screen.getByLabelText("Wednesday"));
+    await user.click(screen.getByLabelText("Friday"));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/routine-1",
       expect.objectContaining({ method: "PATCH" }),
     );
+  });
+
+  it("opens legacy weekly recurrence without sending an unchanged recurrence rule patch", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(JSON.stringify({ note: "Keep this stretch" }));
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "routine-1",
+            type: "routine",
+            title: "Stretch",
+            status: "approved",
+            recurrence_rule: "every 2 weeks on monday",
+            materialization_policy: "single_open",
+            note: "Keep this stretch",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=routine"
+            ? [
+                {
+                  id: "routine-1",
+                  type: "routine",
+                  title: "Stretch",
+                  status: "approved",
+                  recurrence_rule: "every 2 weeks on monday",
+                  materialization_policy: "single_open",
+                  note: "",
+                },
+              ]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+
+    await user.click(await screen.findByRole("cell", { name: "Stretch" }));
+
+    expect(screen.getByLabelText("Every")).toHaveValue(2);
+    expect(screen.getByLabelText("Frequency")).toHaveValue("weekly");
+    expect(screen.getByLabelText("Monday")).toBeChecked();
+
+    await user.type(screen.getByLabelText("Note"), "Keep this stretch");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/routine-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
+  it.each([
+    ["월-금", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]],
+    ["평일", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]],
+    ["월수금", ["Monday", "Wednesday", "Friday"]],
+  ])("opens Korean legacy recurrence %s as weekly weekdays", async (rule, checkedDays) => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          id: "routine-1",
+          type: "routine",
+          title: "Stretch",
+          status: "approved",
+          recurrence_rule: rule,
+          materialization_policy: "single_open",
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+
+    await user.click(await screen.findByRole("cell", { name: "Stretch" }));
+
+    expect(screen.getByLabelText("Frequency")).toHaveValue("weekly");
+    for (const day of checkedDays) {
+      expect(screen.getByLabelText(day)).toBeChecked();
+    }
   });
 
   it("shows routine last materialized in detail as readonly", async () => {

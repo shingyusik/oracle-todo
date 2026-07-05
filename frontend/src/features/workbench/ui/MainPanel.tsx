@@ -724,11 +724,33 @@ function DetailPriorityField({
   );
 }
 
+type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
+
 type ParsedRecurrenceRule = {
   interval: string;
-  unit: "days" | "weeks" | "months" | "years";
-  anchor: string;
+  frequency: RecurrenceFrequency;
+  weekdays: string[];
+  monthDay: string;
+  lastDayOfMonth: boolean;
+  month: string;
 };
+
+const weekdayOptions = [
+  ["MO", "Monday"],
+  ["TU", "Tuesday"],
+  ["WE", "Wednesday"],
+  ["TH", "Thursday"],
+  ["FR", "Friday"],
+  ["SA", "Saturday"],
+  ["SU", "Sunday"],
+] as const;
+
+const recurrenceFrequencyOptions: [RecurrenceFrequency, string][] = [
+  ["daily", "Daily"],
+  ["weekly", "Weekly"],
+  ["monthly", "Monthly"],
+  ["yearly", "Yearly"],
+];
 
 function RecurrenceRuleField({
   value,
@@ -739,7 +761,6 @@ function RecurrenceRuleField({
 }) {
   const parsed = parseRecurrenceRule(value);
   const [intervalDraft, setIntervalDraft] = React.useState(parsed.interval);
-  const anchorOptions = recurrenceAnchorOptions(parsed.unit);
 
   React.useEffect(() => {
     setIntervalDraft(parsed.interval);
@@ -749,10 +770,23 @@ function RecurrenceRuleField({
     onChange(formatRecurrenceRule({ ...parsed, interval: intervalDraft, ...next }));
   }
 
+  function toggleWeekday(day: string) {
+    const selected = parsed.weekdays.includes(day)
+      ? parsed.weekdays.filter((current) => current !== day)
+      : [...parsed.weekdays, day];
+    commit({
+      weekdays: weekdayOptions
+        .map(([value]) => value)
+        .filter((value) => selected.includes(value)),
+    });
+  }
+
+  const preview = formatRecurrenceRule({ ...parsed, interval: intervalDraft });
+
   return (
     <div className="recurrence-fields">
       <label className="field-label">
-        Recurrence Interval
+        Every
         <input
           type="number"
           min={1}
@@ -775,32 +809,86 @@ function RecurrenceRuleField({
         />
       </label>
       <label className="field-label">
-        Recurrence Unit
+        Frequency
         <select
-          value={parsed.unit}
-          onChange={(event) => commit({ unit: event.target.value as ParsedRecurrenceRule["unit"], anchor: "" })}
+          value={parsed.frequency}
+          onChange={(event) =>
+            commit({ frequency: event.target.value as RecurrenceFrequency })
+          }
         >
-          <option value="days">Days</option>
-          <option value="weeks">Weeks</option>
-          <option value="months">Months</option>
-          <option value="years">Years</option>
+          {recurrenceFrequencyOptions.map(([optionValue, label]) => (
+            <option key={optionValue} value={optionValue}>
+              {label}
+            </option>
+          ))}
         </select>
       </label>
-      {anchorOptions.length > 0 ? (
+      {parsed.frequency === "weekly" ? (
+        <div className="recurrence-weekdays">
+          {weekdayOptions.map(([day, label]) => (
+            <label key={day} className="field-label">
+              {label}
+              <input
+                type="checkbox"
+                checked={parsed.weekdays.includes(day)}
+                onChange={() => toggleWeekday(day)}
+              />
+            </label>
+          ))}
+        </div>
+      ) : null}
+      {parsed.frequency === "monthly" || parsed.frequency === "yearly" ? (
+        <>
+          <label className="field-label">
+            Month day
+            <input
+              type="number"
+              min={1}
+              max={31}
+              step={1}
+              value={parsed.monthDay}
+              disabled={parsed.lastDayOfMonth}
+              onChange={(event) =>
+                commit({
+                  monthDay: clampRecurrenceNumber(event.target.value, 1, 31),
+                  lastDayOfMonth: false,
+                })
+              }
+            />
+          </label>
+          <label className="field-label">
+            Last day of month
+            <input
+              type="checkbox"
+              checked={parsed.lastDayOfMonth}
+              onChange={(event) =>
+                commit({ lastDayOfMonth: event.target.checked })
+              }
+            />
+          </label>
+        </>
+      ) : null}
+      {parsed.frequency === "yearly" ? (
         <label className="field-label">
-          Recurrence On
+          Month
           <select
-            value={parsed.anchor}
-            onChange={(event) => commit({ anchor: event.target.value })}
+            value={parsed.month}
+            onChange={(event) => commit({ month: event.target.value })}
           >
-            {anchorOptions.map(([optionValue, label]) => (
-              <option key={optionValue} value={optionValue}>
-                {label}
-              </option>
-            ))}
+            {Array.from({ length: 12 }, (_, index) => (index + 1).toString()).map(
+              (month) => (
+                <option key={month} value={month}>
+                  {month}
+                </option>
+              ),
+            )}
           </select>
         </label>
       ) : null}
+      <div className="property-row">
+        <span>Recurrence Rule Preview</span>
+        <output aria-label="Recurrence Rule Preview">{preview}</output>
+      </div>
     </div>
   );
 }
@@ -810,81 +898,245 @@ function validRecurrenceInterval(value: string): boolean {
   return Number.isInteger(interval) && interval >= 1 && interval <= 365;
 }
 
-function parseRecurrenceRule(value: string): ParsedRecurrenceRule {
-  const normalized = value.trim().toLowerCase();
-  if (["daily", "every day"].includes(normalized)) {
-    return { interval: "1", unit: "days", anchor: "" };
+function clampRecurrenceNumber(value: string, min: number, max: number): string {
+  const number = Number(value);
+  if (!Number.isInteger(number)) {
+    return min.toString();
   }
-  if (["weekly", "every week"].includes(normalized)) {
-    return { interval: "1", unit: "weeks", anchor: "" };
-  }
-  if (["monthly", "every month"].includes(normalized)) {
-    return { interval: "1", unit: "months", anchor: "" };
-  }
-  if (["yearly", "every year"].includes(normalized)) {
-    return { interval: "1", unit: "years", anchor: "" };
-  }
+  return Math.min(max, Math.max(min, number)).toString();
+}
 
-  const match = normalized.match(
-    /^every (?:(\d+) )?(day|days|week|weeks|month|months|year|years)(?: on (.+))?$/,
-  );
-  if (!match) {
-    return { interval: "1", unit: "days", anchor: "" };
-  }
-
+function defaultRecurrenceRule(): ParsedRecurrenceRule {
   return {
-    interval: match[1] ?? "1",
-    unit: pluralRecurrenceUnit(match[2]),
-    anchor: match[3] ?? "",
+    interval: "1",
+    frequency: "daily",
+    weekdays: [],
+    monthDay: "1",
+    lastDayOfMonth: false,
+    month: "1",
   };
 }
 
-function pluralRecurrenceUnit(unit: string): ParsedRecurrenceRule["unit"] {
+function parseRecurrenceRule(value: string): ParsedRecurrenceRule {
+  const rule = defaultRecurrenceRule();
+  const normalized = value.trim().toUpperCase();
+  if (!normalized.startsWith("RRULE:")) {
+    return parseLegacyRecurrenceRule(value, rule);
+  }
+
+  for (const part of normalized.slice("RRULE:".length).split(";")) {
+    const [key, fieldValue = ""] = part.split("=");
+    if (key === "FREQ") {
+      const frequency = fieldValue.toLowerCase();
+      if (
+        frequency === "daily" ||
+        frequency === "weekly" ||
+        frequency === "monthly" ||
+        frequency === "yearly"
+      ) {
+        rule.frequency = frequency;
+      }
+    }
+    if (key === "INTERVAL") {
+      rule.interval = clampRecurrenceNumber(fieldValue, 1, 365);
+    }
+    if (key === "BYDAY") {
+      rule.weekdays = fieldValue
+        .split(",")
+        .filter((day) => weekdayOptions.some(([value]) => value === day));
+    }
+    if (key === "BYMONTHDAY") {
+      rule.lastDayOfMonth = fieldValue === "-1";
+      rule.monthDay = rule.lastDayOfMonth
+        ? "1"
+        : clampRecurrenceNumber(fieldValue, 1, 31);
+    }
+    if (key === "BYMONTH") {
+      rule.month = clampRecurrenceNumber(fieldValue, 1, 12);
+    }
+  }
+
+  return rule;
+}
+
+function parseLegacyRecurrenceRule(
+  value: string,
+  rule: ParsedRecurrenceRule,
+): ParsedRecurrenceRule {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "") {
+    return rule;
+  }
+
+  const directWeekdays = legacyWeekdays(normalized);
+  if (directWeekdays) {
+    rule.frequency = "weekly";
+    rule.weekdays = directWeekdays;
+    return rule;
+  }
+
+  const directMonthDay = legacyMonthDay(normalized);
+  if (directMonthDay) {
+    rule.frequency = "monthly";
+    rule.monthDay = directMonthDay.monthDay;
+    rule.lastDayOfMonth = directMonthDay.lastDayOfMonth;
+    return rule;
+  }
+
+  const aliasFrequency = {
+    daily: "daily",
+    "every day": "daily",
+    "매일": "daily",
+    weekly: "weekly",
+    "every week": "weekly",
+    "매주": "weekly",
+    monthly: "monthly",
+    "every month": "monthly",
+    "매월": "monthly",
+    yearly: "yearly",
+    "every year": "yearly",
+    "매년": "yearly",
+  }[normalized] as RecurrenceFrequency | undefined;
+  if (aliasFrequency) {
+    rule.frequency = aliasFrequency;
+    return rule;
+  }
+
+  const every = normalized.match(
+    /^every (?:(\d+) )?(days?|weeks?|months?|years?)(?: on (.+))?$/,
+  );
+  if (!every) {
+    return rule;
+  }
+
+  rule.interval = every[1] ? clampRecurrenceNumber(every[1], 1, 365) : "1";
+  const unit = every[2];
+  const anchor = every[3]?.trim();
+  if (unit.startsWith("day")) {
+    rule.frequency = "daily";
+  }
   if (unit.startsWith("week")) {
-    return "weeks";
+    rule.frequency = "weekly";
+    rule.weekdays = anchor ? legacyWeekdays(anchor) ?? [] : [];
   }
   if (unit.startsWith("month")) {
-    return "months";
+    rule.frequency = "monthly";
+    const monthDay = anchor ? legacyMonthDay(anchor) : null;
+    if (monthDay) {
+      rule.monthDay = monthDay.monthDay;
+      rule.lastDayOfMonth = monthDay.lastDayOfMonth;
+    }
   }
   if (unit.startsWith("year")) {
-    return "years";
+    rule.frequency = "yearly";
   }
-  return "days";
+
+  return rule;
+}
+
+function legacyWeekdays(value: string): string[] | null {
+  if (value === "weekday" || value === "weekdays" || value === "평일") {
+    return ["MO", "TU", "WE", "TH", "FR"];
+  }
+  if (value === "weekend" || value === "weekends" || value === "주말") {
+    return ["SA", "SU"];
+  }
+
+  const aliases: Record<string, string> = {
+    mon: "MO",
+    monday: "MO",
+    "월": "MO",
+    tue: "TU",
+    tuesday: "TU",
+    "화": "TU",
+    wed: "WE",
+    wednesday: "WE",
+    "수": "WE",
+    thu: "TH",
+    thursday: "TH",
+    "목": "TH",
+    fri: "FR",
+    friday: "FR",
+    "금": "FR",
+    sat: "SA",
+    saturday: "SA",
+    "토": "SA",
+    sun: "SU",
+    sunday: "SU",
+    "일": "SU",
+  };
+  const rangeParts = value.split(/[-~]/);
+  if (rangeParts.length === 2) {
+    const start = aliases[rangeParts[0].trim()];
+    const end = aliases[rangeParts[1].trim()];
+    const orderedDays: string[] = weekdayOptions.map(([day]) => day);
+    const startIndex = orderedDays.indexOf(start);
+    const endIndex = orderedDays.indexOf(end);
+    if (startIndex >= 0 && endIndex >= 0) {
+      return startIndex <= endIndex
+        ? orderedDays.slice(startIndex, endIndex + 1)
+        : [...orderedDays.slice(startIndex), ...orderedDays.slice(0, endIndex + 1)];
+    }
+  }
+  if ([...value].every((char) => aliases[char])) {
+    return [...new Set([...value].map((char) => aliases[char]))];
+  }
+
+  const parts = value
+    .replace(/\band\b/g, " ")
+    .split(/[,\s/]+/)
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return null;
+  }
+  const days = parts.map((part) => aliases[part]);
+  if (days.some((day) => !day)) {
+    return null;
+  }
+
+  return weekdayOptions
+    .map(([day]) => day)
+    .filter((day) => days.includes(day));
+}
+
+function legacyMonthDay(
+  value: string,
+): { monthDay: string; lastDayOfMonth: boolean } | null {
+  if (value === "the last" || value === "last") {
+    return { monthDay: "1", lastDayOfMonth: true };
+  }
+
+  const match = value.match(/^the (\d+)(?:st|nd|rd|th)?$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    monthDay: clampRecurrenceNumber(match[1], 1, 31),
+    lastDayOfMonth: false,
+  };
 }
 
 function formatRecurrenceRule(rule: ParsedRecurrenceRule): string {
   const interval = Number(rule.interval);
   const safeInterval = Number.isInteger(interval) && interval > 0 ? interval : 1;
-  const unit = safeInterval === 1 ? rule.unit.slice(0, -1) : rule.unit;
-  const anchor = rule.anchor ? ` on ${rule.anchor}` : "";
+  const parts = [`RRULE:FREQ=${rule.frequency.toUpperCase()}`];
 
-  return `every ${safeInterval} ${unit}${anchor}`;
-}
+  if (safeInterval !== 1) {
+    parts.push(`INTERVAL=${safeInterval}`);
+  }
+  if (rule.frequency === "weekly" && rule.weekdays.length > 0) {
+    parts.push(`BYDAY=${rule.weekdays.join(",")}`);
+  }
+  if (rule.frequency === "monthly") {
+    parts.push(`BYMONTHDAY=${rule.lastDayOfMonth ? "-1" : rule.monthDay || "1"}`);
+  }
+  if (rule.frequency === "yearly") {
+    parts.push(`BYMONTH=${rule.month || "1"}`);
+    parts.push(`BYMONTHDAY=${rule.lastDayOfMonth ? "-1" : rule.monthDay || "1"}`);
+  }
 
-function recurrenceAnchorOptions(unit: ParsedRecurrenceRule["unit"]): [string, string][] {
-  if (unit === "weeks") {
-    return [
-      ["", "Any day"],
-      ["weekdays", "Weekdays"],
-      ["weekends", "Weekends"],
-      ["monday", "Monday"],
-      ["tuesday", "Tuesday"],
-      ["wednesday", "Wednesday"],
-      ["thursday", "Thursday"],
-      ["friday", "Friday"],
-      ["saturday", "Saturday"],
-      ["sunday", "Sunday"],
-    ];
-  }
-  if (unit === "months") {
-    return [
-      ["", "Same day"],
-      ["the 1st", "1st day"],
-      ["the 15th", "15th day"],
-      ["the last", "Last day"],
-    ];
-  }
-  return [];
+  return parts.join(";");
 }
 
 function DetailRelationField({

@@ -23,7 +23,12 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> Result<Vec<Date>, Recu
     }
 
     let original_rule = rule;
-    let raw_rule = rule.trim().to_lowercase();
+    let trimmed_rule = rule.trim();
+    if let Some(dates) = rrule_occurrences(original_rule, trimmed_rule, start, end)? {
+        return Ok(dates);
+    }
+
+    let raw_rule = trimmed_rule.to_lowercase();
     let rule = match raw_rule.as_str() {
         "daily" | "매일" => "every day",
         "weekly" | "매주" => "every week",
@@ -99,6 +104,205 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> Result<Vec<Date>, Recu
 
 fn unsupported<T>(rule: &str) -> Result<T, RecurrenceError> {
     Err(RecurrenceError::unsupported(rule))
+}
+
+fn rrule_occurrences(
+    original_rule: &str,
+    rule: &str,
+    start: Date,
+    end: Date,
+) -> Result<Option<Vec<Date>>, RecurrenceError> {
+    let Some(body) = rrule_body(rule) else {
+        return Ok(None);
+    };
+
+    let mut freq = None;
+    let mut interval = None;
+    let mut byday = None;
+    let mut bymonthday = None;
+    let mut bymonth = None;
+
+    for part in body.split(';') {
+        let Some((key, value)) = part.split_once('=') else {
+            return unsupported(original_rule);
+        };
+        let key = key.trim().to_ascii_uppercase();
+        let value = value.trim();
+        if key.is_empty() || value.is_empty() {
+            return unsupported(original_rule);
+        }
+
+        match key.as_str() {
+            "FREQ" => {
+                if freq.replace(value.to_ascii_uppercase()).is_some() {
+                    return unsupported(original_rule);
+                }
+            }
+            "INTERVAL" => {
+                if interval
+                    .replace(parse_rrule_interval(value, original_rule)?)
+                    .is_some()
+                {
+                    return unsupported(original_rule);
+                }
+            }
+            "BYDAY" => {
+                if byday
+                    .replace(parse_rrule_weekdays(value, original_rule)?)
+                    .is_some()
+                {
+                    return unsupported(original_rule);
+                }
+            }
+            "BYMONTHDAY" => {
+                if bymonthday
+                    .replace(parse_rrule_monthdays(value, original_rule)?)
+                    .is_some()
+                {
+                    return unsupported(original_rule);
+                }
+            }
+            "BYMONTH" => {
+                if bymonth
+                    .replace(parse_rrule_months(value, original_rule)?)
+                    .is_some()
+                {
+                    return unsupported(original_rule);
+                }
+            }
+            _ => return unsupported(original_rule),
+        }
+    }
+
+    let Some(freq) = freq else {
+        return unsupported(original_rule);
+    };
+    let interval = interval.unwrap_or(1);
+
+    let dates = match freq.as_str() {
+        "DAILY" => {
+            if byday.is_some() || bymonthday.is_some() || bymonth.is_some() {
+                return unsupported(original_rule);
+            }
+            interval_occurrences(start, end, Duration::days(interval as i64))
+        }
+        "WEEKLY" => {
+            if bymonthday.is_some() || bymonth.is_some() {
+                return unsupported(original_rule);
+            }
+            match byday {
+                Some(weekdays) => weekday_set_occurrences(start, end, &weekdays, interval),
+                None => interval_occurrences(start, end, Duration::weeks(interval as i64)),
+            }
+        }
+        "MONTHLY" => {
+            if byday.is_some() || bymonth.is_some() {
+                return unsupported(original_rule);
+            }
+            monthly_day_set_occurrences(
+                start,
+                end,
+                &bymonthday.unwrap_or_else(|| vec![1]),
+                interval,
+            )
+        }
+        "YEARLY" => {
+            if byday.is_some() {
+                return unsupported(original_rule);
+            }
+            yearly_monthday_occurrences(
+                start,
+                end,
+                &bymonth.unwrap_or_else(|| vec![Month::January]),
+                &bymonthday.unwrap_or_else(|| vec![1]),
+                interval,
+            )
+        }
+        _ => return unsupported(original_rule),
+    };
+
+    Ok(Some(dates))
+}
+
+fn rrule_body(rule: &str) -> Option<&str> {
+    if rule
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("RRULE:"))
+    {
+        return Some(rule.get(6..).unwrap_or("").trim());
+    }
+    None
+}
+
+fn parse_rrule_interval(value: &str, original_rule: &str) -> Result<i32, RecurrenceError> {
+    let Ok(interval) = value.parse::<i32>() else {
+        return unsupported(original_rule);
+    };
+    if interval < 1 {
+        return unsupported(original_rule);
+    }
+    Ok(interval)
+}
+
+fn parse_rrule_weekdays(value: &str, original_rule: &str) -> Result<Vec<i32>, RecurrenceError> {
+    let mut out = Vec::new();
+    for part in value.split(',') {
+        let weekday = match part.trim().to_ascii_uppercase().as_str() {
+            "MO" => 0,
+            "TU" => 1,
+            "WE" => 2,
+            "TH" => 3,
+            "FR" => 4,
+            "SA" => 5,
+            "SU" => 6,
+            _ => return unsupported(original_rule),
+        };
+        if !out.contains(&weekday) {
+            out.push(weekday);
+        }
+    }
+    if out.is_empty() {
+        return unsupported(original_rule);
+    }
+    Ok(out)
+}
+
+fn parse_rrule_monthdays(value: &str, original_rule: &str) -> Result<Vec<i32>, RecurrenceError> {
+    let mut out = Vec::new();
+    for part in value.split(',') {
+        let Ok(day) = part.trim().parse::<i32>() else {
+            return unsupported(original_rule);
+        };
+        if day != -1 && !(1..=31).contains(&day) {
+            return unsupported(original_rule);
+        }
+        if !out.contains(&day) {
+            out.push(day);
+        }
+    }
+    if out.is_empty() {
+        return unsupported(original_rule);
+    }
+    Ok(out)
+}
+
+fn parse_rrule_months(value: &str, original_rule: &str) -> Result<Vec<Month>, RecurrenceError> {
+    let mut out = Vec::new();
+    for part in value.split(',') {
+        let Ok(month_number) = part.trim().parse::<u8>() else {
+            return unsupported(original_rule);
+        };
+        let Ok(month) = Month::try_from(month_number) else {
+            return unsupported(original_rule);
+        };
+        if !out.contains(&month) {
+            out.push(month);
+        }
+    }
+    if out.is_empty() {
+        return unsupported(original_rule);
+    }
+    Ok(out)
 }
 
 fn parse_interval_rule(rule: &str) -> Option<(i32, &str, Option<&str>)> {
@@ -273,6 +477,45 @@ fn monthly_last_occurrences(start: Date, end: Date, interval_months: i32) -> Vec
     out
 }
 
+fn monthly_day_set_occurrences(
+    start: Date,
+    end: Date,
+    days: &[i32],
+    interval_months: i32,
+) -> Vec<Date> {
+    days.iter()
+        .flat_map(|day| {
+            if *day == -1 {
+                monthly_last_occurrences(start, end, interval_months)
+            } else {
+                monthly_exact_day_occurrences(start, end, *day as u8, interval_months)
+            }
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn monthly_exact_day_occurrences(
+    start: Date,
+    end: Date,
+    day: u8,
+    interval_months: i32,
+) -> Vec<Date> {
+    let mut current = first_of_month(start.year(), start.month());
+    let mut out = Vec::new();
+    while current <= end {
+        if day <= last_day_of_month(current.year(), current.month()) {
+            let occurrence = date(current.year(), current.month(), day);
+            if start <= occurrence && occurrence <= end {
+                out.push(occurrence);
+            }
+        }
+        current = add_months(current, interval_months);
+    }
+    out
+}
+
 fn yearly_occurrences(start: Date, end: Date, interval_years: i32) -> Vec<Date> {
     let mut out = Vec::new();
     for year in start.year()..=end.year() {
@@ -285,6 +528,40 @@ fn yearly_occurrences(start: Date, end: Date, interval_years: i32) -> Vec<Date> 
         }
     }
     out
+}
+
+fn yearly_monthday_occurrences(
+    start: Date,
+    end: Date,
+    months: &[Month],
+    days: &[i32],
+    interval_years: i32,
+) -> Vec<Date> {
+    let mut out = BTreeSet::new();
+    for year in start.year()..=end.year() {
+        if (year - start.year()) % interval_years != 0 {
+            continue;
+        }
+        for month in months {
+            for day in days {
+                let last_day = last_day_of_month(year, *month);
+                let occurrence_day = if *day == -1 {
+                    last_day
+                } else {
+                    let day = *day as u8;
+                    if day > last_day {
+                        continue;
+                    }
+                    day
+                };
+                let occurrence = date(year, *month, occurrence_day);
+                if start <= occurrence && occurrence <= end {
+                    out.insert(occurrence);
+                }
+            }
+        }
+    }
+    out.into_iter().collect()
 }
 
 fn add_months(value: Date, months: i32) -> Date {
