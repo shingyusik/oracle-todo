@@ -144,6 +144,44 @@ fn update_item_changes_core_fields_and_records_event() {
 }
 
 #[test]
+fn update_item_empty_relation_clears_project() {
+    let mut service = TodoService::in_memory();
+    let project = service
+        .propose_project(ProposeProject {
+            title: "정리".to_string(),
+            area: None,
+            definition_of_done: Some("완료".to_string()),
+            outcome: None,
+            due: None,
+            actor: Actor::User,
+            note: None,
+        })
+        .unwrap();
+    let task = service
+        .propose_task(
+            "검증",
+            ProposeTask {
+                actor: Actor::User,
+                project_id: Some(project.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let updated = service
+        .update_item(
+            &task.id,
+            todo_engine::application::service::UpdateItem {
+                project_id: Some(String::new()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(updated.project_id, None);
+}
+
+#[test]
 fn update_rejects_terminal_items_and_invalid_materialization_policy() {
     let mut service = TodoService::in_memory();
     let item = service.propose_task("완료", Default::default()).unwrap();

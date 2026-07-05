@@ -93,8 +93,12 @@ impl TodoService {
                 .as_deref()
                 .or(item.scheduled.as_deref())
                 .ok_or_else(|| TodoError::Policy("Goal missing scheduled anchor".to_string()))?;
-            let resolved_parent_id = if parent_id.is_some() {
-                self.ensure_relation(parent_id.clone(), ItemType::Goal, "Goal parent")?
+            let resolved_parent_id = if let Some(parent_id) = parent_id.clone() {
+                if parent_id.trim().is_empty() {
+                    None
+                } else {
+                    self.ensure_relation(Some(parent_id), ItemType::Goal, "Goal parent")?
+                }
             } else {
                 item.parent_id.clone()
             };
@@ -166,20 +170,29 @@ impl TodoService {
             item.area_id = self.find_area(Some(area))?;
         }
         if let Some(project_id) = project_id {
-            item.project_id =
-                self.ensure_relation(Some(project_id), ItemType::Project, "Project")?;
+            item.project_id = if project_id.trim().is_empty() {
+                None
+            } else {
+                self.ensure_relation(Some(project_id), ItemType::Project, "Project")?
+            };
         }
         if item.item_type == ItemType::Goal {
             if let Some(parent_id) = next_goal_parent_id {
                 item.parent_id = parent_id;
             }
         } else if let Some(parent_id) = parent_id {
-            item.parent_id =
-                self.ensure_relation(Some(parent_id), ItemType::Goal, "Goal parent")?;
+            item.parent_id = if parent_id.trim().is_empty() {
+                None
+            } else {
+                self.ensure_relation(Some(parent_id), ItemType::Goal, "Goal parent")?
+            };
         }
         if let Some(routine_id) = routine_id {
-            item.routine_id =
-                self.ensure_relation(Some(routine_id), ItemType::Routine, "Routine")?;
+            item.routine_id = if routine_id.trim().is_empty() {
+                None
+            } else {
+                self.ensure_relation(Some(routine_id), ItemType::Routine, "Routine")?
+            };
         }
         if let Some(due) = due {
             item.due = Some(due);
