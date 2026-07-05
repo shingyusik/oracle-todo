@@ -784,110 +784,114 @@ function RecurrenceRuleField({
   const preview = formatRecurrenceRule({ ...parsed, interval: intervalDraft });
 
   return (
-    <div className="recurrence-fields">
-      <label className="field-label">
-        Every
-        <input
-          type="number"
-          min={1}
-          max={365}
-          step={1}
-          value={intervalDraft}
-          onChange={(event) => {
-            const interval = event.target.value;
-            setIntervalDraft(interval);
-            if (validRecurrenceInterval(interval)) {
-              onChange(formatRecurrenceRule({ ...parsed, interval }));
-            }
-          }}
-          onBlur={() => {
-            if (!validRecurrenceInterval(intervalDraft)) {
-              setIntervalDraft("1");
-              onChange(formatRecurrenceRule({ ...parsed, interval: "1" }));
-            }
-          }}
-        />
-      </label>
-      <label className="field-label">
-        Frequency
-        <select
-          value={parsed.frequency}
-          onChange={(event) =>
-            commit({ frequency: event.target.value as RecurrenceFrequency })
-          }
-        >
-          {recurrenceFrequencyOptions.map(([optionValue, label]) => (
-            <option key={optionValue} value={optionValue}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {parsed.frequency === "weekly" ? (
-        <div className="recurrence-weekdays">
-          {weekdayOptions.map(([day, label]) => (
-            <label key={day} className="field-label">
-              {label}
-              <input
-                type="checkbox"
-                checked={parsed.weekdays.includes(day)}
-                onChange={() => toggleWeekday(day)}
-              />
-            </label>
-          ))}
-        </div>
-      ) : null}
-      {parsed.frequency === "monthly" || parsed.frequency === "yearly" ? (
-        <>
-          <label className="field-label">
-            Month day
-            <input
-              type="number"
-              min={1}
-              max={31}
-              step={1}
-              value={parsed.monthDay}
-              disabled={parsed.lastDayOfMonth}
-              onChange={(event) =>
-                commit({
-                  monthDay: clampRecurrenceNumber(event.target.value, 1, 31),
-                  lastDayOfMonth: false,
-                })
+    <div className="recurrence-row">
+      <span className="recurrence-row-label">Recurrence Rule</span>
+      <div className="recurrence-fields">
+        <label className="field-label recurrence-field recurrence-field-short">
+          Every
+          <input
+            type="number"
+            min={1}
+            max={365}
+            step={1}
+            value={intervalDraft}
+            onChange={(event) => {
+              const interval = event.target.value;
+              setIntervalDraft(interval);
+              if (validRecurrenceInterval(interval)) {
+                onChange(formatRecurrenceRule({ ...parsed, interval }));
               }
-            />
-          </label>
-          <label className="field-label">
-            Last day of month
-            <input
-              type="checkbox"
-              checked={parsed.lastDayOfMonth}
-              onChange={(event) =>
-                commit({ lastDayOfMonth: event.target.checked })
+            }}
+            onBlur={() => {
+              if (!validRecurrenceInterval(intervalDraft)) {
+                setIntervalDraft("1");
+                onChange(formatRecurrenceRule({ ...parsed, interval: "1" }));
               }
-            />
-          </label>
-        </>
-      ) : null}
-      {parsed.frequency === "yearly" ? (
-        <label className="field-label">
-          Month
+            }}
+          />
+        </label>
+        <label className="field-label recurrence-field recurrence-field-medium">
+          Frequency
           <select
-            value={parsed.month}
-            onChange={(event) => commit({ month: event.target.value })}
+            value={parsed.frequency}
+            onChange={(event) =>
+              commit({ frequency: event.target.value as RecurrenceFrequency })
+            }
           >
-            {Array.from({ length: 12 }, (_, index) => (index + 1).toString()).map(
-              (month) => (
-                <option key={month} value={month}>
-                  {month}
-                </option>
-              ),
-            )}
+            {recurrenceFrequencyOptions.map(([optionValue, label]) => (
+              <option key={optionValue} value={optionValue}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
-      ) : null}
-      <div className="property-row">
-        <span>Recurrence Rule Preview</span>
-        <output aria-label="Recurrence Rule Preview">{preview}</output>
+        {parsed.frequency === "weekly" ? (
+          <div className="recurrence-weekdays">
+            {weekdayOptions.map(([day, label]) => (
+              <label key={day} className="recurrence-checkbox-label">
+                <input
+                  type="checkbox"
+                  aria-label={label}
+                  checked={parsed.weekdays.includes(day)}
+                  onChange={() => toggleWeekday(day)}
+                />
+                <span>{label.slice(0, 3)}</span>
+              </label>
+            ))}
+          </div>
+        ) : null}
+        {parsed.frequency === "monthly" || parsed.frequency === "yearly" ? (
+          <>
+            <label className="field-label recurrence-field recurrence-field-short">
+              Month day
+              <input
+                type="number"
+                min={1}
+                max={31}
+                step={1}
+                value={parsed.monthDay}
+                disabled={parsed.lastDayOfMonth}
+                onChange={(event) =>
+                  commit({
+                    monthDay: clampRecurrenceNumber(event.target.value, 1, 31),
+                    lastDayOfMonth: false,
+                  })
+                }
+              />
+            </label>
+            <label className="recurrence-checkbox-label recurrence-last-day">
+              <input
+                type="checkbox"
+                checked={parsed.lastDayOfMonth}
+                onChange={(event) =>
+                  commit({ lastDayOfMonth: event.target.checked })
+                }
+              />
+              <span>Last day</span>
+            </label>
+          </>
+        ) : null}
+        {parsed.frequency === "yearly" ? (
+          <label className="field-label recurrence-field recurrence-field-short">
+            Month
+            <select
+              value={parsed.month}
+              onChange={(event) => commit({ month: event.target.value })}
+            >
+              {Array.from({ length: 12 }, (_, index) => (index + 1).toString()).map(
+                (month) => (
+                  <option key={month} value={month}>
+                    {month}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+        ) : null}
+        <div className="recurrence-preview">
+          <span>Preview</span>
+          <output aria-label="Recurrence Rule Preview">{preview}</output>
+        </div>
       </div>
     </div>
   );

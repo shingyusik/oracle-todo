@@ -375,6 +375,96 @@ button {
   padding-bottom: 8px;
 }
 
+.recurrence-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  border-bottom: 1px solid var(--color-hairline-light);
+  padding-bottom: 8px;
+}
+
+.recurrence-row-label {
+  align-self: center;
+  font-size: 14px;
+  color: var(--color-shade-70);
+}
+
+.recurrence-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  min-width: 0;
+}
+
+.recurrence-field {
+  gap: 4px;
+  margin-bottom: 0;
+  font-size: 12px;
+}
+
+.recurrence-field input,
+.recurrence-field select {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+.recurrence-field-short {
+  width: 82px;
+}
+
+.recurrence-field-medium {
+  width: 132px;
+}
+
+.recurrence-weekdays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.recurrence-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 30px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-shade-70);
+}
+
+.recurrence-checkbox-label input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
+
+.recurrence-last-day {
+  padding-bottom: 4px;
+}
+
+.recurrence-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  min-height: 30px;
+  font-size: 11px;
+  color: var(--color-shade-60);
+}
+
+.recurrence-preview output {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .detail-note textarea {
   min-height: 280px;
   resize: vertical;
@@ -411,6 +501,11 @@ button {
     grid-auto-flow: column;
     grid-auto-columns: minmax(var(--workbench-main-sidebar-width), 1fr);
     overflow-x: auto;
+  }
+
+  .recurrence-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
 }

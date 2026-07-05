@@ -1222,6 +1222,9 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(await screen.findByRole("cell", { name: "Stretch" }));
     expect(screen.queryByLabelText("Recurrence Rule")).toBeNull();
+    expect(screen.getByText("Recurrence Rule").closest(".recurrence-row")).not.toBeNull();
+    expect(screen.getByLabelText("Every").closest(".recurrence-field")).not.toBeNull();
+    expect(screen.getByLabelText("Recurrence Rule Preview").closest(".recurrence-preview")).not.toBeNull();
     await user.clear(screen.getByLabelText("Every"));
     await user.type(screen.getByLabelText("Every"), "2");
     await user.selectOptions(screen.getByLabelText("Frequency"), "weekly");
