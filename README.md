@@ -218,6 +218,18 @@ Supported recurrence examples:
 | `RRULE:FREQ=YEARLY;BYMONTH=1;BYMONTHDAY=1` | Yearly on Jan 1. |
 | `RRULE:FREQ=YEARLY;INTERVAL=2;BYMONTH=1;BYMONTHDAY=1` | Every 2 years on Jan 1. |
 
+Supported RRULE fields:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `FREQ` | `DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY` | Required frequency. |
+| `INTERVAL` | positive integer | Optional interval; defaults to `1`. |
+| `BYDAY` | `MO,TU,WE,TH,FR,SA,SU` | Weekly weekday set. |
+| `BYMONTHDAY` | `1..31`, `-1` | Monthly/yearly day; `-1` means last day. Positive days that do not exist in a month are skipped. |
+| `BYMONTH` | `1..12` | Yearly month set. |
+
+RRULE input must use the `RRULE:` prefix. Unsupported fields or invalid field/frequency combinations are rejected during materialization.
+
 Legacy natural-language rules such as `daily`, `월-금`, and `every month on the last` remain readable for existing data.
 
 ### Event
@@ -292,7 +304,7 @@ SQLite table: `items`.
 | `definition_of_done` | nullable text | Completion criteria, required before project activation. |
 | `standard` | nullable text | Area operating standard. |
 | `review_cycle` | nullable text | Area review rhythm. |
-| `recurrence_rule` | nullable text | Routine recurrence rule. |
+| `recurrence_rule` | nullable text | Routine RRULE recurrence rule. |
 | `materialization_policy` | `single_open`, `per_occurrence` | Routine task generation policy. |
 | `occurrence_key` | nullable string | Routine occurrence key for generated tasks. |
 | `priority` | nullable int | Sort/attention priority. |
