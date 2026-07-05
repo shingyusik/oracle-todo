@@ -295,6 +295,18 @@ describe("useWorkbenchController", () => {
           }),
         });
       }
+      if (url === "/todo-engine/items/task-new/activate") {
+        expect(init).toEqual(expect.objectContaining({ method: "POST" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-new",
+            type: "task",
+            title: "New task",
+            status: "active",
+          }),
+        });
+      }
 
       return Promise.resolve({ ok: true, json: async () => [] });
     });
@@ -321,7 +333,15 @@ describe("useWorkbenchController", () => {
         body: JSON.stringify({ title: "New task", actor: "user" }),
       }),
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-new/activate",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    );
     expect(result.current.detailItem?.id).toBe("task-new");
+    expect(result.current.detailItem?.status).toBe("active");
   });
 
   it("does not invent a fallback scheduled date for goals", async () => {
@@ -385,6 +405,18 @@ describe("useWorkbenchController", () => {
           }),
         });
       }
+      if (url === "/todo-engine/items/event-new/activate") {
+        expect(init).toEqual(expect.objectContaining({ method: "POST" }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "event-new",
+            type: "event",
+            title: "New event",
+            status: "active",
+          }),
+        });
+      }
 
       return Promise.resolve({ ok: true, json: async () => [] });
     });
@@ -416,6 +448,7 @@ describe("useWorkbenchController", () => {
       }),
     );
     expect(result.current.detailItem?.id).toBe("event-new");
+    expect(result.current.detailItem?.status).toBe("active");
   });
 
   it("saves the open detail item and updates list state", async () => {

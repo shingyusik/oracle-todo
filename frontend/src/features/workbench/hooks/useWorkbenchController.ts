@@ -272,7 +272,12 @@ function createItemRequest(
     return postJson("/todo-engine/projects/propose", { title, actor: "user" });
   }
   if (panelId === "tasks") {
-    return postJson("/todo-engine/tasks/propose", { title, actor: "user" });
+    return postJson("/todo-engine/tasks/propose", { title, actor: "user" }).then(
+      (item) =>
+        item.status === "active"
+          ? item
+          : postJson(`/todo-engine/items/${item.id}/activate`, {}),
+    );
   }
   if (panelId === "routines") {
     return postJson("/todo-engine/routines/propose", {
@@ -286,7 +291,11 @@ function createItemRequest(
       title,
       scheduled: form.scheduled,
       actor: "user",
-    });
+    }).then((item) =>
+      item.status === "active"
+        ? item
+        : postJson(`/todo-engine/items/${item.id}/activate`, {}),
+    );
   }
   if (panelId === "goals") {
     return postJson("/todo-engine/goals/propose", {

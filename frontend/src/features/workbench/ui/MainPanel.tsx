@@ -33,6 +33,9 @@ const statusOptions = [
   "archived",
 ];
 const areaStatusOptions = ["active", "archived"];
+const taskStatusOptions = ["active", "completed"];
+const eventStatusOptions = ["active", "paused", "completed"];
+const materializationPolicyOptions = ["single_open", "per_occurrence"];
 
 export function MainPanel({ controller }: MainPanelProps) {
   if (controller.detailItem) {
@@ -157,7 +160,7 @@ type StringWorkspaceItemPatchField = {
 function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
   return {
     title: item?.title ?? "",
-    status: item?.status ?? "",
+    status: detailStatusForItem(item),
     area: item?.area_id ?? "",
     project_id: item?.project_id ?? "",
     routine_id: item?.routine_id ?? "",
@@ -289,8 +292,61 @@ function addPriorityPatch(
   priority: string,
   currentPriority?: number | null,
 ) {
-  if (priority.trim() !== "" && Number(priority) !== currentPriority) {
-    patch.priority = Number(priority);
+  const value = Number(normalizePriorityDraft(priority));
+  if (priority.trim() !== "" && validPriority(value) && value !== currentPriority) {
+    patch.priority = value;
+  }
+}
+
+function validPriority(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 10;
+}
+
+function normalizePriorityDraft(value: string): string {
+  const priority = Number(digitsOnly(value));
+  if (!Number.isFinite(priority)) {
+    return "";
+  }
+
+  return Math.min(10, Math.max(1, Math.trunc(priority))).toString();
+}
+
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function blockNonDigitKey(event: React.KeyboardEvent<HTMLInputElement>) {
+  const allowedKeys = [
+    "Backspace",
+    "Delete",
+    "Tab",
+    "Escape",
+    "Enter",
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "ArrowDown",
+    "Home",
+    "End",
+  ];
+
+  if (
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    allowedKeys.includes(event.key)
+  ) {
+    return;
+  }
+
+  if (!/^\d$/.test(event.key)) {
+    event.preventDefault();
+  }
+}
+
+function blockNonDigitPaste(event: React.ClipboardEvent<HTMLInputElement>) {
+  if (!/^\d*$/.test(event.clipboardData.getData("text"))) {
+    event.preventDefault();
   }
 }
 
@@ -354,8 +410,7 @@ function DetailTypeFields({
           options={workspaceItems.relatedItems.areas}
           onChange={(area) => setField("area", area)}
         />
-        <DetailTextField
-          label="Recurrence Rule"
+        <RecurrenceRuleField
           value={draft.recurrence_rule}
           onChange={(value) => setField("recurrence_rule", value)}
         />
@@ -365,8 +420,11 @@ function DetailTypeFields({
             value={draft.materialization_policy}
             onChange={(event) => setField("materialization_policy", event.target.value)}
           >
-            <option value="single_open">single_open</option>
-            <option value="per_occurrence">per_occurrence</option>
+            {materializationPolicyOptions.map((option) => (
+              <option key={option} value={option}>
+                {displayMaterializationPolicy(option)}
+              </option>
+            ))}
           </select>
         </label>
         <DetailTextAreaField
@@ -396,15 +454,13 @@ function DetailTypeFields({
           controlLabel={`Project for ${item.title}`}
           value={draft.project_id}
           options={workspaceItems.relatedItems.projects}
+          allowNone
           onChange={(project_id) => setField("project_id", project_id)}
         />
-        <DetailRelationField
-          label="Routine"
-          controlLabel={`Routine for ${item.title}`}
-          value={draft.routine_id}
-          options={workspaceItems.relatedItems.routines}
-          onChange={(routine_id) => setField("routine_id", routine_id)}
-        />
+        <div className="property-row">
+          <span>Routine</span>
+          <span>{relatedTitle(workspaceItems.relatedItems.routines, item.routine_id)}</span>
+        </div>
         <DetailTextField
           label="Scheduled"
           type="date"
@@ -417,9 +473,8 @@ function DetailTypeFields({
           value={draft.due}
           onChange={(value) => setField("due", value)}
         />
-        <DetailTextField
+        <DetailPriorityField
           label="Priority"
-          type="number"
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
         />
@@ -451,6 +506,7 @@ function DetailTypeFields({
           controlLabel={`Project for ${item.title}`}
           value={draft.project_id}
           options={workspaceItems.relatedItems.projects}
+          allowNone
           onChange={(project_id) => setField("project_id", project_id)}
         />
         <DetailTextField
@@ -465,21 +521,10 @@ function DetailTypeFields({
           value={draft.due}
           onChange={(value) => setField("due", value)}
         />
-        <DetailTextField
+        <DetailPriorityField
           label="Priority"
-          type="number"
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
-        />
-        <DetailTextAreaField
-          label="Description"
-          value={draft.description}
-          onChange={(value) => setField("description", value)}
-        />
-        <DetailTextAreaField
-          label="Note"
-          value={draft.note}
-          onChange={(value) => setField("note", value)}
         />
         <DetailTextField
           label="Location"
@@ -495,6 +540,16 @@ function DetailTypeFields({
           label="Commitment Type"
           value={draft.commitment_type}
           onChange={(value) => setField("commitment_type", value)}
+        />
+        <DetailTextAreaField
+          label="Description"
+          value={draft.description}
+          onChange={(value) => setField("description", value)}
+        />
+        <DetailTextAreaField
+          label="Note"
+          value={draft.note}
+          onChange={(value) => setField("note", value)}
         />
       </>
     );
@@ -557,6 +612,7 @@ function DetailTypeFields({
           controlLabel={`Parent for ${item.title}`}
           value={draft.parent_id}
           options={workspaceItems.relatedItems.goals}
+          allowNone
           onChange={(parent_id) => setField("parent_id", parent_id)}
         />
         <DetailTextAreaField
@@ -584,11 +640,17 @@ function DetailInlineField({
 function DetailTextField({
   label,
   type = "text",
+  min,
+  max,
+  step,
   value,
   onChange,
 }: {
   label: string;
   type?: "text" | "date" | "datetime-local" | "number";
+  min?: number;
+  max?: number;
+  step?: number;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -596,6 +658,9 @@ function DetailTextField({
     <DetailInlineField label={label}>
       <input
         type={type}
+        min={min}
+        max={max}
+        step={step}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -619,17 +684,222 @@ function DetailTextAreaField({
   );
 }
 
+function DetailPriorityField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  function normalize() {
+    if (value.trim() !== "") {
+      onChange(normalizePriorityDraft(value));
+    }
+  }
+
+  return (
+    <DetailInlineField label={label}>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        min={1}
+        max={10}
+        step={1}
+        value={value}
+        onChange={(event) => onChange(digitsOnly(event.target.value))}
+        onBlur={normalize}
+        onPaste={blockNonDigitPaste}
+        onKeyDown={(event) => {
+          blockNonDigitKey(event);
+          if (event.key === "Enter") {
+            event.preventDefault();
+            normalize();
+          }
+        }}
+      />
+    </DetailInlineField>
+  );
+}
+
+type ParsedRecurrenceRule = {
+  interval: string;
+  unit: "days" | "weeks" | "months" | "years";
+  anchor: string;
+};
+
+function RecurrenceRuleField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const parsed = parseRecurrenceRule(value);
+  const [intervalDraft, setIntervalDraft] = React.useState(parsed.interval);
+  const anchorOptions = recurrenceAnchorOptions(parsed.unit);
+
+  React.useEffect(() => {
+    setIntervalDraft(parsed.interval);
+  }, [parsed.interval]);
+
+  function commit(next: Partial<ParsedRecurrenceRule>) {
+    onChange(formatRecurrenceRule({ ...parsed, interval: intervalDraft, ...next }));
+  }
+
+  return (
+    <div className="recurrence-fields">
+      <label className="field-label">
+        Recurrence Interval
+        <input
+          type="number"
+          min={1}
+          max={365}
+          step={1}
+          value={intervalDraft}
+          onChange={(event) => {
+            const interval = event.target.value;
+            setIntervalDraft(interval);
+            if (validRecurrenceInterval(interval)) {
+              onChange(formatRecurrenceRule({ ...parsed, interval }));
+            }
+          }}
+          onBlur={() => {
+            if (!validRecurrenceInterval(intervalDraft)) {
+              setIntervalDraft("1");
+              onChange(formatRecurrenceRule({ ...parsed, interval: "1" }));
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        Recurrence Unit
+        <select
+          value={parsed.unit}
+          onChange={(event) => commit({ unit: event.target.value as ParsedRecurrenceRule["unit"], anchor: "" })}
+        >
+          <option value="days">Days</option>
+          <option value="weeks">Weeks</option>
+          <option value="months">Months</option>
+          <option value="years">Years</option>
+        </select>
+      </label>
+      {anchorOptions.length > 0 ? (
+        <label className="field-label">
+          Recurrence On
+          <select
+            value={parsed.anchor}
+            onChange={(event) => commit({ anchor: event.target.value })}
+          >
+            {anchorOptions.map(([optionValue, label]) => (
+              <option key={optionValue} value={optionValue}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+function validRecurrenceInterval(value: string): boolean {
+  const interval = Number(value);
+  return Number.isInteger(interval) && interval >= 1 && interval <= 365;
+}
+
+function parseRecurrenceRule(value: string): ParsedRecurrenceRule {
+  const normalized = value.trim().toLowerCase();
+  if (["daily", "every day"].includes(normalized)) {
+    return { interval: "1", unit: "days", anchor: "" };
+  }
+  if (["weekly", "every week"].includes(normalized)) {
+    return { interval: "1", unit: "weeks", anchor: "" };
+  }
+  if (["monthly", "every month"].includes(normalized)) {
+    return { interval: "1", unit: "months", anchor: "" };
+  }
+  if (["yearly", "every year"].includes(normalized)) {
+    return { interval: "1", unit: "years", anchor: "" };
+  }
+
+  const match = normalized.match(
+    /^every (?:(\d+) )?(day|days|week|weeks|month|months|year|years)(?: on (.+))?$/,
+  );
+  if (!match) {
+    return { interval: "1", unit: "days", anchor: "" };
+  }
+
+  return {
+    interval: match[1] ?? "1",
+    unit: pluralRecurrenceUnit(match[2]),
+    anchor: match[3] ?? "",
+  };
+}
+
+function pluralRecurrenceUnit(unit: string): ParsedRecurrenceRule["unit"] {
+  if (unit.startsWith("week")) {
+    return "weeks";
+  }
+  if (unit.startsWith("month")) {
+    return "months";
+  }
+  if (unit.startsWith("year")) {
+    return "years";
+  }
+  return "days";
+}
+
+function formatRecurrenceRule(rule: ParsedRecurrenceRule): string {
+  const interval = Number(rule.interval);
+  const safeInterval = Number.isInteger(interval) && interval > 0 ? interval : 1;
+  const unit = safeInterval === 1 ? rule.unit.slice(0, -1) : rule.unit;
+  const anchor = rule.anchor ? ` on ${rule.anchor}` : "";
+
+  return `every ${safeInterval} ${unit}${anchor}`;
+}
+
+function recurrenceAnchorOptions(unit: ParsedRecurrenceRule["unit"]): [string, string][] {
+  if (unit === "weeks") {
+    return [
+      ["", "Any day"],
+      ["weekdays", "Weekdays"],
+      ["weekends", "Weekends"],
+      ["monday", "Monday"],
+      ["tuesday", "Tuesday"],
+      ["wednesday", "Wednesday"],
+      ["thursday", "Thursday"],
+      ["friday", "Friday"],
+      ["saturday", "Saturday"],
+      ["sunday", "Sunday"],
+    ];
+  }
+  if (unit === "months") {
+    return [
+      ["", "Same day"],
+      ["the 1st", "1st day"],
+      ["the 15th", "15th day"],
+      ["the last", "Last day"],
+    ];
+  }
+  return [];
+}
+
 function DetailRelationField({
   label,
   controlLabel,
   value,
   options,
+  allowNone = false,
   onChange,
 }: {
   label: string;
   controlLabel: string;
   value: string;
   options: Record<string, string>;
+  allowNone?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
@@ -640,8 +910,8 @@ function DetailRelationField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        <option value="" disabled>
-          -
+        <option value="" disabled={!allowNone}>
+          {allowNone ? "None" : "-"}
         </option>
         {Object.entries(options).map(([id, title]) => (
           <option key={id} value={id}>
@@ -1007,22 +1277,42 @@ function InlineNumberInput({
     setDraft(currentValue);
   }, [currentValue]);
 
+  function commitDraft() {
+    if (draft === currentValue || draft.trim() === "") {
+      return;
+    }
+
+    const normalized = normalizePriorityDraft(draft);
+    setDraft(normalized);
+    const nextValue = Number(normalized);
+    if (validPriority(nextValue) && normalized !== currentValue) {
+      onCommit(nextValue);
+    }
+  }
+
   return (
     <input
       className="inline-cell-control inline-cell-number"
-      type="number"
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      min={1}
+      max={10}
+      step={1}
       aria-label={label}
       value={draft}
       onClick={stopRowEvent}
-      onKeyDown={stopRowEvent}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => {
-        if (draft === currentValue || draft.trim() === "") {
-          return;
+      onKeyDown={(event) => {
+        stopRowEvent(event);
+        blockNonDigitKey(event);
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitDraft();
         }
-
-        onCommit(Number(draft));
       }}
+      onPaste={blockNonDigitPaste}
+      onChange={(event) => setDraft(digitsOnly(event.target.value))}
+      onBlur={commitDraft}
     />
   );
 }
@@ -1031,11 +1321,13 @@ function InlineRelationSelect({
   label,
   value,
   options,
+  allowNone = false,
   onCommit,
 }: {
   label: string;
   value: string | null | undefined;
   options: Record<string, string>;
+  allowNone?: boolean;
   onCommit: (value: string) => void;
 }) {
   const selectedValue = value ?? "";
@@ -1050,15 +1342,15 @@ function InlineRelationSelect({
       onChange={(event) => {
         const nextValue = event.target.value;
 
-        if (!nextValue || nextValue === selectedValue) {
+        if (nextValue === selectedValue || (!allowNone && !nextValue)) {
           return;
         }
 
         onCommit(nextValue);
       }}
     >
-      <option value="" disabled>
-        -
+      <option value="" disabled={!allowNone}>
+        {allowNone ? "None" : "-"}
       </option>
       {Object.entries(options).map(([id, title]) => (
         <option key={id} value={id}>
@@ -1073,11 +1365,13 @@ function InlineSelect({
   label,
   value,
   options,
+  formatOption = (option) => option,
   onCommit,
 }: {
   label: string;
   value: string | null | undefined;
   options: string[];
+  formatOption?: (option: string) => string;
   onCommit: (value: string) => void;
 }) {
   const selectedValue = value ?? "";
@@ -1101,7 +1395,7 @@ function InlineSelect({
     >
       {options.map((option) => (
         <option key={option} value={option}>
-          {option}
+          {formatOption(option)}
         </option>
       ))}
     </select>
@@ -1115,14 +1409,13 @@ function StatusSelect({
   item: WorkspaceItemModel;
   controller: WorkbenchController;
 }) {
-  const enabledStatuses = enabledStatusOptionsForItem(item);
-  const visibleStatuses = visibleStatusOptionsForItem(item);
+  const visibleStatuses = statusOptionsForItem(item);
 
   return (
     <select
       className="inline-cell-control"
       aria-label={`Status for ${item.title}`}
-      value={item.status}
+      value={displayStatusForItem(item)}
       onClick={stopRowEvent}
       onKeyDown={stopRowEvent}
       onChange={(event) => {
@@ -1137,7 +1430,7 @@ function StatusSelect({
       }}
     >
       {visibleStatuses.map((status) => (
-        <option key={status} value={status} disabled={!enabledStatuses.includes(status)}>
+        <option key={status} value={status}>
           {status}
         </option>
       ))}
@@ -1154,8 +1447,7 @@ function DetailStatusField({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const enabledStatuses = enabledStatusOptionsForItem(item);
-  const visibleStatuses = visibleStatusOptionsForItem(item);
+  const visibleStatuses = statusOptionsForItem(item);
 
   return (
     <DetailInlineField label="Status">
@@ -1166,7 +1458,7 @@ function DetailStatusField({
         onChange={(event) => onChange(event.target.value)}
       >
         {visibleStatuses.map((status) => (
-          <option key={status} value={status} disabled={!enabledStatuses.includes(status)}>
+          <option key={status} value={status}>
             {status}
           </option>
         ))}
@@ -1175,8 +1467,48 @@ function DetailStatusField({
   );
 }
 
+function statusOptionsForItem(item: WorkspaceItemModel): string[] {
+  if (item.type === "task" || item.type === "event") {
+    return visibleStatusOptionsForItem(item);
+  }
+
+  const baseOptions = visibleStatusOptionsForItem(item);
+  const enabledStatuses = enabledStatusOptionsForItem(item);
+  return uniqueStatuses([item.status, ...enabledStatuses]).filter((status) =>
+    baseOptions.includes(status) || status === item.status,
+  );
+}
+
+function detailStatusForItem(item: WorkspaceItemModel | null): string {
+  return item ? displayStatusForItem(item) : "";
+}
+
+function displayStatusForItem(item: WorkspaceItemModel): string {
+  if (
+    (item.type === "task" && item.status !== "completed") ||
+    (item.type === "event" && !eventStatusOptions.includes(item.status))
+  ) {
+    return "active";
+  }
+
+  return item.status;
+}
+
+function uniqueStatuses(statuses: string[]): string[] {
+  return [...new Set(statuses)];
+}
+
 function visibleStatusOptionsForItem(item: WorkspaceItemModel): string[] {
-  return item.type === "area" ? areaStatusOptions : statusOptions;
+  if (item.type === "area") {
+    return areaStatusOptions;
+  }
+  if (item.type === "task") {
+    return taskStatusOptions;
+  }
+  if (item.type === "event") {
+    return eventStatusOptions;
+  }
+  return statusOptions;
 }
 
 function enabledStatusOptionsForItem(item: WorkspaceItemModel): string[] {
@@ -1268,6 +1600,7 @@ function projectColumn(): ItemColumn {
         label={`Project for ${item.title}`}
         value={item.project_id}
         options={items.relatedItems.projects}
+        allowNone
         onCommit={(project_id) =>
           void controller.patchWorkspaceItem(item.id, { project_id })
         }
@@ -1279,16 +1612,7 @@ function projectColumn(): ItemColumn {
 function routineColumn(): ItemColumn {
   return {
     label: "Routine",
-    value: (item, items, controller) => (
-      <InlineRelationSelect
-        label={`Routine for ${item.title}`}
-        value={item.routine_id}
-        options={items.relatedItems.routines}
-        onCommit={(routine_id) =>
-          void controller.patchWorkspaceItem(item.id, { routine_id })
-        }
-      />
-    ),
+    value: (item, items) => relatedTitle(items.relatedItems.routines, item.routine_id),
   };
 }
 
@@ -1377,6 +1701,7 @@ function parentGoalColumn(): ItemColumn {
         label={`Parent for ${item.title}`}
         value={item.parent_id}
         options={items.relatedItems.goals}
+        allowNone
         onCommit={(parent_id) =>
           void controller.patchWorkspaceItem(item.id, { parent_id })
         }
@@ -1469,7 +1794,8 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
         <InlineSelect
           label={`Materialization Policy for ${item.title}`}
           value={item.materialization_policy}
-          options={["single_open", "per_occurrence"]}
+          options={materializationPolicyOptions}
+          formatOption={displayMaterializationPolicy}
           onCommit={(materialization_policy) =>
             void controller.patchWorkspaceItem(item.id, { materialization_policy })
           }
@@ -1491,14 +1817,14 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     startsAtColumn(),
     dueColumn(),
     priorityColumn(),
-    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
-    { label: "Note", value: (item) => displayValue(item.note) },
     locationColumn(),
     {
       label: "Participants",
       value: (item) => displayValue(item.metadata_?.participants?.join(", ")),
     },
     commitmentTypeColumn(),
+    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
+    { label: "Note", value: (item) => displayValue(item.note) },
     { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
@@ -1530,6 +1856,15 @@ function relatedTitle(
 
 function displayValue(value: string | number | null | undefined): string {
   return value?.toString() || "-";
+}
+
+function displayMaterializationPolicy(value: string): string {
+  return value
+    .split("_")
+    .map((part, index) =>
+      index === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part,
+    )
+    .join(" ");
 }
 
 function formatDateValue(value: string | null | undefined): string {

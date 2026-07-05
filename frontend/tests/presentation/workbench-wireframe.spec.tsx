@@ -385,7 +385,7 @@ describe("WorkbenchPageClient", () => {
     );
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(
-      screen.getByRole("cell", { name: "single_open" }),
+      screen.getByRole("cell", { name: "Single open" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "After coffee" })).toBeInTheDocument();
     expect(screen.getAllByRole("cell", { name: "2026-06-21" }).length).toBeGreaterThan(0);
@@ -565,6 +565,17 @@ describe("WorkbenchPageClient", () => {
             type: "task",
             title: "New task",
             status: "approved",
+          }),
+        });
+      }
+      if (url === "/todo-engine/items/task-new/activate") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-new",
+            type: "task",
+            title: "New task",
+            status: "active",
           }),
         });
       }
@@ -984,7 +995,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("Book physio");
     expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-07-03");
     expect(screen.getByLabelText("Due")).toHaveValue("2026-07-04");
-    expect(screen.getByLabelText("Priority")).toHaveValue(1);
+    expect(screen.getByLabelText("Priority")).toHaveValue("1");
     expect(screen.getByLabelText("Description")).toHaveValue("Original description");
     expect(screen.getByLabelText("Note")).toHaveValue("Original note");
     expect(screen.getByText("2026-07-01")).toBeInTheDocument();
@@ -1002,6 +1013,52 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByDisplayValue("Updated description")).toBeInTheDocument();
+  });
+
+  it("blocks non-digit task priority characters in detail edits", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+        expect(JSON.parse(String(init.body))).toEqual({ priority: 10 });
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            priority: 10,
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active", priority: 1 },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+
+    const priority = screen.getByLabelText("Priority");
+    await user.clear(priority);
+    await user.type(priority, "2.7a-");
+    expect(priority).toHaveDisplayValue("27");
+    await user.tab();
+    expect(priority).toHaveDisplayValue("10");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
   });
 
   it("shows the same goal fields in the table and detail", async () => {
@@ -1120,7 +1177,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ recurrence_rule: "weekly" }));
+        expect(init.body).toBe(JSON.stringify({ recurrence_rule: "every 2 weeks" }));
 
         return Promise.resolve({
           ok: true,
@@ -1160,8 +1217,10 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Routines" }));
 
     await user.click(await screen.findByRole("cell", { name: "Stretch" }));
-    await user.clear(screen.getByLabelText("Recurrence Rule"));
-    await user.type(screen.getByLabelText("Recurrence Rule"), "weekly");
+    expect(screen.queryByLabelText("Recurrence Rule")).toBeNull();
+    await user.clear(screen.getByLabelText("Recurrence Interval"));
+    await user.type(screen.getByLabelText("Recurrence Interval"), "2");
+    await user.selectOptions(screen.getByLabelText("Recurrence Unit"), "weeks");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -1261,6 +1320,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Events" }));
 
     await user.click(await screen.findByRole("cell", { name: "Review" }));
+    expectFieldBefore("Description", "Note");
     await user.clear(screen.getByLabelText("Location"));
     await user.type(screen.getByLabelText("Location"), "Office");
     await user.clear(screen.getByLabelText("Priority"));
@@ -1271,6 +1331,141 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/items/event-1",
       expect.objectContaining({ method: "PATCH" }),
     );
+  });
+
+  it("shows only active status choices and bounded integer priority controls", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=event"
+              ? [
+                  {
+                    id: "event-1",
+                    type: "event",
+                    title: "Review",
+                    status: "active",
+                    priority: 4,
+                  },
+                ]
+              : [
+                  {
+                    id: "task-1",
+                    type: "task",
+                    title: "One",
+                    status: "active",
+                    priority: 5,
+                  },
+                ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    expect(await statusOptions("One")).toEqual(["active", "completed"]);
+    expect(await enabledStatusOptions("One")).toEqual(["active", "completed"]);
+    expect(screen.getByLabelText("Priority for One")).toHaveAttribute("min", "1");
+    expect(screen.getByLabelText("Priority for One")).toHaveAttribute("max", "10");
+    expect(screen.getByLabelText("Priority for One")).toHaveAttribute("step", "1");
+
+    await user.click(screen.getByRole("cell", { name: "One" }));
+    expect(screen.getByLabelText("Priority")).toHaveAttribute("min", "1");
+    expect(screen.getByLabelText("Priority")).toHaveAttribute("max", "10");
+    expect(screen.getByLabelText("Priority")).toHaveAttribute("step", "1");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+
+    await user.click(screen.getByRole("button", { name: "Events" }));
+    expect(await statusOptions("Review")).toEqual(["active", "paused", "completed"]);
+  });
+
+  it("hides approved from task and event status even when stored data is approved", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=event"
+              ? [
+                  {
+                    id: "event-1",
+                    type: "event",
+                    title: "Review",
+                    status: "approved",
+                  },
+                ]
+              : [
+                  {
+                    id: "task-1",
+                    type: "task",
+                    title: "One",
+                    status: "approved",
+                  },
+                ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const status = await screen.findByLabelText("Status for One");
+    expect(status).toHaveValue("active");
+    expect(await statusOptions("One")).toEqual(["active", "completed"]);
+
+    await user.click(screen.getByRole("button", { name: "Events" }));
+    const eventStatus = await screen.findByLabelText("Status for Review");
+    expect(eventStatus).toHaveValue("active");
+    expect(await statusOptions("Review")).toEqual(["active", "paused", "completed"]);
+  });
+
+  it("lets project and parent selects choose none while area remains required", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => {
+            if (url === "/todo-engine/items?type=area") {
+              return [{ id: "area-1", type: "area", title: "Health", status: "active" }];
+            }
+            if (url === "/todo-engine/items?type=project") {
+              return [{ id: "project-1", type: "project", title: "Plan", status: "active" }];
+            }
+            if (url === "/todo-engine/items?type=goal") {
+              return [{ id: "goal-1", type: "goal", title: "Goal", status: "active" }];
+            }
+            return [{ id: "task-1", type: "task", title: "One", status: "active", area_id: "area-1" }];
+          },
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+
+    expect(within(screen.getByLabelText("Project for One")).getByRole("option", { name: "None" })).toBeEnabled();
+    expect(within(screen.getByLabelText("Area for One")).getByRole("option", { name: "-" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+    await user.click(await screen.findByRole("cell", { name: "Goal" }));
+    expect(within(screen.getByLabelText("Parent for Goal")).getByRole("option", { name: "None" })).toBeEnabled();
+    expect(within(screen.getByLabelText("Parent for Goal")).getByRole("option", { name: "Goal" })).toHaveValue("goal-1");
   });
 
   it("opens a detail view from the keyboard", async () => {
@@ -1495,6 +1690,48 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "Review" })).not.toBeInTheDocument();
   });
 
+  it("blocks non-digit event priority characters before inline Enter commit", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/event-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(JSON.stringify({ priority: 10 }));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "event-1",
+            type: "event",
+            title: "Review",
+            status: "active",
+            priority: 10,
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "event-1", type: "event", title: "Review", status: "active", priority: 1 },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Events" }));
+
+    const priority = await screen.findByLabelText("Priority for Review");
+    await user.clear(priority);
+    await user.type(priority, "3.9a-{Enter}");
+
+    expect(priority).toHaveDisplayValue("10");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/event-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
   it("transitions inline status without opening details", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
@@ -1593,7 +1830,7 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
-  it("shows every status while enabling only service-allowed inline transitions", async () => {
+  it("shows only service-allowed inline status transitions", async () => {
     const user = userEvent.setup();
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=area": [
@@ -1667,24 +1904,20 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Projects" }));
     expect(await statusOptions("Project without DoD")).toEqual([
-      "proposed",
       "approved",
-      "active",
-      "paused",
-      "completed",
-      "archived",
     ]);
     expect(await enabledStatusOptions("Project without DoD")).toEqual(["approved"]);
     expect(await enabledStatusOptions("Project with DoD")).toEqual(["approved", "active"]);
 
     await user.click(screen.getByRole("button", { name: "Routines" }));
     expect(await enabledStatusOptions("Routine without rule")).toEqual(["approved"]);
-    expect(await enabledStatusOptions("Paused routine")).toEqual(["active", "paused"]);
+    expect(await enabledStatusOptions("Paused routine")).toEqual(["paused", "active"]);
 
     await user.click(screen.getByRole("button", { name: "Events" }));
     expect(await enabledStatusOptions("Event without scheduled")).toEqual([
-      "approved",
       "active",
+      "paused",
+      "completed",
     ]);
     expect(await enabledStatusOptions("Scheduled event")).toEqual([
       "active",
@@ -1704,10 +1937,10 @@ describe("WorkbenchPageClient", () => {
       "paused",
       "completed",
     ]);
-    expect(await enabledStatusOptions("Paused goal")).toEqual(["active", "paused"]);
+    expect(await enabledStatusOptions("Paused goal")).toEqual(["paused", "active"]);
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
-    expect(await enabledStatusOptions("Proposed task")).toEqual(["proposed", "approved"]);
+    expect(await enabledStatusOptions("Proposed task")).toEqual(["active", "completed"]);
   });
 
   it("disables the relation placeholder for an existing relation", async () => {
