@@ -1282,7 +1282,7 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
         <table className="items-table" aria-label={`${panel.title} items`}>
           <thead>
             <tr>
-              <th scope="col">
+              <th scope="col" className="selection-column">
                 <input
                   ref={selectAllCheckboxRef}
                   type="checkbox"
@@ -1313,7 +1313,7 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
                   }
                 }}
               >
-                <td>
+                <td className="selection-column">
                   <input
                     type="checkbox"
                     aria-label={`Select ${item.title}`}

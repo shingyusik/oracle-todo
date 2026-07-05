@@ -244,6 +244,9 @@ describe("WorkbenchPageClient", () => {
       expect(fetchMock).toHaveBeenCalledWith("/todo-engine/items?type=area"),
     );
     expect(screen.getByRole("table", { name: "Areas items" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Select all visible items").closest("th")).toHaveClass(
+      "selection-column",
+    );
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "active" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "weekly" })).toBeInTheDocument();
