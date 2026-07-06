@@ -195,8 +195,11 @@ function PlannerPanel({ controller }: MainPanelProps) {
   }
 
   return (
-    <section className="items-section" aria-label={`${panel.title} planner`}>
-      <div className="items-toolbar">
+    <section
+      className="items-section planner-panel"
+      aria-label={`${panel.title} planner`}
+    >
+      <div className="items-toolbar planner-toolbar">
         <button
           className="items-toolbar-button"
           type="button"
@@ -208,7 +211,9 @@ function PlannerPanel({ controller }: MainPanelProps) {
       </div>
       {panel.id === "weekly" ? <WeeklyPlanner controller={controller} /> : null}
       {panel.id === "daily" ? <DailyPlanner controller={controller} /> : null}
-      {panel.id === "yearly" ? <GoalPlannerList controller={controller} horizon="year" /> : null}
+      {panel.id === "yearly" ? (
+        <GoalPlannerList controller={controller} horizon="year" />
+      ) : null}
       {panel.id === "monthly" ? (
         <GoalPlannerList controller={controller} horizon="month" />
       ) : null}
@@ -229,15 +234,19 @@ function GoalPlannerList({
   );
 
   return (
-    <section aria-label={`${horizon} goals`}>
+    <section className="planner-section" aria-label={`${horizon} goals`}>
       <h2>{horizon === "year" ? "Year goals" : "Month goals"}</h2>
       {goals.length === 0 ? (
         <p className="items-message">No goals found.</p>
       ) : (
-        <ul>
+        <ul className="planner-card-list">
           {goals.map((item) => (
             <li key={item.id}>
-              <button type="button" onClick={() => controller.openDetailView(item)}>
+              <button
+                className="planner-item"
+                type="button"
+                onClick={() => controller.openDetailView(item)}
+              >
                 {item.title}
               </button>
             </li>
@@ -255,50 +264,68 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
   );
 
   return (
-    <div>
-      <section aria-label="Weekly month goals">
-        <h2>Goals for this month</h2>
-        {model.monthGoals.length === 0 ? (
-          <p className="items-message">No goals found.</p>
-        ) : (
-          <ul>
-            {model.monthGoals.map((item) => (
-              <li key={item.id}>
-                <button type="button" onClick={() => controller.openDetailView(item)}>
-                  {item.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      <section aria-label="Weekly goals">
-        <h2>Goals for this week</h2>
-        {model.weekGoals.length === 0 ? (
-          <p className="items-message">No goals found.</p>
-        ) : (
-          <ul>
-            {model.weekGoals.map((item) => (
-              <li key={item.id}>
-                <button type="button" onClick={() => controller.openDetailView(item)}>
-                  {item.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      <div>
+    <div className="planner-panel">
+      <div className="planner-goal-grid">
+        <section className="planner-section" aria-label="Weekly month goals">
+          <h2>Goals for this month</h2>
+          {model.monthGoals.length === 0 ? (
+            <p className="items-message">No goals found.</p>
+          ) : (
+            <ul className="planner-card-list">
+              {model.monthGoals.map((item) => (
+                <li key={item.id}>
+                  <button
+                    className="planner-item"
+                    type="button"
+                    onClick={() => controller.openDetailView(item)}
+                  >
+                    {item.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className="planner-section" aria-label="Weekly goals">
+          <h2>Goals for this week</h2>
+          {model.weekGoals.length === 0 ? (
+            <p className="items-message">No goals found.</p>
+          ) : (
+            <ul className="planner-card-list">
+              {model.weekGoals.map((item) => (
+                <li key={item.id}>
+                  <button
+                    className="planner-item"
+                    type="button"
+                    onClick={() => controller.openDetailView(item)}
+                  >
+                    {item.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+      <div className="weekly-day-grid">
         {model.days.map((day) => (
-          <section key={day.date} data-testid="weekly-day-card">
+          <section
+            className="planner-card"
+            key={day.date}
+            data-testid="weekly-day-card"
+          >
             <h3>{day.label}</h3>
             {day.items.length === 0 ? (
               <p className="items-message">No scheduled items.</p>
             ) : (
-              <ul>
+              <ul className="planner-card-list">
                 {day.items.map((item) => (
                   <li key={item.id}>
-                    <button type="button" onClick={() => controller.openDetailView(item)}>
+                    <button
+                      className="planner-item"
+                      type="button"
+                      onClick={() => controller.openDetailView(item)}
+                    >
                       {item.title}
                     </button>
                   </li>
@@ -326,8 +353,8 @@ function DailyPlanner({ controller }: MainPanelProps) {
   const filterOptions = buildDailyFilterOptions(controller);
 
   return (
-    <div>
-      <div className="items-toolbar">
+    <div className="planner-panel">
+      <div className="items-toolbar planner-control-row">
         <DailyFilterSelect
           label="Filter daily items by tags"
           options={filterOptions.tags}
@@ -365,7 +392,7 @@ function DailyPlanner({ controller }: MainPanelProps) {
           onChange={(values) => controller.setDailyFilter("statuses", values)}
         />
       </div>
-      <div className="items-toolbar">
+      <div className="items-toolbar planner-control-row">
         <label>
           Group by
           <select
@@ -513,18 +540,22 @@ function DailyPlannerSectionView({
   section: DailyPlannerSection;
 }) {
   return (
-    <section aria-label={section.title}>
+    <section className="planner-section" aria-label={section.title}>
       <h2>{section.title}</h2>
       {section.groups.length === 0 ? (
         <p className="items-message">No items found.</p>
       ) : (
         section.groups.map((group) => (
-          <div key={group.key}>
+          <div className="planner-card-list" key={group.key}>
             {group.label !== "All" ? <h3>{group.label}</h3> : null}
-            <ul>
+            <ul className="planner-card-list">
               {group.items.map((item) => (
                 <li key={item.id}>
-                  <button type="button" onClick={() => controller.openDetailView(item)}>
+                  <button
+                    className="planner-item"
+                    type="button"
+                    onClick={() => controller.openDetailView(item)}
+                  >
                     {item.title}
                   </button>
                 </li>
