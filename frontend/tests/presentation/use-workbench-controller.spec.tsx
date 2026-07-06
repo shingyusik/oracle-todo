@@ -3,6 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
 
+function formatDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function testWeekStart(): string {
+  const value = new Date();
+  const day = value.getDay();
+  value.setDate(value.getDate() + (day === 0 ? -6 : 1 - day));
+  return formatDate(value);
+}
+
 describe("useWorkbenchController", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
@@ -428,6 +442,7 @@ describe("useWorkbenchController", () => {
   });
 
   it("anchors weekly planner goal creation to the active week", async () => {
+    const weekStart = testWeekStart();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/goals/propose") {
         expect(init).toEqual(expect.objectContaining({ method: "POST" }));
@@ -439,7 +454,7 @@ describe("useWorkbenchController", () => {
             title: "New goal",
             status: "approved",
             horizon: "week",
-            scheduled: "2026-07-06",
+            scheduled: weekStart,
           }),
         });
       }
@@ -468,7 +483,7 @@ describe("useWorkbenchController", () => {
         body: JSON.stringify({
           title: "New goal",
           horizon: "week",
-          scheduled: "2026-07-06",
+          scheduled: weekStart,
           actor: "user",
         }),
       }),
@@ -477,7 +492,7 @@ describe("useWorkbenchController", () => {
     expect(result.current.workspaceItems.items[0]).toMatchObject({
       id: "goal-new",
       horizon: "week",
-      scheduled: "2026-07-06",
+      scheduled: weekStart,
     });
   });
 
