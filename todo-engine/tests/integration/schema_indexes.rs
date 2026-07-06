@@ -109,3 +109,35 @@ fn migration_preserves_columns_and_adds_no_period_key() {
         );
     }
 }
+
+#[test]
+fn init_schema_adds_tags_column_to_legacy_items_table() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE items (
+            id TEXT NOT NULL PRIMARY KEY,
+            type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    )
+    .unwrap();
+
+    todo_engine::infrastructure::sqlite::init_schema(&conn).unwrap();
+
+    let columns = item_columns_vec(&conn);
+    assert!(columns.iter().any(|column| column == "tags"));
+}
+
+fn item_columns_vec(conn: &rusqlite::Connection) -> Vec<String> {
+    let mut statement = conn.prepare("PRAGMA table_info(items)").unwrap();
+    statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}

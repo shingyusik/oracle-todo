@@ -39,6 +39,7 @@ pub(super) fn project_propose(home: &Path, args: ProjectProposeArgs) -> Result<(
         due: args.due,
         actor: args.actor,
         note: args.note,
+        tags: Vec::new(),
     })?;
     print_json(&item)?;
     Ok(())
@@ -53,6 +54,7 @@ pub(super) fn goal_propose(home: &Path, args: GoalProposeArgs) -> Result<()> {
         parent_id: args.parent_id,
         actor: args.actor,
         note: args.note,
+        tags: Vec::new(),
     })?;
     print_json(&item)?;
     Ok(())
@@ -65,6 +67,7 @@ pub(super) fn area_create(home: &Path, args: AreaCreateArgs) -> Result<()> {
         review_cycle: args.review_cycle,
         standard: args.standard,
         note: args.note,
+        tags: Vec::new(),
     })?;
     print_json(&item)?;
     Ok(())
@@ -79,6 +82,7 @@ pub(super) fn routine_propose(home: &Path, args: RoutineProposeArgs) -> Result<(
         recurrence_rule: args.recurrence_rule,
         materialization_policy: args.materialization_policy,
         note: args.note,
+        tags: Vec::new(),
     })?;
     print_json(&item)?;
     Ok(())
@@ -99,6 +103,7 @@ pub(super) fn event_propose(home: &Path, args: EventProposeArgs) -> Result<()> {
         location: args.location,
         participants: args.participants,
         commitment_type: args.commitment_type,
+        tags: Vec::new(),
     })?;
     print_json(&item)?;
     Ok(())

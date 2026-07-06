@@ -25,8 +25,8 @@ pub(super) fn item_select_sql(suffix: &str) -> String {
                 description, note, outcome, definition_of_done, standard, review_cycle,
                 recurrence_rule, materialization_policy, occurrence_key, priority, due,
                 scheduled, horizon, proposed_by, approved_by, approved_at, completed_at,
-                archived_at, last_materialized_at, second_brain_refs, metadata, created_at,
-                updated_at
+                archived_at, last_materialized_at, second_brain_refs, tags, metadata,
+                created_at, updated_at
          FROM items
          {suffix}"
     )
@@ -42,9 +42,10 @@ pub(super) fn row_to_item(row: &Row<'_>) -> TodoResult<TodoItem> {
     let archived_at: Option<String> = row_value(row, 25)?;
     let last_materialized_at: Option<String> = row_value(row, 26)?;
     let second_brain_refs: String = row_value(row, 27)?;
-    let metadata: String = row_value(row, 28)?;
-    let created_at: String = row_value(row, 29)?;
-    let updated_at: String = row_value(row, 30)?;
+    let tags: String = row_value(row, 28)?;
+    let metadata: String = row_value(row, 29)?;
+    let created_at: String = row_value(row, 30)?;
+    let updated_at: String = row_value(row, 31)?;
 
     Ok(TodoItem {
         id: row_value(row, 0)?,
@@ -75,6 +76,7 @@ pub(super) fn row_to_item(row: &Row<'_>) -> TodoResult<TodoItem> {
         archived_at: parse_optional_time(archived_at.as_deref())?,
         last_materialized_at: parse_optional_time(last_materialized_at.as_deref())?,
         second_brain_refs: parse_json(&second_brain_refs)?,
+        tags: parse_tags(&tags)?,
         metadata: parse_json_object(&metadata)?,
         created_at: parse_time(&created_at)?,
         updated_at: parse_time(&updated_at)?,
@@ -144,6 +146,18 @@ pub(super) fn format_optional_time(value: Option<OffsetDateTime>) -> TodoResult<
 
 pub(super) fn parse_json(value: &str) -> TodoResult<Vec<Value>> {
     serde_json::from_str(value).map_err(|error| TodoError::Storage(error.to_string()))
+}
+
+pub(super) fn parse_tags(value: &str) -> TodoResult<Vec<String>> {
+    parse_json(value)?
+        .into_iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| TodoError::Storage("tag values must be strings".to_string()))
+        })
+        .collect()
 }
 
 pub(super) fn parse_json_object(value: &str) -> TodoResult<Map<String, Value>> {

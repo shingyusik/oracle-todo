@@ -60,6 +60,7 @@ pub struct TodoItem {
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_materialized_at: Option<OffsetDateTime>,
     pub second_brain_refs: Vec<Value>,
+    pub tags: Vec<String>,
     #[serde(rename = "metadata_")]
     pub metadata: Map<String, Value>,
     #[serde(with = "time::serde::rfc3339")]
@@ -134,6 +135,7 @@ impl TodoItem {
             archived_at: None,
             last_materialized_at: None,
             second_brain_refs: Vec::new(),
+            tags: Vec::new(),
             metadata: Map::new(),
             created_at: now,
             updated_at: now,

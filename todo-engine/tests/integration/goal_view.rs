@@ -11,6 +11,7 @@ fn goal(horizon: &str, scheduled: &str, parent_id: Option<&str>) -> ProposeGoal 
         parent_id: parent_id.map(ToString::to_string),
         actor: Actor::User,
         note: None,
+        tags: Vec::new(),
     }
 }
 

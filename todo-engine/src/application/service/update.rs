@@ -22,6 +22,7 @@ pub struct UpdateItem {
     pub scheduled: Option<String>,
     pub horizon: Option<String>,
     pub priority: Option<i64>,
+    pub tags: Option<Vec<String>>,
     pub location: Option<String>,
     pub participants: Option<Vec<String>>,
     pub commitment_type: Option<String>,
@@ -48,6 +49,7 @@ impl TodoService {
             scheduled,
             horizon,
             priority,
+            tags,
             location,
             participants,
             commitment_type,
@@ -204,6 +206,9 @@ impl TodoService {
         }
         if let Some(priority) = priority {
             item.priority = Some(priority);
+        }
+        if let Some(tags) = tags {
+            item.tags = super::normalize_tags(tags);
         }
         if let Some(location) = location {
             item.metadata

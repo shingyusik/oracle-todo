@@ -36,6 +36,7 @@ pub(super) async fn create_area(
             review_cycle: body.review_cycle,
             standard: body.standard,
             note: body.note,
+            tags: body.tags.unwrap_or_default(),
         })
     })?;
     Ok(Json(item))
@@ -64,6 +65,7 @@ pub(super) async fn propose_task(
                 priority: body.priority,
                 description: body.description,
                 note: body.note,
+                tags: body.tags.unwrap_or_default(),
                 ..Default::default()
             },
         )
@@ -86,6 +88,7 @@ pub(super) async fn propose_project(
             due: body.due,
             actor,
             note: body.note,
+            tags: body.tags.unwrap_or_default(),
         })
     })?;
     Ok(Json(item))
@@ -105,6 +108,7 @@ pub(super) async fn propose_goal(
             parent_id: body.parent_id,
             actor,
             note: body.note,
+            tags: body.tags.unwrap_or_default(),
         })
     })?;
     Ok(Json(item))
@@ -126,6 +130,7 @@ pub(super) async fn propose_routine(
                 .materialization_policy
                 .unwrap_or_else(|| "single_open".to_string()),
             note: body.note,
+            tags: body.tags.unwrap_or_default(),
         })
     })?;
     Ok(Json(item))
@@ -153,6 +158,7 @@ pub(super) async fn propose_event(
             commitment_type: body
                 .commitment_type
                 .unwrap_or_else(|| "appointment".to_string()),
+            tags: body.tags.unwrap_or_default(),
         })
     })?;
     Ok(Json(item))
@@ -264,6 +270,7 @@ pub(super) async fn update_item(
                 scheduled: body.scheduled,
                 horizon: body.horizon,
                 priority: body.priority,
+                tags: body.tags,
                 location: body.location,
                 participants: body.participants,
                 commitment_type: body.commitment_type,

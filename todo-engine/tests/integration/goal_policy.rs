@@ -10,6 +10,7 @@ fn goal(actor: Actor, horizon: &str, scheduled: &str, parent_id: Option<&str>) -
         parent_id: parent_id.map(ToString::to_string),
         actor,
         note: None,
+        tags: Vec::new(),
     }
 }
 
@@ -175,6 +176,7 @@ fn link_task_to_non_goal_parent_is_rejected() {
             due: None,
             actor: Actor::User,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     let task = service

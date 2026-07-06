@@ -7,6 +7,19 @@ pub struct CreateArea {
     pub review_cycle: Option<String>,
     pub standard: Option<String>,
     pub note: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl Default for CreateArea {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            review_cycle: None,
+            standard: None,
+            note: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 pub struct ProposeTask {
@@ -19,6 +32,7 @@ pub struct ProposeTask {
     pub priority: Option<i64>,
     pub description: Option<String>,
     pub note: Option<String>,
+    pub tags: Vec<String>,
 }
 
 impl Default for ProposeTask {
@@ -33,6 +47,7 @@ impl Default for ProposeTask {
             priority: None,
             description: None,
             note: None,
+            tags: Vec::new(),
         }
     }
 }
@@ -45,6 +60,22 @@ pub struct ProposeProject {
     pub due: Option<String>,
     pub actor: Actor,
     pub note: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl Default for ProposeProject {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            area: None,
+            definition_of_done: None,
+            outcome: None,
+            due: None,
+            actor: Actor::Agent,
+            note: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 pub struct ProposeGoal {
@@ -54,6 +85,21 @@ pub struct ProposeGoal {
     pub parent_id: Option<String>,
     pub actor: Actor,
     pub note: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl Default for ProposeGoal {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            horizon: String::new(),
+            scheduled: String::new(),
+            parent_id: None,
+            actor: Actor::Agent,
+            note: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 pub struct ProposeRoutine {
@@ -63,6 +109,21 @@ pub struct ProposeRoutine {
     pub recurrence_rule: Option<String>,
     pub materialization_policy: String,
     pub note: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl Default for ProposeRoutine {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            area: None,
+            actor: Actor::Agent,
+            recurrence_rule: None,
+            materialization_policy: "single_open".to_string(),
+            note: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 pub struct ProposeEvent {
@@ -78,6 +139,27 @@ pub struct ProposeEvent {
     pub participants: Vec<String>,
     pub commitment_type: String,
     pub note: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl Default for ProposeEvent {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            actor: Actor::Agent,
+            scheduled: None,
+            area: None,
+            project_id: None,
+            due: None,
+            priority: None,
+            description: None,
+            location: None,
+            participants: Vec::new(),
+            commitment_type: "appointment".to_string(),
+            note: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 impl TodoService {
@@ -94,6 +176,7 @@ impl TodoService {
         item.review_cycle = request.review_cycle;
         item.standard = request.standard;
         item.note = request.note;
+        item.tags = super::normalize_tags(request.tags);
         self.store_item_and_event(Actor::User, "create_area", None, item, None)
     }
 
@@ -115,6 +198,7 @@ impl TodoService {
         item.priority = request.priority;
         item.description = request.description;
         item.note = request.note;
+        item.tags = super::normalize_tags(request.tags);
         self.store_item_and_event(item.proposed_by, "propose_task", None, item, None)
     }
 
@@ -133,6 +217,7 @@ impl TodoService {
         item.outcome = request.outcome;
         item.due = request.due;
         item.note = request.note;
+        item.tags = super::normalize_tags(request.tags);
         self.store_item_and_event(item.proposed_by, "propose_project", None, item, None)
     }
 
@@ -158,6 +243,7 @@ impl TodoService {
         item.scheduled = Some(canonical);
         item.parent_id = request.parent_id;
         item.note = request.note;
+        item.tags = super::normalize_tags(request.tags);
         self.store_item_and_event(item.proposed_by, "propose_goal", None, item, None)
     }
 
@@ -184,6 +270,7 @@ impl TodoService {
         item.recurrence_rule = request.recurrence_rule;
         item.materialization_policy = request.materialization_policy;
         item.note = request.note;
+        item.tags = super::normalize_tags(request.tags);
         self.store_item_and_event(item.proposed_by, "propose_routine", None, item, None)
     }
 
@@ -218,6 +305,7 @@ impl TodoService {
             "schedule_kind".to_string(),
             serde_json::Value::String("external_commitment".to_string()),
         );
+        item.tags = super::normalize_tags(request.tags);
         if let Some(location) = request.location {
             item.metadata
                 .insert("location".to_string(), serde_json::Value::String(location));

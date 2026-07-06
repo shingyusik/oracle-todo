@@ -1,151 +1,104 @@
-# Task 1 Report: Add Service/API Update Support for UI-Editable Fields
+# Task 1 Report: Backend Tags Field
 
-## What changed
+## Summary
 
-- Added a failing e2e API test for PATCH `/items/{id}` covering:
-  - goal `horizon` updates
-  - event metadata updates for `location`, `participants`, and `commitment_type`
-- Extended `UpdateItem` in the service layer to accept:
-  - `horizon`
-  - `location`
-  - `participants`
-  - `commitment_type`
-- Updated `TodoService::update_item` to:
-  - write `horizon` onto the item directly
-  - write event-editable metadata fields into `item.metadata`
-  - continue persisting through the existing service/repository/audit-event path
-- Wired the API PATCH DTO and handler so the new request fields reach `TodoService::update_item`
-- Updated the CLI `UpdateItem` initializer with `None` for the new fields so the crate still compiles after extending the shared request struct
+- Added `TodoItem.tags: Vec<String>` to the domain model with empty default initialization.
+- Added service-layer tag normalization so create/propose/update flows trim whitespace, drop empties, and de-duplicate while preserving order.
+- Added SQLite persistence for `items.tags` as JSON text with additive schema backfill through `ensure_item_columns`.
+- Wired API create/propose/update DTOs and handlers so requests can accept `tags` and responses serialize them back out.
 
-## Tests run
+## TDD
 
-### RED
+### RED 1: API round-trip
+
+Added `api_create_and_patch_round_trips_tags` to `todo-engine/tests/e2e/api.rs`.
 
 Command:
 
 ```bash
-cargo test -p todo-engine --test e2e api_patch_updates_goal_horizon_and_event_metadata
+cargo test -p todo-engine --test e2e api_create_and_patch_round_trips_tags
 ```
 
 Observed failure:
 
 ```text
-thread 'api::api_patch_updates_goal_horizon_and_event_metadata' panicked at todo-engine/tests/e2e/api.rs:590:5:
 assertion `left == right` failed
-  left: String("month")
- right: "year"
+  left: Null
+ right: Array [String("deep-work"), String("planning")]
 ```
 
-This confirmed PATCH was ignoring `horizon`.
+This confirmed the API was not returning normalized `tags`.
 
-### GREEN
+### RED 2: legacy schema backfill
+
+Added `init_schema_adds_tags_column_to_legacy_items_table` to `todo-engine/tests/integration/schema_indexes.rs`.
 
 Command:
 
 ```bash
-cargo test -p todo-engine --test e2e api_patch_updates_goal_horizon_and_event_metadata
-```
-
-Observed success:
-
-```text
-running 1 test
-test api::api_patch_updates_goal_horizon_and_event_metadata ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out
-```
-
-## Files changed
-
-- `todo-engine/src/application/service/update.rs`
-- `todo-engine/src/interfaces/api/dto.rs`
-- `todo-engine/src/interfaces/api/handlers.rs`
-- `todo-engine/tests/e2e/api.rs`
-- `todo-engine/src/interfaces/cli/lifecycle.rs`
-
-## Self-review
-
-- Kept the implementation minimal and local to the existing update path.
-- No schema changes were made.
-- No direct SQLite writes were added outside the existing service/repository path.
-- Audit event behavior remains on the existing `store_item_and_event` path.
-- The only file outside the requested ownership list was `todo-engine/src/interfaces/cli/lifecycle.rs`, updated minimally because extending the shared `UpdateItem` struct otherwise broke compilation at the existing CLI initializer.
-
-## Concerns
-
-- The task brief’s requested file ownership list did not include the CLI initializer that also constructs `UpdateItem`; one minimal compile-fix there was necessary.
-- Verification was limited to the required RED/GREEN targeted e2e test from the brief, not the full test suite.
-
----
-
-## Review fix follow-up
-
-### What was fixed
-
-- Goal horizon updates now stay on the existing `TodoService::update_item` path but re-run goal policy checks before mutating:
-  - horizon parsing
-  - canonical `(horizon, scheduled)` anchor validation
-  - duplicate goal triple rejection
-- Event metadata patch fields (`location`, `participants`, `commitment_type`) are now rejected for non-event items.
-- Event metadata success cases still persist through the same audited `store_item_and_event` flow.
-
-### TDD evidence
-
-#### RED
-
-Command:
-
-```bash
-cargo test -p todo-engine --test e2e api_patch_
+cargo test -p todo-engine --test integration init_schema_adds_tags_column_to_legacy_items_table
 ```
 
 Observed failure:
 
 ```text
-test api::api_patch_rejects_event_metadata_for_non_event_items ... FAILED
-test api::api_patch_rejects_invalid_goal_horizon_anchor ... FAILED
+assertion failed: columns.iter().any(|column| column == "tags")
 ```
 
-Failure details:
+This confirmed `init_schema` was not backfilling `items.tags`.
 
-```text
-assertion `left == right` failed
-  left: 200
- right: 400
-```
+## Implementation details
 
-This confirmed PATCH was still accepting invalid goal horizon state and non-event metadata updates.
+### Service layer
 
-#### GREEN
+- Added `normalize_tags(Vec<String>) -> Vec<String>` in `todo-engine/src/application/service/mod.rs`.
+- Extended create/propose request structs in `todo-engine/src/application/service/creation.rs` with `tags: Vec<String>`.
+- Applied normalized tags inside every create/propose method before persisting through `store_item_and_event`.
+- Extended `UpdateItem` in `todo-engine/src/application/service/update.rs` with `tags: Option<Vec<String>>` and applied normalized tags before `updated_at` is refreshed.
 
-Command:
+### SQLite
 
-```bash
-cargo test -p todo-engine --test e2e api_patch_
-```
+- Added `tags TEXT NOT NULL DEFAULT '[]'` to the main `items` table definition.
+- Added `("tags", "TEXT NOT NULL DEFAULT '[]'")` to `ITEM_COLUMN_ADDITIONS` so legacy `items` tables get the column additively.
+- Extended row mapping to select, parse, and populate `TodoItem.tags`.
+- Extended repository upsert SQL and parameters to store `tags` as JSON text.
 
-Observed success:
+### API
 
-```text
-running 4 tests
-test api::api_patch_rejects_event_metadata_for_non_event_items ... ok
-test api::api_patch_rejects_invalid_goal_horizon_anchor ... ok
-test api::api_patch_updates_event_metadata ... ok
-test api::api_patch_updates_goal_horizon_with_valid_anchor ... ok
-```
+- Added optional `tags` to area/propose/update request DTOs.
+- Passed `body.tags.unwrap_or_default()` into create/propose service requests.
+- Passed `body.tags` into `UpdateItem` for PATCH handling.
 
-### Additional regression checks
+## Verification run
 
 Commands:
 
 ```bash
-cargo test -p todo-engine --test integration goal_policy
-cargo test -p todo-engine --test integration service_policy
+cargo fmt --check
+cargo test -p todo-engine --test e2e api_create_and_patch_round_trips_tags
+cargo test -p todo-engine --test integration init_schema_adds_tags_column_to_legacy_items_table
+cargo test -p todo-engine
 ```
 
-Observed success:
+Result:
 
-```text
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 53 filtered out
-```
+- All commands passed.
+- `cargo test -p todo-engine` passed all unit, integration, and e2e tests.
+
+## Additional compile-fix fallout
+
+The shared service request structs are also constructed by existing CLI and integration-test code outside the brief's ownership list. After adding `tags` to those structs, Rust required those call sites to supply default tag values. I applied the smallest possible `Vec::new()` / `None` compile fixes in:
+
+- `todo-engine/src/interfaces/cli/create.rs`
+- `todo-engine/src/interfaces/cli/lifecycle.rs`
+- several existing integration-test helper initializers
+
+These changes do not add CLI tag flags or new behavior; they only preserve compilation after the shared request structs grew a new field.
+
+## Self-review
+
+- All mutations still flow through `TodoService`; no direct repository write path was added.
+- Audit event behavior remains untouched because create/update still persist via `store_item_and_event`.
+- Schema migration remains additive through `ensure_item_columns`.
+- The implementation stores `tags` as simple JSON text and reuses existing JSON parsing patterns rather than introducing a new table or abstraction.
+- One mild concern remains: the brief's ownership list did not include every existing struct-literal caller of the shared request types, so a few no-behavior compile fixes were necessary outside the listed files.

@@ -197,6 +197,45 @@ async fn file_router_keeps_state_for_multiple_requests() {
 }
 
 #[tokio::test]
+async fn api_create_and_patch_round_trips_tags() {
+    let app = router(":memory:").unwrap();
+
+    let response = json_request(
+        app.clone(),
+        "POST",
+        "/tasks/propose",
+        serde_json::json!({
+            "title": "Draft planner",
+            "actor": "user",
+            "tags": ["deep-work", "planning", "deep-work", ""]
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let created = body_json(response).await;
+
+    assert_eq!(
+        created["tags"],
+        serde_json::json!(["deep-work", "planning"])
+    );
+
+    let id = created["id"].as_str().expect("created item id");
+    let response = json_request(
+        app,
+        "PATCH",
+        format!("/items/{id}"),
+        serde_json::json!({
+            "tags": ["home", "admin"]
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let patched = body_json(response).await;
+
+    assert_eq!(patched["tags"], serde_json::json!(["home", "admin"]));
+}
+
+#[tokio::test]
 async fn create_area_returns_active_area() {
     let app = router(":memory:").unwrap();
     let response = app

@@ -10,6 +10,7 @@ fn every_mutation_records_event() {
             review_cycle: None,
             standard: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     service
@@ -21,6 +22,7 @@ fn every_mutation_records_event() {
             due: None,
             actor: Actor::User,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     let item = service.propose_task("테스트", Default::default()).unwrap();

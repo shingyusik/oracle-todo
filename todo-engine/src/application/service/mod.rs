@@ -235,6 +235,17 @@ pub(super) fn generated_by_routine(item: &TodoItem) -> bool {
         == Some("routine")
 }
 
+pub(super) fn normalize_tags(tags: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for tag in tags {
+        let tag = tag.trim().to_string();
+        if !tag.is_empty() && !normalized.contains(&tag) {
+            normalized.push(tag);
+        }
+    }
+    normalized
+}
+
 pub(super) fn parse_day(value: &str) -> TodoResult<Date> {
     let format = parse_format_description("[year]-[month]-[day]")
         .map_err(|error| TodoError::Internal(format!("failed to prepare date parser: {error}")))?;

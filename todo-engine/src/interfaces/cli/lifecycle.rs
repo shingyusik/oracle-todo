@@ -83,6 +83,7 @@ pub(super) fn update(home: &Path, args: UpdateArgs) -> Result<()> {
             scheduled: args.scheduled,
             horizon: None,
             priority: args.priority,
+            tags: None,
             location: None,
             participants: None,
             commitment_type: None,

@@ -150,13 +150,13 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
                     description, note, outcome, definition_of_done, standard, review_cycle,
                     recurrence_rule, materialization_policy, occurrence_key, priority, due,
                     scheduled, horizon, proposed_by, approved_by, approved_at, completed_at,
-                    archived_at, last_materialized_at, second_brain_refs, metadata, created_at,
-                    updated_at
+                    archived_at, last_materialized_at, second_brain_refs, tags, metadata,
+                    created_at, updated_at
                 )
                 VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28,
-                    ?29, ?30, ?31
+                    ?29, ?30, ?31, ?32
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     type = excluded.type,
@@ -186,6 +186,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
                     archived_at = excluded.archived_at,
                     last_materialized_at = excluded.last_materialized_at,
                     second_brain_refs = excluded.second_brain_refs,
+                    tags = excluded.tags,
                     metadata = excluded.metadata,
                     updated_at = excluded.updated_at
                 "#,
@@ -218,6 +219,8 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
             format_optional_time(item.archived_at)?,
             format_optional_time(item.last_materialized_at)?,
             serde_json::to_string(&item.second_brain_refs)
+                .map_err(|error| TodoError::Storage(error.to_string()))?,
+            serde_json::to_string(&item.tags)
                 .map_err(|error| TodoError::Storage(error.to_string()))?,
             serde_json::to_string(&item.metadata)
                 .map_err(|error| TodoError::Storage(error.to_string()))?,

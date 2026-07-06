@@ -11,6 +11,7 @@ fn area_titles_resolve_in_service() {
             review_cycle: None,
             standard: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
 
@@ -57,6 +58,7 @@ fn area_creation_is_active_and_cannot_complete() {
             review_cycle: Some("weekly".to_string()),
             standard: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
 
@@ -83,6 +85,7 @@ fn project_requires_definition_of_done_before_activation() {
             due: None,
             actor: Actor::User,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
 
@@ -155,6 +158,7 @@ fn update_item_empty_relation_clears_project() {
             due: None,
             actor: Actor::User,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     let task = service
@@ -250,6 +254,7 @@ fn relationships_must_reference_expected_item_types() {
             review_cycle: None,
             standard: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     let project = service
@@ -261,6 +266,7 @@ fn relationships_must_reference_expected_item_types() {
             due: None,
             actor: Actor::User,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     let task = service.propose_task("검증", Default::default()).unwrap();

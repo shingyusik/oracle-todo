@@ -47,6 +47,7 @@ fn init_schema_inner(conn: &Connection) -> TodoResult<()> {
             archived_at TEXT,
             last_materialized_at TEXT,
             second_brain_refs TEXT NOT NULL DEFAULT '[]',
+            tags TEXT NOT NULL DEFAULT '[]',
             metadata TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -123,6 +124,7 @@ const ITEM_COLUMN_ADDITIONS: &[(&str, &str)] = &[
     ("archived_at", "TEXT"),
     ("last_materialized_at", "TEXT"),
     ("second_brain_refs", "TEXT NOT NULL DEFAULT '[]'"),
+    ("tags", "TEXT NOT NULL DEFAULT '[]'"),
     ("metadata", "TEXT NOT NULL DEFAULT '{}'"),
 ];
 

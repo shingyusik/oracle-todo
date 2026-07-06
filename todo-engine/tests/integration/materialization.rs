@@ -21,6 +21,7 @@ fn per_occurrence_materialization_creates_bounded_unique_tasks() {
             materialization_policy: "per_occurrence".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -81,6 +82,7 @@ fn weekday_sets_and_ranges_match_expected_schedule() {
             materialization_policy: "per_occurrence".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -195,6 +197,7 @@ fn recurrence_matrix_covers_supported_cases() {
                 materialization_policy: "per_occurrence".to_string(),
                 area: None,
                 note: None,
+                tags: Vec::new(),
             })
             .unwrap();
         service.activate(&routine.id, None).unwrap();
@@ -218,6 +221,7 @@ fn single_open_routine_respects_existing_manual_open_task() {
             materialization_policy: "single_open".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -248,6 +252,7 @@ fn pausing_and_resuming_routine_cascades_generated_task_state() {
             materialization_policy: "single_open".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -294,6 +299,7 @@ fn malformed_recurrence_units_are_rejected() {
             materialization_policy: "per_occurrence".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -318,6 +324,7 @@ fn completing_generated_task_updates_routine_occurrence_history() {
             materialization_policy: "single_open".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();
@@ -357,6 +364,7 @@ fn archiving_and_cancelling_routine_cascades_generated_tasks() {
             materialization_policy: "single_open".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     archive_service.activate(&routine.id, None).unwrap();
@@ -392,6 +400,7 @@ fn archiving_and_cancelling_routine_cascades_generated_tasks() {
             materialization_policy: "single_open".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     cancel_service.activate(&routine.id, None).unwrap();
@@ -430,6 +439,7 @@ fn archiving_generated_task_updates_routine_occurrence_history() {
             materialization_policy: "single_open".to_string(),
             area: None,
             note: None,
+            tags: Vec::new(),
         })
         .unwrap();
     service.activate(&routine.id, None).unwrap();

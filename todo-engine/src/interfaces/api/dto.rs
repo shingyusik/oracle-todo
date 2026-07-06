@@ -6,6 +6,7 @@ pub(super) struct AreaBody {
     pub review_cycle: Option<String>,
     pub standard: Option<String>,
     pub note: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -18,6 +19,7 @@ pub(super) struct TaskProposeBody {
     pub description: Option<String>,
     pub note: Option<String>,
     pub actor: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -29,6 +31,7 @@ pub(super) struct ProjectProposeBody {
     pub due: Option<String>,
     pub note: Option<String>,
     pub actor: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +42,7 @@ pub(super) struct GoalProposeBody {
     pub parent_id: Option<String>,
     pub note: Option<String>,
     pub actor: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -49,6 +53,7 @@ pub(super) struct RoutineProposeBody {
     pub materialization_policy: Option<String>,
     pub note: Option<String>,
     pub actor: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +70,7 @@ pub(super) struct EventProposeBody {
     pub participants: Option<Vec<String>>,
     pub commitment_type: Option<String>,
     pub actor: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -91,6 +97,7 @@ pub(super) struct UpdateBody {
     pub scheduled: Option<String>,
     pub horizon: Option<String>,
     pub priority: Option<i64>,
+    pub tags: Option<Vec<String>>,
     pub location: Option<String>,
     pub participants: Option<Vec<String>>,
     pub commitment_type: Option<String>,
