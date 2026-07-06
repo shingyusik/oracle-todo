@@ -648,6 +648,7 @@ describe("WorkbenchPageClient", () => {
           status: "active",
           horizon: "year",
           scheduled: "2026-01-01",
+          tags: ["annual-current"],
         },
         {
           id: "goal-other-year",
@@ -656,6 +657,7 @@ describe("WorkbenchPageClient", () => {
           status: "active",
           horizon: "year",
           scheduled: "2027-01-01",
+          tags: ["annual-future"],
         },
         {
           id: "goal-year-done",
@@ -664,6 +666,7 @@ describe("WorkbenchPageClient", () => {
           status: "completed",
           horizon: "year",
           scheduled: "2026-01-01",
+          tags: ["annual-done"],
         },
         {
           id: "goal-month",
@@ -672,6 +675,7 @@ describe("WorkbenchPageClient", () => {
           status: "active",
           horizon: "month",
           scheduled: "2026-07-01",
+          tags: ["month-current"],
         },
         {
           id: "goal-other-month",
@@ -680,6 +684,7 @@ describe("WorkbenchPageClient", () => {
           status: "active",
           horizon: "month",
           scheduled: "2026-08-01",
+          tags: ["month-future"],
         },
         {
           id: "goal-month-archived",
@@ -688,6 +693,7 @@ describe("WorkbenchPageClient", () => {
           status: "archived",
           horizon: "month",
           scheduled: "2026-07-01",
+          tags: ["month-archived"],
         },
       ],
       "/todo-engine/items?type=area": [],
@@ -710,11 +716,47 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByText("Annual Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Year Goal")).toBeNull();
     expect(screen.queryByText("Completed Annual Goal")).toBeNull();
+    expect(
+      within(screen.getByLabelText("Filter planner items by tags")).getByRole(
+        "option",
+        { name: "annual-current" },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+        "option",
+        { name: "annual-future" },
+      ),
+    ).toBeNull();
+    expect(
+      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+        "option",
+        { name: "annual-done" },
+      ),
+    ).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Month Goal")).toBeNull();
     expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
+    expect(
+      within(screen.getByLabelText("Filter planner items by tags")).getByRole(
+        "option",
+        { name: "month-current" },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+        "option",
+        { name: "month-future" },
+      ),
+    ).toBeNull();
+    expect(
+      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+        "option",
+        { name: "month-archived" },
+      ),
+    ).toBeNull();
   });
 
   it("normalizes visible workspace tags after save", async () => {

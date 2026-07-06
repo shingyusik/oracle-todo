@@ -203,7 +203,11 @@ function PlannerPanel({ controller }: MainPanelProps) {
         {panel.id !== "daily" ? (
           <DailyFilterSelect
             label="Filter planner items by tags"
-            options={buildPlannerTagFilterOptions(panel.id, workspaceItems.items)}
+            options={buildPlannerTagFilterOptions(
+              panel.id,
+              workspaceItems.items,
+              controller.planner,
+            )}
             value={controller.planner.dailyFilters.tags}
             onChange={(values) => controller.setDailyFilter("tags", values)}
           />
@@ -534,10 +538,11 @@ function buildDailyFilterOptions(
 function buildPlannerTagFilterOptions(
   panelId: WorkbenchController["panel"]["id"],
   items: WorkspaceItemModel[],
+  planner: WorkbenchController["planner"],
 ): DailyFilterOption[] {
   return toFilterOptions(
     items
-      .filter((item) => isVisiblePlannerFilterItem(panelId, item))
+      .filter((item) => isVisiblePlannerFilterItem(panelId, item, planner))
       .flatMap((item) => item.tags ?? []),
   );
 }
@@ -559,15 +564,41 @@ function isDailyPlannerItem(item: WorkspaceItemModel): boolean {
 function isVisiblePlannerFilterItem(
   panelId: WorkbenchController["panel"]["id"],
   item: WorkspaceItemModel,
+  planner: WorkbenchController["planner"],
 ): boolean {
   if (isTerminalPlannerItem(item)) {
     return false;
   }
-  if (panelId === "yearly" || panelId === "monthly") {
-    return item.type === "goal";
+  if (panelId === "yearly") {
+    return (
+      item.type === "goal" &&
+      item.horizon === "year" &&
+      goalMatchesPlannerPeriod(item, "year", planner.date)
+    );
+  }
+  if (panelId === "monthly") {
+    return (
+      item.type === "goal" &&
+      item.horizon === "month" &&
+      goalMatchesPlannerPeriod(item, "month", planner.date)
+    );
   }
   if (panelId === "weekly") {
-    return item.type === "goal" || isDailyPlannerItem(item);
+    const scheduled = item.scheduled?.slice(0, 10);
+    const weekDates = Array.from({ length: 7 }, (_, offset) =>
+      addDays(planner.weekStart, offset),
+    );
+    return (
+      (item.type === "goal" &&
+        ((item.horizon === "month" &&
+          scheduled?.startsWith(planner.weekStart.slice(0, 7))) ||
+          (item.horizon === "week" &&
+            scheduled != null &&
+            weekDates.includes(scheduled)))) ||
+      (isDailyPlannerItem(item) &&
+        scheduled != null &&
+        weekDates.includes(scheduled))
+    );
   }
   if (panelId === "daily") {
     return isDailyPlannerItem(item);
@@ -597,6 +628,15 @@ function goalMatchesPlannerPeriod(
     return scheduled.slice(0, 4) === plannerDate.slice(0, 4);
   }
   return scheduled.slice(0, 7) === plannerDate.slice(0, 7);
+}
+
+function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00`);
+  value.setDate(value.getDate() + days);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function relationFilterOptions(
