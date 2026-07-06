@@ -12,6 +12,7 @@ Make the existing `Planner` navigation useful:
 - `Weekly` shows month goals, week goals, and a Monday-Sunday task board.
 - `Daily` focuses on today's runnable work.
 - Task, goal, routine, and event creation stays fast from planner screens.
+- Tags can be assigned in workspace tables and used as planner filters.
 
 ## Product Shape
 
@@ -73,6 +74,20 @@ Rules:
 - Compact fast-add controls default the scheduled date to today.
 - Daily does not need a full calendar grid.
 
+## Tags and Filtering
+
+Tags are a common item field, not planner-only metadata:
+
+- SQLite stores item tags in an additive `items.tags` column as a JSON string array.
+- The domain/API shape exposes tags as `string[]`.
+- Workspace table views show tags as an editable column for areas, projects, goals, routines, tasks, and events.
+- The item detail view also exposes tags.
+- Planner views show tag filter chips above the content.
+- Multiple selected tags use `OR` matching.
+- Tag filters apply after hidden terminal statuses are removed.
+
+The first implementation does not need a separate tags table, tag colors, rename flows, or a tag management screen.
+
 ## Data Flow
 
 Use the existing frontend controller pattern:
@@ -80,6 +95,7 @@ Use the existing frontend controller pattern:
 - Keep `src/domain/workbench/navigation.ts` as the tab policy owner.
 - Extend the workbench controller to load planner data when `yearly`, `monthly`, `weekly`, or `daily` is selected.
 - Reuse `WorkspaceItemModel` for planner item rendering.
+- Extend `WorkspaceItemModel`, create requests, and patch requests with `tags: string[]`.
 - Reuse existing POST flows for creation:
   - `/todo-engine/tasks/propose`
   - `/todo-engine/goals/propose`
@@ -108,6 +124,8 @@ Use the existing Vitest and React Testing Library setup:
 3. Presentation tests prove daily renders sectioned runnable work and hides completed items.
 4. Creation tests prove planner fast-add calls the existing create endpoints with the selected date.
 5. Sorting tests prove daily can order visible items by priority and scheduled time.
+6. Workspace tests prove tags can be edited from table and detail views.
+7. Planner tests prove tag filters hide non-matching visible items.
 
 Verification commands:
 
@@ -121,6 +139,8 @@ npm run build
 ## Out of Scope
 
 - New Rust planner API endpoints.
+- Separate tag management tables or screens.
+- Tag colors and rename flows.
 - Drag-and-drop scheduling.
 - Calendar recurrence expansion beyond currently exposed items.
 - Persisted selected week/month navigation.
@@ -134,5 +154,7 @@ npm run build
 - `Daily` shows active runnable work in sections for today, overdue, upcoming, and unscheduled items.
 - `Daily` hides completed and archived items.
 - `Daily` can sort visible items by priority and scheduled time.
+- Workspace table rows can edit item tags.
+- Planner views can filter visible items by selected tags.
 - Fast add can create task, goal, routine, and event items from planner screens where those types are expected.
 - Existing workspace tables and detail editing keep working.
