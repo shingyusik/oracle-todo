@@ -22,7 +22,7 @@ Planner remains under `ToDo > Planner` with four leaf tabs:
 | `Yearly` | Year-horizon goals | Goal |
 | `Monthly` | Month-horizon goals for the selected month | Goal |
 | `Weekly` | Month goals, week goals, and Monday-Sunday cards | Task, Goal, Routine, Event |
-| `Daily` | Today's tasks, events, and routines | Task, Routine, Event |
+| `Daily` | Sectioned runnable work for the selected day | Task, Routine, Event |
 
 ## Weekly Layout
 
@@ -50,14 +50,28 @@ Rules:
 
 ## Daily Layout
 
-Daily is a focused command list:
+Daily is a sectioned execution view rather than a table:
 
-- Today's scheduled tasks.
-- Today's scheduled events.
-- Relevant routines.
+```text
+Daily Planner
+  day header + sort control + fast-add buttons
+  Today
+    tasks/events/routines scheduled for today
+  Overdue
+    unfinished tasks/events scheduled before today
+  Upcoming
+    near-future work that is useful to see while planning today
+  Unscheduled
+    active tasks without a scheduled date
+```
+
+Rules:
+
+- Completed and archived items are hidden.
+- The default sort is by priority, then scheduled time, then updated time.
+- Sort controls may include priority, scheduled time, updated time, and title.
 - Compact fast-add controls default the scheduled date to today.
-
-Daily does not need a full calendar grid.
+- Daily does not need a full calendar grid.
 
 ## Data Flow
 
@@ -77,6 +91,7 @@ The first implementation may fetch by item type and filter in the frontend:
 
 - goals for `yearly`, `monthly`, and weekly goal strips.
 - tasks, events, and routines for `weekly` and `daily`.
+- daily sections are derived in the frontend from scheduled dates and status.
 
 ## Error Handling
 
@@ -90,8 +105,9 @@ Use the existing Vitest and React Testing Library setup:
 
 1. Hook tests prove planner tabs load the needed item types.
 2. Presentation tests prove weekly renders month goals, week goals, and seven day cards.
-3. Presentation tests prove daily renders runnable work.
+3. Presentation tests prove daily renders sectioned runnable work and hides completed items.
 4. Creation tests prove planner fast-add calls the existing create endpoints with the selected date.
+5. Sorting tests prove daily can order visible items by priority and scheduled time.
 
 Verification commands:
 
@@ -115,6 +131,8 @@ npm run build
 - Selecting each planner tab shows real todo-engine data instead of a blank table.
 - `Yearly` and `Monthly` are goal-centered.
 - `Weekly` shows month goals, week goals, and Monday-Sunday task cards.
-- `Daily` shows today's tasks, events, and routines.
+- `Daily` shows active runnable work in sections for today, overdue, upcoming, and unscheduled items.
+- `Daily` hides completed and archived items.
+- `Daily` can sort visible items by priority and scheduled time.
 - Fast add can create task, goal, routine, and event items from planner screens where those types are expected.
 - Existing workspace tables and detail editing keep working.
