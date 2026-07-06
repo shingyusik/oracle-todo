@@ -203,7 +203,7 @@ export function useWorkbenchController(): WorkbenchController {
     openCreationDialog: () => setCreationDialogOpen(true),
     closeCreationDialog: () => setCreationDialogOpen(false),
     createWorkspaceItem: async (form) => {
-      const item = await createItemRequest(selection.leafTabId, form);
+      const item = await createItemRequest(selection.leafTabId, planner, form);
       setWorkspaceItems((current) => ({
         ...current,
         items: [item, ...current.items],
@@ -301,9 +301,11 @@ function patchItem(
 
 function createItemRequest(
   panelId: LeafTabId,
+  planner: PlannerControls,
   form: CreateWorkspaceItemForm,
 ): Promise<WorkspaceItemModel> {
   const title = form.title.trim();
+  const goalDefaults = plannerGoalDefaults(panelId, planner, form);
 
   if (panelId === "areas") {
     return postJson("/todo-engine/areas", { title });
@@ -340,18 +342,16 @@ function createItemRequest(
   if (panelId === "goals") {
     return postJson("/todo-engine/goals/propose", {
       title,
-      horizon: form.horizon || "month",
-      scheduled: form.scheduled,
+      horizon: goalDefaults.horizon,
+      scheduled: goalDefaults.scheduled,
       actor: "user",
     });
   }
   if (panelId === "yearly" || panelId === "monthly" || panelId === "weekly") {
-    const horizon = panelId === "yearly" ? "year" : panelId === "weekly" ? "week" : "month";
-
     return postJson("/todo-engine/goals/propose", {
       title,
-      horizon,
-      scheduled: form.scheduled,
+      horizon: goalDefaults.horizon,
+      scheduled: goalDefaults.scheduled,
       actor: "user",
     });
   }
@@ -364,6 +364,36 @@ function createItemRequest(
   }
 
   throw new Error(`Cannot create item from ${panelId}`);
+}
+
+function plannerGoalDefaults(
+  panelId: LeafTabId,
+  planner: PlannerControls,
+  form: CreateWorkspaceItemForm,
+): { horizon: string; scheduled?: string } {
+  if (panelId === "weekly") {
+    return {
+      horizon: "week",
+      scheduled: form.scheduled || planner.weekStart,
+    };
+  }
+  if (panelId === "monthly") {
+    return {
+      horizon: "month",
+      scheduled: form.scheduled || planner.date,
+    };
+  }
+  if (panelId === "yearly") {
+    return {
+      horizon: "year",
+      scheduled: form.scheduled || planner.date,
+    };
+  }
+
+  return {
+    horizon: form.horizon || "month",
+    scheduled: form.scheduled,
+  };
 }
 
 function postJson(url: string, body: unknown): Promise<WorkspaceItemModel> {

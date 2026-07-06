@@ -427,7 +427,7 @@ describe("useWorkbenchController", () => {
     expect(result.current.detailItem?.status).toBe("active");
   });
 
-  it("does not invent a fallback scheduled date for goals", async () => {
+  it("anchors weekly planner goal creation to the active week", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/goals/propose") {
         expect(init).toEqual(expect.objectContaining({ method: "POST" }));
@@ -438,6 +438,8 @@ describe("useWorkbenchController", () => {
             type: "goal",
             title: "New goal",
             status: "approved",
+            horizon: "week",
+            scheduled: "2026-07-06",
           }),
         });
       }
@@ -449,14 +451,13 @@ describe("useWorkbenchController", () => {
     const { result } = renderHook(() => useWorkbenchController());
 
     await act(async () => {
-      result.current.selectTab("workspace");
-      result.current.selectTab("goals");
+      result.current.selectTab("planner");
+      result.current.selectTab("weekly");
     });
 
     await act(async () => {
       await result.current.createWorkspaceItem({
         title: "New goal",
-        horizon: "year",
       });
     });
 
@@ -466,12 +467,18 @@ describe("useWorkbenchController", () => {
         method: "POST",
         body: JSON.stringify({
           title: "New goal",
-          horizon: "year",
+          horizon: "week",
+          scheduled: "2026-07-06",
           actor: "user",
         }),
       }),
     );
     expect(result.current.detailItem?.id).toBe("goal-new");
+    expect(result.current.workspaceItems.items[0]).toMatchObject({
+      id: "goal-new",
+      horizon: "week",
+      scheduled: "2026-07-06",
+    });
   });
 
   it("posts the user-provided scheduled value for events", async () => {

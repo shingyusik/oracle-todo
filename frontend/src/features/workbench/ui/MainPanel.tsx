@@ -1794,19 +1794,30 @@ type CreationDialogProps = {
 };
 
 function CreationDialog({ controller }: CreationDialogProps) {
+  const plannerScheduled = defaultCreationScheduled(controller);
+  const plannerHorizon = defaultCreationHorizon(controller);
   const [title, setTitle] = React.useState("");
-  const [scheduled, setScheduled] = React.useState("");
-  const [horizon, setHorizon] = React.useState("month");
+  const [scheduled, setScheduled] = React.useState(plannerScheduled);
+  const [horizon, setHorizon] = React.useState(plannerHorizon);
   const formRef = useRef<HTMLFormElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const isGoal = controller.panel.id === "goals";
+  const isPlannerGoal =
+    controller.panel.id === "weekly"
+    || controller.panel.id === "monthly"
+    || controller.panel.id === "yearly";
   const needsScheduled =
-    controller.panel.id === "events" || isGoal;
+    controller.panel.id === "events" || isGoal || isPlannerGoal;
   const needsHorizon = isGoal;
 
   useEffect(() => {
     titleInputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    setScheduled(plannerScheduled);
+    setHorizon(plannerHorizon);
+  }, [plannerHorizon, plannerScheduled]);
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLFormElement>) {
     if (event.key === "Escape") {
@@ -1892,6 +1903,31 @@ function CreationDialog({ controller }: CreationDialogProps) {
       </form>
     </div>
   );
+}
+
+function defaultCreationScheduled(controller: WorkbenchController): string {
+  if (controller.panel.id === "weekly") {
+    return controller.planner.weekStart;
+  }
+  if (controller.panel.id === "monthly" || controller.panel.id === "yearly") {
+    return controller.planner.date;
+  }
+
+  return "";
+}
+
+function defaultCreationHorizon(controller: WorkbenchController): string {
+  if (controller.panel.id === "weekly") {
+    return "week";
+  }
+  if (controller.panel.id === "monthly") {
+    return "month";
+  }
+  if (controller.panel.id === "yearly") {
+    return "year";
+  }
+
+  return "month";
 }
 
 function stopRowEvent(event: React.SyntheticEvent<HTMLElement>) {

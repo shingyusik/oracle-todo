@@ -313,6 +313,71 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getAllByTestId("weekly-day-card")).toHaveLength(7);
   });
 
+  it("defaults weekly planner goal creation to the active week anchor and shows it", async () => {
+    const user = userEvent.setup();
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=goal": [],
+      "/todo-engine/items?type=task": [],
+      "/todo-engine/items?type=event": [],
+      "/todo-engine/items?type=routine": [],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({
+              title: "Anchored weekly goal",
+              horizon: "week",
+              scheduled: "2026-07-06",
+              actor: "user",
+            }),
+          }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-new",
+            type: "goal",
+            title: "Anchored weekly goal",
+            status: "approved",
+            horizon: "week",
+            scheduled: "2026-07-06",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => responses[url] ?? [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    await user.click(screen.getByRole("button", { name: "Add planner item" }));
+
+    expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-07-06");
+
+    await user.type(screen.getByLabelText("Title"), "Anchored weekly goal");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Anchored weekly goal" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+
+    expect(screen.getByText("Anchored weekly goal")).toBeInTheDocument();
+  });
+
   it("renders daily planner sections with filter, group, and sort controls", async () => {
     const user = userEvent.setup();
     const responses: Record<string, unknown[]> = {
