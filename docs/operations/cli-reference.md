@@ -73,7 +73,7 @@ Each takes a positional `<item_id>` and an optional `--reason`:
 Update mutable fields. Flags (all optional): `--title`, `--description`, `--note`,
 `--outcome`, `--definition-of-done`, `--standard`, `--review-cycle`, `--recurrence-rule`,
 `--materialization-policy`, `--area`, `--project-id`, `--routine-id`, `--due`, `--scheduled`,
-`--priority <int>`, `--reason`.
+`--priority <int>`, `--tag <tag>` (repeatable), `--reason`.
 
 ## View commands
 

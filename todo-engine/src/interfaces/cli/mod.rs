@@ -324,6 +324,8 @@ struct UpdateArgs {
     scheduled: Option<String>,
     #[arg(long)]
     priority: Option<i64>,
+    #[arg(long = "tag")]
+    tags: Vec<String>,
     #[arg(long)]
     reason: Option<String>,
 }
