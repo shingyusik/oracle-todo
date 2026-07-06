@@ -281,6 +281,57 @@ describe("useWorkbenchController", () => {
     expect(result.current.detailItem?.metadata_?.location).toBe("Desk");
   });
 
+  it("patches item tags from workspace edits", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "PATCH",
+            body: JSON.stringify({ tags: ["deep-work", "planning"] }),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Plan",
+            status: "active",
+            tags: ["deep-work", "planning"],
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "Plan", status: "active", tags: [] },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+
+    await vi.waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    await act(async () => {
+      await result.current.patchWorkspaceItem("task-1", {
+        tags: ["deep-work", "planning"],
+      });
+    });
+
+    expect(result.current.workspaceItems.items[0].tags).toEqual([
+      "deep-work",
+      "planning",
+    ]);
+  });
+
   it("creates a task from the active workspace table and opens it", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/tasks/propose") {

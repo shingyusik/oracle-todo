@@ -37,6 +37,18 @@ const taskStatusOptions = ["active", "completed"];
 const eventStatusOptions = ["active", "paused", "completed"];
 const materializationPolicyOptions = ["single_open", "per_occurrence"];
 
+function parseTagInput(value: string): string[] {
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .filter((tag, index, tags) => tags.indexOf(tag) === index);
+}
+
+function formatTags(tags: string[] | null | undefined): string {
+  return (tags ?? []).join(", ");
+}
+
 export function MainPanel({ controller }: MainPanelProps) {
   if (controller.detailItem) {
     return (
@@ -103,6 +115,11 @@ function DetailView({ controller }: MainPanelProps) {
           value={draft.status}
           onChange={(value) => setField("status", value)}
         />
+        <DetailTextField
+          label="Tags"
+          value={draft.tags}
+          onChange={(value) => setField("tags", value)}
+        />
         <DetailTypeFields
           item={item}
           draft={draft}
@@ -130,6 +147,7 @@ function DetailView({ controller }: MainPanelProps) {
 type DetailDraft = {
   title: string;
   status: string;
+  tags: string;
   area: string;
   project_id: string;
   routine_id: string;
@@ -161,6 +179,7 @@ function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
   return {
     title: item?.title ?? "",
     status: detailStatusForItem(item),
+    tags: formatTags(item?.tags),
     area: item?.area_id ?? "",
     project_id: item?.project_id ?? "",
     routine_id: item?.routine_id ?? "",
@@ -195,6 +214,10 @@ function detailPatchForItem(
   addStringPatch(patch, "title", draft.title, item.title);
   addStringPatch(patch, "note", draft.note, item.note);
   addStringPatch(patch, "description", draft.description, itemDescription(item));
+  const draftTags = parseTagInput(draft.tags);
+  if (draft.tags !== formatTags(item.tags)) {
+    patch.tags = draftTags;
+  }
   if (draft.area !== (item.area_id ?? "")) {
     patch.area = draft.area;
   }
@@ -1996,9 +2019,31 @@ function commitmentTypeColumn(): ItemColumn {
   };
 }
 
+function tagsColumn(): ItemColumn {
+  return {
+    label: "Tags",
+    value: (item, _workspaceItems, controller) => (
+      <input
+        aria-label={`Tags for ${item.title}`}
+        className="table-inline-input"
+        defaultValue={formatTags(item.tags)}
+        onClick={stopRowEvent}
+        onKeyDown={stopRowEvent}
+        onBlur={(event) => {
+          const tags = parseTagInput(event.currentTarget.value);
+          if (event.currentTarget.value !== formatTags(item.tags)) {
+            void controller.patchWorkspaceItem(item.id, { tags });
+          }
+        }}
+      />
+    ),
+  };
+}
+
 const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   areas: [
     ...sharedColumns,
+    tagsColumn(),
     {
       label: "Review Cycle",
       value: (item, _items, controller) => (
@@ -2019,6 +2064,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   projects: [
     ...sharedColumns,
+    tagsColumn(),
     areaColumn(),
     dueColumn(),
     { label: "Outcome", value: (item) => displayValue(item.outcome) },
@@ -2029,6 +2075,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   tasks: [
     ...sharedColumns,
+    tagsColumn(),
     areaColumn(),
     projectColumn(),
     routineColumn(),
@@ -2042,6 +2089,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   routines: [
     ...sharedColumns,
+    tagsColumn(),
     areaColumn(),
     { label: "Recurrence Rule", value: (item) => displayValue(item.recurrence_rule) },
     {
@@ -2068,6 +2116,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   events: [
     ...sharedColumns,
+    tagsColumn(),
     areaColumn(),
     projectColumn(),
     startsAtColumn(),
@@ -2086,6 +2135,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   ],
   goals: [
     ...sharedColumns,
+    tagsColumn(),
     horizonColumn(),
     scheduledDateColumn(),
     dueColumn(),

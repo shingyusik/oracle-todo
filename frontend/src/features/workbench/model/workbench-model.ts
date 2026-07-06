@@ -15,6 +15,7 @@ export type WorkspaceItemModel = {
   title: string;
   type: string;
   status: string;
+  tags?: string[];
   area_id?: string | null;
   project_id?: string | null;
   routine_id?: string | null;
@@ -55,6 +56,7 @@ export type CreateWorkspaceItemForm = {
   title: string;
   scheduled?: string;
   horizon?: string;
+  tags?: string[];
 };
 
 export type WorkspaceItemPatch = {
@@ -78,6 +80,7 @@ export type WorkspaceItemPatch = {
   location?: string;
   participants?: string[];
   commitment_type?: string;
+  tags?: string[];
 };
 
 export type WorkspaceItemTransitionAction =
