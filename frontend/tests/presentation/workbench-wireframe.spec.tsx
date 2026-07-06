@@ -253,10 +253,16 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("cell", { name: "Morning review" })).toBeInTheDocument();
   });
 
-  it("edits tags from the workspace table and detail view", async () => {
+  it("normalizes visible workspace tags after save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "PATCH",
+            body: JSON.stringify({ tags: ["deep-work", "planning"] }),
+          }),
+        );
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -285,18 +291,47 @@ describe("WorkbenchPageClient", () => {
 
     const tags = await screen.findByLabelText("Tags for Plan");
     await user.clear(tags);
-    await user.type(tags, "deep-work, planning");
+    await user.type(tags, " deep-work, deep-work, planning ");
     fireEvent.blur(tags);
 
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/task-1",
-        expect.objectContaining({
-          method: "PATCH",
-          body: JSON.stringify({ tags: ["deep-work", "planning"] }),
-        }),
-      ),
+    await waitFor(() => expect(tags).toHaveValue("deep-work, planning"));
+  });
+
+  it("does not patch tags when only spacing changes", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=task"
+            ? [
+                {
+                  id: "task-1",
+                  type: "task",
+                  title: "Plan",
+                  status: "active",
+                  tags: ["deep-work", "planning"],
+                },
+              ]
+            : [],
+      }),
     );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const tags = await screen.findByLabelText("Tags for Plan");
+    await user.clear(tags);
+    await user.type(tags, " deep-work, planning ");
+    fireEvent.blur(tags);
+
+    await waitFor(() => expect(tags).toHaveValue("deep-work, planning"));
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items/task-1"),
+    ).toHaveLength(0);
   });
 
   it("shows linked workspace item titles in item-specific columns", async () => {

@@ -49,6 +49,10 @@ function formatTags(tags: string[] | null | undefined): string {
   return (tags ?? []).join(", ");
 }
 
+function sameTags(left: string[] | null | undefined, right: string[] | null | undefined): boolean {
+  return formatTags(left) === formatTags(right);
+}
+
 export function MainPanel({ controller }: MainPanelProps) {
   if (controller.detailItem) {
     return (
@@ -215,7 +219,7 @@ function detailPatchForItem(
   addStringPatch(patch, "note", draft.note, item.note);
   addStringPatch(patch, "description", draft.description, itemDescription(item));
   const draftTags = parseTagInput(draft.tags);
-  if (draft.tags !== formatTags(item.tags)) {
+  if (!sameTags(draftTags, item.tags)) {
     patch.tags = draftTags;
   }
   if (draft.area !== (item.area_id ?? "")) {
@@ -1681,6 +1685,44 @@ function InlineSelect({
   );
 }
 
+function InlineTagsInput({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: string[] | null | undefined;
+  onCommit: (value: string[]) => void;
+}) {
+  const formattedValue = formatTags(value);
+  const [draft, setDraft] = React.useState(formattedValue);
+
+  React.useEffect(() => {
+    setDraft(formattedValue);
+  }, [formattedValue]);
+
+  function commitDraft() {
+    const normalizedTags = parseTagInput(draft);
+    const normalizedValue = formatTags(normalizedTags);
+    setDraft(normalizedValue);
+    if (!sameTags(normalizedTags, value)) {
+      onCommit(normalizedTags);
+    }
+  }
+
+  return (
+    <input
+      aria-label={label}
+      className="table-inline-input"
+      value={draft}
+      onClick={stopRowEvent}
+      onKeyDown={stopRowEvent}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commitDraft}
+    />
+  );
+}
+
 function StatusSelect({
   item,
   controller,
@@ -2023,18 +2065,10 @@ function tagsColumn(): ItemColumn {
   return {
     label: "Tags",
     value: (item, _workspaceItems, controller) => (
-      <input
-        aria-label={`Tags for ${item.title}`}
-        className="table-inline-input"
-        defaultValue={formatTags(item.tags)}
-        onClick={stopRowEvent}
-        onKeyDown={stopRowEvent}
-        onBlur={(event) => {
-          const tags = parseTagInput(event.currentTarget.value);
-          if (event.currentTarget.value !== formatTags(item.tags)) {
-            void controller.patchWorkspaceItem(item.id, { tags });
-          }
-        }}
+      <InlineTagsInput
+        label={`Tags for ${item.title}`}
+        value={item.tags}
+        onCommit={(tags) => void controller.patchWorkspaceItem(item.id, { tags })}
       />
     ),
   };
