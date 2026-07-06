@@ -313,7 +313,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getAllByTestId("weekly-day-card")).toHaveLength(7);
   });
 
-  it("renders daily planner sections with group and sort controls", async () => {
+  it("renders daily planner sections with filter, group, and sort controls", async () => {
     const user = userEvent.setup();
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=task": [
@@ -324,6 +324,7 @@ describe("WorkbenchPageClient", () => {
           status: "active",
           scheduled: "2026-07-06",
           tags: ["deep-work"],
+          area_id: "area-1",
         },
         {
           id: "task-2",
@@ -332,6 +333,7 @@ describe("WorkbenchPageClient", () => {
           status: "completed",
           scheduled: "2026-07-06",
           tags: ["deep-work"],
+          area_id: "area-1",
         },
         {
           id: "task-3",
@@ -339,6 +341,7 @@ describe("WorkbenchPageClient", () => {
           title: "Overdue Task",
           status: "active",
           scheduled: "2026-07-05",
+          area_id: "area-2",
         },
         {
           id: "task-4",
@@ -346,17 +349,22 @@ describe("WorkbenchPageClient", () => {
           title: "Upcoming Task",
           status: "active",
           scheduled: "2026-07-07",
+          area_id: "area-2",
         },
         {
           id: "task-5",
           type: "task",
           title: "Inbox Task",
           status: "active",
+          area_id: "area-2",
         },
       ],
       "/todo-engine/items?type=event": [],
       "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=area": [
+        { id: "area-1", type: "area", title: "Focus", status: "active" },
+        { id: "area-2", type: "area", title: "Admin", status: "active" },
+      ],
       "/todo-engine/items?type=project": [],
     };
     vi.stubGlobal(
@@ -376,12 +384,32 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
 
     expect(await screen.findByRole("heading", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter daily items by tags")).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter daily items by area")).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter daily items by status")).toBeInTheDocument();
     expect(screen.getByLabelText("Group daily items by")).toBeInTheDocument();
     expect(screen.getByLabelText("Sort daily items by")).toBeInTheDocument();
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(screen.getByText("Overdue Task")).toBeInTheDocument();
     expect(screen.getByText("Upcoming Task")).toBeInTheDocument();
     expect(screen.getByText("Inbox Task")).toBeInTheDocument();
+    expect(screen.queryByText("Done Task")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("Filter daily items by area"), "area-1");
+
+    expect(screen.getByText("Today Task")).toBeInTheDocument();
+    expect(screen.queryByText("Overdue Task")).toBeNull();
+    expect(screen.queryByText("Upcoming Task")).toBeNull();
+    expect(screen.queryByText("Inbox Task")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("Filter daily items by tags"), "deep-work");
+
+    expect(screen.getByText("Today Task")).toBeInTheDocument();
+    expect(screen.queryByText("Done Task")).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("Filter daily items by status"), "completed");
+
+    expect(screen.queryByText("Today Task")).toBeNull();
     expect(screen.queryByText("Done Task")).toBeNull();
   });
 

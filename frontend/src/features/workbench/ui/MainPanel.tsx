@@ -323,9 +323,48 @@ function DailyPlanner({ controller }: MainPanelProps) {
       sortBy: controller.planner.dailySortBy,
     },
   );
+  const filterOptions = buildDailyFilterOptions(controller);
 
   return (
     <div>
+      <div className="items-toolbar">
+        <DailyFilterSelect
+          label="Filter daily items by tags"
+          options={filterOptions.tags}
+          value={controller.planner.dailyFilters.tags}
+          onChange={(values) => controller.setDailyFilter("tags", values)}
+        />
+        <DailyFilterSelect
+          label="Filter daily items by area"
+          options={filterOptions.areas}
+          value={controller.planner.dailyFilters.areaIds}
+          onChange={(values) => controller.setDailyFilter("areaIds", values)}
+        />
+        <DailyFilterSelect
+          label="Filter daily items by project"
+          options={filterOptions.projects}
+          value={controller.planner.dailyFilters.projectIds}
+          onChange={(values) => controller.setDailyFilter("projectIds", values)}
+        />
+        <DailyFilterSelect
+          label="Filter daily items by routine"
+          options={filterOptions.routines}
+          value={controller.planner.dailyFilters.routineIds}
+          onChange={(values) => controller.setDailyFilter("routineIds", values)}
+        />
+        <DailyFilterSelect
+          label="Filter daily items by item type"
+          options={filterOptions.itemTypes}
+          value={controller.planner.dailyFilters.itemTypes}
+          onChange={(values) => controller.setDailyFilter("itemTypes", values)}
+        />
+        <DailyFilterSelect
+          label="Filter daily items by status"
+          options={filterOptions.statuses}
+          value={controller.planner.dailyFilters.statuses}
+          onChange={(values) => controller.setDailyFilter("statuses", values)}
+        />
+      </div>
       <div className="items-toolbar">
         <label>
           Group by
@@ -379,6 +418,91 @@ function DailyPlanner({ controller }: MainPanelProps) {
       />
     </div>
   );
+}
+
+type DailyFilterOption = {
+  value: string;
+  label: string;
+};
+
+function DailyFilterSelect({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: DailyFilterOption[];
+  value: string[];
+  onChange: (values: string[]) => void;
+}) {
+  return (
+    <label>
+      {label}
+      <select
+        multiple
+        aria-label={label}
+        value={value}
+        size={Math.min(Math.max(options.length, 2), 4)}
+        onChange={(event) =>
+          onChange(
+            Array.from(event.target.selectedOptions, (option) => option.value),
+          )
+        }
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function buildDailyFilterOptions(
+  controller: WorkbenchController,
+): {
+  tags: DailyFilterOption[];
+  areas: DailyFilterOption[];
+  projects: DailyFilterOption[];
+  routines: DailyFilterOption[];
+  itemTypes: DailyFilterOption[];
+  statuses: DailyFilterOption[];
+} {
+  const { items, relatedItems } = controller.workspaceItems;
+
+  return {
+    tags: toFilterOptions(items.flatMap((item) => item.tags ?? [])),
+    areas: relationFilterOptions(items, relatedItems.areas, "area_id"),
+    projects: relationFilterOptions(items, relatedItems.projects, "project_id"),
+    routines: relationFilterOptions(items, relatedItems.routines, "routine_id"),
+    itemTypes: toFilterOptions(items.map((item) => item.type)),
+    statuses: toFilterOptions(items.map((item) => item.status)),
+  };
+}
+
+function relationFilterOptions(
+  items: WorkspaceItemModel[],
+  labels: Record<string, string>,
+  field: "area_id" | "project_id" | "routine_id",
+): DailyFilterOption[] {
+  return toFilterOptions(
+    items
+      .map((item) => item[field])
+      .filter((value): value is string => Boolean(value)),
+    (value) => labels[value] ?? value,
+  );
+}
+
+function toFilterOptions(
+  values: string[],
+  labelForValue?: (value: string) => string,
+): DailyFilterOption[] {
+  return [...new Set(values)].sort().map((value) => ({
+    value,
+    label: labelForValue ? labelForValue(value) : value,
+  }));
 }
 
 function DailyPlannerSectionView({
