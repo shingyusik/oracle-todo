@@ -399,36 +399,42 @@ function DailyPlanner({ controller }: MainPanelProps) {
       <div className="items-toolbar planner-control-row">
         <DailyFilterSelect
           label="Filter daily items by tags"
+          displayLabel="Tags"
           options={filterOptions.tags}
           value={filters.tags}
           onChange={(values) => controller.setDailyFilter("tags", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by area"
+          displayLabel="Area"
           options={filterOptions.areas}
           value={filters.areaIds}
           onChange={(values) => controller.setDailyFilter("areaIds", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by project"
+          displayLabel="Project"
           options={filterOptions.projects}
           value={filters.projectIds}
           onChange={(values) => controller.setDailyFilter("projectIds", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by routine"
+          displayLabel="Routine"
           options={filterOptions.routines}
           value={filters.routineIds}
           onChange={(values) => controller.setDailyFilter("routineIds", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by item type"
+          displayLabel="Item"
           options={filterOptions.itemTypes}
           value={filters.itemTypes}
           onChange={(values) => controller.setDailyFilter("itemTypes", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by status"
+          displayLabel="Status"
           options={filterOptions.statuses}
           value={filters.statuses}
           onChange={(values) => controller.setDailyFilter("statuses", values)}
@@ -496,18 +502,20 @@ type DailyFilterOption = {
 
 function DailyFilterSelect({
   label,
+  displayLabel = label,
   options,
   value,
   onChange,
 }: {
   label: string;
+  displayLabel?: string;
   options: DailyFilterOption[];
   value: string[];
   onChange: (values: string[]) => void;
 }) {
   return (
-    <label>
-      {label}
+    <label className="planner-filter-label">
+      <span>{displayLabel}</span>
       <select
         multiple
         aria-label={label}

@@ -266,6 +266,18 @@ button {
   align-items: center;
 }
 
+.planner-filter-label {
+  display: grid;
+  min-width: 112px;
+  max-width: 180px;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.planner-filter-label select {
+  width: 100%;
+}
+
 .planner-section {
   display: grid;
   gap: 10px;
