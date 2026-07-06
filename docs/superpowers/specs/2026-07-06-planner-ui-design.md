@@ -55,7 +55,7 @@ Daily is a sectioned execution view rather than a table:
 
 ```text
 Daily Planner
-  day header + sort control + fast-add buttons
+  day header + filter controls + group-by control + sort control + fast-add buttons
   Today
     tasks/events/routines scheduled for today
   Overdue
@@ -69,6 +69,10 @@ Daily Planner
 Rules:
 
 - Completed and archived items are hidden.
+- Daily filters include tags, area, project, routine, item type, and status.
+- Daily filters use `AND` between filter categories and `OR` inside a multi-select category.
+- Daily group-by options include none, area, project, routine, tag, item type, and status.
+- Section buckets remain the top-level structure when group-by is active; groups render inside each bucket.
 - The default sort is by priority, then scheduled time, then updated time.
 - Sort controls may include priority, scheduled time, updated time, and title.
 - Compact fast-add controls default the scheduled date to today.
@@ -85,6 +89,7 @@ Tags are a common item field, not planner-only metadata:
 - Planner views show tag filter chips above the content.
 - Multiple selected tags use `OR` matching.
 - Tag filters apply after hidden terminal statuses are removed.
+- Daily also filters by area, project, routine, item type, and status.
 
 The first implementation does not need a separate tags table, tag colors, rename flows, or a tag management screen.
 
@@ -108,6 +113,7 @@ The first implementation may fetch by item type and filter in the frontend:
 - goals for `yearly`, `monthly`, and weekly goal strips.
 - tasks, events, and routines for `weekly` and `daily`.
 - daily sections are derived in the frontend from scheduled dates and status.
+- daily filtering, grouping, and sorting are derived in the frontend from loaded items and related item titles.
 
 ## Error Handling
 
@@ -126,6 +132,7 @@ Use the existing Vitest and React Testing Library setup:
 5. Sorting tests prove daily can order visible items by priority and scheduled time.
 6. Workspace tests prove tags can be edited from table and detail views.
 7. Planner tests prove tag filters hide non-matching visible items.
+8. Daily tests prove area/project filters and group-by controls reorganize visible items without showing completed items.
 
 Verification commands:
 
@@ -153,7 +160,9 @@ npm run build
 - `Weekly` shows month goals, week goals, and Monday-Sunday task cards.
 - `Daily` shows active runnable work in sections for today, overdue, upcoming, and unscheduled items.
 - `Daily` hides completed and archived items.
-- `Daily` can sort visible items by priority and scheduled time.
+- `Daily` can filter visible items by tag, area, project, routine, item type, and status.
+- `Daily` can group visible items by area, project, routine, tag, item type, and status.
+- `Daily` can sort visible items by priority, scheduled time, updated time, and title.
 - Workspace table rows can edit item tags.
 - Planner views can filter visible items by selected tags.
 - Fast add can create task, goal, routine, and event items from planner screens where those types are expected.
