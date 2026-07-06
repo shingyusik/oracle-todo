@@ -52,7 +52,13 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 - **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
   `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,
   `materialization_policy`, `area`, `project_id`, `parent_id`, `routine_id`, `due`,
-  `scheduled`, `priority`, `reason`.
+  `scheduled`, `priority`, `tags`, `reason`.
+
+Common create/update fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `tags` | optional `string[]` | Common item tags. Empty strings are ignored and duplicates are removed. |
 
 ## Query: `GET /items`
 

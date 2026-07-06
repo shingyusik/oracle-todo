@@ -318,6 +318,7 @@ SQLite table: `items`.
 | `archived_at` | nullable datetime | Archive/terminal timestamp. |
 | `last_materialized_at` | nullable datetime | Last routine materialization timestamp. |
 | `second_brain_refs` | JSON list | Read-only references into Second_Brain. |
+| `tags` | JSON array of strings | Common item tags for workspace editing and planner filters. |
 | `metadata` | JSON object | Type-specific or integration metadata. |
 | `created_at` | datetime | Creation timestamp. |
 | `updated_at` | datetime | Last update timestamp. |

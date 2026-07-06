@@ -2,24 +2,13 @@ use super::TodoService;
 use crate::application::error::{TodoError, TodoResult};
 use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
 
+#[derive(Default)]
 pub struct CreateArea {
     pub title: String,
     pub review_cycle: Option<String>,
     pub standard: Option<String>,
     pub note: Option<String>,
     pub tags: Vec<String>,
-}
-
-impl Default for CreateArea {
-    fn default() -> Self {
-        Self {
-            title: String::new(),
-            review_cycle: None,
-            standard: None,
-            note: None,
-            tags: Vec::new(),
-        }
-    }
 }
 
 pub struct ProposeTask {

@@ -246,6 +246,83 @@ button {
   color: var(--color-shade-40);
 }
 
+.planner-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.planner-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.planner-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.planner-section {
+  display: grid;
+  gap: 10px;
+}
+
+.planner-goal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.weekly-day-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(140px, 1fr));
+  gap: 10px;
+  overflow-x: auto;
+}
+
+.planner-card {
+  min-height: 96px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas-light);
+  padding: 10px;
+}
+
+.planner-card-list {
+  display: grid;
+  gap: 8px;
+}
+
+.planner-item {
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-cream);
+  padding: 8px;
+  text-align: left;
+}
+
+.table-inline-input {
+  width: 100%;
+  min-width: 140px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  padding: 6px 8px;
+  background: var(--color-canvas-light);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .items-table {
   width: max-content;
   min-width: 100%;
@@ -402,7 +479,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  align-items: end;
+  align-items: flex-end;
   min-width: 0;
 }
 
