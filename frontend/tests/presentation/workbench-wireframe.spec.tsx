@@ -734,11 +734,22 @@ describe("WorkbenchPageClient", () => {
         { name: "annual-done" },
       ),
     ).toBeNull();
+    await user.selectOptions(
+      screen.getByLabelText("Filter planner items by tags"),
+      "annual-current",
+    );
+    expect(screen.getByText("Annual Goal")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Month Goal")).toBeNull();
     expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
+    expect(
+      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+        "option",
+        { name: "annual-current" },
+      ),
+    ).toBeNull();
     expect(
       within(screen.getByLabelText("Filter planner items by tags")).getByRole(
         "option",

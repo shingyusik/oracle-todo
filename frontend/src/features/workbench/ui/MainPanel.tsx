@@ -194,6 +194,15 @@ function PlannerPanel({ controller }: MainPanelProps) {
     );
   }
 
+  const plannerTagOptions =
+    panel.id === "daily"
+      ? []
+      : buildPlannerTagFilterOptions(panel.id, workspaceItems.items, controller.planner);
+  const plannerTagValues = filterValuesByOptions(
+    controller.planner.dailyFilters.tags,
+    plannerTagOptions,
+  );
+
   return (
     <section
       className="items-section planner-panel"
@@ -203,12 +212,8 @@ function PlannerPanel({ controller }: MainPanelProps) {
         {panel.id !== "daily" ? (
           <DailyFilterSelect
             label="Filter planner items by tags"
-            options={buildPlannerTagFilterOptions(
-              panel.id,
-              workspaceItems.items,
-              controller.planner,
-            )}
-            value={controller.planner.dailyFilters.tags}
+            options={plannerTagOptions}
+            value={plannerTagValues}
             onChange={(values) => controller.setDailyFilter("tags", values)}
           />
         ) : null}
@@ -241,9 +246,14 @@ function GoalPlannerList({
   controller: WorkbenchController;
   horizon: "year" | "month";
 }) {
+  const tags = effectivePlannerTags(
+    controller.panel.id,
+    controller.workspaceItems.items,
+    controller.planner,
+  );
   const goals = filterPlannerItemsByTags(
     controller.workspaceItems.items,
-    controller.planner.dailyFilters.tags,
+    tags,
   ).filter(
     (item) =>
       item.type === "goal" &&
@@ -277,9 +287,14 @@ function GoalPlannerList({
 }
 
 function WeeklyPlanner({ controller }: MainPanelProps) {
+  const tags = effectivePlannerTags(
+    controller.panel.id,
+    controller.workspaceItems.items,
+    controller.planner,
+  );
   const items = filterPlannerItemsByTags(
     controller.workspaceItems.items,
-    controller.planner.dailyFilters.tags,
+    tags,
   );
   const model = buildWeeklyPlannerModel(
     items,
@@ -363,17 +378,21 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
 }
 
 function DailyPlanner({ controller }: MainPanelProps) {
+  const filterOptions = buildDailyFilterOptions(controller);
+  const filters = effectiveDailyFilters(
+    controller.planner.dailyFilters,
+    filterOptions,
+  );
   const model = buildDailyPlannerModel(
     controller.workspaceItems.items,
     controller.workspaceItems.relatedItems,
     {
       date: controller.planner.date,
-      filters: controller.planner.dailyFilters,
+      filters,
       groupBy: controller.planner.dailyGroupBy,
       sortBy: controller.planner.dailySortBy,
     },
   );
-  const filterOptions = buildDailyFilterOptions(controller);
 
   return (
     <div className="planner-panel">
@@ -381,37 +400,37 @@ function DailyPlanner({ controller }: MainPanelProps) {
         <DailyFilterSelect
           label="Filter daily items by tags"
           options={filterOptions.tags}
-          value={controller.planner.dailyFilters.tags}
+          value={filters.tags}
           onChange={(values) => controller.setDailyFilter("tags", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by area"
           options={filterOptions.areas}
-          value={controller.planner.dailyFilters.areaIds}
+          value={filters.areaIds}
           onChange={(values) => controller.setDailyFilter("areaIds", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by project"
           options={filterOptions.projects}
-          value={controller.planner.dailyFilters.projectIds}
+          value={filters.projectIds}
           onChange={(values) => controller.setDailyFilter("projectIds", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by routine"
           options={filterOptions.routines}
-          value={controller.planner.dailyFilters.routineIds}
+          value={filters.routineIds}
           onChange={(values) => controller.setDailyFilter("routineIds", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by item type"
           options={filterOptions.itemTypes}
-          value={controller.planner.dailyFilters.itemTypes}
+          value={filters.itemTypes}
           onChange={(values) => controller.setDailyFilter("itemTypes", values)}
         />
         <DailyFilterSelect
           label="Filter daily items by status"
           options={filterOptions.statuses}
-          value={controller.planner.dailyFilters.statuses}
+          value={filters.statuses}
           onChange={(values) => controller.setDailyFilter("statuses", values)}
         />
       </div>
@@ -545,6 +564,39 @@ function buildPlannerTagFilterOptions(
       .filter((item) => isVisiblePlannerFilterItem(panelId, item, planner))
       .flatMap((item) => item.tags ?? []),
   );
+}
+
+function effectivePlannerTags(
+  panelId: WorkbenchController["panel"]["id"],
+  items: WorkspaceItemModel[],
+  planner: WorkbenchController["planner"],
+): string[] {
+  return filterValuesByOptions(
+    planner.dailyFilters.tags,
+    buildPlannerTagFilterOptions(panelId, items, planner),
+  );
+}
+
+function effectiveDailyFilters(
+  filters: WorkbenchController["planner"]["dailyFilters"],
+  options: ReturnType<typeof buildDailyFilterOptions>,
+): WorkbenchController["planner"]["dailyFilters"] {
+  return {
+    tags: filterValuesByOptions(filters.tags, options.tags),
+    areaIds: filterValuesByOptions(filters.areaIds, options.areas),
+    projectIds: filterValuesByOptions(filters.projectIds, options.projects),
+    routineIds: filterValuesByOptions(filters.routineIds, options.routines),
+    itemTypes: filterValuesByOptions(filters.itemTypes, options.itemTypes),
+    statuses: filterValuesByOptions(filters.statuses, options.statuses),
+  };
+}
+
+function filterValuesByOptions(
+  values: string[],
+  options: DailyFilterOption[],
+): string[] {
+  const allowed = new Set(options.map((option) => option.value));
+  return values.filter((value) => allowed.has(value));
 }
 
 function filterPlannerItemsByTags(
