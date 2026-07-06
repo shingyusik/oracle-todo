@@ -629,10 +629,12 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(screen.queryByText("Done Task")).toBeNull();
 
-    await user.selectOptions(screen.getByLabelText("Filter daily items by status"), "completed");
-
-    expect(screen.queryByText("Today Task")).toBeNull();
-    expect(screen.queryByText("Done Task")).toBeNull();
+    expect(
+      within(screen.getByLabelText("Filter daily items by status")).queryByRole(
+        "option",
+        { name: "completed" },
+      ),
+    ).toBeNull();
   });
 
   it("renders yearly and monthly goal lists from loaded planner goals", async () => {
@@ -656,6 +658,14 @@ describe("WorkbenchPageClient", () => {
           scheduled: "2027-01-01",
         },
         {
+          id: "goal-year-done",
+          type: "goal",
+          title: "Completed Annual Goal",
+          status: "completed",
+          horizon: "year",
+          scheduled: "2026-01-01",
+        },
+        {
           id: "goal-month",
           type: "goal",
           title: "Monthly Goal",
@@ -670,6 +680,14 @@ describe("WorkbenchPageClient", () => {
           status: "active",
           horizon: "month",
           scheduled: "2026-08-01",
+        },
+        {
+          id: "goal-month-archived",
+          type: "goal",
+          title: "Archived Monthly Goal",
+          status: "archived",
+          horizon: "month",
+          scheduled: "2026-07-01",
         },
       ],
       "/todo-engine/items?type=area": [],
@@ -691,10 +709,12 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Planner" }));
     expect(await screen.findByText("Annual Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Year Goal")).toBeNull();
+    expect(screen.queryByText("Completed Annual Goal")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Month Goal")).toBeNull();
+    expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
   });
 
   it("normalizes visible workspace tags after save", async () => {

@@ -203,7 +203,7 @@ function PlannerPanel({ controller }: MainPanelProps) {
         {panel.id !== "daily" ? (
           <DailyFilterSelect
             label="Filter planner items by tags"
-            options={buildPlannerTagFilterOptions(workspaceItems.items)}
+            options={buildPlannerTagFilterOptions(panel.id, workspaceItems.items)}
             value={controller.planner.dailyFilters.tags}
             onChange={(values) => controller.setDailyFilter("tags", values)}
           />
@@ -243,6 +243,7 @@ function GoalPlannerList({
   ).filter(
     (item) =>
       item.type === "goal" &&
+      !isTerminalPlannerItem(item) &&
       item.horizon === horizon &&
       goalMatchesPlannerPeriod(item, horizon, controller.planner.date),
   );
@@ -516,7 +517,9 @@ function buildDailyFilterOptions(
   statuses: DailyFilterOption[];
 } {
   const { items, relatedItems } = controller.workspaceItems;
-  const dailyItems = items.filter(isDailyPlannerItem);
+  const dailyItems = items
+    .filter(isDailyPlannerItem)
+    .filter((item) => !isTerminalPlannerItem(item));
 
   return {
     tags: toFilterOptions(dailyItems.flatMap((item) => item.tags ?? [])),
@@ -529,9 +532,14 @@ function buildDailyFilterOptions(
 }
 
 function buildPlannerTagFilterOptions(
+  panelId: WorkbenchController["panel"]["id"],
   items: WorkspaceItemModel[],
 ): DailyFilterOption[] {
-  return toFilterOptions(items.flatMap((item) => item.tags ?? []));
+  return toFilterOptions(
+    items
+      .filter((item) => isVisiblePlannerFilterItem(panelId, item))
+      .flatMap((item) => item.tags ?? []),
+  );
 }
 
 function filterPlannerItemsByTags(
@@ -546,6 +554,34 @@ function filterPlannerItemsByTags(
 
 function isDailyPlannerItem(item: WorkspaceItemModel): boolean {
   return item.type === "task" || item.type === "event" || item.type === "routine";
+}
+
+function isVisiblePlannerFilterItem(
+  panelId: WorkbenchController["panel"]["id"],
+  item: WorkspaceItemModel,
+): boolean {
+  if (isTerminalPlannerItem(item)) {
+    return false;
+  }
+  if (panelId === "yearly" || panelId === "monthly") {
+    return item.type === "goal";
+  }
+  if (panelId === "weekly") {
+    return item.type === "goal" || isDailyPlannerItem(item);
+  }
+  if (panelId === "daily") {
+    return isDailyPlannerItem(item);
+  }
+  return true;
+}
+
+function isTerminalPlannerItem(item: WorkspaceItemModel): boolean {
+  return (
+    item.status === "completed" ||
+    item.status === "archived" ||
+    item.status === "dropped" ||
+    item.status === "cancelled"
+  );
 }
 
 function goalMatchesPlannerPeriod(
