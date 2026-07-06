@@ -56,6 +56,32 @@ function testWeekStart(date: string): string {
   return formatDate(value);
 }
 
+function testAddDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00`);
+  value.setDate(value.getDate() + days);
+  return formatDate(value);
+}
+
+function testMonthStart(date: string): string {
+  return `${date.slice(0, 7)}-01`;
+}
+
+function testNextMonthStart(date: string): string {
+  const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
+  value.setMonth(value.getMonth() + 1);
+  return formatDate(value);
+}
+
+function testYearStart(date: string): string {
+  return `${date.slice(0, 4)}-01-01`;
+}
+
+function testNextYearStart(date: string): string {
+  const value = new Date(`${date.slice(0, 4)}-01-01T00:00:00`);
+  value.setFullYear(value.getFullYear() + 1);
+  return formatDate(value);
+}
+
 describe("WorkbenchPageClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -273,6 +299,9 @@ describe("WorkbenchPageClient", () => {
 
   it("renders weekly planner goals and seven day cards", async () => {
     const user = userEvent.setup();
+    const today = testToday();
+    const weekStart = testWeekStart(today);
+    const monthStart = testMonthStart(today);
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=goal": [
         {
@@ -281,7 +310,7 @@ describe("WorkbenchPageClient", () => {
           title: "July Goal",
           status: "active",
           horizon: "month",
-          scheduled: "2026-07-01",
+          scheduled: monthStart,
         },
         {
           id: "goal-2",
@@ -289,7 +318,7 @@ describe("WorkbenchPageClient", () => {
           title: "Week Goal",
           status: "active",
           horizon: "week",
-          scheduled: "2026-07-06",
+          scheduled: weekStart,
         },
       ],
       "/todo-engine/items?type=task": [
@@ -298,7 +327,7 @@ describe("WorkbenchPageClient", () => {
           type: "task",
           title: "Monday Task",
           status: "active",
-          scheduled: "2026-07-06",
+          scheduled: weekStart,
         },
       ],
       "/todo-engine/items?type=event": [],
@@ -333,6 +362,7 @@ describe("WorkbenchPageClient", () => {
 
   it("defaults weekly planner goal creation to the active week anchor and shows it", async () => {
     const user = userEvent.setup();
+    const weekStart = testWeekStart(testToday());
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=goal": [],
       "/todo-engine/items?type=task": [],
@@ -349,7 +379,7 @@ describe("WorkbenchPageClient", () => {
             body: JSON.stringify({
               title: "Anchored weekly goal",
               horizon: "week",
-              scheduled: "2026-07-06",
+              scheduled: weekStart,
               actor: "user",
             }),
           }),
@@ -363,7 +393,7 @@ describe("WorkbenchPageClient", () => {
             title: "Anchored weekly goal",
             status: "approved",
             horizon: "week",
-            scheduled: "2026-07-06",
+            scheduled: weekStart,
           }),
         });
       }
@@ -382,7 +412,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     await user.click(screen.getByRole("button", { name: "Add planner item" }));
 
-    expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-07-06");
+    expect(screen.getByLabelText("Scheduled")).toHaveValue(weekStart);
 
     await user.type(screen.getByLabelText("Title"), "Anchored weekly goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -516,6 +546,9 @@ describe("WorkbenchPageClient", () => {
 
   it("renders daily planner sections with filter, group, and sort controls", async () => {
     const user = userEvent.setup();
+    const today = testToday();
+    const overdue = testAddDays(today, -1);
+    const upcoming = testAddDays(today, 1);
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=task": [
         {
@@ -523,7 +556,7 @@ describe("WorkbenchPageClient", () => {
           type: "task",
           title: "Today Task",
           status: "active",
-          scheduled: "2026-07-06",
+          scheduled: today,
           tags: ["deep-work"],
           area_id: "area-1",
         },
@@ -532,7 +565,7 @@ describe("WorkbenchPageClient", () => {
           type: "task",
           title: "Done Task",
           status: "completed",
-          scheduled: "2026-07-06",
+          scheduled: today,
           tags: ["deep-work"],
           area_id: "area-1",
         },
@@ -541,7 +574,7 @@ describe("WorkbenchPageClient", () => {
           type: "task",
           title: "Overdue Task",
           status: "active",
-          scheduled: "2026-07-05",
+          scheduled: overdue,
           area_id: "area-2",
         },
         {
@@ -549,7 +582,7 @@ describe("WorkbenchPageClient", () => {
           type: "task",
           title: "Upcoming Task",
           status: "active",
-          scheduled: "2026-07-07",
+          scheduled: upcoming,
           area_id: "area-2",
         },
         {
@@ -570,7 +603,7 @@ describe("WorkbenchPageClient", () => {
           type: "area",
           title: "Area Should Not Render",
           status: "active",
-          scheduled: "2026-07-06",
+          scheduled: today,
         },
       ],
       "/todo-engine/items?type=project": [
@@ -579,7 +612,7 @@ describe("WorkbenchPageClient", () => {
           type: "project",
           title: "Project Should Not Render",
           status: "active",
-          scheduled: "2026-07-06",
+          scheduled: today,
         },
       ],
     };
@@ -639,6 +672,11 @@ describe("WorkbenchPageClient", () => {
 
   it("renders yearly and monthly goal lists from loaded planner goals", async () => {
     const user = userEvent.setup();
+    const today = testToday();
+    const yearStart = testYearStart(today);
+    const nextYearStart = testNextYearStart(today);
+    const monthStart = testMonthStart(today);
+    const nextMonthStart = testNextMonthStart(today);
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=goal": [
         {
@@ -647,7 +685,7 @@ describe("WorkbenchPageClient", () => {
           title: "Annual Goal",
           status: "active",
           horizon: "year",
-          scheduled: "2026-01-01",
+          scheduled: yearStart,
           tags: ["annual-current"],
         },
         {
@@ -656,7 +694,7 @@ describe("WorkbenchPageClient", () => {
           title: "Other Year Goal",
           status: "active",
           horizon: "year",
-          scheduled: "2027-01-01",
+          scheduled: nextYearStart,
           tags: ["annual-future"],
         },
         {
@@ -665,7 +703,7 @@ describe("WorkbenchPageClient", () => {
           title: "Completed Annual Goal",
           status: "completed",
           horizon: "year",
-          scheduled: "2026-01-01",
+          scheduled: yearStart,
           tags: ["annual-done"],
         },
         {
@@ -674,7 +712,7 @@ describe("WorkbenchPageClient", () => {
           title: "Monthly Goal",
           status: "active",
           horizon: "month",
-          scheduled: "2026-07-01",
+          scheduled: monthStart,
           tags: ["month-current"],
         },
         {
@@ -683,7 +721,7 @@ describe("WorkbenchPageClient", () => {
           title: "Other Month Goal",
           status: "active",
           horizon: "month",
-          scheduled: "2026-08-01",
+          scheduled: nextMonthStart,
           tags: ["month-future"],
         },
         {
@@ -692,7 +730,7 @@ describe("WorkbenchPageClient", () => {
           title: "Archived Monthly Goal",
           status: "archived",
           horizon: "month",
-          scheduled: "2026-07-01",
+          scheduled: monthStart,
           tags: ["month-archived"],
         },
       ],
