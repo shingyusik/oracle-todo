@@ -117,12 +117,14 @@ export function buildWeeklyPlannerModel(
     monthGoals: items.filter(
       (item) =>
         item.type === "goal" &&
+        !terminalStatuses.has(item.status) &&
         item.horizon === "month" &&
         datePart(item.scheduled)?.startsWith(monthKey),
     ),
     weekGoals: items.filter(
       (item) =>
         item.type === "goal" &&
+        !terminalStatuses.has(item.status) &&
         item.horizon === "week" &&
         weekDates.includes(datePart(item.scheduled) ?? ""),
     ),
