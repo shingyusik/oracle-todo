@@ -118,6 +118,38 @@ describe("useWorkbenchController", () => {
     });
   });
 
+  it.each([
+    ["daily", ["task", "event", "routine", "area", "project"]],
+    ["weekly", ["goal", "task", "event", "routine", "area", "project"]],
+    ["monthly", ["goal", "area", "project"]],
+    ["yearly", ["goal", "area", "project"]],
+  ] as const)(
+    "loads planner item sets for %s",
+    async (tabId, itemTypes) => {
+      const fetchMock = vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { result } = renderHook(() => useWorkbenchController());
+
+      await act(async () => {
+        result.current.selectTab(tabId);
+      });
+
+      await vi.waitFor(() =>
+        expect(result.current.workspaceItems.status).toBe("loaded"),
+      );
+
+      for (const itemType of itemTypes) {
+        expect(fetchMock).toHaveBeenCalledWith(`/todo-engine/items?type=${itemType}`);
+      }
+    },
+  );
+
   it("archives selected workspace rows after confirmation", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (String(url).endsWith("/archive")) {

@@ -2,6 +2,13 @@ import React, { useEffect, useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
+import {
+  buildDailyPlannerModel,
+  buildWeeklyPlannerModel,
+  type DailyGroupBy,
+  type DailyPlannerSection,
+  type DailySortBy,
+} from "@/features/workbench/model/planner-model";
 import type {
   WorkbenchController,
   WorkspaceItemModel,
@@ -58,6 +65,14 @@ export function MainPanel({ controller }: MainPanelProps) {
     return (
       <main className="main-panel">
         <DetailView controller={controller} />
+      </main>
+    );
+  }
+
+  if (isPlannerPanel(controller.selection.leafTabId)) {
+    return (
+      <main className="main-panel">
+        <PlannerPanel controller={controller} />
       </main>
     );
   }
@@ -144,6 +159,256 @@ function DetailView({ controller }: MainPanelProps) {
           Save
         </button>
       </div>
+    </section>
+  );
+}
+
+function isPlannerPanel(leafTabId: LeafTabId): boolean {
+  return ["yearly", "monthly", "weekly", "daily"].includes(leafTabId);
+}
+
+function PlannerPanel({ controller }: MainPanelProps) {
+  const { panel, workspaceItems } = controller;
+
+  if (workspaceItems.status === "idle") {
+    return null;
+  }
+
+  if (workspaceItems.status === "loading") {
+    return (
+      <section className="items-section" aria-label={`${panel.title} planner`}>
+        <p className="items-message" role="status">
+          Loading {panel.title.toLowerCase()} planner...
+        </p>
+      </section>
+    );
+  }
+
+  if (workspaceItems.status === "error") {
+    return (
+      <section className="items-section" aria-label={`${panel.title} planner`}>
+        <p className="items-message" role="alert">
+          Could not load todo-engine items.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="items-section" aria-label={`${panel.title} planner`}>
+      <div className="items-toolbar">
+        <button
+          className="items-toolbar-button"
+          type="button"
+          aria-label="Add planner item"
+          onClick={controller.openCreationDialog}
+        >
+          <Plus size={16} aria-hidden="true" />
+        </button>
+      </div>
+      {panel.id === "weekly" ? <WeeklyPlanner controller={controller} /> : null}
+      {panel.id === "daily" ? <DailyPlanner controller={controller} /> : null}
+      {panel.id === "yearly" ? <GoalPlannerList controller={controller} horizon="year" /> : null}
+      {panel.id === "monthly" ? (
+        <GoalPlannerList controller={controller} horizon="month" />
+      ) : null}
+      {controller.creationDialogOpen ? <CreationDialog controller={controller} /> : null}
+    </section>
+  );
+}
+
+function GoalPlannerList({
+  controller,
+  horizon,
+}: {
+  controller: WorkbenchController;
+  horizon: "year" | "month";
+}) {
+  const goals = controller.workspaceItems.items.filter(
+    (item) => item.type === "goal" && item.horizon === horizon,
+  );
+
+  return (
+    <section aria-label={`${horizon} goals`}>
+      <h2>{horizon === "year" ? "Year goals" : "Month goals"}</h2>
+      {goals.length === 0 ? (
+        <p className="items-message">No goals found.</p>
+      ) : (
+        <ul>
+          {goals.map((item) => (
+            <li key={item.id}>
+              <button type="button" onClick={() => controller.openDetailView(item)}>
+                {item.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function WeeklyPlanner({ controller }: MainPanelProps) {
+  const model = buildWeeklyPlannerModel(
+    controller.workspaceItems.items,
+    controller.planner.weekStart,
+  );
+
+  return (
+    <div>
+      <section aria-label="Weekly month goals">
+        <h2>Goals for this month</h2>
+        {model.monthGoals.length === 0 ? (
+          <p className="items-message">No goals found.</p>
+        ) : (
+          <ul>
+            {model.monthGoals.map((item) => (
+              <li key={item.id}>
+                <button type="button" onClick={() => controller.openDetailView(item)}>
+                  {item.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section aria-label="Weekly goals">
+        <h2>Goals for this week</h2>
+        {model.weekGoals.length === 0 ? (
+          <p className="items-message">No goals found.</p>
+        ) : (
+          <ul>
+            {model.weekGoals.map((item) => (
+              <li key={item.id}>
+                <button type="button" onClick={() => controller.openDetailView(item)}>
+                  {item.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <div>
+        {model.days.map((day) => (
+          <section key={day.date} data-testid="weekly-day-card">
+            <h3>{day.label}</h3>
+            {day.items.length === 0 ? (
+              <p className="items-message">No scheduled items.</p>
+            ) : (
+              <ul>
+                {day.items.map((item) => (
+                  <li key={item.id}>
+                    <button type="button" onClick={() => controller.openDetailView(item)}>
+                      {item.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DailyPlanner({ controller }: MainPanelProps) {
+  const model = buildDailyPlannerModel(
+    controller.workspaceItems.items,
+    controller.workspaceItems.relatedItems,
+    {
+      date: controller.planner.date,
+      filters: controller.planner.dailyFilters,
+      groupBy: controller.planner.dailyGroupBy,
+      sortBy: controller.planner.dailySortBy,
+    },
+  );
+
+  return (
+    <div>
+      <div className="items-toolbar">
+        <label>
+          Group by
+          <select
+            aria-label="Group daily items by"
+            value={controller.planner.dailyGroupBy}
+            onChange={(event) =>
+              controller.setDailyGroupBy(event.target.value as DailyGroupBy)
+            }
+          >
+            <option value="none">No grouping</option>
+            <option value="area">Area</option>
+            <option value="project">Project</option>
+            <option value="routine">Routine</option>
+            <option value="tag">Tag</option>
+            <option value="item_type">Item type</option>
+            <option value="status">Status</option>
+          </select>
+        </label>
+        <label>
+          Sort by
+          <select
+            aria-label="Sort daily items by"
+            value={controller.planner.dailySortBy}
+            onChange={(event) =>
+              controller.setDailySortBy(event.target.value as DailySortBy)
+            }
+          >
+            <option value="priority">Priority</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="updated">Updated</option>
+            <option value="title">Title</option>
+          </select>
+        </label>
+      </div>
+      <DailyPlannerSectionView
+        controller={controller}
+        section={model.sections.today}
+      />
+      <DailyPlannerSectionView
+        controller={controller}
+        section={model.sections.overdue}
+      />
+      <DailyPlannerSectionView
+        controller={controller}
+        section={model.sections.upcoming}
+      />
+      <DailyPlannerSectionView
+        controller={controller}
+        section={model.sections.unscheduled}
+      />
+    </div>
+  );
+}
+
+function DailyPlannerSectionView({
+  controller,
+  section,
+}: {
+  controller: WorkbenchController;
+  section: DailyPlannerSection;
+}) {
+  return (
+    <section aria-label={section.title}>
+      <h2>{section.title}</h2>
+      {section.groups.length === 0 ? (
+        <p className="items-message">No items found.</p>
+      ) : (
+        section.groups.map((group) => (
+          <div key={group.key}>
+            {group.label !== "All" ? <h3>{group.label}</h3> : null}
+            <ul>
+              {group.items.map((item) => (
+                <li key={item.id}>
+                  <button type="button" onClick={() => controller.openDetailView(item)}>
+                    {item.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
     </section>
   );
 }

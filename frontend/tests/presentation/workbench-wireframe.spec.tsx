@@ -253,6 +253,182 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("cell", { name: "Morning review" })).toBeInTheDocument();
   });
 
+  it("renders weekly planner goals and seven day cards", async () => {
+    const user = userEvent.setup();
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=goal": [
+        {
+          id: "goal-1",
+          type: "goal",
+          title: "July Goal",
+          status: "active",
+          horizon: "month",
+          scheduled: "2026-07-01",
+        },
+        {
+          id: "goal-2",
+          type: "goal",
+          title: "Week Goal",
+          status: "active",
+          horizon: "week",
+          scheduled: "2026-07-06",
+        },
+      ],
+      "/todo-engine/items?type=task": [
+        {
+          id: "task-1",
+          type: "task",
+          title: "Monday Task",
+          status: "active",
+          scheduled: "2026-07-06",
+        },
+      ],
+      "/todo-engine/items?type=event": [],
+      "/todo-engine/items?type=routine": [],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => responses[url] ?? [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Goals for this month" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("July Goal")).toBeInTheDocument();
+    expect(screen.getByText("Week Goal")).toBeInTheDocument();
+    expect(screen.getByText("Monday Task")).toBeInTheDocument();
+    expect(screen.getAllByTestId("weekly-day-card")).toHaveLength(7);
+  });
+
+  it("renders daily planner sections with group and sort controls", async () => {
+    const user = userEvent.setup();
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=task": [
+        {
+          id: "task-1",
+          type: "task",
+          title: "Today Task",
+          status: "active",
+          scheduled: "2026-07-06",
+          tags: ["deep-work"],
+        },
+        {
+          id: "task-2",
+          type: "task",
+          title: "Done Task",
+          status: "completed",
+          scheduled: "2026-07-06",
+          tags: ["deep-work"],
+        },
+        {
+          id: "task-3",
+          type: "task",
+          title: "Overdue Task",
+          status: "active",
+          scheduled: "2026-07-05",
+        },
+        {
+          id: "task-4",
+          type: "task",
+          title: "Upcoming Task",
+          status: "active",
+          scheduled: "2026-07-07",
+        },
+        {
+          id: "task-5",
+          type: "task",
+          title: "Inbox Task",
+          status: "active",
+        },
+      ],
+      "/todo-engine/items?type=event": [],
+      "/todo-engine/items?type=routine": [],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => responses[url] ?? [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    expect(await screen.findByRole("heading", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Group daily items by")).toBeInTheDocument();
+    expect(screen.getByLabelText("Sort daily items by")).toBeInTheDocument();
+    expect(screen.getByText("Today Task")).toBeInTheDocument();
+    expect(screen.getByText("Overdue Task")).toBeInTheDocument();
+    expect(screen.getByText("Upcoming Task")).toBeInTheDocument();
+    expect(screen.getByText("Inbox Task")).toBeInTheDocument();
+    expect(screen.queryByText("Done Task")).toBeNull();
+  });
+
+  it("renders yearly and monthly goal lists from loaded planner goals", async () => {
+    const user = userEvent.setup();
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=goal": [
+        {
+          id: "goal-year",
+          type: "goal",
+          title: "Annual Goal",
+          status: "active",
+          horizon: "year",
+          scheduled: "2026-01-01",
+        },
+        {
+          id: "goal-month",
+          type: "goal",
+          title: "Monthly Goal",
+          status: "active",
+          horizon: "month",
+          scheduled: "2026-07-01",
+        },
+      ],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => responses[url] ?? [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    expect(await screen.findByText("Annual Goal")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
+  });
+
   it("normalizes visible workspace tags after save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

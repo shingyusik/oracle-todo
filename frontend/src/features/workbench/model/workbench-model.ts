@@ -4,6 +4,11 @@ import type {
   WorkbenchSelection,
   WorkbenchTabId,
 } from "@/domain/workbench/navigation";
+import type {
+  DailyFilterState,
+  DailyGroupBy,
+  DailySortBy,
+} from "@/features/workbench/model/planner-model";
 
 export type WorkbenchPanelModel = {
   id: LeafTabId;
@@ -52,6 +57,14 @@ export type WorkspaceItemsModel = {
   };
 };
 
+export type PlannerControls = {
+  date: string;
+  weekStart: string;
+  dailyFilters: DailyFilterState;
+  dailyGroupBy: DailyGroupBy;
+  dailySortBy: DailySortBy;
+};
+
 export type CreateWorkspaceItemForm = {
   title: string;
   scheduled?: string;
@@ -95,6 +108,7 @@ export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
   workspaceItems: WorkspaceItemsModel;
+  planner: PlannerControls;
   selectedItemIds: string[];
   archiveConfirmationOpen: boolean;
   creationDialogOpen: boolean;
@@ -111,6 +125,9 @@ export type WorkbenchController = {
   createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
   openDetailView: (item: WorkspaceItemModel) => void;
   patchWorkspaceItem: (itemId: string, patch: WorkspaceItemPatch) => Promise<void>;
+  setDailyFilter: (field: keyof DailyFilterState, values: string[]) => void;
+  setDailyGroupBy: (groupBy: DailyGroupBy) => void;
+  setDailySortBy: (sortBy: DailySortBy) => void;
   transitionWorkspaceItem: (
     itemId: string,
     action: WorkspaceItemTransitionAction,

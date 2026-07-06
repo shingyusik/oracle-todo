@@ -13,6 +13,7 @@ import {
 } from "@/domain/workbench/navigation";
 import {
   type CreateWorkspaceItemForm,
+  type PlannerControls,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
@@ -40,6 +41,13 @@ const relatedItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
   goals: ["area", "goal"],
 };
 
+const plannerItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
+  yearly: ["goal", "area", "project"],
+  monthly: ["goal", "area", "project"],
+  weekly: ["goal", "task", "event", "routine", "area", "project"],
+  daily: ["task", "event", "routine", "area", "project"],
+};
+
 const emptyWorkspaceItems: WorkspaceItemsModel = {
   status: "idle",
   items: [],
@@ -49,6 +57,21 @@ const emptyWorkspaceItems: WorkspaceItemsModel = {
     projects: {},
     routines: {},
   },
+};
+
+const defaultPlanner: PlannerControls = {
+  date: "2026-07-06",
+  weekStart: "2026-07-06",
+  dailyFilters: {
+    tags: [],
+    areaIds: [],
+    projectIds: [],
+    routineIds: [],
+    itemTypes: [],
+    statuses: [],
+  },
+  dailyGroupBy: "none",
+  dailySortBy: "priority",
 };
 
 function replaceWorkspaceItem(
@@ -64,6 +87,7 @@ export function useWorkbenchController(): WorkbenchController {
   );
   const [workspaceItems, setWorkspaceItems] =
     useState<WorkspaceItemsModel>(emptyWorkspaceItems);
+  const [planner, setPlanner] = useState<PlannerControls>(defaultPlanner);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
@@ -82,7 +106,12 @@ export function useWorkbenchController(): WorkbenchController {
 
   useEffect(() => {
     const itemType = workspaceItemTypes[selection.leafTabId];
-    if (!itemType) {
+    const plannerTypes = plannerItemTypes[selection.leafTabId];
+    const requestedTypes = itemType
+      ? [itemType, ...(relatedItemTypes[selection.leafTabId] ?? [])]
+      : plannerTypes;
+
+    if (!requestedTypes || requestedTypes.length === 0) {
       setWorkspaceItems(emptyWorkspaceItems);
       return;
     }
@@ -90,16 +119,17 @@ export function useWorkbenchController(): WorkbenchController {
     let cancelled = false;
     setWorkspaceItems({ ...emptyWorkspaceItems, status: "loading" });
 
-    Promise.all([
-      fetchWorkspaceItems(itemType),
-      ...((relatedItemTypes[selection.leafTabId] ?? []).map(fetchWorkspaceItems)),
-    ])
-      .then(([items, ...relatedItems]) => {
+    Promise.all(requestedTypes.map(fetchWorkspaceItems))
+      .then((responses) => {
         if (!cancelled) {
+          const plannerItems = plannerTypes ? responses.flat() : null;
+          const [items, ...relatedItems] = responses;
           setWorkspaceItems({
             status: "loaded",
-            items,
-            relatedItems: buildRelatedItems(relatedItems.flat()),
+            items: plannerItems ?? items,
+            relatedItems: buildRelatedItems(
+              plannerItems ?? relatedItems.flat(),
+            ),
           });
         }
       })
@@ -118,6 +148,7 @@ export function useWorkbenchController(): WorkbenchController {
     selection,
     panel,
     workspaceItems,
+    planner,
     selectedItemIds,
     archiveConfirmationOpen,
     creationDialogOpen,
@@ -189,6 +220,15 @@ export function useWorkbenchController(): WorkbenchController {
         items: replaceWorkspaceItem(current.items, updated),
       }));
     },
+    setDailyFilter: (field, values) =>
+      setPlanner((current) => ({
+        ...current,
+        dailyFilters: { ...current.dailyFilters, [field]: values },
+      })),
+    setDailyGroupBy: (groupBy) =>
+      setPlanner((current) => ({ ...current, dailyGroupBy: groupBy })),
+    setDailySortBy: (sortBy) =>
+      setPlanner((current) => ({ ...current, dailySortBy: sortBy })),
     transitionWorkspaceItem: async (
       itemId: string,
       action: WorkspaceItemTransitionAction,
@@ -304,6 +344,23 @@ function createItemRequest(
       scheduled: form.scheduled,
       actor: "user",
     });
+  }
+  if (panelId === "yearly" || panelId === "monthly" || panelId === "weekly") {
+    const horizon = panelId === "yearly" ? "year" : panelId === "weekly" ? "week" : "month";
+
+    return postJson("/todo-engine/goals/propose", {
+      title,
+      horizon,
+      scheduled: form.scheduled,
+      actor: "user",
+    });
+  }
+  if (panelId === "daily") {
+    return postJson("/todo-engine/tasks/propose", { title, actor: "user" }).then((item) =>
+      item.status === "active"
+        ? item
+        : postJson(`/todo-engine/items/${item.id}/activate`, {}),
+    );
   }
 
   throw new Error(`Cannot create item from ${panelId}`);
