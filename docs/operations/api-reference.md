@@ -36,18 +36,19 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 
 ## Request bodies
 
-- **`AreaBody`** — `title` (required), `review_cycle?`, `standard?`, `note?`.
+- **`AreaBody`** — `title` (required), `review_cycle?`, `standard?`, `note?`, `tags?`.
 - **`TaskProposeBody`** — `title` (required), `area?`, `due?`, `scheduled?`, `priority?`,
-  `description?`, `note?`, `actor?` (default `agent`).
+  `description?`, `note?`, `tags?`, `actor?` (default `agent`).
 - **`ProjectProposeBody`** — `title` (required), `area?`, `definition_of_done?`, `outcome?`,
-  `due?`, `note?`, `actor?` (default `agent`).
+  `due?`, `note?`, `tags?`, `actor?` (default `agent`).
 - **`GoalProposeBody`** — `title` (required), `horizon` (required: `year`, `month`, or `week`),
-  `scheduled` (required canonical period start date), `parent_id?`, `actor?`, `note?`.
+  `scheduled` (required canonical period start date), `parent_id?`, `actor?`, `note?`, `tags?`.
 - **`RoutineProposeBody`** — `title` (required), `area?`, `recurrence_rule?`,
-  `materialization_policy?` (default `single_open`), `note?`, `actor?` (default `agent`).
+  `materialization_policy?` (default `single_open`), `note?`, `tags?`,
+  `actor?` (default `agent`).
 - **`EventProposeBody`** — `title` (required), `scheduled` (required), `area?`, `project_id?`,
   `due?`, `priority?`, `description?`, `note?`, `location?`, `participants?` (array),
-  `commitment_type?` (default `appointment`), `actor?` (default `agent`).
+  `commitment_type?` (default `appointment`), `tags?`, `actor?` (default `agent`).
 - **`ReasonBody`** — `reason?`. Optional on the transition endpoints that accept it.
 - **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
   `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,

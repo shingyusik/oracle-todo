@@ -185,7 +185,6 @@ describe("planner model", () => {
     expect(model.sections.today.groups[0]?.items.map((item) => item.id)).toEqual([
       "task-focus",
       "task-ops",
-      "project-match",
       "routine-match",
       "wrong-area",
       "wrong-project",
@@ -199,14 +198,17 @@ describe("planner model", () => {
     expect(model.sections.unscheduled.groups[0]?.items.map((item) => item.id)).toEqual([
       "unscheduled",
     ]);
+    expect(model.sections.today.groups[0]?.items.map((item) => item.id)).not.toContain(
+      "project-match",
+    );
   });
 
   it.each([
     ["area", ["Home", "Work"]],
     ["project", ["Ops", "Planner"]],
     ["routine", ["Evening", "Morning"]],
-    ["tag", ["deep-work", "focus", "habit", "ops", "planning"]],
-    ["item_type", ["project", "routine", "task"]],
+    ["tag", ["deep-work", "focus", "habit", "ops"]],
+    ["item_type", ["routine", "task"]],
     ["status", ["active", "approved"]],
   ] as const)("groups today items by %s with expected labels", (groupBy, labels) => {
     const model = buildDaily({}, groupBy);
@@ -302,6 +304,20 @@ describe("planner model", () => {
           id: "task",
           type: "task",
           title: "Monday Task",
+          status: "active",
+          scheduled: "2026-07-06",
+        },
+        {
+          id: "area",
+          type: "area",
+          title: "Area Marker",
+          status: "active",
+          scheduled: "2026-07-06",
+        },
+        {
+          id: "project",
+          type: "project",
+          title: "Project Marker",
           status: "active",
           scheduled: "2026-07-06",
         },

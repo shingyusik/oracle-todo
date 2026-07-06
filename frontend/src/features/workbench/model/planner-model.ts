@@ -59,6 +59,8 @@ export type WeeklyPlannerModel = {
 };
 
 const terminalStatuses = new Set(["completed", "archived", "dropped", "cancelled"]);
+const dailyItemTypes = new Set(["task", "event", "routine"]);
+const weeklyItemTypes = new Set(["task", "event", "routine"]);
 
 export function buildDailyPlannerModel(
   items: WorkspaceItemModel[],
@@ -66,6 +68,7 @@ export function buildDailyPlannerModel(
   options: DailyPlannerOptions,
 ): DailyPlannerModel {
   const visible = items
+    .filter((item) => dailyItemTypes.has(item.type))
     .filter((item) => !terminalStatuses.has(item.status))
     .filter((item) => matchesDailyFilters(item, options.filters))
     .sort((left, right) => compareDailyItems(left, right, options.sortBy));
@@ -133,7 +136,7 @@ export function buildWeeklyPlannerModel(
       label: date,
       items: items.filter(
         (item) =>
-          item.type !== "goal" &&
+          weeklyItemTypes.has(item.type) &&
           !terminalStatuses.has(item.status) &&
           datePart(item.scheduled) === date,
       ),

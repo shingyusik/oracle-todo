@@ -67,6 +67,7 @@ export type PlannerControls = {
 
 export type CreateWorkspaceItemForm = {
   title: string;
+  itemType?: "task" | "goal" | "routine" | "event";
   scheduled?: string;
   horizon?: string;
   tags?: string[];

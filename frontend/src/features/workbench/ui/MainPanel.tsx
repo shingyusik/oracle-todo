@@ -200,6 +200,14 @@ function PlannerPanel({ controller }: MainPanelProps) {
       aria-label={`${panel.title} planner`}
     >
       <div className="items-toolbar planner-toolbar">
+        {panel.id !== "daily" ? (
+          <DailyFilterSelect
+            label="Filter planner items by tags"
+            options={buildPlannerTagFilterOptions(workspaceItems.items)}
+            value={controller.planner.dailyFilters.tags}
+            onChange={(values) => controller.setDailyFilter("tags", values)}
+          />
+        ) : null}
         <button
           className="items-toolbar-button"
           type="button"
@@ -229,8 +237,14 @@ function GoalPlannerList({
   controller: WorkbenchController;
   horizon: "year" | "month";
 }) {
-  const goals = controller.workspaceItems.items.filter(
-    (item) => item.type === "goal" && item.horizon === horizon,
+  const goals = filterPlannerItemsByTags(
+    controller.workspaceItems.items,
+    controller.planner.dailyFilters.tags,
+  ).filter(
+    (item) =>
+      item.type === "goal" &&
+      item.horizon === horizon &&
+      goalMatchesPlannerPeriod(item, horizon, controller.planner.date),
   );
 
   return (
@@ -258,8 +272,12 @@ function GoalPlannerList({
 }
 
 function WeeklyPlanner({ controller }: MainPanelProps) {
-  const model = buildWeeklyPlannerModel(
+  const items = filterPlannerItemsByTags(
     controller.workspaceItems.items,
+    controller.planner.dailyFilters.tags,
+  );
+  const model = buildWeeklyPlannerModel(
+    items,
     controller.planner.weekStart,
   );
 
@@ -498,15 +516,51 @@ function buildDailyFilterOptions(
   statuses: DailyFilterOption[];
 } {
   const { items, relatedItems } = controller.workspaceItems;
+  const dailyItems = items.filter(isDailyPlannerItem);
 
   return {
-    tags: toFilterOptions(items.flatMap((item) => item.tags ?? [])),
-    areas: relationFilterOptions(items, relatedItems.areas, "area_id"),
-    projects: relationFilterOptions(items, relatedItems.projects, "project_id"),
-    routines: relationFilterOptions(items, relatedItems.routines, "routine_id"),
-    itemTypes: toFilterOptions(items.map((item) => item.type)),
-    statuses: toFilterOptions(items.map((item) => item.status)),
+    tags: toFilterOptions(dailyItems.flatMap((item) => item.tags ?? [])),
+    areas: relationFilterOptions(dailyItems, relatedItems.areas, "area_id"),
+    projects: relationFilterOptions(dailyItems, relatedItems.projects, "project_id"),
+    routines: relationFilterOptions(dailyItems, relatedItems.routines, "routine_id"),
+    itemTypes: toFilterOptions(dailyItems.map((item) => item.type)),
+    statuses: toFilterOptions(dailyItems.map((item) => item.status)),
   };
+}
+
+function buildPlannerTagFilterOptions(
+  items: WorkspaceItemModel[],
+): DailyFilterOption[] {
+  return toFilterOptions(items.flatMap((item) => item.tags ?? []));
+}
+
+function filterPlannerItemsByTags(
+  items: WorkspaceItemModel[],
+  tags: string[],
+): WorkspaceItemModel[] {
+  if (tags.length === 0) {
+    return items;
+  }
+  return items.filter((item) => tags.some((tag) => item.tags?.includes(tag)));
+}
+
+function isDailyPlannerItem(item: WorkspaceItemModel): boolean {
+  return item.type === "task" || item.type === "event" || item.type === "routine";
+}
+
+function goalMatchesPlannerPeriod(
+  item: WorkspaceItemModel,
+  horizon: "year" | "month",
+  plannerDate: string,
+): boolean {
+  const scheduled = item.scheduled?.slice(0, 10);
+  if (!scheduled) {
+    return false;
+  }
+  if (horizon === "year") {
+    return scheduled.slice(0, 4) === plannerDate.slice(0, 4);
+  }
+  return scheduled.slice(0, 7) === plannerDate.slice(0, 7);
 }
 
 function relationFilterOptions(
@@ -1827,18 +1881,26 @@ type CreationDialogProps = {
 function CreationDialog({ controller }: CreationDialogProps) {
   const plannerScheduled = defaultCreationScheduled(controller);
   const plannerHorizon = defaultCreationHorizon(controller);
+  const plannerItemType = defaultCreationItemType(controller);
+  const plannerTypeOptions = plannerCreationTypeOptions(controller);
   const [title, setTitle] = React.useState("");
+  const [itemType, setItemType] = React.useState(plannerItemType);
   const [scheduled, setScheduled] = React.useState(plannerScheduled);
   const [horizon, setHorizon] = React.useState(plannerHorizon);
   const formRef = useRef<HTMLFormElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const isGoal = controller.panel.id === "goals";
   const isPlannerGoal =
-    controller.panel.id === "weekly"
-    || controller.panel.id === "monthly"
-    || controller.panel.id === "yearly";
+    itemType === "goal" &&
+    (controller.panel.id === "weekly" ||
+      controller.panel.id === "monthly" ||
+      controller.panel.id === "yearly");
   const needsScheduled =
-    controller.panel.id === "events" || isGoal || isPlannerGoal;
+    controller.panel.id === "events" ||
+    isGoal ||
+    isPlannerGoal ||
+    ((controller.panel.id === "weekly" || controller.panel.id === "daily") &&
+      (itemType === "task" || itemType === "event"));
   const needsHorizon = isGoal;
 
   useEffect(() => {
@@ -1846,9 +1908,10 @@ function CreationDialog({ controller }: CreationDialogProps) {
   }, []);
 
   useEffect(() => {
+    setItemType(plannerItemType);
     setScheduled(plannerScheduled);
     setHorizon(plannerHorizon);
-  }, [plannerHorizon, plannerScheduled]);
+  }, [plannerHorizon, plannerItemType, plannerScheduled]);
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLFormElement>) {
     if (event.key === "Escape") {
@@ -1888,10 +1951,32 @@ function CreationDialog({ controller }: CreationDialogProps) {
         onKeyDown={handleKeyDown}
         onSubmit={(event) => {
           event.preventDefault();
-          void controller.createWorkspaceItem({ title, scheduled, horizon });
+          void controller.createWorkspaceItem({
+            title,
+            itemType,
+            scheduled,
+            horizon,
+          });
         }}
       >
         <h2>Create {controller.panel.title} item</h2>
+        {plannerTypeOptions.length > 1 ? (
+          <label className="field-label">
+            Type
+            <select
+              value={itemType}
+              onChange={(event) =>
+                setItemType(event.target.value as typeof itemType)
+              }
+            >
+              {plannerTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="field-label">
           Title
           <input
@@ -1940,7 +2025,11 @@ function defaultCreationScheduled(controller: WorkbenchController): string {
   if (controller.panel.id === "weekly") {
     return controller.planner.weekStart;
   }
-  if (controller.panel.id === "monthly" || controller.panel.id === "yearly") {
+  if (
+    controller.panel.id === "daily" ||
+    controller.panel.id === "monthly" ||
+    controller.panel.id === "yearly"
+  ) {
     return controller.planner.date;
   }
 
@@ -1959,6 +2048,44 @@ function defaultCreationHorizon(controller: WorkbenchController): string {
   }
 
   return "month";
+}
+
+type PlannerCreationItemType = "task" | "goal" | "routine" | "event";
+
+function defaultCreationItemType(
+  controller: WorkbenchController,
+): PlannerCreationItemType | undefined {
+  if (controller.panel.id === "weekly") {
+    return "goal";
+  }
+  if (controller.panel.id === "daily") {
+    return "task";
+  }
+  if (controller.panel.id === "yearly" || controller.panel.id === "monthly") {
+    return "goal";
+  }
+  return undefined;
+}
+
+function plannerCreationTypeOptions(
+  controller: WorkbenchController,
+): Array<{ value: PlannerCreationItemType; label: string }> {
+  if (controller.panel.id === "weekly") {
+    return [
+      { value: "goal", label: "Goal" },
+      { value: "task", label: "Task" },
+      { value: "routine", label: "Routine" },
+      { value: "event", label: "Event" },
+    ];
+  }
+  if (controller.panel.id === "daily") {
+    return [
+      { value: "task", label: "Task" },
+      { value: "routine", label: "Routine" },
+      { value: "event", label: "Event" },
+    ];
+  }
+  return [];
 }
 
 function stopRowEvent(event: React.SyntheticEvent<HTMLElement>) {

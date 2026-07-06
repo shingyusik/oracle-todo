@@ -59,20 +59,42 @@ const emptyWorkspaceItems: WorkspaceItemsModel = {
   },
 };
 
-const defaultPlanner: PlannerControls = {
-  date: "2026-07-06",
-  weekStart: "2026-07-06",
-  dailyFilters: {
-    tags: [],
-    areaIds: [],
-    projectIds: [],
-    routineIds: [],
-    itemTypes: [],
-    statuses: [],
-  },
-  dailyGroupBy: "none",
-  dailySortBy: "priority",
-};
+function todayDate(): string {
+  return formatLocalDate(new Date());
+}
+
+function weekStartForDate(date: string): string {
+  const value = new Date(`${date}T00:00:00`);
+  const day = value.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  value.setDate(value.getDate() + mondayOffset);
+  return formatLocalDate(value);
+}
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function createDefaultPlanner(): PlannerControls {
+  const date = todayDate();
+  return {
+    date,
+    weekStart: weekStartForDate(date),
+    dailyFilters: {
+      tags: [],
+      areaIds: [],
+      projectIds: [],
+      routineIds: [],
+      itemTypes: [],
+      statuses: [],
+    },
+    dailyGroupBy: "none",
+    dailySortBy: "priority",
+  };
+}
 
 function replaceWorkspaceItem(
   items: WorkspaceItemModel[],
@@ -87,7 +109,9 @@ export function useWorkbenchController(): WorkbenchController {
   );
   const [workspaceItems, setWorkspaceItems] =
     useState<WorkspaceItemsModel>(emptyWorkspaceItems);
-  const [planner, setPlanner] = useState<PlannerControls>(defaultPlanner);
+  const [planner, setPlanner] = useState<PlannerControls>(() =>
+    createDefaultPlanner(),
+  );
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
@@ -306,6 +330,7 @@ function createItemRequest(
 ): Promise<WorkspaceItemModel> {
   const title = form.title.trim();
   const goalDefaults = plannerGoalDefaults(panelId, planner, form);
+  const plannerType = plannerCreationType(panelId, form);
 
   if (panelId === "areas") {
     return postJson("/todo-engine/areas", { title });
@@ -347,7 +372,10 @@ function createItemRequest(
       actor: "user",
     });
   }
-  if (panelId === "yearly" || panelId === "monthly" || panelId === "weekly") {
+  if (
+    plannerType === "goal" &&
+    (panelId === "yearly" || panelId === "monthly" || panelId === "weekly")
+  ) {
     return postJson("/todo-engine/goals/propose", {
       title,
       horizon: goalDefaults.horizon,
@@ -355,15 +383,53 @@ function createItemRequest(
       actor: "user",
     });
   }
-  if (panelId === "daily") {
-    return postJson("/todo-engine/tasks/propose", { title, actor: "user" }).then((item) =>
-      item.status === "active"
-        ? item
-        : postJson(`/todo-engine/items/${item.id}/activate`, {}),
-    );
+  if (panelId === "weekly" || panelId === "daily") {
+    if (plannerType === "task") {
+      return postJson("/todo-engine/tasks/propose", {
+        title,
+        scheduled: form.scheduled || planner.date,
+        actor: "user",
+      }).then(activateIfNeeded);
+    }
+    if (plannerType === "event") {
+      return postJson("/todo-engine/events/propose", {
+        title,
+        scheduled: form.scheduled || planner.date,
+        actor: "user",
+      }).then(activateIfNeeded);
+    }
+    if (plannerType === "routine") {
+      return postJson("/todo-engine/routines/propose", {
+        title,
+        actor: "user",
+        materialization_policy: "single_open",
+      });
+    }
   }
 
   throw new Error(`Cannot create item from ${panelId}`);
+}
+
+function activateIfNeeded(item: WorkspaceItemModel): Promise<WorkspaceItemModel> {
+  return item.status === "active"
+    ? Promise.resolve(item)
+    : postJson(`/todo-engine/items/${item.id}/activate`, {});
+}
+
+function plannerCreationType(
+  panelId: LeafTabId,
+  form: CreateWorkspaceItemForm,
+): CreateWorkspaceItemForm["itemType"] {
+  if (panelId === "daily") {
+    return form.itemType ?? "task";
+  }
+  if (panelId === "weekly") {
+    return form.itemType ?? "goal";
+  }
+  if (panelId === "yearly" || panelId === "monthly") {
+    return "goal";
+  }
+  return undefined;
 }
 
 function plannerGoalDefaults(
