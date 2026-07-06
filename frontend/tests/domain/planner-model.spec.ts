@@ -99,6 +99,16 @@ const items: WorkspaceItemModel[] = [
     updated_at: "2026-07-05T08:00:00Z",
   },
   {
+    id: "task-upcoming",
+    type: "task",
+    title: "Tomorrow",
+    status: "active",
+    scheduled: "2026-07-07",
+    priority: 4,
+    tags: ["admin"],
+    updated_at: "2026-07-06T09:00:00Z",
+  },
+  {
     id: "done",
     type: "task",
     title: "Done",
@@ -166,6 +176,28 @@ describe("planner model", () => {
 
     expect(model.sections.today.groups[0]?.items.map((item) => item.id)).toEqual([
       "routine-match",
+    ]);
+  });
+
+  it("places visible work into today, overdue, upcoming, and unscheduled sections", () => {
+    const model = buildDaily();
+
+    expect(model.sections.today.groups[0]?.items.map((item) => item.id)).toEqual([
+      "task-focus",
+      "task-ops",
+      "project-match",
+      "routine-match",
+      "wrong-area",
+      "wrong-project",
+    ]);
+    expect(model.sections.overdue.groups[0]?.items.map((item) => item.id)).toEqual([
+      "task-overdue",
+    ]);
+    expect(model.sections.upcoming.groups[0]?.items.map((item) => item.id)).toEqual([
+      "task-upcoming",
+    ]);
+    expect(model.sections.unscheduled.groups[0]?.items.map((item) => item.id)).toEqual([
+      "unscheduled",
     ]);
   });
 
