@@ -8,6 +8,8 @@ import type {
   DailyFilterState,
   DailyGroupBy,
   DailySortBy,
+  PlannerGroupBy,
+  PlannerSortBy,
 } from "@/features/workbench/model/planner-model";
 
 export type WorkbenchPanelModel = {
@@ -63,6 +65,8 @@ export type PlannerControls = {
   dailyFilters: DailyFilterState;
   dailyGroupBy: DailyGroupBy;
   dailySortBy: DailySortBy;
+  plannerGroupBy: PlannerGroupBy;
+  plannerSortBy: PlannerSortBy;
 };
 
 export type CreateWorkspaceItemForm = {
@@ -129,6 +133,8 @@ export type WorkbenchController = {
   setDailyFilter: (field: keyof DailyFilterState, values: string[]) => void;
   setDailyGroupBy: (groupBy: DailyGroupBy) => void;
   setDailySortBy: (sortBy: DailySortBy) => void;
+  setPlannerGroupBy: (groupBy: PlannerGroupBy) => void;
+  setPlannerSortBy: (sortBy: PlannerSortBy) => void;
   transitionWorkspaceItem: (
     itemId: string,
     action: WorkspaceItemTransitionAction,

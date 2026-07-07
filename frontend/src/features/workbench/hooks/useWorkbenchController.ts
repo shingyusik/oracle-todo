@@ -93,6 +93,8 @@ function createDefaultPlanner(): PlannerControls {
     },
     dailyGroupBy: "none",
     dailySortBy: "priority",
+    plannerGroupBy: "none",
+    plannerSortBy: "scheduled",
   };
 }
 
@@ -253,6 +255,10 @@ export function useWorkbenchController(): WorkbenchController {
       setPlanner((current) => ({ ...current, dailyGroupBy: groupBy })),
     setDailySortBy: (sortBy) =>
       setPlanner((current) => ({ ...current, dailySortBy: sortBy })),
+    setPlannerGroupBy: (groupBy) =>
+      setPlanner((current) => ({ ...current, plannerGroupBy: groupBy })),
+    setPlannerSortBy: (sortBy) =>
+      setPlanner((current) => ({ ...current, plannerSortBy: sortBy })),
     transitionWorkspaceItem: async (
       itemId: string,
       action: WorkspaceItemTransitionAction,

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildDailyPlannerModel,
   buildWeeklyPlannerModel,
+  groupPlannerItems,
+  sortPlannerItems,
 } from "@/features/workbench/model/planner-model";
 import type { WorkspaceItemModel, WorkspaceItemsModel } from "@/features/workbench/model/workbench-model";
 
@@ -150,7 +152,64 @@ function buildDaily(filters: Partial<Parameters<typeof buildDailyPlannerModel>[2
   });
 }
 
+function item(
+  id: string,
+  patch: Partial<WorkspaceItemModel>,
+): WorkspaceItemModel {
+  return {
+    id,
+    title: id,
+    type: "task",
+    status: "active",
+    ...patch,
+  };
+}
+
 describe("planner model", () => {
+  it("sorts planner items by scheduled with unscheduled first matching existing compare behavior", () => {
+    const result = sortPlannerItems(
+      [
+        item("late", { scheduled: "2026-07-09T10:00:00", priority: 3 }),
+        item("none", { scheduled: null, priority: 1 }),
+        item("early", { scheduled: "2026-07-07T09:00:00", priority: 2 }),
+      ],
+      "scheduled",
+    );
+
+    expect(result.map((entry) => entry.id)).toEqual(["none", "early", "late"]);
+  });
+
+  it("groups planner items by tag and keeps untagged items visible", () => {
+    const result = groupPlannerItems(
+      [
+        item("focus", { tags: ["focus"] }),
+        item("ops", { tags: ["ops", "focus"] }),
+        item("empty", { tags: [] }),
+      ],
+      relatedItems,
+      "tag",
+    );
+
+    expect(result.map((group) => [group.label, group.items.map((entry) => entry.id)])).toEqual([
+      ["focus", ["focus", "ops"]],
+      ["ops", ["ops"]],
+      ["Untagged", ["empty"]],
+    ]);
+  });
+
+  it("groups planner items by related area labels", () => {
+    const result = groupPlannerItems(
+      [
+        item("work", { area_id: "area-1" }),
+        item("none", { area_id: null }),
+      ],
+      relatedItems,
+      "area",
+    );
+
+    expect(result.map((group) => group.label)).toEqual(["Work", "No value"]);
+  });
+
   it("uses AND across filter categories and OR inside multi-select values", () => {
     const model = buildDaily({
       tags: ["deep-work", "ops"],

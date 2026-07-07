@@ -12,7 +12,7 @@ export type DailyFilterState = {
   statuses: string[];
 };
 
-export type DailyGroupBy =
+export type PlannerGroupBy =
   | "none"
   | "area"
   | "project"
@@ -21,7 +21,10 @@ export type DailyGroupBy =
   | "item_type"
   | "status";
 
-export type DailySortBy = "priority" | "scheduled" | "updated" | "title";
+export type PlannerSortBy = "priority" | "scheduled" | "updated" | "title";
+
+export type DailyGroupBy = PlannerGroupBy;
+export type DailySortBy = PlannerSortBy;
 
 export type DailyPlannerOptions = {
   date: string;
@@ -200,6 +203,13 @@ function compareText(
   return (left ?? "").localeCompare(right ?? "");
 }
 
+export function sortPlannerItems(
+  items: WorkspaceItemModel[],
+  sortBy: PlannerSortBy,
+): WorkspaceItemModel[] {
+  return [...items].sort((left, right) => compareDailyItems(left, right, sortBy));
+}
+
 function section(
   id: DailyPlannerSection["id"],
   title: string,
@@ -210,10 +220,18 @@ function section(
   return { id, title, groups: groupItems(items, relatedItems, groupBy) };
 }
 
+export function groupPlannerItems(
+  items: WorkspaceItemModel[],
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  groupBy: PlannerGroupBy,
+): PlannerGroup[] {
+  return groupItems(items, relatedItems, groupBy);
+}
+
 function groupItems(
   items: WorkspaceItemModel[],
   relatedItems: WorkspaceItemsModel["relatedItems"],
-  groupBy: DailyGroupBy,
+  groupBy: PlannerGroupBy,
 ): PlannerGroup[] {
   if (groupBy === "none") {
     return items.length === 0 ? [] : [{ key: "all", label: "All", items }];
@@ -236,7 +254,7 @@ function groupItems(
   return [...groups.values()];
 }
 
-function groupKeys(item: WorkspaceItemModel, groupBy: DailyGroupBy): string[] {
+function groupKeys(item: WorkspaceItemModel, groupBy: PlannerGroupBy): string[] {
   if (groupBy === "tag") {
     return item.tags && item.tags.length > 0 ? item.tags : ["untagged"];
   }
@@ -250,7 +268,7 @@ function groupKeys(item: WorkspaceItemModel, groupBy: DailyGroupBy): string[] {
 
 function groupLabel(
   key: string,
-  groupBy: DailyGroupBy,
+  groupBy: PlannerGroupBy,
   relatedItems: WorkspaceItemsModel["relatedItems"],
 ): string {
   if (key === "none") return "No value";
