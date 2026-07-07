@@ -265,28 +265,7 @@ function GoalPlannerList({
   return (
     <section className="planner-section" aria-label={`${horizon} goals`}>
       <h2>{horizon === "year" ? "Year goals" : "Month goals"}</h2>
-      {groupedGoals.length === 0 ? (
-        <p className="items-message">No goals found.</p>
-      ) : (
-        groupedGoals.map((group) => (
-          <div className="planner-card-list" key={group.key}>
-            {group.label !== "All" ? <h3>{group.label}</h3> : null}
-            <ul className="planner-card-list">
-              {group.items.map((item) => (
-                <li key={item.id}>
-                  <button
-                    className="planner-item"
-                    type="button"
-                    onClick={() => controller.openDetailView(item)}
-                  >
-                    {item.title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))
-      )}
+      {renderPlannerGroups(controller, groupedGoals, "No goals found.")}
     </section>
   );
 }
@@ -305,49 +284,27 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
     items,
     controller.planner.weekStart,
   );
+  const monthGoalGroups = groupPlannerItems(
+    sortPlannerItems(model.monthGoals, controller.planner.plannerSortBy),
+    controller.workspaceItems.relatedItems,
+    controller.planner.plannerGroupBy,
+  );
+  const weekGoalGroups = groupPlannerItems(
+    sortPlannerItems(model.weekGoals, controller.planner.plannerSortBy),
+    controller.workspaceItems.relatedItems,
+    controller.planner.plannerGroupBy,
+  );
 
   return (
     <div className="planner-panel">
       <div className="planner-goal-grid">
         <section className="planner-section" aria-label="Weekly month goals">
           <h2>Goals for this month</h2>
-          {model.monthGoals.length === 0 ? (
-            <p className="items-message">No goals found.</p>
-          ) : (
-            <ul className="planner-card-list">
-              {model.monthGoals.map((item) => (
-                <li key={item.id}>
-                  <button
-                    className="planner-item"
-                    type="button"
-                    onClick={() => controller.openDetailView(item)}
-                  >
-                    {item.title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          {renderPlannerGroups(controller, monthGoalGroups, "No goals found.")}
         </section>
         <section className="planner-section" aria-label="Weekly goals">
           <h2>Goals for this week</h2>
-          {model.weekGoals.length === 0 ? (
-            <p className="items-message">No goals found.</p>
-          ) : (
-            <ul className="planner-card-list">
-              {model.weekGoals.map((item) => (
-                <li key={item.id}>
-                  <button
-                    className="planner-item"
-                    type="button"
-                    onClick={() => controller.openDetailView(item)}
-                  >
-                    {item.title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          {renderPlannerGroups(controller, weekGoalGroups, "No goals found.")}
         </section>
       </div>
       <div className="weekly-day-grid">
@@ -365,28 +322,7 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
               data-testid="weekly-day-card"
             >
               <h3>{day.label}</h3>
-              {dayGroups.length === 0 ? (
-                <p className="items-message">No scheduled items.</p>
-              ) : (
-                dayGroups.map((group) => (
-                  <div className="planner-card-list" key={group.key}>
-                    {group.label !== "All" ? <h3>{group.label}</h3> : null}
-                    <ul className="planner-card-list">
-                      {group.items.map((item) => (
-                        <li key={item.id}>
-                          <button
-                            className="planner-item"
-                            type="button"
-                            onClick={() => controller.openDetailView(item)}
-                          >
-                            {item.title}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))
-              )}
+              {renderPlannerGroups(controller, dayGroups, "No scheduled items.")}
             </section>
           );
         })}
@@ -1099,30 +1035,38 @@ function DailyPlannerSectionView({
   return (
     <section className="planner-section" aria-label={section.title}>
       <h2>{section.title}</h2>
-      {section.groups.length === 0 ? (
-        <p className="items-message">No items found.</p>
-      ) : (
-        section.groups.map((group) => (
-          <div className="planner-card-list" key={group.key}>
-            {group.label !== "All" ? <h3>{group.label}</h3> : null}
-            <ul className="planner-card-list">
-              {group.items.map((item) => (
-                <li key={item.id}>
-                  <button
-                    className="planner-item"
-                    type="button"
-                    onClick={() => controller.openDetailView(item)}
-                  >
-                    {item.title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))
-      )}
+      {renderPlannerGroups(controller, section.groups, "No items found.")}
     </section>
   );
+}
+
+function renderPlannerGroups(
+  controller: WorkbenchController,
+  groups: DailyPlannerSection["groups"],
+  emptyMessage: string,
+) {
+  if (groups.length === 0) {
+    return <p className="items-message">{emptyMessage}</p>;
+  }
+
+  return groups.map((group) => (
+    <div className="planner-card-list" key={group.key}>
+      {group.label !== "All" ? <h3>{group.label}</h3> : null}
+      <ul className="planner-card-list">
+        {group.items.map((item) => (
+          <li key={item.id}>
+            <button
+              className="planner-item"
+              type="button"
+              onClick={() => controller.openDetailView(item)}
+            >
+              {item.title}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  ));
 }
 
 type DetailDraft = {

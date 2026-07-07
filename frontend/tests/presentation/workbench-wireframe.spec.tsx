@@ -815,6 +815,110 @@ describe("WorkbenchPageClient", () => {
     expect(within(today).getByRole("heading", { name: "ops" })).toBeInTheDocument();
   });
 
+  it("groups weekly goal strips with planner controls while keeping day cards visible", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const weekStart = testWeekStart(today);
+    const monthStart = testMonthStart(today);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=goal"
+              ? [
+                  {
+                    id: "month-goal-b",
+                    type: "goal",
+                    title: "Beta Month Goal",
+                    status: "active",
+                    horizon: "month",
+                    scheduled: monthStart,
+                    tags: ["focus"],
+                  },
+                  {
+                    id: "month-goal-a",
+                    type: "goal",
+                    title: "Alpha Month Goal",
+                    status: "active",
+                    horizon: "month",
+                    scheduled: monthStart,
+                    tags: ["focus"],
+                  },
+                  {
+                    id: "week-goal-b",
+                    type: "goal",
+                    title: "Beta Week Goal",
+                    status: "active",
+                    horizon: "week",
+                    scheduled: weekStart,
+                    tags: ["focus"],
+                  },
+                  {
+                    id: "week-goal-a",
+                    type: "goal",
+                    title: "Alpha Week Goal",
+                    status: "active",
+                    horizon: "week",
+                    scheduled: weekStart,
+                    tags: ["focus"],
+                  },
+                  {
+                    id: "week-goal-ops",
+                    type: "goal",
+                    title: "Ops Week Goal",
+                    status: "active",
+                    horizon: "week",
+                    scheduled: weekStart,
+                    tags: ["ops"],
+                  },
+                ]
+              : url === "/todo-engine/items?type=task"
+                ? [
+                    {
+                      id: "task-1",
+                      type: "task",
+                      title: "Monday Task",
+                      status: "active",
+                      scheduled: weekStart,
+                      tags: ["focus"],
+                    },
+                  ]
+                : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    await screen.findByText("Alpha Month Goal");
+
+    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
+    await user.click(screen.getByRole("button", { name: "Title" }));
+    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Tag" }));
+
+    const monthGoals = screen.getByLabelText("Weekly month goals");
+    expect(within(monthGoals).getByRole("heading", { name: "focus" })).toBeInTheDocument();
+    expect(
+      within(monthGoals).getAllByRole("button").map((button) => button.textContent),
+    ).toEqual(["Alpha Month Goal", "Beta Month Goal"]);
+
+    const weekGoals = screen.getByLabelText("Weekly goals");
+    expect(within(weekGoals).getByRole("heading", { name: "focus" })).toBeInTheDocument();
+    expect(within(weekGoals).getByRole("heading", { name: "ops" })).toBeInTheDocument();
+    expect(
+      within(weekGoals).getAllByRole("button").map((button) => button.textContent),
+    ).toEqual(["Alpha Week Goal", "Beta Week Goal", "Ops Week Goal"]);
+
+    expect(screen.getByText("Monday Task")).toBeInTheDocument();
+    expect(screen.getAllByTestId("weekly-day-card")).toHaveLength(7);
+  });
+
   it("renders yearly and monthly goal lists from loaded planner goals", async () => {
     const user = userEvent.setup();
     const today = testToday();
@@ -900,7 +1004,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Other Year Goal")).toBeNull();
     expect(screen.queryByText("Completed Annual Goal")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    const yearlyTagFilter = screen.getByLabelText("Filter planner items by tags");
+    const yearlyTagFilter = screen.getByLabelText("Filter by Tags");
     expect(
       within(yearlyTagFilter).getByRole(
         "option",
@@ -927,7 +1031,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Other Month Goal")).toBeNull();
     expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    const monthlyTagFilter = screen.getByLabelText("Filter planner items by tags");
+    const monthlyTagFilter = screen.getByLabelText("Filter by Tags");
     expect(
       within(monthlyTagFilter).queryByRole(
         "option",
