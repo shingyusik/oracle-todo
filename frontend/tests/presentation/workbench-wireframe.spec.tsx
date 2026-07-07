@@ -758,6 +758,63 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Ops Task")).toBeInTheDocument();
   });
 
+  it("sorts and groups daily planner items from dropdown controls", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task"
+              ? [
+                  {
+                    id: "task-b",
+                    type: "task",
+                    title: "B Task",
+                    status: "active",
+                    tags: ["ops"],
+                    priority: 2,
+                    scheduled: testToday(),
+                  },
+                  {
+                    id: "task-a",
+                    type: "task",
+                    title: "A Task",
+                    status: "active",
+                    tags: ["focus"],
+                    priority: 1,
+                    scheduled: testToday(),
+                  },
+                ]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await screen.findByText("A Task");
+
+    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
+    await user.click(screen.getByRole("button", { name: "Title" }));
+
+    const today = screen.getByLabelText("Today");
+    expect(within(today).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "A Task",
+      "B Task",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Tag" }));
+
+    expect(within(today).getByRole("heading", { name: "focus" })).toBeInTheDocument();
+    expect(within(today).getByRole("heading", { name: "ops" })).toBeInTheDocument();
+  });
+
   it("renders yearly and monthly goal lists from loaded planner goals", async () => {
     const user = userEvent.setup();
     const today = testToday();

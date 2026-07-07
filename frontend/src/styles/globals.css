@@ -372,6 +372,26 @@ button {
   gap: 8px;
 }
 
+.planner-menu-option-list {
+  display: grid;
+  gap: 4px;
+}
+
+.planner-menu-option-list button {
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  padding: 6px 8px;
+  color: inherit;
+  text-align: left;
+}
+
+.planner-menu-option-list button:hover,
+.planner-menu-option-list button[aria-pressed="true"] {
+  background: var(--color-canvas-cream);
+}
+
 .planner-filter-rule {
   display: grid;
   grid-template-columns: 82px 70px minmax(0, 1fr) 28px;

@@ -8,6 +8,10 @@ import {
   type DailyGroupBy,
   type DailyPlannerSection,
   type DailySortBy,
+  groupPlannerItems,
+  sortPlannerItems,
+  type PlannerGroupBy,
+  type PlannerSortBy,
 } from "@/features/workbench/model/planner-model";
 import type {
   WorkbenchController,
@@ -246,33 +250,42 @@ function GoalPlannerList({
   const goals = filterPlannerItemsByTags(
     controller.workspaceItems.items,
     tags,
-  ).filter(
-    (item) =>
-      item.type === "goal" &&
-      !isTerminalPlannerItem(item) &&
-      item.horizon === horizon &&
-      goalMatchesPlannerPeriod(item, horizon, controller.planner.date),
+  ).filter((item) =>
+    item.type === "goal" &&
+    !isTerminalPlannerItem(item) &&
+    item.horizon === horizon &&
+    goalMatchesPlannerPeriod(item, horizon, controller.planner.date),
+  );
+  const groupedGoals = groupPlannerItems(
+    sortPlannerItems(goals, controller.planner.plannerSortBy),
+    controller.workspaceItems.relatedItems,
+    controller.planner.plannerGroupBy,
   );
 
   return (
     <section className="planner-section" aria-label={`${horizon} goals`}>
       <h2>{horizon === "year" ? "Year goals" : "Month goals"}</h2>
-      {goals.length === 0 ? (
+      {groupedGoals.length === 0 ? (
         <p className="items-message">No goals found.</p>
       ) : (
-        <ul className="planner-card-list">
-          {goals.map((item) => (
-            <li key={item.id}>
-              <button
-                className="planner-item"
-                type="button"
-                onClick={() => controller.openDetailView(item)}
-              >
-                {item.title}
-              </button>
-            </li>
-          ))}
-        </ul>
+        groupedGoals.map((group) => (
+          <div className="planner-card-list" key={group.key}>
+            {group.label !== "All" ? <h3>{group.label}</h3> : null}
+            <ul className="planner-card-list">
+              {group.items.map((item) => (
+                <li key={item.id}>
+                  <button
+                    className="planner-item"
+                    type="button"
+                    onClick={() => controller.openDetailView(item)}
+                  >
+                    {item.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
       )}
     </section>
   );
@@ -338,32 +351,45 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
         </section>
       </div>
       <div className="weekly-day-grid">
-        {model.days.map((day) => (
-          <section
-            className="planner-card"
-            key={day.date}
-            data-testid="weekly-day-card"
-          >
-            <h3>{day.label}</h3>
-            {day.items.length === 0 ? (
-              <p className="items-message">No scheduled items.</p>
-            ) : (
-              <ul className="planner-card-list">
-                {day.items.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      className="planner-item"
-                      type="button"
-                      onClick={() => controller.openDetailView(item)}
-                    >
-                      {item.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        ))}
+        {model.days.map((day) => {
+          const dayGroups = groupPlannerItems(
+            sortPlannerItems(day.items, controller.planner.plannerSortBy),
+            controller.workspaceItems.relatedItems,
+            controller.planner.plannerGroupBy,
+          );
+
+          return (
+            <section
+              className="planner-card"
+              key={day.date}
+              data-testid="weekly-day-card"
+            >
+              <h3>{day.label}</h3>
+              {dayGroups.length === 0 ? (
+                <p className="items-message">No scheduled items.</p>
+              ) : (
+                dayGroups.map((group) => (
+                  <div className="planner-card-list" key={group.key}>
+                    {group.label !== "All" ? <h3>{group.label}</h3> : null}
+                    <ul className="planner-card-list">
+                      {group.items.map((item) => (
+                        <li key={item.id}>
+                          <button
+                            className="planner-item"
+                            type="button"
+                            onClick={() => controller.openDetailView(item)}
+                          >
+                            {item.title}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))
+              )}
+            </section>
+          );
+        })}
       </div>
     </div>
   );
@@ -388,41 +414,6 @@ function DailyPlanner({ controller }: MainPanelProps) {
 
   return (
     <div className="planner-panel">
-      <div className="items-toolbar planner-control-row">
-        <label>
-          Group by
-          <select
-            aria-label="Group daily items by"
-            value={controller.planner.dailyGroupBy}
-            onChange={(event) =>
-              controller.setDailyGroupBy(event.target.value as DailyGroupBy)
-            }
-          >
-            <option value="none">No grouping</option>
-            <option value="area">Area</option>
-            <option value="project">Project</option>
-            <option value="routine">Routine</option>
-            <option value="tag">Tag</option>
-            <option value="item_type">Item type</option>
-            <option value="status">Status</option>
-          </select>
-        </label>
-        <label>
-          Sort by
-          <select
-            aria-label="Sort daily items by"
-            value={controller.planner.dailySortBy}
-            onChange={(event) =>
-              controller.setDailySortBy(event.target.value as DailySortBy)
-            }
-          >
-            <option value="priority">Priority</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="updated">Updated</option>
-            <option value="title">Title</option>
-          </select>
-        </label>
-      </div>
       <DailyPlannerSectionView
         controller={controller}
         section={model.sections.today}
@@ -645,84 +636,40 @@ function PlannerFilterRulePanel({
 }
 
 function PlannerSortPanel({ controller }: { controller: WorkbenchController }) {
-  if (controller.panel.id === "daily") {
-    return (
-      <label className="planner-filter-label">
-        <span>Sort</span>
-        <select
-          aria-label="Sort daily items by"
-          value={controller.planner.dailySortBy}
-          onChange={(event) =>
-            controller.setDailySortBy(event.target.value as DailySortBy)
-          }
-        >
-          <option value="priority">Priority</option>
-          <option value="scheduled">Scheduled</option>
-          <option value="updated">Updated</option>
-          <option value="title">Title</option>
-        </select>
-      </label>
-    );
-  }
+  const value = plannerSortValue(controller);
 
   return (
-    <label className="planner-filter-label">
-      <span>Sort</span>
-      <select
-        aria-label="Sort planner items by"
-        value={controller.planner.plannerSortBy}
-        onChange={(event) => controller.setPlannerSortBy(event.target.value as DailySortBy)}
-      >
-        <option value="scheduled">Scheduled</option>
-        <option value="priority">Priority</option>
-        <option value="updated">Updated</option>
-        <option value="title">Title</option>
-      </select>
-    </label>
+    <div className="planner-menu-option-list">
+      {plannerSortOptions(controller.panel.id).map((option) => (
+        <button
+          type="button"
+          key={option.value}
+          aria-pressed={option.value === value}
+          onClick={() => setPlannerSortValue(controller, option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
 function PlannerGroupPanel({ controller }: { controller: WorkbenchController }) {
-  if (controller.panel.id === "daily") {
-    return (
-      <label className="planner-filter-label">
-        <span>Group by</span>
-        <select
-          aria-label="Group daily items by"
-          value={controller.planner.dailyGroupBy}
-          onChange={(event) =>
-            controller.setDailyGroupBy(event.target.value as DailyGroupBy)
-          }
-        >
-          <option value="none">No grouping</option>
-          <option value="area">Area</option>
-          <option value="project">Project</option>
-          <option value="routine">Routine</option>
-          <option value="tag">Tag</option>
-          <option value="item_type">Item type</option>
-          <option value="status">Status</option>
-        </select>
-      </label>
-    );
-  }
+  const value = plannerGroupValue(controller);
 
   return (
-    <label className="planner-filter-label">
-      <span>Group by</span>
-      <select
-        aria-label="Group planner items by"
-        value={controller.planner.plannerGroupBy}
-        onChange={(event) => controller.setPlannerGroupBy(event.target.value as DailyGroupBy)}
-      >
-        <option value="none">No grouping</option>
-        <option value="area">Area</option>
-        <option value="project">Project</option>
-        <option value="routine">Routine</option>
-        <option value="tag">Tag</option>
-        <option value="item_type">Item type</option>
-        <option value="status">Status</option>
-      </select>
-    </label>
+    <div className="planner-menu-option-list">
+      {plannerGroupOptions(controller.panel.id).map((option) => (
+        <button
+          type="button"
+          key={option.value}
+          aria-pressed={option.value === value}
+          onClick={() => setPlannerGroupValue(controller, option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -941,20 +888,82 @@ function plannerFilterRuleCount(
   ].filter((values) => values.length > 0).length;
 }
 
-function plannerSortValue(controller: WorkbenchController): string {
+function plannerSortValue(controller: WorkbenchController): PlannerSortBy {
   return controller.panel.id === "daily"
     ? controller.planner.dailySortBy
     : controller.planner.plannerSortBy;
 }
 
-function plannerGroupValue(controller: WorkbenchController): string {
+function defaultPlannerSortValue(controller: WorkbenchController): PlannerSortBy {
+  return controller.panel.id === "daily" ? "priority" : "scheduled";
+}
+
+function setPlannerSortValue(
+  controller: WorkbenchController,
+  value: PlannerSortBy,
+) {
+  if (controller.panel.id === "daily") {
+    controller.setDailySortBy(value);
+    return;
+  }
+  controller.setPlannerSortBy(value);
+}
+
+function plannerGroupValue(controller: WorkbenchController): PlannerGroupBy {
   return controller.panel.id === "daily"
     ? controller.planner.dailyGroupBy
     : controller.planner.plannerGroupBy;
 }
 
-function defaultPlannerSortValue(controller: WorkbenchController): string {
-  return controller.panel.id === "daily" ? "priority" : "scheduled";
+function setPlannerGroupValue(
+  controller: WorkbenchController,
+  value: PlannerGroupBy,
+) {
+  if (controller.panel.id === "daily") {
+    controller.setDailyGroupBy(value);
+    return;
+  }
+  controller.setPlannerGroupBy(value);
+}
+
+function plannerSortOptions(
+  panelId: WorkbenchController["panel"]["id"],
+): { value: PlannerSortBy; label: string }[] {
+  return panelId === "daily"
+    ? [
+        { value: "priority", label: "Priority" },
+        { value: "scheduled", label: "Scheduled" },
+        { value: "updated", label: "Updated" },
+        { value: "title", label: "Title" },
+      ]
+    : [
+        { value: "scheduled", label: "Scheduled" },
+        { value: "priority", label: "Priority" },
+        { value: "updated", label: "Updated" },
+        { value: "title", label: "Title" },
+      ];
+}
+
+function plannerGroupOptions(
+  panelId: WorkbenchController["panel"]["id"],
+): { value: PlannerGroupBy; label: string }[] {
+  if (panelId === "yearly" || panelId === "monthly") {
+    return [
+      { value: "none", label: "None" },
+      { value: "tag", label: "Tag" },
+      { value: "status", label: "Status" },
+    ];
+  }
+
+  return [
+    { value: "none", label: "None" },
+    { value: "area", label: "Area" },
+    { value: "project", label: "Project" },
+    { value: "routine", label: "Routine" },
+    { value: "tag", label: "Tag" },
+    { value: "item_type", label: "Item type" },
+    { value: "status", label: "Status" },
+  ];
 }
 
 function filterValuesByOptions(
