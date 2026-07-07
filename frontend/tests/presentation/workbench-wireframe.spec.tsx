@@ -202,6 +202,34 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Areas" })).toBeNull();
   });
 
+  it("renders shared planner view controls on every planner tab", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+
+    for (const tab of ["Yearly", "Monthly", "Weekly", "Daily"]) {
+      if (tab !== "Yearly") {
+        await user.click(screen.getByRole("button", { name: tab }));
+      }
+
+      expect(screen.getByRole("button", { name: "Filter planner view" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Sort planner view" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Group planner view" })).toBeInTheDocument();
+    }
+  });
+
   it("keeps workspace and planner sibling branches open together", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);
@@ -754,54 +782,55 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByText("Annual Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Year Goal")).toBeNull();
     expect(screen.queryByText("Completed Annual Goal")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    const yearlyTagFilter = screen.getByLabelText("Filter planner items by tags");
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).getByRole(
+      within(yearlyTagFilter).getByRole(
         "option",
         { name: "annual-current" },
       ),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(yearlyTagFilter).queryByRole(
         "option",
         { name: "annual-future" },
       ),
     ).toBeNull();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(yearlyTagFilter).queryByRole(
         "option",
         { name: "annual-done" },
       ),
     ).toBeNull();
-    await user.selectOptions(
-      screen.getByLabelText("Filter planner items by tags"),
-      "annual-current",
-    );
+    await user.selectOptions(yearlyTagFilter, "annual-current");
     expect(screen.getByText("Annual Goal")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Month Goal")).toBeNull();
     expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    const monthlyTagFilter = screen.getByLabelText("Filter planner items by tags");
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(monthlyTagFilter).queryByRole(
         "option",
         { name: "annual-current" },
       ),
     ).toBeNull();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).getByRole(
+      within(monthlyTagFilter).getByRole(
         "option",
         { name: "month-current" },
       ),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(monthlyTagFilter).queryByRole(
         "option",
         { name: "month-future" },
       ),
     ).toBeNull();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(monthlyTagFilter).queryByRole(
         "option",
         { name: "month-archived" },
       ),

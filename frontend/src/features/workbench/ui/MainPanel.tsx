@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowDownUp, Filter, Group, Plus, Trash2 } from "lucide-react";
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
 import {
@@ -20,6 +20,8 @@ import type {
 type MainPanelProps = {
   controller: WorkbenchController;
 };
+
+type PlannerDropdownKind = "filter" | "sort" | "group";
 
 type ItemColumn = {
   label: string;
@@ -194,38 +196,28 @@ function PlannerPanel({ controller }: MainPanelProps) {
     );
   }
 
-  const plannerTagOptions =
+  const filterOptions = buildPlannerFilterOptions(controller);
+  const effectiveFilters =
     panel.id === "daily"
-      ? []
-      : buildPlannerTagFilterOptions(panel.id, workspaceItems.items, controller.planner);
-  const plannerTagValues = filterValuesByOptions(
-    controller.planner.dailyFilters.tags,
-    plannerTagOptions,
-  );
+      ? effectiveDailyFilters(controller.planner.dailyFilters, filterOptions.daily)
+      : {
+          ...controller.planner.dailyFilters,
+          tags: filterValuesByOptions(
+            controller.planner.dailyFilters.tags,
+            filterOptions.tags,
+          ),
+        };
 
   return (
     <section
       className="items-section planner-panel"
       aria-label={`${panel.title} planner`}
     >
-      <div className="items-toolbar planner-toolbar">
-        {panel.id !== "daily" ? (
-          <DailyFilterSelect
-            label="Filter planner items by tags"
-            options={plannerTagOptions}
-            value={plannerTagValues}
-            onChange={(values) => controller.setDailyFilter("tags", values)}
-          />
-        ) : null}
-        <button
-          className="items-toolbar-button"
-          type="button"
-          aria-label="Add planner item"
-          onClick={controller.openCreationDialog}
-        >
-          <Plus size={16} aria-hidden="true" />
-        </button>
-      </div>
+      <PlannerControlToolbar
+        controller={controller}
+        filterOptions={filterOptions}
+        effectiveFilters={effectiveFilters}
+      />
       {panel.id === "weekly" ? <WeeklyPlanner controller={controller} /> : null}
       {panel.id === "daily" ? <DailyPlanner controller={controller} /> : null}
       {panel.id === "yearly" ? (
@@ -495,6 +487,320 @@ function DailyPlanner({ controller }: MainPanelProps) {
   );
 }
 
+type PlannerFilterOptions = {
+  tags: DailyFilterOption[];
+  daily: ReturnType<typeof buildDailyFilterOptions>;
+};
+
+function PlannerControlToolbar({
+  controller,
+  filterOptions,
+  effectiveFilters,
+}: {
+  controller: WorkbenchController;
+  filterOptions: PlannerFilterOptions;
+  effectiveFilters: WorkbenchController["planner"]["dailyFilters"];
+}) {
+  const [openDropdown, setOpenDropdown] =
+    React.useState<PlannerDropdownKind | null>(null);
+  const activeFilterCount = plannerFilterRuleCount(controller.panel.id, effectiveFilters);
+  const sortBy = plannerSortValue(controller);
+  const groupBy = plannerGroupValue(controller);
+
+  function toggleDropdown(kind: PlannerDropdownKind) {
+    setOpenDropdown((current) => (current === kind ? null : kind));
+  }
+
+  return (
+    <div className="planner-view-controls">
+      <div className="planner-view-control-bar">
+        <div className="planner-view-pill">{controller.panel.title}</div>
+        <div className="planner-view-actions">
+          <PlannerDropdownButton
+            active={activeFilterCount > 0}
+            ariaLabel="Filter planner view"
+            title="Filter"
+            onClick={() => toggleDropdown("filter")}
+          >
+            <Filter size={16} aria-hidden="true" />
+          </PlannerDropdownButton>
+          <PlannerDropdownButton
+            active={sortBy !== defaultPlannerSortValue(controller)}
+            ariaLabel="Sort planner view"
+            title="Sort"
+            onClick={() => toggleDropdown("sort")}
+          >
+            <ArrowDownUp size={16} aria-hidden="true" />
+          </PlannerDropdownButton>
+          <PlannerDropdownButton
+            active={groupBy !== "none"}
+            ariaLabel="Group planner view"
+            title="Group by"
+            onClick={() => toggleDropdown("group")}
+          >
+            <Group size={16} aria-hidden="true" />
+          </PlannerDropdownButton>
+          <button
+            className="items-toolbar-button"
+            type="button"
+            aria-label="Add planner item"
+            onClick={controller.openCreationDialog}
+          >
+            <Plus size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+      <PlannerActiveControlPills
+        filterCount={activeFilterCount}
+        sortBy={sortBy}
+        groupBy={groupBy}
+      />
+      {openDropdown === "filter" ? (
+        <PlannerControlDropdown title="Filter">
+          <PlannerFilterRulePanel
+            controller={controller}
+            filterOptions={filterOptions}
+            effectiveFilters={effectiveFilters}
+          />
+        </PlannerControlDropdown>
+      ) : null}
+      {openDropdown === "sort" ? (
+        <PlannerControlDropdown title="Sort">
+          <PlannerSortPanel controller={controller} />
+        </PlannerControlDropdown>
+      ) : null}
+      {openDropdown === "group" ? (
+        <PlannerControlDropdown title="Group by">
+          <PlannerGroupPanel controller={controller} />
+        </PlannerControlDropdown>
+      ) : null}
+    </div>
+  );
+}
+
+function PlannerDropdownButton({
+  active,
+  ariaLabel,
+  title,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  ariaLabel: string;
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      className="planner-view-icon-button"
+      type="button"
+      aria-label={ariaLabel}
+      title={title}
+      data-active={active}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PlannerControlDropdown({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="planner-control-dropdown" role="dialog" aria-label={title}>
+      <div className="planner-control-dropdown-title">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function PlannerActiveControlPills({
+  filterCount,
+  sortBy,
+  groupBy,
+}: {
+  filterCount: number;
+  sortBy: string;
+  groupBy: string;
+}) {
+  void sortBy;
+
+  if (filterCount === 0 && groupBy === "none") {
+    return null;
+  }
+
+  return (
+    <div className="planner-active-control-row" aria-label="Active planner controls">
+      {filterCount > 0 ? (
+        <span className="planner-active-pill">{filterCount} rules</span>
+      ) : null}
+      {groupBy !== "none" ? (
+        <span className="planner-active-pill">Grouped by {plannerControlLabel(groupBy)}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function plannerControlLabel(value: string): string {
+  return value.replaceAll("_", " ");
+}
+
+function PlannerFilterRulePanel({
+  controller,
+  filterOptions,
+  effectiveFilters,
+}: {
+  controller: WorkbenchController;
+  filterOptions: PlannerFilterOptions;
+  effectiveFilters: WorkbenchController["planner"]["dailyFilters"];
+}) {
+  if (controller.panel.id !== "daily") {
+    return (
+      <DailyFilterSelect
+        label="Filter planner items by tags"
+        options={filterOptions.tags}
+        value={effectiveFilters.tags}
+        onChange={(values) => controller.setDailyFilter("tags", values)}
+      />
+    );
+  }
+
+  return (
+    <div className="planner-control-row">
+      <DailyFilterSelect
+        label="Filter daily items by tags"
+        displayLabel="Tags"
+        options={filterOptions.daily.tags}
+        value={effectiveFilters.tags}
+        onChange={(values) => controller.setDailyFilter("tags", values)}
+      />
+      <DailyFilterSelect
+        label="Filter daily items by area"
+        displayLabel="Area"
+        options={filterOptions.daily.areas}
+        value={effectiveFilters.areaIds}
+        onChange={(values) => controller.setDailyFilter("areaIds", values)}
+      />
+      <DailyFilterSelect
+        label="Filter daily items by project"
+        displayLabel="Project"
+        options={filterOptions.daily.projects}
+        value={effectiveFilters.projectIds}
+        onChange={(values) => controller.setDailyFilter("projectIds", values)}
+      />
+      <DailyFilterSelect
+        label="Filter daily items by routine"
+        displayLabel="Routine"
+        options={filterOptions.daily.routines}
+        value={effectiveFilters.routineIds}
+        onChange={(values) => controller.setDailyFilter("routineIds", values)}
+      />
+      <DailyFilterSelect
+        label="Filter daily items by item type"
+        displayLabel="Item"
+        options={filterOptions.daily.itemTypes}
+        value={effectiveFilters.itemTypes}
+        onChange={(values) => controller.setDailyFilter("itemTypes", values)}
+      />
+      <DailyFilterSelect
+        label="Filter daily items by status"
+        displayLabel="Status"
+        options={filterOptions.daily.statuses}
+        value={effectiveFilters.statuses}
+        onChange={(values) => controller.setDailyFilter("statuses", values)}
+      />
+    </div>
+  );
+}
+
+function PlannerSortPanel({ controller }: { controller: WorkbenchController }) {
+  if (controller.panel.id === "daily") {
+    return (
+      <label className="planner-filter-label">
+        <span>Sort</span>
+        <select
+          aria-label="Sort daily items by"
+          value={controller.planner.dailySortBy}
+          onChange={(event) =>
+            controller.setDailySortBy(event.target.value as DailySortBy)
+          }
+        >
+          <option value="priority">Priority</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="updated">Updated</option>
+          <option value="title">Title</option>
+        </select>
+      </label>
+    );
+  }
+
+  return (
+    <label className="planner-filter-label">
+      <span>Sort</span>
+      <select
+        aria-label="Sort planner items by"
+        value={controller.planner.plannerSortBy}
+        onChange={(event) => controller.setPlannerSortBy(event.target.value as DailySortBy)}
+      >
+        <option value="scheduled">Scheduled</option>
+        <option value="priority">Priority</option>
+        <option value="updated">Updated</option>
+        <option value="title">Title</option>
+      </select>
+    </label>
+  );
+}
+
+function PlannerGroupPanel({ controller }: { controller: WorkbenchController }) {
+  if (controller.panel.id === "daily") {
+    return (
+      <label className="planner-filter-label">
+        <span>Group by</span>
+        <select
+          aria-label="Group daily items by"
+          value={controller.planner.dailyGroupBy}
+          onChange={(event) =>
+            controller.setDailyGroupBy(event.target.value as DailyGroupBy)
+          }
+        >
+          <option value="none">No grouping</option>
+          <option value="area">Area</option>
+          <option value="project">Project</option>
+          <option value="routine">Routine</option>
+          <option value="tag">Tag</option>
+          <option value="item_type">Item type</option>
+          <option value="status">Status</option>
+        </select>
+      </label>
+    );
+  }
+
+  return (
+    <label className="planner-filter-label">
+      <span>Group by</span>
+      <select
+        aria-label="Group planner items by"
+        value={controller.planner.plannerGroupBy}
+        onChange={(event) => controller.setPlannerGroupBy(event.target.value as DailyGroupBy)}
+      >
+        <option value="none">No grouping</option>
+        <option value="area">Area</option>
+        <option value="project">Project</option>
+        <option value="routine">Routine</option>
+        <option value="tag">Tag</option>
+        <option value="item_type">Item type</option>
+        <option value="status">Status</option>
+      </select>
+    </label>
+  );
+}
+
 type DailyFilterOption = {
   value: string;
   label: string;
@@ -562,6 +868,22 @@ function buildDailyFilterOptions(
   };
 }
 
+function buildPlannerFilterOptions(
+  controller: WorkbenchController,
+): PlannerFilterOptions {
+  return {
+    tags:
+      controller.panel.id === "daily"
+        ? []
+        : buildPlannerTagFilterOptions(
+            controller.panel.id,
+            controller.workspaceItems.items,
+            controller.planner,
+          ),
+    daily: buildDailyFilterOptions(controller),
+  };
+}
+
 function buildPlannerTagFilterOptions(
   panelId: WorkbenchController["panel"]["id"],
   items: WorkspaceItemModel[],
@@ -597,6 +919,40 @@ function effectiveDailyFilters(
     itemTypes: filterValuesByOptions(filters.itemTypes, options.itemTypes),
     statuses: filterValuesByOptions(filters.statuses, options.statuses),
   };
+}
+
+function plannerFilterRuleCount(
+  panelId: WorkbenchController["panel"]["id"],
+  filters: WorkbenchController["planner"]["dailyFilters"],
+): number {
+  if (panelId !== "daily") {
+    return filters.tags.length > 0 ? 1 : 0;
+  }
+
+  return [
+    filters.tags,
+    filters.areaIds,
+    filters.projectIds,
+    filters.routineIds,
+    filters.itemTypes,
+    filters.statuses,
+  ].filter((values) => values.length > 0).length;
+}
+
+function plannerSortValue(controller: WorkbenchController): string {
+  return controller.panel.id === "daily"
+    ? controller.planner.dailySortBy
+    : controller.planner.plannerSortBy;
+}
+
+function plannerGroupValue(controller: WorkbenchController): string {
+  return controller.panel.id === "daily"
+    ? controller.planner.dailyGroupBy
+    : controller.planner.plannerGroupBy;
+}
+
+function defaultPlannerSortValue(controller: WorkbenchController): string {
+  return controller.panel.id === "daily" ? "priority" : "scheduled";
 }
 
 function filterValuesByOptions(

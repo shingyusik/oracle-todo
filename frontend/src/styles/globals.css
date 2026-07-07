@@ -259,6 +259,83 @@ button {
   justify-content: space-between;
 }
 
+.planner-view-controls {
+  position: relative;
+  display: grid;
+  gap: 8px;
+}
+
+.planner-view-control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-hairline-light);
+  padding-bottom: 8px;
+}
+
+.planner-view-pill,
+.planner-active-pill {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-canvas-cream);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.planner-view-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.planner-view-icon-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-shade-60);
+}
+
+.planner-view-icon-button:hover,
+.planner-view-icon-button[data-active="true"] {
+  border-color: var(--color-blue-strong, #2383e2);
+  background: var(--color-canvas-cream);
+  color: var(--color-blue-strong, #2383e2);
+}
+
+.planner-active-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.planner-control-dropdown {
+  width: min(360px, 100%);
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 10px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 12%);
+}
+
+.planner-control-dropdown-title {
+  margin-bottom: 8px;
+  color: var(--color-shade-60);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .planner-control-row {
   display: flex;
   flex-wrap: wrap;
