@@ -202,6 +202,34 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Areas" })).toBeNull();
   });
 
+  it("renders shared planner view controls on every planner tab", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+
+    for (const tab of ["Yearly", "Monthly", "Weekly", "Daily"]) {
+      if (tab !== "Yearly") {
+        await user.click(screen.getByRole("button", { name: tab }));
+      }
+
+      expect(screen.getByRole("button", { name: "Filter planner view" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Sort planner view" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Group planner view" })).toBeInTheDocument();
+    }
+  });
+
   it("keeps workspace and planner sibling branches open together", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);
@@ -754,54 +782,55 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByText("Annual Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Year Goal")).toBeNull();
     expect(screen.queryByText("Completed Annual Goal")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    const yearlyTagFilter = screen.getByLabelText("Filter planner items by tags");
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).getByRole(
+      within(yearlyTagFilter).getByRole(
         "option",
         { name: "annual-current" },
       ),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(yearlyTagFilter).queryByRole(
         "option",
         { name: "annual-future" },
       ),
     ).toBeNull();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(yearlyTagFilter).queryByRole(
         "option",
         { name: "annual-done" },
       ),
     ).toBeNull();
-    await user.selectOptions(
-      screen.getByLabelText("Filter planner items by tags"),
-      "annual-current",
-    );
+    await user.selectOptions(yearlyTagFilter, "annual-current");
     expect(screen.getByText("Annual Goal")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
     expect(screen.queryByText("Other Month Goal")).toBeNull();
     expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    const monthlyTagFilter = screen.getByLabelText("Filter planner items by tags");
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(monthlyTagFilter).queryByRole(
         "option",
         { name: "annual-current" },
       ),
     ).toBeNull();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).getByRole(
+      within(monthlyTagFilter).getByRole(
         "option",
         { name: "month-current" },
       ),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(monthlyTagFilter).queryByRole(
         "option",
         { name: "month-future" },
       ),
     ).toBeNull();
     expect(
-      within(screen.getByLabelText("Filter planner items by tags")).queryByRole(
+      within(monthlyTagFilter).queryByRole(
         "option",
         { name: "month-archived" },
       ),
@@ -849,7 +878,76 @@ describe("WorkbenchPageClient", () => {
     await user.type(tags, " deep-work, deep-work, planning ");
     fireEvent.blur(tags);
 
-    await waitFor(() => expect(tags).toHaveValue("deep-work, planning"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Remove planning tag" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Remove deep-work tag" })).toBeInTheDocument();
+  });
+
+  it("turns entered workspace tags into removable chips", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as { tags: string[] };
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Plan",
+            status: "active",
+            tags: body.tags,
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=task"
+            ? [
+                {
+                  id: "task-1",
+                  type: "task",
+                  title: "Plan",
+                  status: "active",
+                  tags: ["deep-work"],
+                },
+              ]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const tags = await screen.findByLabelText("Tags for Plan");
+    await user.type(tags, "planning{Enter}");
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/task-1",
+        expect.objectContaining({
+          body: JSON.stringify({ tags: ["deep-work", "planning"] }),
+          method: "PATCH",
+        }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Remove planning tag" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/task-1",
+        expect.objectContaining({
+          body: JSON.stringify({ tags: ["deep-work"] }),
+          method: "PATCH",
+        }),
+      ),
+    );
   });
 
   it("does not patch tags when only spacing changes", async () => {
@@ -883,7 +981,8 @@ describe("WorkbenchPageClient", () => {
     await user.type(tags, " deep-work, planning ");
     fireEvent.blur(tags);
 
-    await waitFor(() => expect(tags).toHaveValue("deep-work, planning"));
+    expect(screen.getByRole("button", { name: "Remove deep-work tag" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove planning tag" })).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items/task-1"),
     ).toHaveLength(0);
@@ -1367,10 +1466,24 @@ describe("WorkbenchPageClient", () => {
     await user.click(await screen.findByRole("cell", { name: "One" }));
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
     expect(screen.getByText("Properties")).toBeInTheDocument();
+    const detailView = screen.getByLabelText("One details");
+    expect(detailView.querySelector(".detail-header")).not.toBeNull();
+    expect(detailView.querySelector(".detail-properties-list")).not.toBeNull();
+    expect(detailView.querySelector(".detail-properties-grid")).toBeNull();
+    expect(screen.getByRole("button", { name: "< Back" }).textContent).toBe("");
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton.textContent).toBe("");
+    expect(detailView.querySelector(".detail-header")?.contains(saveButton)).toBe(true);
+    expect(
+      screen
+        .getByText("Created")
+        .compareDocumentPosition(screen.getByText("Description")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     await user.clear(screen.getByLabelText("Note"));
     await user.type(screen.getByLabelText("Note"), "Saved note");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(saveButton);
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/task-1",
