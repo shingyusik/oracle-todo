@@ -919,6 +919,110 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getAllByTestId("weekly-day-card")).toHaveLength(7);
   });
 
+  it("ignores unsupported weekly group values when switching to monthly planner", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const monthStart = testMonthStart(today);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=goal"
+              ? [
+                  {
+                    id: "goal-1",
+                    type: "goal",
+                    title: "Work Goal",
+                    status: "active",
+                    horizon: "month",
+                    scheduled: monthStart,
+                    area_id: "area-1",
+                  },
+                ]
+              : url === "/todo-engine/items?type=area"
+                ? [{ id: "area-1", type: "area", title: "Work", status: "active" }]
+                : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+
+    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Area" }));
+
+    expect(screen.getByText("Grouped by area")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    await screen.findByText("Work Goal");
+
+    expect(screen.queryByText("Grouped by area")).toBeNull();
+    expect(screen.getByRole("button", { name: "Group planner view" })).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+    expect(screen.queryByRole("heading", { name: "Work" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+
+    expect(screen.getByRole("button", { name: "None" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "Area" })).toBeNull();
+  });
+
+  it("shows an active sort pill when planner sort differs from the tab default", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const weekStart = testWeekStart(today);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task"
+              ? [
+                  {
+                    id: "task-b",
+                    type: "task",
+                    title: "B Task",
+                    status: "active",
+                    scheduled: weekStart,
+                  },
+                  {
+                    id: "task-a",
+                    type: "task",
+                    title: "A Task",
+                    status: "active",
+                    scheduled: weekStart,
+                  },
+                ]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    await screen.findByText("A Task");
+
+    expect(screen.queryByLabelText("Active planner controls")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
+    await user.click(screen.getByRole("button", { name: "Title" }));
+
+    expect(screen.getByLabelText("Active planner controls")).toBeInTheDocument();
+    expect(screen.getByText("Sorted by title")).toBeInTheDocument();
+  });
+
   it("renders yearly and monthly goal lists from loaded planner goals", async () => {
     const user = userEvent.setup();
     const today = testToday();

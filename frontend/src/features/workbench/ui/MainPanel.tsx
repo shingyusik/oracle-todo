@@ -256,10 +256,11 @@ function GoalPlannerList({
     item.horizon === horizon &&
     goalMatchesPlannerPeriod(item, horizon, controller.planner.date),
   );
+  const groupBy = plannerGroupValue(controller);
   const groupedGoals = groupPlannerItems(
     sortPlannerItems(goals, controller.planner.plannerSortBy),
     controller.workspaceItems.relatedItems,
-    controller.planner.plannerGroupBy,
+    groupBy,
   );
 
   return (
@@ -284,15 +285,16 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
     items,
     controller.planner.weekStart,
   );
+  const groupBy = plannerGroupValue(controller);
   const monthGoalGroups = groupPlannerItems(
     sortPlannerItems(model.monthGoals, controller.planner.plannerSortBy),
     controller.workspaceItems.relatedItems,
-    controller.planner.plannerGroupBy,
+    groupBy,
   );
   const weekGoalGroups = groupPlannerItems(
     sortPlannerItems(model.weekGoals, controller.planner.plannerSortBy),
     controller.workspaceItems.relatedItems,
-    controller.planner.plannerGroupBy,
+    groupBy,
   );
 
   return (
@@ -312,7 +314,7 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
           const dayGroups = groupPlannerItems(
             sortPlannerItems(day.items, controller.planner.plannerSortBy),
             controller.workspaceItems.relatedItems,
-            controller.planner.plannerGroupBy,
+            groupBy,
           );
 
           return (
@@ -437,6 +439,7 @@ function PlannerControlToolbar({
         filterCount={activeFilterCount}
         sortBy={sortBy}
         groupBy={groupBy}
+        showSort={sortBy !== defaultPlannerSortValue(controller)}
       />
       {openDropdown === "filter" ? (
         <PlannerControlDropdown title="Filter">
@@ -507,14 +510,14 @@ function PlannerActiveControlPills({
   filterCount,
   sortBy,
   groupBy,
+  showSort,
 }: {
   filterCount: number;
   sortBy: string;
   groupBy: string;
+  showSort: boolean;
 }) {
-  void sortBy;
-
-  if (filterCount === 0 && groupBy === "none") {
+  if (filterCount === 0 && groupBy === "none" && !showSort) {
     return null;
   }
 
@@ -522,6 +525,9 @@ function PlannerActiveControlPills({
     <div className="planner-active-control-row" aria-label="Active planner controls">
       {filterCount > 0 ? (
         <span className="planner-active-pill">{filterCount} rules</span>
+      ) : null}
+      {showSort ? (
+        <span className="planner-active-pill">Sorted by {plannerControlLabel(sortBy)}</span>
       ) : null}
       {groupBy !== "none" ? (
         <span className="planner-active-pill">Grouped by {plannerControlLabel(groupBy)}</span>
@@ -848,7 +854,14 @@ function setPlannerSortValue(
 function plannerGroupValue(controller: WorkbenchController): PlannerGroupBy {
   return controller.panel.id === "daily"
     ? controller.planner.dailyGroupBy
-    : controller.planner.plannerGroupBy;
+    : effectivePlannerGroupValue(controller.panel.id, controller.planner.plannerGroupBy);
+}
+
+function effectivePlannerGroupValue(
+  panelId: WorkbenchController["panel"]["id"],
+  value: PlannerGroupBy,
+): PlannerGroupBy {
+  return plannerGroupOptions(panelId).some((option) => option.value === value) ? value : "none";
 }
 
 function setPlannerGroupValue(
