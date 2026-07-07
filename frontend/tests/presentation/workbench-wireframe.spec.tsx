@@ -38,6 +38,39 @@ function expectFieldBefore(firstLabel: string, secondLabel: string) {
   ).toBeTruthy();
 }
 
+function propertyRow(label: string): HTMLElement {
+  const row = screen.getByText(label).closest(".property-row");
+  expect(row).not.toBeNull();
+  if (!row) {
+    throw new Error(`Missing property row: ${label}`);
+  }
+  return row as HTMLElement;
+}
+
+function fieldRow(label: string): HTMLElement {
+  const row = screen.getByLabelText(label).closest(".field-label");
+  expect(row).not.toBeNull();
+  if (!row) {
+    throw new Error(`Missing field row: ${label}`);
+  }
+  return row as HTMLElement;
+}
+
+function expectFieldBeforeProperty(fieldLabel: string, propertyLabel: string) {
+  expect(
+    fieldRow(fieldLabel).compareDocumentPosition(propertyRow(propertyLabel)) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+}
+
+function expectPropertyImmediatelyBeforeProperty(firstLabel: string, secondLabel: string) {
+  expect(propertyRow(firstLabel).nextElementSibling).toBe(propertyRow(secondLabel));
+}
+
+function expectPropertyImmediatelyBeforeField(propertyLabel: string, fieldLabel: string) {
+  expect(propertyRow(propertyLabel).nextElementSibling).toBe(fieldRow(fieldLabel));
+}
+
 function formatDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -1473,6 +1506,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "< Back" }).textContent).toBe("");
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(saveButton.textContent).toBe("");
+    expect(saveButton).toBeDisabled();
     expect(detailView.querySelector(".detail-header")?.contains(saveButton)).toBe(true);
     expect(
       screen
@@ -1483,6 +1517,7 @@ describe("WorkbenchPageClient", () => {
 
     await user.clear(screen.getByLabelText("Note"));
     await user.type(screen.getByLabelText("Note"), "Saved note");
+    expect(saveButton).toBeEnabled();
     await user.click(saveButton);
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -1631,14 +1666,14 @@ describe("WorkbenchPageClient", () => {
   it("skips detail patch requests when save only changes status", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/activate") {
+      if (url === "/todo-engine/items/task-1/complete") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
             id: "task-1",
             type: "task",
             title: "One",
-            status: "active",
+            status: "completed",
             note: "Old note",
           }),
         });
@@ -1651,7 +1686,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             note: "Old note",
           },
         ],
@@ -1665,7 +1700,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Tasks" }));
     await user.click(await screen.findByRole("cell", { name: "One" }));
 
-    await user.selectOptions(screen.getByLabelText("Status for One"), "active");
+    await user.selectOptions(screen.getByLabelText("Status for One"), "completed");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     const patchCalls = fetchMock.mock.calls.filter(
@@ -1676,7 +1711,7 @@ describe("WorkbenchPageClient", () => {
 
     expect(patchCalls).toHaveLength(0);
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/activate",
+      "/todo-engine/items/task-1/complete",
       expect.objectContaining({ method: "POST" }),
     );
   });
@@ -1754,20 +1789,56 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("2026-07-02")).toBeInTheDocument();
     expectFieldBefore("Scheduled", "Due");
     expectFieldBefore("Due", "Priority");
-    expectFieldBefore("Priority", "Description");
+    expectFieldBeforeProperty("Priority", "Created");
+    expectPropertyImmediatelyBeforeProperty("Created", "Updated");
+    expectPropertyImmediatelyBeforeField("Updated", "Description");
 
     await user.clear(screen.getByLabelText("Description"));
     await user.type(screen.getByLabelText("Description"), "Updated description");
     await user.clear(screen.getByLabelText("Note"));
     await user.type(screen.getByLabelText("Note"), "Updated note");
-    await user.clear(screen.getByLabelText("Priority"));
-    await user.type(screen.getByLabelText("Priority"), "2");
+    await user.selectOptions(screen.getByLabelText("Priority"), "2");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByDisplayValue("Updated description")).toBeInTheDocument();
   });
 
-  it("blocks non-digit task priority characters in detail edits", async () => {
+  it("places timestamps directly above note when detail has no description", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: "area-1",
+              type: "area",
+              title: "Finance",
+              status: "active",
+              review_cycle: "weekly",
+              standard: "Keep accounts clean",
+              note: "Monthly close",
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-02T00:00:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("cell", { name: "Finance" }));
+
+    expectFieldBeforeProperty("Standard", "Created");
+    expectPropertyImmediatelyBeforeProperty("Created", "Updated");
+    expectPropertyImmediatelyBeforeField("Updated", "Note");
+  });
+
+  it("selects task priority from a detail dropdown", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
@@ -1800,11 +1871,22 @@ describe("WorkbenchPageClient", () => {
     await user.click(await screen.findByRole("cell", { name: "One" }));
 
     const priority = screen.getByLabelText("Priority");
-    await user.clear(priority);
-    await user.type(priority, "2.7a-");
-    expect(priority).toHaveDisplayValue("27");
-    await user.tab();
-    expect(priority).toHaveDisplayValue("10");
+    expect(priority.tagName).toBe("SELECT");
+    expect(within(priority).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "-",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+    ]);
+    await user.selectOptions(priority, "10");
+    expect(priority).toHaveValue("10");
 
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(fetchMock).toHaveBeenCalledWith(
@@ -2179,8 +2261,7 @@ describe("WorkbenchPageClient", () => {
     expectFieldBefore("Description", "Note");
     await user.clear(screen.getByLabelText("Location"));
     await user.type(screen.getByLabelText("Location"), "Office");
-    await user.clear(screen.getByLabelText("Priority"));
-    await user.type(screen.getByLabelText("Priority"), "2");
+    await user.selectOptions(screen.getByLabelText("Priority"), "2");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -2189,7 +2270,7 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
-  it("shows only active status choices and bounded integer priority controls", async () => {
+  it("shows only active status choices and priority controls", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -2227,14 +2308,14 @@ describe("WorkbenchPageClient", () => {
 
     expect(await statusOptions("One")).toEqual(["active", "completed"]);
     expect(await enabledStatusOptions("One")).toEqual(["active", "completed"]);
-    expect(screen.getByLabelText("Priority for One")).toHaveAttribute("min", "1");
-    expect(screen.getByLabelText("Priority for One")).toHaveAttribute("max", "10");
-    expect(screen.getByLabelText("Priority for One")).toHaveAttribute("step", "1");
+    const inlinePriority = screen.getByLabelText("Priority for One");
+    expect(inlinePriority.tagName).toBe("SELECT");
+    expect(within(inlinePriority).getByRole("option", { name: "10" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("cell", { name: "One" }));
-    expect(screen.getByLabelText("Priority")).toHaveAttribute("min", "1");
-    expect(screen.getByLabelText("Priority")).toHaveAttribute("max", "10");
-    expect(screen.getByLabelText("Priority")).toHaveAttribute("step", "1");
+    const detailPriority = screen.getByLabelText("Priority");
+    expect(detailPriority.tagName).toBe("SELECT");
+    expect(within(detailPriority).getByRole("option", { name: "10" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "< Back" }));
 
     await user.click(screen.getByRole("button", { name: "Events" }));
@@ -2546,7 +2627,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "Review" })).not.toBeInTheDocument();
   });
 
-  it("blocks non-digit event priority characters before inline Enter commit", async () => {
+  it("patches inline event priority from a dropdown", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/event-1" && init?.method === "PATCH") {
@@ -2578,10 +2659,10 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Events" }));
 
     const priority = await screen.findByLabelText("Priority for Review");
-    await user.clear(priority);
-    await user.type(priority, "3.9a-{Enter}");
+    expect(priority.tagName).toBe("SELECT");
+    await user.selectOptions(priority, "10");
 
-    expect(priority).toHaveDisplayValue("10");
+    expect(priority).toHaveValue("10");
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/event-1",
       expect.objectContaining({ method: "PATCH" }),

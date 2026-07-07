@@ -54,6 +54,7 @@ const areaStatusOptions = ["active", "archived"];
 const taskStatusOptions = ["active", "completed"];
 const eventStatusOptions = ["active", "paused", "completed"];
 const materializationPolicyOptions = ["single_open", "per_occurrence"];
+const priorityOptions = Array.from({ length: 10 }, (_, index) => (index + 1).toString());
 
 function parseTagInput(value: string): string[] {
   return value
@@ -108,6 +109,7 @@ function DetailView({ controller }: MainPanelProps) {
   }
 
   const detailItem = item;
+  const hasDraftChanges = hasDetailChanges(detailItem, draft);
 
   function setField(field: keyof DetailDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -145,7 +147,12 @@ function DetailView({ controller }: MainPanelProps) {
             <h1>{item.title}</h1>
           </div>
           <div className="detail-actions">
-            <button type="button" aria-label="Save" onClick={() => void saveDraft()}>
+            <button
+              type="button"
+              aria-label="Save"
+              disabled={!hasDraftChanges}
+              onClick={() => void saveDraft()}
+            >
               <Save size={16} aria-hidden="true" />
             </button>
           </div>
@@ -169,14 +176,6 @@ function DetailView({ controller }: MainPanelProps) {
               value={draft.tags}
               onChange={(value) => setField("tags", value)}
             />
-            <div className="property-row">
-              <span>Created</span>
-              <span>{formatDate(item.created_at)}</span>
-            </div>
-            <div className="property-row">
-              <span>Updated</span>
-              <span>{formatDate(item.updated_at)}</span>
-            </div>
             <DetailTypeFields
               item={item}
               draft={draft}
@@ -1294,6 +1293,13 @@ function detailPatchForItem(
   return patch;
 }
 
+function hasDetailChanges(item: WorkspaceItemModel, draft: DetailDraft): boolean {
+  return (
+    Object.keys(detailPatchForItem(item, draft)).length > 0 ||
+    transitionActionForStatus(detailStatusForItem(item), draft.status) !== null
+  );
+}
+
 function addStringPatch(
   patch: WorkspaceItemPatch,
   field: StringWorkspaceItemPatchField,
@@ -1410,6 +1416,7 @@ function DetailTypeFields({
           value={draft.definition_of_done}
           onChange={(value) => setField("definition_of_done", value)}
         />
+        <DetailTimestamps item={item} />
         <DetailTextAreaField
           label="Note"
           value={draft.note}
@@ -1445,6 +1452,7 @@ function DetailTypeFields({
             ))}
           </select>
         </label>
+        <DetailTimestamps item={item} />
         <DetailTextAreaField
           label="Note"
           value={draft.note}
@@ -1496,6 +1504,7 @@ function DetailTypeFields({
           value={draft.priority}
           onChange={(value) => setField("priority", value)}
         />
+        <DetailTimestamps item={item} />
         <DetailTextAreaField
           label="Description"
           value={draft.description}
@@ -1559,6 +1568,7 @@ function DetailTypeFields({
           value={draft.commitment_type}
           onChange={(value) => setField("commitment_type", value)}
         />
+        <DetailTimestamps item={item} />
         <DetailTextAreaField
           label="Description"
           value={draft.description}
@@ -1594,6 +1604,7 @@ function DetailTypeFields({
           value={draft.standard}
           onChange={(value) => setField("standard", value)}
         />
+        <DetailTimestamps item={item} />
         <DetailTextAreaField
           label="Note"
           value={draft.note}
@@ -1633,6 +1644,7 @@ function DetailTypeFields({
           allowNone
           onChange={(parent_id) => setField("parent_id", parent_id)}
         />
+        <DetailTimestamps item={item} />
         <DetailTextAreaField
           label="Note"
           value={draft.note}
@@ -1643,6 +1655,21 @@ function DetailTypeFields({
   }
 
   return null;
+}
+
+function DetailTimestamps({ item }: { item: WorkspaceItemModel }) {
+  return (
+    <>
+      <div className="property-row">
+        <span>Created</span>
+        <span>{formatDate(item.created_at)}</span>
+      </div>
+      <div className="property-row">
+        <span>Updated</span>
+        <span>{formatDate(item.updated_at)}</span>
+      </div>
+    </>
+  );
 }
 
 function DetailInlineField({
@@ -1736,33 +1763,19 @@ function DetailPriorityField({
   value: string;
   onChange: (value: string) => void;
 }) {
-  function normalize() {
-    if (value.trim() !== "") {
-      onChange(normalizePriorityDraft(value));
-    }
-  }
-
   return (
     <DetailInlineField label={label}>
-      <input
-        type="text"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        min={1}
-        max={10}
-        step={1}
+      <select
         value={value}
-        onChange={(event) => onChange(digitsOnly(event.target.value))}
-        onBlur={normalize}
-        onPaste={blockNonDigitPaste}
-        onKeyDown={(event) => {
-          blockNonDigitKey(event);
-          if (event.key === "Enter") {
-            event.preventDefault();
-            normalize();
-          }
-        }}
-      />
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">-</option>
+        {priorityOptions.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
     </DetailInlineField>
   );
 }
@@ -2669,7 +2682,7 @@ function InlineTextInput({
   );
 }
 
-function InlineNumberInput({
+function InlinePrioritySelect({
   label,
   value,
   onCommit,
@@ -2678,50 +2691,30 @@ function InlineNumberInput({
   value: number | null | undefined;
   onCommit: (value: number) => void;
 }) {
-  const currentValue = value?.toString() ?? "";
-  const [draft, setDraft] = React.useState(currentValue);
-
-  React.useEffect(() => {
-    setDraft(currentValue);
-  }, [currentValue]);
-
-  function commitDraft() {
-    if (draft === currentValue || draft.trim() === "") {
-      return;
-    }
-
-    const normalized = normalizePriorityDraft(draft);
-    setDraft(normalized);
-    const nextValue = Number(normalized);
-    if (validPriority(nextValue) && normalized !== currentValue) {
-      onCommit(nextValue);
-    }
-  }
+  const selectedValue = value?.toString() ?? "";
 
   return (
-    <input
-      className="inline-cell-control inline-cell-number"
-      type="text"
-      inputMode="numeric"
-      pattern="[0-9]*"
-      min={1}
-      max={10}
-      step={1}
+    <select
+      className="inline-cell-control"
       aria-label={label}
-      value={draft}
+      value={selectedValue}
       onClick={stopRowEvent}
-      onKeyDown={(event) => {
+      onKeyDown={stopRowEvent}
+      onChange={(event) => {
         stopRowEvent(event);
-        blockNonDigitKey(event);
-        if (event.key === "Enter") {
-          event.preventDefault();
-          commitDraft();
+        const priority = Number(event.target.value);
+        if (validPriority(priority) && event.target.value !== selectedValue) {
+          onCommit(priority);
         }
       }}
-      onPaste={blockNonDigitPaste}
-      onChange={(event) => setDraft(digitsOnly(event.target.value))}
-      onBlur={commitDraft}
-    />
+    >
+      <option value="">-</option>
+      {priorityOptions.map((option) => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -3150,7 +3143,7 @@ function priorityColumn(): ItemColumn {
   return {
     label: "Priority",
     value: (item, _items, controller) => (
-      <InlineNumberInput
+      <InlinePrioritySelect
         label={`Priority for ${item.title}`}
         value={item.priority}
         onCommit={(priority) =>

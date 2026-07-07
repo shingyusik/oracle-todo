@@ -116,4 +116,20 @@ describe("design system boundaries", () => {
       ".sub-sidebar-tab-parent[data-active=\"true\"] {\n  background: var(--color-pistachio);\n  box-shadow: inset 3px 0 0 var(--color-ink);",
     );
   });
+
+  it("keeps select text clear of the native dropdown arrow", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toContain(
+      "select {\n  padding-right: 28px;",
+    );
+  });
+
+  it("shows disabled detail save actions as unavailable", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toContain(
+      ".detail-actions button:disabled {\n  cursor: not-allowed;",
+    );
+  });
 });

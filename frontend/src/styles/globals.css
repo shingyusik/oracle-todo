@@ -51,6 +51,10 @@ select {
   font: inherit;
 }
 
+select {
+  padding-right: 28px;
+}
+
 button {
   cursor: pointer;
 }
@@ -363,7 +367,7 @@ button {
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-cream);
-  padding: 5px 7px;
+  padding: 5px 28px 5px 7px;
   color: var(--color-ink);
 }
 
@@ -619,8 +623,8 @@ button {
   color: inherit;
 }
 
-.inline-cell-number {
-  min-width: 72px;
+.inline-cell-control:is(select) {
+  padding-right: 28px;
 }
 
 .items-table tbody tr {
@@ -675,8 +679,12 @@ button {
   padding: 8px 10px;
 }
 
+.field-label select {
+  padding-right: 28px;
+}
+
 .detail-view {
-  width: min(100%, 720px);
+  width: min(100%, 920px);
   margin: 0 auto;
 }
 
@@ -824,6 +832,10 @@ button {
   font-size: 13px;
 }
 
+.recurrence-field select {
+  padding-right: 28px;
+}
+
 .recurrence-field-short {
   width: 82px;
 }
@@ -898,6 +910,13 @@ button {
   background: var(--color-ink);
   padding: 0;
   color: var(--color-on-dark);
+}
+
+.detail-actions button:disabled {
+  cursor: not-allowed;
+  border-color: var(--color-shade-30);
+  background: var(--color-shade-30);
+  color: var(--color-shade-50);
 }
 
 .dialog-actions {
