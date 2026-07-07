@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { ArrowDownUp, Filter, Group, Plus, Trash2 } from "lucide-react";
+import { ArrowDownUp, Filter, Group, Plus, Trash2, X } from "lucide-react";
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
 import {
@@ -389,50 +389,6 @@ function DailyPlanner({ controller }: MainPanelProps) {
   return (
     <div className="planner-panel">
       <div className="items-toolbar planner-control-row">
-        <DailyFilterSelect
-          label="Filter daily items by tags"
-          displayLabel="Tags"
-          options={filterOptions.tags}
-          value={filters.tags}
-          onChange={(values) => controller.setDailyFilter("tags", values)}
-        />
-        <DailyFilterSelect
-          label="Filter daily items by area"
-          displayLabel="Area"
-          options={filterOptions.areas}
-          value={filters.areaIds}
-          onChange={(values) => controller.setDailyFilter("areaIds", values)}
-        />
-        <DailyFilterSelect
-          label="Filter daily items by project"
-          displayLabel="Project"
-          options={filterOptions.projects}
-          value={filters.projectIds}
-          onChange={(values) => controller.setDailyFilter("projectIds", values)}
-        />
-        <DailyFilterSelect
-          label="Filter daily items by routine"
-          displayLabel="Routine"
-          options={filterOptions.routines}
-          value={filters.routineIds}
-          onChange={(values) => controller.setDailyFilter("routineIds", values)}
-        />
-        <DailyFilterSelect
-          label="Filter daily items by item type"
-          displayLabel="Item"
-          options={filterOptions.itemTypes}
-          value={filters.itemTypes}
-          onChange={(values) => controller.setDailyFilter("itemTypes", values)}
-        />
-        <DailyFilterSelect
-          label="Filter daily items by status"
-          displayLabel="Status"
-          options={filterOptions.statuses}
-          value={filters.statuses}
-          onChange={(values) => controller.setDailyFilter("statuses", values)}
-        />
-      </div>
-      <div className="items-toolbar planner-control-row">
         <label>
           Group by
           <select
@@ -660,61 +616,30 @@ function PlannerFilterRulePanel({
   filterOptions: PlannerFilterOptions;
   effectiveFilters: WorkbenchController["planner"]["dailyFilters"];
 }) {
-  if (controller.panel.id !== "daily") {
-    return (
-      <DailyFilterSelect
-        label="Filter planner items by tags"
-        options={filterOptions.tags}
-        value={effectiveFilters.tags}
-        onChange={(values) => controller.setDailyFilter("tags", values)}
-      />
-    );
-  }
+  const rules = plannerFilterRules(controller.panel.id, filterOptions, effectiveFilters);
 
   return (
-    <div className="planner-control-row">
-      <DailyFilterSelect
-        label="Filter daily items by tags"
-        displayLabel="Tags"
-        options={filterOptions.daily.tags}
-        value={effectiveFilters.tags}
-        onChange={(values) => controller.setDailyFilter("tags", values)}
-      />
-      <DailyFilterSelect
-        label="Filter daily items by area"
-        displayLabel="Area"
-        options={filterOptions.daily.areas}
-        value={effectiveFilters.areaIds}
-        onChange={(values) => controller.setDailyFilter("areaIds", values)}
-      />
-      <DailyFilterSelect
-        label="Filter daily items by project"
-        displayLabel="Project"
-        options={filterOptions.daily.projects}
-        value={effectiveFilters.projectIds}
-        onChange={(values) => controller.setDailyFilter("projectIds", values)}
-      />
-      <DailyFilterSelect
-        label="Filter daily items by routine"
-        displayLabel="Routine"
-        options={filterOptions.daily.routines}
-        value={effectiveFilters.routineIds}
-        onChange={(values) => controller.setDailyFilter("routineIds", values)}
-      />
-      <DailyFilterSelect
-        label="Filter daily items by item type"
-        displayLabel="Item"
-        options={filterOptions.daily.itemTypes}
-        value={effectiveFilters.itemTypes}
-        onChange={(values) => controller.setDailyFilter("itemTypes", values)}
-      />
-      <DailyFilterSelect
-        label="Filter daily items by status"
-        displayLabel="Status"
-        options={filterOptions.daily.statuses}
-        value={effectiveFilters.statuses}
-        onChange={(values) => controller.setDailyFilter("statuses", values)}
-      />
+    <div className="planner-filter-rule-panel">
+      {rules.map((rule) => (
+        <div className="planner-filter-rule" key={rule.field}>
+          <span>{rule.label}</span>
+          <span>{rule.operator}</span>
+          <DailyFilterSelect
+            label={`Filter by ${rule.label}`}
+            displayLabel={rule.label}
+            options={rule.options}
+            value={rule.value}
+            onChange={(values) => controller.setDailyFilter(rule.field, values)}
+          />
+          <button
+            type="button"
+            aria-label={`Remove ${rule.label} filter`}
+            onClick={() => controller.setDailyFilter(rule.field, [])}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -871,16 +796,26 @@ function buildDailyFilterOptions(
 function buildPlannerFilterOptions(
   controller: WorkbenchController,
 ): PlannerFilterOptions {
+  if (controller.panel.id === "daily") {
+    const daily = buildDailyFilterOptions(controller);
+    return { tags: daily.tags, daily };
+  }
+
+  const tags = buildPlannerTagFilterOptions(
+    controller.panel.id,
+    controller.workspaceItems.items,
+    controller.planner,
+  );
   return {
-    tags:
-      controller.panel.id === "daily"
-        ? []
-        : buildPlannerTagFilterOptions(
-            controller.panel.id,
-            controller.workspaceItems.items,
-            controller.planner,
-          ),
-    daily: buildDailyFilterOptions(controller),
+    tags,
+    daily: {
+      tags,
+      areas: [],
+      projects: [],
+      routines: [],
+      itemTypes: [],
+      statuses: [],
+    },
   };
 }
 
@@ -919,6 +854,73 @@ function effectiveDailyFilters(
     itemTypes: filterValuesByOptions(filters.itemTypes, options.itemTypes),
     statuses: filterValuesByOptions(filters.statuses, options.statuses),
   };
+}
+
+type PlannerFilterRule = {
+  field: keyof WorkbenchController["planner"]["dailyFilters"];
+  label: string;
+  operator: string;
+  options: DailyFilterOption[];
+  value: string[];
+};
+
+function plannerFilterRules(
+  panelId: WorkbenchController["panel"]["id"],
+  filterOptions: PlannerFilterOptions,
+  filters: WorkbenchController["planner"]["dailyFilters"],
+): PlannerFilterRule[] {
+  const rules: PlannerFilterRule[] = [
+    {
+      field: "tags",
+      label: "Tags",
+      operator: "contains",
+      options: filterOptions.tags,
+      value: filters.tags,
+    },
+  ];
+
+  if (panelId !== "daily") {
+    return rules;
+  }
+
+  return [
+    ...rules,
+    {
+      field: "areaIds",
+      label: "Area",
+      operator: "is",
+      options: filterOptions.daily.areas,
+      value: filters.areaIds,
+    },
+    {
+      field: "projectIds",
+      label: "Project",
+      operator: "is",
+      options: filterOptions.daily.projects,
+      value: filters.projectIds,
+    },
+    {
+      field: "routineIds",
+      label: "Routine",
+      operator: "is",
+      options: filterOptions.daily.routines,
+      value: filters.routineIds,
+    },
+    {
+      field: "itemTypes",
+      label: "Item type",
+      operator: "is",
+      options: filterOptions.daily.itemTypes,
+      value: filters.itemTypes,
+    },
+    {
+      field: "statuses",
+      label: "Status",
+      operator: "is",
+      options: filterOptions.daily.statuses,
+      value: filters.statuses,
+    },
+  ];
 }
 
 function plannerFilterRuleCount(

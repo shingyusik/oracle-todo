@@ -661,11 +661,9 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
 
     expect(await screen.findByRole("heading", { name: "Today" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Filter daily items by tags")).toBeInTheDocument();
-    expect(screen.getByLabelText("Filter daily items by area")).toBeInTheDocument();
-    expect(screen.getByLabelText("Filter daily items by status")).toBeInTheDocument();
-    expect(screen.getByLabelText("Group daily items by")).toBeInTheDocument();
-    expect(screen.getByLabelText("Sort daily items by")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Filter planner view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Group planner view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sort planner view" })).toBeInTheDocument();
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(screen.getByText("Overdue Task")).toBeInTheDocument();
     expect(screen.getByText("Upcoming Task")).toBeInTheDocument();
@@ -678,24 +676,86 @@ describe("WorkbenchPageClient", () => {
       screen.queryByRole("button", { name: "Project Should Not Render" }),
     ).toBeNull();
 
-    await user.selectOptions(screen.getByLabelText("Filter daily items by area"), "area-1");
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    await user.selectOptions(screen.getByLabelText("Filter by Area"), "area-1");
 
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(screen.queryByText("Overdue Task")).toBeNull();
     expect(screen.queryByText("Upcoming Task")).toBeNull();
     expect(screen.queryByText("Inbox Task")).toBeNull();
+    expect(screen.getByText("1 rules")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Filter daily items by tags"), "deep-work");
+    await user.selectOptions(screen.getByLabelText("Filter by Tags"), "deep-work");
 
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(screen.queryByText("Done Task")).toBeNull();
+    expect(screen.getByText("2 rules")).toBeInTheDocument();
 
     expect(
-      within(screen.getByLabelText("Filter daily items by status")).queryByRole(
+      within(screen.getByLabelText("Filter by Status")).queryByRole(
         "option",
         { name: "completed" },
       ),
     ).toBeNull();
+  });
+
+  it("filters daily planner items through the rule builder dropdown", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task"
+              ? [
+                  {
+                    id: "task-1",
+                    type: "task",
+                    title: "Focus Task",
+                    status: "active",
+                    tags: ["focus"],
+                    area_id: "area-1",
+                    scheduled: testToday(),
+                  },
+                  {
+                    id: "task-2",
+                    type: "task",
+                    title: "Ops Task",
+                    status: "active",
+                    tags: ["ops"],
+                    area_id: "area-2",
+                    scheduled: testToday(),
+                  },
+                ]
+              : url === "/todo-engine/items?type=area"
+                ? [
+                    { id: "area-1", type: "area", title: "Work", status: "active" },
+                    { id: "area-2", type: "area", title: "Ops", status: "active" },
+                  ]
+                : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    await screen.findByText("Focus Task");
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    await user.selectOptions(screen.getByLabelText("Filter by Tags"), "focus");
+
+    expect(screen.getByText("Focus Task")).toBeInTheDocument();
+    expect(screen.queryByText("Ops Task")).toBeNull();
+    expect(screen.getByText("1 rules")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove Tags filter" }));
+
+    expect(screen.getByText("Focus Task")).toBeInTheDocument();
+    expect(screen.getByText("Ops Task")).toBeInTheDocument();
   });
 
   it("renders yearly and monthly goal lists from loaded planner goals", async () => {

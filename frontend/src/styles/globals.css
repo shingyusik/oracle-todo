@@ -367,6 +367,35 @@ button {
   color: var(--color-ink);
 }
 
+.planner-filter-rule-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.planner-filter-rule {
+  display: grid;
+  grid-template-columns: 82px 70px minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: end;
+}
+
+.planner-filter-rule > span {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-shade-60);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.planner-filter-rule button {
+  width: 28px;
+  height: 32px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-cream);
+}
+
 .planner-section {
   display: grid;
   gap: 12px;
