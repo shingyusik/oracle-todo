@@ -93,8 +93,12 @@ function createDefaultPlanner(): PlannerControls {
     },
     dailyGroupBy: "none",
     dailySortBy: "priority",
-    plannerGroupBy: "none",
-    plannerSortBy: "scheduled",
+    yearlyGroupBy: "none",
+    yearlySortBy: "scheduled",
+    monthlyGroupBy: "none",
+    monthlySortBy: "scheduled",
+    weeklyGroupBy: "none",
+    weeklySortBy: "scheduled",
   };
 }
 
@@ -256,9 +260,31 @@ export function useWorkbenchController(): WorkbenchController {
     setDailySortBy: (sortBy) =>
       setPlanner((current) => ({ ...current, dailySortBy: sortBy })),
     setPlannerGroupBy: (groupBy) =>
-      setPlanner((current) => ({ ...current, plannerGroupBy: groupBy })),
+      setPlanner((current) => {
+        if (selection.leafTabId === "weekly") {
+          return { ...current, weeklyGroupBy: groupBy };
+        }
+        if (selection.leafTabId === "monthly") {
+          return { ...current, monthlyGroupBy: groupBy };
+        }
+        if (selection.leafTabId === "yearly") {
+          return { ...current, yearlyGroupBy: groupBy };
+        }
+        return current;
+      }),
     setPlannerSortBy: (sortBy) =>
-      setPlanner((current) => ({ ...current, plannerSortBy: sortBy })),
+      setPlanner((current) => {
+        if (selection.leafTabId === "weekly") {
+          return { ...current, weeklySortBy: sortBy };
+        }
+        if (selection.leafTabId === "monthly") {
+          return { ...current, monthlySortBy: sortBy };
+        }
+        if (selection.leafTabId === "yearly") {
+          return { ...current, yearlySortBy: sortBy };
+        }
+        return current;
+      }),
     transitionWorkspaceItem: async (
       itemId: string,
       action: WorkspaceItemTransitionAction,

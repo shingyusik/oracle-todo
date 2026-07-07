@@ -258,7 +258,7 @@ function GoalPlannerList({
   );
   const groupBy = plannerGroupValue(controller);
   const groupedGoals = groupPlannerItems(
-    sortPlannerItems(goals, controller.planner.plannerSortBy),
+    sortPlannerItems(goals, plannerSortValue(controller)),
     controller.workspaceItems.relatedItems,
     groupBy,
   );
@@ -287,12 +287,12 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
   );
   const groupBy = plannerGroupValue(controller);
   const monthGoalGroups = groupPlannerItems(
-    sortPlannerItems(model.monthGoals, controller.planner.plannerSortBy),
+    sortPlannerItems(model.monthGoals, plannerSortValue(controller)),
     controller.workspaceItems.relatedItems,
     groupBy,
   );
   const weekGoalGroups = groupPlannerItems(
-    sortPlannerItems(model.weekGoals, controller.planner.plannerSortBy),
+    sortPlannerItems(model.weekGoals, plannerSortValue(controller)),
     controller.workspaceItems.relatedItems,
     groupBy,
   );
@@ -312,7 +312,7 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
       <div className="weekly-day-grid">
         {model.days.map((day) => {
           const dayGroups = groupPlannerItems(
-            sortPlannerItems(day.items, controller.planner.plannerSortBy),
+            sortPlannerItems(day.items, plannerSortValue(controller)),
             controller.workspaceItems.relatedItems,
             groupBy,
           );
@@ -831,9 +831,16 @@ function plannerFilterRuleCount(
 }
 
 function plannerSortValue(controller: WorkbenchController): PlannerSortBy {
-  return controller.panel.id === "daily"
-    ? controller.planner.dailySortBy
-    : controller.planner.plannerSortBy;
+  if (controller.panel.id === "daily") {
+    return controller.planner.dailySortBy;
+  }
+  if (controller.panel.id === "weekly") {
+    return controller.planner.weeklySortBy;
+  }
+  if (controller.panel.id === "monthly") {
+    return controller.planner.monthlySortBy;
+  }
+  return controller.planner.yearlySortBy;
 }
 
 function defaultPlannerSortValue(controller: WorkbenchController): PlannerSortBy {
@@ -852,9 +859,16 @@ function setPlannerSortValue(
 }
 
 function plannerGroupValue(controller: WorkbenchController): PlannerGroupBy {
-  return controller.panel.id === "daily"
-    ? controller.planner.dailyGroupBy
-    : effectivePlannerGroupValue(controller.panel.id, controller.planner.plannerGroupBy);
+  if (controller.panel.id === "daily") {
+    return controller.planner.dailyGroupBy;
+  }
+  if (controller.panel.id === "weekly") {
+    return effectivePlannerGroupValue(controller.panel.id, controller.planner.weeklyGroupBy);
+  }
+  if (controller.panel.id === "monthly") {
+    return effectivePlannerGroupValue(controller.panel.id, controller.planner.monthlyGroupBy);
+  }
+  return effectivePlannerGroupValue(controller.panel.id, controller.planner.yearlyGroupBy);
 }
 
 function effectivePlannerGroupValue(
