@@ -385,7 +385,7 @@ function PlannerControlToolbar({
   const [openDropdown, setOpenDropdown] =
     React.useState<PlannerDropdownKind | null>(null);
   const visibleFilterRules = visiblePlannerFilterRules(controller, filterOptions);
-  const activeFilterCount = visibleFilterRules.length;
+  const activeFilterCount = effectivePlannerFilterRules(controller).length;
   const sortBy = plannerSortValue(controller);
   const groupBy = plannerGroupValue(controller);
 

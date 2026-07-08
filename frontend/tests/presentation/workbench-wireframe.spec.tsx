@@ -723,7 +723,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
 
     expect(screen.getByText("And")).toBeInTheDocument();
-    expect(screen.getByText("2 rules")).toBeInTheDocument();
+    expect(screen.queryByText("2 rules")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Filter mode" }));
     await user.click(screen.getByRole("option", { name: "Or" }));
