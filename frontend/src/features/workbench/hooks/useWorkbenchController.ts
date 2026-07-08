@@ -119,6 +119,22 @@ function movePlannerDate(panelId: LeafTabId, date: string, direction: -1 | 1): s
   return addDays(date, direction);
 }
 
+function resetPlannerDate(panelId: LeafTabId): string {
+  const date = todayDate();
+
+  if (panelId === "yearly") {
+    return yearStart(date);
+  }
+  if (panelId === "monthly") {
+    return monthStart(date);
+  }
+  if (panelId === "weekly") {
+    return weekStartForDate(date);
+  }
+
+  return date;
+}
+
 function addDays(date: string, days: number): string {
   const value = new Date(`${date}T00:00:00`);
   value.setDate(value.getDate() + days);
@@ -228,7 +244,7 @@ export function useWorkbenchController(): WorkbenchController {
       }),
     resetPlannerPeriodToToday: () =>
       setPlanner((current) => {
-        const date = todayDate();
+        const date = resetPlannerDate(selection.leafTabId);
         return { ...current, date, weekStart: weekStartForDate(date) };
       }),
     toggleItemSelection: (itemId: string) =>

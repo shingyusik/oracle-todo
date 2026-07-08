@@ -17,6 +17,15 @@ function testWeekStart(): string {
   return formatDate(value);
 }
 
+function testYearStart(): string {
+  return `${new Date().getFullYear()}-01-01`;
+}
+
+function testMonthStart(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
 describe("useWorkbenchController", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
@@ -564,8 +573,15 @@ describe("useWorkbenchController", () => {
 
     act(() => result.current.selectTab("monthly"));
     await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    const monthlyBase = result.current.planner.date;
     act(() => result.current.movePlannerPeriod(1));
-    expect(result.current.planner.date.endsWith("-01")).toBe(true);
+    expect(result.current.planner.date).toBe(
+      (() => {
+        const [year, month] = monthlyBase.split("-").map(Number);
+        const nextMonth = new Date(year, month, 1);
+        return `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}-01`;
+      })(),
+    );
   });
 
   it("creates yearly and monthly goals with canonical scheduled anchors", async () => {
@@ -628,6 +644,42 @@ describe("useWorkbenchController", () => {
         scheduled: `${result.current.planner.date.slice(0, 7)}-01`,
       }),
     );
+  });
+
+  it("resets planner periods to canonical starts for the active panel", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.selectTab("todo"));
+    act(() => result.current.selectTab("planner"));
+    await waitFor(() => expect(result.current.panel.id).toBe("yearly"));
+
+    act(() => result.current.resetPlannerPeriodToToday());
+    expect(result.current.planner.date).toBe(testYearStart());
+
+    act(() => result.current.selectTab("monthly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    act(() => result.current.resetPlannerPeriodToToday());
+    expect(result.current.planner.date).toBe(testMonthStart());
+
+    act(() => result.current.selectTab("weekly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("weekly"));
+    act(() => result.current.resetPlannerPeriodToToday());
+    expect(result.current.planner.date).toBe(testWeekStart());
+
+    act(() => result.current.selectTab("daily"));
+    await waitFor(() => expect(result.current.panel.id).toBe("daily"));
+    act(() => result.current.resetPlannerPeriodToToday());
+    expect(result.current.planner.date).toBe(formatDate(new Date()));
   });
 
   it("posts the user-provided scheduled value for events", async () => {
