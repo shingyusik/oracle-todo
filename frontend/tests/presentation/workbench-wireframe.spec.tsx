@@ -487,6 +487,86 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Anchored weekly goal")).toBeInTheDocument();
   });
 
+  it("submits canonical yearly and monthly planner goal anchors from the creation dialog", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const yearStart = testYearStart(today);
+    const monthStart = testMonthStart(today);
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=goal": [],
+      "/todo-engine/items?type=task": [],
+      "/todo-engine/items?type=event": [],
+      "/todo-engine/items?type=routine": [],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    const goalBodies: Array<{ title: string; horizon: string; scheduled: string; actor: string }> =
+      [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose") {
+        const body = JSON.parse(String(init?.body)) as {
+          title: string;
+          horizon: string;
+          scheduled: string;
+          actor: string;
+        };
+        goalBodies.push(body);
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: `goal-${goalBodies.length}`,
+            type: "goal",
+            title: body.title,
+            status: "approved",
+            horizon: body.horizon,
+            scheduled: body.scheduled,
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => responses[url] ?? [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Add planner item" }));
+
+    expect(screen.getByLabelText("Scheduled")).toHaveValue(yearStart);
+
+    await user.type(screen.getByLabelText("Title"), "Year anchor goal");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(goalBodies[0]).toEqual({
+      title: "Year anchor goal",
+      horizon: "year",
+      scheduled: yearStart,
+      actor: "user",
+    });
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    await user.click(screen.getByRole("button", { name: "Add planner item" }));
+
+    expect(screen.getByLabelText("Scheduled")).toHaveValue(monthStart);
+
+    await user.type(screen.getByLabelText("Title"), "Month anchor goal");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(goalBodies[1]).toEqual({
+      title: "Month anchor goal",
+      horizon: "month",
+      scheduled: monthStart,
+      actor: "user",
+    });
+  });
+
   it("creates weekly planner tasks and daily planner events or routines from the type selector", async () => {
     const user = userEvent.setup();
     const today = testToday();

@@ -18,9 +18,11 @@ import {
   type DailyPlannerSection,
   type DailySortBy,
   groupPlannerItems,
+  monthStart,
   sortPlannerItems,
   type PlannerGroupBy,
   type PlannerSortBy,
+  yearStart,
 } from "@/features/workbench/model/planner-model";
 import type {
   WorkbenchController,
@@ -2586,11 +2588,13 @@ function defaultCreationScheduled(controller: WorkbenchController): string {
   if (controller.panel.id === "weekly") {
     return controller.planner.weekStart;
   }
-  if (
-    controller.panel.id === "daily" ||
-    controller.panel.id === "monthly" ||
-    controller.panel.id === "yearly"
-  ) {
+  if (controller.panel.id === "monthly") {
+    return monthStart(controller.planner.date);
+  }
+  if (controller.panel.id === "yearly") {
+    return yearStart(controller.planner.date);
+  }
+  if (controller.panel.id === "daily") {
     return controller.planner.date;
   }
 
