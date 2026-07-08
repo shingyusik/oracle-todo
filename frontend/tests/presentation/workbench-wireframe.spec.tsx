@@ -2703,6 +2703,8 @@ describe("WorkbenchPageClient", () => {
     expect(within(properties as HTMLElement).getByText("Last Materialized")).toBeInTheDocument();
     expect(within(properties as HTMLElement).getByText("2026-06-21")).toBeInTheDocument();
     expect(screen.queryByLabelText("Last Materialized")).toBeNull();
+    expectPropertyImmediatelyBeforeProperty("Updated", "Last Materialized");
+    expectPropertyImmediatelyBeforeField("Last Materialized", "Note");
   });
 
   it("omits unchanged event participants from the detail PATCH body", async () => {

@@ -1440,10 +1440,6 @@ function DetailTypeFields({
           value={draft.note}
           onChange={(value) => setField("note", value)}
         />
-        <div className="property-row">
-          <span>Last Materialized</span>
-          <span>{formatDate(item.last_materialized_at)}</span>
-        </div>
       </>
     );
   }
@@ -1650,6 +1646,12 @@ function DetailTimestamps({ item }: { item: WorkspaceItemModel }) {
         <span>Updated</span>
         <span>{formatDate(item.updated_at)}</span>
       </div>
+      {item.type === "routine" ? (
+        <div className="property-row">
+          <span>Last Materialized</span>
+          <span>{formatDate(item.last_materialized_at)}</span>
+        </div>
+      ) : null}
     </>
   );
 }
