@@ -12,6 +12,57 @@ export type DailyFilterState = {
   statuses: string[];
 };
 
+export type PlannerFilterMode = "and" | "or";
+export type PlannerFilterField =
+  | "title"
+  | "scheduled"
+  | "due"
+  | "tags"
+  | "area"
+  | "project"
+  | "routine"
+  | "item_type"
+  | "status"
+  | "priority"
+  | "horizon";
+export type PlannerFilterType =
+  | "text"
+  | "date"
+  | "number"
+  | "select"
+  | "multiSelect"
+  | "relation";
+export type PlannerFilterOperator =
+  | "is"
+  | "is_not"
+  | "contains"
+  | "does_not_contain"
+  | "starts_with"
+  | "ends_with"
+  | "is_before"
+  | "is_after"
+  | "is_on_or_before"
+  | "is_on_or_after"
+  | "is_between"
+  | "is_relative_to_today"
+  | "greater_than"
+  | "less_than"
+  | "is_empty"
+  | "is_not_empty";
+export type PlannerFilterValue =
+  | string
+  | string[]
+  | { start: string; end: string }
+  | { amount: string; unit: "day" | "week" | "month" }
+  | null;
+export type PlannerFilterRule = {
+  id: string;
+  field: PlannerFilterField;
+  type: PlannerFilterType;
+  operator: PlannerFilterOperator;
+  value: PlannerFilterValue;
+};
+
 export type PlannerGroupBy =
   | "none"
   | "area"
@@ -159,6 +210,163 @@ function matchesDailyFilters(
     matchesOne(item.type, filters.itemTypes) &&
     matchesOne(item.status, filters.statuses)
   );
+}
+
+export function matchesPlannerFilterRules(
+  item: WorkspaceItemModel,
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  rules: PlannerFilterRule[],
+  mode: PlannerFilterMode,
+  today: string,
+): boolean {
+  if (rules.length === 0) return true;
+  const results = rules.map((rule) =>
+    matchesPlannerFilterRule(item, relatedItems, rule, today),
+  );
+  return mode === "and" ? results.every(Boolean) : results.some(Boolean);
+}
+
+function matchesPlannerFilterRule(
+  item: WorkspaceItemModel,
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  rule: PlannerFilterRule,
+  today: string,
+): boolean {
+  const value = plannerFilterValue(item, relatedItems, rule.field);
+  if (rule.operator === "is_empty") return isFilterEmpty(value);
+  if (rule.operator === "is_not_empty") return !isFilterEmpty(value);
+  if (rule.type === "date") return matchesDateFilter(String(value ?? ""), rule, today);
+  if (rule.type === "number") return matchesNumberFilter(value, rule);
+  if (Array.isArray(value)) return matchesArrayFilter(value, rule);
+  return matchesTextFilter(String(value ?? ""), rule);
+}
+
+function plannerFilterValue(
+  item: WorkspaceItemModel,
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  field: PlannerFilterField,
+): string | string[] | number | null | undefined {
+  if (field === "title") return item.title;
+  if (field === "scheduled") return datePart(item.scheduled);
+  if (field === "due") return datePart(item.due);
+  if (field === "tags") return item.tags ?? [];
+  if (field === "area") return relationValues(item.area_id, relatedItems.areas);
+  if (field === "project") return relationValues(item.project_id, relatedItems.projects);
+  if (field === "routine") return relationValues(item.routine_id, relatedItems.routines);
+  if (field === "item_type") return item.type;
+  if (field === "status") return item.status;
+  if (field === "priority") return item.priority;
+  return item.horizon;
+}
+
+function relationValues(
+  id: string | null | undefined,
+  labels: Record<string, string>,
+): string[] {
+  if (!id) return [];
+  const label = labels[id];
+  return label && label !== id ? [id, label] : [id];
+}
+
+function isFilterEmpty(value: string | string[] | number | null | undefined): boolean {
+  return value == null || value === "" || (Array.isArray(value) && value.length === 0);
+}
+
+function matchesTextFilter(value: string, rule: PlannerFilterRule): boolean {
+  const actual = value.toLowerCase();
+  const expected = filterValueStrings(rule.value);
+  const firstExpected = expected[0] ?? "";
+  if (rule.operator === "is") return expected.includes(actual);
+  if (rule.operator === "is_not") return !expected.includes(actual);
+  if (rule.operator === "contains") {
+    return expected.some((value) => actual.includes(value));
+  }
+  if (rule.operator === "does_not_contain") {
+    return expected.every((value) => !actual.includes(value));
+  }
+  if (rule.operator === "starts_with") return actual.startsWith(firstExpected);
+  if (rule.operator === "ends_with") return actual.endsWith(firstExpected);
+  return false;
+}
+
+function matchesArrayFilter(values: string[], rule: PlannerFilterRule): boolean {
+  const actual = values.map((value) => value.toLowerCase());
+  const expected = filterValueStrings(rule.value);
+  const hasMatch = expected.some((value) => actual.includes(value));
+  if (
+    rule.operator === "is" ||
+    rule.operator === "contains"
+  ) {
+    return hasMatch;
+  }
+  if (
+    rule.operator === "is_not" ||
+    rule.operator === "does_not_contain"
+  ) {
+    return !hasMatch;
+  }
+  return false;
+}
+
+function matchesDateFilter(value: string, rule: PlannerFilterRule, today: string): boolean {
+  if (rule.operator === "is_between" && isRangeValue(rule.value)) {
+    return value >= rule.value.start && value <= rule.value.end;
+  }
+  if (rule.operator === "is_relative_to_today" && isRelativeValue(rule.value)) {
+    return value === addRelativeDate(today, rule.value);
+  }
+  const expected = String(rule.value ?? "");
+  if (rule.operator === "is") return value === expected;
+  if (rule.operator === "is_not") return value !== expected;
+  if (rule.operator === "is_before") return value < expected;
+  if (rule.operator === "is_after") return value > expected;
+  if (rule.operator === "is_on_or_before") return value <= expected;
+  if (rule.operator === "is_on_or_after") return value >= expected;
+  return false;
+}
+
+function matchesNumberFilter(
+  value: string | string[] | number | null | undefined,
+  rule: PlannerFilterRule,
+): boolean {
+  if (Array.isArray(value)) return false;
+  const actual = Number(value);
+  const expected = Number(rule.value);
+  if (Number.isNaN(actual) || Number.isNaN(expected)) return false;
+  if (rule.operator === "is") return actual === expected;
+  if (rule.operator === "is_not") return actual !== expected;
+  if (rule.operator === "greater_than") return actual > expected;
+  if (rule.operator === "less_than") return actual < expected;
+  return false;
+}
+
+function filterValueStrings(value: PlannerFilterValue): string[] {
+  return (Array.isArray(value) ? value : [String(value ?? "")]).map((entry) =>
+    entry.toLowerCase(),
+  );
+}
+
+function isRangeValue(
+  value: PlannerFilterValue,
+): value is { start: string; end: string } {
+  return typeof value === "object" && value != null && "start" in value && "end" in value;
+}
+
+function isRelativeValue(
+  value: PlannerFilterValue,
+): value is { amount: string; unit: "day" | "week" | "month" } {
+  return typeof value === "object" && value != null && "amount" in value && "unit" in value;
+}
+
+function addRelativeDate(
+  today: string,
+  value: { amount: string; unit: "day" | "week" | "month" },
+): string {
+  const date = new Date(`${today}T00:00:00Z`);
+  const amount = Number(value.amount);
+  if (value.unit === "month") date.setUTCMonth(date.getUTCMonth() + amount);
+  else date.setUTCDate(date.getUTCDate() + amount * (value.unit === "week" ? 7 : 1));
+  return date.toISOString().slice(0, 10);
 }
 
 function matchesAny(values: string[], selected: string[]): boolean {
