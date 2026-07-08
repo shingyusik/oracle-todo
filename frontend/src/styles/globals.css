@@ -332,21 +332,22 @@ button {
   top: 74px;
   right: clamp(12px, 4vw, 32px);
   z-index: 20;
-  width: min(430px, calc(100vw - 24px));
-  max-height: min(420px, calc(100vh - 92px));
+  width: min(540px, calc(100vw - 24px));
+  max-height: min(460px, calc(100vh - 92px));
   overflow: auto;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-light);
-  padding: 8px;
-  box-shadow: 0 12px 30px rgb(0 0 0 / 12%);
+  padding: 6px;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 16%);
 }
 
 .planner-control-dropdown-title {
-  margin-bottom: 8px;
-  color: var(--color-shade-60);
-  font-size: 12px;
-  font-weight: 700;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .planner-control-row {
@@ -362,8 +363,8 @@ button {
 
 .planner-filter-value {
   display: grid;
-  min-width: 150px;
-  gap: 5px;
+  min-width: 0;
+  gap: 4px;
 }
 
 .planner-filter-value-summary {
@@ -383,21 +384,22 @@ button {
 
 .planner-filter-option-list {
   display: grid;
-  max-height: 150px;
+  max-height: 176px;
   overflow: auto;
-  gap: 2px;
+  gap: 1px;
+  padding: 2px 0;
 }
 
 .planner-filter-option {
   display: flex;
-  min-height: 28px;
+  min-height: 26px;
   align-items: center;
   gap: 8px;
   border-radius: var(--radius-xs);
-  padding: 4px 6px;
+  padding: 3px 6px;
   color: var(--color-ink);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .planner-filter-option:hover,
@@ -419,7 +421,7 @@ button {
 
 .planner-filter-rule-panel {
   display: grid;
-  gap: 8px;
+  gap: 5px;
 }
 
 .planner-filter-field-picker,
@@ -431,51 +433,79 @@ button {
 
 .planner-filter-field-options {
   display: grid;
-  gap: 4px;
+  gap: 1px;
+  padding: 2px 0;
 }
 
 .planner-filter-action,
 .planner-filter-field-options button,
 .planner-advanced-filter-row input,
 .planner-advanced-filter-row select {
-  min-height: 32px;
-  border: 1px solid var(--color-hairline-light);
+  min-height: 28px;
+  border: 1px solid transparent;
   border-radius: var(--radius-xs);
-  background: var(--color-canvas-cream);
+  background: transparent;
   color: var(--color-ink);
   font: inherit;
 }
 
 .planner-filter-action,
 .planner-filter-field-options button {
-  padding: 6px 8px;
+  padding: 5px 7px;
+  color: var(--color-shade-60);
+  font-size: 12px;
+  font-weight: 600;
   text-align: left;
 }
 
 .planner-filter-field-options button:hover,
 .planner-filter-field-options button[aria-selected="true"],
 .planner-filter-action:hover {
-  background: var(--color-canvas-light);
+  background: var(--color-canvas-cream);
+  color: var(--color-ink);
+}
+
+.planner-filter-action-danger {
+  border-top: 1px solid var(--color-hairline-light);
+  border-radius: 0;
+  color: var(--color-danger, #d44);
 }
 
 .planner-advanced-filter-row {
-  grid-template-columns: 70px minmax(0, 1fr);
-  align-items: start;
+  grid-template-columns: 58px minmax(104px, 1fr) minmax(112px, 1fr) minmax(128px, 1.3fr);
+  min-height: 32px;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-xs);
+  padding: 2px;
 }
 
 .planner-filter-select-label {
-  display: grid;
-  gap: 3px;
+  display: block;
   color: var(--color-shade-60);
   font-size: 11px;
   font-weight: 700;
 }
 
+.planner-filter-select-label > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
 .planner-advanced-filter-row input,
 .planner-advanced-filter-row select {
   width: 100%;
-  padding: 4px 8px;
+  padding: 4px 6px;
   font-size: 12px;
+}
+
+.planner-advanced-filter-row input:focus,
+.planner-advanced-filter-row select:focus {
+  border-color: var(--color-blue-strong, #2383e2);
+  outline: none;
 }
 
 .planner-menu-option-list {
@@ -506,17 +536,17 @@ button {
 }
 
 .planner-filter-token {
-  min-height: 30px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   overflow: hidden;
-  border: 1px solid var(--color-hairline-light);
+  border: 1px solid transparent;
   border-radius: var(--radius-xs);
-  background: var(--color-canvas-cream);
-  padding: 4px 8px;
+  background: transparent;
+  padding: 4px 6px;
   color: var(--color-shade-60);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -527,6 +557,12 @@ button {
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-cream);
+}
+
+@media (max-width: 640px) {
+  .planner-advanced-filter-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .planner-section {

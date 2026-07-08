@@ -572,13 +572,14 @@ function PlannerFilterRulePanel({
       <button
         type="button"
         className="planner-filter-action"
+        aria-label="Add filter rule"
         onClick={() => addPlannerRule(controller, fields[0])}
       >
-        Add filter rule
+        + Add filter rule
       </button>
       <button
         type="button"
-        className="planner-filter-action"
+        className="planner-filter-action planner-filter-action-danger"
         onClick={controller.clearPlannerFilterRules}
       >
         Delete filter
@@ -651,10 +652,11 @@ function PlannerFilterFieldPicker({
       <button
         type="button"
         className="planner-filter-action"
+        aria-label="Add filter rule"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        Add filter rule
+        + Add filter rule
       </button>
       {open ? (
         <div className="planner-filter-field-options" role="listbox" aria-label="Filter fields">
@@ -687,10 +689,11 @@ function PlannerFilterModeControl({
       <button
         type="button"
         className="planner-filter-action"
+        aria-label="Filter mode"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        Filter mode
+        Mode: {formatPlannerFilterMode(controller.planner.filterMode)}
       </button>
       {open ? (
         <div className="planner-filter-field-options" role="listbox" aria-label="Filter mode options">
@@ -872,7 +875,7 @@ function plannerFilterFieldConfigs(
   filterOptions: PlannerFilterOptions,
 ): PlannerFilterFieldConfig[] {
   const configs: PlannerFilterFieldConfig[] = [
-    { field: "title", label: "Name/title", type: "text", options: [] },
+    { field: "title", label: "Name", type: "text", options: [] },
     { field: "scheduled", label: "Scheduled", type: "date", options: [] },
     { field: "due", label: "Due", type: "date", options: [] },
     { field: "tags", label: "Tags", type: "multiSelect", options: filterOptions.daily.tags },
