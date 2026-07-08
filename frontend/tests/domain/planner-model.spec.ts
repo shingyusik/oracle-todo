@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDailyPlannerModel,
+  buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
+  buildYearlyPeriodGoalCardsModel,
   groupPlannerItems,
   sortPlannerItems,
 } from "@/features/workbench/model/planner-model";
@@ -388,5 +390,115 @@ describe("planner model", () => {
     expect(weekly.weekGoals.map((item) => item.id)).toEqual(["week-goal"]);
     expect(weekly.days).toHaveLength(7);
     expect(weekly.days[0].items.map((item) => item.id)).toEqual(["task"]);
+  });
+
+  it("builds yearly carousel cards and twelve month buckets", () => {
+    const model = buildYearlyPeriodGoalCardsModel(
+      [
+        item("previous-year", {
+          type: "goal",
+          horizon: "year",
+          scheduled: "2025-01-01",
+        }),
+        item("selected-year", {
+          type: "goal",
+          horizon: "year",
+          scheduled: "2026-01-01",
+        }),
+        item("next-year", {
+          type: "goal",
+          horizon: "year",
+          scheduled: "2027-01-01",
+        }),
+        item("january", {
+          type: "goal",
+          horizon: "month",
+          scheduled: "2026-01-01",
+        }),
+        item("december", {
+          type: "goal",
+          horizon: "month",
+          scheduled: "2026-12-01",
+        }),
+        item("done", {
+          type: "goal",
+          horizon: "month",
+          status: "completed",
+          scheduled: "2026-02-01",
+        }),
+      ],
+      "2026-07-08",
+    );
+
+    expect(model.carousel.map((card) => [card.position, card.periodStart, card.goals.map((goal) => goal.id)])).toEqual([
+      ["previous", "2025-01-01", ["previous-year"]],
+      ["selected", "2026-01-01", ["selected-year"]],
+      ["next", "2027-01-01", ["next-year"]],
+    ]);
+    expect(model.months).toHaveLength(12);
+    expect(model.months[0]).toEqual(
+      expect.objectContaining({
+        label: "Jan",
+        periodStart: "2026-01-01",
+      }),
+    );
+    expect(model.months[0]?.goals.map((goal) => goal.id)).toEqual(["january"]);
+    expect(model.months[1]?.goals).toEqual([]);
+    expect(model.months[11]?.goals.map((goal) => goal.id)).toEqual(["december"]);
+  });
+
+  it("builds monthly carousel cards and ISO Monday week buckets intersecting the month", () => {
+    const model = buildMonthlyPeriodGoalCardsModel(
+      [
+        item("previous-month", {
+          type: "goal",
+          horizon: "month",
+          scheduled: "2025-12-01",
+        }),
+        item("selected-month", {
+          type: "goal",
+          horizon: "month",
+          scheduled: "2026-01-01",
+        }),
+        item("next-month", {
+          type: "goal",
+          horizon: "month",
+          scheduled: "2026-02-01",
+        }),
+        item("week-crosses-year", {
+          type: "goal",
+          horizon: "week",
+          scheduled: "2025-12-29",
+        }),
+        item("week-inside-month", {
+          type: "goal",
+          horizon: "week",
+          scheduled: "2026-01-05",
+        }),
+        item("archived-week", {
+          type: "goal",
+          horizon: "week",
+          status: "archived",
+          scheduled: "2026-01-12",
+        }),
+      ],
+      "2026-01-15",
+    );
+
+    expect(model.carousel.map((card) => [card.position, card.periodStart, card.goals.map((goal) => goal.id)])).toEqual([
+      ["previous", "2025-12-01", ["previous-month"]],
+      ["selected", "2026-01-01", ["selected-month"]],
+      ["next", "2026-02-01", ["next-month"]],
+    ]);
+    expect(model.weeks.map((week) => [week.label, week.periodStart])).toEqual([
+      ["W1", "2025-12-29"],
+      ["W2", "2026-01-05"],
+      ["W3", "2026-01-12"],
+      ["W4", "2026-01-19"],
+      ["W5", "2026-01-26"],
+    ]);
+    expect(model.weeks[0]?.goals.map((goal) => goal.id)).toEqual(["week-crosses-year"]);
+    expect(model.weeks[1]?.goals.map((goal) => goal.id)).toEqual(["week-inside-month"]);
+    expect(model.weeks[2]?.goals).toEqual([]);
   });
 });
