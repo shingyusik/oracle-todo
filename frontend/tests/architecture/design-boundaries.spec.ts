@@ -143,4 +143,12 @@ describe("design system boundaries", () => {
       ".field-label .tag-input:not(:focus-within) input[data-empty=\"true\"]",
     );
   });
+
+  it("keeps table tag dropdowns clear of the horizontal scroll clip", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toContain(
+      ".items-section:has(.tag-dropdown) {\n  padding-bottom: 280px;",
+    );
+  });
 });

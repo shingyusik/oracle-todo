@@ -226,6 +226,10 @@ button {
   overflow-x: auto;
 }
 
+.items-section:has(.tag-dropdown) {
+  padding-bottom: 280px;
+}
+
 .items-toolbar {
   display: flex;
   justify-content: flex-end;
