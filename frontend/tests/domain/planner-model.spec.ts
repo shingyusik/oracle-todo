@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildDailyPlannerModel,
   buildWeeklyPlannerModel,
+  filterPlannerItemsByRules,
   groupPlannerItems,
+  matchesPlannerFilterRules,
   sortPlannerItems,
+  type PlannerFilterRule,
 } from "@/features/workbench/model/planner-model";
 import type { WorkspaceItemModel, WorkspaceItemsModel } from "@/features/workbench/model/workbench-model";
 
@@ -208,6 +211,167 @@ describe("planner model", () => {
     );
 
     expect(result.map((group) => group.label)).toEqual(["Work", "No value"]);
+  });
+
+  it("matches text, multi-select, and relation planner filter rules with and", () => {
+    const rules: PlannerFilterRule[] = [
+      { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
+      { id: "r2", field: "tags", type: "multiSelect", operator: "contains", value: ["focus"] },
+      { id: "r3", field: "area", type: "relation", operator: "contains", value: ["area-1"] },
+    ];
+
+    expect(
+      matchesPlannerFilterRules(
+        {
+          id: "task-1",
+          title: "Plan filter UI",
+          type: "task",
+          status: "active",
+          tags: ["focus"],
+          area_id: "area-1",
+        },
+        relatedItems,
+        rules,
+        "and",
+        "2026-07-08",
+      ),
+    ).toBe(true);
+  });
+
+  it("filters planner item lists through advanced rules", () => {
+    const result = filterPlannerItemsByRules(
+      [
+        {
+          id: "task-1",
+          type: "task",
+          title: "Plan API",
+          status: "active",
+          scheduled: "2026-07-08",
+          tags: ["api"],
+        },
+        {
+          id: "task-2",
+          type: "task",
+          title: "Write Notes",
+          status: "active",
+          scheduled: "2026-07-08",
+          tags: ["writing"],
+        },
+      ],
+      relatedItems,
+      [
+        {
+          id: "r1",
+          field: "tags",
+          type: "multiSelect",
+          operator: "contains",
+          value: ["api"],
+        },
+      ],
+      "and",
+      "2026-07-08",
+    );
+
+    expect(result.map((item) => item.id)).toEqual(["task-1"]);
+  });
+
+  it("matches at least one planner filter rule with or", () => {
+    const rules: PlannerFilterRule[] = [
+      { id: "r1", field: "title", type: "text", operator: "contains", value: "missing" },
+      { id: "r2", field: "status", type: "select", operator: "contains", value: ["active"] },
+    ];
+
+    expect(
+      matchesPlannerFilterRules(
+        { id: "task-1", title: "Plan", type: "task", status: "active" },
+        relatedItems,
+        rules,
+        "or",
+        "2026-07-08",
+      ),
+    ).toBe(true);
+  });
+
+  it("matches date and empty planner filter operators", () => {
+    const rules: PlannerFilterRule[] = [
+      {
+        id: "r1",
+        field: "scheduled",
+        type: "date",
+        operator: "is_between",
+        value: { start: "2026-07-01", end: "2026-07-31" },
+      },
+      { id: "r2", field: "due", type: "date", operator: "is_empty", value: null },
+    ];
+
+    expect(
+      matchesPlannerFilterRules(
+        {
+          id: "task-1",
+          title: "Plan",
+          type: "task",
+          status: "active",
+          scheduled: "2026-07-08",
+          due: null,
+        },
+        relatedItems,
+        rules,
+        "and",
+        "2026-07-08",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match empty scheduled values with date comparison operators", () => {
+    expect(
+      matchesPlannerFilterRules(
+        {
+          id: "task-1",
+          title: "Plan",
+          type: "task",
+          status: "active",
+          scheduled: null,
+        },
+        relatedItems,
+        [
+          {
+            id: "r1",
+            field: "scheduled",
+            type: "date",
+            operator: "is_before",
+            value: "2026-07-08",
+          },
+        ],
+        "and",
+        "2026-07-08",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not match empty priority values with number comparison operators", () => {
+    expect(
+      matchesPlannerFilterRules(
+        {
+          id: "task-1",
+          title: "Plan",
+          type: "task",
+          status: "active",
+          priority: null,
+        },
+        relatedItems,
+        [
+          {
+            id: "r1",
+            field: "priority",
+            type: "number",
+            operator: "less_than",
+            value: "1",
+          },
+        ],
+        "and",
+        "2026-07-08",
+      ),
+    ).toBe(false);
   });
 
   it("uses AND across filter categories and OR inside multi-select values", () => {

@@ -92,6 +92,8 @@ function createDefaultPlanner(): PlannerControls {
       itemTypes: [],
       statuses: [],
     },
+    filterMode: "and",
+    filterRules: [],
     dailyGroupBy: "none",
     dailySortBy: "priority",
     yearlyGroupBy: "none",
@@ -260,6 +262,12 @@ export function useWorkbenchController(): WorkbenchController {
         ...current,
         dailyFilters: { ...current.dailyFilters, [field]: values },
       })),
+    setPlannerFilterMode: (mode) =>
+      setPlanner((current) => ({ ...current, filterMode: mode })),
+    setPlannerFilterRules: (rules) =>
+      setPlanner((current) => ({ ...current, filterRules: rules })),
+    clearPlannerFilterRules: () =>
+      setPlanner((current) => ({ ...current, filterMode: "and", filterRules: [] })),
     setDailyGroupBy: (groupBy) =>
       setPlanner((current) => ({ ...current, dailyGroupBy: groupBy })),
     setDailySortBy: (sortBy) =>
