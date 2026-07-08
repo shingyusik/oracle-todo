@@ -8,6 +8,8 @@ import type {
   DailyFilterState,
   DailyGroupBy,
   DailySortBy,
+  PlannerFilterMode,
+  PlannerFilterRule,
   PlannerGroupBy,
   PlannerSortBy,
 } from "@/features/workbench/model/planner-model";
@@ -64,6 +66,8 @@ export type PlannerControls = {
   date: string;
   weekStart: string;
   dailyFilters: DailyFilterState;
+  filterMode: PlannerFilterMode;
+  filterRules: PlannerFilterRule[];
   dailyGroupBy: DailyGroupBy;
   dailySortBy: DailySortBy;
   yearlyGroupBy: PlannerGroupBy;
@@ -136,6 +140,9 @@ export type WorkbenchController = {
   openDetailView: (item: WorkspaceItemModel) => void;
   patchWorkspaceItem: (itemId: string, patch: WorkspaceItemPatch) => Promise<void>;
   setDailyFilter: (field: keyof DailyFilterState, values: string[]) => void;
+  setPlannerFilterMode: (mode: PlannerFilterMode) => void;
+  setPlannerFilterRules: (rules: PlannerFilterRule[]) => void;
+  clearPlannerFilterRules: () => void;
   setDailyGroupBy: (groupBy: DailyGroupBy) => void;
   setDailySortBy: (sortBy: DailySortBy) => void;
   setPlannerGroupBy: (groupBy: PlannerGroupBy) => void;
