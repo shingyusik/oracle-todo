@@ -874,30 +874,127 @@ function plannerFilterFieldConfigs(
   controller: WorkbenchController,
   filterOptions: PlannerFilterOptions,
 ): PlannerFilterFieldConfig[] {
-  const configs: PlannerFilterFieldConfig[] = [
-    { field: "title", label: "Name", type: "text", options: [] },
-    { field: "scheduled", label: "Scheduled", type: "date", options: [] },
-    { field: "due", label: "Due", type: "date", options: [] },
-    { field: "tags", label: "Tags", type: "multiSelect", options: filterOptions.daily.tags },
-    { field: "area", label: "Area", type: "relation", options: filterOptions.daily.areas },
-    { field: "project", label: "Project", type: "relation", options: filterOptions.daily.projects },
-    { field: "routine", label: "Routine", type: "relation", options: filterOptions.daily.routines },
-    { field: "item_type", label: "Item type", type: "select", options: filterOptions.daily.itemTypes },
-    { field: "status", label: "Status", type: "select", options: filterOptions.daily.statuses },
-    { field: "priority", label: "Priority", type: "number", options: [] },
-    { field: "horizon", label: "Horizon", type: "select", options: filterOptions.daily.horizons },
-  ];
+  const configs: Record<PlannerFilterField, PlannerFilterFieldConfig> = {
+    title: { field: "title", label: "Title", type: "text", options: [] },
+    status: {
+      field: "status",
+      label: "Status",
+      type: "select",
+      options: filterOptions.daily.statuses,
+    },
+    tags: {
+      field: "tags",
+      label: "Tags",
+      type: "multiSelect",
+      options: filterOptions.daily.tags,
+    },
+    area: {
+      field: "area",
+      label: "Area",
+      type: "relation",
+      options: filterOptions.daily.areas,
+    },
+    project: {
+      field: "project",
+      label: "Project",
+      type: "relation",
+      options: filterOptions.daily.projects,
+    },
+    routine: {
+      field: "routine",
+      label: "Routine",
+      type: "relation",
+      options: filterOptions.daily.routines,
+    },
+    scheduled: { field: "scheduled", label: "Scheduled", type: "date", options: [] },
+    due: { field: "due", label: "Due", type: "date", options: [] },
+    priority: {
+      field: "priority",
+      label: "Priority",
+      type: "select",
+      options: filterOptions.daily.priorities,
+    },
+    recurrence_rule: {
+      field: "recurrence_rule",
+      label: "Recurrence Rule",
+      type: "text",
+      options: [],
+    },
+    materialization_policy: {
+      field: "materialization_policy",
+      label: "Materialization Policy",
+      type: "select",
+      options: filterOptions.daily.materializationPolicies,
+    },
+    location: { field: "location", label: "Location", type: "text", options: [] },
+    participants: {
+      field: "participants",
+      label: "Participants",
+      type: "multiSelect",
+      options: filterOptions.daily.participants,
+    },
+    commitment_type: {
+      field: "commitment_type",
+      label: "Commitment Type",
+      type: "text",
+      options: [],
+    },
+    description: { field: "description", label: "Description", type: "text", options: [] },
+    note: { field: "note", label: "Note", type: "text", options: [] },
+    horizon: {
+      field: "horizon",
+      label: "Horizon",
+      type: "select",
+      options: filterOptions.daily.horizons,
+    },
+    parent: {
+      field: "parent",
+      label: "Parent",
+      type: "relation",
+      options: filterOptions.daily.parents,
+    },
+  };
 
-  if (controller.panel.id === "daily") return configs;
-  if (controller.panel.id === "weekly") {
-    return configs.filter((config) => config.field !== "due");
+  if (controller.panel.id === "yearly" || controller.panel.id === "monthly") {
+    return workspaceGoalFilterFields.map((field) => configs[field]);
   }
-  return configs.filter((config) =>
-    ["title", "scheduled", "tags", "item_type", "status", "priority", "horizon"].includes(
-      config.field,
-    ),
-  );
+  if (controller.panel.id === "weekly") {
+    return [...workspaceDailyFilterFields, ...workspaceGoalFilterFields].map(
+      (field) => configs[field],
+    );
+  }
+  return workspaceDailyFilterFields.map((field) => configs[field]);
 }
+
+const workspaceDailyFilterFields: PlannerFilterField[] = [
+  "title",
+  "status",
+  "tags",
+  "area",
+  "project",
+  "routine",
+  "scheduled",
+  "due",
+  "priority",
+  "recurrence_rule",
+  "materialization_policy",
+  "location",
+  "participants",
+  "commitment_type",
+  "description",
+  "note",
+];
+
+const workspaceGoalFilterFields: PlannerFilterField[] = [
+  "title",
+  "status",
+  "tags",
+  "horizon",
+  "scheduled",
+  "due",
+  "parent",
+  "note",
+];
 
 function addPlannerRule(
   controller: WorkbenchController,
@@ -976,9 +1073,12 @@ function buildDailyFilterOptions(
   areas: DailyFilterOption[];
   projects: DailyFilterOption[];
   routines: DailyFilterOption[];
-  itemTypes: DailyFilterOption[];
   statuses: DailyFilterOption[];
+  priorities: DailyFilterOption[];
   horizons: DailyFilterOption[];
+  parents: DailyFilterOption[];
+  materializationPolicies: DailyFilterOption[];
+  participants: DailyFilterOption[];
 } {
   const { items, relatedItems } = controller.workspaceItems;
   const dailyItems = items
@@ -1016,12 +1116,16 @@ function filterOptionsForItems(
     areas: relationFilterOptions(items, relatedItems.areas, "area_id"),
     projects: relationFilterOptions(items, relatedItems.projects, "project_id"),
     routines: relationFilterOptions(items, relatedItems.routines, "routine_id"),
-    itemTypes: toFilterOptions(items.map((item) => item.type)),
     statuses: toFilterOptions(items.map((item) => item.status)),
-    horizons: toFilterOptions(
-      items
-        .map((item) => item.horizon)
-        .filter((value): value is string => Boolean(value)),
+    priorities: priorityOptions.map((value) => ({ value, label: value })),
+    horizons: ["week", "month", "year"].map((value) => ({ value, label: value })),
+    parents: relationFilterOptions(items, relatedItems.goals, "parent_id"),
+    materializationPolicies: materializationPolicyOptions.map((value) => ({
+      value,
+      label: displayMaterializationPolicy(value),
+    })),
+    participants: toFilterOptions(
+      items.flatMap((item) => item.metadata_?.participants ?? []),
     ),
   };
 }
@@ -1271,7 +1375,7 @@ function addDays(date: string, days: number): string {
 function relationFilterOptions(
   items: WorkspaceItemModel[],
   labels: Record<string, string>,
-  field: "area_id" | "project_id" | "routine_id",
+  field: "area_id" | "project_id" | "routine_id" | "parent_id",
 ): DailyFilterOption[] {
   return toFilterOptions(
     items

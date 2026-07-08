@@ -779,6 +779,9 @@ describe("WorkbenchPageClient", () => {
     await screen.findByText("Focus Task");
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    expect(screen.getByRole("option", { name: "Title" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Item type" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Horizon" })).toBeNull();
     await user.click(screen.getByRole("option", { name: "Tags" }));
     await user.click(screen.getByRole("checkbox", { name: "focus" }));
 
@@ -860,7 +863,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
 
     expect(screen.queryByText("1 rules")).toBeNull();
-    expect(screen.queryByDisplayValue("Name/title")).toBeNull();
+    expect(screen.queryByDisplayValue("Title")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Tags" }));
@@ -1399,6 +1402,9 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Completed Annual Goal")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    expect(screen.getByRole("option", { name: "Horizon" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Parent" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Priority" })).toBeNull();
     await user.click(screen.getByRole("option", { name: "Tags" }));
     expect(
       screen.getByRole("checkbox", { name: "annual-current" }),

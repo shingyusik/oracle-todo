@@ -21,10 +21,17 @@ export type PlannerFilterField =
   | "area"
   | "project"
   | "routine"
-  | "item_type"
   | "status"
   | "priority"
-  | "horizon";
+  | "horizon"
+  | "parent"
+  | "recurrence_rule"
+  | "materialization_policy"
+  | "location"
+  | "participants"
+  | "commitment_type"
+  | "description"
+  | "note";
 export type PlannerFilterType =
   | "text"
   | "date"
@@ -266,10 +273,17 @@ function plannerFilterValue(
   if (field === "area") return relationValues(item.area_id, relatedItems.areas);
   if (field === "project") return relationValues(item.project_id, relatedItems.projects);
   if (field === "routine") return relationValues(item.routine_id, relatedItems.routines);
-  if (field === "item_type") return item.type;
   if (field === "status") return item.status;
   if (field === "priority") return item.priority;
-  return item.horizon;
+  if (field === "horizon") return item.horizon;
+  if (field === "parent") return relationValues(item.parent_id, relatedItems.goals);
+  if (field === "recurrence_rule") return item.recurrence_rule;
+  if (field === "materialization_policy") return item.materialization_policy;
+  if (field === "location") return item.metadata_?.location;
+  if (field === "participants") return item.metadata_?.participants ?? [];
+  if (field === "commitment_type") return item.metadata_?.commitment_type;
+  if (field === "description") return item.description;
+  return item.note;
 }
 
 function relationValues(

@@ -22,6 +22,7 @@ export type WorkbenchPanelModel = {
 export type WorkspaceItemModel = {
   id: string;
   title: string;
+  description?: string | null;
   type: string;
   status: string;
   tags?: string[];
