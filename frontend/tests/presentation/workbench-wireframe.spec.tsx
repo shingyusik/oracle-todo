@@ -1461,6 +1461,43 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByText("Current Month")).toBeInTheDocument();
   });
 
+  it("disables Now when yearly or monthly planner already matches the current period", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const yearStart = testYearStart(today);
+    const monthStart = testMonthStart(today);
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=goal": [
+        { id: "current-year", type: "goal", title: "Current Year", status: "active", horizon: "year", scheduled: yearStart },
+        { id: "current-month", type: "goal", title: "Current Month", status: "active", horizon: "month", scheduled: monthStart },
+      ],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => responses[url] ?? [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+
+    expect(await screen.findByText("Current Year")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Now" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+
+    expect(await screen.findByText("Current Month")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Now" })).toBeDisabled();
+  });
+
   it("includes same-year month goal tags in yearly planner filters", async () => {
     const user = userEvent.setup();
     const today = testToday();

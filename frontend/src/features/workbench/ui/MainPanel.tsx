@@ -22,6 +22,7 @@ import {
   type DailyPlannerSection,
   type DailySortBy,
   groupPlannerItems,
+  isoWeekStart,
   monthStart,
   type PeriodGoalBucketModel,
   type PeriodGoalCardModel,
@@ -522,6 +523,7 @@ function PlannerControlToolbar({
   const activeFilterCount = plannerFilterRuleCount(controller.panel.id, effectiveFilters);
   const sortBy = plannerSortValue(controller);
   const groupBy = plannerGroupValue(controller);
+  const nowDisabled = plannerPeriodMatchesToday(controller);
 
   function toggleDropdown(kind: PlannerDropdownKind) {
     setOpenDropdown((current) => (current === kind ? null : kind));
@@ -560,6 +562,7 @@ function PlannerControlToolbar({
             className="items-toolbar-button"
             type="button"
             aria-label="Now"
+            disabled={nowDisabled}
             onClick={controller.resetPlannerPeriodToToday}
           >
             Now
@@ -1190,6 +1193,10 @@ function weekGoalIntersectsPlannerMonth(item: WorkspaceItemModel, plannerDate: s
 function addDays(date: string, days: number): string {
   const value = new Date(`${date}T00:00:00`);
   value.setDate(value.getDate() + days);
+  return formatDateForPlanner(value);
+}
+
+function formatDateForPlanner(value: Date): string {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
@@ -2722,6 +2729,25 @@ function defaultCreationScheduled(controller: WorkbenchController): string {
   }
 
   return "";
+}
+
+function plannerPeriodMatchesToday(controller: WorkbenchController): boolean {
+  const today = formatDateForPlanner(new Date());
+
+  if (controller.panel.id === "yearly") {
+    return yearStart(controller.planner.date) === yearStart(today);
+  }
+  if (controller.panel.id === "monthly") {
+    return monthStart(controller.planner.date) === monthStart(today);
+  }
+  if (controller.panel.id === "weekly") {
+    return isoWeekStart(controller.planner.weekStart) === isoWeekStart(today);
+  }
+  if (controller.panel.id === "daily") {
+    return controller.planner.date === today;
+  }
+
+  return false;
 }
 
 function defaultCreationHorizon(controller: WorkbenchController): string {

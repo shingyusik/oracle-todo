@@ -521,6 +521,16 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .period-carousel-card {
     transition: none;
+    transform-style: flat;
+  }
+
+  .period-carousel-card[data-position="selected"] {
+    transform: none;
+  }
+
+  .period-carousel-card[data-position="previous"],
+  .period-carousel-card[data-position="next"] {
+    transform: none;
   }
 }
 

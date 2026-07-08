@@ -157,6 +157,9 @@ describe("design system boundaries", () => {
 
     expect(css).toContain(".period-carousel-card");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(css).toContain(".period-carousel-card {\n    transition: none;");
+    expect(css).toContain(".period-carousel-card[data-position=\"selected\"] {\n    transform: none;");
+    expect(css).toContain(".period-carousel-card[data-position=\"previous\"],\n  .period-carousel-card[data-position=\"next\"] {\n    transform: none;");
     expect(css).not.toContain("animation-library");
   });
 });
