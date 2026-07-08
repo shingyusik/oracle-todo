@@ -1118,15 +1118,17 @@ function isVisiblePlannerFilterItem(
   if (panelId === "yearly") {
     return (
       item.type === "goal" &&
-      item.horizon === "year" &&
+      (item.horizon === "year" || item.horizon === "month") &&
       goalMatchesPlannerPeriod(item, "year", planner.date)
     );
   }
   if (panelId === "monthly") {
     return (
       item.type === "goal" &&
-      item.horizon === "month" &&
-      goalMatchesPlannerPeriod(item, "month", planner.date)
+      ((item.horizon === "month" &&
+        goalMatchesPlannerPeriod(item, "month", planner.date)) ||
+        (item.horizon === "week" &&
+          weekGoalIntersectsPlannerMonth(item, planner.date)))
     );
   }
   if (panelId === "weekly") {
@@ -1174,6 +1176,15 @@ function goalMatchesPlannerPeriod(
     return scheduled.slice(0, 4) === plannerDate.slice(0, 4);
   }
   return scheduled.slice(0, 7) === plannerDate.slice(0, 7);
+}
+
+function weekGoalIntersectsPlannerMonth(item: WorkspaceItemModel, plannerDate: string): boolean {
+  const scheduled = item.scheduled?.slice(0, 10);
+  if (!scheduled) {
+    return false;
+  }
+  const plannerMonth = plannerDate.slice(0, 7);
+  return scheduled.slice(0, 7) === plannerMonth || addDays(scheduled, 6).slice(0, 7) === plannerMonth;
 }
 
 function addDays(date: string, days: number): string {

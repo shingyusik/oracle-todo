@@ -1461,6 +1461,115 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByText("Current Month")).toBeInTheDocument();
   });
 
+  it("includes same-year month goal tags in yearly planner filters", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const yearStart = testYearStart(today);
+    const monthStart = testMonthStart(today);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=goal"
+              ? [
+                  {
+                    id: "goal-year",
+                    type: "goal",
+                    title: "Annual Goal",
+                    status: "active",
+                    horizon: "year",
+                    scheduled: yearStart,
+                    tags: ["annual-current"],
+                  },
+                  {
+                    id: "goal-month",
+                    type: "goal",
+                    title: "Monthly Goal",
+                    status: "active",
+                    horizon: "month",
+                    scheduled: monthStart,
+                    tags: ["month-current"],
+                  },
+                ]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await screen.findByText("Annual Goal");
+
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    await user.click(
+      within(screen.getByRole("group", { name: "Filter by Tags" })).getByRole("checkbox", {
+        name: "month-current",
+      }),
+    );
+
+    expect(screen.getByText("Monthly Goal")).toBeInTheDocument();
+    expect(screen.queryByText("Annual Goal")).toBeNull();
+  });
+
+  it("includes intersecting week goal tags in monthly planner filters", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const monthStart = testMonthStart(today);
+    const firstWeekStart = testWeekStart(monthStart);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=goal"
+              ? [
+                  {
+                    id: "goal-month",
+                    type: "goal",
+                    title: "Monthly Goal",
+                    status: "active",
+                    horizon: "month",
+                    scheduled: monthStart,
+                    tags: ["month-current"],
+                  },
+                  {
+                    id: "goal-week-1",
+                    type: "goal",
+                    title: "First Week Goal",
+                    status: "active",
+                    horizon: "week",
+                    scheduled: firstWeekStart,
+                    tags: ["week-current"],
+                  },
+                ]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    await screen.findByText("Monthly Goal");
+
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    await user.click(
+      within(screen.getByRole("group", { name: "Filter by Tags" })).getByRole("checkbox", {
+        name: "week-current",
+      }),
+    );
+
+    expect(screen.getByText("First Week Goal")).toBeInTheDocument();
+    expect(screen.queryByText("Monthly Goal")).toBeNull();
+  });
+
   it("normalizes visible workspace tags after save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
