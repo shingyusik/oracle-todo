@@ -65,8 +65,12 @@ export type PlannerControls = {
   dailyFilters: DailyFilterState;
   dailyGroupBy: DailyGroupBy;
   dailySortBy: DailySortBy;
-  plannerGroupBy: PlannerGroupBy;
-  plannerSortBy: PlannerSortBy;
+  yearlyGroupBy: PlannerGroupBy;
+  yearlySortBy: PlannerSortBy;
+  monthlyGroupBy: PlannerGroupBy;
+  monthlySortBy: PlannerSortBy;
+  weeklyGroupBy: PlannerGroupBy;
+  weeklySortBy: PlannerSortBy;
 };
 
 export type CreateWorkspaceItemForm = {
