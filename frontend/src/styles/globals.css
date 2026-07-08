@@ -535,6 +535,11 @@ button {
   background: var(--color-canvas-light);
 }
 
+.tag-combobox {
+  position: relative;
+  width: 100%;
+}
+
 .tag-input {
   display: flex;
   min-height: 36px;
@@ -547,22 +552,6 @@ button {
   border-radius: var(--radius-xs);
   background: var(--color-canvas-light);
   padding: 4px 6px;
-}
-
-.tag-input input {
-  min-height: 26px;
-  min-width: 80px;
-  flex: 1;
-  border: 0;
-  background: transparent;
-  padding: 2px;
-  outline: 0;
-}
-
-.field-label .tag-input input {
-  min-height: 26px;
-  border: 0;
-  padding: 2px;
 }
 
 .tag-chip {
@@ -589,6 +578,53 @@ button {
   padding: 0;
   color: inherit;
   cursor: pointer;
+}
+
+.tag-dropdown {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  display: grid;
+  width: min(300px, calc(100vw - 48px));
+  overflow: hidden;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 12%);
+}
+
+.tag-dropdown input {
+  min-height: 36px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline-light);
+  background: var(--color-canvas-light);
+  padding: 8px 10px;
+  outline: 0;
+}
+
+.tag-option-list {
+  display: grid;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.tag-option-list button {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  padding: 4px 6px;
+  color: inherit;
+  text-align: left;
+}
+
+.tag-option-list button:hover {
+  background: var(--color-canvas-cream);
 }
 
 .sr-only {
@@ -620,6 +656,10 @@ button {
   text-align: left;
   vertical-align: top;
   white-space: nowrap;
+}
+
+.items-table td:has(.tag-combobox) {
+  overflow: visible;
 }
 
 .items-table th:first-child,

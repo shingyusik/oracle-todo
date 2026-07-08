@@ -51,6 +51,7 @@ const plannerItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
 const emptyWorkspaceItems: WorkspaceItemsModel = {
   status: "idle",
   items: [],
+  tagOptions: [],
   relatedItems: {
     areas: {},
     goals: {},
@@ -149,14 +150,17 @@ export function useWorkbenchController(): WorkbenchController {
     let cancelled = false;
     setWorkspaceItems({ ...emptyWorkspaceItems, status: "loading" });
 
-    Promise.all(requestedTypes.map(fetchWorkspaceItems))
+    Promise.all([...requestedTypes.map(fetchWorkspaceItems), fetchAllWorkspaceItems()])
       .then((responses) => {
         if (!cancelled) {
-          const plannerItems = plannerTypes ? responses.flat() : null;
-          const [items, ...relatedItems] = responses;
+          const allItems = responses[responses.length - 1] ?? [];
+          const typedResponses = responses.slice(0, -1);
+          const plannerItems = plannerTypes ? typedResponses.flat() : null;
+          const [items, ...relatedItems] = typedResponses;
           setWorkspaceItems({
             status: "loaded",
             items: plannerItems ?? items,
+            tagOptions: collectTagOptions(allItems),
             relatedItems: buildRelatedItems(
               plannerItems ?? relatedItems.flat(),
             ),
@@ -248,6 +252,7 @@ export function useWorkbenchController(): WorkbenchController {
       setWorkspaceItems((current) => ({
         ...current,
         items: replaceWorkspaceItem(current.items, updated),
+        tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
     setDailyFilter: (field, values) =>
@@ -294,6 +299,7 @@ export function useWorkbenchController(): WorkbenchController {
       setWorkspaceItems((current) => ({
         ...current,
         items: replaceWorkspaceItem(current.items, updated),
+        tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
     saveDetailItem: async (patch) => {
@@ -306,6 +312,7 @@ export function useWorkbenchController(): WorkbenchController {
       setWorkspaceItems((current) => ({
         ...current,
         items: replaceWorkspaceItem(current.items, updated),
+        tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
     closeDetailView: () => setDetailItem(null),
@@ -322,6 +329,29 @@ function fetchWorkspaceItems(
 
     return response.json();
   });
+}
+
+function fetchAllWorkspaceItems(): Promise<WorkspaceItemModel[]> {
+  return fetch("/todo-engine/items").then((response) => {
+    if (!response.ok) {
+      throw new Error(`todo-engine returned ${response.status}`);
+    }
+
+    return response.json();
+  });
+}
+
+function collectTagOptions(items: WorkspaceItemModel[]): string[] {
+  return mergeTagOptions(
+    [],
+    items.flatMap((item) => item.tags ?? []),
+  );
+}
+
+function mergeTagOptions(current: string[], tags: string[] | null | undefined): string[] {
+  return [...new Set([...current, ...(tags ?? []).map((tag) => tag.trim()).filter(Boolean)])].sort(
+    (left, right) => left.localeCompare(right),
+  );
 }
 
 function postArchiveItem(itemId: string): Promise<WorkspaceItemModel> {

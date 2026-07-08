@@ -1409,8 +1409,10 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
-    const tags = await screen.findByLabelText("Tags for Plan");
-    await user.clear(tags);
+    const tagField = await screen.findByRole("button", { name: "Tags for Plan" });
+    expect(within(tagField).queryByRole("textbox")).toBeNull();
+    await user.click(tagField);
+    const tags = screen.getByPlaceholderText("Search for an option...");
     await user.type(tags, " deep-work, deep-work, planning ");
     fireEvent.blur(tags);
 
@@ -1461,7 +1463,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
-    const tags = await screen.findByLabelText("Tags for Plan");
+    await user.click(await screen.findByRole("button", { name: "Tags for Plan" }));
+    const tags = screen.getByPlaceholderText("Search for an option...");
     await user.type(tags, "planning{Enter}");
 
     await waitFor(() =>
@@ -1480,6 +1483,74 @@ describe("WorkbenchPageClient", () => {
         "/todo-engine/items/task-1",
         expect.objectContaining({
           body: JSON.stringify({ tags: ["deep-work"] }),
+          method: "PATCH",
+        }),
+      ),
+    );
+  });
+
+  it("selects stored tags from the workspace tag dropdown", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as { tags: string[] };
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Plan",
+            status: "active",
+            tags: body.tags,
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (url === "/todo-engine/items") {
+            return [
+              { id: "task-1", type: "task", title: "Plan", status: "active", tags: ["deep-work"] },
+              { id: "project-1", type: "project", title: "Roadmap", status: "active", tags: ["planning"] },
+              { id: "area-1", type: "area", title: "Ops", status: "active", tags: ["ops"] },
+            ];
+          }
+
+          return url === "/todo-engine/items?type=task"
+            ? [
+                {
+                  id: "task-1",
+                  type: "task",
+                  title: "Plan",
+                  status: "active",
+                  tags: ["deep-work"],
+                },
+              ]
+            : [];
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const tagField = await screen.findByRole("button", { name: "Tags for Plan" });
+    expect(within(tagField).queryByRole("textbox")).toBeNull();
+    await user.click(tagField);
+
+    expect(screen.getByPlaceholderText("Search for an option...")).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "planning" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/task-1",
+        expect.objectContaining({
+          body: JSON.stringify({ tags: ["deep-work", "planning"] }),
           method: "PATCH",
         }),
       ),
@@ -1527,7 +1598,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
-    const tags = await screen.findByLabelText("Tags for Plan");
+    await user.click(await screen.findByRole("button", { name: "Tags for Plan" }));
+    const tags = screen.getByPlaceholderText("Search for an option...");
     fireEvent.change(tags, { target: { value: "새 태그" } });
     fireEvent.keyDown(tags, { key: "Enter", isComposing: true });
 
@@ -1572,8 +1644,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
-    const tags = await screen.findByLabelText("Tags for Plan");
-    await user.clear(tags);
+    await user.click(await screen.findByRole("button", { name: "Tags for Plan" }));
+    const tags = screen.getByPlaceholderText("Search for an option...");
     await user.type(tags, " deep-work, planning ");
     fireEvent.blur(tags);
 

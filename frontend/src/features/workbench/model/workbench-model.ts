@@ -51,6 +51,7 @@ export type WorkspaceItemModel = {
 export type WorkspaceItemsModel = {
   status: "idle" | "loading" | "loaded" | "error";
   items: WorkspaceItemModel[];
+  tagOptions: string[];
   relatedItems: {
     areas: Record<string, string>;
     goals: Record<string, string>;

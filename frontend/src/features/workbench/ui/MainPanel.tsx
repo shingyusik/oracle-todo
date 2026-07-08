@@ -178,6 +178,7 @@ function DetailView({ controller }: MainPanelProps) {
             />
             <DetailTagsField
               value={draft.tags}
+              tagOptions={controller.workspaceItems.tagOptions}
               onChange={(value) => setField("tags", value)}
             />
             <DetailTypeFields
@@ -1706,9 +1707,11 @@ function DetailTextField({
 
 function DetailTagsField({
   value,
+  tagOptions,
   onChange,
 }: {
   value: string;
+  tagOptions: string[];
   onChange: (value: string) => void;
 }) {
   return (
@@ -1716,6 +1719,7 @@ function DetailTagsField({
       <TagsInput
         label="Tags"
         value={parseTagInput(value)}
+        tagOptions={tagOptions}
         onCommit={(tags) => onChange(formatTags(tags))}
       />
     </DetailInlineField>
@@ -2790,19 +2794,36 @@ function InlineSelect({
 function TagsInput({
   label,
   value,
+  tagOptions,
   onCommit,
 }: {
   label: string;
   value: string[] | null | undefined;
+  tagOptions: string[];
   onCommit: (value: string[]) => void;
 }) {
   const currentTags = React.useMemo(() => parseTagInput(formatTags(value)), [value]);
+  const availableTags = React.useMemo(
+    () => tagOptions.filter((tag) => !currentTags.includes(tag)),
+    [currentTags, tagOptions],
+  );
+  const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const normalizedDraft = draft.trim().toLowerCase();
+  const filteredTags = availableTags.filter((tag) =>
+    tag.toLowerCase().includes(normalizedDraft),
+  );
 
   React.useEffect(() => {
     setDraft("");
   }, [currentTags]);
+
+  React.useEffect(() => {
+    if (open) {
+      inputRef.current?.focus();
+    }
+  }, [open]);
 
   function commitTags(tags: string[]) {
     const normalizedTags = parseTagInput(formatTags(tags));
@@ -2819,44 +2840,94 @@ function TagsInput({
     }
   }
 
+  function closeDropdown() {
+    commitDraft();
+    setOpen(false);
+  }
+
   return (
     <div
-      className="tag-input"
-      onClick={(event) => {
-        stopRowEvent(event);
-        inputRef.current?.focus();
+      className="tag-combobox"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          closeDropdown();
+        }
       }}
     >
-      {currentTags.map((tag) => (
-        <span className="tag-chip" key={tag}>
-          {tag}
-          <button
-            type="button"
-            aria-label={`Remove ${tag} tag`}
-            onClick={(event) => {
-              stopRowEvent(event);
-              commitTags(currentTags.filter((currentTag) => currentTag !== tag));
-            }}
-          >
-            <X aria-hidden="true" size={14} />
-          </button>
-        </span>
-      ))}
-      <input
-        ref={inputRef}
+      <div
+        className="tag-input"
+        role="button"
+        tabIndex={0}
         aria-label={label}
-        data-empty={draft === ""}
-        value={draft}
+        aria-expanded={open}
+        onClick={(event) => {
+          stopRowEvent(event);
+          setOpen(true);
+        }}
         onKeyDown={(event) => {
           stopRowEvent(event);
-          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+          if (event.key === "Enter" || event.key === " " || event.key === "Space") {
             event.preventDefault();
-            commitDraft();
+            setOpen(true);
           }
         }}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commitDraft}
-      />
+      >
+        {currentTags.map((tag) => (
+          <span className="tag-chip" key={tag}>
+            {tag}
+            <button
+              type="button"
+              aria-label={`Remove ${tag} tag`}
+              onClick={(event) => {
+                stopRowEvent(event);
+                commitTags(currentTags.filter((currentTag) => currentTag !== tag));
+              }}
+            >
+              <X aria-hidden="true" size={14} />
+            </button>
+          </span>
+        ))}
+      </div>
+      {open ? (
+        <div className="tag-dropdown" onClick={stopRowEvent}>
+          <input
+            ref={inputRef}
+            aria-label={label}
+            placeholder="Search for an option..."
+            value={draft}
+            onKeyDown={(event) => {
+              stopRowEvent(event);
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setOpen(false);
+              }
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                commitDraft();
+              }
+            }}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <div className="tag-option-list" role="listbox" aria-label={`${label} options`}>
+            {filteredTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                role="option"
+                aria-selected="false"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  stopRowEvent(event);
+                  commitTags([...currentTags, tag]);
+                  setDraft("");
+                }}
+              >
+                <span className="tag-chip">{tag}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3202,10 +3273,11 @@ function commitmentTypeColumn(): ItemColumn {
 function tagsColumn(): ItemColumn {
   return {
     label: "Tags",
-    value: (item, _workspaceItems, controller) => (
+    value: (item, workspaceItems, controller) => (
       <TagsInput
         label={`Tags for ${item.title}`}
         value={item.tags}
+        tagOptions={workspaceItems.tagOptions}
         onCommit={(tags) => void controller.patchWorkspaceItem(item.id, { tags })}
       />
     ),

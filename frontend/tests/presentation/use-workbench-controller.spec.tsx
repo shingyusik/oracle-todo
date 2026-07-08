@@ -378,6 +378,49 @@ describe("useWorkbenchController", () => {
     ]);
   });
 
+  it("loads tag options from all item tags", async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (url === "/todo-engine/items") {
+            return [
+              { id: "area-1", type: "area", title: "Area", status: "active", tags: ["backend"] },
+              {
+                id: "project-1",
+                type: "project",
+                title: "Project",
+                status: "active",
+                tags: ["design", "backend"],
+              },
+              { id: "task-2", type: "task", title: "Other", status: "active", tags: ["security"] },
+            ];
+          }
+
+          return url === "/todo-engine/items?type=task"
+            ? [{ id: "task-1", type: "task", title: "Plan", status: "active", tags: [] }]
+            : [];
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+
+    await vi.waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    expect(result.current.workspaceItems.tagOptions).toEqual([
+      "backend",
+      "design",
+      "security",
+    ]);
+  });
+
   it("creates a task from the active workspace table and opens it", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/tasks/propose") {
