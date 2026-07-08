@@ -792,6 +792,84 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Ops Task")).toBeInTheDocument();
   });
 
+  it("hides unsupported filter rules after switching planner views", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task"
+              ? [
+                  {
+                    id: "task-1",
+                    type: "task",
+                    title: "Focus Task",
+                    status: "active",
+                    area_id: "area-1",
+                    scheduled: testToday(),
+                  },
+                  {
+                    id: "task-2",
+                    type: "task",
+                    title: "Ops Task",
+                    status: "active",
+                    area_id: "area-2",
+                    scheduled: testToday(),
+                  },
+                ]
+              : url === "/todo-engine/items?type=area"
+                ? [
+                    { id: "area-1", type: "area", title: "Focus", status: "active" },
+                    { id: "area-2", type: "area", title: "Ops", status: "active" },
+                  ]
+                : url === "/todo-engine/items?type=goal"
+                  ? [
+                      {
+                        id: "goal-1",
+                        type: "goal",
+                        title: "Monthly Goal",
+                        status: "active",
+                        horizon: "month",
+                        scheduled: testMonthStart(testToday()),
+                        tags: ["month-current"],
+                      },
+                    ]
+                  : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    await screen.findByText("Focus Task");
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    await user.click(screen.getByRole("option", { name: "Area" }));
+    await user.click(screen.getByRole("checkbox", { name: "Focus" }));
+
+    expect(screen.getByText("1 rules")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+
+    expect(screen.queryByText("1 rules")).toBeNull();
+    expect(screen.queryByDisplayValue("Name/title")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    await user.click(screen.getByRole("option", { name: "Tags" }));
+    await user.click(screen.getByRole("checkbox", { name: "month-current" }));
+
+    expect(screen.getByText("Monthly Goal")).toBeInTheDocument();
+    expect(screen.getByText("1 rules")).toBeInTheDocument();
+  });
+
   it("sorts and groups daily planner items from dropdown controls", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -1339,7 +1417,6 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Other Month Goal")).toBeNull();
     expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    await user.click(screen.getByRole("button", { name: "Delete filter" }));
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Tags" }));
     expect(

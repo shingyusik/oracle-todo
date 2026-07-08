@@ -21,3 +21,12 @@ DONE
 ## Concerns
 
 - None.
+
+## Fix Evidence: Unsupported Rules Across Views
+
+- Fixed unsupported planner rules so the filter dropdown only renders rules valid for the current planner view.
+- Updated the active filter pill to count visible rules for the current view instead of raw stored rules.
+- Added a regression test for creating a Daily Area rule, switching to Monthly, hiding the unsupported row/count, and adding a supported Tags rule.
+- `cd frontend && npm run test -- tests/presentation/workbench-wireframe.spec.tsx -t "filter"`: PASS
+- `cd frontend && npm run typecheck`: PASS
+- `cd frontend && npm run test -- tests/presentation/workbench-wireframe.spec.tsx`: PASS

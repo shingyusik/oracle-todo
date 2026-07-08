@@ -384,7 +384,8 @@ function PlannerControlToolbar({
 }) {
   const [openDropdown, setOpenDropdown] =
     React.useState<PlannerDropdownKind | null>(null);
-  const activeFilterCount = controller.planner.filterRules.length;
+  const visibleFilterRules = visiblePlannerFilterRules(controller, filterOptions);
+  const activeFilterCount = visibleFilterRules.length;
   const sortBy = plannerSortValue(controller);
   const groupBy = plannerGroupValue(controller);
 
@@ -442,6 +443,7 @@ function PlannerControlToolbar({
           <PlannerFilterRulePanel
             controller={controller}
             filterOptions={filterOptions}
+            rules={visibleFilterRules}
           />
         </PlannerControlDropdown>
       ) : null}
@@ -538,12 +540,13 @@ function plannerControlLabel(value: string): string {
 function PlannerFilterRulePanel({
   controller,
   filterOptions,
+  rules,
 }: {
   controller: WorkbenchController;
   filterOptions: PlannerFilterOptions;
+  rules: PlannerFilterRule[];
 }) {
   const fields = plannerFilterFieldConfigs(controller, filterOptions);
-  const rules = controller.planner.filterRules;
 
   if (rules.length === 0) {
     return (
@@ -1147,6 +1150,29 @@ function effectivePlannerFilterRules(controller: WorkbenchController): PlannerFi
       return values.length > 0 ? [{ ...rule, value: values }] : [];
     }
     return rule.value == null || rule.value === "" ? [] : [rule];
+  });
+}
+
+function visiblePlannerFilterRules(
+  controller: WorkbenchController,
+  filterOptions: PlannerFilterOptions,
+): PlannerFilterRule[] {
+  const fields = plannerFilterFieldConfigs(controller, filterOptions);
+
+  return controller.planner.filterRules.flatMap((rule) => {
+    const field = fields.find((option) => option.field === rule.field);
+    if (!field) return [];
+    if (field.type !== "select" && field.type !== "multiSelect" && field.type !== "relation") {
+      return [rule];
+    }
+
+    const allowed = new Set(field.options.map((option) => option.value));
+    const ruleValues = Array.isArray(rule.value) ? rule.value : [String(rule.value ?? "")];
+    const values = ruleValues.filter((value) => allowed.has(value));
+    if (values.length > 0 || ruleValues.length === 0 || ruleValues[0] === "") {
+      return [{ ...rule, value: values }];
+    }
+    return [];
   });
 }
 
