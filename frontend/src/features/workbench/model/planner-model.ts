@@ -235,6 +235,7 @@ function matchesPlannerFilterRule(
   const value = plannerFilterValue(item, relatedItems, rule.field);
   if (rule.operator === "is_empty") return isFilterEmpty(value);
   if (rule.operator === "is_not_empty") return !isFilterEmpty(value);
+  if (isFilterEmpty(value)) return false;
   if (rule.type === "date") return matchesDateFilter(String(value ?? ""), rule, today);
   if (rule.type === "number") return matchesNumberFilter(value, rule);
   if (Array.isArray(value)) return matchesArrayFilter(value, rule);

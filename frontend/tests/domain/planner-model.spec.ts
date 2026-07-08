@@ -284,6 +284,58 @@ describe("planner model", () => {
     ).toBe(true);
   });
 
+  it("does not match empty scheduled values with date comparison operators", () => {
+    expect(
+      matchesPlannerFilterRules(
+        {
+          id: "task-1",
+          title: "Plan",
+          type: "task",
+          status: "active",
+          scheduled: null,
+        },
+        relatedItems,
+        [
+          {
+            id: "r1",
+            field: "scheduled",
+            type: "date",
+            operator: "is_before",
+            value: "2026-07-08",
+          },
+        ],
+        "and",
+        "2026-07-08",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not match empty priority values with number comparison operators", () => {
+    expect(
+      matchesPlannerFilterRules(
+        {
+          id: "task-1",
+          title: "Plan",
+          type: "task",
+          status: "active",
+          priority: null,
+        },
+        relatedItems,
+        [
+          {
+            id: "r1",
+            field: "priority",
+            type: "number",
+            operator: "less_than",
+            value: "1",
+          },
+        ],
+        "and",
+        "2026-07-08",
+      ),
+    ).toBe(false);
+  });
+
   it("uses AND across filter categories and OR inside multi-select values", () => {
     const model = buildDaily({
       tags: ["deep-work", "ops"],
