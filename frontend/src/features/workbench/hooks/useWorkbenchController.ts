@@ -21,6 +21,13 @@ import {
   type WorkspaceItemsModel,
   createPanelModel,
 } from "@/features/workbench/model/workbench-model";
+import {
+  addMonths,
+  addYears,
+  isoWeekStart,
+  monthStart,
+  yearStart,
+} from "@/features/workbench/model/planner-model";
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 
@@ -65,11 +72,7 @@ function todayDate(): string {
 }
 
 function weekStartForDate(date: string): string {
-  const value = new Date(`${date}T00:00:00`);
-  const day = value.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  value.setDate(value.getDate() + mondayOffset);
-  return formatLocalDate(value);
+  return isoWeekStart(date);
 }
 
 function formatLocalDate(date: Date): string {
@@ -101,6 +104,25 @@ function createDefaultPlanner(): PlannerControls {
     weeklyGroupBy: "none",
     weeklySortBy: "scheduled",
   };
+}
+
+function movePlannerDate(panelId: LeafTabId, date: string, direction: -1 | 1): string {
+  if (panelId === "yearly") {
+    return yearStart(addYears(yearStart(date), direction));
+  }
+  if (panelId === "monthly") {
+    return monthStart(addMonths(monthStart(date), direction));
+  }
+  if (panelId === "weekly") {
+    return addDays(weekStartForDate(date), direction * 7);
+  }
+  return addDays(date, direction);
+}
+
+function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00`);
+  value.setDate(value.getDate() + days);
+  return formatLocalDate(value);
 }
 
 function replaceWorkspaceItem(
@@ -199,6 +221,16 @@ export function useWorkbenchController(): WorkbenchController {
       setSelection((currentSelection) =>
         toggleWorkspaceExpansion(currentSelection),
       ),
+    movePlannerPeriod: (direction) =>
+      setPlanner((current) => {
+        const date = movePlannerDate(selection.leafTabId, current.date, direction);
+        return { ...current, date, weekStart: weekStartForDate(date) };
+      }),
+    resetPlannerPeriodToToday: () =>
+      setPlanner((current) => {
+        const date = todayDate();
+        return { ...current, date, weekStart: weekStartForDate(date) };
+      }),
     toggleItemSelection: (itemId: string) =>
       setSelectedItemIds((current) =>
         current.includes(itemId)
@@ -502,19 +534,19 @@ function plannerGoalDefaults(
   if (panelId === "weekly") {
     return {
       horizon: "week",
-      scheduled: form.scheduled || planner.weekStart,
+      scheduled: form.scheduled || isoWeekStart(planner.weekStart),
     };
   }
   if (panelId === "monthly") {
     return {
       horizon: "month",
-      scheduled: form.scheduled || planner.date,
+      scheduled: form.scheduled || monthStart(planner.date),
     };
   }
   if (panelId === "yearly") {
     return {
       horizon: "year",
-      scheduled: form.scheduled || planner.date,
+      scheduled: form.scheduled || yearStart(planner.date),
     };
   }
 

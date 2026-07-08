@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
@@ -537,6 +537,97 @@ describe("useWorkbenchController", () => {
       horizon: "week",
       scheduled: weekStart,
     });
+  });
+
+  it("moves yearly and monthly planner periods through canonical dates", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.selectTab("todo"));
+    act(() => result.current.selectTab("planner"));
+    await waitFor(() => expect(result.current.panel.id).toBe("yearly"));
+
+    const startingYear = result.current.planner.date.slice(0, 4);
+    act(() => result.current.movePlannerPeriod(1));
+    expect(result.current.planner.date).toBe(`${Number(startingYear) + 1}-01-01`);
+    act(() => result.current.movePlannerPeriod(-1));
+    expect(result.current.planner.date).toBe(`${startingYear}-01-01`);
+
+    act(() => result.current.selectTab("monthly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    act(() => result.current.movePlannerPeriod(1));
+    expect(result.current.planner.date.endsWith("-01")).toBe(true);
+  });
+
+  it("creates yearly and monthly goals with canonical scheduled anchors", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-new",
+            type: "goal",
+            title: JSON.parse(String(init?.body)).title,
+            status: "approved",
+            horizon: JSON.parse(String(init?.body)).horizon,
+            scheduled: JSON.parse(String(init?.body)).scheduled,
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.selectTab("todo"));
+    act(() => result.current.selectTab("planner"));
+    await waitFor(() => expect(result.current.panel.id).toBe("yearly"));
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({ title: "Year goal" });
+    });
+    expect(
+      JSON.parse(
+        String(
+          fetchMock.mock.calls.find(([url]) => url === "/todo-engine/goals/propose")?.[1]
+            ?.body,
+        ),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        horizon: "year",
+        scheduled: `${result.current.planner.date.slice(0, 4)}-01-01`,
+      }),
+    );
+
+    act(() => result.current.selectTab("monthly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    await act(async () => {
+      await result.current.createWorkspaceItem({ title: "Month goal" });
+    });
+    const goalBodies = fetchMock.mock.calls
+      .filter(([url]) => url === "/todo-engine/goals/propose")
+      .map(([, init]) => JSON.parse(String(init?.body)));
+    expect(goalBodies.at(-1)).toEqual(
+      expect.objectContaining({
+        horizon: "month",
+        scheduled: `${result.current.planner.date.slice(0, 7)}-01`,
+      }),
+    );
   });
 
   it("posts the user-provided scheduled value for events", async () => {

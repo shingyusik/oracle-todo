@@ -125,6 +125,8 @@ export type WorkbenchController = {
   detailItem: WorkspaceItemModel | null;
   selectTab: (tabId: WorkbenchTabId) => void;
   toggleWorkspaceExpansion: () => void;
+  movePlannerPeriod: (direction: -1 | 1) => void;
+  resetPlannerPeriodToToday: () => void;
   toggleItemSelection: (itemId: string) => void;
   toggleVisibleSelection: () => void;
   requestArchiveSelected: () => void;
