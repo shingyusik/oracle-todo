@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from "react";
 import {
   ArrowDownUp,
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Filter,
   Group,
   Plus,
@@ -13,12 +15,16 @@ import {
 import type { LeafTabId } from "@/domain/workbench/navigation";
 import {
   buildDailyPlannerModel,
+  buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
+  buildYearlyPeriodGoalCardsModel,
   type DailyGroupBy,
   type DailyPlannerSection,
   type DailySortBy,
   groupPlannerItems,
   monthStart,
+  type PeriodGoalBucketModel,
+  type PeriodGoalCardModel,
   sortPlannerItems,
   type PlannerGroupBy,
   type PlannerSortBy,
@@ -251,51 +257,149 @@ function PlannerPanel({ controller }: MainPanelProps) {
       />
       {panel.id === "weekly" ? <WeeklyPlanner controller={controller} /> : null}
       {panel.id === "daily" ? <DailyPlanner controller={controller} /> : null}
-      {panel.id === "yearly" ? (
-        <GoalPlannerList controller={controller} horizon="year" />
-      ) : null}
-      {panel.id === "monthly" ? (
-        <GoalPlannerList controller={controller} horizon="month" />
-      ) : null}
+      {panel.id === "yearly" ? <YearlyPeriodPlanner controller={controller} /> : null}
+      {panel.id === "monthly" ? <MonthlyPeriodPlanner controller={controller} /> : null}
       {controller.creationDialogOpen ? <CreationDialog controller={controller} /> : null}
     </section>
   );
 }
 
-function GoalPlannerList({
+function YearlyPeriodPlanner({ controller }: MainPanelProps) {
+  const tags = effectivePlannerTags(controller.panel.id, controller.workspaceItems.items, controller.planner);
+  const items = filterPlannerItemsByTags(controller.workspaceItems.items, tags);
+  const model = buildYearlyPeriodGoalCardsModel(items, controller.planner.date);
+
+  return (
+    <div className="planner-period-panel">
+      <PeriodGoalCarousel
+        controller={controller}
+        ariaLabel="Year goal carousel"
+        previousLabel="Previous year"
+        nextLabel="Next year"
+        cards={model.carousel}
+      />
+      <div className="yearly-month-grid" aria-label="Month goals">
+        {model.months.map((month) => (
+          <PeriodGoalBucketCard
+            controller={controller}
+            bucket={month}
+            testId="yearly-month-card"
+            key={month.key}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
+  const tags = effectivePlannerTags(controller.panel.id, controller.workspaceItems.items, controller.planner);
+  const items = filterPlannerItemsByTags(controller.workspaceItems.items, tags);
+  const model = buildMonthlyPeriodGoalCardsModel(items, controller.planner.date);
+
+  return (
+    <div className="planner-period-panel">
+      <PeriodGoalCarousel
+        controller={controller}
+        ariaLabel="Month goal carousel"
+        previousLabel="Previous month"
+        nextLabel="Next month"
+        cards={model.carousel}
+      />
+      <div className="monthly-week-strip" aria-label="Week goals">
+        {model.weeks.map((week) => (
+          <PeriodGoalBucketCard
+            controller={controller}
+            bucket={week}
+            testId="monthly-week-card"
+            key={week.key}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PeriodGoalCarousel({
   controller,
-  horizon,
+  ariaLabel,
+  previousLabel,
+  nextLabel,
+  cards,
 }: {
   controller: WorkbenchController;
-  horizon: "year" | "month";
+  ariaLabel: string;
+  previousLabel: string;
+  nextLabel: string;
+  cards: PeriodGoalCardModel[];
 }) {
-  const tags = effectivePlannerTags(
-    controller.panel.id,
-    controller.workspaceItems.items,
-    controller.planner,
+  return (
+    <section className="period-carousel" aria-label={ariaLabel}>
+      <button
+        className="period-carousel-arrow"
+        type="button"
+        aria-label={previousLabel}
+        onClick={() => controller.movePlannerPeriod(-1)}
+      >
+        <ChevronLeft size={18} aria-hidden="true" />
+      </button>
+      <div className="period-carousel-track">
+        {cards.map((card) => (
+          <article className="period-carousel-card" data-position={card.position} key={card.key}>
+            <div className="period-card-kicker">{card.label}</div>
+            <GoalGroupContent controller={controller} goals={card.goals} emptyText="No goals found." />
+          </article>
+        ))}
+      </div>
+      <button
+        className="period-carousel-arrow"
+        type="button"
+        aria-label={nextLabel}
+        onClick={() => controller.movePlannerPeriod(1)}
+      >
+        <ChevronRight size={18} aria-hidden="true" />
+      </button>
+    </section>
   );
-  const goals = filterPlannerItemsByTags(
-    controller.workspaceItems.items,
-    tags,
-  ).filter((item) =>
-    item.type === "goal" &&
-    !isTerminalPlannerItem(item) &&
-    item.horizon === horizon &&
-    goalMatchesPlannerPeriod(item, horizon, controller.planner.date),
+}
+
+function PeriodGoalBucketCard({
+  controller,
+  bucket,
+  testId,
+}: {
+  controller: WorkbenchController;
+  bucket: PeriodGoalBucketModel;
+  testId: string;
+}) {
+  return (
+    <section
+      className="period-bucket-card"
+      aria-label={`${bucket.label} goals`}
+      data-testid={testId}
+    >
+      <h3>{bucket.label}</h3>
+      <GoalGroupContent controller={controller} goals={bucket.goals} emptyText="No goals found." />
+    </section>
   );
-  const groupBy = plannerGroupValue(controller);
+}
+
+function GoalGroupContent({
+  controller,
+  goals,
+  emptyText,
+}: {
+  controller: WorkbenchController;
+  goals: WorkspaceItemModel[];
+  emptyText: string;
+}) {
   const groupedGoals = groupPlannerItems(
     sortPlannerItems(goals, plannerSortValue(controller)),
     controller.workspaceItems.relatedItems,
-    groupBy,
+    plannerGroupValue(controller),
   );
 
-  return (
-    <section className="planner-section" aria-label={`${horizon} goals`}>
-      <h2>{horizon === "year" ? "Year goals" : "Month goals"}</h2>
-      {renderPlannerGroups(controller, groupedGoals, "No goals found.")}
-    </section>
-  );
+  return <>{renderPlannerGroups(controller, groupedGoals, emptyText)}</>;
 }
 
 function WeeklyPlanner({ controller }: MainPanelProps) {
@@ -452,6 +556,14 @@ function PlannerControlToolbar({
           >
             <Group size={16} aria-hidden="true" />
           </PlannerDropdownButton>
+          <button
+            className="items-toolbar-button"
+            type="button"
+            aria-label="Now"
+            onClick={controller.resetPlannerPeriodToToday}
+          >
+            Now
+          </button>
           <button
             className="items-toolbar-button"
             type="button"

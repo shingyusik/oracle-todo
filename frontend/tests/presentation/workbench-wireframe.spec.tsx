@@ -99,6 +99,12 @@ function testMonthStart(date: string): string {
   return `${date.slice(0, 7)}-01`;
 }
 
+function testMonthLabel(date: string): string {
+  return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][
+    Number(date.slice(5, 7)) - 1
+  ] ?? date.slice(5, 7);
+}
+
 function testNextMonthStart(date: string): string {
   const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
   value.setMonth(value.getMonth() + 1);
@@ -1329,69 +1335,18 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Sorted by title")).toBeInTheDocument();
   });
 
-  it("renders yearly and monthly goal lists from loaded planner goals", async () => {
+  it("renders yearly period carousel and twelve month goal cards", async () => {
     const user = userEvent.setup();
     const today = testToday();
     const yearStart = testYearStart(today);
     const nextYearStart = testNextYearStart(today);
     const monthStart = testMonthStart(today);
-    const nextMonthStart = testNextMonthStart(today);
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=goal": [
-        {
-          id: "goal-year",
-          type: "goal",
-          title: "Annual Goal",
-          status: "active",
-          horizon: "year",
-          scheduled: yearStart,
-          tags: ["annual-current"],
-        },
-        {
-          id: "goal-other-year",
-          type: "goal",
-          title: "Other Year Goal",
-          status: "active",
-          horizon: "year",
-          scheduled: nextYearStart,
-          tags: ["annual-future"],
-        },
-        {
-          id: "goal-year-done",
-          type: "goal",
-          title: "Completed Annual Goal",
-          status: "completed",
-          horizon: "year",
-          scheduled: yearStart,
-          tags: ["annual-done"],
-        },
-        {
-          id: "goal-month",
-          type: "goal",
-          title: "Monthly Goal",
-          status: "active",
-          horizon: "month",
-          scheduled: monthStart,
-          tags: ["month-current"],
-        },
-        {
-          id: "goal-other-month",
-          type: "goal",
-          title: "Other Month Goal",
-          status: "active",
-          horizon: "month",
-          scheduled: nextMonthStart,
-          tags: ["month-future"],
-        },
-        {
-          id: "goal-month-archived",
-          type: "goal",
-          title: "Archived Monthly Goal",
-          status: "archived",
-          horizon: "month",
-          scheduled: monthStart,
-          tags: ["month-archived"],
-        },
+        { id: "goal-year", type: "goal", title: "Annual Goal", status: "active", horizon: "year", scheduled: yearStart, tags: ["annual-current"] },
+        { id: "goal-other-year", type: "goal", title: "Other Year Goal", status: "active", horizon: "year", scheduled: nextYearStart, tags: ["annual-future"] },
+        { id: "goal-month", type: "goal", title: "Monthly Goal", status: "active", horizon: "month", scheduled: monthStart, tags: ["month-current"] },
+        { id: "goal-year-done", type: "goal", title: "Completed Annual Goal", status: "completed", horizon: "year", scheduled: yearStart, tags: ["annual-done"] },
       ],
       "/todo-engine/items?type=area": [],
       "/todo-engine/items?type=project": [],
@@ -1410,64 +1365,100 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Planner" }));
-    expect(await screen.findByText("Annual Goal")).toBeInTheDocument();
-    expect(screen.queryByText("Other Year Goal")).toBeNull();
-    expect(screen.queryByText("Completed Annual Goal")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    const yearlyTagFilter = screen.getByRole("group", { name: "Filter by Tags" });
-    expect(
-      within(yearlyTagFilter).getByRole(
-        "checkbox",
-        { name: "annual-current" },
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(yearlyTagFilter).queryByRole(
-        "checkbox",
-        { name: "annual-future" },
-      ),
-    ).toBeNull();
-    expect(
-      within(yearlyTagFilter).queryByRole(
-        "checkbox",
-        { name: "annual-done" },
-      ),
-    ).toBeNull();
-    await user.click(
-      within(yearlyTagFilter).getByRole("checkbox", { name: "annual-current" }),
-    );
-    expect(screen.getByText("Annual Goal")).toBeInTheDocument();
 
+    expect(await screen.findByRole("region", { name: "Year goal carousel" })).toBeInTheDocument();
+    expect(screen.getByText("Annual Goal")).toBeInTheDocument();
+    expect(screen.getByText("Other Year Goal")).toBeInTheDocument();
+    expect(screen.queryByText("Completed Annual Goal")).toBeNull();
+    expect(screen.getAllByTestId("yearly-month-card")).toHaveLength(12);
+    expect(
+      screen.getByRole("region", { name: `${testMonthLabel(monthStart)} goals` }),
+    ).toHaveTextContent("Monthly Goal");
+    expect(screen.getByRole("button", { name: "Previous year" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next year" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Now" })).toBeInTheDocument();
+  });
+
+  it("renders monthly period carousel and ISO Monday week goal cards", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const monthStart = testMonthStart(today);
+    const nextMonthStart = testNextMonthStart(today);
+    const firstWeekStart = testWeekStart(monthStart);
+    const secondWeekStart = testAddDays(firstWeekStart, 7);
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=goal": [
+        { id: "goal-month", type: "goal", title: "Monthly Goal", status: "active", horizon: "month", scheduled: monthStart, tags: ["month-current"] },
+        { id: "goal-other-month", type: "goal", title: "Other Month Goal", status: "active", horizon: "month", scheduled: nextMonthStart, tags: ["month-future"] },
+        { id: "goal-week-1", type: "goal", title: "First Week Goal", status: "active", horizon: "week", scheduled: firstWeekStart, tags: ["week-current"] },
+        { id: "goal-week-2", type: "goal", title: "Second Week Goal", status: "active", horizon: "week", scheduled: secondWeekStart, tags: ["week-current"] },
+        { id: "goal-week-done", type: "goal", title: "Done Week Goal", status: "completed", horizon: "week", scheduled: firstWeekStart, tags: ["week-done"] },
+      ],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => responses[url] ?? [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Monthly" }));
-    expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
-    expect(screen.queryByText("Other Month Goal")).toBeNull();
-    expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    const monthlyTagFilter = screen.getByRole("group", { name: "Filter by Tags" });
-    expect(
-      within(monthlyTagFilter).queryByRole(
-        "checkbox",
-        { name: "annual-current" },
+
+    expect(await screen.findByRole("region", { name: "Month goal carousel" })).toBeInTheDocument();
+    expect(screen.getByText("Monthly Goal")).toBeInTheDocument();
+    expect(screen.getByText("Other Month Goal")).toBeInTheDocument();
+    expect(screen.getAllByTestId("monthly-week-card").length).toBeGreaterThanOrEqual(4);
+    expect(screen.getByRole("region", { name: "W1 goals" })).toHaveTextContent("First Week Goal");
+    expect(screen.getByRole("region", { name: "W2 goals" })).toHaveTextContent("Second Week Goal");
+    expect(screen.queryByText("Done Week Goal")).toBeNull();
+    expect(screen.getByRole("button", { name: "Previous month" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next month" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Now" })).toBeInTheDocument();
+  });
+
+  it("moves monthly periods with arrows and returns with Now", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const monthStart = testMonthStart(today);
+    const nextMonthStart = testNextMonthStart(today);
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=goal": [
+        { id: "current", type: "goal", title: "Current Month", status: "active", horizon: "month", scheduled: monthStart },
+        { id: "next", type: "goal", title: "Next Month", status: "active", horizon: "month", scheduled: nextMonthStart },
+      ],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => responses[url] ?? [],
+        }),
       ),
-    ).toBeNull();
-    expect(
-      within(monthlyTagFilter).getByRole(
-        "checkbox",
-        { name: "month-current" },
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(monthlyTagFilter).queryByRole(
-        "checkbox",
-        { name: "month-future" },
-      ),
-    ).toBeNull();
-    expect(
-      within(monthlyTagFilter).queryByRole(
-        "checkbox",
-        { name: "month-archived" },
-      ),
-    ).toBeNull();
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+
+    expect(await screen.findByText("Current Month")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+    expect(await screen.findByText("Next Month")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Now" }));
+    expect(await screen.findByText("Current Month")).toBeInTheDocument();
   });
 
   it("normalizes visible workspace tags after save", async () => {
