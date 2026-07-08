@@ -710,7 +710,12 @@ describe("WorkbenchPageClient", () => {
     ).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    await user.selectOptions(screen.getByLabelText("Filter by Area"), "area-1");
+    await user.click(
+      within(screen.getByRole("group", { name: "Filter by Area" })).getByRole(
+        "checkbox",
+        { name: "Focus" },
+      ),
+    );
 
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(screen.queryByText("Overdue Task")).toBeNull();
@@ -718,15 +723,20 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Inbox Task")).toBeNull();
     expect(screen.getByText("1 rules")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Filter by Tags"), "deep-work");
+    await user.click(
+      within(screen.getByRole("group", { name: "Filter by Tags" })).getByRole(
+        "checkbox",
+        { name: "deep-work" },
+      ),
+    );
 
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(screen.queryByText("Done Task")).toBeNull();
     expect(screen.getByText("2 rules")).toBeInTheDocument();
 
     expect(
-      within(screen.getByLabelText("Filter by Status")).queryByRole(
-        "option",
+      within(screen.getByRole("group", { name: "Filter by Status" })).queryByRole(
+        "checkbox",
         { name: "completed" },
       ),
     ).toBeNull();
@@ -779,7 +789,12 @@ describe("WorkbenchPageClient", () => {
 
     await screen.findByText("Focus Task");
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    await user.selectOptions(screen.getByLabelText("Filter by Tags"), "focus");
+    await user.click(
+      within(screen.getByRole("group", { name: "Filter by Tags" })).getByRole(
+        "checkbox",
+        { name: "focus" },
+      ),
+    );
 
     expect(screen.getByText("Focus Task")).toBeInTheDocument();
     expect(screen.queryByText("Ops Task")).toBeNull();
@@ -1319,26 +1334,28 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Other Year Goal")).toBeNull();
     expect(screen.queryByText("Completed Annual Goal")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    const yearlyTagFilter = screen.getByLabelText("Filter by Tags");
+    const yearlyTagFilter = screen.getByRole("group", { name: "Filter by Tags" });
     expect(
       within(yearlyTagFilter).getByRole(
-        "option",
+        "checkbox",
         { name: "annual-current" },
       ),
     ).toBeInTheDocument();
     expect(
       within(yearlyTagFilter).queryByRole(
-        "option",
+        "checkbox",
         { name: "annual-future" },
       ),
     ).toBeNull();
     expect(
       within(yearlyTagFilter).queryByRole(
-        "option",
+        "checkbox",
         { name: "annual-done" },
       ),
     ).toBeNull();
-    await user.selectOptions(yearlyTagFilter, "annual-current");
+    await user.click(
+      within(yearlyTagFilter).getByRole("checkbox", { name: "annual-current" }),
+    );
     expect(screen.getByText("Annual Goal")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
@@ -1346,28 +1363,28 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Other Month Goal")).toBeNull();
     expect(screen.queryByText("Archived Monthly Goal")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    const monthlyTagFilter = screen.getByLabelText("Filter by Tags");
+    const monthlyTagFilter = screen.getByRole("group", { name: "Filter by Tags" });
     expect(
       within(monthlyTagFilter).queryByRole(
-        "option",
+        "checkbox",
         { name: "annual-current" },
       ),
     ).toBeNull();
     expect(
       within(monthlyTagFilter).getByRole(
-        "option",
+        "checkbox",
         { name: "month-current" },
       ),
     ).toBeInTheDocument();
     expect(
       within(monthlyTagFilter).queryByRole(
-        "option",
+        "checkbox",
         { name: "month-future" },
       ),
     ).toBeNull();
     expect(
       within(monthlyTagFilter).queryByRole(
-        "option",
+        "checkbox",
         { name: "month-archived" },
       ),
     ).toBeNull();

@@ -328,11 +328,17 @@ button {
 }
 
 .planner-control-dropdown {
-  width: min(360px, 100%);
+  position: fixed;
+  top: 74px;
+  right: clamp(12px, 4vw, 32px);
+  z-index: 20;
+  width: min(430px, calc(100vw - 24px));
+  max-height: min(420px, calc(100vh - 92px));
+  overflow: auto;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-light);
-  padding: 10px;
+  padding: 8px;
   box-shadow: 0 12px 30px rgb(0 0 0 / 12%);
 }
 
@@ -341,7 +347,6 @@ button {
   color: var(--color-shade-60);
   font-size: 12px;
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .planner-control-row {
@@ -355,24 +360,61 @@ button {
   padding: 10px;
 }
 
-.planner-filter-label {
+.planner-filter-value {
   display: grid;
-  min-width: 124px;
-  max-width: 190px;
+  min-width: 150px;
   gap: 5px;
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--color-shade-60);
 }
 
-.planner-filter-label select {
-  width: 100%;
-  min-height: 34px;
+.planner-filter-value-summary {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-cream);
-  padding: 5px 28px 5px 7px;
+  padding: 4px 8px;
   color: var(--color-ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planner-filter-option-list {
+  display: grid;
+  max-height: 150px;
+  overflow: auto;
+  gap: 2px;
+}
+
+.planner-filter-option {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-xs);
+  padding: 4px 6px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.planner-filter-option:hover,
+.planner-filter-option[data-selected="true"] {
+  background: var(--color-canvas-cream);
+}
+
+.planner-filter-option input {
+  margin: 0;
+}
+
+.planner-filter-empty {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  color: var(--color-shade-50);
+  font-size: 12px;
 }
 
 .planner-filter-rule-panel {
@@ -402,18 +444,25 @@ button {
 
 .planner-filter-rule {
   display: grid;
-  grid-template-columns: 82px 70px minmax(0, 1fr) 28px;
+  grid-template-columns: 88px 88px minmax(0, 1fr) 28px;
   gap: 6px;
-  align-items: end;
+  align-items: start;
 }
 
-.planner-filter-rule > span {
-  min-height: 32px;
+.planner-filter-token {
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-cream);
+  padding: 4px 8px;
   color: var(--color-shade-60);
   font-size: 12px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .planner-filter-rule button {

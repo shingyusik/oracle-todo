@@ -427,7 +427,7 @@ function PlannerControlToolbar({
         <div className="planner-view-pill">{controller.panel.title}</div>
         <div className="planner-view-actions">
           <PlannerDropdownButton
-            active={activeFilterCount > 0}
+            active={openDropdown === "filter" || activeFilterCount > 0}
             ariaLabel="Filter planner view"
             title="Filter"
             onClick={() => toggleDropdown("filter")}
@@ -435,7 +435,7 @@ function PlannerControlToolbar({
             <Filter size={16} aria-hidden="true" />
           </PlannerDropdownButton>
           <PlannerDropdownButton
-            active={sortBy !== defaultPlannerSortValue(controller)}
+            active={openDropdown === "sort" || sortBy !== defaultPlannerSortValue(controller)}
             ariaLabel="Sort planner view"
             title="Sort"
             onClick={() => toggleDropdown("sort")}
@@ -443,7 +443,7 @@ function PlannerControlToolbar({
             <ArrowDownUp size={16} aria-hidden="true" />
           </PlannerDropdownButton>
           <PlannerDropdownButton
-            active={groupBy !== "none"}
+            active={openDropdown === "group" || groupBy !== "none"}
             ariaLabel="Group planner view"
             title="Group by"
             onClick={() => toggleDropdown("group")}
@@ -580,8 +580,8 @@ function PlannerFilterRulePanel({
     <div className="planner-filter-rule-panel">
       {rules.map((rule) => (
         <div className="planner-filter-rule" key={rule.field}>
-          <span>{rule.label}</span>
-          <span>{rule.operator}</span>
+          <span className="planner-filter-token">{rule.label}</span>
+          <span className="planner-filter-token">{rule.operator}</span>
           <DailyFilterSelect
             label={`Filter by ${rule.label}`}
             displayLabel={rule.label}
@@ -658,27 +658,44 @@ function DailyFilterSelect({
   value: string[];
   onChange: (values: string[]) => void;
 }) {
+  const selectedValues = new Set(value);
+  const selectedLabels = options
+    .filter((option) => selectedValues.has(option.value))
+    .map((option) => option.label);
+
+  function toggleValue(optionValue: string) {
+    const nextValues = selectedValues.has(optionValue)
+      ? value.filter((currentValue) => currentValue !== optionValue)
+      : [...value, optionValue];
+    onChange(nextValues);
+  }
+
   return (
-    <label className="planner-filter-label">
-      <span>{displayLabel}</span>
-      <select
-        multiple
-        aria-label={label}
-        value={value}
-        size={Math.min(Math.max(options.length, 2), 4)}
-        onChange={(event) =>
-          onChange(
-            Array.from(event.target.selectedOptions, (option) => option.value),
-          )
-        }
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="planner-filter-value" role="group" aria-label={label}>
+      <div className="planner-filter-value-summary">
+        {selectedLabels.length > 0 ? selectedLabels.join(", ") : `Any ${displayLabel}`}
+      </div>
+      <div className="planner-filter-option-list">
+        {options.length > 0 ? (
+          options.map((option) => (
+            <label
+              className="planner-filter-option"
+              data-selected={selectedValues.has(option.value)}
+              key={option.value}
+            >
+              <input
+                type="checkbox"
+                checked={selectedValues.has(option.value)}
+                onChange={() => toggleValue(option.value)}
+              />
+              <span>{option.label}</span>
+            </label>
+          ))
+        ) : (
+          <span className="planner-filter-empty">No options</span>
+        )}
+      </div>
+    </div>
   );
 }
 
