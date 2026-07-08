@@ -226,6 +226,18 @@ export function matchesPlannerFilterRules(
   return mode === "and" ? results.every(Boolean) : results.some(Boolean);
 }
 
+export function filterPlannerItemsByRules(
+  items: WorkspaceItemModel[],
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  rules: PlannerFilterRule[],
+  mode: PlannerFilterMode,
+  today: string,
+): WorkspaceItemModel[] {
+  return items.filter((item) =>
+    matchesPlannerFilterRules(item, relatedItems, rules, mode, today),
+  );
+}
+
 function matchesPlannerFilterRule(
   item: WorkspaceItemModel,
   relatedItems: WorkspaceItemsModel["relatedItems"],

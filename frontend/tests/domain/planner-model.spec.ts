@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDailyPlannerModel,
   buildWeeklyPlannerModel,
+  filterPlannerItemsByRules,
   groupPlannerItems,
   matchesPlannerFilterRules,
   sortPlannerItems,
@@ -235,6 +236,43 @@ describe("planner model", () => {
         "2026-07-08",
       ),
     ).toBe(true);
+  });
+
+  it("filters planner item lists through advanced rules", () => {
+    const result = filterPlannerItemsByRules(
+      [
+        {
+          id: "task-1",
+          type: "task",
+          title: "Plan API",
+          status: "active",
+          scheduled: "2026-07-08",
+          tags: ["api"],
+        },
+        {
+          id: "task-2",
+          type: "task",
+          title: "Write Notes",
+          status: "active",
+          scheduled: "2026-07-08",
+          tags: ["writing"],
+        },
+      ],
+      relatedItems,
+      [
+        {
+          id: "r1",
+          field: "tags",
+          type: "multiSelect",
+          operator: "contains",
+          value: ["api"],
+        },
+      ],
+      "and",
+      "2026-07-08",
+    );
+
+    expect(result.map((item) => item.id)).toEqual(["task-1"]);
   });
 
   it("matches at least one planner filter rule with or", () => {
