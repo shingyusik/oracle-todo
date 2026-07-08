@@ -2181,6 +2181,43 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
+  it("keeps detail tag clicks from triggering chip removal", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task"
+              ? [
+                  {
+                    id: "task-1",
+                    type: "task",
+                    title: "One",
+                    status: "active",
+                    tags: ["deep-work", "planning"],
+                  },
+                ]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+
+    const tagField = screen.getByRole("button", { name: "Tags" });
+    expect(tagField.closest("label")).toBeNull();
+    await user.click(tagField);
+
+    expect(screen.getByRole("button", { name: "Remove deep-work tag" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove planning tag" })).toBeInTheDocument();
+  });
+
   it("keeps detail long-text drafts while status and relation edits wait for Save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

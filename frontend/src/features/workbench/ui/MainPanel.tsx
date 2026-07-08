@@ -1732,14 +1732,15 @@ function DetailTagsField({
   onChange: (value: string) => void;
 }) {
   return (
-    <DetailInlineField label="Tags">
+    <div className="field-label">
+      <span>Tags</span>
       <TagsInput
         label="Tags"
         value={parseTagInput(value)}
         tagOptions={tagOptions}
         onCommit={(tags) => onChange(formatTags(tags))}
       />
-    </DetailInlineField>
+    </div>
   );
 }
 
