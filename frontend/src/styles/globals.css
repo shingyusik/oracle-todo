@@ -559,23 +559,10 @@ button {
   outline: 0;
 }
 
-.tag-input:not(:focus-within) input[data-empty="true"] {
-  min-height: 0;
-  min-width: 0;
-  width: 0;
-  flex: 0 1 0;
-  padding: 0;
-}
-
 .field-label .tag-input input {
   min-height: 26px;
   border: 0;
   padding: 2px;
-}
-
-.field-label .tag-input:not(:focus-within) input[data-empty="true"] {
-  min-height: 0;
-  padding: 0;
 }
 
 .tag-chip {

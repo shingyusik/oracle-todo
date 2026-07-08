@@ -2849,7 +2849,7 @@ function TagsInput({
         value={draft}
         onKeyDown={(event) => {
           stopRowEvent(event);
-          if (event.key === "Enter") {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
             event.preventDefault();
             commitDraft();
           }

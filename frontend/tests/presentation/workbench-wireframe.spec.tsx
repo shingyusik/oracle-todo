@@ -1486,6 +1486,66 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("waits for IME composition to finish before committing a tag", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as { tags: string[] };
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Plan",
+            status: "active",
+            tags: body.tags,
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=task"
+            ? [
+                {
+                  id: "task-1",
+                  type: "task",
+                  title: "Plan",
+                  status: "active",
+                  tags: ["deep-work"],
+                },
+              ]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const tags = await screen.findByLabelText("Tags for Plan");
+    fireEvent.change(tags, { target: { value: "새 태그" } });
+    fireEvent.keyDown(tags, { key: "Enter", isComposing: true });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items/task-1")).toEqual([]);
+
+    fireEvent.keyDown(tags, { key: "Enter", isComposing: false });
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/task-1",
+        expect.objectContaining({
+          body: JSON.stringify({ tags: ["deep-work", "새 태그"] }),
+          method: "PATCH",
+        }),
+      ),
+    );
+  });
+
   it("does not patch tags when only spacing changes", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string) =>

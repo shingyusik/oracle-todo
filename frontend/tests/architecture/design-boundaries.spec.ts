@@ -132,4 +132,15 @@ describe("design system boundaries", () => {
       ".detail-actions button:disabled {\n  cursor: not-allowed;",
     );
   });
+
+  it("keeps empty tag inputs clickable", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).not.toContain(
+      ".tag-input:not(:focus-within) input[data-empty=\"true\"]",
+    );
+    expect(source).not.toContain(
+      ".field-label .tag-input:not(:focus-within) input[data-empty=\"true\"]",
+    );
+  });
 });
