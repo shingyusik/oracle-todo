@@ -2351,7 +2351,7 @@ function RecurrenceRuleField({
   return (
     <div className="recurrence-row">
       <span className="recurrence-row-label">Recurrence Rule</span>
-      <div className="recurrence-fields">
+      <div className={`recurrence-fields recurrence-fields-${parsed.frequency}`}>
         <label className="field-label recurrence-field recurrence-field-short">
           Every
           <input

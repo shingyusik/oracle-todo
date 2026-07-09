@@ -1226,18 +1226,24 @@ button {
 
 .recurrence-preview {
   display: inline-flex;
+  flex: 1 1 240px;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  max-width: 240px;
   min-height: 30px;
   font-size: 11px;
   color: var(--color-shade-60);
 }
 
+.recurrence-fields-yearly .recurrence-preview {
+  flex-basis: 100%;
+}
+
 .recurrence-preview output {
+  min-width: 0;
   overflow: hidden;
   color: var(--color-ink);
+  flex: 1;
   font-family: var(--font-mono);
   font-size: 11px;
   text-overflow: ellipsis;
