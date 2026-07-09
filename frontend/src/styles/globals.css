@@ -332,9 +332,10 @@ button {
   top: 74px;
   right: clamp(12px, 4vw, 32px);
   z-index: 20;
-  width: min(540px, calc(100vw - 24px));
-  max-height: min(460px, calc(100vh - 92px));
-  overflow: auto;
+  width: fit-content;
+  min-width: min(540px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  overflow: visible;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-light);
@@ -363,43 +364,79 @@ button {
 
 .planner-filter-value {
   display: grid;
-  min-width: 0;
+  position: relative;
+  min-width: 160px;
   gap: 4px;
 }
 
-.planner-filter-value-summary {
+.planner-filter-value-trigger {
   min-height: 30px;
   display: flex;
+  width: max-content;
+  max-width: max(180px, calc(100vw - 380px));
+  flex-wrap: wrap;
   align-items: center;
-  overflow: hidden;
+  gap: 4px;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-cream);
   padding: 4px 8px;
   color: var(--color-ink);
   font-size: 12px;
+  text-align: left;
+}
+
+.planner-filter-value-trigger:focus {
+  border-color: var(--color-blue-strong, #2383e2);
+  outline: none;
+}
+
+.planner-filter-chip {
+  display: inline-flex;
+  max-width: 180px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-xs);
+  background: var(--color-shade-30);
+  padding: 2px 6px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.planner-filter-placeholder {
+  color: var(--color-shade-50);
+}
+
 .planner-filter-option-list {
   display: grid;
-  max-height: 176px;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(360px, calc(100vw - 32px));
+  max-height: min(220px, calc(100vh - 180px));
   overflow: auto;
-  gap: 1px;
-  padding: 2px 0;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 3px;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 16%);
 }
 
 .planner-filter-option {
-  display: flex;
+  display: grid;
+  grid-template-columns: 14px minmax(0, max-content);
   min-height: 26px;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border-radius: var(--radius-xs);
-  padding: 3px 6px;
+  padding: 3px 8px;
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .planner-filter-option:hover,
@@ -408,7 +445,33 @@ button {
 }
 
 .planner-filter-option input {
+  width: 14px;
+  height: 14px;
   margin: 0;
+  display: grid;
+  place-content: center;
+  appearance: none;
+  border: 1px solid var(--color-shade-40);
+  border-radius: 3px;
+  background: var(--color-canvas-light);
+}
+
+.planner-filter-option input::before {
+  width: 8px;
+  height: 8px;
+  transform: scale(0);
+  background: var(--color-on-dark);
+  clip-path: polygon(14% 44%, 0 60%, 40% 100%, 100% 17%, 84% 0, 37% 62%);
+  content: "";
+}
+
+.planner-filter-option input:checked {
+  border-color: var(--color-blue-strong, #2383e2);
+  background: var(--color-blue-strong, #2383e2);
+}
+
+.planner-filter-option input:checked::before {
+  transform: scale(1);
 }
 
 .planner-filter-empty {
@@ -472,7 +535,9 @@ button {
 }
 
 .planner-advanced-filter-row {
-  grid-template-columns: 58px minmax(104px, 1fr) minmax(112px, 1fr) minmax(128px, 1.3fr);
+  grid-template-columns: 58px max-content max-content minmax(160px, max-content);
+  width: max-content;
+  max-width: calc(100vw - 48px);
   min-height: 32px;
   align-items: center;
   gap: 4px;

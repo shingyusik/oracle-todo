@@ -820,10 +820,10 @@ function PlannerFilterValueEditor({
     );
   }
 
-  return <PlannerFilterOptionCheckboxes field={field} rule={rule} onChange={onChange} />;
+  return <PlannerFilterOptionDropdown field={field} rule={rule} onChange={onChange} />;
 }
 
-function PlannerFilterOptionCheckboxes({
+function PlannerFilterOptionDropdown({
   field,
   rule,
   onChange,
@@ -832,7 +832,9 @@ function PlannerFilterOptionCheckboxes({
   rule: PlannerFilterRule;
   onChange: (value: PlannerFilterValue) => void;
 }) {
+  const [open, setOpen] = React.useState(false);
   const selectedValues = new Set(Array.isArray(rule.value) ? rule.value : []);
+  const selectedOptions = field.options.filter((option) => selectedValues.has(option.value));
 
   function toggleValue(optionValue: string) {
     onChange(
@@ -844,26 +846,45 @@ function PlannerFilterOptionCheckboxes({
 
   return (
     <div className="planner-filter-value" role="group" aria-label={`Filter by ${field.label}`}>
-      <div className="planner-filter-option-list">
-        {field.options.length > 0 ? (
-          field.options.map((option) => (
-            <label
-              className="planner-filter-option"
-              data-selected={selectedValues.has(option.value)}
-              key={option.value}
-            >
-              <input
-                type="checkbox"
-                checked={selectedValues.has(option.value)}
-                onChange={() => toggleValue(option.value)}
-              />
-              <span>{option.label}</span>
-            </label>
+      <button
+        type="button"
+        className="planner-filter-value-trigger"
+        aria-label={`Select ${field.label} filter values`}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {selectedOptions.length > 0 ? (
+          selectedOptions.map((option) => (
+            <span className="planner-filter-chip" key={option.value}>
+              {option.label}
+            </span>
           ))
         ) : (
-          <span className="planner-filter-empty">No options</span>
+          <span className="planner-filter-placeholder">Select...</span>
         )}
-      </div>
+      </button>
+      {open ? (
+        <div className="planner-filter-option-list">
+          {field.options.length > 0 ? (
+            field.options.map((option) => (
+              <label
+                className="planner-filter-option"
+                data-selected={selectedValues.has(option.value)}
+                key={option.value}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedValues.has(option.value)}
+                  onChange={() => toggleValue(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))
+          ) : (
+            <span className="planner-filter-empty">No options</span>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

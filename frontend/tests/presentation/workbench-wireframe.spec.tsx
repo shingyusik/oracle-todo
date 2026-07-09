@@ -712,6 +712,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
+    await user.click(screen.getByRole("button", { name: "Select Area filter values" }));
     await user.click(screen.getByRole("checkbox", { name: "Focus" }));
 
     expect(screen.getByText("Today Task")).toBeInTheDocument();
@@ -783,6 +784,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("option", { name: "Item type" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Horizon" })).toBeNull();
     await user.click(screen.getByRole("option", { name: "Tags" }));
+    await user.click(screen.getByRole("button", { name: "Select Tags filter values" }));
     await user.click(screen.getByRole("checkbox", { name: "focus" }));
 
     expect(screen.getByText("Focus Task")).toBeInTheDocument();
@@ -854,6 +856,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
+    await user.click(screen.getByRole("button", { name: "Select Area filter values" }));
     await user.click(screen.getByRole("checkbox", { name: "Focus" }));
 
     expect(screen.getByText("1 rules")).toBeInTheDocument();
@@ -867,6 +870,7 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Tags" }));
+    await user.click(screen.getByRole("button", { name: "Select Tags filter values" }));
     await user.click(screen.getByRole("checkbox", { name: "month-current" }));
 
     expect(screen.getByText("Monthly Goal")).toBeInTheDocument();
@@ -1406,6 +1410,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("option", { name: "Parent" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Priority" })).toBeNull();
     await user.click(screen.getByRole("option", { name: "Tags" }));
+    await user.click(screen.getByRole("button", { name: "Select Tags filter values" }));
     expect(
       screen.getByRole("checkbox", { name: "annual-current" }),
     ).toBeInTheDocument();
@@ -1425,6 +1430,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Tags" }));
+    await user.click(screen.getByRole("button", { name: "Select Tags filter values" }));
     expect(
       screen.queryByRole("checkbox", { name: "annual-current" }),
     ).toBeNull();
