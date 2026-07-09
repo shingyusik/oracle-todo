@@ -2318,7 +2318,7 @@ function GoalPeriodControl({
       role="group"
       aria-label={label}
       onClick={stopRowEvent}
-      onKeyDown={stopRowEvent}
+      onKeyDown={stopRowKeyDown}
     >
       <label className="field-label">
         Period type
@@ -2326,7 +2326,7 @@ function GoalPeriodControl({
           aria-label={label.includes(" for ") ? label.replace("Period", "Period type") : "Period type"}
           value={safeHorizon}
           onClick={stopRowEvent}
-          onKeyDown={stopRowEvent}
+          onKeyDown={stopRowKeyDown}
           onChange={(event) => {
             const nextHorizon = event.target.value as GoalHorizon;
             const nextDate = periodBasisDate(nextHorizon);
@@ -3325,6 +3325,13 @@ function stopRowEvent(event: React.SyntheticEvent<HTMLElement>) {
   event.stopPropagation();
 }
 
+function stopRowKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+  if (event.key === "Escape") {
+    return;
+  }
+  stopRowEvent(event);
+}
+
 function InlineTextInput({
   label,
   type = "text",
@@ -4185,13 +4192,6 @@ function goalPeriodRange(
   if (horizon === "year") return { start, end: yearEnd(start) };
   if (horizon === "month") return { start, end: monthEnd(start) };
   return { start, end: addLocalDays(start, 6) };
-}
-
-function displayGoalPeriod(item: WorkspaceItemModel): string {
-  const horizon = isGoalHorizon(item.horizon) ? item.horizon : "month";
-  const scheduled = formatDateValue(item.scheduled) || canonicalGoalScheduled(horizon, todayValue());
-  const range = goalPeriodRange(horizon, scheduled);
-  return `${capitalize(horizon)}: ${range.start} to ${range.end}`;
 }
 
 function yearOptions(selectedYear: number): number[] {

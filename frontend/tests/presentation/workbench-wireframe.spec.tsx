@@ -99,6 +99,13 @@ function testMonthStart(date: string): string {
   return `${date.slice(0, 7)}-01`;
 }
 
+function testMonthEnd(date: string): string {
+  const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
+  value.setMonth(value.getMonth() + 1);
+  value.setDate(0);
+  return formatDate(value);
+}
+
 function testNextMonthStart(date: string): string {
   const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
   value.setMonth(value.getMonth() + 1);
@@ -424,6 +431,7 @@ describe("WorkbenchPageClient", () => {
   it("defaults weekly planner goal creation to the active week anchor and shows it", async () => {
     const user = userEvent.setup();
     const weekStart = testWeekStart(testToday());
+    const monthStart = testMonthStart(testToday());
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=goal": [],
       "/todo-engine/items?type=task": [],
@@ -439,8 +447,8 @@ describe("WorkbenchPageClient", () => {
             method: "POST",
             body: JSON.stringify({
               title: "Anchored weekly goal",
-              horizon: "week",
-              scheduled: weekStart,
+              horizon: "month",
+              scheduled: monthStart,
               actor: "user",
             }),
           }),
@@ -453,8 +461,8 @@ describe("WorkbenchPageClient", () => {
             type: "goal",
             title: "Anchored weekly goal",
             status: "approved",
-            horizon: "week",
-            scheduled: weekStart,
+            horizon: "month",
+            scheduled: monthStart,
           }),
         });
       }
@@ -475,6 +483,9 @@ describe("WorkbenchPageClient", () => {
 
     expect(screen.getByLabelText("Period type")).toHaveValue("week");
     expect(screen.getByText(`${weekStart} to ${testAddDays(weekStart, 6)}`)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Period type"), "month");
+    expect(screen.getByText(`${monthStart} to ${testMonthEnd(testToday())}`)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Title"), "Anchored weekly goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -2145,6 +2156,9 @@ describe("WorkbenchPageClient", () => {
 
     await user.tab();
     expect(screen.getByLabelText("Title")).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByLabelText("Period type")).toHaveFocus();
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
