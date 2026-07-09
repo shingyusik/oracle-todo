@@ -151,7 +151,7 @@ function buildDaily(filters: Partial<Parameters<typeof buildDailyPlannerModel>[2
       ...filters,
     },
     groupBy,
-    sortBy: "priority",
+    sortRules: [{ id: "sort-priority", field: "priority", direction: "asc" }],
   });
 }
 
@@ -176,10 +176,26 @@ describe("planner model", () => {
         item("none", { scheduled: null, priority: 1 }),
         item("early", { scheduled: "2026-07-07T09:00:00", priority: 2 }),
       ],
-      "scheduled",
+      [{ id: "sort-scheduled", field: "scheduled", direction: "asc" }],
     );
 
     expect(result.map((entry) => entry.id)).toEqual(["none", "early", "late"]);
+  });
+
+  it("sorts planner items by multiple rules in order", () => {
+    const result = sortPlannerItems(
+      [
+        item("b-low", { title: "B", priority: 1 }),
+        item("a-high", { title: "A", priority: 2 }),
+        item("a-low", { title: "A", priority: 1 }),
+      ],
+      [
+        { id: "sort-title", field: "title", direction: "asc" },
+        { id: "sort-priority", field: "priority", direction: "desc" },
+      ],
+    );
+
+    expect(result.map((entry) => entry.id)).toEqual(["a-high", "a-low", "b-low"]);
   });
 
   it("groups planner items by tag and keeps untagged items visible", () => {

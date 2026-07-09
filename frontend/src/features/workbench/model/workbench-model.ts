@@ -7,11 +7,10 @@ import type {
 import type {
   DailyFilterState,
   DailyGroupBy,
-  DailySortBy,
   PlannerFilterMode,
   PlannerFilterRule,
   PlannerGroupBy,
-  PlannerSortBy,
+  PlannerSortRule,
 } from "@/features/workbench/model/planner-model";
 
 export type WorkbenchPanelModel = {
@@ -70,13 +69,13 @@ export type PlannerControls = {
   filterMode: PlannerFilterMode;
   filterRules: PlannerFilterRule[];
   dailyGroupBy: DailyGroupBy;
-  dailySortBy: DailySortBy;
+  dailySortRules: PlannerSortRule[];
   yearlyGroupBy: PlannerGroupBy;
-  yearlySortBy: PlannerSortBy;
+  yearlySortRules: PlannerSortRule[];
   monthlyGroupBy: PlannerGroupBy;
-  monthlySortBy: PlannerSortBy;
+  monthlySortRules: PlannerSortRule[];
   weeklyGroupBy: PlannerGroupBy;
-  weeklySortBy: PlannerSortBy;
+  weeklySortRules: PlannerSortRule[];
 };
 
 export type CreateWorkspaceItemForm = {
@@ -145,9 +144,9 @@ export type WorkbenchController = {
   setPlannerFilterRules: (rules: PlannerFilterRule[]) => void;
   clearPlannerFilterRules: () => void;
   setDailyGroupBy: (groupBy: DailyGroupBy) => void;
-  setDailySortBy: (sortBy: DailySortBy) => void;
+  setDailySortRules: (rules: PlannerSortRule[]) => void;
   setPlannerGroupBy: (groupBy: PlannerGroupBy) => void;
-  setPlannerSortBy: (sortBy: PlannerSortBy) => void;
+  setPlannerSortRules: (rules: PlannerSortRule[]) => void;
   transitionWorkspaceItem: (
     itemId: string,
     action: WorkspaceItemTransitionAction,

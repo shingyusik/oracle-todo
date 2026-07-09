@@ -79,16 +79,21 @@ export type PlannerGroupBy =
   | "item_type"
   | "status";
 
-export type PlannerSortBy = "priority" | "scheduled" | "updated" | "title";
+export type PlannerSortDirection = "asc" | "desc";
+export type PlannerSortBy = PlannerFilterField | "updated";
+export type PlannerSortRule = {
+  id: string;
+  field: PlannerSortBy;
+  direction: PlannerSortDirection;
+};
 
 export type DailyGroupBy = PlannerGroupBy;
-export type DailySortBy = PlannerSortBy;
 
 export type DailyPlannerOptions = {
   date: string;
   filters: DailyFilterState;
   groupBy: DailyGroupBy;
-  sortBy: DailySortBy;
+  sortRules: PlannerSortRule[];
 };
 
 export type PlannerGroup = {
@@ -132,7 +137,7 @@ export function buildDailyPlannerModel(
     .filter((item) => dailyItemTypes.has(item.type))
     .filter((item) => !terminalStatuses.has(item.status))
     .filter((item) => matchesDailyFilters(item, options.filters))
-    .sort((left, right) => compareDailyItems(left, right, options.sortBy));
+    .sort((left, right) => comparePlannerItems(left, right, options.sortRules));
 
   const today: WorkspaceItemModel[] = [];
   const overdue: WorkspaceItemModel[] = [];
@@ -404,24 +409,53 @@ function matchesOne(value: string | null | undefined, selected: string[]): boole
   return selected.length === 0 || (value != null && selected.includes(value));
 }
 
-function compareDailyItems(
+function comparePlannerItems(
   left: WorkspaceItemModel,
   right: WorkspaceItemModel,
-  sortBy: DailySortBy,
+  sortRules: PlannerSortRule[],
 ): number {
-  if (sortBy === "title") {
-    return left.title.localeCompare(right.title);
+  for (const rule of sortRules) {
+    const result = comparePlannerSortRule(left, right, rule);
+    if (result !== 0) return result;
   }
-  if (sortBy === "scheduled") {
-    return compareText(left.scheduled, right.scheduled);
-  }
-  if (sortBy === "updated") {
-    return compareText(right.updated_at, left.updated_at);
-  }
-  return compareNumber(left.priority, right.priority)
-    || compareText(left.scheduled, right.scheduled)
+  return compareText(left.scheduled, right.scheduled)
     || compareText(right.updated_at, left.updated_at)
     || left.title.localeCompare(right.title);
+}
+
+function comparePlannerSortRule(
+  left: WorkspaceItemModel,
+  right: WorkspaceItemModel,
+  rule: PlannerSortRule,
+): number {
+  const result = rule.field === "priority"
+    ? compareNumber(left.priority, right.priority)
+    : compareText(sortValue(left, rule.field), sortValue(right, rule.field));
+  return rule.direction === "asc" ? result : -result;
+}
+
+function sortValue(
+  item: WorkspaceItemModel,
+  field: PlannerSortBy,
+): string | null | undefined {
+  if (field === "title") return item.title;
+  if (field === "scheduled") return item.scheduled;
+  if (field === "due") return item.due;
+  if (field === "status") return item.status;
+  if (field === "horizon") return item.horizon;
+  if (field === "recurrence_rule") return item.recurrence_rule;
+  if (field === "materialization_policy") return item.materialization_policy;
+  if (field === "location") return item.metadata_?.location;
+  if (field === "participants") return item.metadata_?.participants?.join(", ");
+  if (field === "commitment_type") return item.metadata_?.commitment_type;
+  if (field === "description") return item.description;
+  if (field === "note") return item.note;
+  if (field === "updated") return item.updated_at;
+  if (field === "tags") return item.tags?.join(", ");
+  if (field === "area") return item.area_id;
+  if (field === "project") return item.project_id;
+  if (field === "routine") return item.routine_id;
+  return item.parent_id;
 }
 
 function compareNumber(
@@ -440,9 +474,9 @@ function compareText(
 
 export function sortPlannerItems(
   items: WorkspaceItemModel[],
-  sortBy: PlannerSortBy,
+  sortRules: PlannerSortRule[],
 ): WorkspaceItemModel[] {
-  return [...items].sort((left, right) => compareDailyItems(left, right, sortBy));
+  return [...items].sort((left, right) => comparePlannerItems(left, right, sortRules));
 }
 
 function section(

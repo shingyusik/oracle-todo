@@ -3,6 +3,7 @@ import {
   ArrowDownUp,
   ArrowLeft,
   Filter,
+  GripVertical,
   Group,
   Plus,
   Save,
@@ -16,7 +17,6 @@ import {
   buildWeeklyPlannerModel,
   type DailyGroupBy,
   type DailyPlannerSection,
-  type DailySortBy,
   filterPlannerItemsByRules,
   groupPlannerItems,
   type PlannerFilterField,
@@ -27,6 +27,7 @@ import {
   sortPlannerItems,
   type PlannerGroupBy,
   type PlannerSortBy,
+  type PlannerSortRule,
 } from "@/features/workbench/model/planner-model";
 import type {
   WorkbenchController,
@@ -270,7 +271,7 @@ function GoalPlannerList({
   );
   const groupBy = plannerGroupValue(controller);
   const groupedGoals = groupPlannerItems(
-    sortPlannerItems(goals, plannerSortValue(controller)),
+    sortPlannerItems(goals, plannerSortRules(controller)),
     controller.workspaceItems.relatedItems,
     groupBy,
   );
@@ -290,12 +291,12 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
   );
   const groupBy = plannerGroupValue(controller);
   const monthGoalGroups = groupPlannerItems(
-    sortPlannerItems(model.monthGoals, plannerSortValue(controller)),
+    sortPlannerItems(model.monthGoals, plannerSortRules(controller)),
     controller.workspaceItems.relatedItems,
     groupBy,
   );
   const weekGoalGroups = groupPlannerItems(
-    sortPlannerItems(model.weekGoals, plannerSortValue(controller)),
+    sortPlannerItems(model.weekGoals, plannerSortRules(controller)),
     controller.workspaceItems.relatedItems,
     groupBy,
   );
@@ -315,7 +316,7 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
       <div className="weekly-day-grid">
         {model.days.map((day) => {
           const dayGroups = groupPlannerItems(
-            sortPlannerItems(day.items, plannerSortValue(controller)),
+            sortPlannerItems(day.items, plannerSortRules(controller)),
             controller.workspaceItems.relatedItems,
             groupBy,
           );
@@ -344,7 +345,7 @@ function DailyPlanner({ controller }: MainPanelProps) {
       date: controller.planner.date,
       filters: emptyDailyFilters(),
       groupBy: controller.planner.dailyGroupBy,
-      sortBy: controller.planner.dailySortBy,
+      sortRules: controller.planner.dailySortRules,
     },
   );
 
@@ -386,7 +387,7 @@ function PlannerControlToolbar({
     React.useState<PlannerDropdownKind | null>(null);
   const visibleFilterRules = visiblePlannerFilterRules(controller, filterOptions);
   const activeFilterCount = effectivePlannerFilterRules(controller).length;
-  const sortBy = plannerSortValue(controller);
+  const sortRules = plannerSortRules(controller);
   const groupBy = plannerGroupValue(controller);
 
   function toggleDropdown(kind: PlannerDropdownKind) {
@@ -407,7 +408,7 @@ function PlannerControlToolbar({
             <Filter size={16} aria-hidden="true" />
           </PlannerDropdownButton>
           <PlannerDropdownButton
-            active={openDropdown === "sort" || sortBy !== defaultPlannerSortValue(controller)}
+            active={openDropdown === "sort" || !isDefaultPlannerSort(controller)}
             ariaLabel="Sort planner view"
             title="Sort"
             onClick={() => toggleDropdown("sort")}
@@ -434,9 +435,9 @@ function PlannerControlToolbar({
       </div>
       <PlannerActiveControlPills
         filterCount={activeFilterCount}
-        sortBy={sortBy}
+        sortRules={sortRules}
         groupBy={groupBy}
-        showSort={sortBy !== defaultPlannerSortValue(controller)}
+        showSort={!isDefaultPlannerSort(controller)}
       />
       {openDropdown === "filter" ? (
         <PlannerControlDropdown title="Filter">
@@ -449,7 +450,7 @@ function PlannerControlToolbar({
       ) : null}
       {openDropdown === "sort" ? (
         <PlannerControlDropdown title="Sort">
-          <PlannerSortPanel controller={controller} />
+          <PlannerSortPanel controller={controller} filterOptions={filterOptions} />
         </PlannerControlDropdown>
       ) : null}
       {openDropdown === "group" ? (
@@ -505,12 +506,12 @@ function PlannerControlDropdown({
 
 function PlannerActiveControlPills({
   filterCount,
-  sortBy,
+  sortRules,
   groupBy,
   showSort,
 }: {
   filterCount: number;
-  sortBy: string;
+  sortRules: PlannerSortRule[];
   groupBy: string;
   showSort: boolean;
 }) {
@@ -523,8 +524,11 @@ function PlannerActiveControlPills({
       {filterCount > 0 ? (
         <span className="planner-active-pill">{filterCount} rules</span>
       ) : null}
-      {showSort ? (
-        <span className="planner-active-pill">Sorted by {plannerControlLabel(sortBy)}</span>
+      {showSort && sortRules.length > 0 ? (
+        <span className="planner-active-pill">
+          Sorted by {plannerControlLabel(sortRules[0].field)}
+          {sortRules.length > 1 ? ` +${sortRules.length - 1}` : ""}
+        </span>
       ) : null}
       {groupBy !== "none" ? (
         <span className="planner-active-pill">Grouped by {plannerControlLabel(groupBy)}</span>
@@ -588,19 +592,171 @@ function PlannerFilterRulePanel({
   );
 }
 
-function PlannerSortPanel({ controller }: { controller: WorkbenchController }) {
-  const value = plannerSortValue(controller);
+type PlannerSortFieldOption = {
+  value: PlannerSortBy;
+  label: string;
+};
+
+function PlannerSortPanel({
+  controller,
+  filterOptions,
+}: {
+  controller: WorkbenchController;
+  filterOptions: PlannerFilterOptions;
+}) {
+  const [addOpen, setAddOpen] = React.useState(false);
+  const rules = plannerSortRules(controller);
+  const fields = plannerSortFieldOptions(controller, filterOptions);
+
+  if (rules.length === 0) {
+    return (
+      <PlannerSortFieldPicker
+        fields={fields}
+        onPick={(field) => {
+          setPlannerSortRules(controller, [newPlannerSortRule(field.value)]);
+          setAddOpen(false);
+        }}
+      />
+    );
+  }
+
+  function addSort(field: PlannerSortFieldOption) {
+    setPlannerSortRules(controller, [...rules, newPlannerSortRule(field.value)]);
+    setAddOpen(false);
+  }
+
+  function updateRule(ruleId: string, patch: Partial<PlannerSortRule>) {
+    setPlannerSortRules(
+      controller,
+      rules.map((rule) => (rule.id === ruleId ? { ...rule, ...patch } : rule)),
+    );
+  }
+
+  function removeRule(ruleId: string) {
+    setPlannerSortRules(controller, rules.filter((rule) => rule.id !== ruleId));
+  }
+
+  function moveRule(fromId: string, toId: string) {
+    const from = rules.findIndex((rule) => rule.id === fromId);
+    const to = rules.findIndex((rule) => rule.id === toId);
+    if (from < 0 || to < 0 || from === to) return;
+    const next = [...rules];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setPlannerSortRules(controller, next);
+  }
 
   return (
-    <div className="planner-menu-option-list">
-      {plannerSortOptions(controller.panel.id).map((option) => (
+    <div className="planner-sort-panel">
+      {rules.map((rule) => (
+        <div
+          className="planner-sort-row"
+          draggable
+          key={rule.id}
+          onDragStart={(event) => event.dataTransfer.setData("text/plain", rule.id)}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            moveRule(event.dataTransfer.getData("text/plain"), rule.id);
+          }}
+        >
+          <span className="planner-sort-grip" aria-label="Drag sort rule">
+            <GripVertical size={14} aria-hidden="true" />
+          </span>
+          <label className="planner-filter-select-label">
+            <span>Sort field</span>
+            <select
+              aria-label="Sort field"
+              value={rule.field}
+              onChange={(event) =>
+                updateRule(rule.id, { field: event.target.value as PlannerSortBy })
+              }
+            >
+              {fields.map((field) => (
+                <option value={field.value} key={field.value}>
+                  {field.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="planner-filter-select-label">
+            <span>Sort direction</span>
+            <select
+              aria-label="Sort direction"
+              value={rule.direction}
+              onChange={(event) =>
+                updateRule(rule.id, {
+                  direction: event.target.value as PlannerSortRule["direction"],
+                })
+              }
+            >
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="planner-sort-remove"
+            aria-label="Remove sort rule"
+            onClick={() => removeRule(rule.id)}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="planner-filter-action"
+        aria-label="Add sort"
+        aria-expanded={addOpen}
+        onClick={() => setAddOpen((current) => !current)}
+      >
+        + Add sort
+      </button>
+      {addOpen ? <PlannerSortFieldOptions fields={fields} onPick={addSort} /> : null}
+      <button
+        type="button"
+        className="planner-filter-action planner-filter-action-danger"
+        onClick={() => setPlannerSortRules(controller, [])}
+      >
+        Delete sort
+      </button>
+    </div>
+  );
+}
+
+function PlannerSortFieldPicker({
+  fields,
+  onPick,
+}: {
+  fields: PlannerSortFieldOption[];
+  onPick: (field: PlannerSortFieldOption) => void;
+}) {
+  return (
+    <div className="planner-sort-panel">
+      <PlannerSortFieldOptions fields={fields} onPick={onPick} />
+    </div>
+  );
+}
+
+function PlannerSortFieldOptions({
+  fields,
+  onPick,
+}: {
+  fields: PlannerSortFieldOption[];
+  onPick: (field: PlannerSortFieldOption) => void;
+}) {
+  return (
+    <div className="planner-filter-field-options" role="listbox" aria-label="Sort fields">
+      {fields.map((field) => (
         <button
           type="button"
-          key={option.value}
-          aria-pressed={option.value === value}
-          onClick={() => setPlannerSortValue(controller, option.value)}
+          role="option"
+          aria-selected="false"
+          key={field.value}
+          onClick={() => onPick(field)}
         >
-          {option.label}
+          {field.label}
         </button>
       ))}
     </div>
@@ -1151,32 +1307,75 @@ function filterOptionsForItems(
   };
 }
 
-function plannerSortValue(controller: WorkbenchController): PlannerSortBy {
+function plannerSortRules(controller: WorkbenchController): PlannerSortRule[] {
   if (controller.panel.id === "daily") {
-    return controller.planner.dailySortBy;
+    return controller.planner.dailySortRules;
   }
   if (controller.panel.id === "weekly") {
-    return controller.planner.weeklySortBy;
+    return controller.planner.weeklySortRules;
   }
   if (controller.panel.id === "monthly") {
-    return controller.planner.monthlySortBy;
+    return controller.planner.monthlySortRules;
   }
-  return controller.planner.yearlySortBy;
+  return controller.planner.yearlySortRules;
 }
 
-function defaultPlannerSortValue(controller: WorkbenchController): PlannerSortBy {
-  return controller.panel.id === "daily" ? "priority" : "scheduled";
+function defaultPlannerSortRules(controller: WorkbenchController): PlannerSortRule[] {
+  return [
+    newPlannerSortRule(controller.panel.id === "daily" ? "priority" : "scheduled"),
+  ];
 }
 
-function setPlannerSortValue(
+function isDefaultPlannerSort(controller: WorkbenchController): boolean {
+  const current = plannerSortRules(controller);
+  const defaults = defaultPlannerSortRules(controller);
+  return current.length === defaults.length &&
+    current.every((rule, index) =>
+      rule.field === defaults[index].field &&
+      rule.direction === defaults[index].direction,
+    );
+}
+
+function setPlannerSortRules(
   controller: WorkbenchController,
-  value: PlannerSortBy,
+  rules: PlannerSortRule[],
 ) {
   if (controller.panel.id === "daily") {
-    controller.setDailySortBy(value);
+    controller.setDailySortRules(rules);
     return;
   }
-  controller.setPlannerSortBy(value);
+  controller.setPlannerSortRules(rules);
+}
+
+function newPlannerSortRule(field: PlannerSortBy): PlannerSortRule {
+  return {
+    id: `sort-${field}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    field,
+    direction: "asc",
+  };
+}
+
+function plannerSortFieldOptions(
+  controller: WorkbenchController,
+  filterOptions: PlannerFilterOptions,
+): PlannerSortFieldOption[] {
+  const fields: PlannerSortFieldOption[] = plannerFilterFieldConfigs(
+    controller,
+    filterOptions,
+  ).map((field) => ({
+    value: field.field as PlannerSortBy,
+    label: field.label,
+  }));
+  const seen = new Set<PlannerSortBy>();
+  const allFields: PlannerSortFieldOption[] = [
+    ...fields,
+    { value: "updated", label: "Updated" },
+  ];
+  return allFields.filter((field) => {
+    if (seen.has(field.value)) return false;
+    seen.add(field.value);
+    return true;
+  });
 }
 
 function plannerGroupValue(controller: WorkbenchController): PlannerGroupBy {
@@ -1208,24 +1407,6 @@ function setPlannerGroupValue(
     return;
   }
   controller.setPlannerGroupBy(value);
-}
-
-function plannerSortOptions(
-  panelId: WorkbenchController["panel"]["id"],
-): { value: PlannerSortBy; label: string }[] {
-  return panelId === "daily"
-    ? [
-        { value: "priority", label: "Priority" },
-        { value: "scheduled", label: "Scheduled" },
-        { value: "updated", label: "Updated" },
-        { value: "title", label: "Title" },
-      ]
-    : [
-        { value: "scheduled", label: "Scheduled" },
-        { value: "priority", label: "Priority" },
-        { value: "updated", label: "Updated" },
-        { value: "title", label: "Title" },
-      ];
 }
 
 function plannerGroupOptions(

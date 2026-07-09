@@ -593,6 +593,66 @@ button {
   background: var(--color-canvas-cream);
 }
 
+.planner-sort-panel {
+  display: grid;
+  gap: 5px;
+}
+
+.planner-sort-row {
+  display: grid;
+  grid-template-columns: 24px minmax(112px, max-content) minmax(122px, max-content) 28px;
+  width: max-content;
+  max-width: calc(100vw - 48px);
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-xs);
+  padding: 2px;
+}
+
+.planner-sort-grip {
+  display: inline-flex;
+  width: 24px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-shade-50);
+  cursor: grab;
+}
+
+.planner-sort-row select {
+  min-height: 28px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-cream);
+  padding: 4px 26px 4px 7px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.planner-sort-row select:focus {
+  border-color: var(--color-blue-strong, #2383e2);
+  outline: none;
+}
+
+.planner-sort-remove {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-shade-50);
+}
+
+.planner-sort-remove:hover {
+  background: var(--color-canvas-cream);
+  color: var(--color-ink);
+}
+
 .planner-filter-rule {
   display: grid;
   grid-template-columns: 88px 88px minmax(0, 1fr) 28px;

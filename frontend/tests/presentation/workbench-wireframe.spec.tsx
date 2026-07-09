@@ -919,7 +919,7 @@ describe("WorkbenchPageClient", () => {
     await screen.findByText("A Task");
 
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
-    await user.click(screen.getByRole("button", { name: "Title" }));
+    await user.selectOptions(screen.getByLabelText("Sort field"), "title");
 
     const today = screen.getByLabelText("Today");
     expect(within(today).getAllByRole("button").map((button) => button.textContent)).toEqual([
@@ -1017,7 +1017,7 @@ describe("WorkbenchPageClient", () => {
     await screen.findByText("Alpha Month Goal");
 
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
-    await user.click(screen.getByRole("button", { name: "Title" }));
+    await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
     await user.click(screen.getByRole("button", { name: "Tag" }));
 
@@ -1162,7 +1162,7 @@ describe("WorkbenchPageClient", () => {
     await screen.findByText("Week Goal");
 
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
-    await user.click(screen.getByRole("button", { name: "Title" }));
+    await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
     await user.click(screen.getByRole("button", { name: "Area" }));
 
@@ -1250,14 +1250,14 @@ describe("WorkbenchPageClient", () => {
     await screen.findByText("Week Goal");
 
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
-    await user.click(screen.getByRole("button", { name: "Title" }));
+    await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
     await user.click(screen.getByRole("button", { name: "Tag" }));
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     await screen.findByText("Alpha Month Goal");
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
-    await user.click(screen.getByRole("button", { name: "Updated" }));
+    await user.selectOptions(screen.getByLabelText("Sort field"), "updated");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
     await user.click(screen.getByRole("button", { name: "Status" }));
 
@@ -1314,10 +1314,34 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByLabelText("Active planner controls")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
-    await user.click(screen.getByRole("button", { name: "Title" }));
+    await user.selectOptions(screen.getByLabelText("Sort field"), "title");
 
     expect(screen.getByLabelText("Active planner controls")).toBeInTheDocument();
     expect(screen.getByText("Sorted by title")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add sort" }));
+    await user.click(
+      within(screen.getByRole("listbox", { name: "Sort fields" })).getByRole("option", {
+        name: "Updated",
+      }),
+    );
+    const sortRows = screen
+      .getAllByLabelText("Drag sort rule")
+      .map((handle) => handle.closest(".planner-sort-row") as HTMLElement);
+    const dataTransfer = {
+      data: new Map<string, string>(),
+      setData(type: string, value: string) {
+        this.data.set(type, value);
+      },
+      getData(type: string) {
+        return this.data.get(type) ?? "";
+      },
+    };
+    fireEvent.dragStart(sortRows[1], { dataTransfer });
+    fireEvent.dragOver(sortRows[0], { dataTransfer });
+    fireEvent.drop(sortRows[0], { dataTransfer });
+
+    expect(screen.getByText("Sorted by updated +1")).toBeInTheDocument();
   });
 
   it("renders yearly and monthly goal lists from loaded planner goals", async () => {
