@@ -2355,7 +2355,7 @@ function GoalPeriodControl({
             aria-label={label.includes(" for ") ? label.replace("Period", "Goal year") : "Goal year"}
             value={range.start.slice(0, 4)}
             onClick={stopRowEvent}
-            onKeyDown={stopRowEvent}
+            onKeyDown={stopRowKeyDown}
             onChange={(event) => commit("year", `${event.target.value}-01-01`)}
           >
             {yearOptions(Number(range.start.slice(0, 4))).map((year) => (

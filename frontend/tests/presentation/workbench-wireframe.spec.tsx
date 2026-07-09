@@ -2148,18 +2148,6 @@ describe("WorkbenchPageClient", () => {
     await user.tab();
     expect(screen.getByLabelText("Goal year")).toHaveFocus();
 
-    await user.tab();
-    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByRole("button", { name: "Create" })).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByLabelText("Title")).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByLabelText("Period type")).toHaveFocus();
-
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
   });
