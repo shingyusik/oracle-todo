@@ -37,16 +37,17 @@ The goal detail view shows one `Period` control.
 | Control | Stored values |
 | --- | --- |
 | `Year` + year select `2026` | `horizon = year`, `scheduled = 2026-01-01` |
-| `Month` + year select `2026` + month select `Jul` | `horizon = month`, `scheduled = 2026-07-01` |
-| `Week` + year select `2026` + month select `Jul` + week select `W1 (Jun 29-Jul 5)` | `horizon = week`, `scheduled = 2026-06-29` |
+| `Month` + calendar date pick inside July 2026 | `horizon = month`, `scheduled = 2026-07-01` |
+| `Week` + calendar date pick inside Jul 6-Jul 12 | `horizon = week`, `scheduled = 2026-07-06` |
 
-Week options are derived from the selected year and month. Each option shows:
+The month and week controls use a calendar grid:
 
-- `W1`, `W2`, etc. within that month view.
-- The Monday-Sunday date range beside the week label.
-- The stored `scheduled` value as the ISO Monday for that displayed week.
+- Month mode highlights the whole selected month, from the first day through the last day.
+- Week mode highlights the whole selected ISO week, from Monday through Sunday.
+- Clicking any day in month mode stores the first day of that day's month.
+- Clicking any day in week mode stores the ISO Monday of that day's week.
 
-The UI does not ask users to type `YYYY-MM-DD` for month or week goals.
+The UI does not ask users to type `YYYY-MM-DD` for month or week goals. The highlighted range is the visible cue that the goal belongs to the selected month or week, not only to the clicked day.
 
 ## Goal Creation
 
