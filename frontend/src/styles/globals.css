@@ -1171,6 +1171,14 @@ button {
   font-size: 12px;
 }
 
+.detail-properties-list .recurrence-field {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  border-bottom: 0;
+  padding: 0;
+}
+
 .recurrence-field input,
 .recurrence-field select {
   min-height: 30px;
