@@ -1279,6 +1279,70 @@ button {
   color: var(--color-shade-50);
 }
 
+.goal-period-control {
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.goal-period-range {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.goal-period-calendar {
+  display: grid;
+  gap: 6px;
+}
+
+.goal-period-calendar-header {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+}
+
+.goal-period-calendar-header span {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.goal-period-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 28px);
+  gap: 2px;
+}
+
+.goal-period-calendar-weekday,
+.goal-period-calendar-day {
+  min-height: 28px;
+  font-size: 11px;
+}
+
+.goal-period-calendar-weekday {
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+}
+
+.goal-period-calendar-day {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.goal-period-calendar-day-muted {
+  color: var(--color-text-muted);
+}
+
+.goal-period-calendar-day-selected {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

@@ -151,4 +151,12 @@ describe("design system boundaries", () => {
       ".items-section:has(.tag-dropdown) {\n  padding-bottom: 280px;",
     );
   });
+
+  it("keeps goal period calendar dependency-free", async () => {
+    const source = await readSource("src/features/workbench/ui/MainPanel.tsx");
+
+    expect(source).toContain("GoalPeriodCalendar");
+    expect(source).not.toContain("react-datepicker");
+    expect(source).not.toContain("@fullcalendar");
+  });
 });
