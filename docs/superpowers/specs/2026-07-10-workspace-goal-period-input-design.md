@@ -34,13 +34,19 @@ The Goals table shows:
 
 The goal detail view shows one `Period` control.
 
-| Control value | Stored values |
+| Control | Stored values |
 | --- | --- |
-| Year `2026` | `horizon = year`, `scheduled = 2026-01-01` |
-| Month `2026-07` | `horizon = month`, `scheduled = 2026-07-01` |
-| Week `2026-07-06` | `horizon = week`, `scheduled = 2026-07-06` |
+| `Year` + year select `2026` | `horizon = year`, `scheduled = 2026-01-01` |
+| `Month` + year select `2026` + month select `Jul` | `horizon = month`, `scheduled = 2026-07-01` |
+| `Week` + year select `2026` + month select `Jul` + week select `W1 (Jun 29-Jul 5)` | `horizon = week`, `scheduled = 2026-06-29` |
 
-The week value must remain an ISO Monday. Invalid combinations should use the existing backend validation error path.
+Week options are derived from the selected year and month. Each option shows:
+
+- `W1`, `W2`, etc. within that month view.
+- The Monday-Sunday date range beside the week label.
+- The stored `scheduled` value as the ISO Monday for that displayed week.
+
+The UI does not ask users to type `YYYY-MM-DD` for month or week goals.
 
 ## Goal Creation
 
@@ -49,11 +55,11 @@ Creating a goal from Workspace Goals uses:
 - `title`
 - `Period`
 
-The default period is the current year. Planner screens may continue deriving the period from the selected planner tab and date.
+The default period is the current year. Planner screens may continue deriving the period from the selected planner tab and date, but the visible Workspace Goals control still uses period selectors rather than raw dates.
 
 ## Boundaries
 
 - No `due` field for goals in table, detail, or creation.
 - No new API endpoint.
 - No custom date picker dependency.
-- No automatic period snapping in the frontend.
+- No free-form date parsing for goal periods.
