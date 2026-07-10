@@ -99,6 +99,13 @@ function testMonthStart(date: string): string {
   return `${date.slice(0, 7)}-01`;
 }
 
+function testMonthEnd(date: string): string {
+  const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
+  value.setMonth(value.getMonth() + 1);
+  value.setDate(0);
+  return formatDate(value);
+}
+
 function testNextMonthStart(date: string): string {
   const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
   value.setMonth(value.getMonth() + 1);
@@ -424,6 +431,7 @@ describe("WorkbenchPageClient", () => {
   it("defaults weekly planner goal creation to the active week anchor and shows it", async () => {
     const user = userEvent.setup();
     const weekStart = testWeekStart(testToday());
+    const monthStart = testMonthStart(testToday());
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=goal": [],
       "/todo-engine/items?type=task": [],
@@ -439,8 +447,8 @@ describe("WorkbenchPageClient", () => {
             method: "POST",
             body: JSON.stringify({
               title: "Anchored weekly goal",
-              horizon: "week",
-              scheduled: weekStart,
+              horizon: "month",
+              scheduled: monthStart,
               actor: "user",
             }),
           }),
@@ -453,8 +461,8 @@ describe("WorkbenchPageClient", () => {
             type: "goal",
             title: "Anchored weekly goal",
             status: "approved",
-            horizon: "week",
-            scheduled: weekStart,
+            horizon: "month",
+            scheduled: monthStart,
           }),
         });
       }
@@ -473,7 +481,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     await user.click(screen.getByRole("button", { name: "Add planner item" }));
 
-    expect(screen.getByLabelText("Scheduled")).toHaveValue(weekStart);
+    expect(screen.getByLabelText("Period type")).toHaveValue("week");
+    expect(screen.getByText(`${weekStart} to ${testAddDays(weekStart, 6)}`)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Period type"), "month");
+    expect(screen.getByText(`${monthStart} to ${testMonthEnd(testToday())}`)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Title"), "Anchored weekly goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -1915,9 +1927,12 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(
       2,
     );
-    expect(screen.getByLabelText("Scheduled for June outcome")).toHaveValue("2026-06-01");
-    expect(screen.getByLabelText("Horizon for June outcome")).toHaveValue("month");
-    expect(screen.getByLabelText("Due for June outcome")).toHaveValue("2026-06-30");
+    expect(screen.getByLabelText("Period for June outcome")).toHaveTextContent(
+      "2026-06-01 to 2026-06-30",
+    );
+    expect(screen.queryByLabelText("Due for June outcome")).toBeNull();
+    expect(screen.queryByLabelText("Horizon for June outcome")).toBeNull();
+    expect(screen.queryByLabelText("Scheduled for June outcome")).toBeNull();
   }, 10000);
 
   it("selects yearly when planner is clicked and daily when daily is clicked", async () => {
@@ -2128,36 +2143,43 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
 
     await user.tab();
-    expect(screen.getByLabelText("Scheduled")).toHaveFocus();
+    expect(screen.getByLabelText("Period type")).toHaveFocus();
 
     await user.tab();
-    expect(screen.getByLabelText("Horizon")).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByRole("button", { name: "Create" })).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByLabelText("Title")).toHaveFocus();
+    expect(screen.getByLabelText("Goal year")).toHaveFocus();
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
   });
 
-  it("shows only supported goal horizons and requires a scheduled date", async () => {
+  it("creates workspace goals through one period control", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string) => {
-        if (String(url).endsWith("/propose")) {
-          return Promise.resolve({ ok: true, json: async () => ({}) });
-        }
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose" && init?.method === "POST") {
+        expect(init.body).toBe(
+          JSON.stringify({
+            title: "July goal",
+            horizon: "month",
+            scheduled: "2026-07-01",
+            actor: "user",
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-new",
+            type: "goal",
+            title: "July goal",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-07-01",
+          }),
+        });
+      }
 
-        return Promise.resolve({ ok: true, json: async () => [] });
-      }),
-    );
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     render(<WorkbenchPageClient />);
     await user.click(screen.getByRole("button", { name: "ToDo" }));
@@ -2165,13 +2187,21 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Goals" }));
     await user.click(screen.getByRole("button", { name: "Add item" }));
 
-    const horizon = screen.getByLabelText("Horizon");
-    expect(horizon).toBeInTheDocument();
-    expect(horizon).toHaveTextContent("week");
-    expect(horizon).toHaveTextContent("month");
-    expect(horizon).toHaveTextContent("year");
-    expect(horizon).not.toHaveTextContent("quarter");
-    expect(screen.getByLabelText("Scheduled")).toBeRequired();
+    expect(screen.getByLabelText("Period type")).toHaveValue("year");
+    expect(screen.queryByLabelText("Scheduled")).toBeNull();
+    expect(screen.queryByLabelText("Horizon")).toBeNull();
+    expect(screen.queryByLabelText("Due")).toBeNull();
+
+    await user.type(screen.getByLabelText("Title"), "July goal");
+    await user.selectOptions(screen.getByLabelText("Period type"), "month");
+    await user.click(screen.getByRole("button", { name: /July 15, 2026/ }));
+    expect(screen.getByText("2026-07-01 to 2026-07-31")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/goals/propose",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("requires scheduled for event creation", async () => {
@@ -2677,7 +2707,6 @@ describe("WorkbenchPageClient", () => {
             status: "approved",
             horizon: "month",
             scheduled: "2026-06-01",
-            due: "2026-06-30",
             parent_id: "goal-root",
             note: "Ship the monthly target",
             created_at: "2026-06-01T00:00:00Z",
@@ -2690,7 +2719,6 @@ describe("WorkbenchPageClient", () => {
             status: "active",
             horizon: "year",
             scheduled: "2026-01-01",
-            due: "2026-12-31",
             note: "",
             created_at: "2026-01-01T00:00:00Z",
             updated_at: "2026-01-02T00:00:00Z",
@@ -2704,21 +2732,77 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
 
-    expect(await screen.findByRole("cell", { name: "month" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Scheduled for June outcome")).toHaveValue("2026-06-01");
-    expect(screen.getByLabelText("Due for June outcome")).toHaveValue("2026-06-30");
+    expect(screen.getByLabelText("Period for June outcome")).toHaveTextContent(
+      "2026-06-01 to 2026-06-30",
+    );
+    expect(screen.queryByLabelText("Due for June outcome")).toBeNull();
+    expect(screen.queryByLabelText("Horizon for June outcome")).toBeNull();
+    expect(screen.queryByLabelText("Scheduled for June outcome")).toBeNull();
     expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(2);
     expect(screen.getByRole("cell", { name: "Ship the monthly target" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("cell", { name: "June outcome" }));
 
-    expect(screen.getByLabelText("Horizon")).toHaveValue("month");
-    expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-06-01");
-    expect(screen.getByLabelText("Due")).toHaveValue("2026-06-30");
+    expect(screen.getByLabelText("Period type")).toHaveValue("month");
+    expect(screen.getByText("2026-06-01 to 2026-06-30")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Due")).toBeNull();
+    expect(screen.queryByLabelText("Horizon")).toBeNull();
+    expect(screen.queryByLabelText("Scheduled")).toBeNull();
     expect(screen.getByLabelText("Parent")).toHaveValue("goal-root");
     expect(screen.getByLabelText("Note")).toHaveValue("Ship the monthly target");
     expect(screen.getByText("2026-06-01")).toBeInTheDocument();
     expect(screen.getByText("2026-06-02")).toBeInTheDocument();
+  });
+
+  it("patches a goal period through the inline calendar with an ISO week anchor", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes("/items/goal-1") && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({ horizon: "week", scheduled: "2026-07-06" }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "week",
+            scheduled: "2026-07-06",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-06-01",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    await user.selectOptions(await screen.findByLabelText("Period type for Goal"), "week");
+    await user.click(screen.getByRole("button", { name: /July 10, 2026/ }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/goal-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(screen.queryByRole("heading", { name: "Goal" })).not.toBeInTheDocument();
   });
 
   it("saves project detail definition of done through the item PATCH endpoint", async () => {

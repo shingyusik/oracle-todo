@@ -159,4 +159,12 @@ describe("design system boundaries", () => {
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).not.toContain("animation-library");
   });
+
+  it("keeps goal period calendar dependency-free", async () => {
+    const source = await readSource("src/features/workbench/ui/MainPanel.tsx");
+
+    expect(source).toContain("GoalPeriodCalendar");
+    expect(source).not.toContain("react-datepicker");
+    expect(source).not.toContain("@fullcalendar");
+  });
 });

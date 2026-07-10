@@ -507,6 +507,12 @@ function plannerGoalDefaults(
   planner: PlannerControls,
   form: CreateWorkspaceItemForm,
 ): { horizon: string; scheduled?: string } {
+  if (form.horizon) {
+    return {
+      horizon: form.horizon,
+      scheduled: form.scheduled,
+    };
+  }
   if (panelId === "weekly") {
     return {
       horizon: "week",

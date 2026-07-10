@@ -1790,7 +1790,6 @@ function detailPatchForItem(
   if (item.type === "goal") {
     addStringPatch(patch, "horizon", draft.horizon, item.horizon);
     addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
-    addStringPatch(patch, "due", draft.due, item.due);
   }
 
   return patch;
@@ -2115,25 +2114,15 @@ function DetailTypeFields({
   if (item.type === "goal") {
     return (
       <>
-        <label className="field-label">
-          Horizon
-          <select value={draft.horizon} onChange={(event) => setField("horizon", event.target.value)}>
-            <option value="week">week</option>
-            <option value="month">month</option>
-            <option value="year">year</option>
-          </select>
-        </label>
-        <DetailTextField
-          label="Scheduled"
-          type="date"
-          value={draft.scheduled}
-          onChange={(value) => setField("scheduled", value)}
-        />
-        <DetailTextField
-          label="Due"
-          type="date"
-          value={draft.due}
-          onChange={(value) => setField("due", value)}
+        <GoalPeriodControl
+          label="Period"
+          horizon={draft.horizon}
+          scheduled={draft.scheduled}
+          commitOnChange={false}
+          onCommit={({ horizon, scheduled }) => {
+            setField("horizon", horizon);
+            setField("scheduled", scheduled);
+          }}
         />
         <DetailRelationField
           label="Parent"
@@ -2286,6 +2275,183 @@ function DetailPriorityField({
         ))}
       </select>
     </DetailInlineField>
+  );
+}
+
+type GoalPeriodControlProps = {
+  label: string;
+  horizon: string | null | undefined;
+  scheduled: string | null | undefined;
+  onCommit: (period: { horizon: GoalHorizon; scheduled: string }) => void;
+  commitOnChange?: boolean;
+};
+
+function GoalPeriodControl({
+  label,
+  horizon,
+  scheduled,
+  onCommit,
+  commitOnChange = true,
+}: GoalPeriodControlProps) {
+  const safeHorizon = isGoalHorizon(horizon) ? horizon : "year";
+  const safeScheduled =
+    formatDateValue(scheduled) || canonicalGoalScheduled(safeHorizon, todayValue());
+  const range = goalPeriodRange(safeHorizon, safeScheduled);
+
+  function commit(nextHorizon: GoalHorizon, date: string) {
+    onCommit({
+      horizon: nextHorizon,
+      scheduled: canonicalGoalScheduled(nextHorizon, date),
+    });
+  }
+
+  function periodBasisDate(nextHorizon: GoalHorizon): string {
+    if (nextHorizon !== safeHorizon && nextHorizon !== "year") {
+      return todayValue();
+    }
+    return safeScheduled;
+  }
+
+  return (
+    <div
+      className="goal-period-control"
+      role="group"
+      aria-label={label}
+      onClick={stopRowEvent}
+      onKeyDown={stopRowKeyDown}
+    >
+      <label className="field-label">
+        Period type
+        <select
+          aria-label={label.includes(" for ") ? label.replace("Period", "Period type") : "Period type"}
+          value={safeHorizon}
+          onClick={stopRowEvent}
+          onKeyDown={stopRowKeyDown}
+          onChange={(event) => {
+            const nextHorizon = event.target.value as GoalHorizon;
+            const nextDate = periodBasisDate(nextHorizon);
+            if (commitOnChange) {
+              commit(nextHorizon, nextDate);
+            } else {
+              onCommit({
+                horizon: nextHorizon,
+                scheduled: canonicalGoalScheduled(nextHorizon, nextDate),
+              });
+            }
+          }}
+        >
+          {goalHorizons.map((option) => (
+            <option key={option} value={option}>
+              {capitalize(option)}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {safeHorizon === "year" ? (
+        <label className="field-label">
+          Goal year
+          <select
+            aria-label={label.includes(" for ") ? label.replace("Period", "Goal year") : "Goal year"}
+            value={range.start.slice(0, 4)}
+            onClick={stopRowEvent}
+            onKeyDown={stopRowKeyDown}
+            onChange={(event) => commit("year", `${event.target.value}-01-01`)}
+          >
+            {yearOptions(Number(range.start.slice(0, 4))).map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <GoalPeriodCalendar
+          horizon={safeHorizon}
+          scheduled={safeScheduled}
+          onSelect={(date) => commit(safeHorizon, date)}
+        />
+      )}
+
+      <p className="goal-period-range">{range.start} to {range.end}</p>
+    </div>
+  );
+}
+
+function GoalPeriodCalendar({
+  horizon,
+  scheduled,
+  onSelect,
+}: {
+  horizon: Exclude<GoalHorizon, "year">;
+  scheduled: string;
+  onSelect: (date: string) => void;
+}) {
+  const [viewMonth, setViewMonth] = React.useState(() => monthStart(scheduled));
+  const range = goalPeriodRange(horizon, scheduled);
+  const cells = calendarMonthDays(viewMonth);
+
+  React.useEffect(() => {
+    setViewMonth(monthStart(scheduled));
+  }, [scheduled]);
+
+  return (
+    <div className="goal-period-calendar">
+      <div className="goal-period-calendar-header">
+        <button
+          type="button"
+          aria-label="Previous month"
+          onClick={(event) => {
+            stopRowEvent(event);
+            setViewMonth((current) => addMonth(current, -1));
+          }}
+        >
+          &lt;
+        </button>
+        <span>{monthLabel(viewMonth)}</span>
+        <button
+          type="button"
+          aria-label="Next month"
+          onClick={(event) => {
+            stopRowEvent(event);
+            setViewMonth((current) => addMonth(current, 1));
+          }}
+        >
+          &gt;
+        </button>
+      </div>
+      <div className="goal-period-calendar-grid">
+        {dayLabels.map((day) => (
+          <span className="goal-period-calendar-weekday" key={day}>
+            {day}
+          </span>
+        ))}
+        {cells.map((cell) => {
+          const selected = cell.date >= range.start && cell.date <= range.end;
+          return (
+            <button
+              type="button"
+              key={cell.date}
+              className={[
+                "goal-period-calendar-day",
+                cell.inMonth ? "" : "goal-period-calendar-day-muted",
+                selected ? "goal-period-calendar-day-selected" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              aria-label={goalPeriodDayAriaLabel(horizon, cell.date)}
+              aria-pressed={selected}
+              onClick={(event) => {
+                stopRowEvent(event);
+                onSelect(cell.date);
+              }}
+            >
+              {cell.day}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -2959,13 +3125,11 @@ function CreationDialog({ controller }: CreationDialogProps) {
     (controller.panel.id === "weekly" ||
       controller.panel.id === "monthly" ||
       controller.panel.id === "yearly");
+  const needsGoalPeriod = isGoal || isPlannerGoal;
   const needsScheduled =
     controller.panel.id === "events" ||
-    isGoal ||
-    isPlannerGoal ||
     ((controller.panel.id === "weekly" || controller.panel.id === "daily") &&
       (itemType === "task" || itemType === "event"));
-  const needsHorizon = isGoal;
 
   useEffect(() => {
     titleInputRef.current?.focus();
@@ -3050,6 +3214,18 @@ function CreationDialog({ controller }: CreationDialogProps) {
             required
           />
         </label>
+        {needsGoalPeriod ? (
+          <GoalPeriodControl
+            label="Period"
+            horizon={horizon}
+            scheduled={scheduled}
+            commitOnChange={false}
+            onCommit={({ horizon, scheduled }) => {
+              setHorizon(horizon);
+              setScheduled(scheduled);
+            }}
+          />
+        ) : null}
         {needsScheduled ? (
           <label className="field-label">
             Scheduled
@@ -3059,19 +3235,6 @@ function CreationDialog({ controller }: CreationDialogProps) {
               onChange={(event) => setScheduled(event.target.value)}
               required={needsScheduled}
             />
-          </label>
-        ) : null}
-        {needsHorizon ? (
-          <label className="field-label">
-            Horizon
-            <select
-              value={horizon}
-              onChange={(event) => setHorizon(event.target.value)}
-            >
-              <option value="week">week</option>
-              <option value="month">month</option>
-              <option value="year">year</option>
-            </select>
           </label>
         ) : null}
         <div className="dialog-actions">
@@ -3086,6 +3249,9 @@ function CreationDialog({ controller }: CreationDialogProps) {
 }
 
 function defaultCreationScheduled(controller: WorkbenchController): string {
+  if (controller.panel.id === "goals") {
+    return `${new Date().getFullYear()}-01-01`;
+  }
   if (controller.panel.id === "weekly") {
     return controller.planner.weekStart;
   }
@@ -3101,6 +3267,9 @@ function defaultCreationScheduled(controller: WorkbenchController): string {
 }
 
 function defaultCreationHorizon(controller: WorkbenchController): string {
+  if (controller.panel.id === "goals") {
+    return "year";
+  }
   if (controller.panel.id === "weekly") {
     return "week";
   }
@@ -3154,6 +3323,13 @@ function plannerCreationTypeOptions(
 
 function stopRowEvent(event: React.SyntheticEvent<HTMLElement>) {
   event.stopPropagation();
+}
+
+function stopRowKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+  if (event.key === "Escape") {
+    return;
+  }
+  stopRowEvent(event);
 }
 
 function InlineTextInput({
@@ -3730,15 +3906,17 @@ function priorityColumn(): ItemColumn {
   };
 }
 
-function horizonColumn(): ItemColumn {
+function goalPeriodColumn(): ItemColumn {
   return {
-    label: "Horizon",
+    label: "Period",
     value: (item, _items, controller) => (
-      <InlineSelect
-        label={`Horizon for ${item.title}`}
-        value={item.horizon}
-        options={["week", "month", "year"]}
-        onCommit={(horizon) => void controller.patchWorkspaceItem(item.id, { horizon })}
+      <GoalPeriodControl
+        label={`Period for ${item.title}`}
+        horizon={item.horizon}
+        scheduled={item.scheduled}
+        onCommit={({ horizon, scheduled }) =>
+          void controller.patchWorkspaceItem(item.id, { horizon, scheduled })
+        }
       />
     ),
   };
@@ -3901,9 +4079,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
   goals: [
     ...sharedColumns,
     tagsColumn(),
-    horizonColumn(),
-    scheduledDateColumn(),
-    dueColumn(),
+    goalPeriodColumn(),
     parentGoalColumn(),
     { label: "Note", value: (item) => displayValue(item.note) },
     { label: "Created", value: (item) => formatDate(item.created_at) },
@@ -3936,6 +4112,143 @@ function displayMaterializationPolicy(value: string): string {
       index === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part,
     )
     .join(" ");
+}
+
+type GoalHorizon = "year" | "month" | "week";
+
+const goalHorizons: GoalHorizon[] = ["year", "month", "week"];
+const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+type CalendarCell = {
+  date: string;
+  day: number;
+  inMonth: boolean;
+};
+
+function isGoalHorizon(value: string | null | undefined): value is GoalHorizon {
+  return value === "year" || value === "month" || value === "week";
+}
+
+function localDate(value: string): Date {
+  const [year = "1970", month = "1", day = "1"] = value.split("-");
+  return new Date(Number(year), Number(month) - 1, Number(day));
+}
+
+function localDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addLocalDays(value: string, days: number): string {
+  const date = localDate(value);
+  date.setDate(date.getDate() + days);
+  return localDateValue(date);
+}
+
+function addMonth(value: string, months: number): string {
+  const date = localDate(value);
+  date.setMonth(date.getMonth() + months, 1);
+  return localDateValue(date);
+}
+
+function monthStart(value: string): string {
+  const date = localDate(value);
+  return localDateValue(new Date(date.getFullYear(), date.getMonth(), 1));
+}
+
+function monthEnd(value: string): string {
+  const date = localDate(value);
+  return localDateValue(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+}
+
+function yearStart(value: string): string {
+  return `${localDate(value).getFullYear()}-01-01`;
+}
+
+function yearEnd(value: string): string {
+  return `${localDate(value).getFullYear()}-12-31`;
+}
+
+function isoWeekStart(value: string): string {
+  const date = localDate(value);
+  const day = date.getDay() || 7;
+  date.setDate(date.getDate() - day + 1);
+  return localDateValue(date);
+}
+
+function canonicalGoalScheduled(horizon: GoalHorizon, date: string): string {
+  if (horizon === "year") return yearStart(date);
+  if (horizon === "month") return monthStart(date);
+  return isoWeekStart(date);
+}
+
+function goalPeriodRange(
+  horizon: GoalHorizon,
+  scheduled: string,
+): { start: string; end: string } {
+  const start = canonicalGoalScheduled(horizon, scheduled);
+  if (horizon === "year") return { start, end: yearEnd(start) };
+  if (horizon === "month") return { start, end: monthEnd(start) };
+  return { start, end: addLocalDays(start, 6) };
+}
+
+function yearOptions(selectedYear: number): number[] {
+  const currentYear = new Date().getFullYear();
+  const start = Math.min(selectedYear, currentYear) - 2;
+  const end = Math.max(selectedYear, currentYear) + 5;
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+function calendarMonthDays(anchor: string): CalendarCell[] {
+  const first = localDate(monthStart(anchor));
+  const startOffset = (first.getDay() || 7) - 1;
+  const gridStart = new Date(first);
+  gridStart.setDate(first.getDate() - startOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    return {
+      date: localDateValue(date),
+      day: date.getDate(),
+      inMonth: date.getMonth() === first.getMonth(),
+    };
+  });
+}
+
+function monthLabel(value: string): string {
+  return localDate(value).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function goalPeriodDayAriaLabel(
+  horizon: Exclude<GoalHorizon, "year">,
+  date: string,
+): string {
+  const formattedDate = localDate(date).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const range = goalPeriodRange(horizon, date);
+
+  if (horizon === "month") {
+    return `${formattedDate}. Selects the month containing this date, ${range.start} to ${range.end}.`;
+  }
+
+  return `${formattedDate}. Selects the week containing this date, ${range.start} to ${range.end}.`;
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function todayValue(): string {
+  return localDateValue(new Date());
 }
 
 function formatDateValue(value: string | null | undefined): string {
