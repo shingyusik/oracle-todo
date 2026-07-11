@@ -2253,7 +2253,6 @@ function DetailTypeFields({
           label="Period"
           horizon={draft.horizon}
           scheduled={draft.scheduled}
-          commitOnChange={false}
           onCommit={({ horizon, scheduled }) => {
             setField("horizon", horizon);
             setField("scheduled", scheduled);
@@ -2418,7 +2417,6 @@ type GoalPeriodControlProps = {
   horizon: string | null | undefined;
   scheduled: string | null | undefined;
   onCommit: (period: { horizon: GoalHorizon; scheduled: string }) => void;
-  commitOnChange?: boolean;
 };
 
 function GoalPeriodControl({
@@ -2426,89 +2424,113 @@ function GoalPeriodControl({
   horizon,
   scheduled,
   onCommit,
-  commitOnChange = true,
 }: GoalPeriodControlProps) {
   const safeHorizon = isGoalHorizon(horizon) ? horizon : "year";
   const safeScheduled =
     formatDateValue(scheduled) || canonicalGoalScheduled(safeHorizon, todayValue());
-  const range = goalPeriodRange(safeHorizon, safeScheduled);
+  const controlRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [candidateHorizon, setCandidateHorizon] = React.useState<GoalHorizon>(safeHorizon);
+  const candidateScheduled =
+    safeHorizon === "year" && candidateHorizon !== "year" ? todayValue() : safeScheduled;
+  const candidateRange = goalPeriodRange(candidateHorizon, candidateScheduled);
 
-  function commit(nextHorizon: GoalHorizon, date: string) {
-    onCommit({
-      horizon: nextHorizon,
-      scheduled: canonicalGoalScheduled(nextHorizon, date),
-    });
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function dismissOnOutsidePointer(event: MouseEvent) {
+      if (event.target instanceof Node && !controlRef.current?.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", dismissOnOutsidePointer);
+    return () => document.removeEventListener("mousedown", dismissOnOutsidePointer);
+  }, [isOpen]);
+
+  function open() {
+    setCandidateHorizon(safeHorizon);
+    setIsOpen(true);
   }
 
-  function periodBasisDate(nextHorizon: GoalHorizon): string {
-    if (nextHorizon !== safeHorizon && nextHorizon !== "year") {
-      return todayValue();
-    }
-    return safeScheduled;
+  function commit(date: string) {
+    setIsOpen(false);
+    onCommit({
+      horizon: candidateHorizon,
+      scheduled: canonicalGoalScheduled(candidateHorizon, date),
+    });
   }
 
   return (
     <div
+      ref={controlRef}
       className="goal-period-control"
       role="group"
       aria-label={label}
       onClick={stopRowEvent}
-      onKeyDown={stopRowKeyDown}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && isOpen) {
+          event.stopPropagation();
+          setIsOpen(false);
+          return;
+        }
+        stopRowKeyDown(event);
+      }}
     >
-      <label className="field-label">
-        Period type
-        <select
-          aria-label={label.includes(" for ") ? label.replace("Period", "Period type") : "Period type"}
-          value={safeHorizon}
-          onClick={stopRowEvent}
-          onKeyDown={stopRowKeyDown}
-          onChange={(event) => {
-            const nextHorizon = event.target.value as GoalHorizon;
-            const nextDate = periodBasisDate(nextHorizon);
-            if (commitOnChange) {
-              commit(nextHorizon, nextDate);
-            } else {
-              onCommit({
-                horizon: nextHorizon,
-                scheduled: canonicalGoalScheduled(nextHorizon, nextDate),
-              });
-            }
-          }}
-        >
-          {goalHorizons.map((option) => (
-            <option key={option} value={option}>
-              {capitalize(option)}
-            </option>
-          ))}
-        </select>
-      </label>
+      <button
+        type="button"
+        className="goal-period-trigger"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        onClick={() => (isOpen ? setIsOpen(false) : open())}
+      >
+        {goalPeriodTriggerLabel(safeHorizon, safeScheduled)}
+      </button>
 
-      {safeHorizon === "year" ? (
-        <label className="field-label">
-          Goal year
-          <select
-            aria-label={label.includes(" for ") ? label.replace("Period", "Goal year") : "Goal year"}
-            value={range.start.slice(0, 4)}
-            onClick={stopRowEvent}
-            onKeyDown={stopRowKeyDown}
-            onChange={(event) => commit("year", `${event.target.value}-01-01`)}
-          >
-            {yearOptions(Number(range.start.slice(0, 4))).map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
+      {isOpen ? (
+        <div className="goal-period-popover" role="dialog" aria-label={label}>
+          <div className="goal-period-types" aria-label="Period type">
+            {goalHorizons.map((horizonOption) => (
+              <button
+                type="button"
+                key={horizonOption}
+                aria-pressed={candidateHorizon === horizonOption}
+                onClick={() => setCandidateHorizon(horizonOption)}
+              >
+                {capitalize(horizonOption)}
+              </button>
             ))}
-          </select>
-        </label>
-      ) : (
-        <GoalPeriodCalendar
-          horizon={safeHorizon}
-          scheduled={safeScheduled}
-          onSelect={(date) => commit(safeHorizon, date)}
-        />
-      )}
+          </div>
 
-      <p className="goal-period-range">{range.start} to {range.end}</p>
+          {candidateHorizon === "year" ? (
+            <label className="field-label">
+              Goal year
+              <select
+                aria-label="Goal year"
+                value={candidateRange.start.slice(0, 4)}
+                onChange={(event) => commit(`${event.target.value}-01-01`)}
+              >
+                {yearOptions(Number(safeScheduled.slice(0, 4))).map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <GoalPeriodCalendar
+              horizon={candidateHorizon}
+              scheduled={candidateScheduled}
+              onSelect={commit}
+            />
+          )}
+
+          <p className="goal-period-range">
+            {candidateRange.start} to {candidateRange.end}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3354,7 +3376,6 @@ function CreationDialog({ controller }: CreationDialogProps) {
             label="Period"
             horizon={horizon}
             scheduled={scheduled}
-            commitOnChange={false}
             onCommit={({ horizon, scheduled }) => {
               setHorizon(horizon);
               setScheduled(scheduled);
@@ -4348,6 +4369,18 @@ function goalPeriodRange(
   if (horizon === "year") return { start, end: yearEnd(start) };
   if (horizon === "month") return { start, end: monthEnd(start) };
   return { start, end: addLocalDays(start, 6) };
+}
+
+function goalPeriodTriggerLabel(horizon: GoalHorizon, scheduled: string): string {
+  const range = goalPeriodRange(horizon, scheduled);
+
+  if (horizon === "year") {
+    return `Year · ${range.start.slice(0, 4)}`;
+  }
+  if (horizon === "month") {
+    return `Month · ${monthLabel(range.start)}`;
+  }
+  return `Week · ${range.start} to ${range.end}`;
 }
 
 function yearOptions(selectedYear: number): number[] {

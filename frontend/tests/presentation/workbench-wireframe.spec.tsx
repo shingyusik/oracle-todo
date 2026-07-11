@@ -487,11 +487,15 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     await user.click(screen.getByRole("button", { name: "Add planner item" }));
 
-    expect(screen.getByLabelText("Period type")).toHaveValue("week");
-    expect(screen.getByText(`${weekStart} to ${testAddDays(weekStart, 6)}`)).toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "Period" });
+    expect(trigger).toHaveTextContent("Week");
 
-    await user.selectOptions(screen.getByLabelText("Period type"), "month");
+    await user.click(trigger);
+    const picker = screen.getByRole("dialog", { name: "Period" });
+    expect(screen.getByText(`${weekStart} to ${testAddDays(weekStart, 6)}`)).toBeInTheDocument();
+    await user.click(within(picker).getByRole("button", { name: "Month" }));
     expect(screen.getByText(`${monthStart} to ${testMonthEnd(testToday())}`)).toBeInTheDocument();
+    await user.click(within(picker).getByRole("button", { name: /July 15, 2026/ }));
 
     await user.type(screen.getByLabelText("Title"), "Anchored weekly goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -556,9 +560,13 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Add planner item" }));
 
-    expect(screen.getByLabelText("Period type")).toHaveValue("year");
-    expect(screen.getByLabelText("Goal year")).toHaveValue(yearStart.slice(0, 4));
-    expect(screen.getByText(`${yearStart} to ${yearStart.slice(0, 4)}-12-31`)).toBeInTheDocument();
+    const yearlyTrigger = screen.getByRole("button", { name: "Period" });
+    expect(yearlyTrigger).toHaveTextContent("Year");
+    await user.click(yearlyTrigger);
+    expect(
+      within(screen.getByRole("dialog", { name: "Period" })).getByLabelText("Goal year"),
+    ).toHaveValue(yearStart.slice(0, 4));
+    await user.keyboard("{Escape}");
 
     await user.type(screen.getByLabelText("Title"), "Year anchor goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -574,8 +582,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     await user.click(screen.getByRole("button", { name: "Add planner item" }));
 
-    expect(screen.getByLabelText("Period type")).toHaveValue("month");
-    expect(screen.getByText(`${monthStart} to ${testMonthEnd(monthStart)}`)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Period" })).toHaveTextContent("Month");
 
     await user.type(screen.getByLabelText("Title"), "Month anchor goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -2176,8 +2183,8 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getAllByRole("cell", { name: "Root objective" })).toHaveLength(
       2,
     );
-    expect(screen.getByLabelText("Period for June outcome")).toHaveTextContent(
-      "2026-06-01 to 2026-06-30",
+    expect(screen.getByRole("button", { name: "Period for June outcome" })).toHaveTextContent(
+      "Month",
     );
     expect(screen.queryByLabelText("Due for June outcome")).toBeNull();
     expect(screen.queryByLabelText("Horizon for June outcome")).toBeNull();
@@ -2392,10 +2399,13 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
 
     await user.tab();
-    expect(screen.getByLabelText("Period type")).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Period" })).toHaveFocus();
 
     await user.tab();
-    expect(screen.getByLabelText("Goal year")).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Create" })).toHaveFocus();
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
@@ -2436,15 +2446,44 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Goals" }));
     await user.click(screen.getByRole("button", { name: "Add item" }));
 
-    expect(screen.getByLabelText("Period type")).toHaveValue("year");
+    const trigger = screen.getByRole("button", { name: "Period" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog", { name: "Period" })).toBeNull();
     expect(screen.queryByLabelText("Scheduled")).toBeNull();
     expect(screen.queryByLabelText("Horizon")).toBeNull();
     expect(screen.queryByLabelText("Due")).toBeNull();
 
     await user.type(screen.getByLabelText("Title"), "July goal");
-    await user.selectOptions(screen.getByLabelText("Period type"), "month");
-    await user.click(screen.getByRole("button", { name: /July 15, 2026/ }));
-    expect(screen.getByText("2026-07-01 to 2026-07-31")).toBeInTheDocument();
+    await user.click(trigger);
+    const picker = screen.getByRole("dialog", { name: "Period" });
+    expect(within(picker).getByRole("button", { name: "Year" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(within(picker).getByRole("button", { name: "Month" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    await user.click(within(picker).getByRole("button", { name: "Month" }));
+    expect(screen.getByRole("dialog", { name: "Period" })).toBeInTheDocument();
+    expect(trigger).toHaveTextContent("Year");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Period" })).toBeNull();
+    expect(trigger).toHaveTextContent("Year");
+
+    await user.click(trigger);
+    const committedPicker = screen.getByRole("dialog", { name: "Period" });
+    await user.click(within(committedPicker).getByRole("button", { name: "Month" }));
+    await user.click(within(committedPicker).getByRole("button", { name: /July 15, 2026/ }));
+    expect(screen.queryByRole("dialog", { name: "Period" })).toBeNull();
+    expect(trigger).toHaveTextContent("Month");
+
+    await user.click(trigger);
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("dialog", { name: "Period" })).toBeNull();
+    expect(trigger).toHaveTextContent("Month");
 
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(fetchMock).toHaveBeenCalledWith(
@@ -2944,9 +2983,7 @@ describe("WorkbenchPageClient", () => {
 
   it("shows the same goal fields in the table and detail", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => [
           {
@@ -2973,17 +3010,18 @@ describe("WorkbenchPageClient", () => {
             updated_at: "2026-01-02T00:00:00Z",
           },
         ],
-      }),
-    );
+      });
+    vi.stubGlobal("fetch", fetchMock);
 
     render(<WorkbenchPageClient />);
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
 
-    expect(screen.getByLabelText("Period for June outcome")).toHaveTextContent(
-      "2026-06-01 to 2026-06-30",
+    expect(screen.getByRole("button", { name: "Period for June outcome" })).toHaveTextContent(
+      "Month",
     );
+    expect(screen.queryByRole("dialog", { name: "Period for June outcome" })).toBeNull();
     expect(screen.queryByLabelText("Due for June outcome")).toBeNull();
     expect(screen.queryByLabelText("Horizon for June outcome")).toBeNull();
     expect(screen.queryByLabelText("Scheduled for June outcome")).toBeNull();
@@ -2992,8 +3030,8 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("cell", { name: "June outcome" }));
 
-    expect(screen.getByLabelText("Period type")).toHaveValue("month");
-    expect(screen.getByText("2026-06-01 to 2026-06-30")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Period" })).toHaveTextContent("Month");
+    expect(screen.queryByRole("dialog", { name: "Period" })).toBeNull();
     expect(screen.queryByLabelText("Due")).toBeNull();
     expect(screen.queryByLabelText("Horizon")).toBeNull();
     expect(screen.queryByLabelText("Scheduled")).toBeNull();
@@ -3001,6 +3039,17 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Note")).toHaveValue("Ship the monthly target");
     expect(screen.getByText("2026-06-01")).toBeInTheDocument();
     expect(screen.getByText("2026-06-02")).toBeInTheDocument();
+
+    const detailTrigger = screen.getByRole("button", { name: "Period" });
+    await user.click(detailTrigger);
+    const detailPicker = screen.getByRole("dialog", { name: "Period" });
+    await user.click(within(detailPicker).getByRole("button", { name: "Week" }));
+    await user.click(within(detailPicker).getByRole("button", { name: /June 10, 2026/ }));
+
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(0);
   });
 
   it("patches a goal period through the inline calendar with an ISO week anchor", async () => {
@@ -3044,8 +3093,19 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
 
-    await user.selectOptions(await screen.findByLabelText("Period type for Goal"), "week");
-    await user.click(screen.getByRole("button", { name: /July 10, 2026/ }));
+    const trigger = await screen.findByRole("button", { name: "Period for Goal" });
+    await user.click(trigger);
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+    await user.click(within(picker).getByRole("button", { name: "Week" }));
+
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) => String(url).includes("/items/goal-1") && init?.method === "PATCH",
+      ),
+    ).toHaveLength(0);
+
+    await user.click(within(picker).getByRole("button", { name: /July 10, 2026/ }));
+    expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull();
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/goal-1",
