@@ -130,6 +130,7 @@ function testNextYearStart(date: string): string {
 
 describe("WorkbenchPageClient", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -564,8 +565,10 @@ describe("WorkbenchPageClient", () => {
     expect(yearlyTrigger).toHaveTextContent("Year");
     await user.click(yearlyTrigger);
     expect(
-      within(screen.getByRole("dialog", { name: "Period" })).getByLabelText("Goal year"),
-    ).toHaveValue(yearStart.slice(0, 4));
+      within(screen.getByRole("dialog", { name: "Period" })).getByRole("button", {
+        name: yearStart.slice(0, 4),
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
     await user.keyboard("{Escape}");
 
     await user.type(screen.getByLabelText("Title"), "Year anchor goal");
@@ -3112,6 +3115,130 @@ describe("WorkbenchPageClient", () => {
       expect.objectContaining({ method: "PATCH" }),
     );
     expect(screen.queryByRole("heading", { name: "Goal" })).not.toBeInTheDocument();
+  });
+
+  it("uses a fixed viewport popover, repositions on scroll, and restores focus on escape", async () => {
+    const user = userEvent.setup();
+    const addEventListenerSpy = vi.spyOn(window, "addEventListener");
+    const removeEventListenerSpy = vi.spyOn(window, "removeEventListener");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: "goal-1",
+              type: "goal",
+              title: "Goal",
+              status: "approved",
+              horizon: "month",
+              scheduled: "2026-06-01",
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    const trigger = await screen.findByRole("button", { name: "Period for Goal" });
+    await user.click(trigger);
+
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+    await waitFor(() =>
+      expect(within(picker).getByRole("button", { name: "Month" })).toHaveFocus(),
+    );
+    expect(picker).toHaveStyle({
+      position: "fixed",
+      overflowY: "auto",
+    });
+    expect(picker.style.maxHeight).not.toBe("");
+    expect(document.body).toContainElement(picker);
+    expect(screen.getByLabelText("Goals items")).not.toContainElement(picker);
+    expect(
+      addEventListenerSpy.mock.calls.some(([type]) => type === "resize"),
+    ).toBe(true);
+    expect(
+      addEventListenerSpy.mock.calls.some(
+        ([type, _listener, options]) => type === "scroll" && options === true,
+      ),
+    ).toBe(true);
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(
+      removeEventListenerSpy.mock.calls.some(([type]) => type === "resize"),
+    ).toBe(true);
+    expect(
+      removeEventListenerSpy.mock.calls.some(
+        ([type, _listener, options]) => type === "scroll" && options === true,
+      ),
+    ).toBe(true);
+  });
+
+  it("commits a same-year month goal to year exactly once and returns focus to the trigger", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({ horizon: "year", scheduled: "2026-01-01" }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "year",
+            scheduled: "2026-01-01",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-06-01",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    const trigger = await screen.findByRole("button", { name: "Period for Goal" });
+    await user.click(trigger);
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+
+    await user.click(within(picker).getByRole("button", { name: "Year" }));
+    await user.click(within(picker).getByRole("button", { name: "2026" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull());
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) => url === "/todo-engine/items/goal-1" && init?.method === "PATCH",
+      ),
+    ).toHaveLength(1);
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).toHaveTextContent("Year");
   });
 
   it("saves project detail definition of done through the item PATCH endpoint", async () => {

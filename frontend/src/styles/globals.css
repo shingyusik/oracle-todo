@@ -1435,10 +1435,7 @@ button {
 }
 
 .goal-period-popover {
-  position: absolute;
   z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
   display: grid;
   width: min(320px, calc(100vw - 32px));
   gap: 12px;
@@ -1447,6 +1444,7 @@ button {
   background: var(--color-canvas-light);
   padding: 12px;
   box-shadow: 0 10px 24px rgb(0 0 0 / 12%);
+  overflow-x: hidden;
 }
 
 .goal-period-types {
@@ -1456,6 +1454,18 @@ button {
 }
 
 .goal-period-types button[aria-pressed="true"] {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-on-dark);
+}
+
+.goal-period-year-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.goal-period-year-button[aria-pressed="true"] {
   border-color: var(--color-ink);
   background: var(--color-ink);
   color: var(--color-on-dark);
@@ -1528,16 +1538,6 @@ button {
 }
 
 @media (max-width: 767px) {
-  .goal-period-popover {
-    position: fixed;
-    top: 16px;
-    left: 16px;
-    right: 16px;
-    width: auto;
-    max-width: 320px;
-    margin-inline: auto;
-  }
-
   .workbench-shell {
     grid-template-columns: 1fr;
   }
