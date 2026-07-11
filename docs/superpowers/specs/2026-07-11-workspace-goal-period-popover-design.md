@@ -28,11 +28,11 @@ Activating the button opens the period popover. The calendar is never visible wh
 
 The popover contains, in order:
 
-1. A four-option type selector: Year, Month, Week, Day.
+1. A three-option type selector: Year, Month, Week.
 2. A value picker for the selected type.
 3. A range summary for the candidate period.
 
-Year uses the existing year selection list. Month, Week, and Day use the existing calendar grid with month navigation.
+Year uses the existing year selection list. Month and Week use the existing calendar grid with month navigation.
 
 The type selector stays visible with the value picker so users can change both parts of a period without leaving the popover.
 
@@ -51,7 +51,6 @@ Existing canonicalization remains unchanged:
 | Year | January 1 of the selected year |
 | Month | First day of the selected month |
 | Week | ISO Monday of the selected day |
-| Day | Selected day |
 
 ## State And Persistence
 
@@ -91,6 +90,7 @@ Presentation tests cover:
 
 ## Non-Goals
 
+- A daily goal horizon.
 - A new date-picker dependency.
 - Free-form date entry or parsing.
 - Separate Apply or Cancel actions.
