@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDownUp,
   ArrowLeft,
@@ -2253,7 +2254,6 @@ function DetailTypeFields({
           label="Period"
           horizon={draft.horizon}
           scheduled={draft.scheduled}
-          commitOnChange={false}
           onCommit={({ horizon, scheduled }) => {
             setField("horizon", horizon);
             setField("scheduled", scheduled);
@@ -2418,7 +2418,6 @@ type GoalPeriodControlProps = {
   horizon: string | null | undefined;
   scheduled: string | null | undefined;
   onCommit: (period: { horizon: GoalHorizon; scheduled: string }) => void;
-  commitOnChange?: boolean;
 };
 
 function GoalPeriodControl({
@@ -2426,89 +2425,184 @@ function GoalPeriodControl({
   horizon,
   scheduled,
   onCommit,
-  commitOnChange = true,
 }: GoalPeriodControlProps) {
   const safeHorizon = isGoalHorizon(horizon) ? horizon : "year";
   const safeScheduled =
     formatDateValue(scheduled) || canonicalGoalScheduled(safeHorizon, todayValue());
-  const range = goalPeriodRange(safeHorizon, safeScheduled);
+  const controlRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [candidateHorizon, setCandidateHorizon] = React.useState<GoalHorizon>(safeHorizon);
+  const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties | null>(null);
+  const shouldRestoreFocusRef = useRef(false);
+  const candidateScheduled =
+    safeHorizon === "year" && candidateHorizon !== "year" ? todayValue() : safeScheduled;
+  const candidateRange = goalPeriodRange(candidateHorizon, candidateScheduled);
 
-  function commit(nextHorizon: GoalHorizon, date: string) {
-    onCommit({
-      horizon: nextHorizon,
-      scheduled: canonicalGoalScheduled(nextHorizon, date),
-    });
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function dismissOnOutsidePointer(event: MouseEvent) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      if (
+        controlRef.current?.contains(event.target) ||
+        popoverRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      close(true);
+    }
+
+    document.addEventListener("mousedown", dismissOnOutsidePointer);
+    return () => document.removeEventListener("mousedown", dismissOnOutsidePointer);
+  }, [isOpen]);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return;
+
+    function updatePopoverPosition() {
+      const trigger = triggerRef.current;
+      const popover = popoverRef.current;
+      if (!trigger || !popover) {
+        return;
+      }
+
+      setPopoverStyle(goalPeriodPopoverStyle(trigger, popover));
+    }
+
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [isOpen, candidateHorizon, candidateScheduled]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setPopoverStyle(null);
+      if (shouldRestoreFocusRef.current) {
+        shouldRestoreFocusRef.current = false;
+        triggerRef.current?.focus();
+      }
+      return;
+    }
+
+    const activeChoice = popoverRef.current?.querySelector<HTMLElement>(
+      "button[aria-pressed='true']",
+    );
+    const fallbackChoice = popoverRef.current?.querySelector<HTMLElement>(
+      "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
+    );
+    const focusTarget = activeChoice ?? fallbackChoice;
+    focusTarget?.focus();
+  }, [isOpen, candidateHorizon]);
+
+  function close(restoreFocus: boolean) {
+    shouldRestoreFocusRef.current = restoreFocus;
+    setIsOpen(false);
   }
 
-  function periodBasisDate(nextHorizon: GoalHorizon): string {
-    if (nextHorizon !== safeHorizon && nextHorizon !== "year") {
-      return todayValue();
-    }
-    return safeScheduled;
+  function open() {
+    setCandidateHorizon(safeHorizon);
+    setIsOpen(true);
+  }
+
+  function commit(date: string) {
+    close(true);
+    onCommit({
+      horizon: candidateHorizon,
+      scheduled: canonicalGoalScheduled(candidateHorizon, date),
+    });
   }
 
   return (
     <div
+      ref={controlRef}
       className="goal-period-control"
       role="group"
       aria-label={label}
       onClick={stopRowEvent}
-      onKeyDown={stopRowKeyDown}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && isOpen) {
+          event.stopPropagation();
+          close(true);
+          return;
+        }
+        stopRowKeyDown(event);
+      }}
     >
-      <label className="field-label">
-        Period type
-        <select
-          aria-label={label.includes(" for ") ? label.replace("Period", "Period type") : "Period type"}
-          value={safeHorizon}
-          onClick={stopRowEvent}
-          onKeyDown={stopRowKeyDown}
-          onChange={(event) => {
-            const nextHorizon = event.target.value as GoalHorizon;
-            const nextDate = periodBasisDate(nextHorizon);
-            if (commitOnChange) {
-              commit(nextHorizon, nextDate);
-            } else {
-              onCommit({
-                horizon: nextHorizon,
-                scheduled: canonicalGoalScheduled(nextHorizon, nextDate),
-              });
-            }
-          }}
-        >
-          {goalHorizons.map((option) => (
-            <option key={option} value={option}>
-              {capitalize(option)}
-            </option>
-          ))}
-        </select>
-      </label>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="goal-period-trigger"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        onClick={() => (isOpen ? close(false) : open())}
+      >
+        {goalPeriodTriggerLabel(safeHorizon, safeScheduled)}
+      </button>
 
-      {safeHorizon === "year" ? (
-        <label className="field-label">
-          Goal year
-          <select
-            aria-label={label.includes(" for ") ? label.replace("Period", "Goal year") : "Goal year"}
-            value={range.start.slice(0, 4)}
+      {isOpen ? (
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="goal-period-popover"
+            style={popoverStyle ?? undefined}
+            role="dialog"
+            aria-label={label}
             onClick={stopRowEvent}
-            onKeyDown={stopRowKeyDown}
-            onChange={(event) => commit("year", `${event.target.value}-01-01`)}
           >
-            {yearOptions(Number(range.start.slice(0, 4))).map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : (
-        <GoalPeriodCalendar
-          horizon={safeHorizon}
-          scheduled={safeScheduled}
-          onSelect={(date) => commit(safeHorizon, date)}
-        />
-      )}
+            <div className="goal-period-types" aria-label="Period type">
+              {goalHorizons.map((horizonOption) => (
+                <button
+                  type="button"
+                  key={horizonOption}
+                  aria-pressed={candidateHorizon === horizonOption}
+                  onClick={() => setCandidateHorizon(horizonOption)}
+                >
+                  {capitalize(horizonOption)}
+                </button>
+              ))}
+            </div>
 
-      <p className="goal-period-range">{range.start} to {range.end}</p>
+            {candidateHorizon === "year" ? (
+              <div className="field-label">
+                <span>Goal year</span>
+                <div className="goal-period-year-list" aria-label="Goal year" role="group">
+                  {yearOptions(Number(safeScheduled.slice(0, 4))).map((year) => (
+                    <button
+                      type="button"
+                      key={year}
+                      className="goal-period-year-button"
+                      aria-pressed={candidateRange.start.slice(0, 4) === year.toString()}
+                      onClick={() => commit(`${year}-01-01`)}
+                    >
+                      {year}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <GoalPeriodCalendar
+                horizon={candidateHorizon}
+                scheduled={candidateScheduled}
+                onSelect={commit}
+              />
+            )}
+
+            <p className="goal-period-range">
+              {candidateRange.start} to {candidateRange.end}
+            </p>
+          </div>,
+          document.body,
+        )
+      ) : null}
     </div>
   );
 }
@@ -3354,7 +3448,6 @@ function CreationDialog({ controller }: CreationDialogProps) {
             label="Period"
             horizon={horizon}
             scheduled={scheduled}
-            commitOnChange={false}
             onCommit={({ horizon, scheduled }) => {
               setHorizon(horizon);
               setScheduled(scheduled);
@@ -4350,11 +4443,63 @@ function goalPeriodRange(
   return { start, end: addLocalDays(start, 6) };
 }
 
+function goalPeriodTriggerLabel(horizon: GoalHorizon, scheduled: string): string {
+  const range = goalPeriodRange(horizon, scheduled);
+
+  if (horizon === "year") {
+    return `Year · ${range.start.slice(0, 4)}`;
+  }
+  if (horizon === "month") {
+    return `Month · ${monthLabel(range.start)}`;
+  }
+  return `Week · ${range.start} to ${range.end}`;
+}
+
 function yearOptions(selectedYear: number): number[] {
   const currentYear = new Date().getFullYear();
   const start = Math.min(selectedYear, currentYear) - 2;
   const end = Math.max(selectedYear, currentYear) + 5;
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+function goalPeriodPopoverStyle(
+  trigger: HTMLElement,
+  popover: HTMLElement,
+): React.CSSProperties {
+  const viewportMargin = 16;
+  const offset = 4;
+  const triggerRect = trigger.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const width = Math.min(
+    popoverRect.width || 320,
+    Math.max(0, window.innerWidth - viewportMargin * 2),
+  );
+  const popoverHeight = popoverRect.height || popover.scrollHeight || 0;
+  const belowSpace = Math.max(0, window.innerHeight - viewportMargin - triggerRect.bottom - offset);
+  const aboveSpace = Math.max(0, triggerRect.top - viewportMargin - offset);
+  const placeAbove = belowSpace < popoverHeight && aboveSpace > belowSpace;
+  const availableHeight = placeAbove ? aboveSpace : belowSpace;
+  const renderedHeight = Math.min(popoverHeight, Math.max(1, availableHeight || popoverHeight));
+  const maxLeft = Math.max(viewportMargin, window.innerWidth - viewportMargin - width);
+  const left = clampNumber(triggerRect.left, viewportMargin, maxLeft);
+  const rawTop = placeAbove
+    ? triggerRect.top - offset - renderedHeight
+    : triggerRect.bottom + offset;
+  const maxTop = Math.max(viewportMargin, window.innerHeight - viewportMargin - renderedHeight);
+  const top = clampNumber(rawTop, viewportMargin, maxTop);
+
+  return {
+    position: "fixed",
+    top: `${Math.round(top)}px`,
+    left: `${Math.round(left)}px`,
+    width: `${Math.round(width)}px`,
+    maxHeight: `${Math.max(0, Math.round(availableHeight))}px`,
+    overflowY: "auto",
+  };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function calendarMonthDays(anchor: string): CalendarCell[] {
