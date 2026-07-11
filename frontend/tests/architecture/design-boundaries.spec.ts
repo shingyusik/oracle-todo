@@ -162,4 +162,12 @@ describe("design system boundaries", () => {
     expect(css).toContain(".period-carousel-card[data-position=\"previous\"],\n  .period-carousel-card[data-position=\"next\"] {\n    transform: none;");
     expect(css).not.toContain("animation-library");
   });
+
+  it("keeps goal period calendar dependency-free", async () => {
+    const source = await readSource("src/features/workbench/ui/MainPanel.tsx");
+
+    expect(source).toContain("GoalPeriodCalendar");
+    expect(source).not.toContain("react-datepicker");
+    expect(source).not.toContain("@fullcalendar");
+  });
 });

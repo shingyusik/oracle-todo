@@ -95,14 +95,16 @@ function createDefaultPlanner(): PlannerControls {
       itemTypes: [],
       statuses: [],
     },
+    filterMode: "and",
+    filterRules: [],
     dailyGroupBy: "none",
-    dailySortBy: "priority",
+    dailySortRules: [{ id: "daily-default-sort", field: "priority", direction: "asc" }],
     yearlyGroupBy: "none",
-    yearlySortBy: "scheduled",
+    yearlySortRules: [{ id: "yearly-default-sort", field: "scheduled", direction: "asc" }],
     monthlyGroupBy: "none",
-    monthlySortBy: "scheduled",
+    monthlySortRules: [{ id: "monthly-default-sort", field: "scheduled", direction: "asc" }],
     weeklyGroupBy: "none",
-    weeklySortBy: "scheduled",
+    weeklySortRules: [{ id: "weekly-default-sort", field: "scheduled", direction: "asc" }],
   };
 }
 
@@ -308,10 +310,16 @@ export function useWorkbenchController(): WorkbenchController {
         ...current,
         dailyFilters: { ...current.dailyFilters, [field]: values },
       })),
+    setPlannerFilterMode: (mode) =>
+      setPlanner((current) => ({ ...current, filterMode: mode })),
+    setPlannerFilterRules: (rules) =>
+      setPlanner((current) => ({ ...current, filterRules: rules })),
+    clearPlannerFilterRules: () =>
+      setPlanner((current) => ({ ...current, filterMode: "and", filterRules: [] })),
     setDailyGroupBy: (groupBy) =>
       setPlanner((current) => ({ ...current, dailyGroupBy: groupBy })),
-    setDailySortBy: (sortBy) =>
-      setPlanner((current) => ({ ...current, dailySortBy: sortBy })),
+    setDailySortRules: (rules) =>
+      setPlanner((current) => ({ ...current, dailySortRules: rules })),
     setPlannerGroupBy: (groupBy) =>
       setPlanner((current) => {
         if (selection.leafTabId === "weekly") {
@@ -325,16 +333,16 @@ export function useWorkbenchController(): WorkbenchController {
         }
         return current;
       }),
-    setPlannerSortBy: (sortBy) =>
+    setPlannerSortRules: (rules) =>
       setPlanner((current) => {
         if (selection.leafTabId === "weekly") {
-          return { ...current, weeklySortBy: sortBy };
+          return { ...current, weeklySortRules: rules };
         }
         if (selection.leafTabId === "monthly") {
-          return { ...current, monthlySortBy: sortBy };
+          return { ...current, monthlySortRules: rules };
         }
         if (selection.leafTabId === "yearly") {
-          return { ...current, yearlySortBy: sortBy };
+          return { ...current, yearlySortRules: rules };
         }
         return current;
       }),
@@ -547,6 +555,12 @@ function plannerGoalDefaults(
   planner: PlannerControls,
   form: CreateWorkspaceItemForm,
 ): { horizon: string; scheduled?: string } {
+  if (form.horizon) {
+    return {
+      horizon: form.horizon,
+      scheduled: form.scheduled,
+    };
+  }
   if (panelId === "weekly") {
     return {
       horizon: "week",

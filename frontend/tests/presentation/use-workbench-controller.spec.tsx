@@ -70,6 +70,35 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Daily");
   });
 
+  it("stores planner advanced filter rules", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => (url === "/todo-engine/items?type=task" ? [] : []),
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => {
+      result.current.setPlannerFilterMode("or");
+      result.current.setPlannerFilterRules([
+        { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
+      ]);
+    });
+
+    expect(result.current.planner.filterMode).toBe("or");
+    expect(result.current.planner.filterRules).toHaveLength(1);
+
+    act(() => result.current.clearPlannerFilterRules());
+
+    expect(result.current.planner.filterMode).toBe("and");
+    expect(result.current.planner.filterRules).toEqual([]);
+  });
+
   it("selects yearly under the planner sibling branch", () => {
     const { result } = renderHook(() => useWorkbenchController());
 

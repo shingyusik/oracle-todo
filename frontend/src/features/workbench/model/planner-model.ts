@@ -12,6 +12,64 @@ export type DailyFilterState = {
   statuses: string[];
 };
 
+export type PlannerFilterMode = "and" | "or";
+export type PlannerFilterField =
+  | "title"
+  | "scheduled"
+  | "due"
+  | "tags"
+  | "area"
+  | "project"
+  | "routine"
+  | "status"
+  | "priority"
+  | "horizon"
+  | "parent"
+  | "recurrence_rule"
+  | "materialization_policy"
+  | "location"
+  | "participants"
+  | "commitment_type"
+  | "description"
+  | "note";
+export type PlannerFilterType =
+  | "text"
+  | "date"
+  | "number"
+  | "select"
+  | "multiSelect"
+  | "relation";
+export type PlannerFilterOperator =
+  | "is"
+  | "is_not"
+  | "contains"
+  | "does_not_contain"
+  | "starts_with"
+  | "ends_with"
+  | "is_before"
+  | "is_after"
+  | "is_on_or_before"
+  | "is_on_or_after"
+  | "is_between"
+  | "is_relative_to_today"
+  | "greater_than"
+  | "less_than"
+  | "is_empty"
+  | "is_not_empty";
+export type PlannerFilterValue =
+  | string
+  | string[]
+  | { start: string; end: string }
+  | { amount: string; unit: "day" | "week" | "month" }
+  | null;
+export type PlannerFilterRule = {
+  id: string;
+  field: PlannerFilterField;
+  type: PlannerFilterType;
+  operator: PlannerFilterOperator;
+  value: PlannerFilterValue;
+};
+
 export type PlannerGroupBy =
   | "none"
   | "area"
@@ -21,16 +79,21 @@ export type PlannerGroupBy =
   | "item_type"
   | "status";
 
-export type PlannerSortBy = "priority" | "scheduled" | "updated" | "title";
+export type PlannerSortDirection = "asc" | "desc";
+export type PlannerSortBy = PlannerFilterField | "updated";
+export type PlannerSortRule = {
+  id: string;
+  field: PlannerSortBy;
+  direction: PlannerSortDirection;
+};
 
 export type DailyGroupBy = PlannerGroupBy;
-export type DailySortBy = PlannerSortBy;
 
 export type DailyPlannerOptions = {
   date: string;
   filters: DailyFilterState;
   groupBy: DailyGroupBy;
-  sortBy: DailySortBy;
+  sortRules: PlannerSortRule[];
 };
 
 export type PlannerGroup = {
@@ -181,7 +244,7 @@ export function buildDailyPlannerModel(
     .filter((item) => dailyItemTypes.has(item.type))
     .filter((item) => !terminalStatuses.has(item.status))
     .filter((item) => matchesDailyFilters(item, options.filters))
-    .sort((left, right) => compareDailyItems(left, right, options.sortBy));
+    .sort((left, right) => comparePlannerItems(left, right, options.sortRules));
 
   const today: WorkspaceItemModel[] = [];
   const overdue: WorkspaceItemModel[] = [];
@@ -268,6 +331,183 @@ function matchesDailyFilters(
   );
 }
 
+export function matchesPlannerFilterRules(
+  item: WorkspaceItemModel,
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  rules: PlannerFilterRule[],
+  mode: PlannerFilterMode,
+  today: string,
+): boolean {
+  if (rules.length === 0) return true;
+  const results = rules.map((rule) =>
+    matchesPlannerFilterRule(item, relatedItems, rule, today),
+  );
+  return mode === "and" ? results.every(Boolean) : results.some(Boolean);
+}
+
+export function filterPlannerItemsByRules(
+  items: WorkspaceItemModel[],
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  rules: PlannerFilterRule[],
+  mode: PlannerFilterMode,
+  today: string,
+): WorkspaceItemModel[] {
+  return items.filter((item) =>
+    matchesPlannerFilterRules(item, relatedItems, rules, mode, today),
+  );
+}
+
+function matchesPlannerFilterRule(
+  item: WorkspaceItemModel,
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  rule: PlannerFilterRule,
+  today: string,
+): boolean {
+  const value = plannerFilterValue(item, relatedItems, rule.field);
+  if (rule.operator === "is_empty") return isFilterEmpty(value);
+  if (rule.operator === "is_not_empty") return !isFilterEmpty(value);
+  if (isFilterEmpty(value)) return false;
+  if (rule.type === "date") return matchesDateFilter(String(value ?? ""), rule, today);
+  if (rule.type === "number") return matchesNumberFilter(value, rule);
+  if (Array.isArray(value)) return matchesArrayFilter(value, rule);
+  return matchesTextFilter(String(value ?? ""), rule);
+}
+
+function plannerFilterValue(
+  item: WorkspaceItemModel,
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  field: PlannerFilterField,
+): string | string[] | number | null | undefined {
+  if (field === "title") return item.title;
+  if (field === "scheduled") return datePart(item.scheduled);
+  if (field === "due") return datePart(item.due);
+  if (field === "tags") return item.tags ?? [];
+  if (field === "area") return relationValues(item.area_id, relatedItems.areas);
+  if (field === "project") return relationValues(item.project_id, relatedItems.projects);
+  if (field === "routine") return relationValues(item.routine_id, relatedItems.routines);
+  if (field === "status") return item.status;
+  if (field === "priority") return item.priority;
+  if (field === "horizon") return item.horizon;
+  if (field === "parent") return relationValues(item.parent_id, relatedItems.goals);
+  if (field === "recurrence_rule") return item.recurrence_rule;
+  if (field === "materialization_policy") return item.materialization_policy;
+  if (field === "location") return item.metadata_?.location;
+  if (field === "participants") return item.metadata_?.participants ?? [];
+  if (field === "commitment_type") return item.metadata_?.commitment_type;
+  if (field === "description") return item.description;
+  return item.note;
+}
+
+function relationValues(
+  id: string | null | undefined,
+  labels: Record<string, string>,
+): string[] {
+  if (!id) return [];
+  const label = labels[id];
+  return label && label !== id ? [id, label] : [id];
+}
+
+function isFilterEmpty(value: string | string[] | number | null | undefined): boolean {
+  return value == null || value === "" || (Array.isArray(value) && value.length === 0);
+}
+
+function matchesTextFilter(value: string, rule: PlannerFilterRule): boolean {
+  const actual = value.toLowerCase();
+  const expected = filterValueStrings(rule.value);
+  const firstExpected = expected[0] ?? "";
+  if (rule.operator === "is") return expected.includes(actual);
+  if (rule.operator === "is_not") return !expected.includes(actual);
+  if (rule.operator === "contains") {
+    return expected.some((value) => actual.includes(value));
+  }
+  if (rule.operator === "does_not_contain") {
+    return expected.every((value) => !actual.includes(value));
+  }
+  if (rule.operator === "starts_with") return actual.startsWith(firstExpected);
+  if (rule.operator === "ends_with") return actual.endsWith(firstExpected);
+  return false;
+}
+
+function matchesArrayFilter(values: string[], rule: PlannerFilterRule): boolean {
+  const actual = values.map((value) => value.toLowerCase());
+  const expected = filterValueStrings(rule.value);
+  const hasMatch = expected.some((value) => actual.includes(value));
+  if (
+    rule.operator === "is" ||
+    rule.operator === "contains"
+  ) {
+    return hasMatch;
+  }
+  if (
+    rule.operator === "is_not" ||
+    rule.operator === "does_not_contain"
+  ) {
+    return !hasMatch;
+  }
+  return false;
+}
+
+function matchesDateFilter(value: string, rule: PlannerFilterRule, today: string): boolean {
+  if (rule.operator === "is_between" && isRangeValue(rule.value)) {
+    return value >= rule.value.start && value <= rule.value.end;
+  }
+  if (rule.operator === "is_relative_to_today" && isRelativeValue(rule.value)) {
+    return value === addRelativeDate(today, rule.value);
+  }
+  const expected = String(rule.value ?? "");
+  if (rule.operator === "is") return value === expected;
+  if (rule.operator === "is_not") return value !== expected;
+  if (rule.operator === "is_before") return value < expected;
+  if (rule.operator === "is_after") return value > expected;
+  if (rule.operator === "is_on_or_before") return value <= expected;
+  if (rule.operator === "is_on_or_after") return value >= expected;
+  return false;
+}
+
+function matchesNumberFilter(
+  value: string | string[] | number | null | undefined,
+  rule: PlannerFilterRule,
+): boolean {
+  if (Array.isArray(value)) return false;
+  const actual = Number(value);
+  const expected = Number(rule.value);
+  if (Number.isNaN(actual) || Number.isNaN(expected)) return false;
+  if (rule.operator === "is") return actual === expected;
+  if (rule.operator === "is_not") return actual !== expected;
+  if (rule.operator === "greater_than") return actual > expected;
+  if (rule.operator === "less_than") return actual < expected;
+  return false;
+}
+
+function filterValueStrings(value: PlannerFilterValue): string[] {
+  return (Array.isArray(value) ? value : [String(value ?? "")]).map((entry) =>
+    entry.toLowerCase(),
+  );
+}
+
+function isRangeValue(
+  value: PlannerFilterValue,
+): value is { start: string; end: string } {
+  return typeof value === "object" && value != null && "start" in value && "end" in value;
+}
+
+function isRelativeValue(
+  value: PlannerFilterValue,
+): value is { amount: string; unit: "day" | "week" | "month" } {
+  return typeof value === "object" && value != null && "amount" in value && "unit" in value;
+}
+
+function addRelativeDate(
+  today: string,
+  value: { amount: string; unit: "day" | "week" | "month" },
+): string {
+  const date = new Date(`${today}T00:00:00Z`);
+  const amount = Number(value.amount);
+  if (value.unit === "month") date.setUTCMonth(date.getUTCMonth() + amount);
+  else date.setUTCDate(date.getUTCDate() + amount * (value.unit === "week" ? 7 : 1));
+  return date.toISOString().slice(0, 10);
+}
+
 function matchesAny(values: string[], selected: string[]): boolean {
   return selected.length === 0 || selected.some((value) => values.includes(value));
 }
@@ -276,24 +516,53 @@ function matchesOne(value: string | null | undefined, selected: string[]): boole
   return selected.length === 0 || (value != null && selected.includes(value));
 }
 
-function compareDailyItems(
+function comparePlannerItems(
   left: WorkspaceItemModel,
   right: WorkspaceItemModel,
-  sortBy: DailySortBy,
+  sortRules: PlannerSortRule[],
 ): number {
-  if (sortBy === "title") {
-    return left.title.localeCompare(right.title);
+  for (const rule of sortRules) {
+    const result = comparePlannerSortRule(left, right, rule);
+    if (result !== 0) return result;
   }
-  if (sortBy === "scheduled") {
-    return compareText(left.scheduled, right.scheduled);
-  }
-  if (sortBy === "updated") {
-    return compareText(right.updated_at, left.updated_at);
-  }
-  return compareNumber(left.priority, right.priority)
-    || compareText(left.scheduled, right.scheduled)
+  return compareText(left.scheduled, right.scheduled)
     || compareText(right.updated_at, left.updated_at)
     || left.title.localeCompare(right.title);
+}
+
+function comparePlannerSortRule(
+  left: WorkspaceItemModel,
+  right: WorkspaceItemModel,
+  rule: PlannerSortRule,
+): number {
+  const result = rule.field === "priority"
+    ? compareNumber(left.priority, right.priority)
+    : compareText(sortValue(left, rule.field), sortValue(right, rule.field));
+  return rule.direction === "asc" ? result : -result;
+}
+
+function sortValue(
+  item: WorkspaceItemModel,
+  field: PlannerSortBy,
+): string | null | undefined {
+  if (field === "title") return item.title;
+  if (field === "scheduled") return item.scheduled;
+  if (field === "due") return item.due;
+  if (field === "status") return item.status;
+  if (field === "horizon") return item.horizon;
+  if (field === "recurrence_rule") return item.recurrence_rule;
+  if (field === "materialization_policy") return item.materialization_policy;
+  if (field === "location") return item.metadata_?.location;
+  if (field === "participants") return item.metadata_?.participants?.join(", ");
+  if (field === "commitment_type") return item.metadata_?.commitment_type;
+  if (field === "description") return item.description;
+  if (field === "note") return item.note;
+  if (field === "updated") return item.updated_at;
+  if (field === "tags") return item.tags?.join(", ");
+  if (field === "area") return item.area_id;
+  if (field === "project") return item.project_id;
+  if (field === "routine") return item.routine_id;
+  return item.parent_id;
 }
 
 function compareNumber(
@@ -312,9 +581,9 @@ function compareText(
 
 export function sortPlannerItems(
   items: WorkspaceItemModel[],
-  sortBy: PlannerSortBy,
+  sortRules: PlannerSortRule[],
 ): WorkspaceItemModel[] {
-  return [...items].sort((left, right) => compareDailyItems(left, right, sortBy));
+  return [...items].sort((left, right) => comparePlannerItems(left, right, sortRules));
 }
 
 function section(
