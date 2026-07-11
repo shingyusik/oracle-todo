@@ -71,5 +71,5 @@ Result:
 - Preserved the year-to-calendar creation affordance by showing the current month/week view when switching from a yearly anchor before commit.
 
 ## Commit
-- SHA: `7007310`
+- SHA: `40abb1e`
 - Message: `[UPDATE] implement workspace goal period popover`
