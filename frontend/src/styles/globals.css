@@ -1412,9 +1412,49 @@ button {
 }
 
 .goal-period-control {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.goal-period-trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid var(--color-shade-30);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface);
+  padding: 0 10px;
+  color: var(--color-text);
+  font: inherit;
+  white-space: nowrap;
+}
+
+.goal-period-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
   display: grid;
-  gap: 8px;
-  min-width: 220px;
+  width: min(320px, calc(100vw - 32px));
+  gap: 12px;
+  border: 1px solid var(--color-shade-30);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface);
+  padding: 12px;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 12%);
+}
+
+.goal-period-types {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.goal-period-types button[aria-pressed="true"] {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-on-dark);
 }
 
 .goal-period-range {
@@ -1426,6 +1466,7 @@ button {
 .goal-period-calendar {
   display: grid;
   gap: 6px;
+  width: 100%;
 }
 
 .goal-period-calendar-header {
@@ -1443,7 +1484,8 @@ button {
 
 .goal-period-calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 28px);
+  width: 100%;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 2px;
 }
 
