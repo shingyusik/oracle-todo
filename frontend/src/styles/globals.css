@@ -1528,6 +1528,16 @@ button {
 }
 
 @media (max-width: 767px) {
+  .goal-period-popover {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-width: 320px;
+    margin-inline: auto;
+  }
+
   .workbench-shell {
     grid-template-columns: 1fr;
   }
