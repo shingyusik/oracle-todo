@@ -13,6 +13,12 @@ async function fakeExtractor(archivePath, destination) {
   await fs.writeFile(path.join(destination, "todo-engine"), "#!/bin/sh\necho fake engine\n", { mode: 0o755 });
 }
 
+async function fakeNestedExtractor(_archivePath, destination) {
+  const releaseRoot = path.join(destination, "todo-engine-0.2.0-aarch64-apple-darwin");
+  await fs.mkdir(releaseRoot, { recursive: true });
+  await fs.writeFile(path.join(releaseRoot, "todo-engine"), "#!/bin/sh\necho fake engine\n", { mode: 0o755 });
+}
+
 test("installs the latest compatible engine", async () => {
   const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-install-"));
   const result = await installEngine({
@@ -29,6 +35,24 @@ test("installs the latest compatible engine", async () => {
 
   assert.equal(result.installedVersion, "0.2.0");
   assert.equal((await readMetadata(cacheRoot)).installedVersion, "0.2.0");
+});
+
+test("installs binaries extracted under a release archive root directory", async () => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-install-"));
+  const result = await installEngine({
+    cacheRoot,
+    now: () => new Date("2026-07-12T00:00:00.000Z"),
+    platformInfo: { target: "aarch64-apple-darwin", extension: ".tar.gz", binaryName: "todo-engine" },
+    fetchReleaseImpl: async () => ({
+      tag_name: "v0.2.0",
+      assets: [{ name: "todo-engine-0.2.0-aarch64-apple-darwin.tar.gz", browser_download_url: "https://example.test/archive" }],
+    }),
+    downloadFileImpl: async (_url, destination) => fs.writeFile(destination, "archive"),
+    extractArchiveImpl: fakeNestedExtractor,
+  });
+
+  assert.equal(result.installedVersion, "0.2.0");
+  assert.equal(await fs.readFile(result.binaryPath, "utf8"), "#!/bin/sh\necho fake engine\n");
 });
 
 test("skips install when the requested version is already active", async () => {

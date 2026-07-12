@@ -46,8 +46,8 @@ Publish a new wrapper version by bumping `npm/oracle-todo/package.json`, committ
 and pushing a matching npm tag:
 
 ```bash
-git tag npm-v0.1.1
-git push origin npm-v0.1.1
+git tag npm-v<version>
+git push origin npm-v<version>
 ```
 
 ## Build and initialize

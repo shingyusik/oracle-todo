@@ -56,9 +56,36 @@ async function verifyChecksum(archivePath, checksumsText, expectedName) {
   }
 }
 
+async function findExtractedBinary(directory, binaryName) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isFile() && entry.name === binaryName) {
+      return entryPath;
+    }
+    if (entry.isDirectory()) {
+      try {
+        const found = await findExtractedBinary(entryPath, binaryName);
+        if (found) return found;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+  }
+  return null;
+}
+
 async function activateBinary(paths, binaryName) {
   await fs.mkdir(paths.binDir, { recursive: true });
-  await fs.copyFile(paths.versionedBinary, paths.activeBinary);
+  let source = paths.versionedBinary;
+  try {
+    await fs.access(source);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    source = await findExtractedBinary(paths.versionDir, binaryName);
+    if (!source) throw error;
+  }
+  await fs.copyFile(source, paths.activeBinary);
   if (!binaryName.endsWith(".exe")) {
     await fs.chmod(paths.activeBinary, 0o755);
   }
