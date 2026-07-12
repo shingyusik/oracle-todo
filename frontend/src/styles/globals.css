@@ -1470,6 +1470,33 @@ button {
   font: inherit;
 }
 
+.goal-period-month-picker {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.goal-period-month-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.goal-period-month-button {
+  min-height: 34px;
+  border: 1px solid var(--color-shade-30);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+}
+
+.goal-period-month-button[aria-pressed="true"] {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-on-dark);
+}
+
 .goal-period-range {
   margin: 0;
   color: var(--color-text-muted);

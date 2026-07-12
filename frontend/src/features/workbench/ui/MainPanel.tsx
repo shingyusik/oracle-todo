@@ -2632,6 +2632,8 @@ function GoalPeriodControl({
                   ))}
                 </select>
               </label>
+            ) : candidateHorizon === "month" ? (
+              <GoalMonthPicker scheduled={candidateScheduled} onSelect={commit} />
             ) : (
               <GoalPeriodCalendar
                 horizon={candidateHorizon}
@@ -2712,6 +2714,70 @@ function goalPeriodCommitErrorMessage(
   }
 
   return "기간을 변경하지 못했습니다. 다시 시도해 주세요.";
+}
+
+function GoalMonthPicker({
+  scheduled,
+  onSelect,
+}: {
+  scheduled: string;
+  onSelect: (date: string) => void;
+}) {
+  const [viewYear, setViewYear] = React.useState(() => yearValue(scheduled));
+  const selectedMonth = monthStart(scheduled);
+
+  React.useEffect(() => {
+    setViewYear(yearValue(scheduled));
+  }, [scheduled]);
+
+  return (
+    <div className="goal-period-month-picker">
+      <div className="goal-period-calendar-header">
+        <button
+          type="button"
+          aria-label="Previous year"
+          onClick={(event) => {
+            stopRowEvent(event);
+            setViewYear((current) => current - 1);
+          }}
+        >
+          &lt;
+        </button>
+        <span>{viewYear}</span>
+        <button
+          type="button"
+          aria-label="Next year"
+          onClick={(event) => {
+            stopRowEvent(event);
+            setViewYear((current) => current + 1);
+          }}
+        >
+          &gt;
+        </button>
+      </div>
+      <div className="goal-period-month-grid" aria-label="Goal month">
+        {Array.from({ length: 12 }, (_, monthIndex) => {
+          const date = monthOptionDate(viewYear, monthIndex);
+          const selected = date === selectedMonth;
+          return (
+            <button
+              type="button"
+              key={date}
+              className="goal-period-month-button"
+              aria-label={monthOptionLabel(date)}
+              aria-pressed={selected}
+              onClick={(event) => {
+                stopRowEvent(event);
+                onSelect(date);
+              }}
+            >
+              {localDate(date).toLocaleDateString("en-US", { month: "short" })}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function GoalPeriodCalendar({
@@ -4638,6 +4704,17 @@ function calendarMonthDays(anchor: string): CalendarCell[] {
 }
 
 function monthLabel(value: string): string {
+  return localDate(value).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function monthOptionDate(year: number, monthIndex: number): string {
+  return localDateValue(new Date(year, monthIndex, 1));
+}
+
+function monthOptionLabel(value: string): string {
   return localDate(value).toLocaleDateString("en-US", {
     month: "long",
     year: "numeric",

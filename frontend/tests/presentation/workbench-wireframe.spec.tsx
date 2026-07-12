@@ -496,7 +496,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText(`${weekStart} to ${testAddDays(weekStart, 6)}`)).toBeInTheDocument();
     await user.click(within(picker).getByRole("button", { name: "Month" }));
     expect(screen.getByText(`${monthStart} to ${testMonthEnd(testToday())}`)).toBeInTheDocument();
-    await user.click(within(picker).getByRole("button", { name: /July 15, 2026/ }));
+    await user.click(within(picker).getByRole("button", { name: "July 2026" }));
 
     await user.type(screen.getByLabelText("Title"), "Anchored weekly goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -565,10 +565,8 @@ describe("WorkbenchPageClient", () => {
     expect(yearlyTrigger).toHaveTextContent("Year");
     await user.click(yearlyTrigger);
     expect(
-      within(screen.getByRole("dialog", { name: "Period" })).getByRole("button", {
-        name: yearStart.slice(0, 4),
-      }),
-    ).toHaveAttribute("aria-pressed", "true");
+      within(screen.getByRole("dialog", { name: "Period" })).getByLabelText("Goal year"),
+    ).toHaveValue(yearStart.slice(0, 4));
     await user.keyboard("{Escape}");
 
     await user.type(screen.getByLabelText("Title"), "Year anchor goal");
@@ -2479,7 +2477,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(trigger);
     const committedPicker = screen.getByRole("dialog", { name: "Period" });
     await user.click(within(committedPicker).getByRole("button", { name: "Month" }));
-    await user.click(within(committedPicker).getByRole("button", { name: /July 15, 2026/ }));
+    await user.click(within(committedPicker).getByRole("button", { name: "July 2026" }));
     expect(screen.queryByRole("dialog", { name: "Period" })).toBeNull();
     expect(trigger).toHaveTextContent("Month");
 
@@ -3117,6 +3115,71 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "Goal" })).not.toBeInTheDocument();
   });
 
+  it("selects a goal month from a year-scoped month grid", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({ horizon: "month", scheduled: "2027-03-01" }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2027-03-01",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-06-01",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    await user.click(await screen.findByRole("button", { name: "Period for Goal" }));
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+
+    expect(within(picker).getByText("2026")).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: "June 2026" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(within(picker).queryByRole("button", { name: /June 10, 2026/ })).toBeNull();
+
+    await user.click(within(picker).getByRole("button", { name: "Next year" }));
+    expect(within(picker).getByText("2027")).toBeInTheDocument();
+    await user.click(within(picker).getByRole("button", { name: "March 2027" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/goal-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
   it("uses a fixed viewport popover, repositions on scroll, and restores focus on escape", async () => {
     const user = userEvent.setup();
     const addEventListenerSpy = vi.spyOn(window, "addEventListener");
@@ -3466,7 +3529,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(trigger);
     const picker = screen.getByRole("dialog", { name: "Period for Goal" });
     await user.click(within(picker).getByRole("button", { name: "Month" }));
-    await user.click(within(picker).getByRole("button", { name: /July 6, 2026/ }));
+    await user.click(within(picker).getByRole("button", { name: "July 2026" }));
 
     expect(
       await screen.findByRole("dialog", { name: "Month로 변경할 수 없음" }),
