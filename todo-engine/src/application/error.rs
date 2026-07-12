@@ -19,6 +19,17 @@ pub enum TodoError {
 }
 
 impl TodoError {
+    pub fn api_code(&self) -> &'static str {
+        match self {
+            TodoError::Policy(_) => "policy_error",
+            TodoError::Validation(_) => "validation_error",
+            TodoError::NotFound(_) => "not_found",
+            TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => {
+                "internal_error"
+            }
+        }
+    }
+
     pub fn cli_exit_code(&self) -> i32 {
         match self {
             TodoError::Policy(_) | TodoError::Validation(_) => 2,

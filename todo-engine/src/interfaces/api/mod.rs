@@ -151,6 +151,19 @@ impl IntoResponse for ApiError {
                     StatusCode::from_u16(error.http_status_code())
                         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
                 });
-        (status, Json(json!({"detail": self.0.to_string()}))).into_response()
+        let code = match self.0.downcast_ref::<TodoError>() {
+            Some(TodoError::Policy(detail)) if detail.starts_with("Goal parent horizon") => {
+                "goal_parent_horizon_not_coarser"
+            }
+            Some(TodoError::Policy(detail)) if detail.starts_with("Goal already exists") => {
+                "goal_duplicate_period"
+            }
+            Some(TodoError::Validation(detail)) if detail.contains("canonical start") => {
+                "goal_invalid_anchor"
+            }
+            Some(error) => error.api_code(),
+            None => "internal_error",
+        };
+        (status, Json(json!({"code": code, "detail": self.0.to_string()}))).into_response()
     }
 }
