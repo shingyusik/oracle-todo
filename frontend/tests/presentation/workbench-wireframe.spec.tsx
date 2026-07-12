@@ -3229,7 +3229,7 @@ describe("WorkbenchPageClient", () => {
     const picker = screen.getByRole("dialog", { name: "Period for Goal" });
 
     await user.click(within(picker).getByRole("button", { name: "Year" }));
-    await user.click(within(picker).getByRole("button", { name: "2026" }));
+    await user.selectOptions(within(picker).getByLabelText("Goal year"), "2026");
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull());
     expect(
@@ -3239,6 +3239,102 @@ describe("WorkbenchPageClient", () => {
     ).toHaveLength(1);
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveTextContent("Year");
+  });
+
+  it("commits a goal year through a scrollable year dropdown", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({ horizon: "year", scheduled: "2040-01-01" }),
+        );
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "year",
+            scheduled: "2040-01-01",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-06-01",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    await user.click(await screen.findByRole("button", { name: "Period for Goal" }));
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+    await user.click(within(picker).getByRole("button", { name: "Year" }));
+
+    const yearSelect = within(picker).getByLabelText("Goal year");
+    expect(yearSelect.tagName).toBe("SELECT");
+    expect(within(yearSelect).getByRole("option", { name: "1976" })).toBeInTheDocument();
+    expect(within(yearSelect).getByRole("option", { name: "2076" })).toBeInTheDocument();
+
+    await user.selectOptions(yearSelect, "2040");
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/goal-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
+  it("includes an out-of-range stored goal year in the dropdown", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: "goal-1",
+              type: "goal",
+              title: "Long Goal",
+              status: "approved",
+              horizon: "year",
+              scheduled: "2120-01-01",
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    await user.click(await screen.findByRole("button", { name: "Period for Long Goal" }));
+    const picker = screen.getByRole("dialog", { name: "Period for Long Goal" });
+    const yearSelect = within(picker).getByLabelText("Goal year");
+
+    expect(within(yearSelect).getByRole("option", { name: "2120" })).toBeInTheDocument();
+    expect(yearSelect).toHaveValue("2120");
   });
 
   it("shows a parent horizon error when an inline goal period change is rejected", async () => {
@@ -3297,7 +3393,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(trigger);
     const picker = screen.getByRole("dialog", { name: "Period for Goal" });
     await user.click(within(picker).getByRole("button", { name: "Year" }));
-    await user.click(within(picker).getByRole("button", { name: "2026" }));
+    await user.selectOptions(within(picker).getByLabelText("Goal year"), "2026");
 
     expect(
       await screen.findByRole("dialog", { name: "Year로 변경할 수 없음" }),

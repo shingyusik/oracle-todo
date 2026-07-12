@@ -2617,22 +2617,21 @@ function GoalPeriodControl({
             </div>
 
             {candidateHorizon === "year" ? (
-              <div className="field-label">
+              <label className="field-label">
                 <span>Goal year</span>
-                <div className="goal-period-year-list" aria-label="Goal year" role="group">
-                  {yearOptions(Number(safeScheduled.slice(0, 4))).map((year) => (
-                    <button
-                      type="button"
-                      key={year}
-                      className="goal-period-year-button"
-                      aria-pressed={candidateRange.start.slice(0, 4) === year.toString()}
-                      onClick={() => commit(`${year}-01-01`)}
-                    >
+                <select
+                  className="goal-period-year-select"
+                  aria-label="Goal year"
+                  value={candidateRange.start.slice(0, 4)}
+                  onChange={(event) => void commit(`${event.target.value}-01-01`)}
+                >
+                  {goalYearOptions(yearValue(safeScheduled)).map((year) => (
+                    <option value={year.toString()} key={year}>
                       {year}
-                    </button>
+                    </option>
                   ))}
-                </div>
-              </div>
+                </select>
+              </label>
             ) : (
               <GoalPeriodCalendar
                 horizon={candidateHorizon}
@@ -4567,10 +4566,17 @@ function goalPeriodTriggerLabel(horizon: GoalHorizon, scheduled: string): string
   return `Week · ${range.start} to ${range.end}`;
 }
 
-function yearOptions(selectedYear: number): number[] {
+function yearValue(value: string): number {
+  return localDate(value).getFullYear();
+}
+
+function goalYearOptions(selectedYear: number): number[] {
   const currentYear = new Date().getFullYear();
-  const start = Math.min(selectedYear, currentYear) - 2;
-  const end = Math.max(selectedYear, currentYear) + 5;
+  const defaultStart = currentYear - 50;
+  const defaultEnd = currentYear + 50;
+  const start = Math.min(defaultStart, selectedYear);
+  const end = Math.max(defaultEnd, selectedYear);
+
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
