@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   ArrowDownUp,
   ArrowLeft,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Filter,
@@ -502,6 +503,7 @@ function PlannerControlToolbar({
   const sortRules = plannerSortRules(controller);
   const groupBy = plannerGroupValue(controller);
   const nowDisabled = plannerPeriodMatchesToday(controller);
+  const showPeriodNavigation = controller.panel.id === "weekly" || controller.panel.id === "daily";
 
   function toggleDropdown(kind: PlannerDropdownKind) {
     setOpenDropdown((current) => (current === kind ? null : kind));
@@ -511,6 +513,7 @@ function PlannerControlToolbar({
     <div className="planner-view-controls">
       <div className="planner-view-control-bar">
         <div className="planner-view-pill">{controller.panel.title}</div>
+        {showPeriodNavigation ? <PlannerPeriodNavigation controller={controller} /> : null}
         <div className="planner-view-actions">
           <PlannerDropdownButton
             active={openDropdown === "filter" || activeFilterCount > 0}
@@ -536,15 +539,17 @@ function PlannerControlToolbar({
           >
             <Group size={16} aria-hidden="true" />
           </PlannerDropdownButton>
-          <button
-            className="items-toolbar-button"
-            type="button"
-            aria-label="Now"
-            disabled={nowDisabled}
-            onClick={controller.resetPlannerPeriodToToday}
-          >
-            Now
-          </button>
+          {showPeriodNavigation ? null : (
+            <button
+              className="items-toolbar-button"
+              type="button"
+              aria-label="Now"
+              disabled={nowDisabled}
+              onClick={controller.resetPlannerPeriodToToday}
+            >
+              Now
+            </button>
+          )}
           <button
             className="items-toolbar-button"
             type="button"
@@ -580,6 +585,181 @@ function PlannerControlToolbar({
           <PlannerGroupPanel controller={controller} />
         </PlannerControlDropdown>
       ) : null}
+    </div>
+  );
+}
+
+function PlannerPeriodNavigation({ controller }: { controller: WorkbenchController }) {
+  if (controller.panel.id !== "weekly" && controller.panel.id !== "daily") {
+    return null;
+  }
+
+  const isWeekly = controller.panel.id === "weekly";
+  const previousLabel = isWeekly ? "Previous week" : "Previous day";
+  const nextLabel = isWeekly ? "Next week" : "Next day";
+  const dialogLabel = isWeekly ? "Choose Weekly date" : "Choose Daily date";
+
+  return (
+    <div className="planner-period-navigation">
+      <button
+        className="items-toolbar-button"
+        type="button"
+        aria-label={previousLabel}
+        onClick={() => controller.movePlannerPeriod(-1)}
+      >
+        <ChevronLeft size={16} aria-hidden="true" />
+      </button>
+      <PlannerDatePicker controller={controller} dialogLabel={dialogLabel} />
+      <button
+        className="items-toolbar-button"
+        type="button"
+        aria-label={nextLabel}
+        onClick={() => controller.movePlannerPeriod(1)}
+      >
+        <ChevronRight size={16} aria-hidden="true" />
+      </button>
+      <button
+        className="items-toolbar-button"
+        type="button"
+        aria-label="Now"
+        disabled={plannerPeriodMatchesToday(controller)}
+        onClick={controller.resetPlannerPeriodToToday}
+      >
+        Now
+      </button>
+    </div>
+  );
+}
+
+function PlannerDatePicker({
+  controller,
+  dialogLabel,
+}: {
+  controller: WorkbenchController;
+  dialogLabel: string;
+}) {
+  const mode = controller.panel.id === "weekly" ? "week" : "day";
+  const selectedDate = controller.planner.date;
+  const triggerLabel =
+    mode === "week"
+      ? `${controller.planner.weekStart} to ${addLocalDays(controller.planner.weekStart, 6)}`
+      : plannerDateLabel(selectedDate);
+  const controlRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties | null>(null);
+  const shouldRestoreFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function dismissOnOutsidePointer(event: MouseEvent) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      if (
+        controlRef.current?.contains(event.target) ||
+        popoverRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      close(true);
+    }
+
+    document.addEventListener("mousedown", dismissOnOutsidePointer);
+    return () => document.removeEventListener("mousedown", dismissOnOutsidePointer);
+  }, [isOpen]);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return;
+
+    function updatePopoverPosition() {
+      const trigger = triggerRef.current;
+      const popover = popoverRef.current;
+      if (!trigger || !popover) {
+        return;
+      }
+
+      setPopoverStyle(goalPeriodPopoverStyle(trigger, popover));
+    }
+
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [isOpen, mode, selectedDate]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setPopoverStyle(null);
+      if (shouldRestoreFocusRef.current) {
+        shouldRestoreFocusRef.current = false;
+        triggerRef.current?.focus();
+      }
+      return;
+    }
+
+    const activeChoice = popoverRef.current?.querySelector<HTMLElement>(
+      "button[aria-pressed='true']",
+    );
+    const fallbackChoice = popoverRef.current?.querySelector<HTMLElement>(
+      "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
+    );
+    (activeChoice ?? fallbackChoice)?.focus();
+  }, [isOpen, mode, selectedDate]);
+
+  function close(restoreFocus: boolean) {
+    shouldRestoreFocusRef.current = restoreFocus;
+    setIsOpen(false);
+  }
+
+  return (
+    <div ref={controlRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="planner-period-date-trigger"
+        aria-label={dialogLabel}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        onClick={() => (isOpen ? close(false) : setIsOpen(true))}
+      >
+        <CalendarDays size={16} aria-hidden="true" />
+        <span>{triggerLabel}</span>
+      </button>
+
+      {isOpen
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="planner-period-popover"
+              style={popoverStyle ?? undefined}
+              role="dialog"
+              aria-label={dialogLabel}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  close(true);
+                }
+              }}
+            >
+              <CalendarDateGrid
+                mode={mode}
+                selectedDate={selectedDate}
+                onSelect={(date) => {
+                  controller.selectPlannerPeriodDate(date);
+                  close(true);
+                }}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -2638,11 +2818,7 @@ function GoalPeriodControl({
             ) : candidateHorizon === "month" ? (
               <GoalMonthPicker scheduled={candidateScheduled} onSelect={commit} />
             ) : (
-              <GoalPeriodCalendar
-                horizon={candidateHorizon}
-                scheduled={candidateScheduled}
-                onSelect={commit}
-              />
+              <GoalPeriodCalendar scheduled={candidateScheduled} onSelect={commit} />
             )}
 
             <p className="goal-period-range">
@@ -2795,26 +2971,29 @@ function GoalMonthPicker({
   );
 }
 
-function GoalPeriodCalendar({
-  horizon,
-  scheduled,
+type CalendarSelectionMode = "week" | "day";
+
+function CalendarDateGrid({
+  mode,
+  selectedDate,
   onSelect,
 }: {
-  horizon: Exclude<GoalHorizon, "year">;
-  scheduled: string;
+  mode: CalendarSelectionMode;
+  selectedDate: string;
   onSelect: (date: string) => void;
 }) {
-  const [viewMonth, setViewMonth] = React.useState(() => monthStart(scheduled));
+  const [viewMonth, setViewMonth] = React.useState(() => monthStart(selectedDate));
   const currentMonth = monthStart(todayValue());
-  const range = goalPeriodRange(horizon, scheduled);
+  const range = mode === "week" ? goalPeriodRange("week", selectedDate) : null;
   const cells = calendarMonthDays(viewMonth);
-  const [hoveredDate, setHoveredDate] = React.useState<string | null>(null);
+  const [previewedDate, setPreviewedDate] = React.useState<string | null>(null);
   const previewRange =
-    horizon === "week" && hoveredDate ? goalPeriodRange("week", hoveredDate) : null;
+    mode === "week" && previewedDate ? goalPeriodRange("week", previewedDate) : null;
 
   React.useEffect(() => {
-    setViewMonth(monthStart(scheduled));
-  }, [scheduled]);
+    setViewMonth(monthStart(selectedDate));
+    setPreviewedDate(null);
+  }, [selectedDate]);
 
   return (
     <div className="goal-period-calendar">
@@ -2859,7 +3038,10 @@ function GoalPeriodCalendar({
           </span>
         ))}
         {cells.map((cell) => {
-          const selected = cell.date >= range.start && cell.date <= range.end;
+          const selected =
+            mode === "week"
+              ? cell.date >= (range?.start ?? "") && cell.date <= (range?.end ?? "")
+              : cell.date === selectedDate;
           return (
             <button
               type="button"
@@ -2868,28 +3050,26 @@ function GoalPeriodCalendar({
                 cell,
                 selected,
                 previewed:
-                  previewRange !== null &&
-                  cell.date >= previewRange.start &&
-                  cell.date <= previewRange.end,
+                  mode === "week"
+                    ? previewRange !== null &&
+                      cell.date >= previewRange.start &&
+                      cell.date <= previewRange.end
+                    : cell.date === previewedDate,
                 rangeStart:
-                  horizon === "week" &&
-                  (cell.date === range.start || cell.date === previewRange?.start),
+                  mode === "week" &&
+                  (cell.date === range?.start || cell.date === previewRange?.start),
                 rangeEnd:
-                  horizon === "week" &&
-                  (cell.date === range.end || cell.date === previewRange?.end),
+                  mode === "week" &&
+                  (cell.date === range?.end || cell.date === previewRange?.end),
               })}
-              aria-label={goalPeriodDayAriaLabel(horizon, cell.date)}
+              aria-label={calendarDayAriaLabel(mode, cell.date)}
               aria-pressed={selected}
+              onFocus={() => setPreviewedDate(cell.date)}
+              onBlur={() => setPreviewedDate(null)}
               onMouseEnter={() => {
-                if (horizon === "week") {
-                  setHoveredDate(cell.date);
-                }
+                setPreviewedDate(cell.date);
               }}
-              onMouseLeave={() => {
-                if (horizon === "week") {
-                  setHoveredDate(null);
-                }
-              }}
+              onMouseLeave={() => setPreviewedDate(null)}
               onClick={(event) => {
                 stopRowEvent(event);
                 onSelect(cell.date);
@@ -2902,6 +3082,16 @@ function GoalPeriodCalendar({
       </div>
     </div>
   );
+}
+
+function GoalPeriodCalendar({
+  scheduled,
+  onSelect,
+}: {
+  scheduled: string;
+  onSelect: (date: string) => void;
+}) {
+  return <CalendarDateGrid mode="week" selectedDate={scheduled} onSelect={onSelect} />;
 }
 
 type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
@@ -4793,21 +4983,21 @@ function monthOptionLabel(value: string): string {
   });
 }
 
-function goalPeriodDayAriaLabel(
-  horizon: Exclude<GoalHorizon, "year">,
-  date: string,
-): string {
-  const formattedDate = localDate(date).toLocaleDateString("en-US", {
+function plannerDateLabel(value: string): string {
+  return localDate(value).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
-  const range = goalPeriodRange(horizon, date);
+}
 
-  if (horizon === "month") {
-    return `${formattedDate}. Selects the month containing this date, ${range.start} to ${range.end}.`;
+function calendarDayAriaLabel(mode: CalendarSelectionMode, date: string): string {
+  const formattedDate = plannerDateLabel(date);
+  if (mode === "day") {
+    return `${formattedDate}. Selects this day.`;
   }
 
+  const range = goalPeriodRange("week", date);
   return `${formattedDate}. Selects the week containing this date, ${range.start} to ${range.end}.`;
 }
 

@@ -112,6 +112,32 @@ function testMonthLabel(date: string): string {
   ] ?? date.slice(5, 7);
 }
 
+function testLongDateLabel(date: string): string {
+  return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function calendarSelectionRange(button: HTMLElement): { start: string; end: string } {
+  const label = button.getAttribute("aria-label") ?? "";
+  const match = label.match(/(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/);
+  expect(match).not.toBeNull();
+  if (!match) {
+    throw new Error(`Calendar button is missing a selectable range: ${label}`);
+  }
+
+  return { start: match[1] ?? "", end: match[2] ?? "" };
+}
+
+function calendarSelectionDayLabel(button: HTMLElement): string {
+  const label = button.getAttribute("aria-label") ?? "";
+  const [dayLabel = ""] = label.split(".");
+  expect(dayLabel).not.toBe("");
+  return dayLabel;
+}
+
 function testMonthEnd(date: string): string {
   const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
   value.setMonth(value.getMonth() + 1);
@@ -506,9 +532,13 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(trigger);
     const picker = screen.getByRole("dialog", { name: "Period" });
-    expect(screen.getByText(`${weekStart} to ${testAddDays(weekStart, 6)}`)).toBeInTheDocument();
+    expect(
+      within(picker).getByText(`${weekStart} to ${testAddDays(weekStart, 6)}`),
+    ).toBeInTheDocument();
     await user.click(within(picker).getByRole("button", { name: "Month" }));
-    expect(screen.getByText(`${monthStart} to ${testMonthEnd(testToday())}`)).toBeInTheDocument();
+    expect(
+      within(picker).getByText(`${monthStart} to ${testMonthEnd(testToday())}`),
+    ).toBeInTheDocument();
     await user.click(within(picker).getByRole("button", { name: "July 2026" }));
 
     await user.type(screen.getByLabelText("Title"), "Anchored weekly goal");
@@ -815,7 +845,9 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Daily" }));
 
-    expect(await screen.findByRole("heading", { name: "Today" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: testLongDateLabel(today) }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Filter planner view" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Group planner view" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sort planner view" })).toBeInTheDocument();
@@ -1043,17 +1075,190 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
 
-    const today = screen.getByLabelText("Today");
-    expect(within(today).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "A Task",
-      "B Task",
-    ]);
+    const selectedDaySection = screen.getByLabelText(testLongDateLabel(testToday()));
+    expect(
+      within(selectedDaySection).getAllByRole("button").map((button) => button.textContent),
+    ).toEqual(["A Task", "B Task"]);
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
     await user.click(screen.getByRole("button", { name: "Tag" }));
 
-    expect(within(today).getByRole("heading", { name: "focus" })).toBeInTheDocument();
-    expect(within(today).getByRole("heading", { name: "ops" })).toBeInTheDocument();
+    expect(within(selectedDaySection).getByRole("heading", { name: "focus" })).toBeInTheDocument();
+    expect(within(selectedDaySection).getByRole("heading", { name: "ops" })).toBeInTheDocument();
+  });
+
+  it("shows planner date triggers only for weekly and daily views", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Yearly" }));
+
+    expect(screen.queryByRole("button", { name: "Choose Weekly date" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose Daily date" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous week" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous day" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+
+    expect(screen.queryByRole("button", { name: "Choose Weekly date" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose Daily date" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous week" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous day" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+
+    expect(screen.getByRole("button", { name: "Choose Weekly date" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous week" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next week" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose Daily date" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    expect(screen.getByRole("button", { name: "Choose Daily date" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous day" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next day" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose Weekly date" })).toBeNull();
+  });
+
+  it("previews and selects planner weeks from the shared calendar popover", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+
+    const weeklyTrigger = screen.getByRole("button", { name: "Choose Weekly date" });
+    expect(
+      weeklyTrigger.compareDocumentPosition(screen.getByRole("button", { name: "Now" })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await user.click(weeklyTrigger);
+    const picker = screen.getByRole("dialog", { name: "Choose Weekly date" });
+    const candidate = within(picker)
+      .getAllByRole("button")
+      .find(
+        (button) =>
+          button.classList.contains("goal-period-calendar-day") &&
+          !button.classList.contains("goal-period-calendar-day-selected"),
+      );
+    expect(candidate).toBeDefined();
+    if (!candidate) {
+      throw new Error("Missing unselected weekly calendar candidate.");
+    }
+
+    fireEvent.mouseEnter(candidate);
+    const { start, end } = calendarSelectionRange(candidate);
+    expect(
+      within(picker)
+        .getAllByRole("button")
+        .filter((button) => button.classList.contains("goal-period-calendar-day-preview")),
+    ).toHaveLength(7);
+
+    await user.click(candidate);
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose Weekly date" })).toBeNull(),
+    );
+    expect(screen.getByRole("heading", { name: start })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: end })).toBeInTheDocument();
+
+    const updatedWeeklyTrigger = screen.getByRole("button", { name: "Choose Weekly date" });
+    await user.click(updatedWeeklyTrigger);
+    const reopenedPicker = screen.getByRole("dialog", { name: "Choose Weekly date" });
+    fireEvent.keyDown(reopenedPicker, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose Weekly date" })).toBeNull(),
+    );
+    expect(updatedWeeklyTrigger).toHaveFocus();
+  });
+
+  it("previews and selects planner days from the shared calendar popover", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const dailyTrigger = screen.getByRole("button", { name: "Choose Daily date" });
+    expect(
+      dailyTrigger.compareDocumentPosition(screen.getByRole("button", { name: "Now" })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await user.click(dailyTrigger);
+    const picker = screen.getByRole("dialog", { name: "Choose Daily date" });
+    const candidate = within(picker)
+      .getAllByRole("button")
+      .find(
+        (button) =>
+          button.classList.contains("goal-period-calendar-day") &&
+          !button.classList.contains("goal-period-calendar-day-selected"),
+      );
+    expect(candidate).toBeDefined();
+    if (!candidate) {
+      throw new Error("Missing unselected daily calendar candidate.");
+    }
+
+    fireEvent.mouseEnter(candidate);
+    expect(
+      within(picker)
+        .getAllByRole("button")
+        .filter((button) => button.classList.contains("goal-period-calendar-day-preview")),
+    ).toHaveLength(1);
+
+    const selectedDayLabel = calendarSelectionDayLabel(candidate);
+    await user.click(candidate);
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose Daily date" })).toBeNull(),
+    );
+    expect(screen.getByRole("heading", { name: selectedDayLabel })).toBeInTheDocument();
+
+    const updatedDailyTrigger = screen.getByRole("button", { name: "Choose Daily date" });
+    await user.click(updatedDailyTrigger);
+    const reopenedPicker = screen.getByRole("dialog", { name: "Choose Daily date" });
+    fireEvent.keyDown(reopenedPicker, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose Daily date" })).toBeNull(),
+    );
+    expect(updatedDailyTrigger).toHaveFocus();
   });
 
   it("groups weekly goal strips with planner controls while keeping day cards visible", async () => {

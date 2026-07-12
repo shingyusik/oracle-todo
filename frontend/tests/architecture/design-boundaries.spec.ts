@@ -185,6 +185,7 @@ describe("design system boundaries", () => {
     const source = await readSource("src/features/workbench/ui/MainPanel.tsx");
 
     expect(source).toContain("GoalPeriodCalendar");
+    expect(source).toContain("CalendarDateGrid");
     expect(source).not.toContain("react-datepicker");
     expect(source).not.toContain("@fullcalendar");
   });
