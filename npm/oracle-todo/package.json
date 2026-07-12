@@ -1,7 +1,7 @@
 {
   "name": "@shings/oracle-todo",
-  "version": "0.1.2",
-  "description": "npx runner for todo-engine GitHub Release binaries",
+  "version": "0.1.3",
+  "description": "npx runner for oracle-todo engine and UI GitHub Release bundles",
   "license": "MIT",
   "type": "commonjs",
   "repository": {

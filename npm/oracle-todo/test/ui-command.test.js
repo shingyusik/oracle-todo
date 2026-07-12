@@ -93,6 +93,18 @@ test("closes the UI server and API process when the API exits", async () => {
   assert.equal(child.killed, false);
 });
 
+test("returns a nonzero API exit code after startup", async () => {
+  const child = createChild();
+  const server = createServer();
+  const running = runUi(["ui", "--no-open"], runtimeOptions({ child, server }));
+
+  await new Promise((resolve) => setImmediate(resolve));
+  child.emit("exit", 7);
+
+  assert.equal(await running, 7);
+  assert.equal(server.closed, true);
+});
+
 test("closes the UI server when the API exits immediately after becoming ready", async () => {
   const child = createChild();
   const server = createServer();

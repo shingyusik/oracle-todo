@@ -45,6 +45,54 @@ test("installs engine and matching ui artifact as a bundle", async () => {
   assert.equal((await readMetadata(cacheRoot)).uiVersion, "0.3.0");
 });
 
+test("keeps the previous bundle metadata when UI installation fails", async () => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-bundle-"));
+  const platformInfo = { target: "aarch64-apple-darwin", extension: ".tar.gz", binaryName: "todo-engine" };
+  const releaseFor = (version) => ({
+    tag_name: `v${version}`,
+    assets: [
+      { name: `todo-engine-${version}-aarch64-apple-darwin.tar.gz`, browser_download_url: `https://example.test/engine-${version}` },
+      { name: `oracle-todo-ui-${version}.tar.gz`, browser_download_url: `https://example.test/ui-${version}` },
+    ],
+  });
+  const extract = async (archivePath, destination) => {
+    const version = archivePath.includes("0.2.0") ? "0.2.0" : "0.3.0";
+    await fs.mkdir(destination, { recursive: true });
+    if (archivePath.includes("engine-")) {
+      await fs.writeFile(path.join(destination, "todo-engine"), `engine ${version}`, { mode: 0o755 });
+    } else {
+      await fs.writeFile(path.join(destination, "index.html"), `<title>${version}</title>`);
+    }
+  };
+
+  await installBundle({
+    cacheRoot,
+    platformInfo,
+    fetchReleaseImpl: async () => releaseFor("0.2.0"),
+    downloadFileImpl: async (_url, destination) => fs.writeFile(destination, "archive"),
+    extractArchiveImpl: extract,
+  });
+  const previousMetadata = await readMetadata(cacheRoot);
+  const previousBinary = await fs.readFile(previousMetadata.binaryPath, "utf8");
+
+  await assert.rejects(
+    () => installBundle({
+      cacheRoot,
+      platformInfo,
+      fetchReleaseImpl: async () => releaseFor("0.3.0"),
+      downloadFileImpl: async (url, destination) => {
+        if (url.endsWith("ui-0.3.0")) throw new Error("UI download failed");
+        return fs.writeFile(destination, "archive");
+      },
+      extractArchiveImpl: extract,
+    }),
+    /UI download failed/
+  );
+
+  assert.deepEqual(await readMetadata(cacheRoot), previousMetadata);
+  assert.equal(await fs.readFile(previousMetadata.binaryPath, "utf8"), previousBinary);
+});
+
 test("installs the latest compatible engine", async () => {
   const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-install-"));
   const result = await installEngine({

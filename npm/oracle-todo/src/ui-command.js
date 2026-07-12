@@ -58,8 +58,7 @@ async function runUi(args, options = {}) {
       const open = options.openBrowser || openBrowser;
       await open(url, options).catch(() => (options.log || console.log)(`open ${url}`));
     }
-    await exited;
-    return 0;
+    return await exited;
   } catch (error) {
     await stopRuntime(api, server);
     throw error;
@@ -67,7 +66,7 @@ async function runUi(args, options = {}) {
 }
 
 function observeExit(child) {
-  return new Promise((resolve) => child.once("exit", resolve));
+  return new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
 }
 
 function listen(server, port) {
@@ -123,21 +122,23 @@ function openBrowser(url, options = {}) {
 function waitForExit(child, server, apiExit) {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = () => {
+    let stoppedBySignal = false;
+    const finish = (exit) => {
       if (settled) return;
       settled = true;
       process.removeListener("SIGINT", stop);
       process.removeListener("SIGTERM", stop);
       child.removeListener("exit", finish);
-      closeServer(server).then(resolve);
+      closeServer(server).then(() => resolve(stoppedBySignal ? 0 : exit?.code || 0));
     };
     const stop = () => {
+      stoppedBySignal = true;
       if (!child.killed) child.kill();
       finish();
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    apiExit.then(finish);
+    apiExit.then((exit) => finish(exit));
   });
 }
 

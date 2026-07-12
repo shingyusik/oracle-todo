@@ -30,8 +30,17 @@ async function installBundle(options = {}) {
     return { status: "already-installed", ...metadata };
   }
 
-  const engine = await installRelease({ ...options, cacheRoot, platformInfo, release, version });
+  const engine = await installRelease({
+    ...options,
+    cacheRoot,
+    platformInfo,
+    release,
+    version,
+    activate: false,
+    writeMetadata: false,
+  });
   const ui = await installUiArtifact({ ...options, cacheRoot, release, version });
+  await activateBinary(pathsFor(cacheRoot, version, platformInfo.binaryName), platformInfo.binaryName);
   const metadataNext = {
     ...engine,
     uiVersion: ui.uiVersion,
@@ -108,7 +117,9 @@ async function installRelease(options) {
     await verifyChecksum(archivePath, await fs.readFile(checksumPath, "utf8"), expectedAsset);
   }
   await (options.extractArchiveImpl || extractArchive)(archivePath, paths.versionDir, { platform: process.platform });
-  await activateBinary(paths, options.platformInfo.binaryName);
+  if (options.activate !== false) {
+    await activateBinary(paths, options.platformInfo.binaryName);
+  }
 
   const metadata = {
     installedVersion: options.version,
@@ -116,7 +127,9 @@ async function installRelease(options) {
     binaryPath: paths.activeBinary,
     installedAt: (options.now || (() => new Date()))().toISOString(),
   };
-  await writeMetadata(options.cacheRoot, metadata);
+  if (options.writeMetadata !== false) {
+    await writeMetadata(options.cacheRoot, metadata);
+  }
   return { status: "installed", ...metadata };
 }
 

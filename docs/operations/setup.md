@@ -26,11 +26,11 @@ The `ui` command downloads the matching GitHub Release UI artifact, starts `todo
 on `127.0.0.1:3002`, serves the UI on `127.0.0.1:3001`, proxies `/todo-engine/*` requests to
 the API, and opens the browser by default.
 
-The wrapper downloads a compatible `todo-engine` binary from GitHub Releases and stores it
+The wrapper downloads a matching `todo-engine` and UI bundle from GitHub Releases and stores it
 under `~/.local/share/oracle-todo/`. User data stays in the normal data home:
 `~/.todo-engine/` unless `--home` or `TODO_ENGINE_HOME` points elsewhere.
 
-Update the cached binary:
+Update the cached engine/UI bundle:
 
 ```bash
 npx @shings/oracle-todo update
