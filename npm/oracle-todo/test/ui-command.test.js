@@ -93,6 +93,31 @@ test("closes the UI server and API process when the API exits", async () => {
   assert.equal(child.killed, false);
 });
 
+test("handles an API exit while browser opening is delayed", async () => {
+  const child = createChild();
+  const server = createServer();
+  let finishOpening;
+  const running = runUi(["ui"], runtimeOptions({
+    child,
+    server,
+    openBrowser: async () => new Promise((resolve) => {
+      finishOpening = resolve;
+    }),
+  }));
+
+  await new Promise((resolve) => setImmediate(resolve));
+  child.emit("exit", 0);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  try {
+    assert.equal(server.closed, true);
+  } finally {
+    finishOpening();
+  }
+
+  await running;
+});
+
 test("stops the API process when the UI server fails to listen", async () => {
   const child = createChild();
   const server = new EventEmitter();

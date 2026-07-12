@@ -51,12 +51,13 @@ async function runUi(args, options = {}) {
     server = makeUiServer({ uiPath: installed.uiPath, apiPort: parsed.apiPort });
     await listen(server, parsed.uiPort);
     const url = `http://127.0.0.1:${parsed.uiPort}`;
+    const exited = waitForExit(api, server);
     (options.log || console.log)(`oracle-todo ui: ${url}`);
     if (parsed.openBrowser) {
       const open = options.openBrowser || openBrowser;
       await open(url, options).catch(() => (options.log || console.log)(`open ${url}`));
     }
-    await waitForExit(api, server);
+    await exited;
     return 0;
   } catch (error) {
     await stopRuntime(api, server);
