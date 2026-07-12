@@ -65,6 +65,10 @@ export type WorkspaceItemsModel = {
 export type PlannerControls = {
   date: string;
   weekStart: string;
+  yearlyDate: string;
+  monthlyDate: string;
+  weeklyDate: string;
+  dailyDate: string;
   dailyFilters: DailyFilterState;
   filterMode: PlannerFilterMode;
   filterRules: PlannerFilterRule[];

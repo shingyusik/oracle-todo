@@ -100,9 +100,16 @@ function formatLocalDate(date: Date): string {
 
 function createDefaultPlanner(): PlannerControls {
   const date = todayDate();
+  const yearlyDate = yearStart(date);
+  const monthlyDate = monthStart(date);
+  const weeklyDate = weekStartForDate(date);
   return {
     date,
-    weekStart: weekStartForDate(date),
+    weekStart: weeklyDate,
+    yearlyDate,
+    monthlyDate,
+    weeklyDate,
+    dailyDate: date,
     dailyFilters: {
       tags: [],
       areaIds: [],
@@ -122,6 +129,56 @@ function createDefaultPlanner(): PlannerControls {
     weeklyGroupBy: "none",
     weeklySortRules: [{ id: "weekly-default-sort", field: "scheduled", direction: "asc" }],
   };
+}
+
+function plannerDateForPanel(panelId: LeafTabId, planner: PlannerControls): string {
+  if (panelId === "yearly") {
+    return planner.yearlyDate;
+  }
+  if (panelId === "monthly") {
+    return planner.monthlyDate;
+  }
+  if (panelId === "weekly") {
+    return planner.weeklyDate;
+  }
+  if (panelId === "daily") {
+    return planner.dailyDate;
+  }
+
+  return planner.date;
+}
+
+function withActivePlannerPeriod(
+  planner: PlannerControls,
+  panelId: LeafTabId,
+): PlannerControls {
+  const date = plannerDateForPanel(panelId, planner);
+  return {
+    ...planner,
+    date,
+    weekStart: panelId === "weekly" ? date : weekStartForDate(date),
+  };
+}
+
+function setPlannerDateForPanel(
+  planner: PlannerControls,
+  panelId: LeafTabId,
+  date: string,
+): PlannerControls {
+  if (panelId === "yearly") {
+    return withActivePlannerPeriod({ ...planner, yearlyDate: yearStart(date) }, panelId);
+  }
+  if (panelId === "monthly") {
+    return withActivePlannerPeriod({ ...planner, monthlyDate: monthStart(date) }, panelId);
+  }
+  if (panelId === "weekly") {
+    return withActivePlannerPeriod({ ...planner, weeklyDate: weekStartForDate(date) }, panelId);
+  }
+  if (panelId === "daily") {
+    return withActivePlannerPeriod({ ...planner, dailyDate: date }, panelId);
+  }
+
+  return withActivePlannerPeriod({ ...planner, date }, panelId);
 }
 
 function movePlannerDate(panelId: LeafTabId, date: string, direction: -1 | 1): string {
@@ -183,6 +240,10 @@ export function useWorkbenchController(): WorkbenchController {
     () => createPanelModel(selection.leafTabId),
     [selection.leafTabId],
   );
+  const activePlanner = useMemo(
+    () => withActivePlannerPeriod(planner, selection.leafTabId),
+    [planner, selection.leafTabId],
+  );
 
   useEffect(() => {
     setSelectedItemIds([]);
@@ -238,7 +299,7 @@ export function useWorkbenchController(): WorkbenchController {
     selection,
     panel,
     workspaceItems,
-    planner,
+    planner: activePlanner,
     selectedItemIds,
     archiveConfirmationOpen,
     creationDialogOpen,
@@ -257,13 +318,17 @@ export function useWorkbenchController(): WorkbenchController {
       ),
     movePlannerPeriod: (direction) =>
       setPlanner((current) => {
-        const date = movePlannerDate(selection.leafTabId, current.date, direction);
-        return { ...current, date, weekStart: weekStartForDate(date) };
+        const date = movePlannerDate(
+          selection.leafTabId,
+          plannerDateForPanel(selection.leafTabId, current),
+          direction,
+        );
+        return setPlannerDateForPanel(current, selection.leafTabId, date);
       }),
     resetPlannerPeriodToToday: () =>
       setPlanner((current) => {
         const date = resetPlannerDate(selection.leafTabId);
-        return { ...current, date, weekStart: weekStartForDate(date) };
+        return setPlannerDateForPanel(current, selection.leafTabId, date);
       }),
     toggleItemSelection: (itemId: string) =>
       setSelectedItemIds((current) =>
@@ -303,7 +368,11 @@ export function useWorkbenchController(): WorkbenchController {
     openCreationDialog: () => setCreationDialogOpen(true),
     closeCreationDialog: () => setCreationDialogOpen(false),
     createWorkspaceItem: async (form) => {
-      const item = await createItemRequest(selection.leafTabId, planner, form);
+      const item = await createItemRequest(
+        selection.leafTabId,
+        activePlanner,
+        form,
+      );
       setWorkspaceItems((current) => ({
         ...current,
         items: [item, ...current.items],

@@ -613,6 +613,46 @@ describe("useWorkbenchController", () => {
     );
   });
 
+  it("keeps planner periods independent between tabs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.selectTab("todo"));
+    act(() => result.current.selectTab("planner"));
+    await waitFor(() => expect(result.current.panel.id).toBe("yearly"));
+
+    const yearlyBase = result.current.planner.date;
+    act(() => result.current.movePlannerPeriod(1));
+    const movedYearlyDate = result.current.planner.date;
+    expect(movedYearlyDate).not.toBe(yearlyBase);
+
+    act(() => result.current.selectTab("monthly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    const monthlyBase = result.current.planner.date;
+    expect(monthlyBase).toBe(testMonthStart());
+
+    act(() => result.current.movePlannerPeriod(1));
+    const movedMonthlyDate = result.current.planner.date;
+    expect(movedMonthlyDate).not.toBe(monthlyBase);
+
+    act(() => result.current.selectTab("yearly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("yearly"));
+    expect(result.current.planner.date).toBe(movedYearlyDate);
+
+    act(() => result.current.selectTab("monthly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    expect(result.current.planner.date).toBe(movedMonthlyDate);
+  });
+
   it("creates yearly and monthly goals with canonical scheduled anchors", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/goals/propose") {
