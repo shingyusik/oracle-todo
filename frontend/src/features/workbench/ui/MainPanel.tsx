@@ -2251,15 +2251,18 @@ function DetailTypeFields({
   if (item.type === "goal") {
     return (
       <>
-        <GoalPeriodControl
-          label="Period"
-          horizon={draft.horizon}
-          scheduled={draft.scheduled}
-          onCommit={({ horizon, scheduled }) => {
-            setField("horizon", horizon);
-            setField("scheduled", scheduled);
-          }}
-        />
+        <div className="field-label">
+          <span>Period</span>
+          <GoalPeriodControl
+            label="Period"
+            horizon={draft.horizon}
+            scheduled={draft.scheduled}
+            onCommit={({ horizon, scheduled }) => {
+              setField("horizon", horizon);
+              setField("scheduled", scheduled);
+            }}
+          />
+        </div>
         <DetailRelationField
           label="Parent"
           controlLabel={`Parent for ${item.title}`}

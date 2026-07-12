@@ -3045,6 +3045,13 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("cell", { name: "June outcome" }));
 
     expect(screen.getByRole("button", { name: "Period" })).toHaveTextContent("Month");
+    const periodRow = screen.getByRole("button", { name: "Period" }).closest(".field-label");
+    expect(periodRow).not.toBeNull();
+    if (!periodRow) {
+      throw new Error("Missing Period field row");
+    }
+    expect(periodRow.querySelector(".goal-period-control")).not.toBeNull();
+    expect(periodRow.nextElementSibling).toBe(fieldRow("Parent"));
     expect(screen.queryByRole("dialog", { name: "Period" })).toBeNull();
     expect(screen.queryByLabelText("Due")).toBeNull();
     expect(screen.queryByLabelText("Horizon")).toBeNull();
