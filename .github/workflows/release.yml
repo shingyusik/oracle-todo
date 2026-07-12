@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        run: cargo build -p todo-engine --release --target ${{ matrix.target }}
+      - name: Package Unix
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="todo-engine-${version}-${{ matrix.target }}"
+          mkdir -p "dist/${name}"
+          cp "target/${{ matrix.target }}/release/todo-engine" "dist/${name}/todo-engine"
+          cp README.md "dist/${name}/README.md"
+          test ! -f LICENSE || cp LICENSE "dist/${name}/LICENSE"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+      - name: Package Windows
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          $name = "todo-engine-$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "dist/$name"
+          Copy-Item "target/${{ matrix.target }}/release/todo-engine.exe" "dist/$name/todo-engine.exe"
+          Copy-Item "README.md" "dist/$name/README.md"
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$name/LICENSE" }
+          Compress-Archive -Force -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: todo-engine-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+  publish:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS

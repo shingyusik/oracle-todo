@@ -245,6 +245,24 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Yearly" })).toBeNull();
   });
 
+  it("renders icon-only primary tabs with accessible tooltip labels", () => {
+    render(<WorkbenchPageClient />);
+
+    for (const label of ["Dashboard", "ToDo"]) {
+      const tab = screen.getByRole("button", { name: label });
+
+      expect(tab).toHaveAttribute("data-tooltip", label);
+      expect(tab).not.toHaveTextContent(label);
+
+      const icon = tab.querySelector(".main-sidebar-tab-icon");
+      expect(icon).not.toBeNull();
+      if (!icon) {
+        throw new Error(`Missing icon for ${label} primary tab`);
+      }
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
   it("shows only workspace and planner children when todo is selected", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);
