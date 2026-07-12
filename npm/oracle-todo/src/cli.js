@@ -12,7 +12,7 @@ async function main(args, options = {}) {
   const updateAll = options.updateBundle || updateBundle;
   const run = options.runEngine || runEngine;
   const ui = options.runUi || runUi;
-  const command = args.includes("ui") ? "ui" : args[0];
+  const command = wrapperCommand(args);
 
   if (command === "install") {
     const result = await installAll({ env });
@@ -51,6 +51,14 @@ async function main(args, options = {}) {
   const binaryPath = installed.binaryPath;
   const exitCode = await run(args, { binaryPath });
   return exitCode;
+}
+
+function wrapperCommand(args) {
+  let index = 0;
+  while (args[index] === "--home" || args[index]?.startsWith("--home=")) {
+    index += args[index] === "--home" ? 2 : 1;
+  }
+  return args[index];
 }
 
 module.exports = { main };

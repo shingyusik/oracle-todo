@@ -128,6 +128,27 @@ test("dispatches ui without forwarding to the engine command runner", async () =
   assert.deepEqual(calls, [["ui", ["--home", "/tmp/todo", "ui", "--no-open"]]]);
 });
 
+test("forwards ui titles in engine commands without starting the UI", async () => {
+  const calls = [];
+  const code = await main(["task", "propose", "ui"], {
+    installEngine: async () => {
+      calls.push(["install"]);
+      return { binaryPath: "/tmp/todo-engine" };
+    },
+    runUi: async () => {
+      throw new Error("UI runtime should not be called");
+    },
+    runEngine: async (args, { binaryPath }) => {
+      calls.push(["run", args, binaryPath]);
+      return 0;
+    },
+    log: () => {},
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(calls, [["install"], ["run", ["task", "propose", "ui"], "/tmp/todo-engine"]]);
+});
+
 test("forwards normal engine commands after ensuring install", async () => {
   const calls = [];
   const code = await main(["today"], {

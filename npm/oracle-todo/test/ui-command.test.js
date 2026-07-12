@@ -43,12 +43,12 @@ function createServer() {
   return server;
 }
 
-function runtimeOptions({ child = createChild(), server = createServer(), openBrowser } = {}) {
+function runtimeOptions({ child = createChild(), server = createServer(), openBrowser, waitForPort } = {}) {
   return {
     installBundle: async () => ({ binaryPath: "/tmp/todo-engine", uiPath: "/tmp/ui" }),
     spawnApi: () => child,
     createUiServer: () => server,
-    waitForPort: async () => {},
+    waitForPort: waitForPort || (async () => {}),
     openBrowser,
     log: () => {},
   };
@@ -91,6 +91,31 @@ test("closes the UI server and API process when the API exits", async () => {
 
   assert.equal(server.closed, true);
   assert.equal(child.killed, false);
+});
+
+test("closes the UI server when the API exits immediately after becoming ready", async () => {
+  const child = createChild();
+  const server = createServer();
+  const running = runUi(["ui", "--no-open"], runtimeOptions({
+    child,
+    server,
+    waitForPort: async () => child.emit("exit", 0),
+  }));
+
+  let timeout;
+  try {
+    const code = await Promise.race([
+      running,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("UI runtime did not exit")), 50);
+      }),
+    ]);
+
+    assert.equal(code, 0);
+    assert.equal(server.closed, true);
+  } finally {
+    clearTimeout(timeout);
+  }
 });
 
 test("handles an API exit while browser opening is delayed", async () => {

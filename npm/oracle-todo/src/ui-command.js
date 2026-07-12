@@ -46,12 +46,13 @@ async function runUi(args, options = {}) {
     api = spawnApi(installed.binaryPath, [...parsed.engineArgs, "api", "--host", "127.0.0.1", "--port", String(parsed.apiPort)], {
       stdio: "inherit",
     });
+    const apiExit = observeExit(api);
     await waitForApi(parsed.apiPort, api);
 
     server = makeUiServer({ uiPath: installed.uiPath, apiPort: parsed.apiPort });
     await listen(server, parsed.uiPort);
     const url = `http://127.0.0.1:${parsed.uiPort}`;
-    const exited = waitForExit(api, server);
+    const exited = waitForExit(api, server, apiExit);
     (options.log || console.log)(`oracle-todo ui: ${url}`);
     if (parsed.openBrowser) {
       const open = options.openBrowser || openBrowser;
@@ -63,6 +64,10 @@ async function runUi(args, options = {}) {
     await stopRuntime(api, server);
     throw error;
   }
+}
+
+function observeExit(child) {
+  return new Promise((resolve) => child.once("exit", resolve));
 }
 
 function listen(server, port) {
@@ -115,7 +120,7 @@ function openBrowser(url, options = {}) {
   });
 }
 
-function waitForExit(child, server) {
+function waitForExit(child, server, apiExit) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = () => {
@@ -132,7 +137,7 @@ function waitForExit(child, server) {
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    child.once("exit", finish);
+    apiExit.then(finish);
   });
 }
 
