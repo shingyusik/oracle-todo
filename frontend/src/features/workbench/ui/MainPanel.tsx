@@ -512,8 +512,10 @@ function PlannerControlToolbar({
   return (
     <div className="planner-view-controls">
       <div className="planner-view-control-bar">
-        <div className="planner-view-pill">{controller.panel.title}</div>
-        {showPeriodNavigation ? <PlannerPeriodNavigation controller={controller} /> : null}
+        <div className="planner-view-leading">
+          <div className="planner-view-pill">{controller.panel.title}</div>
+          {showPeriodNavigation ? <PlannerPeriodNavigation controller={controller} /> : null}
+        </div>
         <div className="planner-view-actions">
           <PlannerDropdownButton
             active={openDropdown === "filter" || activeFilterCount > 0}

@@ -138,6 +138,12 @@ function calendarSelectionDayLabel(button: HTMLElement): string {
   return dayLabel;
 }
 
+function calendarPreviewButtons(picker: HTMLElement): HTMLElement[] {
+  return within(picker)
+    .getAllByRole("button")
+    .filter((button) => button.classList.contains("goal-period-calendar-day-preview"));
+}
+
 function testMonthEnd(date: string): string {
   const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
   value.setMonth(value.getMonth() + 1);
@@ -1132,6 +1138,130 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Choose Weekly date" })).toBeNull();
   });
 
+  it("keeps the weekly title pill and date navigator in the same leading toolbar group", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+
+    const titlePill = document.querySelector(".planner-view-pill");
+    const trigger = screen.getByRole("button", { name: "Choose Weekly date" });
+    const addButton = screen.getByRole("button", { name: "Add planner item" });
+    const leadingGroup = trigger.closest(".planner-view-leading");
+
+    expect(titlePill).not.toBeNull();
+    expect(leadingGroup).not.toBeNull();
+    expect(titlePill?.closest(".planner-view-leading")).toBe(leadingGroup);
+    expect(addButton.closest(".planner-view-actions")).not.toBeNull();
+    expect(leadingGroup).not.toBe(addButton.closest(".planner-view-actions"));
+  });
+
+  it("matches weekly and daily keyboard focus previews to their committed ranges", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+
+    await user.click(screen.getByRole("button", { name: "Choose Weekly date" }));
+    const weeklyPicker = screen.getByRole("dialog", { name: "Choose Weekly date" });
+    const weeklyCandidate = within(weeklyPicker)
+      .getAllByRole("button")
+      .find(
+        (button) =>
+          button.classList.contains("goal-period-calendar-day") &&
+          !button.classList.contains("goal-period-calendar-day-selected"),
+      );
+    expect(weeklyCandidate).toBeDefined();
+    if (!weeklyCandidate) {
+      throw new Error("Missing unselected weekly calendar candidate.");
+    }
+
+    fireEvent.focus(weeklyCandidate);
+    expect(calendarPreviewButtons(weeklyPicker)).toHaveLength(7);
+
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose Weekly date" })).toBeNull(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Choose Daily date" }));
+    const dailyPicker = screen.getByRole("dialog", { name: "Choose Daily date" });
+    const dailyCandidate = within(dailyPicker)
+      .getAllByRole("button")
+      .find(
+        (button) =>
+          button.classList.contains("goal-period-calendar-day") &&
+          !button.classList.contains("goal-period-calendar-day-selected"),
+      );
+    expect(dailyCandidate).toBeDefined();
+    if (!dailyCandidate) {
+      throw new Error("Missing unselected daily calendar candidate.");
+    }
+
+    fireEvent.focus(dailyCandidate);
+    expect(calendarPreviewButtons(dailyPicker)).toHaveLength(1);
+  });
+
+  it("dismisses the weekly planner date portal on outside pointer without committing a new period", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+
+    const weeklyTrigger = screen.getByRole("button", { name: "Choose Weekly date" });
+    const triggerTextBefore = weeklyTrigger.textContent;
+
+    await user.click(weeklyTrigger);
+    expect(screen.getByRole("dialog", { name: "Choose Weekly date" })).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose Weekly date" })).toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: "Choose Weekly date" })).toHaveTextContent(
+      triggerTextBefore ?? "",
+    );
+    expect(screen.getByRole("button", { name: "Choose Weekly date" })).toHaveFocus();
+  });
+
   it("previews and selects planner weeks from the shared calendar popover", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -1172,11 +1302,7 @@ describe("WorkbenchPageClient", () => {
 
     fireEvent.mouseEnter(candidate);
     const { start, end } = calendarSelectionRange(candidate);
-    expect(
-      within(picker)
-        .getAllByRole("button")
-        .filter((button) => button.classList.contains("goal-period-calendar-day-preview")),
-    ).toHaveLength(7);
+    expect(calendarPreviewButtons(picker)).toHaveLength(7);
 
     await user.click(candidate);
 
@@ -1236,11 +1362,7 @@ describe("WorkbenchPageClient", () => {
     }
 
     fireEvent.mouseEnter(candidate);
-    expect(
-      within(picker)
-        .getAllByRole("button")
-        .filter((button) => button.classList.contains("goal-period-calendar-day-preview")),
-    ).toHaveLength(1);
+    expect(calendarPreviewButtons(picker)).toHaveLength(1);
 
     const selectedDayLabel = calendarSelectionDayLabel(candidate);
     await user.click(candidate);

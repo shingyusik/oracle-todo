@@ -282,10 +282,19 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   border-bottom: 1px solid var(--color-hairline-light);
   padding-bottom: 8px;
+}
+
+.planner-view-leading {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .planner-view-pill,
@@ -302,6 +311,7 @@ button {
 
 .planner-view-actions {
   display: flex;
+  margin-left: auto;
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
