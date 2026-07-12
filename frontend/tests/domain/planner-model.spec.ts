@@ -673,6 +673,18 @@ describe("planner model", () => {
           horizon: "week",
           scheduled: "2026-01-05",
         }),
+        item("monday-task", {
+          type: "task",
+          scheduled: "2025-12-29",
+        }),
+        item("wednesday-event", {
+          type: "event",
+          scheduled: "2025-12-31",
+        }),
+        item("outside-month-routine", {
+          type: "routine",
+          scheduled: "2026-02-02",
+        }),
         item("archived-week", {
           type: "goal",
           horizon: "week",
@@ -698,5 +710,19 @@ describe("planner model", () => {
     expect(model.weeks[0]?.goals.map((goal) => goal.id)).toEqual(["week-crosses-year"]);
     expect(model.weeks[1]?.goals.map((goal) => goal.id)).toEqual(["week-inside-month"]);
     expect(model.weeks[2]?.goals).toEqual([]);
+    expect(model.weeks[0]?.days.map((day) => day.date)).toEqual([
+      "2025-12-29",
+      "2025-12-30",
+      "2025-12-31",
+      "2026-01-01",
+      "2026-01-02",
+      "2026-01-03",
+      "2026-01-04",
+    ]);
+    expect(model.weeks[0]?.days[0]?.items.map((entry) => entry.id)).toEqual(["monday-task"]);
+    expect(model.weeks[0]?.days[2]?.items.map((entry) => entry.id)).toEqual(["wednesday-event"]);
+    expect(model.weeks.at(-1)?.days.flatMap((day) => day.items.map((entry) => entry.id))).not.toContain(
+      "outside-month-routine",
+    );
   });
 });

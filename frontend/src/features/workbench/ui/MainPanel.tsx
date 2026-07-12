@@ -26,6 +26,7 @@ import {
   type DailyPlannerSection,
   filterPlannerItemsByRules,
   groupPlannerItems,
+  type MonthlyPlannerWeekModel,
   type PeriodGoalBucketModel,
   type PeriodGoalCardModel,
   type PlannerFilterField,
@@ -301,17 +302,57 @@ function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
         nextLabel="Next month"
         cards={model.carousel}
       />
-      <div className="monthly-week-strip" aria-label="Week goals">
+      <div className="monthly-calendar-planner" role="grid" aria-label="Monthly todo calendar">
         {model.weeks.map((week) => (
-          <PeriodGoalBucketCard
+          <MonthlyPlannerWeekRow
             controller={controller}
-            bucket={week}
-            testId="monthly-week-card"
+            week={week}
             key={week.key}
           />
         ))}
       </div>
     </div>
+  );
+}
+
+function MonthlyPlannerWeekRow({
+  controller,
+  week,
+}: {
+  controller: WorkbenchController;
+  week: MonthlyPlannerWeekModel;
+}) {
+  return (
+    <section className="monthly-week-row" role="row" data-testid="monthly-week-row">
+      <div className="monthly-week-days">
+        {week.days.map((day) => {
+          const dayGroups = groupPlannerItems(
+            sortPlannerItems(day.items, plannerSortRules(controller)),
+            controller.workspaceItems.relatedItems,
+            plannerGroupValue(controller),
+          );
+
+          return (
+            <section
+              className="monthly-day-card"
+              role="gridcell"
+              aria-label={`${day.date} todo`}
+              data-selected-month={day.isSelectedMonth}
+              data-testid="monthly-day-card"
+              key={day.date}
+            >
+              <h3>{day.label}</h3>
+              {renderPlannerGroups(controller, dayGroups, "No items.")}
+            </section>
+          );
+        })}
+      </div>
+      <PeriodGoalBucketCard
+        controller={controller}
+        bucket={week}
+        testId="monthly-week-card"
+      />
+    </section>
   );
 }
 
@@ -1815,11 +1856,12 @@ function isVisiblePlannerFilterItem(
   }
   if (panelId === "monthly") {
     return (
-      item.type === "goal" &&
-      ((item.horizon === "month" &&
-        goalMatchesPlannerPeriod(item, "month", planner.date)) ||
-        (item.horizon === "week" &&
-          weekGoalIntersectsPlannerMonth(item, planner.date)))
+      (item.type === "goal" &&
+        ((item.horizon === "month" &&
+          goalMatchesPlannerPeriod(item, "month", planner.date)) ||
+          (item.horizon === "week" &&
+            weekGoalIntersectsPlannerMonth(item, planner.date)))) ||
+      (isDailyPlannerItem(item) && itemScheduledInPlannerMonthCalendar(item, planner.date))
     );
   }
   if (panelId === "weekly") {
@@ -1876,6 +1918,35 @@ function weekGoalIntersectsPlannerMonth(item: WorkspaceItemModel, plannerDate: s
   }
   const plannerMonth = plannerDate.slice(0, 7);
   return scheduled.slice(0, 7) === plannerMonth || addDays(scheduled, 6).slice(0, 7) === plannerMonth;
+}
+
+function itemScheduledInPlannerMonthCalendar(
+  item: WorkspaceItemModel,
+  plannerDate: string,
+): boolean {
+  const scheduled = item.scheduled?.slice(0, 10);
+  if (!scheduled) {
+    return false;
+  }
+  const selectedMonth = `${plannerDate.slice(0, 7)}-01`;
+  const firstWeekStart = weekStartForPlannerDate(selectedMonth);
+  const monthEnd = plannerMonthEnd(selectedMonth);
+  const lastWeekEnd = addDays(weekStartForPlannerDate(monthEnd), 6);
+  return scheduled >= firstWeekStart && scheduled <= lastWeekEnd;
+}
+
+function weekStartForPlannerDate(date: string): string {
+  const value = new Date(`${date}T00:00:00`);
+  const day = value.getDay();
+  value.setDate(value.getDate() + (day === 0 ? -6 : 1 - day));
+  return formatDateForPlanner(value);
+}
+
+function plannerMonthEnd(monthStart: string): string {
+  const value = new Date(`${monthStart}T00:00:00`);
+  value.setMonth(value.getMonth() + 1);
+  value.setDate(0);
+  return formatDateForPlanner(value);
 }
 
 function addDays(date: string, days: number): string {

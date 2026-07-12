@@ -141,6 +141,17 @@ export type PeriodGoalBucketModel = {
   goals: WorkspaceItemModel[];
 };
 
+export type MonthlyPlannerDay = {
+  date: string;
+  label: string;
+  isSelectedMonth: boolean;
+  items: WorkspaceItemModel[];
+};
+
+export type MonthlyPlannerWeekModel = PeriodGoalBucketModel & {
+  days: MonthlyPlannerDay[];
+};
+
 export type YearlyPeriodGoalCardsModel = {
   selectedYear: string;
   carousel: PeriodGoalCardModel[];
@@ -150,12 +161,13 @@ export type YearlyPeriodGoalCardsModel = {
 export type MonthlyPeriodGoalCardsModel = {
   selectedMonth: string;
   carousel: PeriodGoalCardModel[];
-  weeks: PeriodGoalBucketModel[];
+  weeks: MonthlyPlannerWeekModel[];
 };
 
 const terminalStatuses = new Set(["completed", "archived", "dropped", "cancelled"]);
 const dailyItemTypes = new Set(["task", "event", "routine"]);
 const weeklyItemTypes = new Set(["task", "event", "routine"]);
+const monthlyItemTypes = new Set(["task", "event", "routine"]);
 const monthLabels = [
   "Jan",
   "Feb",
@@ -210,14 +222,26 @@ export function buildMonthlyPeriodGoalCardsModel(
   const monthStarts = [-1, 0, 1].map((offset) => monthStart(addMonths(selectedMonth, offset)));
   const monthEnd = addDays(addMonths(selectedMonth, 1), -1);
   const firstWeekStart = isoWeekStart(selectedMonth);
-  const weeks: PeriodGoalBucketModel[] = [];
+  const weeks: MonthlyPlannerWeekModel[] = [];
 
   for (let current = firstWeekStart, index = 1; current <= monthEnd; current = addDays(current, 7), index += 1) {
+    const weekDates = Array.from({ length: 7 }, (_, offset) => addDays(current, offset));
     weeks.push({
       key: current,
       label: `W${index}`,
       periodStart: current,
       goals: goalsForPeriod(items, "week", current),
+      days: weekDates.map((date) => ({
+        date,
+        label: date.slice(8, 10),
+        isSelectedMonth: date.startsWith(selectedMonth.slice(0, 7)),
+        items: items.filter(
+          (item) =>
+            monthlyItemTypes.has(item.type) &&
+            !terminalStatuses.has(item.status) &&
+            datePart(item.scheduled) === date,
+        ),
+      })),
     });
   }
 

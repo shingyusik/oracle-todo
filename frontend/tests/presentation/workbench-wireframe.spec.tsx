@@ -1864,6 +1864,7 @@ describe("WorkbenchPageClient", () => {
     const nextMonthStart = testNextMonthStart(today);
     const firstWeekStart = testWeekStart(monthStart);
     const secondWeekStart = testAddDays(firstWeekStart, 7);
+    const firstWeekEventDate = testAddDays(firstWeekStart, 2);
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=goal": [
         { id: "goal-month", type: "goal", title: "Monthly Goal", status: "active", horizon: "month", scheduled: monthStart, tags: ["month-current"] },
@@ -1872,6 +1873,13 @@ describe("WorkbenchPageClient", () => {
         { id: "goal-week-2", type: "goal", title: "Second Week Goal", status: "active", horizon: "week", scheduled: secondWeekStart, tags: ["week-current"] },
         { id: "goal-week-done", type: "goal", title: "Done Week Goal", status: "completed", horizon: "week", scheduled: firstWeekStart, tags: ["week-done"] },
       ],
+      "/todo-engine/items?type=task": [
+        { id: "task-month", type: "task", title: "Month Task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"] },
+      ],
+      "/todo-engine/items?type=event": [
+        { id: "event-month", type: "event", title: "Month Event", status: "active", scheduled: firstWeekEventDate, tags: ["month-todo"] },
+      ],
+      "/todo-engine/items?type=routine": [],
       "/todo-engine/items?type=area": [],
       "/todo-engine/items?type=project": [],
     };
@@ -1894,7 +1902,11 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByRole("region", { name: "Month goal carousel" })).toBeInTheDocument();
     expect(screen.getByText("Monthly Goal")).toBeInTheDocument();
     expect(screen.getByText("Other Month Goal")).toBeInTheDocument();
-    expect(screen.getAllByTestId("monthly-week-card").length).toBeGreaterThanOrEqual(4);
+    expect(screen.getByRole("grid", { name: "Monthly todo calendar" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("monthly-week-row").length).toBeGreaterThanOrEqual(4);
+    expect(screen.getAllByTestId("monthly-day-card").length).toBeGreaterThanOrEqual(28);
+    expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Month Task");
+    expect(screen.getByRole("gridcell", { name: `${firstWeekEventDate} todo` })).toHaveTextContent("Month Event");
     expect(screen.getByRole("region", { name: "W1 goals" })).toHaveTextContent("First Week Goal");
     expect(screen.getByRole("region", { name: "W2 goals" })).toHaveTextContent("Second Week Goal");
     expect(screen.queryByText("Done Week Goal")).toBeNull();

@@ -66,7 +66,7 @@ const relatedItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
 
 const plannerItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
   yearly: ["goal", "area", "project"],
-  monthly: ["goal", "area", "project"],
+  monthly: ["goal", "task", "event", "routine", "area", "project"],
   weekly: ["goal", "task", "event", "routine", "area", "project"],
   daily: ["task", "event", "routine", "area", "project"],
 };
