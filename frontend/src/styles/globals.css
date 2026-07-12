@@ -8,6 +8,10 @@
   --color-aloe: #c1fbd4;
   --color-aloe-strong: #3fae6a;
   --color-pistachio: #d4f9e0;
+  --color-text: var(--color-ink);
+  --color-text-muted: var(--color-shade-60);
+  --color-accent-soft: var(--color-pistachio);
+  --color-accent-strong: var(--color-aloe-strong);
   --color-hairline-light: #e4e4e7;
   --color-hairline-dark: #1e2c31;
   --color-shade-30: #d4d4d8;
@@ -17,6 +21,7 @@
   --color-shade-70: #3f3f46;
   --font-display: Inter Display, Inter, Helvetica, Arial, sans-serif;
   --font-body: Inter, Helvetica, Arial, sans-serif;
+  --font-mono: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
   --radius-xs: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;

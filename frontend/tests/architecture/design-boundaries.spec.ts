@@ -125,6 +125,24 @@ describe("design system boundaries", () => {
     );
   });
 
+  it("defines CSS variables that are used without fallbacks", async () => {
+    const source = await readSource("src/styles/globals.css");
+    const definitions = new Set(
+      Array.from(source.matchAll(/--[A-Za-z0-9_-]+\s*:/g), ([match]) =>
+        match.slice(0, match.indexOf(":")).trim(),
+      ),
+    );
+    const missingDefinitions = Array.from(
+      new Set(
+        Array.from(source.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)([^)]*)\)/g))
+          .filter(([, name, suffix]) => !suffix.includes(",") && !definitions.has(name))
+          .map(([, name]) => name),
+      ),
+    ).sort();
+
+    expect(missingDefinitions).toEqual([]);
+  });
+
   it("shows disabled detail save actions as unavailable", async () => {
     const source = await readSource("src/styles/globals.css");
 
