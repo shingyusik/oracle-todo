@@ -16,6 +16,16 @@ function pathsFor(root, version, binaryName) {
   };
 }
 
+function uiPathsFor(root, version) {
+  const uiDir = path.join(root, "ui");
+  const uiVersionDir = path.join(uiDir, version);
+  return {
+    uiDir,
+    uiVersionDir,
+    uiIndexPath: path.join(uiVersionDir, "index.html"),
+  };
+}
+
 async function readMetadata(root) {
   try {
     return JSON.parse(await fs.readFile(path.join(root, "metadata.json"), "utf8"));
@@ -33,5 +43,6 @@ async function writeMetadata(root, metadata) {
 module.exports = {
   pathsFor,
   readMetadata,
+  uiPathsFor,
   writeMetadata,
 };

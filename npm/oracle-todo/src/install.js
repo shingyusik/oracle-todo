@@ -6,7 +6,45 @@ const { pathsFor, readMetadata, writeMetadata } = require("./cache");
 const { cacheDir, GITHUB_REPOSITORY } = require("./config");
 const { fetchRelease, selectAsset } = require("./github");
 const { assetName, resolvePlatform } = require("./platform");
+const { installUiArtifact } = require("./ui-artifact");
 const { compareVersions, normalizeVersion } = require("./version");
+
+async function fetchRequestedRelease(options, env) {
+  return (options.fetchReleaseImpl || fetchRelease)({
+    repository: options.repository || GITHUB_REPOSITORY,
+    version: env.ORACLE_TODO_VERSION,
+    token: env.ORACLE_TODO_GITHUB_TOKEN,
+    fetchImpl: options.fetchImpl,
+  });
+}
+
+async function installBundle(options = {}) {
+  const env = options.env || process.env;
+  const cacheRoot = options.cacheRoot || cacheDir(env);
+  const platformInfo = options.platformInfo || resolvePlatform();
+  const metadata = await readMetadata(cacheRoot);
+  const release = await fetchRequestedRelease(options, env);
+  const version = normalizeVersion(release.tag_name);
+
+  if (metadata && metadata.installedVersion === version && metadata.uiVersion === version) {
+    return { status: "already-installed", ...metadata };
+  }
+
+  const engine = await installRelease({ ...options, cacheRoot, platformInfo, release, version });
+  const ui = await installUiArtifact({ ...options, cacheRoot, release, version });
+  const metadataNext = {
+    ...engine,
+    uiVersion: ui.uiVersion,
+    uiAssetName: ui.uiAssetName,
+    uiPath: ui.uiPath,
+  };
+  await writeMetadata(cacheRoot, metadataNext);
+  return metadataNext;
+}
+
+async function updateBundle(options = {}) {
+  return installBundle(options);
+}
 
 async function installEngine(options = {}) {
   const env = options.env || process.env;
@@ -83,6 +121,8 @@ async function installRelease(options) {
 }
 
 module.exports = {
+  installBundle,
   installEngine,
+  updateBundle,
   updateEngine,
 };

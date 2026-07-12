@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
-const { installEngine, updateEngine } = require("../src/install");
+const { installBundle, installEngine, updateBundle, updateEngine } = require("../src/install");
 const { readMetadata } = require("../src/cache");
 
 async function fakeExtractor(archivePath, destination) {
@@ -18,6 +18,32 @@ async function fakeNestedExtractor(_archivePath, destination) {
   await fs.mkdir(releaseRoot, { recursive: true });
   await fs.writeFile(path.join(releaseRoot, "todo-engine"), "#!/bin/sh\necho fake engine\n", { mode: 0o755 });
 }
+
+test("installs engine and matching ui artifact as a bundle", async () => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-bundle-"));
+  const result = await installBundle({
+    cacheRoot,
+    now: () => new Date("2026-07-12T00:00:00.000Z"),
+    platformInfo: { target: "aarch64-apple-darwin", extension: ".tar.gz", binaryName: "todo-engine" },
+    fetchReleaseImpl: async () => ({
+      tag_name: "v0.3.0",
+      assets: [
+        { name: "todo-engine-0.3.0-aarch64-apple-darwin.tar.gz", browser_download_url: "https://example.test/archive" },
+        { name: "oracle-todo-ui-0.3.0.tar.gz", browser_download_url: "https://example.test/ui" },
+      ],
+    }),
+    downloadFileImpl: async (_url, destination) => fs.writeFile(destination, "archive"),
+    extractArchiveImpl: async (_archivePath, destination) => {
+      await fs.mkdir(destination, { recursive: true });
+      await fs.writeFile(path.join(destination, "todo-engine"), "#!/bin/sh\necho fake engine\n", { mode: 0o755 });
+      await fs.writeFile(path.join(destination, "index.html"), "<!doctype html>");
+    },
+  });
+
+  assert.equal(result.installedVersion, "0.3.0");
+  assert.equal(result.uiVersion, "0.3.0");
+  assert.equal((await readMetadata(cacheRoot)).uiVersion, "0.3.0");
+});
 
 test("installs the latest compatible engine", async () => {
   const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-install-"));
