@@ -33,8 +33,8 @@ This repo is a monorepo: the Rust engine lives in `todo-engine/`, with a reserve
 Run without a Rust toolchain:
 
 ```bash
-npx @shinggyusik/oracle-todo init
-npx @shinggyusik/oracle-todo today
+npx @shings/oracle-todo init
+npx @shings/oracle-todo today
 ```
 
 Build from source for development:

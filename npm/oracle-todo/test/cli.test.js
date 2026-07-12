@@ -39,7 +39,7 @@ test("prints wrapper and installed engine version", async () => {
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(lines, ["@shinggyusik/oracle-todo wrapper", "todo-engine 0.2.0"]);
+  assert.deepEqual(lines, ["@shings/oracle-todo wrapper", "todo-engine 0.2.0"]);
 });
 
 test("reports not installed version state", async () => {
@@ -52,7 +52,7 @@ test("reports not installed version state", async () => {
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(lines, ["@shinggyusik/oracle-todo wrapper", "todo-engine not installed"]);
+  assert.deepEqual(lines, ["@shings/oracle-todo wrapper", "todo-engine not installed"]);
 });
 
 test("doctor reports the active binary path", async () => {

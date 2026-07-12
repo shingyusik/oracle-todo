@@ -5,7 +5,7 @@
 Provide a Rust-free local execution path for `todo-engine` through an npm package:
 
 ```bash
-npx @shinggyusik/oracle-todo <todo-engine args>
+npx @shings/oracle-todo <todo-engine args>
 ```
 
 The npm package downloads and runs prebuilt GitHub Release binaries. User data remains local
@@ -13,7 +13,7 @@ under the existing `todo-engine` data home.
 
 ## Package Name
 
-- npm package: `@shinggyusik/oracle-todo`
+- npm package: `@shings/oracle-todo`
 - CLI command exposed by the package: `oracle-todo`
 - Runtime target binary: `todo-engine`
 
@@ -22,22 +22,22 @@ under the existing `todo-engine` data home.
 First run:
 
 ```bash
-npx @shinggyusik/oracle-todo init
-npx @shinggyusik/oracle-todo today
-npx @shinggyusik/oracle-todo pending
+npx @shings/oracle-todo init
+npx @shings/oracle-todo today
+npx @shings/oracle-todo pending
 ```
 
 Update:
 
 ```bash
-npx @shinggyusik/oracle-todo update
+npx @shings/oracle-todo update
 ```
 
 Command forwarding:
 
 - Any command other than wrapper-owned commands is passed through to `todo-engine`.
-- `npx @shinggyusik/oracle-todo today` executes the downloaded `todo-engine today`.
-- `npx @shinggyusik/oracle-todo --home ~/.todo-engine-dev today` preserves normal engine flags.
+- `npx @shings/oracle-todo today` executes the downloaded `todo-engine today`.
+- `npx @shings/oracle-todo --home ~/.todo-engine-dev today` preserves normal engine flags.
 
 ## Data Model Boundary
 
@@ -208,9 +208,9 @@ Integration tests cover:
 Manual smoke checks cover:
 
 ```bash
-npx @shinggyusik/oracle-todo version
-npx @shinggyusik/oracle-todo --home "$(mktemp -d)" init
-npx @shinggyusik/oracle-todo --home "$(mktemp -d)" health
+npx @shings/oracle-todo version
+npx @shings/oracle-todo --home "$(mktemp -d)" init
+npx @shings/oracle-todo --home "$(mktemp -d)" health
 ```
 
 ## Implementation Boundaries

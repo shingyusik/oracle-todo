@@ -10,9 +10,9 @@ building from source. SQLite is bundled via `rusqlite` — no external SQLite in
 Use the npm wrapper when you want to run the local engine without installing Rust:
 
 ```bash
-npx @shinggyusik/oracle-todo init
-npx @shinggyusik/oracle-todo today
-npx @shinggyusik/oracle-todo pending
+npx @shings/oracle-todo init
+npx @shings/oracle-todo today
+npx @shings/oracle-todo pending
 ```
 
 The wrapper downloads a compatible `todo-engine` binary from GitHub Releases and stores it
@@ -22,7 +22,7 @@ under `~/.local/share/oracle-todo/`. User data stays in the normal data home:
 Update the cached binary:
 
 ```bash
-npx @shinggyusik/oracle-todo update
+npx @shings/oracle-todo update
 ```
 
 ## Build and initialize

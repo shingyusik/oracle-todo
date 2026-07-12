@@ -1,7 +1,7 @@
 const path = require("node:path");
 const os = require("node:os");
 
-const PACKAGE_NAME = "@shinggyusik/oracle-todo";
+const PACKAGE_NAME = "@shings/oracle-todo";
 const COMMAND_NAME = "oracle-todo";
 const ENGINE_BINARY = "todo-engine";
 const GITHUB_REPOSITORY = "shingyusik/oracle-todo";

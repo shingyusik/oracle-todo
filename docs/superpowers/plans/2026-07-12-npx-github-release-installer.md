@@ -2,15 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `npx @shinggyusik/oracle-todo` as a Rust-free local runner that downloads `todo-engine` binaries from GitHub Releases and forwards commands to the engine.
+**Goal:** Build `npx @shings/oracle-todo` as a Rust-free local runner that downloads `todo-engine` binaries from GitHub Releases and forwards commands to the engine.
 
 **Architecture:** Add a small Node.js package under `npm/oracle-todo/` that owns platform resolution, GitHub Release lookup, cache metadata, install/update commands, and child-process forwarding. Add a GitHub Actions release workflow that publishes platform archives matching the wrapper's asset naming rules. Keep SQLite data ownership entirely inside the existing Rust engine.
 
-**Tech Stack:** Node.js 18+ standard library, npm scoped package `@shinggyusik/oracle-todo`, GitHub Releases API, GitHub Actions, existing Rust workspace and `cargo build --release`.
+**Tech Stack:** Node.js 18+ standard library, npm scoped package `@shings/oracle-todo`, GitHub Releases API, GitHub Actions, existing Rust workspace and `cargo build --release`.
 
 ## Global Constraints
 
-- npm package: `@shinggyusik/oracle-todo`
+- npm package: `@shings/oracle-todo`
 - CLI command exposed by the package: `oracle-todo`
 - Runtime target binary: `todo-engine`
 - Use cache root `~/.local/share/oracle-todo/` unless `ORACLE_TODO_CACHE_DIR` is set.
@@ -39,7 +39,7 @@
 - Create `npm/oracle-todo/src/cli.js`: wrapper command parsing and command dispatch.
 - Create `npm/oracle-todo/test/*.test.js`: Node test runner coverage for platform, versions, cache, GitHub lookup, install/update, and forwarding.
 - Create `.github/workflows/release.yml`: tag-triggered Rust release asset workflow.
-- Modify `docs/operations/setup.md`: document `npx @shinggyusik/oracle-todo`.
+- Modify `docs/operations/setup.md`: document `npx @shings/oracle-todo`.
 - Modify `README.md`: add the npx path to setup while keeping Cargo development setup.
 
 ---
@@ -132,7 +132,7 @@ Create `npm/oracle-todo/package.json`:
 
 ```json
 {
-  "name": "@shinggyusik/oracle-todo",
+  "name": "@shings/oracle-todo",
   "version": "0.1.0",
   "description": "npx runner for todo-engine GitHub Release binaries",
   "license": "MIT",
@@ -172,10 +172,10 @@ Create `npm/oracle-todo/src/config.js`:
 const path = require("node:path");
 const os = require("node:os");
 
-const PACKAGE_NAME = "@shinggyusik/oracle-todo";
+const PACKAGE_NAME = "@shings/oracle-todo";
 const COMMAND_NAME = "oracle-todo";
 const ENGINE_BINARY = "todo-engine";
-const GITHUB_REPOSITORY = "shinggyusik/oracle-todo";
+const GITHUB_REPOSITORY = "shingyusik/oracle-todo";
 const DEFAULT_CACHE_DIR = path.join(os.homedir(), ".local", "share", "oracle-todo");
 
 function cacheDir(env = process.env) {
@@ -511,7 +511,7 @@ async function fetchRelease({ version, repository, token, fetchImpl = globalThis
     : `https://api.github.com/repos/${repository}/releases/latest`;
   const headers = {
     Accept: "application/vnd.github+json",
-    "User-Agent": "@shinggyusik/oracle-todo",
+    "User-Agent": "@shings/oracle-todo",
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -1278,7 +1278,7 @@ git commit -m "[ADD] Add GitHub release workflow
 - Modify: `docs/operations/setup.md`
 
 **Interfaces:**
-- Consumes: implemented package name `@shinggyusik/oracle-todo`
+- Consumes: implemented package name `@shings/oracle-todo`
 - Produces: user-facing install/update instructions for local non-Rust usage.
 
 - [ ] **Step 1: Update setup docs with npx usage**
@@ -1291,9 +1291,9 @@ In `docs/operations/setup.md`, add this section after prerequisites:
 Use the npm wrapper when you want to run the local engine without installing Rust:
 
 ```bash
-npx @shinggyusik/oracle-todo init
-npx @shinggyusik/oracle-todo today
-npx @shinggyusik/oracle-todo pending
+npx @shings/oracle-todo init
+npx @shings/oracle-todo today
+npx @shings/oracle-todo pending
 ```
 
 The wrapper downloads a compatible `todo-engine` binary from GitHub Releases and stores it
@@ -1303,7 +1303,7 @@ under `~/.local/share/oracle-todo/`. User data stays in the normal data home:
 Update the cached binary:
 
 ```bash
-npx @shinggyusik/oracle-todo update
+npx @shings/oracle-todo update
 ```
 ```
 
@@ -1317,8 +1317,8 @@ In `README.md`, replace the current `## Setup` section with:
 Run without a Rust toolchain:
 
 ```bash
-npx @shinggyusik/oracle-todo init
-npx @shinggyusik/oracle-todo today
+npx @shings/oracle-todo init
+npx @shings/oracle-todo today
 ```
 
 Build from source for development:

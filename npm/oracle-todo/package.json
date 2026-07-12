@@ -1,5 +1,5 @@
 {
-  "name": "@shinggyusik/oracle-todo",
+  "name": "@shings/oracle-todo",
   "version": "0.1.0",
   "description": "npx runner for todo-engine GitHub Release binaries",
   "license": "MIT",

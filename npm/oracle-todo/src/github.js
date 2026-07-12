@@ -13,7 +13,7 @@ async function fetchRelease({ version, repository, token, fetchImpl = globalThis
     : `https://api.github.com/repos/${repository}/releases/latest`;
   const headers = {
     Accept: "application/vnd.github+json",
-    "User-Agent": "@shinggyusik/oracle-todo",
+    "User-Agent": "@shings/oracle-todo",
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
