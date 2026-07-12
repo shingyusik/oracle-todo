@@ -52,6 +52,9 @@ Behavior:
 
 - The header year starts from the current candidate month.
 - Previous and next buttons move the month grid by one year.
+- A `This year` button returns the visible month grid to the current local year.
+- `This year` changes only the visible picker year; it does not commit a period.
+- `This year` is disabled when the visible picker year is already the current local year.
 - The selected month has a visible selected state.
 - Selecting a month commits immediately.
 - The committed value is canonicalized to `YYYY-MM-01`.
@@ -66,6 +69,9 @@ The range summary continues to show the selected month start and end dates.
 - Selecting any date highlights the selected ISO week from Monday through Sunday.
 - The highlight reads as one horizontal week bar across the calendar row, not as unrelated selected day buttons.
 - Dates from adjacent months still participate in the same ISO week highlight when visible in the calendar grid.
+- A `This month` button returns the visible calendar grid to the current local month.
+- `This month` changes only the visible calendar month; it does not commit a period.
+- `This month` is disabled when the visible calendar month is already the current local month.
 - Clicking any date commits immediately.
 - The committed value is canonicalized to the ISO Monday for that date.
 
