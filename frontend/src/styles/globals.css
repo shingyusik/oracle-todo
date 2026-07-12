@@ -1851,3 +1851,39 @@ button {
   }
 
 }
+
+.planner-group-settings-panel {
+  display: grid;
+  gap: 0.75rem;
+  min-width: min(24rem, calc(100vw - 2rem));
+}
+
+.planner-group-settings-section,
+.planner-group-row-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.planner-group-switch,
+.planner-group-row,
+.planner-group-settings-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.planner-group-row {
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  padding: 0.4rem 0.5rem;
+}
+
+.planner-group-count {
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.planner-group-remove {
+  color: var(--danger-text);
+}

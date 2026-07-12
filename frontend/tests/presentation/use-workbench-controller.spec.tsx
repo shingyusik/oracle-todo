@@ -28,6 +28,7 @@ function testMonthStart(): string {
 
 describe("useWorkbenchController", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
   });
 

@@ -1,3 +1,8 @@
+import {
+  orderVisiblePlannerGroups,
+  type PlannerGroupCandidate,
+  type PlannerGroupSettings,
+} from "@/features/workbench/model/planner-group-settings";
 import type {
   WorkspaceItemModel,
   WorkspaceItemsModel,
@@ -92,7 +97,8 @@ export type DailyGroupBy = PlannerGroupBy;
 export type DailyPlannerOptions = {
   date: string;
   filters: DailyFilterState;
-  groupBy: DailyGroupBy;
+  groupSettings: PlannerGroupSettings;
+  groupCandidates: PlannerGroupCandidate[];
   sortRules: PlannerSortRule[];
 };
 
@@ -288,20 +294,29 @@ export function buildDailyPlannerModel(
 
   return {
     sections: {
-      today: section("today", dateLabel, today, relatedItems, options.groupBy),
+      today: section(
+        "today",
+        dateLabel,
+        today,
+        relatedItems,
+        options.groupSettings,
+        options.groupCandidates,
+      ),
       overdue: section(
         "overdue",
         `Before ${dateLabel}`,
         overdue,
         relatedItems,
-        options.groupBy,
+        options.groupSettings,
+        options.groupCandidates,
       ),
       unscheduled: section(
         "unscheduled",
         "Unscheduled",
         unscheduled,
         relatedItems,
-        options.groupBy,
+        options.groupSettings,
+        options.groupCandidates,
       ),
     },
   };
@@ -618,43 +633,49 @@ function section(
   title: string,
   items: WorkspaceItemModel[],
   relatedItems: WorkspaceItemsModel["relatedItems"],
-  groupBy: DailyGroupBy,
+  groupSettings: PlannerGroupSettings,
+  groupCandidates: PlannerGroupCandidate[],
 ): DailyPlannerSection {
-  return { id, title, groups: groupItems(items, relatedItems, groupBy) };
+  return {
+    id,
+    title,
+    groups: groupItems(items, relatedItems, groupSettings, groupCandidates),
+  };
 }
 
 export function groupPlannerItems(
   items: WorkspaceItemModel[],
   relatedItems: WorkspaceItemsModel["relatedItems"],
-  groupBy: PlannerGroupBy,
+  groupSettings: PlannerGroupSettings,
+  groupCandidates: PlannerGroupCandidate[],
 ): PlannerGroup[] {
-  return groupItems(items, relatedItems, groupBy);
+  return groupItems(items, relatedItems, groupSettings, groupCandidates);
 }
 
 function groupItems(
   items: WorkspaceItemModel[],
   relatedItems: WorkspaceItemsModel["relatedItems"],
-  groupBy: PlannerGroupBy,
+  groupSettings: PlannerGroupSettings,
+  groupCandidates: PlannerGroupCandidate[],
 ): PlannerGroup[] {
+  const groupBy = groupSettings.groupBy;
   if (groupBy === "none") {
     return items.length === 0 ? [] : [{ key: "all", label: "All", items }];
   }
 
-  const groups = new Map<string, PlannerGroup>();
+  const buckets = new Map<string, WorkspaceItemModel[]>();
   for (const item of items) {
-    const keys = groupKeys(item, groupBy);
-    for (const key of keys) {
-      if (!groups.has(key)) {
-        groups.set(key, {
-          key,
-          label: groupLabel(key, groupBy, relatedItems),
-          items: [],
-        });
-      }
-      groups.get(key)?.items.push(item);
+    for (const key of groupKeys(item, groupBy)) {
+      buckets.set(key, [...(buckets.get(key) ?? []), item]);
     }
   }
-  return [...groups.values()];
+  return orderVisiblePlannerGroups(groupCandidates, groupSettings)
+    .map((candidate) => ({
+      key: candidate.key,
+      label: candidate.label || groupLabel(candidate.key, groupBy, relatedItems),
+      items: buckets.get(candidate.key) ?? [],
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 function groupKeys(item: WorkspaceItemModel, groupBy: PlannerGroupBy): string[] {

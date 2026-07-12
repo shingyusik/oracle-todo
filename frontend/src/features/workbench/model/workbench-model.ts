@@ -6,12 +6,16 @@ import type {
 } from "@/domain/workbench/navigation";
 import type {
   DailyFilterState,
-  DailyGroupBy,
   PlannerFilterMode,
   PlannerFilterRule,
   PlannerGroupBy,
   PlannerSortRule,
 } from "@/features/workbench/model/planner-model";
+import type {
+  PlannerGroupSettings,
+  PlannerGroupSort,
+  PlannerViewId,
+} from "@/features/workbench/model/planner-group-settings";
 
 export type WorkbenchPanelModel = {
   id: LeafTabId;
@@ -72,13 +76,10 @@ export type PlannerControls = {
   dailyFilters: DailyFilterState;
   filterMode: PlannerFilterMode;
   filterRules: PlannerFilterRule[];
-  dailyGroupBy: DailyGroupBy;
+  groupSettings: Record<PlannerViewId, PlannerGroupSettings>;
   dailySortRules: PlannerSortRule[];
-  yearlyGroupBy: PlannerGroupBy;
   yearlySortRules: PlannerSortRule[];
-  monthlyGroupBy: PlannerGroupBy;
   monthlySortRules: PlannerSortRule[];
-  weeklyGroupBy: PlannerGroupBy;
   weeklySortRules: PlannerSortRule[];
 };
 
@@ -150,9 +151,15 @@ export type WorkbenchController = {
   setPlannerFilterMode: (mode: PlannerFilterMode) => void;
   setPlannerFilterRules: (rules: PlannerFilterRule[]) => void;
   clearPlannerFilterRules: () => void;
-  setDailyGroupBy: (groupBy: DailyGroupBy) => void;
+  setDailyGroupBy: (groupBy: PlannerGroupBy) => void;
   setDailySortRules: (rules: PlannerSortRule[]) => void;
   setPlannerGroupBy: (groupBy: PlannerGroupBy) => void;
+  setPlannerGroupSort: (sort: PlannerGroupSort) => void;
+  setPlannerHideEmptyGroups: (hideEmpty: boolean) => void;
+  togglePlannerGroupVisibility: (key: string) => void;
+  setAllPlannerGroupsVisible: (keys: string[], visible: boolean) => void;
+  setPlannerManualGroupOrder: (keys: string[]) => void;
+  removePlannerGrouping: () => void;
   setPlannerSortRules: (rules: PlannerSortRule[]) => void;
   transitionWorkspaceItem: (
     itemId: string,
