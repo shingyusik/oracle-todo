@@ -1855,85 +1855,59 @@ button {
 }
 
 .planner-group-settings-panel {
-  min-width: min(22rem, calc(100vw - 2rem));
-  color: var(--color-text);
+  display: grid;
+  width: min(320px, calc(100vw - 36px));
+  gap: 6px;
+  color: var(--color-ink);
+  font-size: 13px;
 }
 
 .planner-group-popover {
-  padding: 0;
-  overflow: hidden;
+  padding: 6px;
 }
 
-.planner-group-header,
 .planner-group-list-heading,
-.planner-group-row,
-.planner-group-setting-rows > button,
-.planner-group-setting-rows > label,
 .planner-group-choice-list > button {
-  align-items: center;
   display: flex;
-}
-
-.planner-group-header {
-  justify-content: space-between;
-  min-height: 48px;
-  padding: 6px 8px;
-}
-
-.planner-group-header h2 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.planner-group-header button,
-.planner-group-row button,
-.planner-group-list-heading button {
-  border: 0;
-  background: transparent;
-  color: inherit;
-}
-
-.planner-group-header button {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: var(--radius-md);
-}
-
-.planner-group-header button:hover,
-.planner-group-row button:hover,
-.planner-group-list-heading button:hover {
-  background: var(--color-hairline-light);
+  align-items: center;
 }
 
 .planner-group-setting-rows,
+.planner-group-inline-options,
 .planner-group-choice-list,
 .planner-group-row-list {
   display: grid;
 }
 
 .planner-group-setting-rows {
-  padding: 4px 8px 10px;
-  border-bottom: 1px solid var(--color-hairline-light);
+  gap: 1px;
 }
 
 .planner-group-setting-rows > button,
 .planner-group-setting-rows > label,
+.planner-group-inline-options > button,
 .planner-group-choice-list > button {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
   justify-content: space-between;
-  min-height: 42px;
+  gap: 8px;
   border: 0;
-  border-radius: var(--radius-md);
-  padding: 0 10px;
+  border-radius: var(--radius-xs);
+  padding: 4px 8px;
   background: transparent;
   color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
   text-align: left;
 }
 
 .planner-group-setting-rows > button:hover,
+.planner-group-inline-options > button:hover,
 .planner-group-choice-list > button:hover {
-  background: var(--color-hairline-light);
+  background: var(--color-canvas-cream);
+  color: var(--color-ink);
 }
 
 .planner-group-setting-rows > button > span:last-child {
@@ -1944,57 +1918,90 @@ button {
 }
 
 .planner-group-setting-rows input[role="switch"] {
-  width: 34px;
-  height: 20px;
+  width: 30px;
+  height: 18px;
   accent-color: var(--color-accent-strong);
 }
 
+.planner-group-inline-options,
+.planner-group-choice-list {
+  margin: 0 0 2px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 3px;
+}
+
 .planner-group-list-section {
-  padding: 12px 8px 8px;
-  border-bottom: 1px solid var(--color-hairline-light);
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--color-hairline-light);
+  padding-top: 6px;
 }
 
 .planner-group-list-heading {
   justify-content: space-between;
-  padding: 0 8px 6px;
+  min-height: 26px;
+  padding: 0 4px;
 }
 
 .planner-group-list-heading h3 {
   margin: 0;
-  color: var(--color-text-muted);
-  font-size: 13px;
+  color: var(--color-shade-50);
+  font-size: 12px;
   font-weight: 600;
 }
 
 .planner-group-list-heading button {
+  border: 0;
   border-radius: var(--radius-xs);
+  background: transparent;
   padding: 4px 6px;
-  color: var(--color-accent-strong);
-  font-size: 13px;
+  color: var(--color-shade-60);
+  font-size: 12px;
+}
+
+.planner-group-list-heading button:hover {
+  background: var(--color-canvas-cream);
+  color: var(--color-ink);
 }
 
 .planner-group-row {
-  gap: 5px;
-  min-height: 38px;
-  border-radius: var(--radius-md);
-  padding: 3px 5px;
+  display: grid;
+  min-height: 32px;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  padding: 2px 4px;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .planner-group-row:hover {
   background: var(--color-canvas-cream);
 }
 
+.planner-group-row button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
 .planner-group-drag-handle {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 24px;
   place-items: center;
-  border: 0;
   border-radius: var(--radius-xs);
-  background: transparent;
-  flex: 0 0 auto;
   color: var(--color-shade-40);
   cursor: grab;
+}
+
+.planner-group-drag-handle svg {
+  width: 16px;
+  height: 16px;
 }
 
 .planner-group-drag-handle:disabled {
@@ -2009,8 +2016,7 @@ button {
 }
 
 .planner-group-count {
-  color: var(--color-text-muted);
-  margin-left: auto;
+  color: var(--color-shade-50);
   font-size: 12px;
 }
 
@@ -2021,34 +2027,59 @@ button {
 .planner-group-keyboard-moves button,
 .planner-group-eye {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border-radius: var(--radius-xs);
+  color: var(--color-shade-40);
+}
+
+.planner-group-keyboard-moves button {
+  opacity: 0.35;
+}
+
+.planner-group-keyboard-moves button svg,
+.planner-group-eye svg {
+  width: 15px;
+  height: 15px;
+}
+
+.planner-group-row:hover .planner-group-keyboard-moves button:not(:disabled),
+.planner-group-keyboard-moves button:focus-visible {
+  color: var(--color-shade-60);
+  opacity: 1;
+}
+
+.planner-group-row button:hover:not(:disabled) {
+  background: var(--color-canvas-cream);
+  color: var(--color-ink);
 }
 
 .planner-group-keyboard-moves button:disabled {
   cursor: default;
-  opacity: 0.25;
-}
-
-.planner-group-choice-list {
-  padding: 4px 8px 10px;
+  opacity: 0.2;
 }
 
 .planner-group-remove {
   display: flex;
+  min-height: 32px;
   align-items: center;
   gap: 8px;
-  width: calc(100% - 16px);
-  min-height: 42px;
-  margin: 8px;
+  width: 100%;
+  margin: 0;
   border: 0;
-  border-radius: var(--radius-md);
-  padding: 0 10px;
+  border-top: 1px solid var(--color-hairline-light);
+  border-radius: 0;
+  padding: 4px 8px;
   background: transparent;
   color: var(--color-danger-text);
+  font-size: 13px;
   text-align: left;
+}
+
+.planner-group-remove svg {
+  width: 15px;
+  height: 15px;
 }
 
 .planner-group-remove:hover:not(:disabled) {

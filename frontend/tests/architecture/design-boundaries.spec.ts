@@ -197,6 +197,25 @@ describe("design system boundaries", () => {
     expect(css).not.toContain("animation-library");
   });
 
+  it("keeps planner group controls compact and headerless", async () => {
+    const panel = await readSource(
+      "src/features/workbench/ui/PlannerGroupPanel.tsx",
+    );
+    const styles = await readSource("src/styles/globals.css");
+
+    expect(panel).not.toContain("planner-group-header");
+    expect(styles).toContain(".planner-group-setting-rows > button");
+    expect(styles).toMatch(
+      /\.planner-group-setting-rows > button[\s\S]*?font-size:\s*13px/,
+    );
+    expect(styles).toMatch(
+      /\.planner-group-count[\s\S]*?font-size:\s*12px/,
+    );
+    expect(styles).toMatch(
+      /\.planner-group-row[\s\S]*?min-height:\s*32px/,
+    );
+  });
+
   it("keeps goal period calendar dependency-free", async () => {
     const source = await readSource("src/features/workbench/ui/MainPanel.tsx");
 
