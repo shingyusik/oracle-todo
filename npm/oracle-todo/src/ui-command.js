@@ -36,20 +36,32 @@ async function runUi(args, options = {}) {
   const parsed = parseUiArgs(args);
   const install = options.installBundle;
   const installed = await install({ env: options.env || process.env });
-  const api = spawn(installed.binaryPath, [...parsed.engineArgs, "api", "--host", "127.0.0.1", "--port", String(parsed.apiPort)], {
-    stdio: "inherit",
-  });
-  await waitForPort(parsed.apiPort, api);
+  const spawnApi = options.spawnApi || spawn;
+  const makeUiServer = options.createUiServer || createUiServer;
+  const waitForApi = options.waitForPort || waitForPort;
+  let api;
+  let server;
 
-  const server = createUiServer({ uiPath: installed.uiPath, apiPort: parsed.apiPort });
-  await listen(server, parsed.uiPort);
-  const url = `http://127.0.0.1:${parsed.uiPort}`;
-  (options.log || console.log)(`oracle-todo ui: ${url}`);
-  if (parsed.openBrowser) {
-    await openBrowser(url, options).catch(() => (options.log || console.log)(`open ${url}`));
+  try {
+    api = spawnApi(installed.binaryPath, [...parsed.engineArgs, "api", "--host", "127.0.0.1", "--port", String(parsed.apiPort)], {
+      stdio: "inherit",
+    });
+    await waitForApi(parsed.apiPort, api);
+
+    server = makeUiServer({ uiPath: installed.uiPath, apiPort: parsed.apiPort });
+    await listen(server, parsed.uiPort);
+    const url = `http://127.0.0.1:${parsed.uiPort}`;
+    (options.log || console.log)(`oracle-todo ui: ${url}`);
+    if (parsed.openBrowser) {
+      const open = options.openBrowser || openBrowser;
+      await open(url, options).catch(() => (options.log || console.log)(`open ${url}`));
+    }
+    await waitForExit(api, server);
+    return 0;
+  } catch (error) {
+    await stopRuntime(api, server);
+    throw error;
   }
-  await waitForExit(api, server);
-  return 0;
 }
 
 function listen(server, port) {
@@ -62,24 +74,31 @@ function listen(server, port) {
 function waitForPort(port, child) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(timer);
+      child.removeListener("exit", onExit);
+      child.removeListener("error", onError);
+      callback(value);
+    };
     const timer = setInterval(() => {
       const socket = net.connect(port, "127.0.0.1");
       socket.once("connect", () => {
-        clearInterval(timer);
         socket.end();
-        resolve();
+        finish(resolve);
       });
       socket.once("error", () => {
         if (Date.now() - started > 10_000) {
-          clearInterval(timer);
-          reject(new Error(`todo-engine api did not become reachable on 127.0.0.1:${port}`));
+          finish(reject, new Error(`todo-engine api did not become reachable on 127.0.0.1:${port}`));
         }
       });
     }, 100);
-    child.once("exit", (code) => {
-      clearInterval(timer);
-      reject(new Error(`todo-engine api exited before startup with code ${code}`));
-    });
+    const onExit = (code) => finish(reject, new Error(`todo-engine api exited before startup with code ${code}`));
+    const onError = (error) => finish(reject, error);
+    child.once("exit", onExit);
+    child.once("error", onError);
   });
 }
 
@@ -97,14 +116,33 @@ function openBrowser(url, options = {}) {
 
 function waitForExit(child, server) {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      process.removeListener("SIGINT", stop);
+      process.removeListener("SIGTERM", stop);
+      child.removeListener("exit", finish);
+      closeServer(server).then(resolve);
+    };
     const stop = () => {
-      server.close(() => resolve());
       if (!child.killed) child.kill();
+      finish();
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    child.once("exit", () => server.close(() => resolve()));
+    child.once("exit", finish);
   });
+}
+
+async function stopRuntime(api, server) {
+  if (api && !api.killed) api.kill();
+  await closeServer(server);
+}
+
+function closeServer(server) {
+  if (!server || server.listening === false) return Promise.resolve();
+  return new Promise((resolve) => server.close(() => resolve()));
 }
 
 module.exports = {
