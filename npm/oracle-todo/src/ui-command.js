@@ -129,7 +129,7 @@ function waitForExit(child, server, apiExit) {
       process.removeListener("SIGINT", stop);
       process.removeListener("SIGTERM", stop);
       child.removeListener("exit", finish);
-      closeServer(server).then(() => resolve(stoppedBySignal ? 0 : exit?.code || 0));
+      closeServer(server).then(() => resolve(stoppedBySignal ? 0 : exit?.code ?? 1));
     };
     const stop = () => {
       stoppedBySignal = true;

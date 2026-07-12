@@ -105,6 +105,18 @@ test("returns a nonzero API exit code after startup", async () => {
   assert.equal(server.closed, true);
 });
 
+test("returns nonzero when the API terminates by signal after startup", async () => {
+  const child = createChild();
+  const server = createServer();
+  const running = runUi(["ui", "--no-open"], runtimeOptions({ child, server }));
+
+  await new Promise((resolve) => setImmediate(resolve));
+  child.emit("exit", null, "SIGSEGV");
+
+  assert.equal(await running, 1);
+  assert.equal(server.closed, true);
+});
+
 test("closes the UI server when the API exits immediately after becoming ready", async () => {
   const child = createChild();
   const server = createServer();
