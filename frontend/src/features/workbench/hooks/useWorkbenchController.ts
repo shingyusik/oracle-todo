@@ -31,6 +31,22 @@ import {
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 
+export class TodoEngineApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    readonly detail: string,
+    readonly parentHorizon?: string,
+    readonly childHorizon?: string,
+    readonly horizon?: string,
+    readonly scheduled?: string,
+    readonly parentId?: string,
+  ) {
+    super(detail);
+    this.name = "TodoEngineApiError";
+  }
+}
+
 const workspaceItemTypes: Partial<Record<LeafTabId, string>> = {
   areas: "area",
   projects: "project",
@@ -434,11 +450,38 @@ function patchItem(
     body: JSON.stringify(patch),
   }).then((response) => {
     if (!response.ok) {
-      throw new Error(`todo-engine returned ${response.status}`);
+      return throwApiError(response);
     }
 
     return response.json();
   });
+}
+
+async function throwApiError(response: Response): Promise<never> {
+  const body = (await response.json().catch(() => null)) as
+    | {
+        code?: unknown;
+        detail?: unknown;
+        parent_horizon?: unknown;
+        child_horizon?: unknown;
+        horizon?: unknown;
+        scheduled?: unknown;
+        parent_id?: unknown;
+      }
+    | null;
+
+  throw new TodoEngineApiError(
+    response.status,
+    typeof body?.code === "string" ? body.code : "internal_error",
+    typeof body?.detail === "string"
+      ? body.detail
+      : `todo-engine returned ${response.status}`,
+    typeof body?.parent_horizon === "string" ? body.parent_horizon : undefined,
+    typeof body?.child_horizon === "string" ? body.child_horizon : undefined,
+    typeof body?.horizon === "string" ? body.horizon : undefined,
+    typeof body?.scheduled === "string" ? body.scheduled : undefined,
+    typeof body?.parent_id === "string" ? body.parent_id : undefined,
+  );
 }
 
 function createItemRequest(

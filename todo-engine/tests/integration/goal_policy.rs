@@ -1,6 +1,6 @@
 use todo_engine::application::error::TodoError;
 use todo_engine::application::service::{ProposeGoal, ProposeProject, TodoService, UpdateItem};
-use todo_engine::domain::{Actor, ItemStatus};
+use todo_engine::domain::{Actor, Horizon, ItemStatus};
 
 fn goal(actor: Actor, horizon: &str, scheduled: &str, parent_id: Option<&str>) -> ProposeGoal {
     ProposeGoal {
@@ -51,7 +51,13 @@ fn goal_anchor_rejects_today_unparseable_and_non_canonical() {
     let non_canonical = service
         .propose_goal(goal(Actor::User, "year", "2026-02-01", None))
         .unwrap_err();
-    assert!(matches!(non_canonical, TodoError::Validation(_)));
+    assert_eq!(
+        non_canonical,
+        TodoError::GoalInvalidAnchor {
+            horizon: Horizon::Year,
+            scheduled: "2026-02-01".to_string(),
+        }
+    );
 
     // Empty anchor is also rejected.
     let empty = service
@@ -77,7 +83,13 @@ fn goal_nesting_rejects_horizon_inversion_and_parent_updates() {
             Some(&week_parent.id),
         ))
         .unwrap_err();
-    assert!(matches!(inversion, TodoError::Policy(_)));
+    assert_eq!(
+        inversion,
+        TodoError::GoalParentHorizonNotCoarser {
+            parent_horizon: Horizon::Week,
+            child_horizon: Horizon::Month,
+        }
+    );
 
     // Equal horizon parent is also rejected (strict coarser-than).
     let year_parent = service
@@ -91,7 +103,13 @@ fn goal_nesting_rejects_horizon_inversion_and_parent_updates() {
             Some(&year_parent.id),
         ))
         .unwrap_err();
-    assert!(matches!(equal, TodoError::Policy(_)));
+    assert_eq!(
+        equal,
+        TodoError::GoalParentHorizonNotCoarser {
+            parent_horizon: Horizon::Year,
+            child_horizon: Horizon::Year,
+        }
+    );
 
     // update_item uses the same nesting policy and rejects pointing A under B.
     let a = service
@@ -109,7 +127,13 @@ fn goal_nesting_rejects_horizon_inversion_and_parent_updates() {
             },
         )
         .unwrap_err();
-    assert!(matches!(invalid_parent_update, TodoError::Policy(_)));
+    assert_eq!(
+        invalid_parent_update,
+        TodoError::GoalParentHorizonNotCoarser {
+            parent_horizon: Horizon::Month,
+            child_horizon: Horizon::Year,
+        }
+    );
 }
 
 // SC3b: a duplicate (horizon, canonical scheduled, parent_id) triple is rejected.
@@ -123,7 +147,14 @@ fn goal_duplicate_triple_is_rejected() {
     let duplicate = service
         .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
         .unwrap_err();
-    assert!(matches!(duplicate, TodoError::Policy(_)));
+    assert_eq!(
+        duplicate,
+        TodoError::GoalDuplicatePeriod {
+            horizon: Horizon::Month,
+            scheduled: "2026-06-01".to_string(),
+            parent_id: None,
+        }
+    );
 }
 
 // SC4 (positive): linking a task to a goal via the audited update_item path sets

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
+import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
 import {
   buildDailyPlannerModel,
   buildMonthlyPeriodGoalCardsModel,
@@ -2417,7 +2418,14 @@ type GoalPeriodControlProps = {
   label: string;
   horizon: string | null | undefined;
   scheduled: string | null | undefined;
-  onCommit: (period: { horizon: GoalHorizon; scheduled: string }) => void;
+  onCommit: (period: { horizon: GoalHorizon; scheduled: string }) => void | Promise<void>;
+};
+
+type GoalPeriodCommitError = {
+  code: string;
+  attemptedHorizon: GoalHorizon;
+  parentHorizon?: GoalHorizon;
+  childHorizon?: GoalHorizon;
 };
 
 function GoalPeriodControl({
@@ -2435,7 +2443,9 @@ function GoalPeriodControl({
   const [isOpen, setIsOpen] = React.useState(false);
   const [candidateHorizon, setCandidateHorizon] = React.useState<GoalHorizon>(safeHorizon);
   const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties | null>(null);
+  const [commitError, setCommitError] = React.useState<GoalPeriodCommitError | null>(null);
   const shouldRestoreFocusRef = useRef(false);
+  const errorConfirmButtonRef = useRef<HTMLButtonElement>(null);
   const candidateScheduled =
     safeHorizon === "year" && candidateHorizon !== "year" ? todayValue() : safeScheduled;
   const candidateRange = goalPeriodRange(candidateHorizon, candidateScheduled);
@@ -2483,6 +2493,11 @@ function GoalPeriodControl({
   }, [isOpen, candidateHorizon, candidateScheduled]);
 
   useEffect(() => {
+    if (commitError) {
+      errorConfirmButtonRef.current?.focus();
+      return;
+    }
+
     if (!isOpen) {
       setPopoverStyle(null);
       if (shouldRestoreFocusRef.current) {
@@ -2500,7 +2515,7 @@ function GoalPeriodControl({
     );
     const focusTarget = activeChoice ?? fallbackChoice;
     focusTarget?.focus();
-  }, [isOpen, candidateHorizon]);
+  }, [candidateHorizon, commitError, isOpen]);
 
   function close(restoreFocus: boolean) {
     shouldRestoreFocusRef.current = restoreFocus;
@@ -2512,13 +2527,43 @@ function GoalPeriodControl({
     setIsOpen(true);
   }
 
-  function commit(date: string) {
-    close(true);
-    onCommit({
-      horizon: candidateHorizon,
-      scheduled: canonicalGoalScheduled(candidateHorizon, date),
-    });
+  function closeCommitError() {
+    setCommitError(null);
+    triggerRef.current?.focus();
   }
+
+  async function commit(date: string) {
+    try {
+      await onCommit({
+        horizon: candidateHorizon,
+        scheduled: canonicalGoalScheduled(candidateHorizon, date),
+      });
+      close(true);
+    } catch (error) {
+      if (error instanceof TodoEngineApiError) {
+        close(false);
+        setCommitError({
+          code: error.code,
+          attemptedHorizon: candidateHorizon,
+          parentHorizon: isGoalHorizon(error.parentHorizon)
+            ? error.parentHorizon
+            : undefined,
+          childHorizon: isGoalHorizon(error.childHorizon)
+            ? error.childHorizon
+            : undefined,
+        });
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  const requestedHorizon = commitError?.childHorizon ?? commitError?.attemptedHorizon;
+  const commitErrorTitle = requestedHorizon
+    ? `${goalHorizonLabel(requestedHorizon)}로 변경할 수 없음`
+    : "";
+  const commitErrorMessage = goalPeriodCommitErrorMessage(commitError);
 
   return (
     <div
@@ -2603,8 +2648,71 @@ function GoalPeriodControl({
           document.body,
         )
       ) : null}
+
+      {commitError
+        ? createPortal(
+            <div className="confirmation-backdrop">
+              <section
+                className="confirmation-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-label={commitErrorTitle}
+                onClick={stopRowEvent}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeCommitError();
+                    return;
+                  }
+
+                  stopRowKeyDown(event);
+                }}
+              >
+                <h2>{commitErrorTitle}</h2>
+                <p>{commitErrorMessage}</p>
+                <div className="dialog-actions">
+                  <button
+                    ref={errorConfirmButtonRef}
+                    type="button"
+                    onClick={closeCommitError}
+                  >
+                    확인
+                  </button>
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
+}
+
+function goalPeriodCommitErrorMessage(
+  commitError: GoalPeriodCommitError | null,
+): string {
+  if (!commitError) {
+    return "";
+  }
+
+  if (
+    commitError.code === "goal_parent_horizon_not_coarser" &&
+    commitError.parentHorizon &&
+    commitError.childHorizon
+  ) {
+    return `현재 Parent 기간은 ${goalHorizonLabel(commitError.parentHorizon)}이고, 요청한 Goal 기간은 ${goalHorizonLabel(commitError.childHorizon)}입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.`;
+  }
+
+  if (commitError.code === "goal_duplicate_period") {
+    return "같은 Parent와 기간을 가진 Goal이 이미 있습니다.";
+  }
+
+  if (commitError.code === "goal_invalid_anchor") {
+    return "선택한 기간과 맞지 않는 날짜입니다. 다시 선택해 주세요.";
+  }
+
+  return "기간을 변경하지 못했습니다. 다시 시도해 주세요.";
 }
 
 function GoalPeriodCalendar({
@@ -4164,7 +4272,7 @@ function goalPeriodColumn(): ItemColumn {
         horizon={item.horizon}
         scheduled={item.scheduled}
         onCommit={({ horizon, scheduled }) =>
-          void controller.patchWorkspaceItem(item.id, { horizon, scheduled })
+          controller.patchWorkspaceItem(item.id, { horizon, scheduled })
         }
       />
     ),
@@ -4431,6 +4539,10 @@ function canonicalGoalScheduled(horizon: GoalHorizon, date: string): string {
   if (horizon === "year") return yearStart(date);
   if (horizon === "month") return monthStart(date);
   return isoWeekStart(date);
+}
+
+function goalHorizonLabel(horizon: GoalHorizon): string {
+  return capitalize(horizon);
 }
 
 function goalPeriodRange(

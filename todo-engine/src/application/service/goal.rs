@@ -32,10 +32,10 @@ impl TodoService {
         }
         let date = parse_day(trimmed)?;
         if !is_period_start(date, horizon) {
-            return Err(TodoError::Validation(format!(
-                "Goal anchor {trimmed} is not the canonical start of its {} period",
-                horizon.as_str()
-            )));
+            return Err(TodoError::GoalInvalidAnchor {
+                horizon,
+                scheduled: trimmed.to_string(),
+            });
         }
         Ok(trimmed.to_string())
     }
@@ -69,11 +69,10 @@ impl TodoService {
             .parse::<Horizon>()
             .map_err(TodoError::Validation)?;
         if !parent_horizon.is_coarser_than(child_horizon) {
-            return Err(TodoError::Policy(format!(
-                "Goal parent horizon ({}) must be strictly coarser than child horizon ({})",
-                parent_horizon.as_str(),
-                child_horizon.as_str()
-            )));
+            return Err(TodoError::GoalParentHorizonNotCoarser {
+                parent_horizon,
+                child_horizon,
+            });
         }
 
         // Defensive ancestor walk: guards against legacy/cyclic data. The new
@@ -122,12 +121,11 @@ impl TodoService {
                 && item.parent_id.as_deref() == parent_id
         });
         if duplicate {
-            return Err(TodoError::Policy(format!(
-                "Goal already exists for ({}, {}, {})",
-                horizon.as_str(),
-                canonical_scheduled,
-                parent_id.unwrap_or("<root>")
-            )));
+            return Err(TodoError::GoalDuplicatePeriod {
+                horizon,
+                scheduled: canonical_scheduled.to_string(),
+                parent_id: parent_id.map(ToString::to_string),
+            });
         }
         Ok(())
     }

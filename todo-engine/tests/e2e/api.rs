@@ -689,6 +689,9 @@ async fn api_patch_rejects_invalid_goal_horizon_anchor() {
     .await;
     assert_eq!(response.status(), 400);
     let body = body_json(response).await;
+    assert_eq!(body["code"], "goal_invalid_anchor");
+    assert_eq!(body["horizon"], "year");
+    assert_eq!(body["scheduled"], "2026-07-01");
     assert!(
         body["detail"]
             .as_str()
@@ -708,7 +711,69 @@ async fn api_patch_rejects_invalid_goal_parent() {
         "POST",
         "/goals/propose",
         json!({
-            "title":"연간 목표",
+            "title":"월간 부모 목표",
+            "horizon":"month",
+            "scheduled":"2026-07-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let month_goal = body_json(response).await;
+    let month_goal_id = month_goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"주간 자식 목표",
+            "horizon":"week",
+            "scheduled":"2026-07-06",
+            "parent_id": month_goal_id,
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let week_goal = body_json(response).await;
+    let week_goal_id = week_goal["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PATCH",
+        format!("/items/{week_goal_id}"),
+        json!({
+            "horizon": "year",
+            "scheduled": "2026-01-01"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert_eq!(body["code"], "goal_parent_horizon_not_coarser");
+    assert_eq!(body["parent_horizon"], "month");
+    assert_eq!(body["child_horizon"], "year");
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("strictly coarser")
+    );
+}
+
+#[tokio::test]
+async fn api_propose_rejects_goal_parent_horizon_equal_to_child() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"연간 부모 목표",
             "horizon":"year",
             "scheduled":"2026-01-01",
             "actor":"user"
@@ -716,54 +781,31 @@ async fn api_patch_rejects_invalid_goal_parent() {
     )
     .await;
     assert_eq!(response.status(), 200);
-    let year_goal = body_json(response).await;
-    let year_goal_id = year_goal["id"].as_str().unwrap();
+    let parent = body_json(response).await;
 
     let response = json_request(
         router(&db_path).unwrap(),
         "POST",
         "/goals/propose",
         json!({
-            "title":"루트 월간 목표",
-            "horizon":"month",
-            "scheduled":"2026-07-01",
+            "title":"동일 기간 자식 목표",
+            "horizon":"year",
+            "scheduled":"2027-01-01",
+            "parent_id": parent["id"].as_str().unwrap(),
             "actor":"user"
         }),
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-    let root_month_goal = body_json(response).await;
-    let root_month_goal_id = root_month_goal["id"].as_str().unwrap();
-
-    let response = json_request(
-        router(&db_path).unwrap(),
-        "POST",
-        "/goals/propose",
-        json!({
-            "title":"중첩 월간 목표",
-            "horizon":"month",
-            "scheduled":"2026-07-01",
-            "parent_id": year_goal_id,
-            "actor":"user"
-        }),
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-
-    let response = json_request(
-        router(&db_path).unwrap(),
-        "PATCH",
-        format!("/items/{root_month_goal_id}"),
-        json!({ "parent_id": year_goal_id }),
     )
     .await;
     assert_eq!(response.status(), 400);
     let body = body_json(response).await;
+    assert_eq!(body["code"], "goal_parent_horizon_not_coarser");
+    assert_eq!(body["parent_horizon"], "year");
+    assert_eq!(body["child_horizon"], "year");
     assert!(
         body["detail"]
             .as_str()
             .unwrap()
-            .contains("Goal already exists")
+            .contains("strictly coarser")
     );
 }
 

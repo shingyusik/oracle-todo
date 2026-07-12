@@ -8,7 +8,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
-use serde_json::json;
+use serde::Serialize;
 
 use crate::application::error::TodoError;
 use crate::application::service::TodoService;
@@ -133,6 +133,46 @@ pub(super) type ApiResult<T> = std::result::Result<T, ApiError>;
 
 pub(super) struct ApiError(anyhow::Error);
 
+#[derive(Serialize)]
+struct ApiErrorBody {
+    code: String,
+    detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_horizon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_horizon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    horizon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheduled: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_id: Option<String>,
+}
+
+impl ApiErrorBody {
+    fn from_todo_error(error: &TodoError) -> Self {
+        let mut metadata = error.api_metadata();
+        Self {
+            code: error.api_code().to_string(),
+            detail: error.to_string(),
+            parent_horizon: take_string(&mut metadata, "parent_horizon"),
+            child_horizon: take_string(&mut metadata, "child_horizon"),
+            horizon: take_string(&mut metadata, "horizon"),
+            scheduled: take_string(&mut metadata, "scheduled"),
+            parent_id: take_string(&mut metadata, "parent_id"),
+        }
+    }
+}
+
+fn take_string(
+    metadata: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
+    metadata
+        .remove(key)
+        .and_then(|value| value.as_str().map(ToString::to_string))
+}
+
 impl<E> From<E> for ApiError
 where
     E: Into<anyhow::Error>,
@@ -144,13 +184,25 @@ where
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let status =
-            self.0
-                .downcast_ref::<TodoError>()
-                .map_or(StatusCode::INTERNAL_SERVER_ERROR, |error| {
-                    StatusCode::from_u16(error.http_status_code())
-                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
-                });
-        (status, Json(json!({"detail": self.0.to_string()}))).into_response()
+        let (status, body) = match self.0.downcast_ref::<TodoError>() {
+            Some(error) => (
+                StatusCode::from_u16(error.http_status_code())
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                ApiErrorBody::from_todo_error(error),
+            ),
+            None => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ApiErrorBody {
+                    code: "internal_error".to_string(),
+                    detail: self.0.to_string(),
+                    parent_horizon: None,
+                    child_horizon: None,
+                    horizon: None,
+                    scheduled: None,
+                    parent_id: None,
+                },
+            ),
+        };
+        (status, Json(body)).into_response()
     }
 }
