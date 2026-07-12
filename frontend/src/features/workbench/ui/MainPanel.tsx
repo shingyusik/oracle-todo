@@ -2724,6 +2724,7 @@ function GoalMonthPicker({
   onSelect: (date: string) => void;
 }) {
   const [viewYear, setViewYear] = React.useState(() => yearValue(scheduled));
+  const currentYear = yearValue(todayValue());
   const selectedMonth = monthStart(scheduled);
 
   React.useEffect(() => {
@@ -2755,6 +2756,17 @@ function GoalMonthPicker({
           &gt;
         </button>
       </div>
+      <button
+        type="button"
+        className="goal-period-view-reset"
+        disabled={viewYear === currentYear}
+        onClick={(event) => {
+          stopRowEvent(event);
+          setViewYear(currentYear);
+        }}
+      >
+        This year
+      </button>
       <div className="goal-period-month-grid" aria-label="Goal month">
         {Array.from({ length: 12 }, (_, monthIndex) => {
           const date = monthOptionDate(viewYear, monthIndex);
@@ -2790,6 +2802,7 @@ function GoalPeriodCalendar({
   onSelect: (date: string) => void;
 }) {
   const [viewMonth, setViewMonth] = React.useState(() => monthStart(scheduled));
+  const currentMonth = monthStart(todayValue());
   const range = goalPeriodRange(horizon, scheduled);
   const cells = calendarMonthDays(viewMonth);
   const [hoveredDate, setHoveredDate] = React.useState<string | null>(null);
@@ -2825,6 +2838,17 @@ function GoalPeriodCalendar({
           &gt;
         </button>
       </div>
+      <button
+        type="button"
+        className="goal-period-view-reset"
+        disabled={viewMonth === currentMonth}
+        onClick={(event) => {
+          stopRowEvent(event);
+          setViewMonth(currentMonth);
+        }}
+      >
+        This month
+      </button>
       <div className="goal-period-calendar-grid">
         {dayLabels.map((day) => (
           <span className="goal-period-calendar-weekday" key={day}>

@@ -99,6 +99,13 @@ function testMonthStart(date: string): string {
   return `${date.slice(0, 7)}-01`;
 }
 
+function monthLabelForDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function testMonthLabel(date: string): string {
   return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][
     Number(date.slice(5, 7)) - 1
@@ -3267,6 +3274,89 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/items/goal-1",
       expect.objectContaining({ method: "PATCH" }),
     );
+  });
+
+  it("returns the month picker to this year without committing a period", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-06-01",
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    await user.click(await screen.findByRole("button", { name: "Period for Goal" }));
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+    const currentYear = new Date().getFullYear();
+
+    await user.click(within(picker).getByRole("button", { name: "Next year" }));
+    expect(within(picker).getByText(String(2027))).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: "This year" })).toBeEnabled();
+
+    await user.click(within(picker).getByRole("button", { name: "This year" }));
+
+    expect(within(picker).getByText(String(currentYear))).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: "This year" })).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(0);
+    expect(screen.getByRole("dialog", { name: "Period for Goal" })).toBeInTheDocument();
+  });
+
+  it("returns the week calendar to this month without committing a period", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "week",
+            scheduled: "2026-07-06",
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    await user.click(await screen.findByRole("button", { name: "Period for Goal" }));
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+
+    await user.click(within(picker).getByRole("button", { name: "Next month" }));
+    expect(within(picker).getByText("August 2026")).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: "This month" })).toBeEnabled();
+
+    await user.click(within(picker).getByRole("button", { name: "This month" }));
+
+    expect(within(picker).getByText(monthLabelForDate(new Date()))).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: "This month" })).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(0);
+    expect(screen.getByRole("dialog", { name: "Period for Goal" })).toBeInTheDocument();
   });
 
   it("uses a fixed viewport popover, repositions on scroll, and restores focus on escape", async () => {
