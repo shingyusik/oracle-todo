@@ -4,7 +4,7 @@ const os = require("node:os");
 const PACKAGE_NAME = "@shinggyusik/oracle-todo";
 const COMMAND_NAME = "oracle-todo";
 const ENGINE_BINARY = "todo-engine";
-const GITHUB_REPOSITORY = "shinggyusik/oracle-todo";
+const GITHUB_REPOSITORY = "shingyusik/oracle-todo";
 const DEFAULT_CACHE_DIR = path.join(os.homedir(), ".local", "share", "oracle-todo");
 
 function cacheDir(env = process.env) {
