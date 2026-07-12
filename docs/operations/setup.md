@@ -2,8 +2,28 @@
 
 ## Prerequisites
 
-A Rust 2024 toolchain (`cargo`). SQLite is bundled via `rusqlite` — no external SQLite install
-is required.
+Use Node.js 18 or newer for the npm wrapper. Use a Rust 2024 toolchain (`cargo`) when
+building from source. SQLite is bundled via `rusqlite` — no external SQLite install is required.
+
+## Run with npx
+
+Use the npm wrapper when you want to run the local engine without installing Rust:
+
+```bash
+npx @shinggyusik/oracle-todo init
+npx @shinggyusik/oracle-todo today
+npx @shinggyusik/oracle-todo pending
+```
+
+The wrapper downloads a compatible `todo-engine` binary from GitHub Releases and stores it
+under `~/.local/share/oracle-todo/`. User data stays in the normal data home:
+`~/.todo-engine/` unless `--home` or `TODO_ENGINE_HOME` points elsewhere.
+
+Update the cached binary:
+
+```bash
+npx @shinggyusik/oracle-todo update
+```
 
 ## Build and initialize
 
