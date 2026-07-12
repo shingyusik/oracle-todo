@@ -102,6 +102,14 @@ describe("design system boundaries", () => {
     expect(source).toContain("http://127.0.0.1:3002/:path*");
   });
 
+  it("exports the workbench as static files for release artifacts", async () => {
+    const source = await readSource("next.config.mjs");
+
+    expect(source).toContain('output: "export"');
+    expect(source).toContain("rewrites()");
+    expect(source).toContain("/todo-engine/:path*");
+  });
+
   it("keeps todo parent hierarchy bars visible beside the dark sidebar", async () => {
     const source = await readSource("src/styles/globals.css");
 

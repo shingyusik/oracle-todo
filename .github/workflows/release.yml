@@ -64,9 +64,45 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
 
+  build-ui:
+    name: Build UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Test frontend
+        working-directory: frontend
+        run: npm test
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Build static frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Package UI
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="oracle-todo-ui-${version}"
+          mkdir -p "dist/${name}"
+          cp -R frontend/out/. "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oracle-todo-ui
+          path: dist/oracle-todo-ui-*.tar.gz
+
   publish:
     name: Publish Release
-    needs: build
+    needs:
+      - build
+      - build-ui
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
