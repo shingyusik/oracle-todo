@@ -125,6 +125,12 @@ function testNextMonthStart(date: string): string {
   return formatDate(value);
 }
 
+function testPreviousMonthStart(date: string): string {
+  const value = new Date(`${date.slice(0, 7)}-01T00:00:00`);
+  value.setMonth(value.getMonth() - 1);
+  return formatDate(value);
+}
+
 function testYearStart(date: string): string {
   return `${date.slice(0, 4)}-01-01`;
 }
@@ -3303,9 +3309,13 @@ describe("WorkbenchPageClient", () => {
     await user.click(await screen.findByRole("button", { name: "Period for Goal" }));
     const picker = screen.getByRole("dialog", { name: "Period for Goal" });
     const currentYear = new Date().getFullYear();
+    const scheduledYear = 2026;
+    const navigatingBack = scheduledYear > currentYear;
+    const navigationLabel = navigatingBack ? "Previous year" : "Next year";
+    const navigatedYear = navigatingBack ? scheduledYear - 1 : scheduledYear + 1;
 
-    await user.click(within(picker).getByRole("button", { name: "Next year" }));
-    expect(within(picker).getByText(String(2027))).toBeInTheDocument();
+    await user.click(within(picker).getByRole("button", { name: navigationLabel }));
+    expect(within(picker).getByText(String(navigatedYear))).toBeInTheDocument();
     expect(within(picker).getByRole("button", { name: "This year" })).toBeEnabled();
 
     await user.click(within(picker).getByRole("button", { name: "This year" }));
@@ -3344,9 +3354,18 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(await screen.findByRole("button", { name: "Period for Goal" }));
     const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+    const currentMonthStart = testMonthStart(testToday());
+    const scheduledMonthStart = "2026-07-01";
+    const navigatingBack = scheduledMonthStart > currentMonthStart;
+    const navigationLabel = navigatingBack ? "Previous month" : "Next month";
+    const navigatedMonthStart = navigatingBack
+      ? testPreviousMonthStart(scheduledMonthStart)
+      : testNextMonthStart(scheduledMonthStart);
 
-    await user.click(within(picker).getByRole("button", { name: "Next month" }));
-    expect(within(picker).getByText("August 2026")).toBeInTheDocument();
+    await user.click(within(picker).getByRole("button", { name: navigationLabel }));
+    expect(
+      within(picker).getByText(monthLabelForDate(new Date(`${navigatedMonthStart}T00:00:00`))),
+    ).toBeInTheDocument();
     expect(within(picker).getByRole("button", { name: "This month" })).toBeEnabled();
 
     await user.click(within(picker).getByRole("button", { name: "This month" }));
