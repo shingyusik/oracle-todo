@@ -1,3 +1,8 @@
+import {
+  LayoutDashboard,
+  ListTodo,
+  type LucideIcon,
+} from "lucide-react";
 import React from "react";
 
 import type {
@@ -13,6 +18,11 @@ type MainSidebarProps = {
   ariaLabel: string;
 };
 
+const mainTabIcons: Record<MainTabId, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  todo: ListTodo,
+};
+
 export function MainSidebar({
   tabs,
   activeTabId,
@@ -21,17 +31,23 @@ export function MainSidebar({
 }: MainSidebarProps) {
   return (
     <nav className="main-sidebar" aria-label={ariaLabel}>
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          className="main-sidebar-tab"
-          data-active={tab.id === activeTabId}
-          onClick={() => onSelectTab(tab.id)}
-        >
-          {tab.label}
-        </button>
-      ))}
+      {tabs.map((tab) => {
+        const TabIcon = mainTabIcons[tab.id];
+
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            className="main-sidebar-tab"
+            aria-label={tab.label}
+            data-tooltip={tab.label}
+            data-active={tab.id === activeTabId}
+            onClick={() => onSelectTab(tab.id)}
+          >
+            <TabIcon className="main-sidebar-tab-icon" aria-hidden="true" />
+          </button>
+        );
+      })}
     </nav>
   );
 }

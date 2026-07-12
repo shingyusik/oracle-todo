@@ -32,7 +32,7 @@ describe("design system boundaries", () => {
     expect(designTokens.colors.aloe).toBe("#c1fbd4");
     expect(designTokens.colors.aloeStrong).toBe("#3fae6a");
     expect(workbenchCopy.brandName).toBe("Todo Engine");
-    expect(workbenchLayout.mainSidebarWidthPx).toBe(112);
+    expect(workbenchLayout.mainSidebarWidthPx).toBe(64);
   });
 
   it("keeps raw hex colors out of feature components", async () => {
