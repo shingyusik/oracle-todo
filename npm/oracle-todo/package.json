@@ -1,0 +1,20 @@
+{
+  "name": "@shinggyusik/oracle-todo",
+  "version": "0.1.0",
+  "description": "npx runner for todo-engine GitHub Release binaries",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "oracle-todo": "bin/oracle-todo.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
