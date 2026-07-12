@@ -204,15 +204,17 @@ describe("design system boundaries", () => {
     const styles = await readSource("src/styles/globals.css");
 
     expect(panel).not.toContain("planner-group-header");
+    expect(panel).not.toContain("<Check size={18}");
+    expect(panel.match(/<Check size=\{15\}/g)).toHaveLength(2);
     expect(styles).toContain(".planner-group-setting-rows > button");
     expect(styles).toMatch(
-      /\.planner-group-setting-rows > button[\s\S]*?font-size:\s*13px/,
+      /\.planner-group-setting-rows > button[^}]*font-size:\s*13px/,
     );
     expect(styles).toMatch(
-      /\.planner-group-count[\s\S]*?font-size:\s*12px/,
+      /\.planner-group-count[^}]*font-size:\s*12px/,
     );
     expect(styles).toMatch(
-      /\.planner-group-row[\s\S]*?min-height:\s*32px/,
+      /\.planner-group-row[^}]*min-height:\s*32px/,
     );
   });
 

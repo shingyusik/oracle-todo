@@ -97,7 +97,7 @@ export function PlannerGroupPanel({
           <div id="planner-group-property-options" className="planner-group-choice-list" role="listbox" aria-label="Choose group property">
           {groupOptions.map((option) => (
             <button key={option.value} type="button" role="option" aria-selected={option.value === settings.groupBy} onClick={() => { onGroupByChange(option.value); setOpenSelector(null); }}>
-              <span>{option.label}</span>{option.value === settings.groupBy ? <Check size={18} aria-hidden="true" /> : null}
+              <span>{option.label}</span>{option.value === settings.groupBy ? <Check size={15} aria-hidden="true" /> : null}
             </button>
           ))}
           </div>
@@ -107,7 +107,7 @@ export function PlannerGroupPanel({
           <div id="planner-group-sort-options" className="planner-group-choice-list" role="listbox" aria-label="Choose group sort">
           {sortOptions.map((option) => (
             <button key={option.value} type="button" role="option" aria-selected={option.value === settings.sort} onClick={() => { onSortChange(option.value); setOpenSelector(null); }}>
-              <span>{option.label}</span>{option.value === settings.sort ? <Check size={18} aria-hidden="true" /> : null}
+              <span>{option.label}</span>{option.value === settings.sort ? <Check size={15} aria-hidden="true" /> : null}
             </button>
           ))}
           </div>
