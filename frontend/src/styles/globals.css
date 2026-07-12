@@ -1526,7 +1526,8 @@ button {
   display: grid;
   width: 100%;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 2px;
+  row-gap: 2px;
+  column-gap: 0;
 }
 
 .goal-period-calendar-weekday,
@@ -1556,11 +1557,6 @@ button {
 .goal-period-calendar-day-preview {
   background: var(--color-accent-soft);
   color: var(--color-accent-strong);
-}
-
-.goal-period-calendar-day-preview:not(.goal-period-calendar-day-selected) {
-  outline: 1px solid var(--color-accent-strong);
-  outline-offset: -1px;
 }
 
 .goal-period-calendar-day-range-start {

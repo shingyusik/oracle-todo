@@ -3143,7 +3143,7 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(await screen.findByRole("button", { name: "Period for Goal" }));
     const picker = screen.getByRole("dialog", { name: "Period for Goal" });
-    const july10 = within(picker).getByRole("button", { name: /July 10, 2026/ });
+    const july17 = within(picker).getByRole("button", { name: /July 17, 2026/ });
 
     const selectedDays = within(picker)
       .getAllByRole("button")
@@ -3160,14 +3160,14 @@ describe("WorkbenchPageClient", () => {
       "12",
     ]);
 
-    fireEvent.mouseEnter(july10);
+    fireEvent.mouseEnter(july17);
 
-    const previewDays = within(picker)
+    const stillSelectedDays = within(picker)
       .getAllByRole("button")
       .filter((button) =>
-        button.classList.contains("goal-period-calendar-day-preview"),
+        button.classList.contains("goal-period-calendar-day-selected"),
       );
-    expect(previewDays.map((button) => button.textContent)).toEqual([
+    expect(stillSelectedDays.map((button) => button.textContent)).toEqual([
       "6",
       "7",
       "8",
@@ -3176,10 +3176,25 @@ describe("WorkbenchPageClient", () => {
       "11",
       "12",
     ]);
+
+    const previewDays = within(picker)
+      .getAllByRole("button")
+      .filter((button) =>
+        button.classList.contains("goal-period-calendar-day-preview"),
+      );
+    expect(previewDays.map((button) => button.textContent)).toEqual([
+      "13",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "19",
+    ]);
     expect(previewDays[0]).toHaveClass("goal-period-calendar-day-range-start");
     expect(previewDays[6]).toHaveClass("goal-period-calendar-day-range-end");
 
-    fireEvent.mouseLeave(july10);
+    fireEvent.mouseLeave(july17);
     expect(
       within(picker)
         .getAllByRole("button")
@@ -3426,8 +3441,13 @@ describe("WorkbenchPageClient", () => {
 
     const yearSelect = within(picker).getByLabelText("Goal year");
     expect(yearSelect.tagName).toBe("SELECT");
-    expect(within(yearSelect).getByRole("option", { name: "1976" })).toBeInTheDocument();
-    expect(within(yearSelect).getByRole("option", { name: "2076" })).toBeInTheDocument();
+    const currentYear = new Date().getFullYear();
+    expect(
+      within(yearSelect).getByRole("option", { name: String(currentYear - 50) }),
+    ).toBeInTheDocument();
+    expect(
+      within(yearSelect).getByRole("option", { name: String(currentYear + 50) }),
+    ).toBeInTheDocument();
 
     await user.selectOptions(yearSelect, "2040");
 
