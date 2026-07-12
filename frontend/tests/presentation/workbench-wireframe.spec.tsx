@@ -1118,7 +1118,11 @@ describe("WorkbenchPageClient", () => {
     ).toEqual(["A Task", "B Task"]);
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    expect(screen.getByRole("dialog", { name: "Group" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Group settings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close group settings" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
 
     expect(within(selectedDaySection).getByRole("heading", { name: "focus" })).toBeInTheDocument();
@@ -1500,7 +1504,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
 
     const monthGoals = screen.getByLabelText("Weekly month goals");
@@ -1556,7 +1560,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
 
     expect(screen.getByText("Grouped by area")).toBeInTheDocument();
@@ -1572,7 +1576,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "Work" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
 
     expect(screen.getByRole("option", { name: "None" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("button", { name: "Area" })).toBeNull();
@@ -1648,7 +1652,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
 
     expect(screen.getByText("Sorted by title")).toBeInTheDocument();
@@ -1737,7 +1741,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
@@ -1745,7 +1749,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "updated");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Status" }));
 
     expect(screen.getByText("Sorted by updated")).toBeInTheDocument();
@@ -1886,9 +1890,9 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("checkbox", { name: "annual-done" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
-    const yearlyGroupPanel = screen.getByRole("dialog", { name: "Group settings" });
+    const yearlyGroupPanel = screen.getByRole("dialog", { name: "Group" });
     expect(within(yearlyGroupPanel).getByText("annual-current")).toBeInTheDocument();
     expect(within(yearlyGroupPanel).getByText("month-current")).toBeInTheDocument();
     expect(within(yearlyGroupPanel).queryByText("annual-future")).toBeNull();
@@ -1958,9 +1962,9 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Now" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
-    const monthlyGroupPanel = screen.getByRole("dialog", { name: "Group settings" });
+    const monthlyGroupPanel = screen.getByRole("dialog", { name: "Group" });
     expect(within(monthlyGroupPanel).getByText("month-current")).toBeInTheDocument();
     expect(within(monthlyGroupPanel).getByText("week-current")).toBeInTheDocument();
     expect(within(monthlyGroupPanel).queryByText("month-future")).toBeNull();

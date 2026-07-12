@@ -688,20 +688,22 @@ function PlannerControlToolbar({
         </PlannerControlDropdown>
       ) : null}
       {openDropdown === "group" ? (
-        <div className="planner-control-dropdown planner-group-popover" ref={groupPanelRef}>
-          <PlannerGroupPanel
-            settings={plannerGroupSettings(controller)}
-            candidates={plannerGroupCandidates(controller, plannerGroupUniverseItems(controller))}
-            groupOptions={plannerGroupOptions(controller.panel.id)}
-            onGroupByChange={(value) => setPlannerGroupValue(controller, value)}
-            onSortChange={controller.setPlannerGroupSort}
-            onHideEmptyChange={controller.setPlannerHideEmptyGroups}
-            onVisibilityToggle={controller.togglePlannerGroupVisibility}
-            onAllVisibilityChange={controller.setAllPlannerGroupsVisible}
-            onManualOrderChange={controller.setPlannerManualGroupOrder}
-            onRemove={controller.removePlannerGrouping}
-            onClose={() => { setOpenDropdown(null); groupTriggerRef.current?.focus(); }}
-          />
+        <div ref={groupPanelRef}>
+          <PlannerControlDropdown title="Group">
+            <PlannerGroupPanel
+              settings={plannerGroupSettings(controller)}
+              candidates={plannerGroupCandidates(controller, plannerGroupUniverseItems(controller))}
+              groupOptions={plannerGroupOptions(controller.panel.id)}
+              onGroupByChange={(value) => setPlannerGroupValue(controller, value)}
+              onSortChange={controller.setPlannerGroupSort}
+              onHideEmptyChange={controller.setPlannerHideEmptyGroups}
+              onVisibilityToggle={controller.togglePlannerGroupVisibility}
+              onAllVisibilityChange={controller.setAllPlannerGroupsVisible}
+              onManualOrderChange={controller.setPlannerManualGroupOrder}
+              onRemove={controller.removePlannerGrouping}
+              onRequestOuterClose={() => { setOpenDropdown(null); groupTriggerRef.current?.focus(); }}
+            />
+          </PlannerControlDropdown>
         </div>
       ) : null}
     </div>

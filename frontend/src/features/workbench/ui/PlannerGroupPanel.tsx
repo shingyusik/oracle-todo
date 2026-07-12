@@ -3,7 +3,6 @@
 import React from "react";
 import {
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   Check,
   ChevronRight,
@@ -11,7 +10,6 @@ import {
   EyeOff,
   GripVertical,
   Trash2,
-  X,
 } from "lucide-react";
 
 import {
@@ -35,7 +33,7 @@ export function PlannerGroupPanel({
   onAllVisibilityChange,
   onManualOrderChange,
   onRemove,
-  onClose,
+  onRequestOuterClose,
 }: {
   settings: PlannerGroupSettings;
   candidates: PlannerGroupCandidate[];
@@ -47,9 +45,9 @@ export function PlannerGroupPanel({
   onAllVisibilityChange: (keys: string[], visible: boolean) => void;
   onManualOrderChange: (keys: string[]) => void;
   onRemove: () => void;
-  onClose: () => void;
+  onRequestOuterClose: () => void;
 }) {
-  const [page, setPage] = React.useState<"root" | "property" | "sort">("root");
+  const [openSelector, setOpenSelector] = React.useState<"property" | "sort" | null>(null);
   const [draggedKey, setDraggedKey] = React.useState<string | null>(null);
   const groups = plannerGroupManagementCandidates(candidates, settings);
   const keys = groups.map(({ key }) => key);
@@ -81,42 +79,41 @@ export function PlannerGroupPanel({
     setDraggedKey(null);
   }
 
-  const title = page === "property" ? "Group by" : page === "sort" ? "Sort" : "Group";
-  return (
-    <div className="planner-group-settings-panel" role="dialog" aria-label="Group settings">
-      <header className="planner-group-header">
-        <button type="button" aria-label="Back" onClick={() => page === "root" ? onClose() : setPage("root")}>
-          <ArrowLeft size={19} aria-hidden="true" />
-        </button>
-        <h2>{title}</h2>
-        <button type="button" aria-label="Close group settings" onClick={onClose}>
-          <X size={19} aria-hidden="true" />
-        </button>
-      </header>
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    if (openSelector) {
+      setOpenSelector(null);
+      return;
+    }
+    onRequestOuterClose();
+  }
 
-      {page === "property" ? (
-        <div className="planner-group-choice-list" role="listbox" aria-label="Choose group property">
+  return (
+    <div className="planner-group-settings-panel" onKeyDown={handleKeyDown}>
+      <div className="planner-group-setting-rows">
+        <button type="button" aria-label="Choose group property" aria-expanded={openSelector === "property"} aria-controls="planner-group-property-options" onClick={() => setOpenSelector((current) => current === "property" ? null : "property")}><span>Group by</span><span>{propertyLabel}<ChevronRight size={14} aria-hidden="true" /></span></button>
+        {openSelector === "property" ? (
+          <div id="planner-group-property-options" className="planner-group-choice-list" role="listbox" aria-label="Choose group property">
           {groupOptions.map((option) => (
-            <button key={option.value} type="button" role="option" aria-selected={option.value === settings.groupBy} onClick={() => { onGroupByChange(option.value); setPage("root"); }}>
+            <button key={option.value} type="button" role="option" aria-selected={option.value === settings.groupBy} onClick={() => { onGroupByChange(option.value); setOpenSelector(null); }}>
               <span>{option.label}</span>{option.value === settings.groupBy ? <Check size={18} aria-hidden="true" /> : null}
             </button>
           ))}
-        </div>
-      ) : page === "sort" ? (
-        <div className="planner-group-choice-list" role="listbox" aria-label="Choose group sort">
+          </div>
+        ) : null}
+        <button type="button" aria-label="Choose group sort" aria-expanded={openSelector === "sort"} aria-controls="planner-group-sort-options" onClick={() => setOpenSelector((current) => current === "sort" ? null : "sort")}><span>Sort</span><span>{sortOptions.find(({ value }) => value === settings.sort)?.label}<ChevronRight size={14} aria-hidden="true" /></span></button>
+        {openSelector === "sort" ? (
+          <div id="planner-group-sort-options" className="planner-group-choice-list" role="listbox" aria-label="Choose group sort">
           {sortOptions.map((option) => (
-            <button key={option.value} type="button" role="option" aria-selected={option.value === settings.sort} onClick={() => { onSortChange(option.value); setPage("root"); }}>
+            <button key={option.value} type="button" role="option" aria-selected={option.value === settings.sort} onClick={() => { onSortChange(option.value); setOpenSelector(null); }}>
               <span>{option.label}</span>{option.value === settings.sort ? <Check size={18} aria-hidden="true" /> : null}
             </button>
           ))}
-        </div>
-      ) : (
-        <>
-          <div className="planner-group-setting-rows">
-            <button type="button" onClick={() => setPage("property")}><span>Group by</span><span>{propertyLabel}<ChevronRight size={18} aria-hidden="true" /></span></button>
-            <button type="button" onClick={() => setPage("sort")}><span>Sort</span><span>{sortOptions.find(({ value }) => value === settings.sort)?.label}<ChevronRight size={18} aria-hidden="true" /></span></button>
-            <label><span>Hide empty groups</span><input type="checkbox" role="switch" checked={settings.hideEmpty} onChange={(event) => onHideEmptyChange(event.target.checked)} /></label>
           </div>
+        ) : null}
+        <label><span>Hide empty groups</span><input type="checkbox" role="switch" checked={settings.hideEmpty} onChange={(event) => onHideEmptyChange(event.target.checked)} /></label>
+      </div>
           {settings.groupBy !== "none" ? (
             <section className="planner-group-list-section" aria-labelledby="planner-groups-heading">
               <div className="planner-group-list-heading"><h3 id="planner-groups-heading">Groups</h3>{keys.length > 0 ? <button type="button" onClick={() => onAllVisibilityChange(keys, allHidden)}>{allHidden ? "Show all" : "Hide all"}</button> : null}</div>
@@ -137,8 +134,6 @@ export function PlannerGroupPanel({
             </section>
           ) : null}
           <button type="button" className="planner-group-remove" disabled={settings.groupBy === "none"} onClick={onRemove}><Trash2 size={18} aria-hidden="true" />Remove grouping</button>
-        </>
-      )}
     </div>
   );
 }
