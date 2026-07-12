@@ -170,6 +170,14 @@ describe("design system boundaries", () => {
     );
   });
 
+  it("keeps daily planner columns top-aligned when one side has more items", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toContain(
+      ".daily-planner-scheduled-grid {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  align-items: start;",
+    );
+  });
+
   it("keeps planner period cards motion-safe and dependency-free", async () => {
     const css = await readSource("src/styles/globals.css");
 

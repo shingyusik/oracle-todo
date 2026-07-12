@@ -103,7 +103,7 @@ export type PlannerGroup = {
 };
 
 export type DailyPlannerSection = {
-  id: "today" | "overdue" | "upcoming" | "unscheduled";
+  id: "today" | "overdue" | "unscheduled";
   title: string;
   groups: PlannerGroup[];
 };
@@ -248,7 +248,6 @@ export function buildDailyPlannerModel(
 
   const today: WorkspaceItemModel[] = [];
   const overdue: WorkspaceItemModel[] = [];
-  const upcoming: WorkspaceItemModel[] = [];
   const unscheduled: WorkspaceItemModel[] = [];
   const dateLabel = dailySectionDateLabel(options.date);
 
@@ -260,8 +259,6 @@ export function buildDailyPlannerModel(
       overdue.push(item);
     } else if (date === options.date) {
       today.push(item);
-    } else {
-      upcoming.push(item);
     }
   }
 
@@ -272,13 +269,6 @@ export function buildDailyPlannerModel(
         "overdue",
         `Before ${dateLabel}`,
         overdue,
-        relatedItems,
-        options.groupBy,
-      ),
-      upcoming: section(
-        "upcoming",
-        `After ${dateLabel}`,
-        upcoming,
         relatedItems,
         options.groupBy,
       ),

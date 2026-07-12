@@ -463,19 +463,17 @@ function DailyPlanner({ controller }: MainPanelProps) {
   );
 
   return (
-    <div className="planner-panel">
-      <DailyPlannerSectionView
-        controller={controller}
-        section={model.sections.today}
-      />
-      <DailyPlannerSectionView
-        controller={controller}
-        section={model.sections.overdue}
-      />
-      <DailyPlannerSectionView
-        controller={controller}
-        section={model.sections.upcoming}
-      />
+    <div className="planner-panel daily-planner">
+      <div className="daily-planner-scheduled-grid" aria-label="Scheduled daily work">
+        <DailyPlannerSectionView
+          controller={controller}
+          section={model.sections.today}
+        />
+        <DailyPlannerSectionView
+          controller={controller}
+          section={model.sections.overdue}
+        />
+      </div>
       <DailyPlannerSectionView
         controller={controller}
         section={model.sections.unscheduled}

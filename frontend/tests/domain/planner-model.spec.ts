@@ -424,7 +424,7 @@ describe("planner model", () => {
     ]);
   });
 
-  it("places visible work into today, overdue, upcoming, and unscheduled sections", () => {
+  it("places visible work into selected-date, overdue, and unscheduled sections while excluding future work", () => {
     const model = buildDaily();
 
     expect(model.sections.today.groups[0]?.items.map((item) => item.id)).toEqual([
@@ -437,12 +437,12 @@ describe("planner model", () => {
     expect(model.sections.overdue.groups[0]?.items.map((item) => item.id)).toEqual([
       "task-overdue",
     ]);
-    expect(model.sections.upcoming.groups[0]?.items.map((item) => item.id)).toEqual([
-      "task-upcoming",
-    ]);
     expect(model.sections.unscheduled.groups[0]?.items.map((item) => item.id)).toEqual([
       "unscheduled",
     ]);
+    expect(model.sections.today.groups[0]?.items.map((item) => item.id)).not.toContain(
+      "task-upcoming",
+    );
     expect(model.sections.today.groups[0]?.items.map((item) => item.id)).not.toContain(
       "project-match",
     );
@@ -453,16 +453,12 @@ describe("planner model", () => {
 
     expect(result.sections.today.title).toBe("July 6, 2026");
     expect(result.sections.overdue.title).toBe("Before July 6, 2026");
-    expect(result.sections.upcoming.title).toBe("After July 6, 2026");
     expect(result.sections.unscheduled.title).toBe("Unscheduled");
     expect(result.sections.today.groups[0]?.items.map((item) => item.id)).toContain(
       "task-focus",
     );
     expect(result.sections.overdue.groups[0]?.items.map((item) => item.id)).toContain(
       "task-overdue",
-    );
-    expect(result.sections.upcoming.groups[0]?.items.map((item) => item.id)).toContain(
-      "task-upcoming",
     );
   });
 

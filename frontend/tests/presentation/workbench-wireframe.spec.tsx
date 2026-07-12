@@ -859,8 +859,17 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Sort planner view" })).toBeInTheDocument();
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(screen.getByText("Overdue Task")).toBeInTheDocument();
-    expect(screen.getByText("Upcoming Task")).toBeInTheDocument();
+    expect(screen.queryByText("Upcoming Task")).toBeNull();
     expect(screen.getByText("Inbox Task")).toBeInTheDocument();
+    expect(screen.getByLabelText("Scheduled daily work")).toContainElement(
+      screen.getByLabelText(testLongDateLabel(today)),
+    );
+    expect(screen.getByLabelText("Scheduled daily work")).toContainElement(
+      screen.getByLabelText(`Before ${testLongDateLabel(today)}`),
+    );
+    expect(screen.getByLabelText("Daily planner")).toContainElement(
+      screen.getByLabelText("Unscheduled"),
+    );
     expect(screen.queryByText("Done Task")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Area Should Not Render" }),
