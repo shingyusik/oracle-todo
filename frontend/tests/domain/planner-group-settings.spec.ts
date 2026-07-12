@@ -6,6 +6,7 @@ import {
   moveManualGroup,
   normalizePlannerGroupSettings,
   orderVisiblePlannerGroups,
+  plannerGroupManagementCandidates,
   plannerGroupStorageKey,
   type PlannerGroupCandidate,
 } from "@/features/workbench/model/planner-group-settings";
@@ -112,5 +113,17 @@ describe("planner group settings", () => {
 
     expect(moveManualGroup(order, "b", -1)).toEqual(["b", "a", "c"]);
     expect(order).toEqual(["a", "b", "c"]);
+  });
+
+  it("hides empty management rows but keeps hidden nonempty groups available to show", () => {
+    const candidates = [candidate("visible", "Visible", 2), candidate("hidden", "Hidden", 1), candidate("empty", "Empty", 0)];
+
+    expect(
+      plannerGroupManagementCandidates(candidates, {
+        ...defaultPlannerGroupSettings(),
+        groupBy: "tag",
+        hiddenGroupKeys: ["hidden"],
+      }).map(({ key }) => key),
+    ).toEqual(["visible", "hidden"]);
   });
 });

@@ -126,6 +126,33 @@ export function orderVisiblePlannerGroups(
     .map(({ candidate }) => candidate);
 }
 
+export function plannerGroupManagementCandidates(
+  candidates: PlannerGroupCandidate[],
+  settings: PlannerGroupSettings,
+): PlannerGroupCandidate[] {
+  const manageable = candidates.filter((candidate) => !settings.hideEmpty || candidate.count > 0);
+  return orderPlannerGroups(manageable, settings);
+}
+
+function orderPlannerGroups(
+  candidates: PlannerGroupCandidate[],
+  settings: PlannerGroupSettings,
+): PlannerGroupCandidate[] {
+  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+  if (settings.sort !== "manual") {
+    const direction = settings.sort === "alphabetical" ? 1 : -1;
+    return [...candidates].sort((left, right) => direction * collator.compare(left.label, right.label));
+  }
+  const rank = new Map(settings.manualOrder.map((key, index) => [key, index]));
+  return candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((left, right) =>
+      ((rank.get(left.candidate.key) ?? Number.MAX_SAFE_INTEGER) -
+        (rank.get(right.candidate.key) ?? Number.MAX_SAFE_INTEGER)) || left.index - right.index,
+    )
+    .map(({ candidate }) => candidate);
+}
+
 export function moveManualGroup(order: string[], key: string, direction: -1 | 1): string[] {
   const next = [...order];
   const index = next.indexOf(key);

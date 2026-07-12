@@ -43,6 +43,38 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Dashboard");
   });
 
+  it("hydrates planner group settings after the deterministic first render", async () => {
+    window.localStorage.setItem(
+      "oracle-todo.planner-group-settings.v1.daily",
+      JSON.stringify({ groupBy: "tag", sort: "alphabetical", hideEmpty: false }),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await waitFor(() =>
+      expect(result.current.planner.groupSettings.daily).toMatchObject({
+        groupBy: "tag",
+        sort: "alphabetical",
+        hideEmpty: false,
+      }),
+    );
+  });
+
+  it("recovers malformed saved group settings independently per planner view", async () => {
+    window.localStorage.setItem("oracle-todo.planner-group-settings.v1.daily", "{");
+    window.localStorage.setItem(
+      "oracle-todo.planner-group-settings.v1.weekly",
+      JSON.stringify({ groupBy: "status", sort: "manual", hideEmpty: true }),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await waitFor(() =>
+      expect(result.current.planner.groupSettings.weekly.groupBy).toBe("status"),
+    );
+    expect(result.current.planner.groupSettings.daily.groupBy).toBe("none");
+  });
+
   it("selects areas under todo when workspace is clicked", () => {
     const { result } = renderHook(() => useWorkbenchController());
 

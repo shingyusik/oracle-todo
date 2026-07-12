@@ -50,6 +50,7 @@ import type {
   WorkspaceItemPatch,
   WorkspaceItemTransitionAction,
 } from "@/features/workbench/model/workbench-model";
+import { PlannerGroupPanel } from "@/features/workbench/ui/PlannerGroupPanel";
 
 type MainPanelProps = {
   controller: WorkbenchController;
@@ -591,6 +592,21 @@ function PlannerControlToolbar({
   const groupBy = plannerGroupValue(controller);
   const nowDisabled = plannerPeriodMatchesToday(controller);
   const showPeriodNavigation = controller.panel.id === "weekly" || controller.panel.id === "daily";
+  const groupTriggerRef = useRef<HTMLButtonElement>(null);
+  const groupPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (openDropdown !== "group") return;
+    function dismiss(event: MouseEvent | KeyboardEvent) {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      if (event instanceof MouseEvent && event.target instanceof Node && (groupPanelRef.current?.contains(event.target) || groupTriggerRef.current?.contains(event.target))) return;
+      setOpenDropdown(null);
+      groupTriggerRef.current?.focus();
+    }
+    document.addEventListener("mousedown", dismiss);
+    document.addEventListener("keydown", dismiss);
+    return () => { document.removeEventListener("mousedown", dismiss); document.removeEventListener("keydown", dismiss); };
+  }, [openDropdown]);
 
   function toggleDropdown(kind: PlannerDropdownKind) {
     setOpenDropdown((current) => (current === kind ? null : kind));
@@ -625,6 +641,8 @@ function PlannerControlToolbar({
             ariaLabel="Group planner view"
             title="Group by"
             onClick={() => toggleDropdown("group")}
+            buttonRef={groupTriggerRef}
+            ariaExpanded={openDropdown === "group"}
           >
             <Group size={16} aria-hidden="true" />
           </PlannerDropdownButton>
@@ -670,9 +688,21 @@ function PlannerControlToolbar({
         </PlannerControlDropdown>
       ) : null}
       {openDropdown === "group" ? (
-        <PlannerControlDropdown title="Group by">
-          <PlannerGroupPanel controller={controller} />
-        </PlannerControlDropdown>
+        <div className="planner-control-dropdown planner-group-popover" ref={groupPanelRef}>
+          <PlannerGroupPanel
+            settings={plannerGroupSettings(controller)}
+            candidates={plannerGroupCandidates(controller, plannerGroupUniverseItems(controller))}
+            groupOptions={plannerGroupOptions(controller.panel.id)}
+            onGroupByChange={(value) => setPlannerGroupValue(controller, value)}
+            onSortChange={controller.setPlannerGroupSort}
+            onHideEmptyChange={controller.setPlannerHideEmptyGroups}
+            onVisibilityToggle={controller.togglePlannerGroupVisibility}
+            onAllVisibilityChange={controller.setAllPlannerGroupsVisible}
+            onManualOrderChange={controller.setPlannerManualGroupOrder}
+            onRemove={controller.removePlannerGrouping}
+            onClose={() => { setOpenDropdown(null); groupTriggerRef.current?.focus(); }}
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -859,20 +889,26 @@ function PlannerDropdownButton({
   title,
   onClick,
   children,
+  buttonRef,
+  ariaExpanded,
 }: {
   active: boolean;
   ariaLabel: string;
   title: string;
   onClick: () => void;
   children: React.ReactNode;
+  buttonRef?: React.Ref<HTMLButtonElement>;
+  ariaExpanded?: boolean;
 }) {
   return (
     <button
+      ref={buttonRef}
       className="planner-view-icon-button"
       type="button"
       aria-label={ariaLabel}
       title={title}
       data-active={active}
+      aria-expanded={ariaExpanded}
       onClick={onClick}
     >
       {children}
@@ -1150,118 +1186,6 @@ function PlannerSortFieldOptions({
           {field.label}
         </button>
       ))}
-    </div>
-  );
-}
-
-function PlannerGroupPanel({ controller }: { controller: WorkbenchController }) {
-  const settings = plannerGroupSettings(controller);
-  const candidates = plannerGroupCandidates(controller, filteredPlannerItems(controller));
-  const visibleKeys = candidates.map((candidate) => candidate.key);
-
-  return (
-    <div
-      className="planner-group-settings-panel"
-      role="dialog"
-      aria-label="Group settings"
-    >
-      <div className="planner-group-settings-section">
-        <span className="planner-dropdown-label">Group by</span>
-        <div
-          className="planner-menu-option-list"
-          role="listbox"
-          aria-label="Choose group property"
-        >
-          {plannerGroupOptions(controller.panel.id).map((option) => (
-            <button
-              type="button"
-              key={option.value}
-              aria-selected={option.value === settings.groupBy}
-              aria-pressed={option.value === settings.groupBy}
-              onClick={() => setPlannerGroupValue(controller, option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="planner-group-settings-section">
-        <span className="planner-dropdown-label">Sort</span>
-        <div
-          className="planner-menu-option-list"
-          role="listbox"
-          aria-label="Choose group sort"
-        >
-          {[
-            ["manual", "Manual"],
-            ["alphabetical", "Alphabetical"],
-            ["reverse_alphabetical", "Reverse alphabetical"],
-          ].map(([value, label]) => (
-            <button
-              type="button"
-              key={value}
-              aria-selected={settings.sort === value}
-              aria-pressed={settings.sort === value}
-              onClick={() => controller.setPlannerGroupSort(value as typeof settings.sort)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <label className="planner-group-switch">
-        <input
-          type="checkbox"
-          role="switch"
-          checked={settings.hideEmpty}
-          onChange={(event) => controller.setPlannerHideEmptyGroups(event.target.checked)}
-        />
-        Hide empty groups
-      </label>
-      {settings.groupBy !== "none" ? (
-        <div className="planner-group-settings-section">
-          <div className="planner-group-settings-actions">
-            <span className="planner-dropdown-label">Groups</span>
-            <button
-              type="button"
-              onClick={() => controller.setAllPlannerGroupsVisible(visibleKeys, false)}
-            >
-              Hide all
-            </button>
-            <button
-              type="button"
-              onClick={() => controller.setAllPlannerGroupsVisible(visibleKeys, true)}
-            >
-              Show all
-            </button>
-          </div>
-          <div className="planner-group-row-list">
-            {candidates.map((candidate) => {
-              const hidden = settings.hiddenGroupKeys.includes(candidate.key);
-              return (
-                <div className="planner-group-row" key={candidate.key}>
-                  <span>{candidate.label}</span>
-                  <span className="planner-group-count">{candidate.count}</span>
-                  <button
-                    type="button"
-                    aria-label={`${hidden ? "Show" : "Hide"} ${candidate.label}`}
-                    onClick={() => controller.togglePlannerGroupVisibility(candidate.key)}
-                  >
-                    {hidden ? "Show" : "Hide"}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-      <button
-        type="button"
-        className="planner-group-remove"
-        onClick={controller.removePlannerGrouping}
-      >
-        Remove grouping
-      </button>
     </div>
   );
 }
@@ -1872,14 +1796,46 @@ function plannerGroupSettings(controller: WorkbenchController): PlannerGroupSett
 
 function plannerGroupCandidates(
   controller: WorkbenchController,
-  items: WorkspaceItemModel[],
+  _items: WorkspaceItemModel[],
 ): PlannerGroupCandidate[] {
   return buildPlannerGroupCandidates({
     view: plannerViewId(controller),
     groupBy: plannerGroupValue(controller),
-    items,
+    items: plannerGroupUniverseItems(controller),
     relatedItems: controller.workspaceItems.relatedItems,
   });
+}
+
+function plannerGroupUniverseItems(controller: WorkbenchController): WorkspaceItemModel[] {
+  const items = filteredPlannerItems(controller);
+  const view = plannerViewId(controller);
+  let visible: WorkspaceItemModel[];
+  if (view === "daily") {
+    const model = buildDailyPlannerModel(items, controller.workspaceItems.relatedItems, {
+      date: controller.planner.date,
+      filters: emptyDailyFilters(),
+      groupSettings: defaultUngroupedSettings(),
+      groupCandidates: [],
+      sortRules: controller.planner.dailySortRules,
+    });
+    visible = Object.values(model.sections).flatMap((section) =>
+      section.groups.flatMap((group) => group.items),
+    );
+  } else if (view === "weekly") {
+    const model = buildWeeklyPlannerModel(items, controller.planner.weekStart);
+    visible = [...model.monthGoals, ...model.weekGoals, ...model.days.flatMap((day) => day.items)];
+  } else if (view === "yearly") {
+    const model = buildYearlyPeriodGoalCardsModel(items, controller.planner.date);
+    visible = [...model.carousel.flatMap((card) => card.goals), ...model.months.flatMap((month) => month.goals)];
+  } else {
+    const model = buildMonthlyPeriodGoalCardsModel(items, controller.planner.date);
+    visible = [...model.carousel.flatMap((card) => card.goals), ...model.weeks.flatMap((week) => week.goals)];
+  }
+  return [...new Map(visible.map((item) => [item.id, item])).values()];
+}
+
+function defaultUngroupedSettings(): PlannerGroupSettings {
+  return { groupBy: "none", sort: "manual", hideEmpty: true, manualOrder: [], hiddenGroupKeys: [] };
 }
 
 function plannerViewId(

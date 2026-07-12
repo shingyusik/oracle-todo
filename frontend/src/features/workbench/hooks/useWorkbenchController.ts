@@ -85,7 +85,7 @@ function defaultPlannerGroupSettingsByView(): Record<
   PlannerGroupSettings
 > {
   return Object.fromEntries(
-    plannerViewIds.map((view) => [view, loadPlannerGroupSettings(view)]),
+    plannerViewIds.map((view) => [view, defaultPlannerGroupSettings()]),
   ) as Record<PlannerViewId, PlannerGroupSettings>;
 }
 
@@ -290,6 +290,15 @@ export function useWorkbenchController(): WorkbenchController {
     () => withActivePlannerPeriod(planner, selection.leafTabId),
     [planner, selection.leafTabId],
   );
+
+  useEffect(() => {
+    setPlanner((current) => ({
+      ...current,
+      groupSettings: Object.fromEntries(
+        plannerViewIds.map((view) => [view, loadPlannerGroupSettings(view)]),
+      ) as Record<PlannerViewId, PlannerGroupSettings>,
+    }));
+  }, []);
 
   useEffect(() => {
     setSelectedItemIds([]);

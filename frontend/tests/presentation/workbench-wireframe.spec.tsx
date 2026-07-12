@@ -1118,7 +1118,8 @@ describe("WorkbenchPageClient", () => {
     ).toEqual(["A Task", "B Task"]);
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: "Tag" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("option", { name: "Tag" }));
 
     expect(within(selectedDaySection).getByRole("heading", { name: "focus" })).toBeInTheDocument();
     expect(within(selectedDaySection).getByRole("heading", { name: "ops" })).toBeInTheDocument();
@@ -1499,7 +1500,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: "Tag" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("option", { name: "Tag" }));
 
     const monthGoals = screen.getByLabelText("Weekly month goals");
     expect(within(monthGoals).getByRole("heading", { name: "focus" })).toBeInTheDocument();
@@ -1554,7 +1556,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: "Area" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("option", { name: "Area" }));
 
     expect(screen.getByText("Grouped by area")).toBeInTheDocument();
 
@@ -1569,8 +1572,9 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "Work" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
 
-    expect(screen.getByRole("button", { name: "None" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("option", { name: "None" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("button", { name: "Area" })).toBeNull();
   });
 
@@ -1644,7 +1648,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: "Area" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("option", { name: "Area" }));
 
     expect(screen.getByText("Sorted by title")).toBeInTheDocument();
     expect(screen.getByText("Grouped by area")).toBeInTheDocument();
@@ -1732,14 +1737,16 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: "Tag" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("option", { name: "Tag" }));
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     await screen.findByText("Alpha Month Goal");
     await user.click(screen.getByRole("button", { name: "Sort planner view" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "updated");
     await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: "Status" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("option", { name: "Status" }));
 
     expect(screen.getByText("Sorted by updated")).toBeInTheDocument();
     expect(screen.getByText("Grouped by status")).toBeInTheDocument();
