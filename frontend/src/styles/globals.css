@@ -26,10 +26,10 @@
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-pill: 9999px;
-  --workbench-main-sidebar-width: 112px;
+  --workbench-main-sidebar-width: 64px;
   --workbench-separator-rail-width: 0px;
   --workbench-sub-sidebar-width: 148px;
-  --workbench-total-sidebar-width: 260px;
+  --workbench-total-sidebar-width: 212px;
 }
 
 * {
@@ -138,7 +138,47 @@ button {
 }
 
 .main-sidebar-tab {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 0;
   color: var(--color-on-dark);
+}
+
+.main-sidebar-tab-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.main-sidebar-tab::after {
+  position: absolute;
+  z-index: 10;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  content: attr(data-tooltip);
+  visibility: hidden;
+  width: max-content;
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-night);
+  padding: 6px 8px;
+  color: var(--color-on-dark);
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, visibility 120ms ease;
+}
+
+.main-sidebar-tab:hover::after,
+.main-sidebar-tab:focus-visible::after {
+  visibility: visible;
+  opacity: 1;
+}
+
+.main-sidebar-tab:focus-visible {
+  outline: 2px solid var(--color-aloe);
+  outline-offset: -3px;
 }
 
 .main-sidebar-tab[data-active="true"] {
