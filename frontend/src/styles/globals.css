@@ -1543,7 +1543,7 @@ button {
 
 .goal-period-calendar-day {
   border: 0;
-  border-radius: 4px;
+  border-radius: 0;
   background: transparent;
   color: var(--color-text);
 }
@@ -1552,9 +1552,25 @@ button {
   color: var(--color-text-muted);
 }
 
-.goal-period-calendar-day-selected {
+.goal-period-calendar-day-selected,
+.goal-period-calendar-day-preview {
   background: var(--color-accent-soft);
   color: var(--color-accent-strong);
+}
+
+.goal-period-calendar-day-preview:not(.goal-period-calendar-day-selected) {
+  outline: 1px solid var(--color-accent-strong);
+  outline-offset: -1px;
+}
+
+.goal-period-calendar-day-range-start {
+  border-top-left-radius: var(--radius-xs);
+  border-bottom-left-radius: var(--radius-xs);
+}
+
+.goal-period-calendar-day-range-end {
+  border-top-right-radius: var(--radius-xs);
+  border-bottom-right-radius: var(--radius-xs);
 }
 
 .dialog-actions {

@@ -3115,6 +3115,80 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "Goal" })).not.toBeInTheDocument();
   });
 
+  it("previews and selects goal weeks as a full calendar row", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: "goal-1",
+              type: "goal",
+              title: "Goal",
+              status: "approved",
+              horizon: "week",
+              scheduled: "2026-07-06",
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    await user.click(await screen.findByRole("button", { name: "Period for Goal" }));
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+    const july10 = within(picker).getByRole("button", { name: /July 10, 2026/ });
+
+    const selectedDays = within(picker)
+      .getAllByRole("button")
+      .filter((button) =>
+        button.classList.contains("goal-period-calendar-day-selected"),
+      );
+    expect(selectedDays.map((button) => button.textContent)).toEqual([
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+    ]);
+
+    fireEvent.mouseEnter(july10);
+
+    const previewDays = within(picker)
+      .getAllByRole("button")
+      .filter((button) =>
+        button.classList.contains("goal-period-calendar-day-preview"),
+      );
+    expect(previewDays.map((button) => button.textContent)).toEqual([
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+    ]);
+    expect(previewDays[0]).toHaveClass("goal-period-calendar-day-range-start");
+    expect(previewDays[6]).toHaveClass("goal-period-calendar-day-range-end");
+
+    fireEvent.mouseLeave(july10);
+    expect(
+      within(picker)
+        .getAllByRole("button")
+        .filter((button) =>
+          button.classList.contains("goal-period-calendar-day-preview"),
+        ),
+    ).toHaveLength(0);
+  });
+
   it("selects a goal month from a year-scoped month grid", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

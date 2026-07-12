@@ -2792,6 +2792,9 @@ function GoalPeriodCalendar({
   const [viewMonth, setViewMonth] = React.useState(() => monthStart(scheduled));
   const range = goalPeriodRange(horizon, scheduled);
   const cells = calendarMonthDays(viewMonth);
+  const [hoveredDate, setHoveredDate] = React.useState<string | null>(null);
+  const previewRange =
+    horizon === "week" && hoveredDate ? goalPeriodRange("week", hoveredDate) : null;
 
   React.useEffect(() => {
     setViewMonth(monthStart(scheduled));
@@ -2834,15 +2837,32 @@ function GoalPeriodCalendar({
             <button
               type="button"
               key={cell.date}
-              className={[
-                "goal-period-calendar-day",
-                cell.inMonth ? "" : "goal-period-calendar-day-muted",
-                selected ? "goal-period-calendar-day-selected" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
+              className={goalPeriodCalendarDayClassName({
+                cell,
+                selected,
+                previewed:
+                  previewRange !== null &&
+                  cell.date >= previewRange.start &&
+                  cell.date <= previewRange.end,
+                rangeStart:
+                  horizon === "week" &&
+                  (cell.date === range.start || cell.date === previewRange?.start),
+                rangeEnd:
+                  horizon === "week" &&
+                  (cell.date === range.end || cell.date === previewRange?.end),
+              })}
               aria-label={goalPeriodDayAriaLabel(horizon, cell.date)}
               aria-pressed={selected}
+              onMouseEnter={() => {
+                if (horizon === "week") {
+                  setHoveredDate(cell.date);
+                }
+              }}
+              onMouseLeave={() => {
+                if (horizon === "week") {
+                  setHoveredDate(null);
+                }
+              }}
               onClick={(event) => {
                 stopRowEvent(event);
                 onSelect(cell.date);
@@ -4701,6 +4721,31 @@ function calendarMonthDays(anchor: string): CalendarCell[] {
       inMonth: date.getMonth() === first.getMonth(),
     };
   });
+}
+
+function goalPeriodCalendarDayClassName({
+  cell,
+  selected,
+  previewed,
+  rangeStart,
+  rangeEnd,
+}: {
+  cell: CalendarCell;
+  selected: boolean;
+  previewed: boolean;
+  rangeStart: boolean;
+  rangeEnd: boolean;
+}): string {
+  return [
+    "goal-period-calendar-day",
+    cell.inMonth ? "" : "goal-period-calendar-day-muted",
+    selected ? "goal-period-calendar-day-selected" : "",
+    previewed ? "goal-period-calendar-day-preview" : "",
+    rangeStart ? "goal-period-calendar-day-range-start" : "",
+    rangeEnd ? "goal-period-calendar-day-range-end" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function monthLabel(value: string): string {
