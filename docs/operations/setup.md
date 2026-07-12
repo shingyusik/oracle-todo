@@ -25,6 +25,31 @@ Update the cached binary:
 npx @shings/oracle-todo update
 ```
 
+## Publish the npm wrapper
+
+The npm wrapper is published from `.github/workflows/npm-publish.yml` with npm Trusted
+Publishing. The workflow uses GitHub Actions OIDC, so it does not require an `NPM_TOKEN`
+secret.
+
+Configure the trusted publisher on the `@shings/oracle-todo` package in npm:
+
+| Field | Value |
+| --- | --- |
+| Publisher | GitHub Actions |
+| Organization or user | `shingyusik` |
+| Repository | `oracle-todo` |
+| Workflow filename | `npm-publish.yml` |
+| Environment name | leave blank |
+| Allowed actions | `npm publish` |
+
+Publish a new wrapper version by bumping `npm/oracle-todo/package.json`, committing it,
+and pushing a matching npm tag:
+
+```bash
+git tag npm-v0.1.1
+git push origin npm-v0.1.1
+```
+
 ## Build and initialize
 
 ```bash

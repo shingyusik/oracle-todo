@@ -4,6 +4,11 @@
   "description": "npx runner for todo-engine GitHub Release binaries",
   "license": "MIT",
   "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shingyusik/oracle-todo.git",
+    "directory": "npm/oracle-todo"
+  },
   "bin": {
     "oracle-todo": "bin/oracle-todo.js"
   },
