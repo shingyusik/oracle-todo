@@ -216,6 +216,8 @@ describe("design system boundaries", () => {
     expect(styles).toMatch(
       /\.planner-group-row[^}]*min-height:\s*32px/,
     );
+    expect(styles).not.toContain(".planner-group-popover");
+    expect(styles).not.toContain(".planner-group-inline-options");
   });
 
   it("keeps goal period calendar dependency-free", async () => {

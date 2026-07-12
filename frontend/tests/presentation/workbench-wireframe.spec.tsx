@@ -1129,6 +1129,47 @@ describe("WorkbenchPageClient", () => {
     expect(within(selectedDaySection).getByRole("heading", { name: "ops" })).toBeInTheDocument();
   });
 
+  it("links and dismisses the Group dropdown through its real toolbar events", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const groupTrigger = screen.getByRole("button", { name: "Group planner view" });
+    await user.click(groupTrigger);
+    const groupDialog = screen.getByRole("dialog", { name: "Group" });
+    expect(groupTrigger).toHaveAttribute("aria-controls", "planner-group-dropdown");
+    expect(groupDialog).toHaveAttribute("id", "planner-group-dropdown");
+
+    await user.click(screen.getByRole("button", { name: "Choose group sort" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox", { name: "Choose group sort" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Group" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Group" })).not.toBeInTheDocument();
+    expect(groupTrigger).toHaveFocus();
+
+    await user.click(groupTrigger);
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Group" })).not.toBeInTheDocument();
+    });
+    expect(groupTrigger).toHaveFocus();
+  });
+
   it("shows planner date triggers only for weekly and daily views", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(

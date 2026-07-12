@@ -643,6 +643,7 @@ function PlannerControlToolbar({
             onClick={() => toggleDropdown("group")}
             buttonRef={groupTriggerRef}
             ariaExpanded={openDropdown === "group"}
+            ariaControls="planner-group-dropdown"
           >
             <Group size={16} aria-hidden="true" />
           </PlannerDropdownButton>
@@ -689,7 +690,7 @@ function PlannerControlToolbar({
       ) : null}
       {openDropdown === "group" ? (
         <div ref={groupPanelRef}>
-          <PlannerControlDropdown title="Group">
+          <PlannerControlDropdown id="planner-group-dropdown" title="Group">
             <PlannerGroupPanel
               settings={plannerGroupSettings(controller)}
               candidates={plannerGroupCandidates(controller, plannerGroupUniverseItems(controller))}
@@ -893,6 +894,7 @@ function PlannerDropdownButton({
   children,
   buttonRef,
   ariaExpanded,
+  ariaControls,
 }: {
   active: boolean;
   ariaLabel: string;
@@ -901,6 +903,7 @@ function PlannerDropdownButton({
   children: React.ReactNode;
   buttonRef?: React.Ref<HTMLButtonElement>;
   ariaExpanded?: boolean;
+  ariaControls?: string;
 }) {
   return (
     <button
@@ -911,6 +914,7 @@ function PlannerDropdownButton({
       title={title}
       data-active={active}
       aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
       onClick={onClick}
     >
       {children}
@@ -919,14 +923,16 @@ function PlannerDropdownButton({
 }
 
 function PlannerControlDropdown({
+  id,
   title,
   children,
 }: {
+  id?: string;
   title: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="planner-control-dropdown" role="dialog" aria-label={title}>
+    <div id={id} className="planner-control-dropdown" role="dialog" aria-label={title}>
       <div className="planner-control-dropdown-title">{title}</div>
       {children}
     </div>
