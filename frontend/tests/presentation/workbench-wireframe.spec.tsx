@@ -1884,6 +1884,14 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("checkbox", { name: "annual-current" })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "annual-future" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "annual-done" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("option", { name: "Tag" }));
+    const yearlyGroupPanel = screen.getByRole("dialog", { name: "Group settings" });
+    expect(within(yearlyGroupPanel).getByText("annual-current")).toBeInTheDocument();
+    expect(within(yearlyGroupPanel).getByText("month-current")).toBeInTheDocument();
+    expect(within(yearlyGroupPanel).queryByText("annual-future")).toBeNull();
   });
 
   it("renders monthly period carousel and ISO Monday week goal cards", async () => {
@@ -1948,6 +1956,14 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Previous month" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next month" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Now" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: /Group by/ }));
+    await user.click(screen.getByRole("option", { name: "Tag" }));
+    const monthlyGroupPanel = screen.getByRole("dialog", { name: "Group settings" });
+    expect(within(monthlyGroupPanel).getByText("month-current")).toBeInTheDocument();
+    expect(within(monthlyGroupPanel).getByText("week-current")).toBeInTheDocument();
+    expect(within(monthlyGroupPanel).queryByText("month-future")).toBeNull();
   });
 
   it("moves monthly periods with arrows and returns with Now", async () => {

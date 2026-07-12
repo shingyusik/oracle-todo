@@ -12,6 +12,8 @@
   --color-text-muted: var(--color-shade-60);
   --color-accent-soft: var(--color-pistachio);
   --color-accent-strong: var(--color-aloe-strong);
+  --color-danger-text: #b42318;
+  --color-danger-soft: #fff1f0;
   --color-hairline-light: #e4e4e7;
   --color-hairline-dark: #1e2c31;
   --color-shade-30: #d4d4d8;
@@ -1983,9 +1985,21 @@ button {
 }
 
 .planner-group-drag-handle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
   flex: 0 0 auto;
   color: var(--color-shade-40);
   cursor: grab;
+}
+
+.planner-group-drag-handle:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 .planner-group-name {
@@ -2033,12 +2047,12 @@ button {
   border-radius: var(--radius-md);
   padding: 0 10px;
   background: transparent;
-  color: #b42318;
+  color: var(--color-danger-text);
   text-align: left;
 }
 
 .planner-group-remove:hover:not(:disabled) {
-  background: #fff1f0;
+  background: var(--color-danger-soft);
 }
 
 .planner-group-remove:disabled {

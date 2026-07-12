@@ -1826,10 +1826,12 @@ function plannerGroupUniverseItems(controller: WorkbenchController): WorkspaceIt
     visible = [...model.monthGoals, ...model.weekGoals, ...model.days.flatMap((day) => day.items)];
   } else if (view === "yearly") {
     const model = buildYearlyPeriodGoalCardsModel(items, controller.planner.date);
-    visible = [...model.carousel.flatMap((card) => card.goals), ...model.months.flatMap((month) => month.goals)];
+    const selectedGoals = model.carousel.find((card) => card.position === "selected")?.goals ?? [];
+    visible = [...selectedGoals, ...model.months.flatMap((month) => month.goals)];
   } else {
     const model = buildMonthlyPeriodGoalCardsModel(items, controller.planner.date);
-    visible = [...model.carousel.flatMap((card) => card.goals), ...model.weeks.flatMap((week) => week.goals)];
+    const selectedGoals = model.carousel.find((card) => card.position === "selected")?.goals ?? [];
+    visible = [...selectedGoals, ...model.weeks.flatMap((week) => week.goals)];
   }
   return [...new Map(visible.map((item) => [item.id, item])).values()];
 }

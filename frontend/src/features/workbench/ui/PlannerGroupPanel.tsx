@@ -71,7 +71,9 @@ export function PlannerGroupPanel({
     onManualOrderChange(next);
   }
 
-  function dropBefore(targetKey: string) {
+  function dropBefore(targetKey: string, event: React.DragEvent) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
     if (!draggedKey || draggedKey === targetKey) return;
     const next = keys.filter((key) => key !== draggedKey);
     next.splice(next.indexOf(targetKey), 0, draggedKey);
@@ -122,8 +124,8 @@ export function PlannerGroupPanel({
                 {groups.map((candidate, index) => {
                   const hidden = settings.hiddenGroupKeys.includes(candidate.key);
                   return (
-                    <div key={candidate.key} className="planner-group-row" role="listitem" draggable={settings.sort === "manual"} onDragStart={() => setDraggedKey(candidate.key)} onDragOver={(event) => event.preventDefault()} onDrop={() => dropBefore(candidate.key)}>
-                      <GripVertical className="planner-group-drag-handle" size={18} aria-hidden="true" />
+                    <div key={candidate.key} className="planner-group-row" role="listitem" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={(event) => dropBefore(candidate.key, event)}>
+                      <button type="button" className="planner-group-drag-handle" aria-label={`Drag ${candidate.label} group`} draggable={settings.sort === "manual"} disabled={settings.sort !== "manual"} onDragStart={(event) => { event.dataTransfer.setData("text/plain", candidate.key); event.dataTransfer.effectAllowed = "move"; setDraggedKey(candidate.key); }} onDragEnd={() => setDraggedKey(null)}><GripVertical size={18} aria-hidden="true" /></button>
                       <span className="planner-group-name">{candidate.label}</span>
                       <span className="planner-group-count">{candidate.count}</span>
                       {settings.sort === "manual" ? <span className="planner-group-keyboard-moves"><button type="button" aria-label={`Move ${candidate.label} up`} disabled={index === 0} onClick={() => move(candidate.key, -1)}><ArrowUp size={15} aria-hidden="true" /></button><button type="button" aria-label={`Move ${candidate.label} down`} disabled={index === groups.length - 1} onClick={() => move(candidate.key, 1)}><ArrowDown size={15} aria-hidden="true" /></button></span> : null}

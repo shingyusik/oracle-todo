@@ -38,9 +38,20 @@ describe("PlannerGroupPanel", () => {
     expect(onManualOrderChange).toHaveBeenLastCalledWith(["ops", "focus"]);
 
     const rows = screen.getAllByRole("listitem");
-    fireEvent.dragStart(rows[1]!);
-    fireEvent.dragOver(rows[0]!);
-    fireEvent.drop(rows[0]!);
+    const handles = screen.getAllByRole("button", { name: /Drag .* group/ });
+    const dataTransfer = {
+      effectAllowed: "none",
+      dropEffect: "none",
+      setData: vi.fn(),
+    };
+    expect(rows[1]).not.toHaveAttribute("draggable", "true");
+    expect(handles[1]).toHaveAttribute("draggable", "true");
+    fireEvent.dragStart(handles[1]!, { dataTransfer });
+    expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", "ops");
+    expect(dataTransfer.effectAllowed).toBe("move");
+    fireEvent.dragOver(rows[0]!, { dataTransfer });
+    fireEvent.drop(rows[0]!, { dataTransfer });
+    expect(dataTransfer.dropEffect).toBe("move");
     expect(onManualOrderChange).toHaveBeenLastCalledWith(["ops", "focus"]);
   });
 
