@@ -3283,7 +3283,10 @@ describe("WorkbenchPageClient", () => {
   });
 
   it("returns the month picker to this year without committing a period", async () => {
-    const user = userEvent.setup();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-15T12:00:00"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    try {
     const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
       Promise.resolve({
         ok: true,
@@ -3326,10 +3329,16 @@ describe("WorkbenchPageClient", () => {
       fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
     ).toHaveLength(0);
     expect(screen.getByRole("dialog", { name: "Period for Goal" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns the week calendar to this month without committing a period", async () => {
-    const user = userEvent.setup();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-15T12:00:00"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    try {
     const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
       Promise.resolve({
         ok: true,
@@ -3376,6 +3385,9 @@ describe("WorkbenchPageClient", () => {
       fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
     ).toHaveLength(0);
     expect(screen.getByRole("dialog", { name: "Period for Goal" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses a fixed viewport popover, repositions on scroll, and restores focus on escape", async () => {
