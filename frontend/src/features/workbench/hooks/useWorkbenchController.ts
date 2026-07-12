@@ -22,6 +22,13 @@ import {
   createPanelModel,
 } from "@/features/workbench/model/workbench-model";
 import {
+  defaultPlannerGroupSettings,
+  normalizePlannerGroupSettings,
+  plannerGroupStorageKey,
+  type PlannerGroupSettings,
+  type PlannerViewId,
+} from "@/features/workbench/model/planner-group-settings";
+import {
   addMonths,
   addYears,
   isoWeekStart,
@@ -70,6 +77,48 @@ const plannerItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
   weekly: ["goal", "task", "event", "routine", "area", "project"],
   daily: ["task", "event", "routine", "area", "project"],
 };
+
+const plannerViewIds: PlannerViewId[] = ["yearly", "monthly", "weekly", "daily"];
+
+function defaultPlannerGroupSettingsByView(): Record<
+  PlannerViewId,
+  PlannerGroupSettings
+> {
+  return Object.fromEntries(
+    plannerViewIds.map((view) => [view, loadPlannerGroupSettings(view)]),
+  ) as Record<PlannerViewId, PlannerGroupSettings>;
+}
+
+function loadPlannerGroupSettings(view: PlannerViewId): PlannerGroupSettings {
+  if (typeof window === "undefined") return defaultPlannerGroupSettings();
+  try {
+    const stored = window.localStorage.getItem(plannerGroupStorageKey(view));
+    return normalizePlannerGroupSettings(stored ? JSON.parse(stored) : null);
+  } catch {
+    return defaultPlannerGroupSettings();
+  }
+}
+
+function persistPlannerGroupSettings(
+  view: PlannerViewId,
+  settings: PlannerGroupSettings,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(plannerGroupStorageKey(view), JSON.stringify(settings));
+  } catch {
+    // Browser storage is best-effort; in-memory state remains authoritative.
+  }
+}
+
+function plannerViewId(panelId: LeafTabId): PlannerViewId | null {
+  return panelId === "yearly" ||
+    panelId === "monthly" ||
+    panelId === "weekly" ||
+    panelId === "daily"
+    ? panelId
+    : null;
+}
 
 const emptyWorkspaceItems: WorkspaceItemsModel = {
   status: "idle",
@@ -120,13 +169,10 @@ function createDefaultPlanner(): PlannerControls {
     },
     filterMode: "and",
     filterRules: [],
-    dailyGroupBy: "none",
+    groupSettings: defaultPlannerGroupSettingsByView(),
     dailySortRules: [{ id: "daily-default-sort", field: "priority", direction: "asc" }],
-    yearlyGroupBy: "none",
     yearlySortRules: [{ id: "yearly-default-sort", field: "scheduled", direction: "asc" }],
-    monthlyGroupBy: "none",
     monthlySortRules: [{ id: "monthly-default-sort", field: "scheduled", direction: "asc" }],
-    weeklyGroupBy: "none",
     weeklySortRules: [{ id: "weekly-default-sort", field: "scheduled", direction: "asc" }],
   };
 }
@@ -251,6 +297,21 @@ export function useWorkbenchController(): WorkbenchController {
     setCreationDialogOpen(false);
     setDetailItem(null);
   }, [selection.leafTabId]);
+
+  const updateActiveGroupSettings = (
+    updater: (settings: PlannerGroupSettings) => PlannerGroupSettings,
+  ) => {
+    setPlanner((current) => {
+      const view = plannerViewId(selection.leafTabId);
+      if (!view) return current;
+      const nextSettings = updater(current.groupSettings[view]);
+      persistPlannerGroupSettings(view, nextSettings);
+      return {
+        ...current,
+        groupSettings: { ...current.groupSettings, [view]: nextSettings },
+      };
+    });
+  };
 
   useEffect(() => {
     const itemType = workspaceItemTypes[selection.leafTabId];
@@ -406,22 +467,33 @@ export function useWorkbenchController(): WorkbenchController {
     clearPlannerFilterRules: () =>
       setPlanner((current) => ({ ...current, filterMode: "and", filterRules: [] })),
     setDailyGroupBy: (groupBy) =>
-      setPlanner((current) => ({ ...current, dailyGroupBy: groupBy })),
+      updateActiveGroupSettings((settings) => ({ ...settings, groupBy })),
     setDailySortRules: (rules) =>
       setPlanner((current) => ({ ...current, dailySortRules: rules })),
     setPlannerGroupBy: (groupBy) =>
-      setPlanner((current) => {
-        if (selection.leafTabId === "weekly") {
-          return { ...current, weeklyGroupBy: groupBy };
-        }
-        if (selection.leafTabId === "monthly") {
-          return { ...current, monthlyGroupBy: groupBy };
-        }
-        if (selection.leafTabId === "yearly") {
-          return { ...current, yearlyGroupBy: groupBy };
-        }
-        return current;
-      }),
+      updateActiveGroupSettings((settings) => ({ ...settings, groupBy })),
+    setPlannerGroupSort: (sort) =>
+      updateActiveGroupSettings((settings) => ({ ...settings, sort })),
+    setPlannerHideEmptyGroups: (hideEmpty) =>
+      updateActiveGroupSettings((settings) => ({ ...settings, hideEmpty })),
+    togglePlannerGroupVisibility: (key) =>
+      updateActiveGroupSettings((settings) => ({
+        ...settings,
+        hiddenGroupKeys: settings.hiddenGroupKeys.includes(key)
+          ? settings.hiddenGroupKeys.filter((entry) => entry !== key)
+          : [...settings.hiddenGroupKeys, key],
+      })),
+    setAllPlannerGroupsVisible: (keys, visible) =>
+      updateActiveGroupSettings((settings) => ({
+        ...settings,
+        hiddenGroupKeys: visible
+          ? settings.hiddenGroupKeys.filter((key) => !keys.includes(key))
+          : [...new Set([...settings.hiddenGroupKeys, ...keys])],
+      })),
+    setPlannerManualGroupOrder: (keys) =>
+      updateActiveGroupSettings((settings) => ({ ...settings, manualOrder: keys })),
+    removePlannerGrouping: () =>
+      updateActiveGroupSettings(() => defaultPlannerGroupSettings()),
     setPlannerSortRules: (rules) =>
       setPlanner((current) => {
         if (selection.leafTabId === "weekly") {

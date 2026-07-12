@@ -18,11 +18,15 @@ import {
 import type { LeafTabId } from "@/domain/workbench/navigation";
 import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
 import {
+  buildPlannerGroupCandidates,
+  type PlannerGroupCandidate,
+  type PlannerGroupSettings,
+} from "@/features/workbench/model/planner-group-settings";
+import {
   buildDailyPlannerModel,
   buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
   buildYearlyPeriodGoalCardsModel,
-  type DailyGroupBy,
   type DailyPlannerSection,
   filterPlannerItemsByRules,
   groupPlannerItems,
@@ -464,10 +468,12 @@ function GoalGroupContent({
   goals: WorkspaceItemModel[];
   emptyText: string;
 }) {
+  const sortedGoals = sortPlannerItems(goals, plannerSortRules(controller));
   const groupedGoals = groupPlannerItems(
-    sortPlannerItems(goals, plannerSortRules(controller)),
+    sortedGoals,
     controller.workspaceItems.relatedItems,
-    plannerGroupValue(controller),
+    plannerGroupSettings(controller),
+    plannerGroupCandidates(controller, sortedGoals),
   );
 
   return <>{renderPlannerGroups(controller, groupedGoals, emptyText)}</>;
@@ -478,16 +484,20 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
     filteredPlannerItems(controller),
     controller.planner.weekStart,
   );
-  const groupBy = plannerGroupValue(controller);
+  const settings = plannerGroupSettings(controller);
+  const sortedMonthGoals = sortPlannerItems(model.monthGoals, plannerSortRules(controller));
+  const sortedWeekGoals = sortPlannerItems(model.weekGoals, plannerSortRules(controller));
   const monthGoalGroups = groupPlannerItems(
-    sortPlannerItems(model.monthGoals, plannerSortRules(controller)),
+    sortedMonthGoals,
     controller.workspaceItems.relatedItems,
-    groupBy,
+    settings,
+    plannerGroupCandidates(controller, sortedMonthGoals),
   );
   const weekGoalGroups = groupPlannerItems(
-    sortPlannerItems(model.weekGoals, plannerSortRules(controller)),
+    sortedWeekGoals,
     controller.workspaceItems.relatedItems,
-    groupBy,
+    settings,
+    plannerGroupCandidates(controller, sortedWeekGoals),
   );
 
   return (
@@ -504,10 +514,12 @@ function WeeklyPlanner({ controller }: MainPanelProps) {
       </div>
       <div className="weekly-day-grid">
         {model.days.map((day) => {
+          const sortedDayItems = sortPlannerItems(day.items, plannerSortRules(controller));
           const dayGroups = groupPlannerItems(
-            sortPlannerItems(day.items, plannerSortRules(controller)),
+            sortedDayItems,
             controller.workspaceItems.relatedItems,
-            groupBy,
+            settings,
+            plannerGroupCandidates(controller, sortedDayItems),
           );
 
           return (
@@ -533,7 +545,8 @@ function DailyPlanner({ controller }: MainPanelProps) {
     {
       date: controller.planner.date,
       filters: emptyDailyFilters(),
-      groupBy: controller.planner.dailyGroupBy,
+      groupSettings: plannerGroupSettings(controller),
+      groupCandidates: plannerGroupCandidates(controller, filteredPlannerItems(controller)),
       sortRules: controller.planner.dailySortRules,
     },
   );
@@ -1142,20 +1155,113 @@ function PlannerSortFieldOptions({
 }
 
 function PlannerGroupPanel({ controller }: { controller: WorkbenchController }) {
-  const value = plannerGroupValue(controller);
+  const settings = plannerGroupSettings(controller);
+  const candidates = plannerGroupCandidates(controller, filteredPlannerItems(controller));
+  const visibleKeys = candidates.map((candidate) => candidate.key);
 
   return (
-    <div className="planner-menu-option-list">
-      {plannerGroupOptions(controller.panel.id).map((option) => (
-        <button
-          type="button"
-          key={option.value}
-          aria-pressed={option.value === value}
-          onClick={() => setPlannerGroupValue(controller, option.value)}
+    <div
+      className="planner-group-settings-panel"
+      role="dialog"
+      aria-label="Group settings"
+    >
+      <div className="planner-group-settings-section">
+        <span className="planner-dropdown-label">Group by</span>
+        <div
+          className="planner-menu-option-list"
+          role="listbox"
+          aria-label="Choose group property"
         >
-          {option.label}
-        </button>
-      ))}
+          {plannerGroupOptions(controller.panel.id).map((option) => (
+            <button
+              type="button"
+              key={option.value}
+              aria-selected={option.value === settings.groupBy}
+              aria-pressed={option.value === settings.groupBy}
+              onClick={() => setPlannerGroupValue(controller, option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="planner-group-settings-section">
+        <span className="planner-dropdown-label">Sort</span>
+        <div
+          className="planner-menu-option-list"
+          role="listbox"
+          aria-label="Choose group sort"
+        >
+          {[
+            ["manual", "Manual"],
+            ["alphabetical", "Alphabetical"],
+            ["reverse_alphabetical", "Reverse alphabetical"],
+          ].map(([value, label]) => (
+            <button
+              type="button"
+              key={value}
+              aria-selected={settings.sort === value}
+              aria-pressed={settings.sort === value}
+              onClick={() => controller.setPlannerGroupSort(value as typeof settings.sort)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <label className="planner-group-switch">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={settings.hideEmpty}
+          onChange={(event) => controller.setPlannerHideEmptyGroups(event.target.checked)}
+        />
+        Hide empty groups
+      </label>
+      {settings.groupBy !== "none" ? (
+        <div className="planner-group-settings-section">
+          <div className="planner-group-settings-actions">
+            <span className="planner-dropdown-label">Groups</span>
+            <button
+              type="button"
+              onClick={() => controller.setAllPlannerGroupsVisible(visibleKeys, false)}
+            >
+              Hide all
+            </button>
+            <button
+              type="button"
+              onClick={() => controller.setAllPlannerGroupsVisible(visibleKeys, true)}
+            >
+              Show all
+            </button>
+          </div>
+          <div className="planner-group-row-list">
+            {candidates.map((candidate) => {
+              const hidden = settings.hiddenGroupKeys.includes(candidate.key);
+              return (
+                <div className="planner-group-row" key={candidate.key}>
+                  <span>{candidate.label}</span>
+                  <span className="planner-group-count">{candidate.count}</span>
+                  <button
+                    type="button"
+                    aria-label={`${hidden ? "Show" : "Hide"} ${candidate.label}`}
+                    onClick={() => controller.togglePlannerGroupVisibility(candidate.key)}
+                  >
+                    {hidden ? "Show" : "Hide"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="planner-group-remove"
+        onClick={controller.removePlannerGrouping}
+      >
+        Remove grouping
+      </button>
     </div>
   );
 }
@@ -1756,17 +1862,39 @@ function plannerSortFieldOptions(
   });
 }
 
+function plannerGroupSettings(controller: WorkbenchController): PlannerGroupSettings {
+  const settings = controller.planner.groupSettings[plannerViewId(controller)];
+  return {
+    ...settings,
+    groupBy: effectivePlannerGroupValue(controller.panel.id, settings.groupBy),
+  };
+}
+
+function plannerGroupCandidates(
+  controller: WorkbenchController,
+  items: WorkspaceItemModel[],
+): PlannerGroupCandidate[] {
+  return buildPlannerGroupCandidates({
+    view: plannerViewId(controller),
+    groupBy: plannerGroupValue(controller),
+    items,
+    relatedItems: controller.workspaceItems.relatedItems,
+  });
+}
+
+function plannerViewId(
+  controller: WorkbenchController,
+): "yearly" | "monthly" | "weekly" | "daily" {
+  return controller.panel.id === "yearly" ||
+    controller.panel.id === "monthly" ||
+    controller.panel.id === "weekly" ||
+    controller.panel.id === "daily"
+    ? controller.panel.id
+    : "daily";
+}
+
 function plannerGroupValue(controller: WorkbenchController): PlannerGroupBy {
-  if (controller.panel.id === "daily") {
-    return controller.planner.dailyGroupBy;
-  }
-  if (controller.panel.id === "weekly") {
-    return effectivePlannerGroupValue(controller.panel.id, controller.planner.weeklyGroupBy);
-  }
-  if (controller.panel.id === "monthly") {
-    return effectivePlannerGroupValue(controller.panel.id, controller.planner.monthlyGroupBy);
-  }
-  return effectivePlannerGroupValue(controller.panel.id, controller.planner.yearlyGroupBy);
+  return plannerGroupSettings(controller).groupBy;
 }
 
 function effectivePlannerGroupValue(

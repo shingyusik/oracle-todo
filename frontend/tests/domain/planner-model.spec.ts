@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildPlannerGroupCandidates,
+  defaultPlannerGroupSettings,
+} from "@/features/workbench/model/planner-group-settings";
+import {
   buildDailyPlannerModel,
   buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
@@ -142,7 +146,7 @@ const items: WorkspaceItemModel[] = [
 
 function buildDaily(
   filters: Partial<Parameters<typeof buildDailyPlannerModel>[2]["filters"]> = {},
-  groupBy: Parameters<typeof buildDailyPlannerModel>[2]["groupBy"] = "none",
+  groupBy: Parameters<typeof buildDailyPlannerModel>[2]["groupSettings"]["groupBy"] = "none",
   date = "2026-07-06",
 ) {
   return buildDailyPlannerModel(items, relatedItems, {
@@ -156,7 +160,8 @@ function buildDaily(
       statuses: [],
       ...filters,
     },
-    groupBy,
+    groupSettings: { ...defaultPlannerGroupSettings(), groupBy },
+    groupCandidates: buildPlannerGroupCandidates({ view: "daily", groupBy, items, relatedItems }),
     sortRules: [{ id: "sort-priority", field: "priority", direction: "asc" }],
   });
 }
@@ -205,14 +210,16 @@ describe("planner model", () => {
   });
 
   it("groups planner items by tag and keeps untagged items visible", () => {
+    const groupedItems = [
+      item("focus", { tags: ["focus"] }),
+      item("ops", { tags: ["ops", "focus"] }),
+      item("empty", { tags: [] }),
+    ];
     const result = groupPlannerItems(
-      [
-        item("focus", { tags: ["focus"] }),
-        item("ops", { tags: ["ops", "focus"] }),
-        item("empty", { tags: [] }),
-      ],
+      groupedItems,
       relatedItems,
-      "tag",
+      { ...defaultPlannerGroupSettings(), groupBy: "tag" },
+      buildPlannerGroupCandidates({ view: "daily", groupBy: "tag", items: groupedItems, relatedItems }),
     );
 
     expect(result.map((group) => [group.label, group.items.map((entry) => entry.id)])).toEqual([
@@ -223,16 +230,18 @@ describe("planner model", () => {
   });
 
   it("groups planner items by related area labels", () => {
+    const groupedItems = [
+      item("work", { area_id: "area-1" }),
+      item("none", { area_id: null }),
+    ];
     const result = groupPlannerItems(
-      [
-        item("work", { area_id: "area-1" }),
-        item("none", { area_id: null }),
-      ],
+      groupedItems,
       relatedItems,
-      "area",
+      { ...defaultPlannerGroupSettings(), groupBy: "area" },
+      buildPlannerGroupCandidates({ view: "daily", groupBy: "area", items: groupedItems, relatedItems }),
     );
 
-    expect(result.map((group) => group.label)).toEqual(["Work", "No value"]);
+    expect(result.map((group) => group.label)).toEqual(["Work", "No area"]);
   });
 
   it("matches text, multi-select, and relation planner filter rules with and", () => {
@@ -467,8 +476,8 @@ describe("planner model", () => {
     ["project", ["Ops", "Planner"]],
     ["routine", ["Evening", "Morning"]],
     ["tag", ["deep-work", "focus", "habit", "ops"]],
-    ["item_type", ["routine", "task"]],
-    ["status", ["active", "approved"]],
+    ["item_type", ["Routine", "Task"]],
+    ["status", ["Active", "Approved"]],
   ] as const)("groups today items by %s with expected labels", (groupBy, labels) => {
     const model = buildDaily({}, groupBy);
 

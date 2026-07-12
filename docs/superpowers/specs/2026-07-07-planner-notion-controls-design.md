@@ -81,11 +81,11 @@ Rules:
 - Sort state is planner-local frontend state.
 - Direction controls are out of scope for the first implementation.
 
-## Group Dropdown
+## Group Settings Panel
 
-Group by uses one selected group key per planner tab.
+Group controls use a shared Notion-style settings panel for each planner tab. The panel stores settings independently for `Yearly`, `Monthly`, `Weekly`, and `Daily` in browser-local storage with `oracle-todo.planner-group-settings.v1.<view>` keys.
 
-Daily group options:
+Daily and weekly group options:
 
 - None
 - Area
@@ -101,15 +101,14 @@ Yearly and monthly group options:
 - Tag
 - Status
 
-Weekly group options:
+Panel controls:
 
-- None
-- Area
-- Project
-- Routine
-- Tag
-- Item type
-- Status
+- Group property selection.
+- Group sort: `Manual`, `Alphabetical`, and `Reverse alphabetical`.
+- `Hide empty groups`, enabled by default.
+- Per-group visibility toggles.
+- Bulk `Hide all` and `Show all` actions.
+- `Remove grouping`, which resets group-specific settings for the active planner tab.
 
 Rules:
 
@@ -118,12 +117,14 @@ Rules:
 - `Weekly` keeps the month goals, week goals, and day cards; groups render inside each goal strip or day card.
 - `Yearly` and `Monthly` group inside the goal list.
 - Ungrouped content renders without a visible `All` group header.
+- Multi-tag items appear in every matching tag group.
+- Empty groups are managed from the settings panel and are not repeated inside individual time containers.
 
 ## Data Flow
 
 Use the existing workbench controller and planner model pattern.
 
-- Extend planner frontend state only as needed for non-daily sort and group settings.
+- Store planner sort state and planner group settings as frontend-only controller state.
 - Keep filter application in pure model/helper functions.
 - Keep loaded data sources unchanged.
 - Keep API calls unchanged.
@@ -140,7 +141,7 @@ Expected reusable pieces:
 - Icon dropdown button.
 - Filter rule panel.
 - Sort option panel.
-- Group option panel.
+- Group settings panel.
 
 Implementation constraints:
 

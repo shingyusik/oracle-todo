@@ -3,9 +3,13 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 async function statusOptions(title: string): Promise<string[]> {
   const select = await screen.findByLabelText(`Status for ${title}`);
