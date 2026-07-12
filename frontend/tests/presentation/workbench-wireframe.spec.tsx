@@ -1874,7 +1874,9 @@ describe("WorkbenchPageClient", () => {
         { id: "goal-week-done", type: "goal", title: "Done Week Goal", status: "completed", horizon: "week", scheduled: firstWeekStart, tags: ["week-done"] },
       ],
       "/todo-engine/items?type=task": [
-        { id: "task-month", type: "task", title: "Month Task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"] },
+        { id: "task-month", type: "task", title: "Month Task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T09:00:00Z" },
+        { id: "task-month-2", type: "task", title: "Second Month Task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T08:00:00Z" },
+        { id: "task-month-3", type: "task", title: "Hidden Month Task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T07:00:00Z" },
       ],
       "/todo-engine/items?type=event": [
         { id: "event-month", type: "event", title: "Month Event", status: "active", scheduled: firstWeekEventDate, tags: ["month-todo"] },
@@ -1906,7 +1908,11 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getAllByTestId("monthly-week-row").length).toBeGreaterThanOrEqual(4);
     expect(screen.getAllByTestId("monthly-day-card").length).toBeGreaterThanOrEqual(28);
     expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Month Task");
+    expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Second Month Task");
+    expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("+1 more");
+    expect(screen.queryByText("Hidden Month Task")).toBeNull();
     expect(screen.getByRole("gridcell", { name: `${firstWeekEventDate} todo` })).toHaveTextContent("Month Event");
+    expect(screen.getAllByTestId("monthly-week-goal-rail").length).toBeGreaterThanOrEqual(4);
     expect(screen.getByRole("region", { name: "W1 goals" })).toHaveTextContent("First Week Goal");
     expect(screen.getByRole("region", { name: "W2 goals" })).toHaveTextContent("Second Week Goal");
     expect(screen.queryByText("Done Week Goal")).toBeNull();

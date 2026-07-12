@@ -326,11 +326,7 @@ function MonthlyPlannerWeekRow({
     <section className="monthly-week-row" role="row" data-testid="monthly-week-row">
       <div className="monthly-week-days">
         {week.days.map((day) => {
-          const dayGroups = groupPlannerItems(
-            sortPlannerItems(day.items, plannerSortRules(controller)),
-            controller.workspaceItems.relatedItems,
-            plannerGroupValue(controller),
-          );
+          const dayItems = sortPlannerItems(day.items, plannerSortRules(controller));
 
           return (
             <section
@@ -342,17 +338,56 @@ function MonthlyPlannerWeekRow({
               key={day.date}
             >
               <h3>{day.label}</h3>
-              {renderPlannerGroups(controller, dayGroups, "No items.")}
+              <MonthlyDayItems controller={controller} items={dayItems} />
             </section>
           );
         })}
       </div>
-      <PeriodGoalBucketCard
-        controller={controller}
-        bucket={week}
-        testId="monthly-week-card"
-      />
+      <aside className="monthly-week-goal-rail" data-testid="monthly-week-goal-rail">
+        <PeriodGoalBucketCard
+          controller={controller}
+          bucket={week}
+          testId="monthly-week-card"
+        />
+      </aside>
     </section>
+  );
+}
+
+function MonthlyDayItems({
+  controller,
+  items,
+}: {
+  controller: WorkbenchController;
+  items: WorkspaceItemModel[];
+}) {
+  const visibleItems = items.slice(0, 2);
+  const hiddenCount = items.length - visibleItems.length;
+
+  if (items.length === 0) {
+    return <p className="items-message monthly-day-empty">No items.</p>;
+  }
+
+  return (
+    <ul className="monthly-day-item-list">
+      {visibleItems.map((item) => (
+        <li key={item.id}>
+          <button
+            className="monthly-day-item"
+            type="button"
+            title={item.title}
+            onClick={() => controller.openDetailView(item)}
+          >
+            {item.title}
+          </button>
+        </li>
+      ))}
+      {hiddenCount > 0 ? (
+        <li>
+          <span className="monthly-day-more">+{hiddenCount} more</span>
+        </li>
+      ) : null}
+    </ul>
   );
 }
 

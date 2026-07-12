@@ -622,8 +622,8 @@ button {
 
 .monthly-week-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 230px);
+  gap: 12px;
   min-width: 0;
 }
 
@@ -634,11 +634,13 @@ button {
 }
 
 .monthly-day-card {
-  min-height: 118px;
+  min-width: 0;
+  min-height: 96px;
+  overflow: hidden;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-light);
-  padding: 10px;
+  padding: 9px;
   box-shadow: 0 1px 0 rgb(0 0 0 / 4%);
 }
 
@@ -654,8 +656,65 @@ button {
   font-weight: 700;
 }
 
+.monthly-day-empty {
+  padding: 7px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.monthly-day-item-list {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.monthly-day-item-list li {
+  min-width: 0;
+}
+
+.monthly-day-item {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-cream);
+  padding: 5px 7px;
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthly-day-item:hover {
+  background: var(--color-pistachio);
+}
+
+.monthly-day-more {
+  display: block;
+  color: var(--color-shade-60);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.monthly-week-goal-rail {
+  border-left: 2px solid var(--color-aloe-strong);
+  padding-left: 10px;
+}
+
 .monthly-week-row .period-bucket-card {
-  min-height: 118px;
+  min-height: 96px;
+  border-style: dashed;
+  background: var(--color-canvas-cream);
+  box-shadow: none;
 }
 
 .period-bucket-card {
