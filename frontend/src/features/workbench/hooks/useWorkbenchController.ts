@@ -325,6 +325,10 @@ export function useWorkbenchController(): WorkbenchController {
         );
         return setPlannerDateForPanel(current, selection.leafTabId, date);
       }),
+    selectPlannerPeriodDate: (date) =>
+      setPlanner((current) =>
+        setPlannerDateForPanel(current, selection.leafTabId, date),
+      ),
     resetPlannerPeriodToToday: () =>
       setPlanner((current) => {
         const date = resetPlannerDate(selection.leafTabId);

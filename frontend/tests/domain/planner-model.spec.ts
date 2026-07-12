@@ -140,9 +140,13 @@ const items: WorkspaceItemModel[] = [
   },
 ];
 
-function buildDaily(filters: Partial<Parameters<typeof buildDailyPlannerModel>[2]["filters"]> = {}, groupBy: Parameters<typeof buildDailyPlannerModel>[2]["groupBy"] = "none") {
+function buildDaily(
+  filters: Partial<Parameters<typeof buildDailyPlannerModel>[2]["filters"]> = {},
+  groupBy: Parameters<typeof buildDailyPlannerModel>[2]["groupBy"] = "none",
+  date = "2026-07-06",
+) {
   return buildDailyPlannerModel(items, relatedItems, {
-    date: "2026-07-06",
+    date,
     filters: {
       tags: [],
       areaIds: [],
@@ -441,6 +445,24 @@ describe("planner model", () => {
     ]);
     expect(model.sections.today.groups[0]?.items.map((item) => item.id)).not.toContain(
       "project-match",
+    );
+  });
+
+  it("labels daily sections from the selected reference date", () => {
+    const result = buildDaily({}, "none", "2026-07-06");
+
+    expect(result.sections.today.title).toBe("July 6, 2026");
+    expect(result.sections.overdue.title).toBe("Before July 6, 2026");
+    expect(result.sections.upcoming.title).toBe("After July 6, 2026");
+    expect(result.sections.unscheduled.title).toBe("Unscheduled");
+    expect(result.sections.today.groups[0]?.items.map((item) => item.id)).toContain(
+      "task-focus",
+    );
+    expect(result.sections.overdue.groups[0]?.items.map((item) => item.id)).toContain(
+      "task-overdue",
+    );
+    expect(result.sections.upcoming.groups[0]?.items.map((item) => item.id)).toContain(
+      "task-upcoming",
     );
   });
 

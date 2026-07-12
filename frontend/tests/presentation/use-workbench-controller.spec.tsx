@@ -202,6 +202,25 @@ describe("useWorkbenchController", () => {
     },
   );
 
+  it("selects weekly and daily dates without sharing periods", async () => {
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.selectTab("weekly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("weekly"));
+
+    act(() => result.current.selectPlannerPeriodDate("2026-07-09"));
+    expect(result.current.planner.weeklyDate).toBe("2026-07-06");
+
+    act(() => result.current.selectTab("daily"));
+    await waitFor(() => expect(result.current.panel.id).toBe("daily"));
+
+    act(() => result.current.selectPlannerPeriodDate("2026-07-09"));
+    expect(result.current.planner.dailyDate).toBe("2026-07-09");
+
+    act(() => result.current.selectTab("weekly"));
+    expect(result.current.planner.date).toBe("2026-07-06");
+  });
+
   it("archives selected workspace rows after confirmation", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (String(url).endsWith("/archive")) {

@@ -134,6 +134,7 @@ export type WorkbenchController = {
   selectTab: (tabId: WorkbenchTabId) => void;
   toggleWorkspaceExpansion: () => void;
   movePlannerPeriod: (direction: -1 | 1) => void;
+  selectPlannerPeriodDate: (date: string) => void;
   resetPlannerPeriodToToday: () => void;
   toggleItemSelection: (itemId: string) => void;
   toggleVisibleSelection: () => void;

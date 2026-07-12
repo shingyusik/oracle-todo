@@ -250,6 +250,7 @@ export function buildDailyPlannerModel(
   const overdue: WorkspaceItemModel[] = [];
   const upcoming: WorkspaceItemModel[] = [];
   const unscheduled: WorkspaceItemModel[] = [];
+  const dateLabel = dailySectionDateLabel(options.date);
 
   for (const item of visible) {
     const date = datePart(item.scheduled);
@@ -266,9 +267,21 @@ export function buildDailyPlannerModel(
 
   return {
     sections: {
-      today: section("today", "Today", today, relatedItems, options.groupBy),
-      overdue: section("overdue", "Overdue", overdue, relatedItems, options.groupBy),
-      upcoming: section("upcoming", "Upcoming", upcoming, relatedItems, options.groupBy),
+      today: section("today", dateLabel, today, relatedItems, options.groupBy),
+      overdue: section(
+        "overdue",
+        `Before ${dateLabel}`,
+        overdue,
+        relatedItems,
+        options.groupBy,
+      ),
+      upcoming: section(
+        "upcoming",
+        `After ${dateLabel}`,
+        upcoming,
+        relatedItems,
+        options.groupBy,
+      ),
       unscheduled: section(
         "unscheduled",
         "Unscheduled",
@@ -657,6 +670,15 @@ function groupLabel(
 
 function datePart(value: string | null | undefined): string | null {
   return value ? value.slice(0, 10) : null;
+}
+
+function dailySectionDateLabel(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 function periodCard(
