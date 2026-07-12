@@ -2424,6 +2424,8 @@ type GoalPeriodControlProps = {
 type GoalPeriodCommitError = {
   code: string;
   attemptedHorizon: GoalHorizon;
+  parentHorizon?: GoalHorizon;
+  childHorizon?: GoalHorizon;
 };
 
 function GoalPeriodControl({
@@ -2543,6 +2545,12 @@ function GoalPeriodControl({
         setCommitError({
           code: error.code,
           attemptedHorizon: candidateHorizon,
+          parentHorizon: isGoalHorizon(error.parentHorizon)
+            ? error.parentHorizon
+            : undefined,
+          childHorizon: isGoalHorizon(error.childHorizon)
+            ? error.childHorizon
+            : undefined,
         });
         return;
       }
@@ -2551,13 +2559,11 @@ function GoalPeriodControl({
     }
   }
 
-  const commitErrorTitle = commitError
-    ? `${capitalize(commitError.attemptedHorizon)}로 변경할 수 없음`
+  const requestedHorizon = commitError?.childHorizon ?? commitError?.attemptedHorizon;
+  const commitErrorTitle = requestedHorizon
+    ? `${goalHorizonLabel(requestedHorizon)}로 변경할 수 없음`
     : "";
-  const commitErrorMessage =
-    commitError?.code === "goal_parent_horizon_not_coarser"
-      ? "현재 Parent가 Month 기간입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다."
-      : "기간을 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  const commitErrorMessage = goalPeriodCommitErrorMessage(commitError);
 
   return (
     <div
@@ -2681,6 +2687,32 @@ function GoalPeriodControl({
         : null}
     </div>
   );
+}
+
+function goalPeriodCommitErrorMessage(
+  commitError: GoalPeriodCommitError | null,
+): string {
+  if (!commitError) {
+    return "";
+  }
+
+  if (
+    commitError.code === "goal_parent_horizon_not_coarser" &&
+    commitError.parentHorizon &&
+    commitError.childHorizon
+  ) {
+    return `현재 Parent 기간은 ${goalHorizonLabel(commitError.parentHorizon)}이고, 요청한 Goal 기간은 ${goalHorizonLabel(commitError.childHorizon)}입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.`;
+  }
+
+  if (commitError.code === "goal_duplicate_period") {
+    return "같은 Parent와 기간을 가진 Goal이 이미 있습니다.";
+  }
+
+  if (commitError.code === "goal_invalid_anchor") {
+    return "선택한 기간과 맞지 않는 날짜입니다. 다시 선택해 주세요.";
+  }
+
+  return "기간을 변경하지 못했습니다. 다시 시도해 주세요.";
 }
 
 function GoalPeriodCalendar({
@@ -4507,6 +4539,10 @@ function canonicalGoalScheduled(horizon: GoalHorizon, date: string): string {
   if (horizon === "year") return yearStart(date);
   if (horizon === "month") return monthStart(date);
   return isoWeekStart(date);
+}
+
+function goalHorizonLabel(horizon: GoalHorizon): string {
+  return capitalize(horizon);
 }
 
 function goalPeriodRange(

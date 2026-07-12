@@ -36,8 +36,14 @@ export class TodoEngineApiError extends Error {
     readonly status: number,
     readonly code: string,
     readonly detail: string,
+    readonly parentHorizon?: string,
+    readonly childHorizon?: string,
+    readonly horizon?: string,
+    readonly scheduled?: string,
+    readonly parentId?: string,
   ) {
     super(detail);
+    this.name = "TodoEngineApiError";
   }
 }
 
@@ -453,7 +459,15 @@ function patchItem(
 
 async function throwApiError(response: Response): Promise<never> {
   const body = (await response.json().catch(() => null)) as
-    | { code?: unknown; detail?: unknown }
+    | {
+        code?: unknown;
+        detail?: unknown;
+        parent_horizon?: unknown;
+        child_horizon?: unknown;
+        horizon?: unknown;
+        scheduled?: unknown;
+        parent_id?: unknown;
+      }
     | null;
 
   throw new TodoEngineApiError(
@@ -462,6 +476,11 @@ async function throwApiError(response: Response): Promise<never> {
     typeof body?.detail === "string"
       ? body.detail
       : `todo-engine returned ${response.status}`,
+    typeof body?.parent_horizon === "string" ? body.parent_horizon : undefined,
+    typeof body?.child_horizon === "string" ? body.child_horizon : undefined,
+    typeof body?.horizon === "string" ? body.horizon : undefined,
+    typeof body?.scheduled === "string" ? body.scheduled : undefined,
+    typeof body?.parent_id === "string" ? body.parent_id : undefined,
   );
 }
 

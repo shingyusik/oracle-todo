@@ -120,12 +120,11 @@ impl TodoService {
                         && existing.parent_id == resolved_parent_id
                 });
             if duplicate {
-                return Err(TodoError::Policy(format!(
-                    "Goal already exists for ({}, {}, {})",
-                    next_horizon.as_str(),
-                    canonical_scheduled,
-                    resolved_parent_id.as_deref().unwrap_or("<root>")
-                )));
+                return Err(TodoError::GoalDuplicatePeriod {
+                    horizon: next_horizon,
+                    scheduled: canonical_scheduled,
+                    parent_id: resolved_parent_id,
+                });
             }
 
             next_goal_parent_id = Some(resolved_parent_id);

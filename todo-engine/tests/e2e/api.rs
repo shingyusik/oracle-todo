@@ -690,6 +690,8 @@ async fn api_patch_rejects_invalid_goal_horizon_anchor() {
     assert_eq!(response.status(), 400);
     let body = body_json(response).await;
     assert_eq!(body["code"], "goal_invalid_anchor");
+    assert_eq!(body["horizon"], "year");
+    assert_eq!(body["scheduled"], "2026-07-01");
     assert!(
         body["detail"]
             .as_str()
@@ -750,6 +752,55 @@ async fn api_patch_rejects_invalid_goal_parent() {
     assert_eq!(response.status(), 400);
     let body = body_json(response).await;
     assert_eq!(body["code"], "goal_parent_horizon_not_coarser");
+    assert_eq!(body["parent_horizon"], "month");
+    assert_eq!(body["child_horizon"], "year");
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("strictly coarser")
+    );
+}
+
+#[tokio::test]
+async fn api_propose_rejects_goal_parent_horizon_equal_to_child() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"연간 부모 목표",
+            "horizon":"year",
+            "scheduled":"2026-01-01",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let parent = body_json(response).await;
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title":"동일 기간 자식 목표",
+            "horizon":"year",
+            "scheduled":"2027-01-01",
+            "parent_id": parent["id"].as_str().unwrap(),
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert_eq!(body["code"], "goal_parent_horizon_not_coarser");
+    assert_eq!(body["parent_horizon"], "year");
+    assert_eq!(body["child_horizon"], "year");
     assert!(
         body["detail"]
             .as_str()

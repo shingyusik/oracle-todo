@@ -3254,8 +3254,9 @@ describe("WorkbenchPageClient", () => {
           status: 400,
           json: async () => ({
             code: "goal_parent_horizon_not_coarser",
-            detail:
-              "Goal parent horizon (month) must be strictly coarser than child horizon (year)",
+            detail: "opaque server detail",
+            parent_horizon: "month",
+            child_horizon: "year",
           }),
         });
       }
@@ -3303,7 +3304,80 @@ describe("WorkbenchPageClient", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "현재 Parent가 Month 기간입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.",
+        "현재 Parent 기간은 Month이고, 요청한 Goal 기간은 Year입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "확인" }));
+
+    expect(trigger).toHaveTextContent("Week");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("shows equal parent and requested horizon labels from structured error metadata", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({ horizon: "month", scheduled: "2026-07-01" }),
+        );
+
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          json: async () => ({
+            code: "goal_parent_horizon_not_coarser",
+            detail: "opaque server detail",
+            parent_horizon: "month",
+            child_horizon: "month",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "Goal",
+            status: "approved",
+            horizon: "week",
+            scheduled: "2026-07-06",
+            parent_id: "goal-parent",
+          },
+          {
+            id: "goal-parent",
+            type: "goal",
+            title: "Parent Goal",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-07-01",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+
+    const trigger = await screen.findByRole("button", { name: "Period for Goal" });
+    expect(trigger).toHaveTextContent("Week");
+
+    await user.click(trigger);
+    const picker = screen.getByRole("dialog", { name: "Period for Goal" });
+    await user.click(within(picker).getByRole("button", { name: "Month" }));
+    await user.click(within(picker).getByRole("button", { name: /July 6, 2026/ }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Month로 변경할 수 없음" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "현재 Parent 기간은 Month이고, 요청한 Goal 기간은 Month입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.",
       ),
     ).toBeInTheDocument();
 
