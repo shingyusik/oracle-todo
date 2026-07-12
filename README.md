@@ -35,6 +35,7 @@ Run without a Rust toolchain:
 ```bash
 npx @shings/oracle-todo init
 npx @shings/oracle-todo today
+npx @shings/oracle-todo ui
 ```
 
 Build from source for development:

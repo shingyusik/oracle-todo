@@ -15,6 +15,17 @@ npx @shings/oracle-todo today
 npx @shings/oracle-todo pending
 ```
 
+Run the local UI:
+
+```bash
+npx @shings/oracle-todo ui
+npx @shings/oracle-todo ui --no-open
+```
+
+The `ui` command downloads the matching GitHub Release UI artifact, starts `todo-engine api`
+on `127.0.0.1:3002`, serves the UI on `127.0.0.1:3001`, proxies `/todo-engine/*` requests to
+the API, and opens the browser by default.
+
 The wrapper downloads a compatible `todo-engine` binary from GitHub Releases and stores it
 under `~/.local/share/oracle-todo/`. User data stays in the normal data home:
 `~/.todo-engine/` unless `--home` or `TODO_ENGINE_HOME` points elsewhere.
