@@ -31,6 +31,16 @@ import {
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 
+export class TodoEngineApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    readonly detail: string,
+  ) {
+    super(detail);
+  }
+}
+
 const workspaceItemTypes: Partial<Record<LeafTabId, string>> = {
   areas: "area",
   projects: "project",
@@ -434,11 +444,25 @@ function patchItem(
     body: JSON.stringify(patch),
   }).then((response) => {
     if (!response.ok) {
-      throw new Error(`todo-engine returned ${response.status}`);
+      return throwApiError(response);
     }
 
     return response.json();
   });
+}
+
+async function throwApiError(response: Response): Promise<never> {
+  const body = (await response.json().catch(() => null)) as
+    | { code?: unknown; detail?: unknown }
+    | null;
+
+  throw new TodoEngineApiError(
+    response.status,
+    typeof body?.code === "string" ? body.code : "internal_error",
+    typeof body?.detail === "string"
+      ? body.detail
+      : `todo-engine returned ${response.status}`,
+  );
 }
 
 function createItemRequest(
