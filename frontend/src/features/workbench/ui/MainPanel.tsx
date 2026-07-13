@@ -139,7 +139,7 @@ function DetailView({ controller }: MainPanelProps) {
       await controller.saveDetailItem(patch);
     }
 
-    const transition = transitionActionForStatus(detailItem.status, draft.status);
+    const transition = transitionActionForStatus(displayStatusForItem(detailItem), draft.status);
     if (transition) {
       await controller.transitionWorkspaceItem(detailItem.id, transition);
     }
