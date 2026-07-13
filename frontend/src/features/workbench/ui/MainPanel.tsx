@@ -690,7 +690,7 @@ function PlannerControlToolbar({
       ) : null}
       {openDropdown === "group" ? (
         <div ref={groupPanelRef}>
-          <PlannerControlDropdown id="planner-group-dropdown" title="Group">
+          <PlannerControlDropdown id="planner-group-dropdown" title="Group" compact>
             <PlannerGroupPanel
               settings={plannerGroupSettings(controller)}
               candidates={plannerGroupCandidates(controller, plannerGroupUniverseItems(controller))}
@@ -925,14 +925,23 @@ function PlannerDropdownButton({
 function PlannerControlDropdown({
   id,
   title,
+  compact = false,
   children,
 }: {
   id?: string;
   title: string;
+  compact?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div id={id} className="planner-control-dropdown" role="dialog" aria-label={title}>
+    <div
+      id={id}
+      className={`planner-control-dropdown${
+        compact ? " planner-control-dropdown-compact" : ""
+      }`}
+      role="dialog"
+      aria-label={title}
+    >
       <div className="planner-control-dropdown-title">{title}</div>
       {children}
     </div>

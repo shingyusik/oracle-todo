@@ -432,6 +432,17 @@ button {
   box-shadow: 0 14px 34px rgb(0 0 0 / 16%);
 }
 
+.planner-control-dropdown-compact {
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 24px));
+  min-width: 0;
+}
+
+.planner-control-dropdown-compact .planner-group-settings-panel {
+  width: 100%;
+  min-width: 0;
+}
+
 .planner-control-dropdown-title {
   position: absolute;
   width: 1px;

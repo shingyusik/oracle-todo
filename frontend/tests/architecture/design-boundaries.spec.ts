@@ -239,6 +239,18 @@ describe("design system boundaries", () => {
     expect(styles).toMatch(
       /\.planner-group-row[^}]*min-height:\s*32px/,
     );
+    expect(styles).toMatch(
+      /\.planner-control-dropdown-compact[^}]*width:\s*min\(320px, calc\(100vw - 24px\)\)/,
+    );
+    expect(styles).toMatch(
+      /\.planner-control-dropdown-compact[^}]*min-width:\s*0/,
+    );
+    expect(styles).toMatch(
+      /\.planner-control-dropdown-compact \.planner-group-settings-panel[^}]*width:\s*100%/,
+    );
+    expect(styles).toContain(
+      "min-width: min(540px, calc(100vw - 24px));",
+    );
     expect(styles).not.toContain(".planner-group-popover");
     expect(styles).not.toContain(".planner-group-inline-options");
   });

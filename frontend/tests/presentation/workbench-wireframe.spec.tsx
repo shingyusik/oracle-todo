@@ -901,6 +901,8 @@ describe("WorkbenchPageClient", () => {
     ).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    const filterDialog = screen.getByRole("dialog", { name: "Filter" });
+    expect(filterDialog).not.toHaveClass("planner-control-dropdown-compact");
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
     await user.click(screen.getByRole("button", { name: "Select Area filter values" }));
@@ -1152,6 +1154,7 @@ describe("WorkbenchPageClient", () => {
     const groupDialog = screen.getByRole("dialog", { name: "Group" });
     expect(groupTrigger).toHaveAttribute("aria-controls", "planner-group-dropdown");
     expect(groupDialog).toHaveAttribute("id", "planner-group-dropdown");
+    expect(groupDialog).toHaveClass("planner-control-dropdown-compact");
 
     await user.click(screen.getByRole("button", { name: "Choose group sort" }));
     await user.keyboard("{Escape}");
