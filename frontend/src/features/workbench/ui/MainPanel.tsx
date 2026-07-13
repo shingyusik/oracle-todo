@@ -68,17 +68,9 @@ type ItemColumn = {
 };
 
 const reviewCycleOptions = ["daily", "weekly", "monthly", "quarterly"];
-const statusOptions = [
-  "proposed",
-  "approved",
-  "active",
-  "paused",
-  "completed",
-  "archived",
-];
+const workItemStatusOptions = ["active", "paused", "completed"];
 const areaStatusOptions = ["active", "archived"];
 const taskStatusOptions = ["active", "completed"];
-const eventStatusOptions = ["active", "paused", "completed"];
 const materializationPolicyOptions = ["single_open", "per_occurrence"];
 const priorityOptions = Array.from({ length: 10 }, (_, index) => (index + 1).toString());
 
@@ -4563,15 +4555,13 @@ function DetailStatusField({
 }
 
 function statusOptionsForItem(item: WorkspaceItemModel): string[] {
-  if (item.type === "task" || item.type === "event") {
-    return visibleStatusOptionsForItem(item);
+  if (item.type === "area") {
+    return areaStatusOptions;
   }
-
-  const baseOptions = visibleStatusOptionsForItem(item);
-  const enabledStatuses = enabledStatusOptionsForItem(item);
-  return uniqueStatuses([item.status, ...enabledStatuses]).filter((status) =>
-    baseOptions.includes(status) || status === item.status,
-  );
+  if (item.type === "task") {
+    return taskStatusOptions;
+  }
+  return workItemStatusOptions;
 }
 
 function detailStatusForItem(item: WorkspaceItemModel | null): string {
@@ -4579,58 +4569,16 @@ function detailStatusForItem(item: WorkspaceItemModel | null): string {
 }
 
 function displayStatusForItem(item: WorkspaceItemModel): string {
-  if (
-    (item.type === "task" && item.status !== "completed") ||
-    (item.type === "event" && !eventStatusOptions.includes(item.status))
-  ) {
-    return "active";
-  }
-
-  return item.status;
-}
-
-function uniqueStatuses(statuses: string[]): string[] {
-  return [...new Set(statuses)];
-}
-
-function visibleStatusOptionsForItem(item: WorkspaceItemModel): string[] {
   if (item.type === "area") {
-    return areaStatusOptions;
+    return item.status === "archived" ? "archived" : "active";
   }
   if (item.type === "task") {
-    return taskStatusOptions;
+    return item.status === "completed" ? "completed" : "active";
   }
-  if (item.type === "event") {
-    return eventStatusOptions;
+  if (item.status === "paused" || item.status === "completed") {
+    return item.status;
   }
-  return statusOptions;
-}
-
-function enabledStatusOptionsForItem(item: WorkspaceItemModel): string[] {
-  const options = [item.status];
-  const canRun = item.type !== "area";
-  const canActivate =
-    canRun &&
-    (item.type !== "project" || hasText(item.definition_of_done)) &&
-    (item.type !== "routine" || hasText(item.recurrence_rule));
-
-  if (item.status === "proposed") {
-    options.push("approved");
-  }
-  if (item.status === "approved" && canActivate) {
-    options.push("active");
-  }
-  if (item.status === "paused" && canActivate) {
-    options.push("active");
-  }
-  if (item.status === "active" && canRun) {
-    options.push("paused", "completed");
-  }
-  if (item.status === "active" && item.type === "area") {
-    options.push("archived");
-  }
-
-  return options;
+  return "active";
 }
 
 function transitionActionForStatus(
