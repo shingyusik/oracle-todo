@@ -106,9 +106,8 @@ fn seed_goal_tree(service: &mut TodoService) -> Seed {
         .propose_goal(goal("year-2026", "year", "2026-01-01", None))
         .unwrap();
     // month-A is a TOP-LEVEL root; month-B is nested under the year goal. Both
-    // anchor to (month, 2026-06-01) so both are roots by D-02, but they have
-    // DISTINCT (horizon, scheduled, parent_id) identities so GOAL-05 (duplicate
-    // top-level identity) does not reject them. The year goal is a COARSER
+    // anchor to (month, 2026-06-01) so both are same-period sibling roots by
+    // D-02 despite having different parents. The year goal is a COARSER
     // ancestor that must NOT be climbed to as a root in a month view (D-02).
     let month_a = service
         .propose_goal(goal("month-june-A", "month", "2026-06-01", None))
@@ -623,8 +622,7 @@ fn cycle_is_severed_no_error() {
     let home = raw_home();
 
     // Both nodes at (month, 2026-06-01) so the cycle is reachable from the seed.
-    // Distinct parent_id identities are irrelevant here (raw insert bypasses the
-    // GOAL-05 duplicate check too).
+    // The two raw rows model same-period sibling roots before the cycle is formed.
     insert_goal_row(&home.conn, "goal-A", "cycle-A", "month", "2026-06-01", None);
     insert_goal_row(&home.conn, "goal-B", "cycle-B", "month", "2026-06-01", None);
     // Form the A<->B cycle now that both rows exist (FK satisfied).
@@ -704,7 +702,7 @@ fn orphan_parent_no_error() {
 // D-08 / WR-02 regression — a VALID sibling-root config must NOT over-count. Raw-
 // inject root R1 at (month, 2026-06-01) with parent_id = None, and root R2 at the
 // SAME (month, 2026-06-01) but with parent_id = Some("R1"). Both are exact period
-// matches, so both are roots by D-02 (sibling roots with distinct parent_id, GOAL-05).
+// matches, so both are same-period sibling roots by D-02.
 // Insert R1 BEFORE R2 so the FK is satisfied directly — no PRAGMA toggle needed.
 //
 // Before the Plan 01 D-04 fix, R2 (pre-marked `visited` as a root) would fail

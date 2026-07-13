@@ -1,6 +1,5 @@
 use super::TodoService;
 use crate::application::error::{TodoError, TodoResult};
-use crate::application::ports::ListFilter;
 use crate::domain::{Actor, Horizon, ItemType, TodoItem, terminal_status};
 
 #[derive(Default)]
@@ -106,26 +105,6 @@ impl TodoService {
             };
             let canonical_scheduled = self.validate_goal_anchor(next_horizon, next_scheduled)?;
             self.validate_goal_nesting(resolved_parent_id.as_deref(), next_horizon)?;
-
-            let duplicate = self
-                .list_items(ListFilter {
-                    item_type: Some(ItemType::Goal),
-                    ..Default::default()
-                })?
-                .into_iter()
-                .any(|existing| {
-                    existing.id != item.id
-                        && existing.horizon.as_deref() == Some(next_horizon.as_str())
-                        && existing.scheduled.as_deref() == Some(canonical_scheduled.as_str())
-                        && existing.parent_id == resolved_parent_id
-                });
-            if duplicate {
-                return Err(TodoError::GoalDuplicatePeriod {
-                    horizon: next_horizon,
-                    scheduled: canonical_scheduled,
-                    parent_id: resolved_parent_id,
-                });
-            }
 
             next_goal_parent_id = Some(resolved_parent_id);
             item.horizon = Some(next_horizon.as_str().to_string());

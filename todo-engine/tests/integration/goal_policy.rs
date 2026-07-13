@@ -136,25 +136,70 @@ fn goal_nesting_rejects_horizon_inversion_and_parent_updates() {
     );
 }
 
-// SC3b: a duplicate (horizon, canonical scheduled, parent_id) triple is rejected.
 #[test]
-fn goal_duplicate_triple_is_rejected() {
+fn goals_with_the_same_period_and_parent_are_allowed_and_audited() {
     let mut service = TodoService::in_memory();
 
+    let first_root = service
+        .propose_goal(goal(Actor::User, "year", "2026-01-01", None))
+        .unwrap();
+    let second_root = service
+        .propose_goal(goal(Actor::User, "year", "2026-01-01", None))
+        .unwrap();
+    assert_ne!(first_root.id, second_root.id);
+
+    let first_child = service
+        .propose_goal(goal(
+            Actor::User,
+            "month",
+            "2026-06-01",
+            Some(&first_root.id),
+        ))
+        .unwrap();
+    let second_child = service
+        .propose_goal(goal(
+            Actor::User,
+            "month",
+            "2026-06-01",
+            Some(&first_root.id),
+        ))
+        .unwrap();
+
+    assert_ne!(first_child.id, second_child.id);
+    assert_eq!(first_child.parent_id, second_child.parent_id);
+    assert_eq!(service.events().len(), 4);
+    assert!(
+        service
+            .events()
+            .iter()
+            .all(|event| event.action == "propose_goal")
+    );
+}
+
+#[test]
+fn goal_update_can_join_an_occupied_period_and_parent() {
+    let mut service = TodoService::in_memory();
     service
+        .propose_goal(goal(Actor::User, "year", "2026-01-01", None))
+        .unwrap();
+    let moving = service
         .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
         .unwrap();
-    let duplicate = service
-        .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
-        .unwrap_err();
-    assert_eq!(
-        duplicate,
-        TodoError::GoalDuplicatePeriod {
-            horizon: Horizon::Month,
-            scheduled: "2026-06-01".to_string(),
-            parent_id: None,
-        }
-    );
+
+    let updated = service
+        .update_item(
+            &moving.id,
+            UpdateItem {
+                horizon: Some("year".to_string()),
+                scheduled: Some("2026-01-01".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(updated.horizon.as_deref(), Some("year"));
+    assert_eq!(updated.scheduled.as_deref(), Some("2026-01-01"));
+    assert_eq!(service.events().last().unwrap().action, "update_item");
 }
 
 // SC4 (positive): linking a task to a goal via the audited update_item path sets

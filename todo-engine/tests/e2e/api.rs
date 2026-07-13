@@ -659,6 +659,47 @@ async fn api_patch_updates_goal_horizon_with_valid_anchor() {
 }
 
 #[tokio::test]
+async fn api_allows_multiple_goals_for_the_same_period_and_parent() {
+    let home = TestHome::new();
+    let db_path = home.db_path();
+    init_schema(&rusqlite::Connection::open(&db_path).unwrap()).unwrap();
+
+    let first = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title": "건강",
+            "horizon": "year",
+            "scheduled": "2026-01-01",
+            "actor": "user"
+        }),
+    )
+    .await;
+    assert_eq!(first.status(), 200);
+    let first = body_json(first).await;
+
+    let second = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/goals/propose",
+        json!({
+            "title": "커리어",
+            "horizon": "year",
+            "scheduled": "2026-01-01",
+            "actor": "user"
+        }),
+    )
+    .await;
+    assert_eq!(second.status(), 200);
+    let second = body_json(second).await;
+
+    assert_ne!(first["id"], second["id"]);
+    assert_eq!(first["horizon"], second["horizon"]);
+    assert_eq!(first["scheduled"], second["scheduled"]);
+}
+
+#[tokio::test]
 async fn api_patch_rejects_invalid_goal_horizon_anchor() {
     let home = TestHome::new();
     let db_path = home.db_path();
