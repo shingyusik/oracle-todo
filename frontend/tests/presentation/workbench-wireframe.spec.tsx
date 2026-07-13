@@ -19,15 +19,6 @@ async function statusOptions(title: string): Promise<string[]> {
     .map((option) => option.textContent ?? "");
 }
 
-async function enabledStatusOptions(title: string): Promise<string[]> {
-  const select = await screen.findByLabelText(`Status for ${title}`);
-
-  return within(select)
-    .getAllByRole("option")
-    .filter((option) => !(option as HTMLOptionElement).disabled)
-    .map((option) => option.textContent ?? "");
-}
-
 function expectFieldBefore(firstLabel: string, secondLabel: string) {
   const first = screen.getByLabelText(firstLabel).closest(".field-label");
   const second = screen.getByLabelText(secondLabel).closest(".field-label");
@@ -3039,6 +3030,82 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
+  it("does not activate an approved goal when saving an unrelated detail field", async () => {
+    const user = userEvent.setup();
+    let apiStatus = "approved";
+    let apiNote = "Old note";
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+        apiNote = "Saved note";
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-1",
+            type: "goal",
+            title: "Approved goal",
+            status: apiStatus,
+            note: apiNote,
+            horizon: "month",
+          }),
+        });
+      }
+
+      if (url === "/todo-engine/items/goal-1/activate") {
+        apiStatus = "active";
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-1",
+            type: "goal",
+            title: "Approved goal",
+            status: apiStatus,
+            note: apiNote,
+            horizon: "month",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "goal-1",
+            type: "goal",
+            title: "Approved goal",
+            status: apiStatus,
+            note: apiNote,
+            horizon: "month",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+    await user.click(await screen.findByRole("cell", { name: "Approved goal" }));
+
+    expect(screen.getByLabelText("Status for Approved goal")).toHaveValue("active");
+    await user.clear(screen.getByLabelText("Note"));
+    await user.type(screen.getByLabelText("Note"), "Saved note");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/goal-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/todo-engine/items/goal-1/activate",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(apiStatus).toBe("approved");
+    expect(screen.getByLabelText("Status for Approved goal")).toHaveValue("active");
+  });
+
   it("keeps detail tag clicks from triggering chip removal", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -3076,7 +3143,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Remove planning tag" })).toBeInTheDocument();
   });
 
-  it("keeps detail long-text drafts while status and relation edits wait for Save", async () => {
+  it("keeps detail long-text drafts while relation edits wait for Save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
@@ -3095,22 +3162,6 @@ describe("WorkbenchPageClient", () => {
             status: "approved",
             description: "Draft detail text",
             area_id: "area-2",
-            project_id: "project-1",
-            routine_id: "routine-1",
-          }),
-        });
-      }
-
-      if (url === "/todo-engine/items/task-1/activate") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "task-1",
-            type: "task",
-            title: "One",
-            status: "active",
-            area_id: "area-2",
-            description: "Draft detail text",
             project_id: "project-1",
             routine_id: "routine-1",
           }),
@@ -3176,7 +3227,6 @@ describe("WorkbenchPageClient", () => {
 
     await user.clear(screen.getByLabelText("Description"));
     await user.type(screen.getByLabelText("Description"), "Draft detail text");
-    await user.selectOptions(screen.getByLabelText("Status for One"), "active");
     await user.selectOptions(screen.getByLabelText("Area for One"), "area-2");
 
     expect(screen.getByLabelText("Description")).toHaveValue("Draft detail text");
@@ -3196,17 +3246,11 @@ describe("WorkbenchPageClient", () => {
         "/todo-engine/items/task-1",
         expect.objectContaining({ method: "PATCH" }),
       );
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/task-1/activate",
-        expect.objectContaining({ method: "POST" }),
-      );
     });
     expect(fetchMock.mock.calls.find(([url]) => url === "/todo-engine/items/task-1")).toBeTruthy();
-    expect(fetchMock.mock.calls.find(([url]) => url === "/todo-engine/items/task-1/activate")).toBeTruthy();
-    expect(
-      fetchMock.mock.calls.findIndex(([url]) => url === "/todo-engine/items/task-1"),
-    ).toBeLessThan(
-      fetchMock.mock.calls.findIndex(([url]) => url === "/todo-engine/items/task-1/activate"),
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/activate",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 
@@ -4571,7 +4615,6 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
     expect(await statusOptions("One")).toEqual(["active", "completed"]);
-    expect(await enabledStatusOptions("One")).toEqual(["active", "completed"]);
     const inlinePriority = screen.getByLabelText("Priority for One");
     expect(inlinePriority.tagName).toBe("SELECT");
     expect(within(inlinePriority).getByRole("option", { name: "10" })).toBeInTheDocument();
@@ -5031,7 +5074,7 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
-  it("shows only service-allowed inline status transitions", async () => {
+  it("shows stable status options for every item type", async () => {
     const user = userEvent.setup();
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=area": [
@@ -5087,6 +5130,7 @@ describe("WorkbenchPageClient", () => {
         { id: "goal-2", type: "goal", title: "Approved goal", status: "approved" },
         { id: "goal-3", type: "goal", title: "Active goal", status: "active" },
         { id: "goal-4", type: "goal", title: "Paused goal", status: "paused" },
+        { id: "goal-5", type: "goal", title: "Waiting goal", status: "waiting" },
       ],
       "/todo-engine/items?type=task": [
         { id: "task-1", type: "task", title: "Proposed task", status: "proposed" },
@@ -5104,44 +5148,45 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
 
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await statusOptions("Project without DoD")).toEqual([
-      "approved",
-    ]);
-    expect(await enabledStatusOptions("Project without DoD")).toEqual(["approved"]);
-    expect(await enabledStatusOptions("Project with DoD")).toEqual(["approved", "active"]);
+    expect(await statusOptions("Project without DoD")).toEqual(["active", "paused", "completed"]);
+    expect(screen.getByLabelText("Status for Project without DoD")).toHaveValue("active");
+    expect(await statusOptions("Project with DoD")).toEqual(["active", "paused", "completed"]);
 
     await user.click(screen.getByRole("button", { name: "Routines" }));
-    expect(await enabledStatusOptions("Routine without rule")).toEqual(["approved"]);
-    expect(await enabledStatusOptions("Paused routine")).toEqual(["paused", "active"]);
+    expect(await statusOptions("Routine without rule")).toEqual(["active", "paused", "completed"]);
+    expect(screen.getByLabelText("Status for Routine without rule")).toHaveValue("active");
+    expect(await statusOptions("Paused routine")).toEqual(["active", "paused", "completed"]);
+    expect(screen.getByLabelText("Status for Paused routine")).toHaveValue("paused");
 
     await user.click(screen.getByRole("button", { name: "Events" }));
-    expect(await enabledStatusOptions("Event without scheduled")).toEqual([
-      "active",
-      "paused",
-      "completed",
-    ]);
-    expect(await enabledStatusOptions("Scheduled event")).toEqual([
-      "active",
-      "paused",
-      "completed",
-    ]);
+    expect(await statusOptions("Event without scheduled")).toEqual(["active", "paused", "completed"]);
+    expect(await statusOptions("Scheduled event")).toEqual(["active", "paused", "completed"]);
 
     await user.click(screen.getByRole("button", { name: "Areas" }));
     expect(await statusOptions("Area")).toEqual(["active", "archived"]);
-    expect(await enabledStatusOptions("Area")).toEqual(["active", "archived"]);
 
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    expect(await enabledStatusOptions("Proposed goal")).toEqual(["proposed", "approved"]);
-    expect(await enabledStatusOptions("Approved goal")).toEqual(["approved", "active"]);
-    expect(await enabledStatusOptions("Active goal")).toEqual([
-      "active",
-      "paused",
-      "completed",
-    ]);
-    expect(await enabledStatusOptions("Paused goal")).toEqual(["paused", "active"]);
+    for (const title of [
+      "Proposed goal",
+      "Approved goal",
+      "Active goal",
+      "Paused goal",
+      "Waiting goal",
+    ]) {
+      expect(await statusOptions(title)).toEqual(["active", "paused", "completed"]);
+    }
+    expect(screen.getByLabelText("Status for Proposed goal")).toHaveValue("active");
+    expect(screen.getByLabelText("Status for Approved goal")).toHaveValue("active");
+    expect(screen.getByLabelText("Status for Paused goal")).toHaveValue("paused");
+    expect(screen.getByLabelText("Status for Waiting goal")).toHaveValue("active");
+    await user.click(screen.getByRole("cell", { name: "Proposed goal" }));
+    expect(await statusOptions("Proposed goal")).toEqual(["active", "paused", "completed"]);
+    expect(screen.getByLabelText("Status for Proposed goal")).toHaveValue("active");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
-    expect(await enabledStatusOptions("Proposed task")).toEqual(["active", "completed"]);
+    expect(await statusOptions("Proposed task")).toEqual(["active", "completed"]);
+    expect(screen.getByLabelText("Status for Proposed task")).toHaveValue("active");
   });
 
   it("disables the relation placeholder for an existing relation", async () => {
