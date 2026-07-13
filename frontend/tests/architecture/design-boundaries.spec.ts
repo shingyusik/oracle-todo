@@ -100,7 +100,8 @@ describe("design system boundaries", () => {
     const source = await readSource("next.config.mjs");
 
     expect(source).toContain("/todo-engine/:path*");
-    expect(source).toContain("http://127.0.0.1:3002/:path*");
+    expect(source).toContain("TODO_ENGINE_API_URL");
+    expect(source).toContain('?? "http://127.0.0.1:3002"');
   });
 
   it("exports the workbench as static files for release artifacts", async () => {
