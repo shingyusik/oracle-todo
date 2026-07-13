@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -108,6 +109,28 @@ describe("design system boundaries", () => {
     expect(source).toContain('output: "export"');
     expect(source).toContain("rewrites()");
     expect(source).toContain("/todo-engine/:path*");
+  });
+
+  it("enables the API rewrite only for the development server", () => {
+    function configKeys(nodeEnv: "development" | "production"): string[] {
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          'import config from "./next.config.mjs"; console.log(JSON.stringify(Object.keys(config)));',
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          env: { ...process.env, NODE_ENV: nodeEnv },
+        },
+      );
+      return JSON.parse(output.trim()) as string[];
+    }
+
+    expect(configKeys("development")).toContain("rewrites");
+    expect(configKeys("production")).not.toContain("rewrites");
   });
 
   it("keeps todo parent hierarchy bars visible beside the dark sidebar", async () => {
