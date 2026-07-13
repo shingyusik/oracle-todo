@@ -17,6 +17,13 @@ The Group control should read as a peer of Filter and Sort rather than a separat
 
 The Group trigger opens the existing `PlannerControlDropdown` shell with the standard `Group` title.
 
+The Group instance uses a compact shell variant instead of the Filter/Sort minimum width:
+
+- Preferred width: 320px.
+- Maximum width on narrow screens: `calc(100vw - 24px)`.
+- Filter and Sort retain their existing width.
+- Long group labels truncate rather than expanding the panel.
+
 ```text
 Group
 
@@ -61,6 +68,7 @@ Sort choices remain Manual, Alphabetical, and Reverse alphabetical.
 The Group panel uses the same visual scale as Filter and Sort.
 
 - Dropdown title: 13px using the existing title style.
+- Dropdown width: 320px, capped to the viewport on narrow screens.
 - Primary row text: 13px.
 - Secondary values and group counts: 12px.
 - Row height: approximately 32px.
