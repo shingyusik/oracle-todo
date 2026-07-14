@@ -412,6 +412,11 @@ function MonthlyDayItems({
   useEffect(() => {
     if (!open) return;
 
+    const firstInteractiveItem = popoverRef.current?.querySelector<HTMLElement>(
+      "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
+    );
+    firstInteractiveItem?.focus();
+
     function closeAndRestoreFocus() {
       onOpenChange(null);
       requestAnimationFrame(() => triggerRef.current?.focus());
@@ -421,9 +426,13 @@ function MonthlyDayItems({
       if (!(event.target instanceof Node)) {
         return;
       }
+      const targetElement = event.target instanceof Element
+        ? event.target
+        : event.target.parentElement;
       if (
         triggerRef.current?.contains(event.target) ||
-        popoverRef.current?.contains(event.target)
+        popoverRef.current?.contains(event.target) ||
+        targetElement?.closest(".monthly-day-more")
       ) {
         return;
       }

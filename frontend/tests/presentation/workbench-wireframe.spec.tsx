@@ -161,12 +161,16 @@ function testPreviousMonthStart(date: string): string {
 async function renderMonthlyDayOverflow() {
   const user = userEvent.setup();
   const firstWeekStart = testWeekStart(testMonthStart(testToday()));
+  const secondDate = testAddDays(firstWeekStart, 1);
   const responses: Record<string, unknown[]> = {
     "/todo-engine/items?type=goal": [],
     "/todo-engine/items?type=task": [
       { id: "task-earliest", type: "task", title: "Earliest task", status: "approved", scheduled: firstWeekStart, updated_at: "2026-07-01T07:00:00Z" },
       { id: "task-latest", type: "task", title: "Latest task", status: "approved", scheduled: firstWeekStart, updated_at: "2026-07-01T10:00:00Z" },
       { id: "task-overflow", type: "task", title: "Overflow task", status: "approved", scheduled: firstWeekStart, updated_at: "2026-07-01T09:00:00Z" },
+      { id: "task-second-latest", type: "task", title: "Second day latest", status: "approved", scheduled: secondDate, updated_at: "2026-07-01T10:00:00Z" },
+      { id: "task-second-middle", type: "task", title: "Second day middle", status: "approved", scheduled: secondDate, updated_at: "2026-07-01T09:00:00Z" },
+      { id: "task-second-earliest", type: "task", title: "Second day earliest", status: "approved", scheduled: secondDate, updated_at: "2026-07-01T08:00:00Z" },
     ],
     "/todo-engine/items?type=event": [
       { id: "event-middle", type: "event", title: "Middle event", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T08:00:00Z" },
@@ -195,7 +199,9 @@ async function renderMonthlyDayOverflow() {
 
   const dayCell = screen.getByRole("gridcell", { name: `${firstWeekStart} todo` });
   const moreButton = within(dayCell).getByRole("button", { name: "Show 2 more items" });
-  return { dayCell, firstWeekStart, moreButton, user };
+  const secondDayCell = screen.getByRole("gridcell", { name: `${secondDate} todo` });
+  const secondMoreButton = within(secondDayCell).getByRole("button", { name: "Show 1 more items" });
+  return { dayCell, firstWeekStart, moreButton, secondDate, secondMoreButton, user };
 }
 
 function testYearStart(date: string): string {
@@ -2301,6 +2307,38 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(within(overflow).getByRole("button", { name: "Overflow task" }));
     expect(await screen.findByRole("heading", { name: "Overflow task" })).toBeInTheDocument();
+  });
+
+  it("focuses the first item when opening monthly day overflow", async () => {
+    const { firstWeekStart, moreButton, user } = await renderMonthlyDayOverflow();
+
+    await user.click(moreButton);
+    const overflow = screen.getByRole("dialog", { name: `${firstWeekStart} items` });
+
+    await waitFor(() => {
+      expect(within(overflow).getByRole("button", { name: "Latest task" })).toHaveFocus();
+    });
+  });
+
+  it("switches monthly day overflow dates without restoring focus to the previous trigger", async () => {
+    const {
+      firstWeekStart,
+      moreButton,
+      secondDate,
+      secondMoreButton,
+      user,
+    } = await renderMonthlyDayOverflow();
+
+    await user.click(moreButton);
+    expect(screen.getByRole("dialog", { name: `${firstWeekStart} items` })).toBeInTheDocument();
+    await user.click(secondMoreButton);
+
+    const overflow = screen.getByRole("dialog", { name: `${secondDate} items` });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await waitFor(() => {
+      expect(within(overflow).getByRole("button", { name: "Second day latest" })).toHaveFocus();
+      expect(moreButton).not.toHaveFocus();
+    });
   });
 
   it("dismisses monthly day overflow with Escape and restores focus", async () => {
