@@ -790,7 +790,7 @@ function postJson(url: string, body: unknown): Promise<WorkspaceItemModel> {
     body: JSON.stringify(body),
   }).then((response) => {
     if (!response.ok) {
-      throw new Error(`todo-engine returned ${response.status}`);
+      return throwApiError(response);
     }
 
     return response.json();

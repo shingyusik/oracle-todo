@@ -369,14 +369,7 @@ function MonthlyDayItems({
     <ul className="monthly-day-item-list">
       {visibleItems.map((item) => (
         <li key={item.id}>
-          <button
-            className="monthly-day-item"
-            type="button"
-            title={item.title}
-            onClick={() => controller.openDetailView(item)}
-          >
-            {item.title}
-          </button>
+          <PlannerItemRow controller={controller} item={item} compact />
         </li>
       ))}
       {hiddenCount > 0 ? (
@@ -2145,18 +2138,84 @@ function renderPlannerGroups(
       <ul className="planner-card-list">
         {group.items.map((item) => (
           <li key={item.id}>
-            <button
-              className="planner-item"
-              type="button"
-              onClick={() => controller.openDetailView(item)}
-            >
-              {item.title}
-            </button>
+            <PlannerItemRow controller={controller} item={item} />
           </li>
         ))}
       </ul>
     </div>
   ));
+}
+
+function PlannerItemRow({
+  controller,
+  item,
+  compact = false,
+}: {
+  controller: WorkbenchController;
+  item: WorkspaceItemModel;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={`planner-item-row${item.status === "completed" ? " is-completed" : ""}${compact ? " is-compact" : ""}`}
+    >
+      <PlannerTaskCompletionCheckbox controller={controller} item={item} />
+      <button
+        className={compact ? "monthly-day-item" : "planner-item"}
+        type="button"
+        title={compact ? item.title : undefined}
+        onClick={() => controller.openDetailView(item)}
+      >
+        {item.title}
+      </button>
+    </div>
+  );
+}
+
+function PlannerTaskCompletionCheckbox({
+  controller,
+  item,
+}: {
+  controller: WorkbenchController;
+  item: WorkspaceItemModel;
+}) {
+  const [pending, setPending] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const visible = item.type === "task" &&
+    (item.status === "active" || item.status === "completed");
+
+  if (!visible) return null;
+
+  const checked = item.status === "completed";
+  const action: WorkspaceItemTransitionAction = checked ? "reopen" : "complete";
+  const label = `${checked ? "Reopen" : "Complete"} ${item.title}`;
+
+  const transition = async () => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      await controller.transitionWorkspaceItem(item.id, action);
+    } catch (cause) {
+      setError(cause instanceof TodoEngineApiError ? cause.detail : "Could not update task.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <>
+      <input
+        aria-label={label}
+        checked={checked}
+        className="planner-task-checkbox"
+        disabled={pending}
+        type="checkbox"
+        onChange={() => void transition()}
+      />
+      {error ? <span className="planner-task-error" role="alert">{error}</span> : null}
+    </>
+  );
 }
 
 type DetailDraft = {

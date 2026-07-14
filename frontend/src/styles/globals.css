@@ -1129,6 +1129,48 @@ button {
   list-style: none;
 }
 
+.planner-item-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.planner-item-row .planner-item,
+.planner-item-row .monthly-day-item {
+  min-width: 0;
+  flex: 1;
+}
+
+.planner-task-checkbox {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: var(--color-aloe-strong);
+  cursor: pointer;
+}
+
+.planner-task-checkbox:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.planner-item-row.is-completed .planner-item,
+.planner-item-row.is-completed .monthly-day-item {
+  color: var(--color-shade-60);
+  text-decoration: line-through;
+}
+
+.planner-task-error {
+  position: absolute;
+  top: 100%;
+  left: 24px;
+  z-index: 1;
+  color: var(--color-danger-text);
+  font-size: 11px;
+}
+
 .planner-item {
   width: 100%;
   min-height: 38px;
