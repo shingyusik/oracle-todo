@@ -752,10 +752,49 @@ button {
 
 .monthly-day-more {
   display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
   color: var(--color-shade-60);
   font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+}
+
+.monthly-day-more:hover {
+  color: var(--color-ink);
+}
+
+.monthly-day-more:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.monthly-day-popover {
+  z-index: 50;
+  width: min(320px, calc(100vw - 32px));
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas-light);
+  padding: 12px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 14%);
+}
+
+.monthly-day-popover > h3 {
+  margin-bottom: 10px;
+  color: var(--color-shade-60);
+  font-size: 12px;
+}
+
+.monthly-day-popover-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .monthly-week-goal-rail {

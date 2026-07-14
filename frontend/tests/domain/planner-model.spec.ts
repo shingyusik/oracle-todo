@@ -424,12 +424,13 @@ describe("planner model", () => {
     const model = buildDaily({
       projectIds: ["project-1"],
       routineIds: ["routine-1"],
-      itemTypes: ["routine"],
-      statuses: ["approved"],
+      itemTypes: ["task"],
+      statuses: ["active"],
     });
 
     expect(model.sections.today.groups[0]?.items.map((item) => item.id)).toEqual([
-      "routine-match",
+      "task-focus",
+      "wrong-area",
     ]);
   });
 
@@ -439,7 +440,6 @@ describe("planner model", () => {
     expect(model.sections.today.groups[0]?.items.map((item) => item.id)).toEqual([
       "task-focus",
       "task-ops",
-      "routine-match",
       "wrong-area",
       "wrong-project",
       "done",
@@ -476,9 +476,9 @@ describe("planner model", () => {
     ["area", ["Home", "No area", "Work"]],
     ["project", ["No project", "Ops", "Planner"]],
     ["routine", ["Evening", "Morning", "No routine"]],
-    ["tag", ["deep-work", "focus", "habit", "ops"]],
-    ["item_type", ["Routine", "Task"]],
-    ["status", ["Active", "Approved", "Completed"]],
+    ["tag", ["deep-work", "focus", "ops"]],
+    ["item_type", ["Task"]],
+    ["status", ["Active", "Completed"]],
   ] as const)("groups today items by %s with expected labels", (groupBy, labels) => {
     const model = buildDaily({}, groupBy);
 
@@ -624,6 +624,37 @@ describe("planner model", () => {
       "task-active",
       "task-completed",
     ]);
+  });
+
+  it("limits daily weekly and monthly work lists to tasks and events", () => {
+    const workItems = [
+      item("task", { type: "task", scheduled: "2026-07-06" }),
+      item("event", { type: "event", scheduled: "2026-07-06" }),
+      item("routine", { type: "routine", scheduled: "2026-07-06" }),
+      item("month-goal", { type: "goal", horizon: "month", scheduled: "2026-07-01" }),
+      item("week-goal", { type: "goal", horizon: "week", scheduled: "2026-07-06" }),
+    ];
+    const daily = buildDailyPlannerModel(workItems, relatedItems, {
+      date: "2026-07-06",
+      filters: {
+        tags: [], areaIds: [], projectIds: [], routineIds: [], itemTypes: [], statuses: [],
+      },
+      groupSettings: defaultPlannerGroupSettings(),
+      groupCandidates: [],
+      sortRules: [],
+    });
+    const weekly = buildWeeklyPlannerModel(workItems, "2026-07-06");
+    const monthly = buildMonthlyPeriodGoalCardsModel(workItems, "2026-07-01");
+
+    expect(daily.sections.today.groups.flatMap((group) => group.items.map((entry) => entry.id)))
+      .toEqual(["event", "task"]);
+    expect(weekly.days[0]?.items.map((entry) => entry.id)).toEqual(["task", "event"]);
+    expect(monthly.weeks[1]?.days[0]?.items.map((entry) => entry.id))
+      .toEqual(["task", "event"]);
+    expect(weekly.monthGoals.map((entry) => entry.id)).toEqual(["month-goal"]);
+    expect(weekly.weekGoals.map((entry) => entry.id)).toEqual(["week-goal"]);
+    expect(monthly.carousel[1]?.goals.map((entry) => entry.id)).toEqual(["month-goal"]);
+    expect(monthly.weeks[1]?.goals.map((entry) => entry.id)).toEqual(["week-goal"]);
   });
 
   it("builds weekly goals and seven day columns", () => {

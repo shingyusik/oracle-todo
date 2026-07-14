@@ -289,6 +289,11 @@ function YearlyPeriodPlanner({ controller }: MainPanelProps) {
 function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
   const items = filteredPlannerItems(controller);
   const model = buildMonthlyPeriodGoalCardsModel(items, controller.planner.date);
+  const [openOverflowDate, setOpenOverflowDate] = React.useState<string | null>(null);
+
+  useEffect(() => {
+    setOpenOverflowDate(null);
+  }, [controller.planner.date]);
 
   return (
     <div className="planner-period-panel">
@@ -304,6 +309,8 @@ function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
           <MonthlyPlannerWeekRow
             controller={controller}
             week={week}
+            openOverflowDate={openOverflowDate}
+            onOpenOverflowChange={setOpenOverflowDate}
             key={week.key}
           />
         ))}
@@ -315,9 +322,13 @@ function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
 function MonthlyPlannerWeekRow({
   controller,
   week,
+  openOverflowDate,
+  onOpenOverflowChange,
 }: {
   controller: WorkbenchController;
   week: MonthlyPlannerWeekModel;
+  openOverflowDate: string | null;
+  onOpenOverflowChange: (date: string | null) => void;
 }) {
   return (
     <section className="monthly-week-row" role="row" data-testid="monthly-week-row">
@@ -335,7 +346,13 @@ function MonthlyPlannerWeekRow({
               key={day.date}
             >
               <h3>{day.label}</h3>
-              <MonthlyDayItems controller={controller} items={dayItems} />
+              <MonthlyDayItems
+                controller={controller}
+                date={day.date}
+                items={dayItems}
+                open={openOverflowDate === day.date}
+                onOpenChange={onOpenOverflowChange}
+              />
             </section>
           );
         })}
@@ -353,13 +370,91 @@ function MonthlyPlannerWeekRow({
 
 function MonthlyDayItems({
   controller,
+  date,
   items,
+  open,
+  onOpenChange,
 }: {
   controller: WorkbenchController;
+  date: string;
   items: WorkspaceItemModel[];
+  open: boolean;
+  onOpenChange: (date: string | null) => void;
 }) {
   const visibleItems = items.slice(0, 2);
   const hiddenCount = items.length - visibleItems.length;
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties | null>(null);
+
+  React.useLayoutEffect(() => {
+    if (!open) return;
+
+    function updatePopoverPosition() {
+      const trigger = triggerRef.current;
+      const popover = popoverRef.current;
+      if (!trigger || !popover) {
+        return;
+      }
+
+      setPopoverStyle(goalPeriodPopoverStyle(trigger, popover));
+    }
+
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [date, open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const firstInteractiveItem = popoverRef.current?.querySelector<HTMLElement>(
+      "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
+    );
+    firstInteractiveItem?.focus();
+
+    function closeAndRestoreFocus() {
+      onOpenChange(null);
+      requestAnimationFrame(() => triggerRef.current?.focus());
+    }
+
+    function dismissOnOutsidePointer(event: MouseEvent) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      const targetElement = event.target instanceof Element
+        ? event.target
+        : event.target.parentElement;
+      if (
+        triggerRef.current?.contains(event.target) ||
+        popoverRef.current?.contains(event.target) ||
+        targetElement?.closest(".monthly-day-more")
+      ) {
+        return;
+      }
+      closeAndRestoreFocus();
+    }
+
+    function dismissOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      closeAndRestoreFocus();
+    }
+
+    document.addEventListener("mousedown", dismissOnOutsidePointer);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", dismissOnOutsidePointer);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [onOpenChange, open]);
 
   if (items.length === 0) {
     return <p className="items-message monthly-day-empty">No items.</p>;
@@ -374,9 +469,40 @@ function MonthlyDayItems({
       ))}
       {hiddenCount > 0 ? (
         <li>
-          <span className="monthly-day-more">+{hiddenCount} more</span>
+          <button
+            ref={triggerRef}
+            className="monthly-day-more"
+            type="button"
+            aria-label={`Show ${hiddenCount} more items`}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            onClick={() => onOpenChange(open ? null : date)}
+          >
+            +{hiddenCount} more
+          </button>
         </li>
       ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="monthly-day-popover"
+              style={popoverStyle ?? undefined}
+              role="dialog"
+              aria-label={`${date} items`}
+            >
+              <h3>{date}</h3>
+              <ul className="monthly-day-popover-list">
+                {items.map((item) => (
+                  <li key={item.id}>
+                    <PlannerItemRow controller={controller} item={item} compact />
+                  </li>
+                ))}
+              </ul>
+            </div>,
+            document.body,
+          )
+        : null}
     </ul>
   );
 }
