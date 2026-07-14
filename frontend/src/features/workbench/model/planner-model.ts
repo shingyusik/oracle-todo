@@ -184,9 +184,7 @@ function isVisiblePlannerWorkItem(item: WorkspaceItemModel): boolean {
     (item.type === "task" && item.status === "completed");
 }
 
-const dailyItemTypes = new Set(["task", "event", "routine"]);
-const weeklyItemTypes = new Set(["task", "event", "routine"]);
-const monthlyItemTypes = new Set(["task", "event", "routine"]);
+const plannerWorkItemTypes = new Set(["task", "event"]);
 const monthLabels = [
   "Jan",
   "Feb",
@@ -256,7 +254,7 @@ export function buildMonthlyPeriodGoalCardsModel(
         isSelectedMonth: date.startsWith(selectedMonth.slice(0, 7)),
         items: items.filter(
           (item) =>
-            monthlyItemTypes.has(item.type) &&
+            plannerWorkItemTypes.has(item.type) &&
             isVisiblePlannerWorkItem(item) &&
             datePart(item.scheduled) === date,
         ),
@@ -284,7 +282,7 @@ export function buildDailyPlannerModel(
   options: DailyPlannerOptions,
 ): DailyPlannerModel {
   const visible = items
-    .filter((item) => dailyItemTypes.has(item.type))
+    .filter((item) => plannerWorkItemTypes.has(item.type))
     .filter(isVisiblePlannerWorkItem)
     .filter((item) => matchesDailyFilters(item, options.filters))
     .sort((left, right) => comparePlannerItems(left, right, options.sortRules));
@@ -364,7 +362,7 @@ export function buildWeeklyPlannerModel(
       label: date,
       items: items.filter(
         (item) =>
-          weeklyItemTypes.has(item.type) &&
+          plannerWorkItemTypes.has(item.type) &&
           isVisiblePlannerWorkItem(item) &&
           datePart(item.scheduled) === date,
       ),
