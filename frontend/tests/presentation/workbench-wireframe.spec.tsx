@@ -2958,6 +2958,17 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/goals/propose",
       expect.objectContaining({ method: "POST" }),
     );
+    expect(
+      await screen.findByRole("heading", { name: "July goal" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const goalsTable = await screen.findByRole("table", { name: "Goals items" });
+    expect(
+      within(goalsTable).getByRole("cell", { name: "Existing July goal" }),
+    ).toBeInTheDocument();
+    expect(within(goalsTable).getByRole("cell", { name: "July goal" })).toBeInTheDocument();
   });
 
   it("keeps a failed Goal creation in the dialog and allows retry", async () => {
@@ -2973,8 +2984,8 @@ describe("WorkbenchPageClient", () => {
             json: async () => ({
               code: "goal_invalid_anchor",
               detail: "Goal anchor is invalid",
-              horizon: "year",
-              scheduled: "2026-01-01",
+              horizon: "month",
+              scheduled: "2026-07-01",
             }),
           });
         }
@@ -2986,8 +2997,8 @@ describe("WorkbenchPageClient", () => {
             type: "goal",
             title: "Career",
             status: "approved",
-            horizon: "year",
-            scheduled: "2026-01-01",
+            horizon: "month",
+            scheduled: "2026-07-01",
           }),
         });
       }
@@ -3002,12 +3013,18 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Goals" }));
     await user.click(screen.getByRole("button", { name: "Add item" }));
     await user.type(screen.getByLabelText("Title"), "Career");
+    const trigger = screen.getByRole("button", { name: "Period" });
+    await user.click(trigger);
+    const picker = screen.getByRole("dialog", { name: "Period" });
+    await user.click(within(picker).getByRole("button", { name: "Month" }));
+    await user.click(within(picker).getByRole("button", { name: "July 2026" }));
 
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Goal anchor is invalid");
     expect(screen.getByRole("dialog", { name: "Create Goals item" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Career");
+    expect(trigger).toHaveTextContent("Month");
 
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByRole("heading", { name: "Career" })).toBeInTheDocument();

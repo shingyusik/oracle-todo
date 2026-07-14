@@ -179,8 +179,16 @@ fn goals_with_the_same_period_and_parent_are_allowed_and_audited() {
 #[test]
 fn goal_update_can_join_an_occupied_period_and_parent() {
     let mut service = TodoService::in_memory();
-    service
+    let parent = service
         .propose_goal(goal(Actor::User, "year", "2026-01-01", None))
+        .unwrap();
+    service
+        .propose_goal(goal(
+            Actor::User,
+            "month",
+            "2026-07-01",
+            Some(&parent.id),
+        ))
         .unwrap();
     let moving = service
         .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
@@ -190,15 +198,17 @@ fn goal_update_can_join_an_occupied_period_and_parent() {
         .update_item(
             &moving.id,
             UpdateItem {
-                horizon: Some("year".to_string()),
-                scheduled: Some("2026-01-01".to_string()),
+                parent_id: Some(parent.id.clone()),
+                horizon: Some("month".to_string()),
+                scheduled: Some("2026-07-01".to_string()),
                 ..Default::default()
             },
         )
         .unwrap();
 
-    assert_eq!(updated.horizon.as_deref(), Some("year"));
-    assert_eq!(updated.scheduled.as_deref(), Some("2026-01-01"));
+    assert_eq!(updated.parent_id.as_deref(), Some(parent.id.as_str()));
+    assert_eq!(updated.horizon.as_deref(), Some("month"));
+    assert_eq!(updated.scheduled.as_deref(), Some("2026-07-01"));
     assert_eq!(service.events().last().unwrap().action, "update_item");
 }
 
