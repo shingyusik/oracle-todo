@@ -981,6 +981,15 @@ describe("useWorkbenchController", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(firstTransition).toBe(duplicateTransition);
+    expect(result.current.workspaceItemTransitionState("task-1")).toEqual({
+      pending: true,
+      error: null,
+    });
+    expect(result.current.workspaceItemTransitionState("task-2")).toEqual({
+      pending: false,
+      error: null,
+    });
 
     resolveTransition({
       ok: true,
@@ -993,6 +1002,10 @@ describe("useWorkbenchController", () => {
     } as Response);
     await act(async () => {
       await Promise.all([firstTransition, duplicateTransition]);
+    });
+    expect(result.current.workspaceItemTransitionState("task-1")).toEqual({
+      pending: false,
+      error: null,
     });
   });
 

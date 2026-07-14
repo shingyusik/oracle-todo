@@ -18,6 +18,7 @@ import {
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
   type WorkspaceItemTransitionAction,
+  type WorkspaceItemTransitionState,
   type WorkspaceItemsModel,
   createPanelModel,
 } from "@/features/workbench/model/workbench-model";
@@ -79,6 +80,10 @@ const plannerItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
 };
 
 const plannerViewIds: PlannerViewId[] = ["yearly", "monthly", "weekly", "daily"];
+const idleWorkspaceItemTransitionState: WorkspaceItemTransitionState = {
+  pending: false,
+  error: null,
+};
 
 function defaultPlannerGroupSettingsByView(): Record<
   PlannerViewId,
@@ -283,6 +288,9 @@ export function useWorkbenchController(): WorkbenchController {
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
+  const [itemTransitionStates, setItemTransitionStates] = useState<
+    Record<string, WorkspaceItemTransitionState>
+  >({});
   const panel = useMemo(
     () => createPanelModel(selection.leafTabId),
     [selection.leafTabId],
@@ -534,14 +542,34 @@ export function useWorkbenchController(): WorkbenchController {
         }));
       })();
       itemTransitions.current.set(itemId, transition);
-      const clearTransition = () => {
+      setItemTransitionStates((current) => ({
+        ...current,
+        [itemId]: { pending: true, error: null },
+      }));
+      const clearTransition = (error: string | null) => {
         if (itemTransitions.current.get(itemId) === transition) {
           itemTransitions.current.delete(itemId);
+          setItemTransitionStates((current) =>
+            error
+              ? { ...current, [itemId]: { pending: false, error } }
+              : Object.fromEntries(
+                  Object.entries(current).filter(([key]) => key !== itemId),
+                ),
+          );
         }
       };
-      void transition.then(clearTransition, clearTransition);
+      void transition.then(
+        () => clearTransition(null),
+        (cause) => clearTransition(
+          cause instanceof TodoEngineApiError
+            ? cause.detail
+            : "Could not update task.",
+        ),
+      );
       return transition;
     },
+    workspaceItemTransitionState: (itemId) =>
+      itemTransitionStates[itemId] ?? idleWorkspaceItemTransitionState,
     saveDetailItem: async (patch) => {
       if (!detailItem) {
         return;

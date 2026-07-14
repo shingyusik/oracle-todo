@@ -2179,8 +2179,6 @@ function PlannerTaskCompletionCheckbox({
   controller: WorkbenchController;
   item: WorkspaceItemModel;
 }) {
-  const [pending, setPending] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
   const visible = item.type === "task" &&
     (item.status === "active" || item.status === "completed");
 
@@ -2189,18 +2187,11 @@ function PlannerTaskCompletionCheckbox({
   const checked = item.status === "completed";
   const action: WorkspaceItemTransitionAction = checked ? "reopen" : "complete";
   const label = `${checked ? "Reopen" : "Complete"} ${item.title}`;
+  const transitionState = controller.workspaceItemTransitionState(item.id);
 
-  const transition = async () => {
-    if (pending) return;
-    setPending(true);
-    setError(null);
-    try {
-      await controller.transitionWorkspaceItem(item.id, action);
-    } catch (cause) {
-      setError(cause instanceof TodoEngineApiError ? cause.detail : "Could not update task.");
-    } finally {
-      setPending(false);
-    }
+  const transition = () => {
+    if (transitionState.pending) return;
+    void controller.transitionWorkspaceItem(item.id, action).catch(() => undefined);
   };
 
   return (
@@ -2209,11 +2200,13 @@ function PlannerTaskCompletionCheckbox({
         aria-label={label}
         checked={checked}
         className="planner-task-checkbox"
-        disabled={pending}
+        disabled={transitionState.pending}
         type="checkbox"
-        onChange={() => void transition()}
+        onChange={transition}
       />
-      {error ? <span className="planner-task-error" role="alert">{error}</span> : null}
+      {transitionState.error
+        ? <span className="planner-task-error" role="alert">{transitionState.error}</span>
+        : null}
     </>
   );
 }

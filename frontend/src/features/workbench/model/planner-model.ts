@@ -170,7 +170,14 @@ export type MonthlyPeriodGoalCardsModel = {
   weeks: MonthlyPlannerWeekModel[];
 };
 
-const terminalStatuses = new Set(["completed", "archived", "dropped", "cancelled"]);
+const terminalStatuses = new Set([
+  "completed",
+  "archived",
+  "dropped",
+  "cancelled",
+  "someday",
+  "rejected",
+]);
 
 function isVisiblePlannerWorkItem(item: WorkspaceItemModel): boolean {
   return !terminalStatuses.has(item.status) ||

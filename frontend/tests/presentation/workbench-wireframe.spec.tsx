@@ -1045,6 +1045,109 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
   });
 
+  it("shares task transition state across duplicate tag-group rows", async () => {
+    const user = userEvent.setup();
+    let resolveFailure!: (value: Response) => void;
+    let resolveRetry!: (value: Response) => void;
+    const failureResponse = new Promise<Response>((resolve) => {
+      resolveFailure = resolve;
+    });
+    const retryResponse = new Promise<Response>((resolve) => {
+      resolveRetry = resolve;
+    });
+    let transitionAttempt = 0;
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/items/task-shared/complete") {
+        transitionAttempt += 1;
+        return transitionAttempt === 1 ? failureResponse : retryResponse;
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task"
+          ? [
+              {
+                id: "task-shared",
+                type: "task",
+                title: "Shared task",
+                status: "active",
+                scheduled: testToday(),
+                tags: ["focus", "ops"],
+              },
+              {
+                id: "task-other",
+                type: "task",
+                title: "Other task",
+                status: "active",
+                scheduled: testToday(),
+                tags: ["other"],
+              },
+            ]
+          : [],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await screen.findByRole("checkbox", { name: "Complete Shared task" });
+    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
+    await user.click(screen.getByRole("option", { name: "Tag" }));
+
+    let sharedCheckboxes = screen.getAllByRole("checkbox", { name: "Complete Shared task" });
+    expect(sharedCheckboxes).toHaveLength(2);
+    await user.click(sharedCheckboxes[0]);
+    sharedCheckboxes = screen.getAllByRole("checkbox", { name: "Complete Shared task" });
+    expect(sharedCheckboxes.every((checkbox) => checkbox.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getByRole("checkbox", { name: "Complete Other task" })).not.toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        url === "/todo-engine/items/task-shared/complete"),
+    ).toHaveLength(1);
+
+    resolveFailure({
+      ok: false,
+      status: 400,
+      json: async () => ({ code: "policy_error", detail: "Shared transition failed" }),
+    } as Response);
+    expect(await screen.findAllByRole("alert")).toHaveLength(2);
+    expect(screen.getAllByRole("alert")[0]).toHaveTextContent("Shared transition failed");
+    expect(screen.getAllByRole("checkbox", { name: "Complete Shared task" })[0]).not.toBeChecked();
+
+    await user.click(screen.getAllByRole("checkbox", { name: "Complete Shared task" })[0]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    sharedCheckboxes = screen.getAllByRole("checkbox", { name: "Complete Shared task" });
+    expect(sharedCheckboxes.every((checkbox) => checkbox.hasAttribute("disabled"))).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        url === "/todo-engine/items/task-shared/complete"),
+    ).toHaveLength(2);
+
+    resolveRetry({
+      ok: true,
+      json: async () => ({
+        id: "task-shared",
+        type: "task",
+        title: "Shared task",
+        status: "completed",
+        scheduled: testToday(),
+        tags: ["focus", "ops"],
+      }),
+    } as Response);
+
+    const reopenedCheckboxes = await screen.findAllByRole("checkbox", {
+      name: "Reopen Shared task",
+    });
+    expect(reopenedCheckboxes).toHaveLength(2);
+    expect(reopenedCheckboxes.every((checkbox) => (checkbox as HTMLInputElement).checked)).toBe(true);
+    expect(reopenedCheckboxes.every((checkbox) => !checkbox.hasAttribute("disabled"))).toBe(true);
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.click(screen.getAllByRole("button", { name: "Shared task" })[0]);
+    expect(screen.getByRole("heading", { name: "Shared task" })).toBeInTheDocument();
+  });
+
   it("filters daily planner items through the rule builder dropdown", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
