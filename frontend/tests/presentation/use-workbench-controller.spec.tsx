@@ -1009,6 +1009,35 @@ describe("useWorkbenchController", () => {
     });
   });
 
+  it("uses the fallback error for non-API transition failures", async () => {
+    let rejectTransition!: (reason?: unknown) => void;
+    const transitionResponse = new Promise<Response>((_, reject) => {
+      rejectTransition = reject;
+    });
+    vi.stubGlobal("fetch", vi.fn(() => transitionResponse));
+    const { result } = renderHook(() => useWorkbenchController());
+
+    let transition!: Promise<void>;
+    act(() => {
+      transition = result.current.transitionWorkspaceItem("task-1", "complete");
+    });
+
+    expect(result.current.workspaceItemTransitionState("task-1")).toEqual({
+      pending: true,
+      error: null,
+    });
+
+    await act(async () => {
+      rejectTransition(new Error("network unavailable"));
+      await expect(transition).rejects.toThrow("network unavailable");
+    });
+
+    expect(result.current.workspaceItemTransitionState("task-1")).toEqual({
+      pending: false,
+      error: "Could not update item.",
+    });
+  });
+
   it("reopens a completed workspace item and replaces list state", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1/reopen") {
