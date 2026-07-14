@@ -171,6 +171,12 @@ export type MonthlyPeriodGoalCardsModel = {
 };
 
 const terminalStatuses = new Set(["completed", "archived", "dropped", "cancelled"]);
+
+function isVisiblePlannerWorkItem(item: WorkspaceItemModel): boolean {
+  return !terminalStatuses.has(item.status) ||
+    (item.type === "task" && item.status === "completed");
+}
+
 const dailyItemTypes = new Set(["task", "event", "routine"]);
 const weeklyItemTypes = new Set(["task", "event", "routine"]);
 const monthlyItemTypes = new Set(["task", "event", "routine"]);
@@ -244,7 +250,7 @@ export function buildMonthlyPeriodGoalCardsModel(
         items: items.filter(
           (item) =>
             monthlyItemTypes.has(item.type) &&
-            !terminalStatuses.has(item.status) &&
+            isVisiblePlannerWorkItem(item) &&
             datePart(item.scheduled) === date,
         ),
       })),
@@ -272,7 +278,7 @@ export function buildDailyPlannerModel(
 ): DailyPlannerModel {
   const visible = items
     .filter((item) => dailyItemTypes.has(item.type))
-    .filter((item) => !terminalStatuses.has(item.status))
+    .filter(isVisiblePlannerWorkItem)
     .filter((item) => matchesDailyFilters(item, options.filters))
     .sort((left, right) => comparePlannerItems(left, right, options.sortRules));
 
@@ -352,7 +358,7 @@ export function buildWeeklyPlannerModel(
       items: items.filter(
         (item) =>
           weeklyItemTypes.has(item.type) &&
-          !terminalStatuses.has(item.status) &&
+          isVisiblePlannerWorkItem(item) &&
           datePart(item.scheduled) === date,
       ),
     })),
