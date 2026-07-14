@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type LeafTabId,
@@ -282,6 +282,7 @@ export function useWorkbenchController(): WorkbenchController {
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
+  const itemTransitions = useRef(new Map<string, Promise<void>>());
   const panel = useMemo(
     () => createPanelModel(selection.leafTabId),
     [selection.leafTabId],
@@ -516,17 +517,30 @@ export function useWorkbenchController(): WorkbenchController {
         }
         return current;
       }),
-    transitionWorkspaceItem: async (
+    transitionWorkspaceItem: (
       itemId: string,
       action: WorkspaceItemTransitionAction,
     ) => {
-      const updated = await postJson(`/todo-engine/items/${itemId}/${action}`, {});
-      setDetailItem((current) => (current?.id === updated.id ? updated : current));
-      setWorkspaceItems((current) => ({
-        ...current,
-        items: replaceWorkspaceItem(current.items, updated),
-        tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
-      }));
+      const existing = itemTransitions.current.get(itemId);
+      if (existing) return existing;
+
+      const transition = (async () => {
+        const updated = await postJson(`/todo-engine/items/${itemId}/${action}`, {});
+        setDetailItem((current) => (current?.id === updated.id ? updated : current));
+        setWorkspaceItems((current) => ({
+          ...current,
+          items: replaceWorkspaceItem(current.items, updated),
+          tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
+        }));
+      })();
+      itemTransitions.current.set(itemId, transition);
+      const clearTransition = () => {
+        if (itemTransitions.current.get(itemId) === transition) {
+          itemTransitions.current.delete(itemId);
+        }
+      };
+      void transition.then(clearTransition, clearTransition);
+      return transition;
     },
     saveDetailItem: async (patch) => {
       if (!detailItem) {

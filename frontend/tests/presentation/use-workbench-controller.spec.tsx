@@ -964,6 +964,38 @@ describe("useWorkbenchController", () => {
     expect(result.current.workspaceItems.items[0]?.status).toBe("active");
   });
 
+  it("coalesces concurrent transitions for the same workspace item", async () => {
+    let resolveTransition!: (value: Response) => void;
+    const transitionResponse = new Promise<Response>((resolve) => {
+      resolveTransition = resolve;
+    });
+    const fetchMock = vi.fn(() => transitionResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+
+    let firstTransition!: Promise<void>;
+    let duplicateTransition!: Promise<void>;
+    act(() => {
+      firstTransition = result.current.transitionWorkspaceItem("task-1", "complete");
+      duplicateTransition = result.current.transitionWorkspaceItem("task-1", "complete");
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveTransition({
+      ok: true,
+      json: async () => ({
+        id: "task-1",
+        type: "task",
+        title: "One",
+        status: "completed",
+      }),
+    } as Response);
+    await act(async () => {
+      await Promise.all([firstTransition, duplicateTransition]);
+    });
+  });
+
   it("reopens a completed workspace item and replaces list state", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1/reopen") {
