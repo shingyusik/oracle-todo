@@ -352,7 +352,7 @@ Allowed status values:
 | `someday` | Deferred out of active flow. Terminal for normal updates. |
 | `rejected` | Proposal rejected. Terminal. |
 
-Completed tasks can be reopened through the dedicated `reopen` transition. Reopening changes the task to `active`, clears `completed_at`, and records a `reopen` audit event. Other completed item types remain terminal, and `activate` does not reopen terminal items.
+Completed tasks and events can be reopened through the dedicated `reopen` transition. Reopening changes the item to `active`, clears `completed_at`, and records a `reopen` audit event. Other completed item types remain terminal, and `activate` does not reopen terminal items.
 
 The Rust domain parses status strings through the `ItemStatus` enum. App paths reject unknown status values.
 
@@ -427,7 +427,7 @@ Endpoints:
 - `POST /items/{id}/pause`: pause item.
 - `POST /items/{id}/resume`: resume item.
 - `POST /items/{id}/complete`: complete item.
-- `POST /items/{id}/reopen`: reopen a completed task as active.
+- `POST /items/{id}/reopen`: reopen a completed task or event as active.
 - `POST /items/{id}/archive`: archive item.
 - `POST /items/{id}/drop`: drop item.
 - `POST /items/{id}/cancel`: cancel item.
