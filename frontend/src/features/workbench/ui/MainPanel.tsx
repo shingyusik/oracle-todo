@@ -412,9 +412,11 @@ function MonthlyDayItems({
   useEffect(() => {
     if (!open) return;
 
-    const firstInteractiveItem = popoverRef.current?.querySelector<HTMLElement>(
-      "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
-    );
+    const firstInteractiveItem =
+      popoverRef.current?.querySelector<HTMLElement>(".monthly-day-item") ??
+      popoverRef.current?.querySelector<HTMLElement>(
+        "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
+      );
     firstInteractiveItem?.focus();
 
     function closeAndRestoreFocus() {
@@ -2307,7 +2309,7 @@ function PlannerCompletionCheckbox({
 }) {
   const checkableType = item.type === "task" || item.type === "event";
   const visible = checkableType &&
-    (item.status === "active" || item.status === "completed");
+    (item.status === "approved" || item.status === "active" || item.status === "completed");
 
   if (!visible) return null;
 

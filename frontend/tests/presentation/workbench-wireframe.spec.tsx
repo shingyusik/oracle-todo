@@ -507,7 +507,7 @@ describe("WorkbenchPageClient", () => {
         { id: "task-waiting", type: "task", title: "Waiting task", status: "waiting", scheduled: weekStart },
       ],
       "/todo-engine/items?type=event": [
-        { id: "event-team", type: "event", title: "Team event", status: "active", scheduled: weekStart },
+        { id: "event-team", type: "event", title: "Team event", status: "approved", scheduled: weekStart },
         { id: "event-done", type: "event", title: "Completed event", status: "completed", scheduled: weekStart },
       ],
       "/todo-engine/items?type=routine": [],
@@ -538,7 +538,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Active task")).toBeInTheDocument();
     expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
-    expect(screen.queryByRole("checkbox", { name: /Approved task/ })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Complete Approved task" })).not.toBeChecked();
     expect(screen.queryByRole("checkbox", { name: /Waiting task/ })).toBeNull();
     expect(screen.getByRole("checkbox", { name: "Complete Team event" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed event" })).toBeChecked();
@@ -906,7 +906,7 @@ describe("WorkbenchPageClient", () => {
         },
       ],
       "/todo-engine/items?type=event": [
-        { id: "event-team", type: "event", title: "Team event", status: "active", scheduled: today },
+        { id: "event-team", type: "event", title: "Team event", status: "approved", scheduled: today },
       ],
       "/todo-engine/items?type=routine": [],
       "/todo-engine/items?type=area": [
@@ -955,10 +955,9 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
-    for (const title of ["Approved task", "Waiting task"]) {
-      expect(screen.getByText(title)).toBeInTheDocument();
-      expect(screen.queryByRole("checkbox", { name: new RegExp(title) })).toBeNull();
-    }
+    expect(screen.getByRole("checkbox", { name: "Complete Approved task" })).not.toBeChecked();
+    expect(screen.getByText("Waiting task")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Waiting task/ })).toBeNull();
     expect(screen.getByRole("checkbox", { name: "Complete Team event" })).not.toBeChecked();
     expect(screen.getByText("Overdue Task")).toBeInTheDocument();
     expect(screen.queryByText("Upcoming Task")).toBeNull();
@@ -2297,7 +2296,7 @@ describe("WorkbenchPageClient", () => {
         { id: "task-paused", type: "task", title: "Paused task", status: "paused", scheduled: testAddDays(firstWeekStart, 3), tags: ["month-todo"], updated_at: "2026-07-01T04:00:00Z" },
       ],
       "/todo-engine/items?type=event": [
-        { id: "event-month", type: "event", title: "Month Event", status: "active", scheduled: firstWeekEventDate, tags: ["month-todo"] },
+        { id: "event-month", type: "event", title: "Month Event", status: "approved", scheduled: firstWeekEventDate, tags: ["month-todo"] },
       ],
       "/todo-engine/items?type=routine": [],
       "/todo-engine/items?type=area": [],
@@ -2329,7 +2328,8 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Completed task");
     expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
-    for (const title of ["Proposed task", "Approved task", "Waiting task", "Paused task"]) {
+    expect(screen.getByRole("checkbox", { name: "Complete Approved task" })).not.toBeChecked();
+    for (const title of ["Proposed task", "Waiting task", "Paused task"]) {
       expect(screen.getByRole("button", { name: title })).toBeInTheDocument();
       expect(screen.queryByRole("checkbox", { name: new RegExp(title) })).toBeNull();
     }
