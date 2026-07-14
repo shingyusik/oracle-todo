@@ -28,7 +28,10 @@ fn every_mutation_records_event() {
     let item = service.propose_task("테스트", Default::default()).unwrap();
     let approved = service.approve(&item.id, None).unwrap();
     let active = service.activate(&approved.id, None).unwrap();
-    service.complete(&active.id, None).unwrap();
+    let completed = service.complete(&active.id, None).unwrap();
+    service
+        .reopen(&completed.id, Some("planner checkbox"))
+        .unwrap();
 
     let actions: Vec<String> = service
         .events()
@@ -45,6 +48,7 @@ fn every_mutation_records_event() {
             "approve".to_string(),
             "activate".to_string(),
             "complete".to_string(),
+            "reopen".to_string(),
         ]
     );
 }
