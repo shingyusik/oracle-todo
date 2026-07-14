@@ -550,6 +550,16 @@ describe("planner model", () => {
         status: "completed",
         scheduled: "2026-07-06",
       }),
+      item("event-archived", {
+        type: "event",
+        status: "archived",
+        scheduled: "2026-07-06",
+      }),
+      item("routine-completed", {
+        type: "routine",
+        status: "completed",
+        scheduled: "2026-07-06",
+      }),
     ];
     const goalItems: WorkspaceItemModel[] = [
       item("month-goal-active", {
@@ -610,6 +620,9 @@ describe("planner model", () => {
     const visibleMonthlyIds = monthly.weeks.flatMap((week) =>
       week.days.flatMap((day) => day.items.map((entry) => entry.id)),
     );
+    const visibleWeeklyIds = weekly.days.flatMap((day) =>
+      day.items.map((item) => item.id),
+    );
 
     expect(visibleDailyIds).toEqual([
       "task-active",
@@ -634,6 +647,15 @@ describe("planner model", () => {
       "task-completed",
       "event-completed",
     ]);
+    expect(visibleDailyIds).toContain("event-completed");
+    expect(visibleDailyIds).not.toContain("event-archived");
+    expect(visibleDailyIds).not.toContain("routine-completed");
+    expect(visibleWeeklyIds).toContain("event-completed");
+    expect(visibleWeeklyIds).not.toContain("event-archived");
+    expect(visibleWeeklyIds).not.toContain("routine-completed");
+    expect(visibleMonthlyIds).toContain("event-completed");
+    expect(visibleMonthlyIds).not.toContain("event-archived");
+    expect(visibleMonthlyIds).not.toContain("routine-completed");
   });
 
   it("builds weekly goals and seven day columns", () => {
