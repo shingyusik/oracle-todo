@@ -2159,7 +2159,7 @@ function PlannerItemRow({
     <div
       className={`planner-item-row${item.status === "completed" ? " is-completed" : ""}${compact ? " is-compact" : ""}`}
     >
-      <PlannerTaskCompletionCheckbox controller={controller} item={item} />
+      <PlannerCompletionCheckbox controller={controller} item={item} />
       <button
         className={compact ? "monthly-day-item" : "planner-item"}
         type="button"
@@ -2172,14 +2172,15 @@ function PlannerItemRow({
   );
 }
 
-function PlannerTaskCompletionCheckbox({
+function PlannerCompletionCheckbox({
   controller,
   item,
 }: {
   controller: WorkbenchController;
   item: WorkspaceItemModel;
 }) {
-  const visible = item.type === "task" &&
+  const checkableType = item.type === "task" || item.type === "event";
+  const visible = checkableType &&
     (item.status === "active" || item.status === "completed");
 
   if (!visible) return null;

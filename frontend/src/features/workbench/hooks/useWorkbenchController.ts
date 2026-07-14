@@ -563,7 +563,7 @@ export function useWorkbenchController(): WorkbenchController {
         (cause) => clearTransition(
           cause instanceof TodoEngineApiError
             ? cause.detail
-            : "Could not update task.",
+            : "Could not update item.",
         ),
       );
       return transition;
