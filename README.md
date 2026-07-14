@@ -352,6 +352,8 @@ Allowed status values:
 | `someday` | Deferred out of active flow. Terminal for normal updates. |
 | `rejected` | Proposal rejected. Terminal. |
 
+Completed tasks can be reopened through the dedicated `reopen` transition. Reopening changes the task to `active`, clears `completed_at`, and records a `reopen` audit event. Other completed item types remain terminal, and `activate` does not reopen terminal items.
+
 The Rust domain parses status strings through the `ItemStatus` enum. App paths reject unknown status values.
 
 A `goal` reuses this single `ItemStatus` lifecycle unchanged — there are no goal-specific states. Once activated, a goal is meaningfully `active` for its period; `completed`, `dropped`, and `cancelled` are user-driven and terminal. A goal reaching a terminal status does **not** cascade to its child goals or linked tasks in v1: the only cascade in the engine is routine → generated tasks, which does not apply to goals. See [ADR-0006](docs/architecture/decisions/adr-0006-goal-itemstatus-semantics.md) for the rationale.
@@ -425,6 +427,7 @@ Endpoints:
 - `POST /items/{id}/pause`: pause item.
 - `POST /items/{id}/resume`: resume item.
 - `POST /items/{id}/complete`: complete item.
+- `POST /items/{id}/reopen`: reopen a completed task as active.
 - `POST /items/{id}/archive`: archive item.
 - `POST /items/{id}/drop`: drop item.
 - `POST /items/{id}/cancel`: cancel item.

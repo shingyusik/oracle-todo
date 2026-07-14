@@ -164,6 +164,30 @@ impl TodoService {
         Ok(item)
     }
 
+    pub fn reopen(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
+        let mut item = self.get(item_id)?;
+        let before = Some(serde_json::to_value(&item).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before reopen: {error}"))
+        })?);
+        if item.item_type != ItemType::Task {
+            return Err(TodoError::Policy(
+                "Only completed tasks can be reopened".to_string(),
+            ));
+        }
+        if item.status != ItemStatus::Completed {
+            return Err(TodoError::Policy(format!(
+                "Cannot reopen task in status {}",
+                item.status.as_str()
+            )));
+        }
+
+        let now = self.next_now();
+        item.status = ItemStatus::Active;
+        item.completed_at = None;
+        item.updated_at = now;
+        self.store_item_and_event(Actor::User, "reopen", before, item, reason)
+    }
+
     pub fn archive(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
         let archived =
             self.set_terminal_status(item_id, ItemStatus::Archived, "archive", reason)?;

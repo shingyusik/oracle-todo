@@ -318,6 +318,21 @@ async fn approve_and_complete_items_return_mutated_items() {
     assert_eq!(item["id"], id);
     assert_eq!(item["status"], "completed");
     assert!(!item["completed_at"].is_null());
+
+    let app = router(&db_path).unwrap();
+    let response = empty_request(app, "POST", format!("/items/{id}/reopen")).await;
+    assert_eq!(response.status(), 200);
+    let item = body_json(response).await;
+    assert_eq!(item["id"], id);
+    assert_eq!(item["status"], "active");
+    assert!(item["completed_at"].is_null());
+
+    let app = router(&db_path).unwrap();
+    let response = empty_request(app, "POST", format!("/items/{id}/reopen")).await;
+    assert_eq!(response.status(), 400);
+    let error = body_json(response).await;
+    assert_eq!(error["code"], "policy_error");
+    assert_eq!(error["detail"], "Cannot reopen task in status active");
 }
 
 #[tokio::test]

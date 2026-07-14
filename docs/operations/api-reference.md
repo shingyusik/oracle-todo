@@ -30,9 +30,19 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `POST` | `/items/:id/pause` | `pause_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/resume` | `resume_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/complete` | `complete_item` | — |
+| `POST` | `/items/:id/reopen` | `reopen_item` | — |
 | `POST` | `/items/:id/archive` | `archive_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/drop` | `drop_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/cancel` | `cancel_item` | optional `ReasonBody` |
+
+### Reopen a completed task
+
+`POST /items/{id}/reopen`
+
+- Accepts only an item with `type=task` and `status=completed`.
+- Returns the task with `status=active` and `completed_at=null`.
+- Writes a `reopen` audit event.
+- Returns HTTP `400` with `code=policy_error` for another item type or source status.
 
 ## Request bodies
 

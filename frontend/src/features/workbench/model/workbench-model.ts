@@ -121,7 +121,13 @@ export type WorkspaceItemTransitionAction =
   | "pause"
   | "resume"
   | "complete"
+  | "reopen"
   | "archive";
+
+export type WorkspaceItemTransitionState = {
+  pending: boolean;
+  error: string | null;
+};
 
 export type WorkbenchController = {
   selection: WorkbenchSelection;
@@ -165,6 +171,7 @@ export type WorkbenchController = {
     itemId: string,
     action: WorkspaceItemTransitionAction,
   ) => Promise<void>;
+  workspaceItemTransitionState: (itemId: string) => WorkspaceItemTransitionState;
   saveDetailItem: (patch: WorkspaceItemPatch) => Promise<void>;
   closeDetailView: () => void;
 };

@@ -442,6 +442,7 @@ describe("planner model", () => {
       "routine-match",
       "wrong-area",
       "wrong-project",
+      "done",
     ]);
     expect(model.sections.overdue.groups[0]?.items.map((item) => item.id)).toEqual([
       "task-overdue",
@@ -472,81 +473,157 @@ describe("planner model", () => {
   });
 
   it.each([
-    ["area", ["Home", "Work"]],
-    ["project", ["Ops", "Planner"]],
-    ["routine", ["Evening", "Morning"]],
+    ["area", ["Home", "No area", "Work"]],
+    ["project", ["No project", "Ops", "Planner"]],
+    ["routine", ["Evening", "Morning", "No routine"]],
     ["tag", ["deep-work", "focus", "habit", "ops"]],
     ["item_type", ["Routine", "Task"]],
-    ["status", ["Active", "Approved"]],
+    ["status", ["Active", "Approved", "Completed"]],
   ] as const)("groups today items by %s with expected labels", (groupBy, labels) => {
     const model = buildDaily({}, groupBy);
 
     expect(model.sections.today.groups.map((group) => group.label).sort()).toEqual(labels);
   });
 
-  it("keeps completed and archived items hidden in daily and weekly models", () => {
-    const daily = buildDaily();
-    const weekly = buildWeeklyPlannerModel(
-      [
-        {
-          id: "month-goal-active",
-          type: "goal",
-          title: "July Goal",
-          status: "active",
-          horizon: "month",
-          scheduled: "2026-07-01",
-        },
-        {
-          id: "month-goal-completed",
-          type: "goal",
-          title: "Done Goal",
-          status: "completed",
-          horizon: "month",
-          scheduled: "2026-07-02",
-        },
-        {
-          id: "week-goal-active",
-          type: "goal",
-          title: "Week Goal",
-          status: "active",
-          horizon: "week",
-          scheduled: "2026-07-06",
-        },
-        {
-          id: "week-goal-archived",
-          type: "goal",
-          title: "Archived Goal",
-          status: "archived",
-          horizon: "week",
-          scheduled: "2026-07-07",
-        },
-        {
-          id: "task-active",
-          type: "task",
-          title: "Monday Task",
-          status: "active",
-          scheduled: "2026-07-06",
-        },
-        {
-          id: "task-completed",
-          type: "task",
-          title: "Done Task",
-          status: "completed",
-          scheduled: "2026-07-06",
-        },
-      ],
-      "2026-07-06",
+  it("keeps completed tasks in the completed status group", () => {
+    const model = buildDaily({}, "status");
+
+    expect(
+      model.sections.today.groups
+        .find((group) => group.label === "Completed")
+        ?.items.map((item) => item.id),
+    ).toEqual(["done"]);
+  });
+
+  it("keeps active, completed, and waiting tasks in status groups while excluding terminal tasks", () => {
+    const statusItems = [
+      item("active", { status: "active", scheduled: "2026-07-06" }),
+      item("completed", { status: "completed", scheduled: "2026-07-06" }),
+      item("waiting", { status: "waiting", scheduled: "2026-07-06" }),
+      item("someday", { status: "someday", scheduled: "2026-07-06" }),
+      item("rejected", { status: "rejected", scheduled: "2026-07-06" }),
+    ];
+    const model = buildDailyPlannerModel(statusItems, relatedItems, {
+      date: "2026-07-06",
+      filters: {
+        tags: [],
+        areaIds: [],
+        projectIds: [],
+        routineIds: [],
+        itemTypes: [],
+        statuses: [],
+      },
+      groupSettings: { ...defaultPlannerGroupSettings(), groupBy: "status" },
+      groupCandidates: buildPlannerGroupCandidates({
+        view: "daily",
+        groupBy: "status",
+        items: statusItems,
+        relatedItems,
+      }),
+      sortRules: [],
+    });
+
+    expect(
+      model.sections.today.groups.map((group) => [
+        group.label,
+        group.items.map((entry) => entry.id),
+      ]),
+    ).toEqual([
+      ["Active", ["active"]],
+      ["Completed", ["completed"]],
+      ["Waiting", ["waiting"]],
+    ]);
+  });
+
+  it("keeps completed tasks visible while hiding other terminal items", () => {
+    const workItems = [
+      item("task-active", { status: "active", scheduled: "2026-07-06" }),
+      item("task-completed", { status: "completed", scheduled: "2026-07-06" }),
+      item("task-archived", { status: "archived", scheduled: "2026-07-06" }),
+      item("task-dropped", { status: "dropped", scheduled: "2026-07-06" }),
+      item("task-cancelled", { status: "cancelled", scheduled: "2026-07-06" }),
+      item("task-someday", { status: "someday", scheduled: "2026-07-06" }),
+      item("task-rejected", { status: "rejected", scheduled: "2026-07-06" }),
+      item("event-completed", {
+        type: "event",
+        status: "completed",
+        scheduled: "2026-07-06",
+      }),
+    ];
+    const goalItems: WorkspaceItemModel[] = [
+      item("month-goal-active", {
+        type: "goal",
+        status: "active",
+        horizon: "month",
+        scheduled: "2026-07-01",
+      }),
+      item("month-goal-completed", {
+        type: "goal",
+        status: "completed",
+        horizon: "month",
+        scheduled: "2026-07-01",
+      }),
+      item("month-goal-someday", {
+        type: "goal",
+        status: "someday",
+        horizon: "month",
+        scheduled: "2026-07-01",
+      }),
+      item("week-goal-active", {
+        type: "goal",
+        status: "active",
+        horizon: "week",
+        scheduled: "2026-07-06",
+      }),
+      item("week-goal-archived", {
+        type: "goal",
+        status: "archived",
+        horizon: "week",
+        scheduled: "2026-07-06",
+      }),
+      item("week-goal-rejected", {
+        type: "goal",
+        status: "rejected",
+        horizon: "week",
+        scheduled: "2026-07-06",
+      }),
+    ];
+    const daily = buildDailyPlannerModel(workItems, relatedItems, {
+      date: "2026-07-06",
+      filters: {
+        tags: [], areaIds: [], projectIds: [], routineIds: [], itemTypes: [], statuses: [],
+      },
+      groupSettings: defaultPlannerGroupSettings(),
+      groupCandidates: [],
+      sortRules: [],
+    });
+    const weekly = buildWeeklyPlannerModel([...goalItems, ...workItems], "2026-07-06");
+    const monthly = buildMonthlyPeriodGoalCardsModel(
+      [...goalItems, ...workItems],
+      "2026-07-01",
     );
 
     const visibleDailyIds = daily.sections.today.groups.flatMap((group) =>
       group.items.map((item) => item.id),
     );
+    const visibleMonthlyIds = monthly.weeks.flatMap((week) =>
+      week.days.flatMap((day) => day.items.map((entry) => entry.id)),
+    );
 
-    expect(visibleDailyIds).not.toContain("done");
-    expect(visibleDailyIds).not.toContain("archived");
+    expect(visibleDailyIds).toEqual(["task-active", "task-completed"]);
+    expect(visibleMonthlyIds).toEqual(["task-active", "task-completed"]);
     expect(weekly.monthGoals.map((item) => item.id)).toEqual(["month-goal-active"]);
     expect(weekly.weekGoals.map((item) => item.id)).toEqual(["week-goal-active"]);
-    expect(weekly.days[0].items.map((item) => item.id)).toEqual(["task-active"]);
+    expect(monthly.carousel[1].goals.map((entry) => entry.id)).toEqual([
+      "month-goal-active",
+    ]);
+    expect(monthly.weeks.flatMap((week) => week.goals.map((entry) => entry.id))).toEqual([
+      "week-goal-active",
+    ]);
+    expect(weekly.days[0].items.map((item) => item.id)).toEqual([
+      "task-active",
+      "task-completed",
+    ]);
   });
 
   it("builds weekly goals and seven day columns", () => {
@@ -690,6 +767,16 @@ describe("planner model", () => {
           type: "event",
           scheduled: "2025-12-31",
         }),
+        item("completed-task", {
+          type: "task",
+          status: "completed",
+          scheduled: "2026-01-08",
+        }),
+        item("completed-event", {
+          type: "event",
+          status: "completed",
+          scheduled: "2026-01-08",
+        }),
         item("outside-month-routine", {
           type: "routine",
           scheduled: "2026-02-02",
@@ -730,6 +817,8 @@ describe("planner model", () => {
     ]);
     expect(model.weeks[0]?.days[0]?.items.map((entry) => entry.id)).toEqual(["monday-task"]);
     expect(model.weeks[0]?.days[2]?.items.map((entry) => entry.id)).toEqual(["wednesday-event"]);
+    expect(model.weeks[1]?.days[3]?.items.map((entry) => entry.id)).toContain("completed-task");
+    expect(model.weeks[1]?.days[3]?.items.map((entry) => entry.id)).not.toContain("completed-event");
     expect(model.weeks.at(-1)?.days.flatMap((day) => day.items.map((entry) => entry.id))).not.toContain(
       "outside-month-routine",
     );

@@ -47,6 +47,7 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
         .route("/items/:id/pause", post(pause_item))
         .route("/items/:id/resume", post(resume_item))
         .route("/items/:id/complete", post(complete_item))
+        .route("/items/:id/reopen", post(reopen_item))
         .route("/items/:id/archive", post(archive_item))
         .route("/items/:id/drop", post(drop_item))
         .route("/items/:id/cancel", post(cancel_item))

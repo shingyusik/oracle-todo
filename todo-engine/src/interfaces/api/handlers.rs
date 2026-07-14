@@ -327,6 +327,14 @@ pub(super) async fn complete_item(
     Ok(Json(item))
 }
 
+pub(super) async fn reopen_item(
+    State(state): State<ApiState>,
+    AxumPath(id): AxumPath<String>,
+) -> ApiResult<Json<TodoItem>> {
+    let item = with_service(&state, |service| service.reopen(&id, None))?;
+    Ok(Json(item))
+}
+
 pub(super) async fn archive_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,

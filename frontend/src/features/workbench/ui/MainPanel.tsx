@@ -369,14 +369,7 @@ function MonthlyDayItems({
     <ul className="monthly-day-item-list">
       {visibleItems.map((item) => (
         <li key={item.id}>
-          <button
-            className="monthly-day-item"
-            type="button"
-            title={item.title}
-            onClick={() => controller.openDetailView(item)}
-          >
-            {item.title}
-          </button>
+          <PlannerItemRow controller={controller} item={item} compact />
         </li>
       ))}
       {hiddenCount > 0 ? (
@@ -2145,18 +2138,77 @@ function renderPlannerGroups(
       <ul className="planner-card-list">
         {group.items.map((item) => (
           <li key={item.id}>
-            <button
-              className="planner-item"
-              type="button"
-              onClick={() => controller.openDetailView(item)}
-            >
-              {item.title}
-            </button>
+            <PlannerItemRow controller={controller} item={item} />
           </li>
         ))}
       </ul>
     </div>
   ));
+}
+
+function PlannerItemRow({
+  controller,
+  item,
+  compact = false,
+}: {
+  controller: WorkbenchController;
+  item: WorkspaceItemModel;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={`planner-item-row${item.status === "completed" ? " is-completed" : ""}${compact ? " is-compact" : ""}`}
+    >
+      <PlannerTaskCompletionCheckbox controller={controller} item={item} />
+      <button
+        className={compact ? "monthly-day-item" : "planner-item"}
+        type="button"
+        title={compact ? item.title : undefined}
+        onClick={() => controller.openDetailView(item)}
+      >
+        {item.title}
+      </button>
+    </div>
+  );
+}
+
+function PlannerTaskCompletionCheckbox({
+  controller,
+  item,
+}: {
+  controller: WorkbenchController;
+  item: WorkspaceItemModel;
+}) {
+  const visible = item.type === "task" &&
+    (item.status === "active" || item.status === "completed");
+
+  if (!visible) return null;
+
+  const checked = item.status === "completed";
+  const action: WorkspaceItemTransitionAction = checked ? "reopen" : "complete";
+  const label = `${checked ? "Reopen" : "Complete"} ${item.title}`;
+  const transitionState = controller.workspaceItemTransitionState(item.id);
+
+  const transition = () => {
+    if (transitionState.pending) return;
+    void controller.transitionWorkspaceItem(item.id, action).catch(() => undefined);
+  };
+
+  return (
+    <>
+      <input
+        aria-label={label}
+        checked={checked}
+        className="planner-task-checkbox"
+        disabled={transitionState.pending}
+        type="checkbox"
+        onChange={transition}
+      />
+      {transitionState.error
+        ? <span className="planner-task-error" role="alert">{transitionState.error}</span>
+        : null}
+    </>
+  );
 }
 
 type DetailDraft = {

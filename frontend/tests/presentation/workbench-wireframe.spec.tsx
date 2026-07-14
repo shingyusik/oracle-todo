@@ -455,15 +455,14 @@ describe("WorkbenchPageClient", () => {
         },
       ],
       "/todo-engine/items?type=task": [
-        {
-          id: "task-1",
-          type: "task",
-          title: "Monday Task",
-          status: "active",
-          scheduled: weekStart,
-        },
+        { id: "task-active", type: "task", title: "Active task", status: "active", scheduled: weekStart },
+        { id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: weekStart },
+        { id: "task-approved", type: "task", title: "Approved task", status: "approved", scheduled: weekStart },
+        { id: "task-waiting", type: "task", title: "Waiting task", status: "waiting", scheduled: weekStart },
       ],
-      "/todo-engine/items?type=event": [],
+      "/todo-engine/items?type=event": [
+        { id: "event-team", type: "event", title: "Team event", status: "active", scheduled: weekStart },
+      ],
       "/todo-engine/items?type=routine": [],
       "/todo-engine/items?type=area": [],
       "/todo-engine/items?type=project": [],
@@ -489,7 +488,12 @@ describe("WorkbenchPageClient", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("July Goal")).toBeInTheDocument();
     expect(screen.getByText("Week Goal")).toBeInTheDocument();
-    expect(screen.getByText("Monday Task")).toBeInTheDocument();
+    expect(screen.getByText("Active task")).toBeInTheDocument();
+    expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: /Approved task/ })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Waiting task/ })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Team event/ })).toBeNull();
     expect(screen.getAllByTestId("weekly-day-card")).toHaveLength(7);
   });
 
@@ -784,6 +788,34 @@ describe("WorkbenchPageClient", () => {
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=task": [
         {
+          id: "task-active",
+          type: "task",
+          title: "Active task",
+          status: "active",
+          scheduled: today,
+        },
+        {
+          id: "task-completed",
+          type: "task",
+          title: "Completed task",
+          status: "completed",
+          scheduled: today,
+        },
+        {
+          id: "task-approved",
+          type: "task",
+          title: "Approved task",
+          status: "approved",
+          scheduled: today,
+        },
+        {
+          id: "task-waiting",
+          type: "task",
+          title: "Waiting task",
+          status: "waiting",
+          scheduled: today,
+        },
+        {
           id: "task-1",
           type: "task",
           title: "Today Task",
@@ -825,7 +857,9 @@ describe("WorkbenchPageClient", () => {
           area_id: "area-2",
         },
       ],
-      "/todo-engine/items?type=event": [],
+      "/todo-engine/items?type=event": [
+        { id: "event-team", type: "event", title: "Team event", status: "active", scheduled: today },
+      ],
       "/todo-engine/items?type=routine": [],
       "/todo-engine/items?type=area": [
         { id: "area-1", type: "area", title: "Focus", status: "active" },
@@ -871,6 +905,13 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Group planner view" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sort planner view" })).toBeInTheDocument();
     expect(screen.getByText("Today Task")).toBeInTheDocument();
+    expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
+    for (const title of ["Approved task", "Waiting task"]) {
+      expect(screen.getByText(title)).toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: new RegExp(title) })).toBeNull();
+    }
+    expect(screen.queryByRole("checkbox", { name: /Team event/ })).toBeNull();
     expect(screen.getByText("Overdue Task")).toBeInTheDocument();
     expect(screen.queryByText("Upcoming Task")).toBeNull();
     expect(screen.getByText("Inbox Task")).toBeInTheDocument();
@@ -883,7 +924,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Daily planner")).toContainElement(
       screen.getByLabelText("Unscheduled"),
     );
-    expect(screen.queryByText("Done Task")).toBeNull();
+    expect(screen.getByText("Done Task")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Area Should Not Render" }),
     ).toBeNull();
@@ -914,6 +955,197 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("option", { name: "Or" }));
 
     expect(screen.getByText("Or")).toBeInTheDocument();
+  }, 10_000);
+
+  it("completes a daily planner task without opening its detail from the checkbox", async () => {
+    const user = userEvent.setup();
+    let resolveComplete!: (value: Response) => void;
+    const completeResponse = new Promise<Response>((resolve) => {
+      resolveComplete = resolve;
+    });
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/items/task-active/complete") return completeResponse;
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task"
+          ? [{ id: "task-active", type: "task", title: "Active task", status: "active", scheduled: testToday() }]
+          : [],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    await user.click(await screen.findByRole("button", { name: "Active task" }));
+    expect(screen.getByRole("heading", { name: "Active task" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+
+    const checkbox = await screen.findByRole("checkbox", { name: "Complete Active task" });
+    await user.click(checkbox);
+    expect(checkbox).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Active task" })).toBeInTheDocument();
+    await user.click(checkbox);
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items/task-active/complete"),
+    ).toHaveLength(1);
+
+    resolveComplete({
+      ok: true,
+      json: async () => ({
+        id: "task-active",
+        type: "task",
+        title: "Active task",
+        status: "completed",
+        scheduled: testToday(),
+      }),
+    } as Response);
+
+    const reopenedCheckbox = await screen.findByRole("checkbox", { name: "Reopen Active task" });
+    expect(reopenedCheckbox).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Active task" }));
+    expect(screen.getByRole("heading", { name: "Active task" })).toBeInTheDocument();
+  });
+
+  it("keeps a completed daily planner task checked when reopening fails", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/items/task-completed/reopen") {
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          json: async () => ({
+            code: "policy_error",
+            detail: "Cannot reopen task in status active",
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task"
+          ? [{ id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: testToday() }]
+          : [],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Reopen Completed task" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cannot reopen task in status active",
+    );
+    expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
+  });
+
+  it("shares task transition state across duplicate tag-group rows", async () => {
+    const user = userEvent.setup();
+    let resolveFailure!: (value: Response) => void;
+    let resolveRetry!: (value: Response) => void;
+    const failureResponse = new Promise<Response>((resolve) => {
+      resolveFailure = resolve;
+    });
+    const retryResponse = new Promise<Response>((resolve) => {
+      resolveRetry = resolve;
+    });
+    let transitionAttempt = 0;
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/items/task-shared/complete") {
+        transitionAttempt += 1;
+        return transitionAttempt === 1 ? failureResponse : retryResponse;
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task"
+          ? [
+              {
+                id: "task-shared",
+                type: "task",
+                title: "Shared task",
+                status: "active",
+                scheduled: testToday(),
+                tags: ["focus", "ops"],
+              },
+              {
+                id: "task-other",
+                type: "task",
+                title: "Other task",
+                status: "active",
+                scheduled: testToday(),
+                tags: ["other"],
+              },
+            ]
+          : [],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await screen.findByRole("checkbox", { name: "Complete Shared task" });
+    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
+    await user.click(screen.getByRole("option", { name: "Tag" }));
+
+    let sharedCheckboxes = screen.getAllByRole("checkbox", { name: "Complete Shared task" });
+    expect(sharedCheckboxes).toHaveLength(2);
+    await user.click(sharedCheckboxes[0]);
+    sharedCheckboxes = screen.getAllByRole("checkbox", { name: "Complete Shared task" });
+    expect(sharedCheckboxes.every((checkbox) => checkbox.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getByRole("checkbox", { name: "Complete Other task" })).not.toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        url === "/todo-engine/items/task-shared/complete"),
+    ).toHaveLength(1);
+
+    resolveFailure({
+      ok: false,
+      status: 400,
+      json: async () => ({ code: "policy_error", detail: "Shared transition failed" }),
+    } as Response);
+    expect(await screen.findAllByRole("alert")).toHaveLength(2);
+    expect(screen.getAllByRole("alert")[0]).toHaveTextContent("Shared transition failed");
+    expect(screen.getAllByRole("checkbox", { name: "Complete Shared task" })[0]).not.toBeChecked();
+
+    await user.click(screen.getAllByRole("checkbox", { name: "Complete Shared task" })[0]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    sharedCheckboxes = screen.getAllByRole("checkbox", { name: "Complete Shared task" });
+    expect(sharedCheckboxes.every((checkbox) => checkbox.hasAttribute("disabled"))).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        url === "/todo-engine/items/task-shared/complete"),
+    ).toHaveLength(2);
+
+    resolveRetry({
+      ok: true,
+      json: async () => ({
+        id: "task-shared",
+        type: "task",
+        title: "Shared task",
+        status: "completed",
+        scheduled: testToday(),
+        tags: ["focus", "ops"],
+      }),
+    } as Response);
+
+    const reopenedCheckboxes = await screen.findAllByRole("checkbox", {
+      name: "Reopen Shared task",
+    });
+    expect(reopenedCheckboxes).toHaveLength(2);
+    expect(reopenedCheckboxes.every((checkbox) => (checkbox as HTMLInputElement).checked)).toBe(true);
+    expect(reopenedCheckboxes.every((checkbox) => !checkbox.hasAttribute("disabled"))).toBe(true);
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.click(screen.getAllByRole("button", { name: "Shared task" })[0]);
+    expect(screen.getByRole("heading", { name: "Shared task" })).toBeInTheDocument();
   });
 
   it("filters daily planner items through the rule builder dropdown", async () => {
@@ -1950,9 +2182,12 @@ describe("WorkbenchPageClient", () => {
         { id: "goal-week-done", type: "goal", title: "Done Week Goal", status: "completed", horizon: "week", scheduled: firstWeekStart, tags: ["week-done"] },
       ],
       "/todo-engine/items?type=task": [
-        { id: "task-month", type: "task", title: "Month Task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T09:00:00Z" },
-        { id: "task-month-2", type: "task", title: "Second Month Task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T08:00:00Z" },
-        { id: "task-month-3", type: "task", title: "Hidden Month Task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T07:00:00Z" },
+        { id: "task-active", type: "task", title: "Active task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T09:00:00Z" },
+        { id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T08:00:00Z" },
+        { id: "task-approved", type: "task", title: "Approved task", status: "approved", scheduled: testAddDays(firstWeekStart, 1), tags: ["month-todo"], updated_at: "2026-07-01T07:00:00Z" },
+        { id: "task-waiting", type: "task", title: "Waiting task", status: "waiting", scheduled: testAddDays(firstWeekStart, 1), tags: ["month-todo"], updated_at: "2026-07-01T06:00:00Z" },
+        { id: "task-proposed", type: "task", title: "Proposed task", status: "proposed", scheduled: testAddDays(firstWeekStart, 3), tags: ["month-todo"], updated_at: "2026-07-01T05:00:00Z" },
+        { id: "task-paused", type: "task", title: "Paused task", status: "paused", scheduled: testAddDays(firstWeekStart, 3), tags: ["month-todo"], updated_at: "2026-07-01T04:00:00Z" },
       ],
       "/todo-engine/items?type=event": [
         { id: "event-month", type: "event", title: "Month Event", status: "active", scheduled: firstWeekEventDate, tags: ["month-todo"] },
@@ -1983,10 +2218,15 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("grid", { name: "Monthly todo calendar" })).toBeInTheDocument();
     expect(screen.getAllByTestId("monthly-week-row").length).toBeGreaterThanOrEqual(4);
     expect(screen.getAllByTestId("monthly-day-card").length).toBeGreaterThanOrEqual(28);
-    expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Month Task");
-    expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Second Month Task");
-    expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("+1 more");
-    expect(screen.queryByText("Hidden Month Task")).toBeNull();
+    expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Active task");
+    expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Completed task");
+    expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
+    for (const title of ["Proposed task", "Approved task", "Waiting task", "Paused task"]) {
+      expect(screen.getByRole("button", { name: title })).toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: new RegExp(title) })).toBeNull();
+    }
+    expect(screen.queryByRole("checkbox", { name: /Month Event/ })).toBeNull();
     expect(screen.getByRole("gridcell", { name: `${firstWeekEventDate} todo` })).toHaveTextContent("Month Event");
     expect(screen.getAllByTestId("monthly-week-goal-rail").length).toBeGreaterThanOrEqual(4);
     expect(screen.getByRole("region", { name: "W1 goals" })).toHaveTextContent("First Week Goal");
