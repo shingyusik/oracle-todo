@@ -535,7 +535,7 @@ describe("planner model", () => {
     ]);
   });
 
-  it("keeps completed tasks visible while hiding other terminal items", () => {
+  it("keeps completed tasks and events visible while hiding other terminal items", () => {
     const workItems = [
       item("task-active", { status: "active", scheduled: "2026-07-06" }),
       item("task-completed", { status: "completed", scheduled: "2026-07-06" }),
@@ -545,6 +545,7 @@ describe("planner model", () => {
       item("task-someday", { status: "someday", scheduled: "2026-07-06" }),
       item("task-rejected", { status: "rejected", scheduled: "2026-07-06" }),
       item("event-completed", {
+        title: "Z event completed",
         type: "event",
         status: "completed",
         scheduled: "2026-07-06",
@@ -610,8 +611,16 @@ describe("planner model", () => {
       week.days.flatMap((day) => day.items.map((entry) => entry.id)),
     );
 
-    expect(visibleDailyIds).toEqual(["task-active", "task-completed"]);
-    expect(visibleMonthlyIds).toEqual(["task-active", "task-completed"]);
+    expect(visibleDailyIds).toEqual([
+      "task-active",
+      "task-completed",
+      "event-completed",
+    ]);
+    expect(visibleMonthlyIds).toEqual([
+      "task-active",
+      "task-completed",
+      "event-completed",
+    ]);
     expect(weekly.monthGoals.map((item) => item.id)).toEqual(["month-goal-active"]);
     expect(weekly.weekGoals.map((item) => item.id)).toEqual(["week-goal-active"]);
     expect(monthly.carousel[1].goals.map((entry) => entry.id)).toEqual([
@@ -623,6 +632,7 @@ describe("planner model", () => {
     expect(weekly.days[0].items.map((item) => item.id)).toEqual([
       "task-active",
       "task-completed",
+      "event-completed",
     ]);
   });
 
@@ -818,7 +828,7 @@ describe("planner model", () => {
     expect(model.weeks[0]?.days[0]?.items.map((entry) => entry.id)).toEqual(["monday-task"]);
     expect(model.weeks[0]?.days[2]?.items.map((entry) => entry.id)).toEqual(["wednesday-event"]);
     expect(model.weeks[1]?.days[3]?.items.map((entry) => entry.id)).toContain("completed-task");
-    expect(model.weeks[1]?.days[3]?.items.map((entry) => entry.id)).not.toContain("completed-event");
+    expect(model.weeks[1]?.days[3]?.items.map((entry) => entry.id)).toContain("completed-event");
     expect(model.weeks.at(-1)?.days.flatMap((day) => day.items.map((entry) => entry.id))).not.toContain(
       "outside-month-routine",
     );
