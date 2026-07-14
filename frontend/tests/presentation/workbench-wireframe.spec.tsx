@@ -2990,6 +2990,14 @@ describe("WorkbenchPageClient", () => {
           });
         }
 
+        expect(init.body).toBe(
+          JSON.stringify({
+            title: "Career",
+            horizon: "month",
+            scheduled: "2026-07-01",
+            actor: "user",
+          }),
+        );
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -3024,7 +3032,7 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Goal anchor is invalid");
     expect(screen.getByRole("dialog", { name: "Create Goals item" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Career");
-    expect(trigger).toHaveTextContent("Month");
+    expect(trigger).toHaveTextContent(/^Month · July 2026$/);
 
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByRole("heading", { name: "Career" })).toBeInTheDocument();
