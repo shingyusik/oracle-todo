@@ -741,6 +741,18 @@ describe("WorkbenchPageClient", () => {
             id: "task-new",
             type: "task",
             title: "Weekly task",
+            status: "approved",
+            scheduled: weekStart,
+          }),
+        });
+      }
+      if (url === "/todo-engine/items/task-new/activate") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-new",
+            type: "task",
+            title: "Weekly task",
             status: "active",
             scheduled: weekStart,
           }),
@@ -810,6 +822,10 @@ describe("WorkbenchPageClient", () => {
     await user.type(screen.getByLabelText("Title"), "Weekly task");
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByText("Weekly task")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(
+      await screen.findByRole("checkbox", { name: "Complete Weekly task" }),
+    ).not.toBeChecked();
 
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await user.click(screen.getByRole("button", { name: "Add planner item" }));
@@ -5542,6 +5558,55 @@ describe("WorkbenchPageClient", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
+  });
+
+  it("reopens a completed task when inline status changes to active", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/reopen") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({}),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "completed",
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    const status = await screen.findByLabelText("Status for One");
+    await user.selectOptions(status, "active");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/reopen",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("archives an area from the inline status select", async () => {

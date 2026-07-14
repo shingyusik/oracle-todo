@@ -139,7 +139,11 @@ function DetailView({ controller }: MainPanelProps) {
       await controller.saveDetailItem(patch);
     }
 
-    const transition = transitionActionForStatus(displayStatusForItem(detailItem), draft.status);
+    const transition = transitionActionForStatus(
+      displayStatusForItem(detailItem),
+      draft.status,
+      detailItem.type,
+    );
     if (transition) {
       await controller.transitionWorkspaceItem(detailItem.id, transition);
     }
@@ -2497,7 +2501,7 @@ function detailPatchForItem(
 function hasDetailChanges(item: WorkspaceItemModel, draft: DetailDraft): boolean {
   return (
     Object.keys(detailPatchForItem(item, draft)).length > 0 ||
-    transitionActionForStatus(detailStatusForItem(item), draft.status) !== null
+    transitionActionForStatus(detailStatusForItem(item), draft.status, item.type) !== null
   );
 }
 
@@ -4707,7 +4711,7 @@ function StatusSelect({
       onKeyDown={stopRowEvent}
       onChange={(event) => {
         const status = event.target.value;
-        const action = transitionActionForStatus(item.status, status);
+        const action = transitionActionForStatus(item.status, status, item.type);
 
         if (!action) {
           return;
@@ -4784,6 +4788,7 @@ function displayStatusForItem(item: WorkspaceItemModel): string {
 function transitionActionForStatus(
   currentStatus: string,
   nextStatus: string,
+  itemType: WorkspaceItemModel["type"],
 ): WorkspaceItemTransitionAction | null {
   if (nextStatus === currentStatus) {
     return null;
@@ -4792,6 +4797,12 @@ function transitionActionForStatus(
     return "approve";
   }
   if (nextStatus === "active") {
+    if (
+      currentStatus === "completed" &&
+      (itemType === "task" || itemType === "event")
+    ) {
+      return "reopen";
+    }
     return currentStatus === "paused" ? "resume" : "activate";
   }
   if (nextStatus === "paused") {
