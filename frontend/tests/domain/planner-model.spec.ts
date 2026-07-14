@@ -478,11 +478,21 @@ describe("planner model", () => {
     ["routine", ["Evening", "Morning", "No routine"]],
     ["tag", ["deep-work", "focus", "habit", "ops"]],
     ["item_type", ["Routine", "Task"]],
-    ["status", ["Active", "Approved"]],
+    ["status", ["Active", "Approved", "Completed"]],
   ] as const)("groups today items by %s with expected labels", (groupBy, labels) => {
     const model = buildDaily({}, groupBy);
 
     expect(model.sections.today.groups.map((group) => group.label).sort()).toEqual(labels);
+  });
+
+  it("keeps completed tasks in the completed status group", () => {
+    const model = buildDaily({}, "status");
+
+    expect(
+      model.sections.today.groups
+        .find((group) => group.label === "Completed")
+        ?.items.map((item) => item.id),
+    ).toEqual(["done"]);
   });
 
   it("keeps completed tasks visible while hiding other terminal items", () => {

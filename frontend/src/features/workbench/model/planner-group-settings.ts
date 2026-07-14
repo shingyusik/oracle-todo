@@ -45,6 +45,7 @@ const statusLabels: Record<string, string> = {
   approved: "Approved",
   active: "Active",
   paused: "Paused",
+  completed: "Completed",
 };
 
 export function defaultPlannerGroupSettings(): PlannerGroupSettings {
@@ -91,7 +92,7 @@ export function buildPlannerGroupCandidates({
   if (groupBy === "none") return [];
   if (groupBy === "tag") return tagCandidates(items);
   if (groupBy === "item_type") return fixedCandidates(["task", "event", "routine"], itemTypeLabels, items, (item) => [item.type]);
-  if (groupBy === "status") return fixedCandidates(["proposed", "approved", "active", "paused"], statusLabels, items, (item) => [item.status]);
+  if (groupBy === "status") return fixedCandidates(["proposed", "approved", "active", "paused", "completed"], statusLabels, items, (item) => [item.status]);
   const map = relationMap(groupBy, relatedItems);
   const counts = countKeys(items, (item) => [relationValue(item, groupBy) ?? "none"]);
   return [
