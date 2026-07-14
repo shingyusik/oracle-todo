@@ -2888,6 +2888,22 @@ describe("WorkbenchPageClient", () => {
         });
       }
 
+      if (url === "/todo-engine/items?type=goal" || url === "/todo-engine/items") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: "goal-existing",
+              type: "goal",
+              title: "Existing July goal",
+              status: "approved",
+              horizon: "month",
+              scheduled: "2026-07-01",
+            },
+          ],
+        });
+      }
+
       return Promise.resolve({ ok: true, json: async () => [] });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -2942,6 +2958,85 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/goals/propose",
       expect.objectContaining({ method: "POST" }),
     );
+    expect(
+      await screen.findByRole("heading", { name: "July goal" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const goalsTable = await screen.findByRole("table", { name: "Goals items" });
+    expect(
+      within(goalsTable).getByRole("cell", { name: "Existing July goal" }),
+    ).toBeInTheDocument();
+    expect(within(goalsTable).getByRole("cell", { name: "July goal" })).toBeInTheDocument();
+  });
+
+  it("keeps a failed Goal creation in the dialog and allows retry", async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose" && init?.method === "POST") {
+        attempts += 1;
+        if (attempts === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 400,
+            json: async () => ({
+              code: "goal_invalid_anchor",
+              detail: "Goal anchor is invalid",
+              horizon: "month",
+              scheduled: "2026-07-01",
+            }),
+          });
+        }
+
+        expect(init.body).toBe(
+          JSON.stringify({
+            title: "Career",
+            horizon: "month",
+            scheduled: "2026-07-01",
+            actor: "user",
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "goal-retry",
+            type: "goal",
+            title: "Career",
+            status: "approved",
+            horizon: "month",
+            scheduled: "2026-07-01",
+          }),
+        });
+      }
+
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Title"), "Career");
+    const trigger = screen.getByRole("button", { name: "Period" });
+    await user.click(trigger);
+    const picker = screen.getByRole("dialog", { name: "Period" });
+    await user.click(within(picker).getByRole("button", { name: "Month" }));
+    await user.click(within(picker).getByRole("button", { name: "July 2026" }));
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Goal anchor is invalid");
+    expect(screen.getByRole("dialog", { name: "Create Goals item" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Career");
+    expect(trigger).toHaveTextContent(/^Month · July 2026$/);
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByRole("heading", { name: "Career" })).toBeInTheDocument();
+    expect(attempts).toBe(2);
   });
 
   it("requires scheduled for event creation", async () => {

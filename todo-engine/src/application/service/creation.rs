@@ -215,10 +215,8 @@ impl TodoService {
             .horizon
             .parse::<Horizon>()
             .map_err(TodoError::Validation)?;
-        // Validate anchor -> nesting -> duplicate before building the item.
         let canonical = self.validate_goal_anchor(horizon, &request.scheduled)?;
         self.validate_goal_nesting(request.parent_id.as_deref(), horizon)?;
-        self.ensure_goal_not_duplicate(horizon, &canonical, request.parent_id.as_deref())?;
 
         let now = self.next_now();
         let mut item = TodoItem::new(

@@ -3085,10 +3085,6 @@ function goalPeriodCommitErrorMessage(
     return `현재 Parent 기간은 ${goalHorizonLabel(commitError.parentHorizon)}이고, 요청한 Goal 기간은 ${goalHorizonLabel(commitError.childHorizon)}입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.`;
   }
 
-  if (commitError.code === "goal_duplicate_period") {
-    return "같은 Parent와 기간을 가진 Goal이 이미 있습니다.";
-  }
-
   if (commitError.code === "goal_invalid_anchor") {
     return "선택한 기간과 맞지 않는 날짜입니다. 다시 선택해 주세요.";
   }
@@ -3957,6 +3953,8 @@ function CreationDialog({ controller }: CreationDialogProps) {
   const [itemType, setItemType] = React.useState(plannerItemType);
   const [scheduled, setScheduled] = React.useState(plannerScheduled);
   const [horizon, setHorizon] = React.useState(plannerHorizon);
+  const [submitError, setSubmitError] = React.useState("");
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const isGoal = controller.panel.id === "goals";
@@ -4008,6 +4006,28 @@ function CreationDialog({ controller }: CreationDialogProps) {
     }
   }
 
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitError("");
+    setIsSubmitting(true);
+    try {
+      await controller.createWorkspaceItem({
+        title,
+        itemType,
+        scheduled,
+        horizon,
+      });
+    } catch (error) {
+      setSubmitError(
+        error instanceof TodoEngineApiError
+          ? error.detail
+          : "항목을 생성하지 못했습니다. 다시 시도해 주세요.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="confirmation-backdrop">
       <form
@@ -4017,15 +4037,7 @@ function CreationDialog({ controller }: CreationDialogProps) {
         aria-modal="true"
         aria-label={`Create ${controller.panel.title} item`}
         onKeyDown={handleKeyDown}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void controller.createWorkspaceItem({
-            title,
-            itemType,
-            scheduled,
-            horizon,
-          });
-        }}
+        onSubmit={handleSubmit}
       >
         <h2>Create {controller.panel.title} item</h2>
         {plannerTypeOptions.length > 1 ? (
@@ -4076,11 +4088,18 @@ function CreationDialog({ controller }: CreationDialogProps) {
             />
           </label>
         ) : null}
+        {submitError ? (
+          <p className="items-message" role="alert">
+            {submitError}
+          </p>
+        ) : null}
         <div className="dialog-actions">
           <button type="button" onClick={controller.closeCreationDialog}>
             Cancel
           </button>
-          <button type="submit">Create</button>
+          <button type="submit" disabled={isSubmitting}>
+            Create
+          </button>
         </div>
       </form>
     </div>

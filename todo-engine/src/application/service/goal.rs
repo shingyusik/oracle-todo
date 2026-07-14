@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use super::{TodoService, parse_day};
 use crate::application::error::{TodoError, TodoResult};
-use crate::application::ports::ListFilter;
 use crate::domain::{Horizon, ItemType, is_period_start};
 
 /// Maximum depth of the goal ancestor chain walked during nesting validation.
@@ -97,35 +96,6 @@ impl TodoService {
                 Some(ref next_id) => Some(self.get(next_id)?),
                 None => None,
             };
-        }
-        Ok(())
-    }
-
-    /// Reject a goal that duplicates an existing goal's
-    /// `(horizon, canonical scheduled, parent_id)` identity triple (GOAL-05).
-    /// Compares against the already-canonicalized `scheduled` string; top-level
-    /// goals share `parent_id = None`.
-    pub(super) fn ensure_goal_not_duplicate(
-        &mut self,
-        horizon: Horizon,
-        canonical_scheduled: &str,
-        parent_id: Option<&str>,
-    ) -> TodoResult<()> {
-        let existing = self.list_items(ListFilter {
-            item_type: Some(ItemType::Goal),
-            ..Default::default()
-        })?;
-        let duplicate = existing.into_iter().any(|item| {
-            item.horizon.as_deref() == Some(horizon.as_str())
-                && item.scheduled.as_deref() == Some(canonical_scheduled)
-                && item.parent_id.as_deref() == parent_id
-        });
-        if duplicate {
-            return Err(TodoError::GoalDuplicatePeriod {
-                horizon,
-                scheduled: canonical_scheduled.to_string(),
-                parent_id: parent_id.map(ToString::to_string),
-            });
         }
         Ok(())
     }

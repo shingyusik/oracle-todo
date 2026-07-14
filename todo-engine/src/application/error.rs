@@ -21,17 +21,6 @@ pub enum TodoError {
         parent_horizon: Horizon,
         child_horizon: Horizon,
     },
-    #[error(
-        "Goal already exists for ({}, {}, {})",
-        horizon.as_str(),
-        scheduled,
-        parent_id.as_deref().unwrap_or("<root>")
-    )]
-    GoalDuplicatePeriod {
-        horizon: Horizon,
-        scheduled: String,
-        parent_id: Option<String>,
-    },
     #[error("{0}")]
     Policy(String),
     #[error("Item not found: {0}")]
@@ -51,7 +40,6 @@ impl TodoError {
         match self {
             TodoError::GoalInvalidAnchor { .. } => "goal_invalid_anchor",
             TodoError::GoalParentHorizonNotCoarser { .. } => "goal_parent_horizon_not_coarser",
-            TodoError::GoalDuplicatePeriod { .. } => "goal_duplicate_period",
             TodoError::Policy(_) => "policy_error",
             TodoError::Validation(_) => "validation_error",
             TodoError::NotFound(_) => "not_found",
@@ -65,7 +53,6 @@ impl TodoError {
         match self {
             TodoError::GoalInvalidAnchor { .. }
             | TodoError::GoalParentHorizonNotCoarser { .. }
-            | TodoError::GoalDuplicatePeriod { .. }
             | TodoError::Policy(_)
             | TodoError::Validation(_) => 2,
             TodoError::NotFound(_) => 4,
@@ -77,7 +64,6 @@ impl TodoError {
         match self {
             TodoError::GoalInvalidAnchor { .. }
             | TodoError::GoalParentHorizonNotCoarser { .. }
-            | TodoError::GoalDuplicatePeriod { .. }
             | TodoError::Policy(_)
             | TodoError::Validation(_) => 400,
             TodoError::NotFound(_) => 404,
@@ -108,20 +94,6 @@ impl TodoError {
                     "child_horizon".to_string(),
                     Value::String(child_horizon.as_str().to_string()),
                 );
-            }
-            TodoError::GoalDuplicatePeriod {
-                horizon,
-                scheduled,
-                parent_id,
-            } => {
-                metadata.insert(
-                    "horizon".to_string(),
-                    Value::String(horizon.as_str().to_string()),
-                );
-                metadata.insert("scheduled".to_string(), Value::String(scheduled.clone()));
-                if let Some(parent_id) = parent_id {
-                    metadata.insert("parent_id".to_string(), Value::String(parent_id.clone()));
-                }
             }
             TodoError::Policy(_)
             | TodoError::NotFound(_)

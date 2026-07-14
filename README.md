@@ -275,6 +275,7 @@ Required / useful columns:
 Period planning item: a goal for a specific year, month, or week that decomposes top-down into tasks.
 
 - Anchored to one period by `(horizon, scheduled)` — e.g. a month goal is `horizon:month` + `scheduled:2026-06-01`.
+- Multiple goals may share the same `(horizon, scheduled, parent_id)` values. These fields group goals into a period and hierarchy; the engine-generated `id` is the goal identity.
 - `scheduled` must be the canonical period start: year = Jan 1, month = the 1st, week = the ISO Monday. A non-canonical or relative anchor is strictly rejected — the engine never auto-snaps. Unlike tasks, a goal does **not** accept the `today` sentinel; its anchor must be an explicit ISO date.
 - Nestable under a strictly-coarser parent goal via `parent_id` (year > month > week). Level-skipping is allowed (a week goal may attach directly under a year goal); an equal or finer parent horizon is rejected, as are nesting cycles.
 - Agent-created goals start as `proposed`; user-created goals start as `approved`.
