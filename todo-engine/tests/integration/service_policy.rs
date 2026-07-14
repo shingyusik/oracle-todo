@@ -119,6 +119,79 @@ fn completing_terminal_item_is_rejected() {
 }
 
 #[test]
+fn completed_task_can_be_reopened() {
+    let mut service = TodoService::in_memory();
+    let task = service
+        .propose_task(
+            "다시 할 일",
+            ProposeTask {
+                actor: Actor::User,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let completed = service.complete(&task.id, None).unwrap();
+    assert!(completed.completed_at.is_some());
+
+    let reopened = service.reopen(&task.id, Some("체크 해제")).unwrap();
+
+    assert_eq!(reopened.status, ItemStatus::Active);
+    assert!(reopened.completed_at.is_none());
+    assert!(reopened.updated_at > completed.updated_at);
+    assert_eq!(service.events().last().unwrap().action, "reopen");
+    assert_eq!(
+        service.events().last().unwrap().reason.as_deref(),
+        Some("체크 해제")
+    );
+}
+
+#[test]
+fn reopen_rejects_non_completed_task() {
+    let mut service = TodoService::in_memory();
+    let task = service
+        .propose_task(
+            "진행 중",
+            ProposeTask {
+                actor: Actor::User,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let error = service.reopen(&task.id, None).unwrap_err();
+
+    assert_eq!(
+        error,
+        TodoError::Policy("Cannot reopen task in status approved".to_string())
+    );
+}
+
+#[test]
+fn reopen_rejects_completed_non_task() {
+    let mut service = TodoService::in_memory();
+    let project = service
+        .propose_project(ProposeProject {
+            title: "완료된 프로젝트".to_string(),
+            area: None,
+            definition_of_done: None,
+            outcome: None,
+            due: None,
+            actor: Actor::User,
+            note: None,
+            tags: Vec::new(),
+        })
+        .unwrap();
+    service.complete(&project.id, None).unwrap();
+
+    let error = service.reopen(&project.id, None).unwrap_err();
+
+    assert_eq!(
+        error,
+        TodoError::Policy("Only completed tasks can be reopened".to_string())
+    );
+}
+
+#[test]
 fn update_item_changes_core_fields_and_records_event() {
     let mut service = TodoService::in_memory();
     let item = service.propose_task("옛 제목", Default::default()).unwrap();
