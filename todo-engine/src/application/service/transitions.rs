@@ -169,14 +169,15 @@ impl TodoService {
         let before = Some(serde_json::to_value(&item).map_err(|error| {
             TodoError::Internal(format!("failed to snapshot item before reopen: {error}"))
         })?);
-        if item.item_type != ItemType::Task {
+        if !matches!(item.item_type, ItemType::Task | ItemType::Event) {
             return Err(TodoError::Policy(
-                "Only completed tasks can be reopened".to_string(),
+                "Only completed tasks and events can be reopened".to_string(),
             ));
         }
         if item.status != ItemStatus::Completed {
             return Err(TodoError::Policy(format!(
-                "Cannot reopen task in status {}",
+                "Cannot reopen {} in status {}",
+                item.item_type.as_str(),
                 item.status.as_str()
             )));
         }

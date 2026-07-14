@@ -336,6 +336,34 @@ async fn approve_and_complete_items_return_mutated_items() {
 }
 
 #[tokio::test]
+async fn completed_event_can_be_reopened_through_api() {
+    let app = router(":memory:").unwrap();
+    let response = json_request(
+        app.clone(),
+        "POST",
+        "/events/propose",
+        json!({
+            "title": "팀 일정",
+            "scheduled": "2026-07-14T10:00:00",
+            "actor": "user"
+        }),
+    )
+    .await;
+    let event = body_json(response).await;
+    let id = event["id"].as_str().unwrap();
+
+    let response = empty_request(app.clone(), "POST", format!("/items/{id}/complete")).await;
+    assert_eq!(response.status(), 200);
+
+    let response = empty_request(app, "POST", format!("/items/{id}/reopen")).await;
+    assert_eq!(response.status(), 200);
+    let reopened = body_json(response).await;
+    assert_eq!(reopened["type"], "event");
+    assert_eq!(reopened["status"], "active");
+    assert!(reopened["completed_at"].is_null());
+}
+
+#[tokio::test]
 async fn items_query_filters_and_orders_items() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
