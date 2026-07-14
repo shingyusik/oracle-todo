@@ -1,5 +1,7 @@
 use todo_engine::application::error::TodoError;
-use todo_engine::application::service::{CreateArea, ProposeProject, ProposeTask, TodoService};
+use todo_engine::application::service::{
+    CreateArea, ProposeEvent, ProposeProject, ProposeTask, TodoService,
+};
 use todo_engine::domain::{Actor, ItemStatus, ItemType, terminal_status};
 
 #[test]
@@ -146,6 +148,32 @@ fn completed_task_can_be_reopened() {
 }
 
 #[test]
+fn completed_event_can_be_reopened() {
+    let mut service = TodoService::in_memory();
+    let event = service
+        .propose_event(ProposeEvent {
+            title: "다시 여는 일정".to_string(),
+            actor: Actor::User,
+            scheduled: Some("2026-07-14T10:00:00".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+    let completed = service.complete(&event.id, None).unwrap();
+
+    let reopened = service.reopen(&event.id, Some("체크 해제")).unwrap();
+
+    assert_eq!(reopened.item_type, ItemType::Event);
+    assert_eq!(reopened.status, ItemStatus::Active);
+    assert!(reopened.completed_at.is_none());
+    assert!(reopened.updated_at > completed.updated_at);
+    assert_eq!(service.events().last().unwrap().action, "reopen");
+    assert_eq!(
+        service.events().last().unwrap().reason.as_deref(),
+        Some("체크 해제")
+    );
+}
+
+#[test]
 fn reopen_rejects_non_completed_task() {
     let mut service = TodoService::in_memory();
     let task = service
@@ -167,7 +195,27 @@ fn reopen_rejects_non_completed_task() {
 }
 
 #[test]
-fn reopen_rejects_completed_non_task() {
+fn reopen_rejects_non_completed_event() {
+    let mut service = TodoService::in_memory();
+    let event = service
+        .propose_event(ProposeEvent {
+            title: "진행 중 일정".to_string(),
+            actor: Actor::User,
+            scheduled: Some("2026-07-14T10:00:00".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let error = service.reopen(&event.id, None).unwrap_err();
+
+    assert_eq!(
+        error,
+        TodoError::Policy("Cannot reopen event in status approved".to_string())
+    );
+}
+
+#[test]
+fn reopen_rejects_completed_unsupported_item() {
     let mut service = TodoService::in_memory();
     let project = service
         .propose_project(ProposeProject {
@@ -187,7 +235,7 @@ fn reopen_rejects_completed_non_task() {
 
     assert_eq!(
         error,
-        TodoError::Policy("Only completed tasks can be reopened".to_string())
+        TodoError::Policy("Only completed tasks and events can be reopened".to_string())
     );
 }
 

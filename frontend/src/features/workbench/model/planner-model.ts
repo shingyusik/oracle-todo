@@ -181,7 +181,7 @@ const terminalStatuses = new Set([
 
 function isVisiblePlannerWorkItem(item: WorkspaceItemModel): boolean {
   return !terminalStatuses.has(item.status) ||
-    (item.type === "task" && item.status === "completed");
+    ((item.type === "task" || item.type === "event") && item.status === "completed");
 }
 
 const plannerWorkItemTypes = new Set(["task", "event"]);
