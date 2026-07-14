@@ -206,7 +206,7 @@ describe("useWorkbenchController", () => {
   it.each([
     ["daily", ["task", "event", "routine", "area", "project"]],
     ["weekly", ["goal", "task", "event", "routine", "area", "project"]],
-    ["monthly", ["goal", "area", "project"]],
+    ["monthly", ["goal", "task", "event", "routine", "area", "project"]],
     ["yearly", ["goal", "area", "project"]],
   ] as const)(
     "loads planner item sets for %s",
@@ -959,6 +959,49 @@ describe("useWorkbenchController", () => {
 
     await act(async () => {
       await result.current.transitionWorkspaceItem("task-1", "activate");
+    });
+
+    expect(result.current.workspaceItems.items[0]?.status).toBe("active");
+  });
+
+  it("reopens a completed workspace item and replaces list state", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/reopen") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({}),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            completed_at: null,
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "completed" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+    await vi.waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    await act(async () => {
+      await result.current.transitionWorkspaceItem("task-1", "reopen");
     });
 
     expect(result.current.workspaceItems.items[0]?.status).toBe("active");

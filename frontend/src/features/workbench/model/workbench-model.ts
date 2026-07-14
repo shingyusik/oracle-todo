@@ -121,6 +121,7 @@ export type WorkspaceItemTransitionAction =
   | "pause"
   | "resume"
   | "complete"
+  | "reopen"
   | "archive";
 
 export type WorkbenchController = {
