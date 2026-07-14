@@ -183,12 +183,7 @@ fn goal_update_can_join_an_occupied_period_and_parent() {
         .propose_goal(goal(Actor::User, "year", "2026-01-01", None))
         .unwrap();
     service
-        .propose_goal(goal(
-            Actor::User,
-            "month",
-            "2026-07-01",
-            Some(&parent.id),
-        ))
+        .propose_goal(goal(Actor::User, "month", "2026-07-01", Some(&parent.id)))
         .unwrap();
     let moving = service
         .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
