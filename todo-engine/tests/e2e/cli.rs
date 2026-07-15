@@ -387,6 +387,10 @@ fn today_materializes_active_routines() {
             "매일 스트레칭",
             "--recurrence-rule",
             "daily",
+            "--materialization-policy",
+            "per_occurrence",
+            "--future-occurrences",
+            "2",
             "--actor",
             "user",
         ])
@@ -397,6 +401,7 @@ fn today_materializes_active_routines() {
         .clone();
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let routine_id = routine["id"].as_str().unwrap();
+    assert_eq!(routine["future_occurrences"], 2);
 
     Command::cargo_bin("todo-engine")
         .unwrap()
@@ -944,6 +949,10 @@ fn routine_materialize_covers_cli_intent() {
             "매일 호환성 점검",
             "--recurrence-rule",
             "daily",
+            "--materialization-policy",
+            "per_occurrence",
+            "--future-occurrences",
+            "2",
             "--actor",
             "user",
         ])
@@ -954,6 +963,7 @@ fn routine_materialize_covers_cli_intent() {
         .clone();
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let routine_id = routine["id"].as_str().unwrap();
+    assert_eq!(routine["future_occurrences"], 2);
 
     Command::cargo_bin("todo-engine")
         .unwrap()
@@ -973,32 +983,26 @@ fn routine_materialize_covers_cli_intent() {
             home.path().to_str().unwrap(),
             "routine",
             "materialize",
-            "--now",
-            "2026-06-01",
-            "--lookahead-days",
-            "1",
-            "--catchup-days",
-            "0",
         ])
         .assert()
         .success()
-        .stdout(contains("매일 호환성 점검"));
+        .stdout(contains("No routine tasks materialized"));
 
-    // The window cap is service policy, so the CLI is held to it too: exit 2,
-    // not a year of generated tasks.
+    // The target cap is shared service policy.
     Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
             home.path().to_str().unwrap(),
             "routine",
-            "materialize",
-            "--now",
-            "2026-06-01",
-            "--lookahead-days",
-            "400",
+            "propose",
+            "잘못된 루틴",
+            "--recurrence-rule",
+            "daily",
+            "--future-occurrences",
+            "366",
         ])
         .assert()
         .code(2)
-        .stderr(contains("lookahead_days must be between 0 and 365"));
+        .stderr(contains("future_occurrences must be between 1 and 365"));
 }

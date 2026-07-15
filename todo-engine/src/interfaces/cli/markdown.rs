@@ -3,7 +3,7 @@ use time::format_description::parse as parse_format_description;
 
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::ListFilter;
-use crate::application::service::{DEFAULT_CATCHUP_DAYS, DEFAULT_LOOKAHEAD_DAYS, TodoService};
+use crate::application::service::TodoService;
 use crate::domain::{ItemStatus, ItemType, TodoItem};
 
 pub(super) fn render_items(title: &str, items: &[TodoItem]) -> String {
@@ -63,7 +63,7 @@ pub(super) fn current_today_items(
     service: &mut TodoService,
     today: &str,
 ) -> TodoResult<Vec<TodoItem>> {
-    service.materialize_routines(today, DEFAULT_LOOKAHEAD_DAYS, DEFAULT_CATCHUP_DAYS)?;
+    service.materialize_routines(today)?;
     let items = service.list_items(ListFilter {
         item_type: Some(ItemType::Task),
         ..Default::default()

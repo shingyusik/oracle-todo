@@ -13,6 +13,7 @@ pub struct UpdateItem {
     pub review_cycle: Option<String>,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: Option<String>,
+    pub future_occurrences: Option<i64>,
     pub area: Option<String>,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
@@ -40,6 +41,7 @@ impl TodoService {
             review_cycle,
             recurrence_rule,
             materialization_policy,
+            future_occurrences,
             area,
             project_id,
             parent_id,
@@ -77,6 +79,11 @@ impl TodoService {
         {
             return Err(TodoError::Policy(
                 "Event metadata fields can only be updated on event items".to_string(),
+            ));
+        }
+        if future_occurrences.is_some() && item.item_type != ItemType::Routine {
+            return Err(TodoError::Policy(
+                "future_occurrences can only be updated on routine items".to_string(),
             ));
         }
 
@@ -145,6 +152,9 @@ impl TodoService {
                 )));
             }
             item.materialization_policy = materialization_policy;
+        }
+        if let Some(future_occurrences) = future_occurrences {
+            item.future_occurrences = super::validate_future_occurrences(future_occurrences)?;
         }
         if let Some(area) = area {
             item.area_id = self.find_area(Some(area))?;

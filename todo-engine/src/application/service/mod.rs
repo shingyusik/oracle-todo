@@ -6,7 +6,9 @@ use uuid::Uuid;
 
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{ListFilter, TodoStore};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem, terminal_status};
+use crate::domain::{
+    Actor, ItemStatus, ItemType, MAX_FUTURE_OCCURRENCES, TodoEvent, TodoItem, terminal_status,
+};
 
 mod creation;
 mod goal;
@@ -18,7 +20,6 @@ mod update;
 pub use creation::{
     CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
 };
-pub use materialization::{DEFAULT_CATCHUP_DAYS, DEFAULT_LOOKAHEAD_DAYS, MAX_WINDOW_DAYS};
 pub use queries::{GoalNode, PeriodView};
 pub use update::UpdateItem;
 
@@ -252,6 +253,15 @@ pub(super) fn parse_day(value: &str) -> TodoResult<Date> {
         .map_err(|error| TodoError::Internal(format!("failed to prepare date parser: {error}")))?;
     Date::parse(value, &format)
         .map_err(|error| TodoError::Validation(format!("Invalid date {value}: {error}")))
+}
+
+pub(super) fn validate_future_occurrences(value: i64) -> TodoResult<i64> {
+    if !(1..=MAX_FUTURE_OCCURRENCES).contains(&value) {
+        return Err(TodoError::Validation(format!(
+            "future_occurrences must be between 1 and {MAX_FUTURE_OCCURRENCES}: {value}"
+        )));
+    }
+    Ok(value)
 }
 
 pub(super) fn format_time(value: OffsetDateTime) -> TodoResult<String> {

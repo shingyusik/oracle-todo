@@ -1,6 +1,19 @@
 use time::Weekday;
 use time::macros::date;
-use todo_engine::domain::{RecurrenceError, occurrences};
+use todo_engine::domain::{RecurrenceError, future_occurrences, occurrences};
+
+#[test]
+fn future_occurrences_preserve_the_original_interval_anchor() {
+    let got = future_occurrences(
+        "RRULE:FREQ=DAILY;INTERVAL=2",
+        date!(2026 - 05 - 31),
+        date!(2026 - 06 - 04),
+        2,
+    )
+    .unwrap();
+
+    assert_eq!(got, vec![date!(2026 - 06 - 06), date!(2026 - 06 - 08)]);
+}
 
 #[test]
 fn daily_aliases_expand_each_day() {

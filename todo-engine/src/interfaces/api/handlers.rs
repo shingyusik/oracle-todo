@@ -17,8 +17,8 @@ use super::{
 use crate::application::error::TodoError;
 use crate::application::ports::ListFilter;
 use crate::application::service::{
-    CreateArea, DEFAULT_CATCHUP_DAYS, DEFAULT_LOOKAHEAD_DAYS, PeriodView, ProposeEvent,
-    ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask, UpdateItem,
+    CreateArea, PeriodView, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
+    UpdateItem,
 };
 use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
 use crate::infrastructure::system::local_today_string;
@@ -131,6 +131,9 @@ pub(super) async fn propose_routine(
             materialization_policy: body
                 .materialization_policy
                 .unwrap_or_else(|| "single_open".to_string()),
+            future_occurrences: body
+                .future_occurrences
+                .unwrap_or(crate::domain::DEFAULT_FUTURE_OCCURRENCES),
             note: body.note,
             tags: body.tags.unwrap_or_default(),
         })
@@ -151,12 +154,7 @@ pub(super) async fn materialize_routine(
     let Json(body) = body.map_err(validation_rejection)?;
     let now = local_today_string();
     let (routine, created) = with_service(&state, |service| {
-        let created = service.materialize_routine(
-            &id,
-            &now,
-            body.lookahead_days.unwrap_or(DEFAULT_LOOKAHEAD_DAYS),
-            body.catchup_days.unwrap_or(DEFAULT_CATCHUP_DAYS),
-        )?;
+        let created = service.materialize_routine(&id, &now, Some(body.future_occurrences))?;
         Ok((service.get(&id)?, created))
     })?;
     Ok(Json(json!({"routine": routine, "created": created})))
@@ -288,6 +286,7 @@ pub(super) async fn update_item(
                 review_cycle: body.review_cycle,
                 recurrence_rule: body.recurrence_rule,
                 materialization_policy: body.materialization_policy,
+                future_occurrences: body.future_occurrences,
                 area: body.area,
                 project_id: body.project_id,
                 parent_id: body.parent_id,

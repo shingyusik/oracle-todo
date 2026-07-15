@@ -13,7 +13,7 @@ use clap::{Args, Parser, Subcommand};
 use std::str::FromStr;
 
 use crate::application::error::TodoError;
-use crate::application::service::{DEFAULT_CATCHUP_DAYS, DEFAULT_LOOKAHEAD_DAYS, TodoService};
+use crate::application::service::TodoService;
 use crate::domain::{Actor, ItemStatus, ItemType};
 use crate::infrastructure::paths::{db_path, todo_home};
 use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
@@ -240,6 +240,8 @@ struct RoutineProposeArgs {
     recurrence_rule: Option<String>,
     #[arg(long, default_value = "single_open")]
     materialization_policy: String,
+    #[arg(long, default_value_t = crate::domain::DEFAULT_FUTURE_OCCURRENCES)]
+    future_occurrences: i64,
     #[arg(long)]
     note: Option<String>,
     #[arg(long, default_value = "agent", value_parser = parse_actor)]
@@ -247,14 +249,7 @@ struct RoutineProposeArgs {
 }
 
 #[derive(Debug, Args)]
-struct RoutineMaterializeArgs {
-    #[arg(long)]
-    now: Option<String>,
-    #[arg(long, default_value_t = DEFAULT_LOOKAHEAD_DAYS)]
-    lookahead_days: i64,
-    #[arg(long, default_value_t = DEFAULT_CATCHUP_DAYS)]
-    catchup_days: i64,
-}
+struct RoutineMaterializeArgs {}
 
 #[derive(Debug, Args)]
 struct EventProposeArgs {
@@ -310,6 +305,8 @@ struct UpdateArgs {
     recurrence_rule: Option<String>,
     #[arg(long)]
     materialization_policy: Option<String>,
+    #[arg(long)]
+    future_occurrences: Option<i64>,
     #[arg(long)]
     area: Option<String>,
     #[arg(long)]

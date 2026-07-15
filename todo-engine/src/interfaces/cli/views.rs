@@ -30,8 +30,8 @@ pub(super) fn list(home: &Path, args: ListArgs) -> Result<()> {
 
 pub(super) fn routine_materialize(home: &Path, args: RoutineMaterializeArgs) -> Result<()> {
     let mut service = service(home)?;
-    let now = args.now.unwrap_or_else(today_string);
-    let created = service.materialize_routines(&now, args.lookahead_days, args.catchup_days)?;
+    let _ = args;
+    let created = service.materialize_routines(&today_string())?;
     if created.is_empty() {
         println!("No routine tasks materialized");
         return Ok(());

@@ -81,6 +81,7 @@ pub(super) fn routine_propose(home: &Path, args: RoutineProposeArgs) -> Result<(
         actor: args.actor,
         recurrence_rule: args.recurrence_rule,
         materialization_policy: args.materialization_policy,
+        future_occurrences: args.future_occurrences,
         note: args.note,
         tags: Vec::new(),
     })?;

@@ -1,6 +1,6 @@
 use super::{TodoService, format_time, generated_by_routine};
 use crate::application::error::{TodoError, TodoResult};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoItem, future_occurrences, terminal_status};
 
 impl TodoService {
     pub fn approve(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -56,9 +56,30 @@ impl TodoService {
         }
 
         let now = self.next_now();
+        if item.item_type == ItemType::Routine {
+            let rule = item
+                .recurrence_rule
+                .as_deref()
+                .expect("checked recurrence_rule");
+            future_occurrences(
+                rule,
+                now.date(),
+                now.date().previous_day().unwrap_or(time::Date::MIN),
+                1,
+            )
+            .map_err(|error| {
+                TodoError::Policy(format!("Unsupported recurrence_rule: {}", error.rule()))
+            })?;
+        }
         item.status = ItemStatus::Active;
         item.updated_at = now;
-        self.store_item_and_event(Actor::User, "activate", before, item, _reason)
+        let activated =
+            self.store_item_and_event(Actor::User, "activate", before, item, _reason)?;
+        if activated.item_type == ItemType::Routine {
+            self.fill_routine_to_target(&activated.id, activated.updated_at.date())?;
+            return self.get(&activated.id);
+        }
+        Ok(activated)
     }
 
     pub fn pause(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -134,6 +155,8 @@ impl TodoService {
                 reason,
                 Some(ItemStatus::Waiting),
             )?;
+            self.fill_routine_to_target(&resumed.id, resumed.updated_at.date())?;
+            return self.get(&resumed.id);
         }
         Ok(resumed)
     }
@@ -161,6 +184,11 @@ impl TodoService {
         item.updated_at = now;
         let item = self.store_item_and_event(Actor::User, "complete", before, item, _reason)?;
         self.record_generated_task_occurrence(&item, Actor::User, _reason)?;
+        if generated_by_routine(&item) {
+            if let Some(routine_id) = item.routine_id.as_deref() {
+                self.fill_routine_to_target(routine_id, item.updated_at.date())?;
+            }
+        }
         Ok(item)
     }
 

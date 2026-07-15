@@ -97,6 +97,7 @@ pub struct ProposeRoutine {
     pub actor: Actor,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: String,
+    pub future_occurrences: i64,
     pub note: Option<String>,
     pub tags: Vec<String>,
 }
@@ -109,6 +110,7 @@ impl Default for ProposeRoutine {
             actor: Actor::Agent,
             recurrence_rule: None,
             materialization_policy: "single_open".to_string(),
+            future_occurrences: crate::domain::DEFAULT_FUTURE_OCCURRENCES,
             note: None,
             tags: Vec::new(),
         }
@@ -244,6 +246,7 @@ impl TodoService {
                 request.materialization_policy
             )));
         }
+        let future_occurrences = super::validate_future_occurrences(request.future_occurrences)?;
         let area_id = self.find_area(request.area)?;
         let now = self.next_now();
         let mut item = TodoItem::new(
@@ -256,6 +259,7 @@ impl TodoService {
         item.area_id = area_id;
         item.recurrence_rule = request.recurrence_rule;
         item.materialization_policy = request.materialization_policy;
+        item.future_occurrences = future_occurrences;
         item.note = request.note;
         item.tags = super::normalize_tags(request.tags);
         self.store_item_and_event(item.proposed_by, "propose_routine", None, item, None)

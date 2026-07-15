@@ -475,6 +475,7 @@ async fn operational_propose_routes_return_persisted_items() {
             "area":"운영",
             "recurrence_rule":"daily",
             "materialization_policy":"single_open",
+            "future_occurrences":3,
             "actor":"user"
         }),
     )
@@ -483,6 +484,7 @@ async fn operational_propose_routes_return_persisted_items() {
     let routine = body_json(response).await;
     assert_eq!(routine["type"], "routine");
     assert_eq!(routine["recurrence_rule"], "daily");
+    assert_eq!(routine["future_occurrences"], 3);
 
     let response = json_request(
         router(&db_path).unwrap(),
@@ -1263,7 +1265,7 @@ async fn materialize_route_creates_tasks_for_one_routine_and_is_repeatable() {
         router(&db_path).unwrap(),
         "POST",
         format!("/routines/{target}/materialize"),
-        json!({"lookahead_days": 2, "catchup_days": 1}),
+        json!({"future_occurrences": 9}),
     )
     .await;
 
@@ -1275,7 +1277,7 @@ async fn materialize_route_creates_tasks_for_one_routine_and_is_repeatable() {
         "caller renders last_materialized_at, so it must come back set"
     );
     let created = body["created"].as_array().unwrap();
-    assert_eq!(created.len(), 4);
+    assert_eq!(created.len(), 2);
     for task in created {
         assert_eq!(task["type"], "task");
         assert_eq!(task["status"], "approved");
@@ -1290,7 +1292,7 @@ async fn materialize_route_creates_tasks_for_one_routine_and_is_repeatable() {
         router(&db_path).unwrap(),
         "POST",
         format!("/routines/{target}/materialize"),
-        json!({"lookahead_days": 2, "catchup_days": 1}),
+        json!({"future_occurrences": 9}),
     )
     .await;
     assert_eq!(response.status(), 200);
@@ -1308,22 +1310,20 @@ async fn materialize_route_creates_tasks_for_one_routine_and_is_repeatable() {
     )
     .await;
     assert_eq!(response.status(), 200);
-    assert!(body_json(response).await.as_array().unwrap().is_empty());
+    assert_eq!(body_json(response).await.as_array().unwrap().len(), 7);
 }
 
 #[tokio::test]
-async fn materialize_route_defaults_the_window_and_rejects_bad_targets() {
+async fn materialize_route_requires_and_validates_the_future_target() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
     let routine = active_routine(&db_path, "이불정리", "single_open").await;
 
-    // Omitted fields => the CLI's 7/1 default window, and single_open caps it at
-    // one task.
     let response = json_request(
         router(&db_path).unwrap(),
         "POST",
         format!("/routines/{routine}/materialize"),
-        json!({}),
+        json!({"future_occurrences": 7}),
     )
     .await;
     assert_eq!(response.status(), 200);
@@ -1332,12 +1332,10 @@ async fn materialize_route_defaults_the_window_and_rejects_bad_targets() {
             .as_array()
             .unwrap()
             .len(),
-        1
+        0
     );
 
-    // An unparsable window must be rejected, not silently replaced by the
-    // default one -- that would materialize a window nobody asked for.
-    for bad_body in ["not json at all", r#"{"lookahead_days":"seven"}"#] {
+    for bad_body in ["not json at all", r#"{"future_occurrences":"seven"}"#] {
         let response = http_request(
             router(&db_path).unwrap(),
             "POST",
@@ -1349,15 +1347,18 @@ async fn materialize_route_defaults_the_window_and_rejects_bad_targets() {
         assert!(body_json(response).await["detail"].is_string());
     }
 
-    for bad_window in [json!({"lookahead_days": -1}), json!({"catchup_days": 366})] {
+    for bad_target in [
+        json!({"future_occurrences": 0}),
+        json!({"future_occurrences": 366}),
+    ] {
         let response = json_request(
             router(&db_path).unwrap(),
             "POST",
             format!("/routines/{routine}/materialize"),
-            bad_window.clone(),
+            bad_target.clone(),
         )
         .await;
-        assert_eq!(response.status(), 400, "window: {bad_window}");
+        assert_eq!(response.status(), 400, "target: {bad_target}");
         assert!(body_json(response).await["detail"].is_string());
     }
 
@@ -1365,7 +1366,7 @@ async fn materialize_route_defaults_the_window_and_rejects_bad_targets() {
         router(&db_path).unwrap(),
         "POST",
         "/routines/rtn_missing/materialize",
-        json!({}),
+        json!({"future_occurrences": 7}),
     )
     .await;
     assert_eq!(response.status(), 404);

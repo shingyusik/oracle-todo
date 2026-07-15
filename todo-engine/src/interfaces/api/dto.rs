@@ -51,6 +51,7 @@ pub(super) struct RoutineProposeBody {
     pub area: Option<String>,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: Option<String>,
+    pub future_occurrences: Option<i64>,
     pub note: Option<String>,
     pub actor: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -75,8 +76,7 @@ pub(super) struct EventProposeBody {
 
 #[derive(Deserialize)]
 pub(super) struct RoutineMaterializeBody {
-    pub lookahead_days: Option<i64>,
-    pub catchup_days: Option<i64>,
+    pub future_occurrences: i64,
 }
 
 #[derive(Deserialize, Default)]
@@ -95,6 +95,7 @@ pub(super) struct UpdateBody {
     pub review_cycle: Option<String>,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: Option<String>,
+    pub future_occurrences: Option<i64>,
     pub area: Option<String>,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,

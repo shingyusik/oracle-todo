@@ -102,6 +102,36 @@ pub fn occurrences(rule: &str, start: Date, end: Date) -> Result<Vec<Date>, Recu
     unsupported(original_rule)
 }
 
+pub fn future_occurrences(
+    rule: &str,
+    anchor: Date,
+    after: Date,
+    count: usize,
+) -> Result<Vec<Date>, RecurrenceError> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut days = 366_i64;
+    loop {
+        let end = anchor
+            .checked_add(Duration::days(days))
+            .unwrap_or(Date::MAX);
+        let upcoming = occurrences(rule, anchor, end)?
+            .into_iter()
+            .filter(|occurrence| *occurrence > after)
+            .take(count)
+            .collect::<Vec<_>>();
+        if upcoming.len() == count {
+            return Ok(upcoming);
+        }
+        if end == Date::MAX {
+            return unsupported(rule);
+        }
+        days = days.saturating_mul(2);
+    }
+}
+
 fn unsupported<T>(rule: &str) -> Result<T, RecurrenceError> {
     Err(RecurrenceError::unsupported(rule))
 }

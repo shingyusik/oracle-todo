@@ -75,6 +75,7 @@ pub(super) fn update(home: &Path, args: UpdateArgs) -> Result<()> {
             review_cycle: args.review_cycle,
             recurrence_rule: args.recurrence_rule,
             materialization_policy: args.materialization_policy,
+            future_occurrences: args.future_occurrences,
             area: args.area,
             project_id: args.project_id,
             parent_id: args.parent_id,
