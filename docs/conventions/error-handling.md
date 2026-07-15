@@ -3,16 +3,27 @@
 ## `TodoError`
 
 Domain/service errors are modeled by the `TodoError` enum in `todo-engine/src/application/error.rs`. It
-has **six variants** (verified against source):
+has **nine variants** (verified against source):
 
 | Variant | `Display` form | Meaning |
 | --- | --- | --- |
+| `GoalInvalidAnchor { horizon, scheduled }` | `Goal anchor {scheduled} is not the canonical start of its {horizon} period` | A goal's `scheduled` date is not its period's start. |
+| `GoalParentHorizonNotCoarser { parent_horizon, child_horizon }` | `Goal parent horizon ({parent}) must be strictly coarser than child horizon ({child})` | A goal's parent does not sit on a coarser horizon. |
 | `Policy(String)` | `{0}` | A policy rule was violated (e.g. activating a project without a `definition_of_done`). |
 | `Validation(String)` | `{0}` | Input was malformed or invalid (bad date, unknown actor/status, bad request body). |
 | `NotFound(String)` | `Item not found: {0}` | The referenced item does not exist. |
+| `Conflict(String)` | `conflict: {0}` | A write lost a uniqueness race against a concurrent one. |
 | `Storage(String)` | `storage error: {0}` | A SQLite/storage operation failed. |
 | `Migration(String)` | `migration error: {0}` | The legacy migration failed. |
 | `Internal(String)` | `internal error: {0}` | An unexpected internal failure (e.g. a serialization/format failure). |
+
+`GoalInvalidAnchor` and `GoalParentHorizonNotCoarser` also carry their horizons into the API
+error body via `api_metadata`, so a client can render the conflict without parsing the message.
+
+`Conflict` is raised by the SQLite layer when a write violates a `UNIQUE` index — the database,
+not a prior read, is what settles who won. Callers that can reconcile it do: materialization
+treats a lost race for an occurrence as "already materialized" and skips it, because the
+occurrence now exists either way.
 
 `TodoResult<T>` is the crate alias `Result<T, TodoError>` used throughout the service and
 repository layers.
@@ -24,8 +35,9 @@ The variant determines both the CLI exit code (`cli_exit_code`) and the HTTP sta
 
 | Variant | CLI exit code | HTTP status |
 | --- | --- | --- |
-| `Policy`, `Validation` | `2` | `400` |
+| `GoalInvalidAnchor`, `GoalParentHorizonNotCoarser`, `Policy`, `Validation` | `2` | `400` |
 | `NotFound` | `4` | `404` |
+| `Conflict` | `2` | `409` |
 | `Storage`, `Migration`, `Internal` | `1` | `500` |
 
 > The `axum` `ApiError::into_response` boundary maps every variant through

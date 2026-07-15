@@ -63,6 +63,7 @@ Use another data directory:
 export TODO_ENGINE_HOME=/path/to/data
 cargo run -p todo-engine -- init
 # or put TODO_ENGINE_HOME=/path/to/data in .env
+# (single-quote a path with backslashes: TODO_ENGINE_HOME='C:\path\to\data')
 # or
 cargo run -p todo-engine -- --home /path/to/data init
 ```
@@ -196,6 +197,10 @@ Recurring work template. Active routines materialize task instances through the 
 - Generated tasks link back through `routine_id`.
 - `single_open` keeps at most one open generated task per routine.
 - `per_occurrence` creates one task per occurrence in the materialization window.
+- The window spans `catchup_days` before today through `lookahead_days` after it, defaulting to
+  `1` and `7`. Each side is capped at `365`.
+- Occurrences are unique per `(routine_id, occurrence_key)`, so re-materializing the same window
+  creates nothing.
 
 Required / useful columns:
 
@@ -386,6 +391,7 @@ Error handling:
 - Domain/service errors use `TodoError` in `todo-engine/src/application/error.rs`.
 - Policy/validation errors map to CLI exit code `2` and HTTP `400`.
 - Not-found errors map to CLI exit code `4` and HTTP `404`.
+- Conflict errors (a write that lost a uniqueness race) map to CLI exit code `2` and HTTP `409`.
 - Storage/migration/internal errors map to CLI exit code `1` and HTTP `500`.
 
 ## Event log
@@ -418,6 +424,7 @@ Endpoints:
 - `POST /areas`: create area.
 - `POST /projects/propose`: propose project.
 - `POST /routines/propose`: propose routine.
+- `POST /routines/{id}/materialize`: materialize one active routine's tasks. Body `lookahead_days` / `catchup_days` (defaults `7` / `1`, each capped at `365`). Returns `{"routine", "created"}`.
 - `POST /events/propose`: propose event.
 - `POST /tasks/propose`: propose task.
 - `POST /goals/propose`: propose goal.

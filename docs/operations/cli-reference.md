@@ -38,9 +38,13 @@ Propose a routine. Flags: `--area`, `--recurrence-rule`, `--materialization-poli
 (default `single_open`), `--note`, `--actor` (default `agent`).
 
 ### `routine materialize`
-Materialize due routine tasks. Flags: `--now <date>` (defaults to today's local date),
-`--lookahead-days <int>` (default `7`), `--catchup-days <int>` (default `1`). Prints each
+Materialize due tasks for every active routine. Flags: `--now <date>` (defaults to today's
+local date), `--lookahead-days <int>` (default `7`), `--catchup-days <int>` (default `1`).
+Both day counts must be between `0` and `365`; outside that range exits `2`. Prints each
 created task as JSON, or `No routine tasks materialized`.
+
+To materialize a single routine instead of sweeping all of them, use
+`POST /routines/{id}/materialize` (see [api-reference.md](api-reference.md)).
 
 ### `event propose <title> <scheduled>`
 Propose an event. `<scheduled>` is a positional date/time string. Flags: `--area`,
@@ -91,5 +95,6 @@ with a helpful message and a validation exit code.
 
 ## Exit codes
 
-Policy/validation → `2`; not-found → `4`; storage/migration/internal → `1`; success → `0`.
+Policy/validation → `2`; not-found → `4`; conflict → `2`; storage/migration/internal → `1`;
+success → `0`.
 See [../conventions/error-handling.md](../conventions/error-handling.md).

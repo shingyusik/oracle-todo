@@ -20,6 +20,7 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `POST` | `/projects/propose` | `propose_project` | `ProjectProposeBody` |
 | `POST` | `/goals/propose` | `propose_goal` | `GoalProposeBody` |
 | `POST` | `/routines/propose` | `propose_routine` | `RoutineProposeBody` |
+| `POST` | `/routines/:id/materialize` | `materialize_routine` | `RoutineMaterializeBody` |
 | `POST` | `/events/propose` | `propose_event` | `EventProposeBody` |
 | `POST` | `/tasks/propose` | `propose_task` | `TaskProposeBody` |
 | `GET` | `/items` | `list_items` | `ItemsQuery` (see below) |
@@ -44,6 +45,22 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 - Writes a `reopen` audit event.
 - Returns HTTP `400` with `code=policy_error` for another item type or source status.
 
+### Materialize one routine
+
+`POST /routines/{id}/materialize`
+
+Generates the routine's tasks for a window around today, following the routine's
+`materialization_policy`. Unlike the CLI's `routine materialize`, which sweeps every active
+routine, this acts only on `{id}`.
+
+- Accepts only an item with `type=routine` and `status=active`; anything else is HTTP `400`
+  with `code=policy_error`.
+- Returns `{"routine": TodoItem, "created": [TodoItem]}` — the routine carries the refreshed
+  `last_materialized_at`, and `created` holds only the tasks this call generated. Occurrences
+  that already had a task are absent from `created`.
+- Repeating a call over the same window creates nothing and returns an empty `created`.
+- A malformed body is rejected rather than replaced by the default window.
+
 ## Request bodies
 
 - **`AreaBody`** — `title` (required), `review_cycle?`, `standard?`, `note?`, `tags?`.
@@ -56,6 +73,9 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 - **`RoutineProposeBody`** — `title` (required), `area?`, `recurrence_rule?`,
   `materialization_policy?` (default `single_open`), `note?`, `tags?`,
   `actor?` (default `agent`).
+- **`RoutineMaterializeBody`** — `lookahead_days?` (default `7`), `catchup_days?` (default `1`).
+  Both count days from today and must be between `0` and `365`; outside that range is HTTP `400`
+  with `code=validation_error`. Send `{}` for the defaults.
 - **`EventProposeBody`** — `title` (required), `scheduled` (required), `area?`, `project_id?`,
   `due?`, `priority?`, `description?`, `note?`, `location?`, `participants?` (array),
   `commitment_type?` (default `appointment`), `tags?`, `actor?` (default `agent`).
@@ -82,7 +102,7 @@ the wire as `type` via `#[serde(rename = "type")]`), `area_id`, `project_id`, `p
 ## Status mapping note
 
 The `axum` error boundary maps every `TodoError` through `http_status_code`:
-policy/validation → 400, not-found → 404, storage/migration/internal → 500. See
+policy/validation → 400, not-found → 404, conflict → 409, storage/migration/internal → 500. See
 [../conventions/error-handling.md](../conventions/error-handling.md).
 
 ## In-memory mode

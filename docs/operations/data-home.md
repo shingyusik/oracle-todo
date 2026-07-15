@@ -20,6 +20,18 @@ echo 'TODO_ENGINE_HOME=/path/to/data' > .env
 cargo run -p todo-engine -- init
 ```
 
+### Backslashes in `.env`
+
+`.env` values follow shell escaping, so `\` starts an escape sequence and a bare Windows path
+fails to parse. Single-quote the value (or write it with forward slashes):
+
+```dotenv
+TODO_ENGINE_HOME='C:\Users\me\todo-data'   # or: C:/Users/me/todo-data
+```
+
+A `.env` that fails to parse aborts the command with exit `1` rather than silently falling back
+to the default home. A missing `.env` is normal and stays silent.
+
 ## Layout
 
 ```text

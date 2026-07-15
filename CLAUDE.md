@@ -53,11 +53,11 @@ CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `task`, `ro
 
 ## Data Home & Configuration
 
-- Data home: `--home <path>`, `TODO_ENGINE_HOME`, or `TODO_ENGINE_HOME` in `.env`; default `~/.todo-engine/`.
+- Data home: `--home <path>`, `TODO_ENGINE_HOME`, or `TODO_ENGINE_HOME` in `.env`; default `~/.todo-engine/`. `.env` treats `\` as an escape, so single-quote a Windows path; an unparsable `.env` aborts instead of falling back.
 - Layout: `todo.sqlite`, `logs/todo-engine.log.jsonl(.1-.3)`.
 - Log levels: `TODO_ENGINE_CONSOLE_LOG` (default `info`), `TODO_ENGINE_FILE_LOG` (default `debug`).
 - Log rotation: `TODO_ENGINE_LOG_MAX_BYTES` (default `1_048_576`), `TODO_ENGINE_LOG_MAX_FILES` (default `3`).
-- Exit codes / HTTP status: policy/validation → CLI `2` / HTTP `400`; not-found → CLI `4` / HTTP `404`; storage/internal → CLI `1` / HTTP `500`.
+- Exit codes / HTTP status: policy/validation → CLI `2` / HTTP `400`; not-found → CLI `4` / HTTP `404`; conflict → CLI `2` / HTTP `409`; storage/internal → CLI `1` / HTTP `500`.
 
 ## Gotchas
 
