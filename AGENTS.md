@@ -79,5 +79,6 @@ Codex project hooks live in `.codex/hooks.json`. On `session_start` for `startup
 | `code-audits` | `.codex/skills/*-audit`, `.codex/skills/quality-audit` | `.claude/plugins/code-audits/skills/` | Auditing architecture boundaries, complexity, duplication, conventions, error/logging, constants, test quality, docs sync, or resource lifecycle. Use `quality-audit` for the full sweep. |
 | `code-cleanup` | `.codex/skills/deadcode-cleaner` | `.claude/plugins/code-cleanup/skills/` | Cleaning up dead code, legacy code, or unnecessary comments. |
 | `git-workflow` | `.codex/skills/structured-commit` | `.claude/plugins/git-workflow/skills/` | Committing changes or splitting them into structured commits. |
+| `dev-workflow` | `.codex/skills/verify-todo-engine` | `.claude/plugins/dev-workflow/skills/` | Running the engine + frontend against a throwaway data home to observe a change working end-to-end. |
 
 Workflow: docs follow code — after a change lands, sync docs with `docs-tools`, then commit with `git-workflow`.

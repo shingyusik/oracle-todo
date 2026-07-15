@@ -23,6 +23,11 @@
       "name": "git-workflow",
       "source": "./git-workflow",
       "description": "Git workflow skills: structured commit splitting and message conventions"
+    },
+    {
+      "name": "dev-workflow",
+      "source": "./dev-workflow",
+      "description": "Development workflow skills: build, run, and drive todo-engine end-to-end to verify a change"
     }
   ]
 }
