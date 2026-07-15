@@ -41,6 +41,7 @@ export type WorkspaceItemModel = {
   horizon?: string | null;
   recurrence_rule?: string | null;
   materialization_policy?: string | null;
+  future_occurrences?: number | null;
   due?: string | null;
   scheduled?: string | null;
   priority?: number | null;
@@ -129,18 +130,13 @@ export type WorkspaceItemTransitionState = {
   error: string | null;
 };
 
-export type MaterializeRoutineWindow = {
-  lookahead_days: number;
-  catchup_days: number;
+export type MaterializeRoutineTarget = {
+  future_occurrences: number;
 };
 
-export const DEFAULT_MATERIALIZE_WINDOW: MaterializeRoutineWindow = {
-  lookahead_days: 7,
-  catchup_days: 1,
-};
+export const DEFAULT_FUTURE_OCCURRENCES = 7;
 
-// Mirrors the service-side cap; the service is what actually enforces it.
-export const MAX_MATERIALIZE_WINDOW_DAYS = 365;
+export const MAX_FUTURE_OCCURRENCES = 365;
 
 export type WorkbenchController = {
   selection: WorkbenchSelection;
@@ -187,7 +183,7 @@ export type WorkbenchController = {
   workspaceItemTransitionState: (itemId: string) => WorkspaceItemTransitionState;
   materializeRoutine: (
     itemId: string,
-    window: MaterializeRoutineWindow,
+    target: MaterializeRoutineTarget,
   ) => Promise<WorkspaceItemModel[]>;
   saveDetailItem: (patch: WorkspaceItemPatch) => Promise<void>;
   closeDetailView: () => void;

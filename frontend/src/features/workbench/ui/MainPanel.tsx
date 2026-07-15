@@ -44,9 +44,9 @@ import {
   type PlannerSortRule,
 } from "@/features/workbench/model/planner-model";
 import {
-  DEFAULT_MATERIALIZE_WINDOW,
-  MAX_MATERIALIZE_WINDOW_DAYS,
-  type MaterializeRoutineWindow,
+  DEFAULT_FUTURE_OCCURRENCES,
+  MAX_FUTURE_OCCURRENCES,
+  type MaterializeRoutineTarget,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemsModel,
@@ -2857,18 +2857,16 @@ function DetailTypeFields({
   return null;
 }
 
-function validMaterializeWindowValue(value: string): boolean {
-  const days = Number(value);
+function validFutureOccurrences(value: string): boolean {
+  const count = Number(value);
   return (
     value.trim() !== "" &&
-    Number.isInteger(days) &&
-    days >= 0 &&
-    days <= MAX_MATERIALIZE_WINDOW_DAYS
+    Number.isInteger(count) &&
+    count >= 1 &&
+    count <= MAX_FUTURE_OCCURRENCES
   );
 }
 
-// The window is a per-run parameter, not a routine column, so it lives in local
-// state next to the button rather than in the item draft.
 function RoutineMaterializeField({
   item,
   controller,
@@ -2876,35 +2874,32 @@ function RoutineMaterializeField({
   item: WorkspaceItemModel;
   controller: WorkbenchController;
 }) {
-  const [catchupDays, setCatchupDays] = React.useState(
-    DEFAULT_MATERIALIZE_WINDOW.catchup_days.toString(),
-  );
-  const [lookaheadDays, setLookaheadDays] = React.useState(
-    DEFAULT_MATERIALIZE_WINDOW.lookahead_days.toString(),
+  const [futureOccurrences, setFutureOccurrences] = React.useState(
+    (item.future_occurrences ?? DEFAULT_FUTURE_OCCURRENCES).toString(),
   );
   const [pending, setPending] = React.useState(false);
   const [status, setStatus] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    setFutureOccurrences(
+      (item.future_occurrences ?? DEFAULT_FUTURE_OCCURRENCES).toString(),
+    );
     setStatus(null);
     setError(null);
   }, [item.id]);
 
-  const windowReady =
-    validMaterializeWindowValue(catchupDays) &&
-    validMaterializeWindowValue(lookaheadDays);
+  const targetReady = validFutureOccurrences(futureOccurrences);
 
   async function materialize() {
-    const window: MaterializeRoutineWindow = {
-      lookahead_days: Number(lookaheadDays),
-      catchup_days: Number(catchupDays),
+    const target: MaterializeRoutineTarget = {
+      future_occurrences: Number(futureOccurrences),
     };
     setPending(true);
     setStatus(null);
     setError(null);
     try {
-      const created = await controller.materializeRoutine(item.id, window);
+      const created = await controller.materializeRoutine(item.id, target);
       setStatus(
         created.length === 0
           ? "No new tasks for this window"
@@ -2926,31 +2921,20 @@ function RoutineMaterializeField({
       <span>Materialize</span>
       <div className="materialize-fields">
         <label className="field-label materialize-field">
-          Catchup days
+          Future occurrences
           <input
             type="number"
-            min={0}
-            max={MAX_MATERIALIZE_WINDOW_DAYS}
+            min={1}
+            max={MAX_FUTURE_OCCURRENCES}
             step={1}
-            value={catchupDays}
-            onChange={(event) => setCatchupDays(event.target.value)}
-          />
-        </label>
-        <label className="field-label materialize-field">
-          Lookahead days
-          <input
-            type="number"
-            min={0}
-            max={MAX_MATERIALIZE_WINDOW_DAYS}
-            step={1}
-            value={lookaheadDays}
-            onChange={(event) => setLookaheadDays(event.target.value)}
+            value={futureOccurrences}
+            onChange={(event) => setFutureOccurrences(event.target.value)}
           />
         </label>
         <button
           type="button"
           className="materialize-button"
-          disabled={pending || !windowReady}
+          disabled={pending || !targetReady}
           onClick={() => void materialize()}
         >
           {pending ? "Materializing…" : "Materialize"}

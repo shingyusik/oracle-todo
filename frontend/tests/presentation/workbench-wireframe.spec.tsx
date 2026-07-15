@@ -5314,7 +5314,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Archive selected items" })).toBeEnabled();
   });
 
-  it("materializes a routine with the window shown next to the button", async () => {
+  it("materializes a routine with its future occurrence target", async () => {
     const user = userEvent.setup();
     const routine = {
       id: "rtn-1",
@@ -5323,12 +5323,13 @@ describe("WorkbenchPageClient", () => {
       status: "active",
       recurrence_rule: "RRULE:FREQ=DAILY",
       materialization_policy: "per_occurrence",
+      future_occurrences: 7,
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url) === "/todo-engine/routines/rtn-1/materialize") {
         expect(init?.method).toBe("POST");
         expect(init?.body).toBe(
-          JSON.stringify({ lookahead_days: 2, catchup_days: 0 }),
+          JSON.stringify({ future_occurrences: 3 }),
         );
         return Promise.resolve({
           ok: true,
@@ -5356,15 +5357,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Routines" }));
     await user.click(await screen.findByRole("cell", { name: "이불정리" }));
 
-    // Defaults match the CLI so both surfaces generate the same occurrences.
-    expect(screen.getByLabelText("Lookahead days")).toHaveValue(7);
-    expect(screen.getByLabelText("Catchup days")).toHaveValue(1);
+    expect(screen.getByLabelText("Future occurrences")).toHaveValue(7);
     expect(within(propertyRow("Last Materialized")).getByText("-")).toBeInTheDocument();
 
-    await user.clear(screen.getByLabelText("Lookahead days"));
-    await user.type(screen.getByLabelText("Lookahead days"), "2");
-    await user.clear(screen.getByLabelText("Catchup days"));
-    await user.type(screen.getByLabelText("Catchup days"), "0");
+    await user.clear(screen.getByLabelText("Future occurrences"));
+    await user.type(screen.getByLabelText("Future occurrences"), "3");
     await user.click(screen.getByRole("button", { name: "Materialize" }));
 
     expect(await screen.findByText("Created 3 tasks")).toBeInTheDocument();
@@ -5373,7 +5370,7 @@ describe("WorkbenchPageClient", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("blocks an empty materialization window and reports a rejected one", async () => {
+  it("blocks an invalid future occurrence target and reports a rejected one", async () => {
     const user = userEvent.setup();
     const routine = {
       id: "rtn-1",
@@ -5382,6 +5379,7 @@ describe("WorkbenchPageClient", () => {
       status: "approved",
       recurrence_rule: "RRULE:FREQ=DAILY",
       materialization_policy: "per_occurrence",
+      future_occurrences: 7,
     };
     const fetchMock = vi.fn((url: string) => {
       if (String(url) === "/todo-engine/routines/rtn-1/materialize") {
@@ -5408,18 +5406,15 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Routines" }));
     await user.click(await screen.findByRole("cell", { name: "이불정리" }));
 
-    await user.clear(screen.getByLabelText("Lookahead days"));
+    await user.clear(screen.getByLabelText("Future occurrences"));
     expect(screen.getByRole("button", { name: "Materialize" })).toBeDisabled();
 
-    // A year is the cap: one press has no bulk undo, so 400 days of tasks is not
-    // an option the panel offers.
-    await user.type(screen.getByLabelText("Lookahead days"), "400");
+    await user.type(screen.getByLabelText("Future occurrences"), "366");
     expect(screen.getByRole("button", { name: "Materialize" })).toBeDisabled();
-    expect(screen.getByLabelText("Lookahead days")).toHaveAttribute("max", "365");
-    expect(screen.getByLabelText("Catchup days")).toHaveAttribute("max", "365");
+    expect(screen.getByLabelText("Future occurrences")).toHaveAttribute("max", "365");
 
-    await user.clear(screen.getByLabelText("Lookahead days"));
-    await user.type(screen.getByLabelText("Lookahead days"), "7");
+    await user.clear(screen.getByLabelText("Future occurrences"));
+    await user.type(screen.getByLabelText("Future occurrences"), "7");
     await user.click(screen.getByRole("button", { name: "Materialize" }));
 
     // The service owns the active-routine rule; the panel surfaces its wording

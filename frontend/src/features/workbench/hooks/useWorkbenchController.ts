@@ -13,7 +13,7 @@ import {
 } from "@/domain/workbench/navigation";
 import {
   type CreateWorkspaceItemForm,
-  type MaterializeRoutineWindow,
+  type MaterializeRoutineTarget,
   type PlannerControls,
   type WorkbenchController,
   type WorkspaceItemModel,
@@ -660,12 +660,12 @@ function postArchiveItem(itemId: string): Promise<WorkspaceItemModel> {
 
 function postMaterializeRoutine(
   itemId: string,
-  window: MaterializeRoutineWindow,
+  target: MaterializeRoutineTarget,
 ): Promise<{ routine: WorkspaceItemModel; created: WorkspaceItemModel[] }> {
   return fetch(`/todo-engine/routines/${itemId}/materialize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(window),
+    body: JSON.stringify(target),
   }).then((response) => {
     if (!response.ok) {
       return throwApiError(response);
