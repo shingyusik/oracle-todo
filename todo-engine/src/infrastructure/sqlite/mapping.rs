@@ -175,11 +175,13 @@ pub(super) fn parse_optional_json(value: Option<&str>) -> TodoResult<Option<Valu
 /// A uniqueness violation means another writer already claimed the row, which
 /// callers can reconcile; everything else from SQLite is a storage failure.
 pub(super) fn storage_error(error: rusqlite::Error) -> TodoError {
-    if let rusqlite::Error::SqliteFailure(failure, _) = &error
-        && failure.code == rusqlite::ErrorCode::ConstraintViolation
-        && failure.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
-    {
-        return TodoError::Conflict(error.to_string());
+    match &error {
+        rusqlite::Error::SqliteFailure(failure, _)
+            if failure.code == rusqlite::ErrorCode::ConstraintViolation
+                && failure.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+        {
+            TodoError::Conflict(error.to_string())
+        }
+        _ => TodoError::Storage(error.to_string()),
     }
-    TodoError::Storage(error.to_string())
 }

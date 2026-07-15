@@ -187,10 +187,11 @@ impl TodoService {
         if let Some(due) = due {
             item.due = Some(due);
         }
-        if item.item_type != ItemType::Goal
-            && let Some(scheduled) = scheduled
-        {
-            item.scheduled = Some(scheduled);
+        match scheduled {
+            Some(scheduled) if item.item_type != ItemType::Goal => {
+                item.scheduled = Some(scheduled);
+            }
+            _ => {}
         }
         if let Some(priority) = priority {
             item.priority = Some(priority);
