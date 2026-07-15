@@ -350,7 +350,7 @@ struct PeriodArgs {
 }
 
 pub fn run() -> Result<()> {
-    dotenvy::dotenv().ok();
+    load_dotenv()?;
     let cli = Cli::parse();
     let command_name = command_label(&cli.command);
     let home = todo_home(cli.home)?;
@@ -532,6 +532,24 @@ pub(super) fn connect_path(path: &Path) -> Result<rusqlite::Connection> {
         .to_str()
         .with_context(|| format!("database path is not valid UTF-8: {}", path.display()))?;
     connect(path).map_err(Into::into)
+}
+
+/// Load `.env` if there is one.
+///
+/// A missing file is the normal case and stays silent. A malformed one is not:
+/// swallowing it drops `TODO_ENGINE_HOME` and silently falls back to the default
+/// data home, which reads as "my config was ignored for no reason". Note that
+/// dotenv treats `\` as an escape, so a bare Windows path fails to parse -- it
+/// has to be single-quoted or written with forward slashes.
+fn load_dotenv() -> Result<()> {
+    match dotenvy::dotenv() {
+        Ok(_) => Ok(()),
+        Err(error) if error.not_found() => Ok(()),
+        Err(error) => Err(anyhow::Error::new(error).context(
+            "failed to parse .env (single-quote values containing backslashes, e.g. \
+             TODO_ENGINE_HOME='C:\\path\\to\\home')",
+        )),
+    }
 }
 
 pub(super) fn today_string() -> String {

@@ -37,9 +37,11 @@ fn init_loads_todo_engine_home_from_dotenv() {
     let home = TestHome::new();
     let cwd = tempfile::tempdir().expect("create dotenv cwd");
     let fallback_home = tempfile::tempdir().expect("create fallback home");
+    // Single-quoted: dotenv reads `\` as an escape, so a bare Windows path does
+    // not survive an unquoted value.
     std::fs::write(
         cwd.path().join(".env"),
-        format!("TODO_ENGINE_HOME={}\n", home.path().display()),
+        format!("TODO_ENGINE_HOME='{}'\n", home.path().display()),
     )
     .expect("write .env");
 
@@ -54,6 +56,37 @@ fn init_loads_todo_engine_home_from_dotenv() {
         .stdout(contains(home.db_path().to_string_lossy().as_ref()));
 
     assert!(home.db_path().exists());
+    assert!(
+        !fallback_home
+            .path()
+            .join(".todo-engine/todo.sqlite")
+            .exists()
+    );
+}
+
+#[test]
+fn init_reports_an_unparsable_dotenv_instead_of_falling_back() {
+    let cwd = tempfile::tempdir().expect("create dotenv cwd");
+    let fallback_home = tempfile::tempdir().expect("create fallback home");
+    // An unquoted backslash path -- the shape a Windows user reaches for first.
+    // Silently ignoring it would resolve the home to the fallback with no hint
+    // that the .env was dropped.
+    std::fs::write(
+        cwd.path().join(".env"),
+        "TODO_ENGINE_HOME=C:\\Users\\someone\\todo-home\n",
+    )
+    .expect("write .env");
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .current_dir(cwd.path())
+        .env_remove("TODO_ENGINE_HOME")
+        .env("HOME", fallback_home.path())
+        .arg("init")
+        .assert()
+        .failure()
+        .stderr(contains("failed to parse .env"));
+
     assert!(
         !fallback_home
             .path()
