@@ -25,6 +25,7 @@ fn agent_item_starts_proposed() {
 fn defaults_are_sane() {
     let item = TodoItem::new("t1", ItemType::Task, "X", Actor::User, NOW);
     assert_eq!(item.materialization_policy, "single_open");
+    assert_eq!(item.future_occurrences, 7);
     assert!(item.metadata.is_empty());
     assert!(item.second_brain_refs.is_empty());
     assert_eq!(item.created_at, NOW);

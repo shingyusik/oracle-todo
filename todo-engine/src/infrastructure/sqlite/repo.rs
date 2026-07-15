@@ -148,7 +148,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
                 INSERT INTO items (
                     id, type, title, status, area_id, project_id, routine_id, parent_id,
                     description, note, outcome, definition_of_done, standard, review_cycle,
-                    recurrence_rule, materialization_policy, occurrence_key, priority, due,
+                    recurrence_rule, materialization_policy, future_occurrences, occurrence_key, priority, due,
                     scheduled, horizon, proposed_by, approved_by, approved_at, completed_at,
                     archived_at, last_materialized_at, second_brain_refs, tags, metadata,
                     created_at, updated_at
@@ -156,7 +156,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
                 VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28,
-                    ?29, ?30, ?31, ?32
+                    ?29, ?30, ?31, ?32, ?33
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     type = excluded.type,
@@ -174,6 +174,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
                     review_cycle = excluded.review_cycle,
                     recurrence_rule = excluded.recurrence_rule,
                     materialization_policy = excluded.materialization_policy,
+                    future_occurrences = excluded.future_occurrences,
                     occurrence_key = excluded.occurrence_key,
                     priority = excluded.priority,
                     due = excluded.due,
@@ -207,6 +208,7 @@ fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {
             item.review_cycle,
             item.recurrence_rule,
             item.materialization_policy,
+            item.future_occurrences,
             item.occurrence_key,
             item.priority,
             item.due,

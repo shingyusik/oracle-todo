@@ -23,7 +23,7 @@ pub(super) fn item_select_sql(suffix: &str) -> String {
     format!(
         "SELECT id, type, title, status, area_id, project_id, routine_id, parent_id,
                 description, note, outcome, definition_of_done, standard, review_cycle,
-                recurrence_rule, materialization_policy, occurrence_key, priority, due,
+                recurrence_rule, materialization_policy, future_occurrences, occurrence_key, priority, due,
                 scheduled, horizon, proposed_by, approved_by, approved_at, completed_at,
                 archived_at, last_materialized_at, second_brain_refs, tags, metadata,
                 created_at, updated_at
@@ -35,17 +35,17 @@ pub(super) fn item_select_sql(suffix: &str) -> String {
 pub(super) fn row_to_item(row: &Row<'_>) -> TodoResult<TodoItem> {
     let item_type: String = row_value(row, 1)?;
     let status: String = row_value(row, 3)?;
-    let proposed_by: String = row_value(row, 21)?;
-    let approved_by: Option<String> = row_value(row, 22)?;
-    let approved_at: Option<String> = row_value(row, 23)?;
-    let completed_at: Option<String> = row_value(row, 24)?;
-    let archived_at: Option<String> = row_value(row, 25)?;
-    let last_materialized_at: Option<String> = row_value(row, 26)?;
-    let second_brain_refs: String = row_value(row, 27)?;
-    let tags: String = row_value(row, 28)?;
-    let metadata: String = row_value(row, 29)?;
-    let created_at: String = row_value(row, 30)?;
-    let updated_at: String = row_value(row, 31)?;
+    let proposed_by: String = row_value(row, 22)?;
+    let approved_by: Option<String> = row_value(row, 23)?;
+    let approved_at: Option<String> = row_value(row, 24)?;
+    let completed_at: Option<String> = row_value(row, 25)?;
+    let archived_at: Option<String> = row_value(row, 26)?;
+    let last_materialized_at: Option<String> = row_value(row, 27)?;
+    let second_brain_refs: String = row_value(row, 28)?;
+    let tags: String = row_value(row, 29)?;
+    let metadata: String = row_value(row, 30)?;
+    let created_at: String = row_value(row, 31)?;
+    let updated_at: String = row_value(row, 32)?;
 
     Ok(TodoItem {
         id: row_value(row, 0)?,
@@ -64,11 +64,12 @@ pub(super) fn row_to_item(row: &Row<'_>) -> TodoResult<TodoItem> {
         review_cycle: row_value(row, 13)?,
         recurrence_rule: row_value(row, 14)?,
         materialization_policy: row_value(row, 15)?,
-        occurrence_key: row_value(row, 16)?,
-        priority: row_value(row, 17)?,
-        due: row_value(row, 18)?,
-        scheduled: row_value(row, 19)?,
-        horizon: row_value(row, 20)?,
+        future_occurrences: row_value(row, 16)?,
+        occurrence_key: row_value(row, 17)?,
+        priority: row_value(row, 18)?,
+        due: row_value(row, 19)?,
+        scheduled: row_value(row, 20)?,
+        horizon: row_value(row, 21)?,
         proposed_by: parse_actor(&proposed_by)?,
         approved_by: parse_optional_actor(approved_by.as_deref())?,
         approved_at: parse_optional_time(approved_at.as_deref())?,

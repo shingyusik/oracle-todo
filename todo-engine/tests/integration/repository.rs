@@ -79,12 +79,14 @@ fn saving_item_and_event_persists_to_sqlite() {
     let now = datetime!(2026-06-01 00:00 UTC);
     let mut item = TodoItem::new_task("task_test", "테스트", Actor::Agent, now);
     item.note = Some("간단 메모".to_string());
+    item.future_occurrences = 3;
 
     repo.save_item(&item).unwrap();
     let fetched = repo.get_item(&item.id).unwrap().unwrap();
 
     assert_eq!(fetched.title, "테스트");
     assert_eq!(fetched.note.as_deref(), Some("간단 메모"));
+    assert_eq!(fetched.future_occurrences, 3);
     assert_eq!(fetched.status, ItemStatus::Proposed);
     assert_eq!(repo.list_items(ListFilter::default()).unwrap().len(), 1);
 
@@ -419,6 +421,7 @@ fn schema_init_adds_missing_columns() {
         .unwrap();
 
     assert!(columns.contains(&"materialization_policy".to_string()));
+    assert!(columns.contains(&"future_occurrences".to_string()));
     assert!(columns.contains(&"last_materialized_at".to_string()));
     assert!(columns.contains(&"note".to_string()));
     assert_eq!(user_version(&conn).unwrap(), 1);

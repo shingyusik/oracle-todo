@@ -4,6 +4,9 @@ use serde_json::{Map, Value};
 use std::str::FromStr;
 use time::OffsetDateTime;
 
+pub const DEFAULT_FUTURE_OCCURRENCES: i64 = 7;
+pub const MAX_FUTURE_OCCURRENCES: i64 = 365;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemType {
@@ -44,6 +47,7 @@ pub struct TodoItem {
     pub review_cycle: Option<String>,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: String,
+    pub future_occurrences: i64,
     pub occurrence_key: Option<String>,
     pub priority: Option<i64>,
     pub due: Option<String>,
@@ -123,6 +127,7 @@ impl TodoItem {
             review_cycle: None,
             recurrence_rule: None,
             materialization_policy: "single_open".to_string(),
+            future_occurrences: DEFAULT_FUTURE_OCCURRENCES,
             occurrence_key: None,
             priority: None,
             due: None,
