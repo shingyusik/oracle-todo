@@ -27,6 +27,10 @@ pub enum TodoError {
     NotFound(String),
     #[error("{0}")]
     Validation(String),
+    /// A write lost a uniqueness race against a concurrent one. The database is
+    /// the arbiter, so this is a conflict to reconcile, not a failure.
+    #[error("conflict: {0}")]
+    Conflict(String),
     #[error("storage error: {0}")]
     Storage(String),
     #[error("migration error: {0}")]
@@ -43,6 +47,7 @@ impl TodoError {
             TodoError::Policy(_) => "policy_error",
             TodoError::Validation(_) => "validation_error",
             TodoError::NotFound(_) => "not_found",
+            TodoError::Conflict(_) => "conflict",
             TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => {
                 "internal_error"
             }
@@ -54,7 +59,8 @@ impl TodoError {
             TodoError::GoalInvalidAnchor { .. }
             | TodoError::GoalParentHorizonNotCoarser { .. }
             | TodoError::Policy(_)
-            | TodoError::Validation(_) => 2,
+            | TodoError::Validation(_)
+            | TodoError::Conflict(_) => 2,
             TodoError::NotFound(_) => 4,
             TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => 1,
         }
@@ -67,6 +73,7 @@ impl TodoError {
             | TodoError::Policy(_)
             | TodoError::Validation(_) => 400,
             TodoError::NotFound(_) => 404,
+            TodoError::Conflict(_) => 409,
             TodoError::Storage(_) | TodoError::Migration(_) | TodoError::Internal(_) => 500,
         }
     }
@@ -98,6 +105,7 @@ impl TodoError {
             TodoError::Policy(_)
             | TodoError::NotFound(_)
             | TodoError::Validation(_)
+            | TodoError::Conflict(_)
             | TodoError::Storage(_)
             | TodoError::Migration(_)
             | TodoError::Internal(_) => {}
