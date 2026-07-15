@@ -8,7 +8,10 @@ import { workbenchLayout } from "@/design/layout";
 import { designTokens } from "@/design/tokens";
 
 async function readSource(relativePath: string): Promise<string> {
-  return fs.readFile(path.join(process.cwd(), relativePath), "utf8");
+  const source = await fs.readFile(path.join(process.cwd(), relativePath), "utf8");
+  // Assertions below are written with LF, but git hands out CRLF working copies
+  // on Windows.
+  return source.replace(/\r\n/g, "\n");
 }
 
 async function collectSourceFiles(relativeDir: string): Promise<string[]> {
