@@ -46,11 +46,23 @@ $env:TODO_ENGINE_CONSOLE_LOG = 'error'
 function Invoke-Todo {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CliArgs)
 
-    $output = & cargo run -q -p todo-engine -- --home $DataHome @CliArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "todo-engine failed ($LASTEXITCODE): $($CliArgs -join ' ')"
+    # PowerShell decodes a native command's stdout with [Console]::OutputEncoding.
+    # The engine emits UTF-8, so on a default Korean console (CP949) a Korean
+    # title's bytes misdecode and the lead byte swallows the closing quote --
+    # ConvertFrom-Json then chokes on JSON the engine wrote correctly. Pin the
+    # decode to UTF-8 for the call and hand the console back as it was.
+    $previousEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    try {
+        $output = & cargo run -q -p todo-engine -- --home $DataHome @CliArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "todo-engine failed ($LASTEXITCODE): $($CliArgs -join ' ')"
+        }
+        return ($output -join "`n")
     }
-    return ($output -join "`n")
+    finally {
+        [Console]::OutputEncoding = $previousEncoding
+    }
 }
 
 function Get-ItemId {
