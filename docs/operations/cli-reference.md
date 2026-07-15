@@ -35,13 +35,13 @@ Propose a task. Flags: `--area`, `--due`, `--scheduled`, `--priority <int>`, `--
 
 ### `routine propose <title>`
 Propose a routine. Flags: `--area`, `--recurrence-rule`, `--materialization-policy`
-(default `single_open`), `--note`, `--actor` (default `agent`).
+(default `single_open`), `--future-occurrences <int>` (default `7`, range `1..=365`),
+`--note`, `--actor` (default `agent`).
 
 ### `routine materialize`
-Materialize due tasks for every active routine. Flags: `--now <date>` (defaults to today's
-local date), `--lookahead-days <int>` (default `7`), `--catchup-days <int>` (default `1`).
-Both day counts must be between `0` and `365`; outside that range exits `2`. Prints each
-created task as JSON, or `No routine tasks materialized`.
+Fill every active routine to its stored target. Prints each created task as JSON, or
+`No routine tasks materialized`. Activation creates the initial tasks, and completing a
+generated task replenishes its active routine automatically.
 
 To materialize a single routine instead of sweeping all of them, use
 `POST /routines/{id}/materialize` (see [api-reference.md](api-reference.md)).
@@ -76,7 +76,7 @@ Each takes a positional `<item_id>` and an optional `--reason`:
 ### `update <item_id>`
 Update mutable fields. Flags (all optional): `--title`, `--description`, `--note`,
 `--outcome`, `--definition-of-done`, `--standard`, `--review-cycle`, `--recurrence-rule`,
-`--materialization-policy`, `--area`, `--project-id`, `--routine-id`, `--due`, `--scheduled`,
+`--materialization-policy`, `--future-occurrences`, `--area`, `--project-id`, `--routine-id`, `--due`, `--scheduled`,
 `--priority <int>`, `--tag <tag>` (repeatable), `--reason`.
 
 ## View commands

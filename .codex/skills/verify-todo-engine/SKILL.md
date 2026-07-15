@@ -30,10 +30,10 @@ Routines must be `active` before they materialize, and activation requires a
 
 ```bash
 curl -sX POST :3002/routines/propose -H 'content-type: application/json' \
-  -d '{"title":"t","recurrence_rule":"daily","materialization_policy":"per_occurrence","actor":"user"}'
+  -d '{"title":"t","recurrence_rule":"daily","materialization_policy":"per_occurrence","future_occurrences":2,"actor":"user"}'
 curl -sX POST :3002/items/<id>/activate -H 'content-type: application/json' -d '{}'
 curl -sX POST :3002/routines/<id>/materialize -H 'content-type: application/json' \
-  -d '{"lookahead_days":2,"catchup_days":1}'
+  -d '{"future_occurrences":3}'
 ```
 
 Error contract: policy/validation → 400, not-found → 404, storage → 500, each

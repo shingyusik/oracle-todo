@@ -98,6 +98,7 @@ cargo run -p todo-engine -- routine propose "운동 기록 확인" \
   --area "건강" \
   --recurrence-rule "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" \
   --materialization-policy single_open \
+  --future-occurrences 7 \
   --note "아침 루틴"
 
 # Add an external event.
@@ -195,12 +196,15 @@ Recurring work template. Active routines materialize task instances through the 
 
 - Activation requires `recurrence_rule`.
 - Generated tasks link back through `routine_id`.
-- `single_open` keeps at most one open generated task per routine.
-- `per_occurrence` creates one task per occurrence in the materialization window.
-- The window spans `catchup_days` before today through `lookahead_days` after it, defaulting to
-  `1` and `7`. Each side is capped at `365`.
-- Occurrences are unique per `(routine_id, occurrence_key)`, so re-materializing the same window
-  creates nothing.
+- Activating a routine creates its initial future tasks; completing a generated task replenishes
+  the active routine automatically.
+- `single_open` maintains one non-terminal generated task per routine.
+- `per_occurrence` maintains `future_occurrences` non-terminal generated tasks.
+- `future_occurrences` defaults to `7` and must be between `1` and `365`.
+- Reducing the target keeps existing tasks and pauses replenishment until the open count falls
+  below the target.
+- Past occurrences are not generated.
+- Occurrences are unique per `(routine_id, occurrence_key)`.
 
 Required / useful columns:
 
@@ -213,6 +217,7 @@ Required / useful columns:
 | `area_id` | recommended | Owning area ID. |
 | `recurrence_rule` | required to activate/materialize | RRULE recurrence string. |
 | `materialization_policy` | yes | `single_open` or `per_occurrence`; default `single_open`. |
+| `future_occurrences` | yes | Rolling target for `per_occurrence`; default `7`, range `1..=365`. |
 | `note` | optional | Short free-form memo. |
 | `last_materialized_at` | system-managed | Last materialization timestamp. |
 | `metadata.occurrences` | system-managed | Terminal-state history for generated routine tasks. |
@@ -222,8 +227,8 @@ Supported recurrence examples:
 | Rule | Meaning |
 | --- | --- |
 | `RRULE:FREQ=DAILY` | Every day. |
-| `RRULE:FREQ=DAILY;INTERVAL=2` | Every 2 days from the materialization window start. |
-| `RRULE:FREQ=WEEKLY` | Every 7 days from the materialization window start. |
+| `RRULE:FREQ=DAILY;INTERVAL=2` | Every 2 days from the first generated occurrence. |
+| `RRULE:FREQ=WEEKLY` | Every 7 days from the first generated occurrence. |
 | `RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR` | Monday through Friday. |
 | `RRULE:FREQ=WEEKLY;BYDAY=SA,SU` | Saturday and Sunday. |
 | `RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO` | Every 2 weeks on Monday. |
@@ -322,6 +327,7 @@ SQLite table: `items`.
 | `review_cycle` | nullable text | Area review rhythm. |
 | `recurrence_rule` | nullable text | Routine RRULE recurrence rule. |
 | `materialization_policy` | `single_open`, `per_occurrence` | Routine task generation policy. |
+| `future_occurrences` | integer `1..=365` | Rolling target for future generated routine tasks. |
 | `occurrence_key` | nullable string | Routine occurrence key for generated tasks. |
 | `priority` | nullable int | Sort/attention priority. |
 | `due` | nullable string | Deadline. |
@@ -424,7 +430,7 @@ Endpoints:
 - `POST /areas`: create area.
 - `POST /projects/propose`: propose project.
 - `POST /routines/propose`: propose routine.
-- `POST /routines/{id}/materialize`: materialize one active routine's tasks. Body `lookahead_days` / `catchup_days` (defaults `7` / `1`, each capped at `365`). Returns `{"routine", "created"}`.
+- `POST /routines/{id}/materialize`: save an active routine's `future_occurrences` target and fill any shortage. Returns `{"routine", "created"}`.
 - `POST /events/propose`: propose event.
 - `POST /tasks/propose`: propose task.
 - `POST /goals/propose`: propose goal.
@@ -462,5 +468,6 @@ SQLite schema initialization is additive for existing databases. `init_schema()`
 
 - `note`
 - `materialization_policy`
+- `future_occurrences`
 - `occurrence_key`
 - `last_materialized_at`

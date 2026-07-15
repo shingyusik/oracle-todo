@@ -22,7 +22,8 @@ created/managed types and their invariants:
   `recurrence_rule`. Active routines materialize task instances through the service layer;
   generated tasks link back via `routine_id` and are de-duplicated by `occurrence_key`.
   `materialization_policy` is `single_open` (default — at most one open generated task per
-  routine) or `per_occurrence` (one task per occurrence in the window).
+  routine) or `per_occurrence` (maintain `future_occurrences` open generated tasks). Activation
+  fills the target, completion replenishes it, and reducing the target never deletes tasks.
 - **`task`** — a concrete action item. Agent-created tasks start `proposed`; user-created
   tasks start `approved`. May belong to an area, a (non-terminal) project, or a
   (non-terminal) routine.
@@ -107,7 +108,7 @@ factory, and the API service factory). It is **additive and idempotent** — ver
   never drops or rewrites existing tables.
 - `ensure_item_columns` reads `PRAGMA table_info(items)` and `ALTER TABLE items ADD COLUMN`
   for any column from the canonical set that an older database is missing (e.g. `note`,
-  `materialization_policy`, `occurrence_key`, `last_materialized_at`). Existing columns are
+  `materialization_policy`, `future_occurrences`, `occurrence_key`, `last_materialized_at`). Existing columns are
   left untouched.
 - Indexes are created with `IF NOT EXISTS`, including a unique index on
   `(routine_id, occurrence_key)` (where both are non-null) that guards routine occurrence

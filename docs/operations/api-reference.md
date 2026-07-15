@@ -49,17 +49,18 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 
 `POST /routines/{id}/materialize`
 
-Generates the routine's tasks for a window around today, following the routine's
+Saves the routine's rolling target and fills any shortage, following its
 `materialization_policy`. Unlike the CLI's `routine materialize`, which sweeps every active
-routine, this acts only on `{id}`.
+routine using stored targets, this acts only on `{id}`.
 
 - Accepts only an item with `type=routine` and `status=active`; anything else is HTTP `400`
   with `code=policy_error`.
 - Returns `{"routine": TodoItem, "created": [TodoItem]}` — the routine carries the refreshed
   `last_materialized_at`, and `created` holds only the tasks this call generated. Occurrences
   that already had a task are absent from `created`.
-- Repeating a call over the same window creates nothing and returns an empty `created`.
-- A malformed body is rejected rather than replaced by the default window.
+- Reducing the target keeps existing tasks; increasing it creates the missing future tasks.
+- Repeating a call with the same target creates nothing and returns an empty `created`.
+- A malformed or missing target is rejected.
 
 ## Request bodies
 
@@ -71,18 +72,17 @@ routine, this acts only on `{id}`.
 - **`GoalProposeBody`** — `title` (required), `horizon` (required: `year`, `month`, or `week`),
   `scheduled` (required canonical period start date), `parent_id?`, `actor?`, `note?`, `tags?`.
 - **`RoutineProposeBody`** — `title` (required), `area?`, `recurrence_rule?`,
-  `materialization_policy?` (default `single_open`), `note?`, `tags?`,
+  `materialization_policy?` (default `single_open`), `future_occurrences?` (default `7`), `note?`, `tags?`,
   `actor?` (default `agent`).
-- **`RoutineMaterializeBody`** — `lookahead_days?` (default `7`), `catchup_days?` (default `1`).
-  Both count days from today and must be between `0` and `365`; outside that range is HTTP `400`
-  with `code=validation_error`. Send `{}` for the defaults.
+- **`RoutineMaterializeBody`** — `future_occurrences` (required integer `1..=365`). Values
+  outside that range return HTTP `400` with `code=validation_error`.
 - **`EventProposeBody`** — `title` (required), `scheduled` (required), `area?`, `project_id?`,
   `due?`, `priority?`, `description?`, `note?`, `location?`, `participants?` (array),
   `commitment_type?` (default `appointment`), `tags?`, `actor?` (default `agent`).
 - **`ReasonBody`** — `reason?`. Optional on the transition endpoints that accept it.
 - **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
   `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,
-  `materialization_policy`, `area`, `project_id`, `parent_id`, `routine_id`, `due`,
+  `materialization_policy`, `future_occurrences`, `area`, `project_id`, `parent_id`, `routine_id`, `due`,
   `scheduled`, `priority`, `tags`, `reason`.
 
 Common create/update fields:
