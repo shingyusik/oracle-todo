@@ -13,7 +13,7 @@ use clap::{Args, Parser, Subcommand};
 use std::str::FromStr;
 
 use crate::application::error::TodoError;
-use crate::application::service::TodoService;
+use crate::application::service::{DEFAULT_CATCHUP_DAYS, DEFAULT_LOOKAHEAD_DAYS, TodoService};
 use crate::domain::{Actor, ItemStatus, ItemType};
 use crate::infrastructure::paths::{db_path, todo_home};
 use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
@@ -250,9 +250,9 @@ struct RoutineProposeArgs {
 struct RoutineMaterializeArgs {
     #[arg(long)]
     now: Option<String>,
-    #[arg(long, default_value_t = 7)]
+    #[arg(long, default_value_t = DEFAULT_LOOKAHEAD_DAYS)]
     lookahead_days: i64,
-    #[arg(long, default_value_t = 1)]
+    #[arg(long, default_value_t = DEFAULT_CATCHUP_DAYS)]
     catchup_days: i64,
 }
 

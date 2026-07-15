@@ -18,6 +18,7 @@ mod update;
 pub use creation::{
     CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
 };
+pub use materialization::{DEFAULT_CATCHUP_DAYS, DEFAULT_LOOKAHEAD_DAYS, MAX_WINDOW_DAYS};
 pub use queries::{GoalNode, PeriodView};
 pub use update::UpdateItem;
 

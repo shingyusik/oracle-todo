@@ -983,4 +983,22 @@ fn routine_materialize_covers_cli_intent() {
         .assert()
         .success()
         .stdout(contains("매일 호환성 점검"));
+
+    // The window cap is service policy, so the CLI is held to it too: exit 2,
+    // not a year of generated tasks.
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "routine",
+            "materialize",
+            "--now",
+            "2026-06-01",
+            "--lookahead-days",
+            "400",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("lookahead_days must be between 0 and 365"));
 }

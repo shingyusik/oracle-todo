@@ -1,7 +1,9 @@
 use time::macros::date;
 use todo_engine::application::error::TodoError;
+use todo_engine::application::ports::ListFilter;
 use todo_engine::application::service::{ProposeRoutine, ProposeTask, TodoService};
 use todo_engine::domain::{Actor, ItemStatus, ItemType, RecurrenceError, occurrences};
+use todo_engine::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
 
 fn occurrence_keys(items: &[todo_engine::domain::TodoItem]) -> Vec<String> {
     items
@@ -69,6 +71,226 @@ fn per_occurrence_materialization_creates_bounded_unique_tasks() {
             .and_then(|value| value.as_str())
             == Some("routine")
     }));
+}
+
+#[test]
+fn materialize_routine_targets_only_the_named_routine() {
+    let mut service = TodoService::in_memory();
+    let target = service
+        .propose_routine(ProposeRoutine {
+            title: "이불정리".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("daily".to_string()),
+            materialization_policy: "per_occurrence".to_string(),
+            area: None,
+            note: None,
+            tags: Vec::new(),
+        })
+        .unwrap();
+    service.activate(&target.id, None).unwrap();
+    let bystander = service
+        .propose_routine(ProposeRoutine {
+            title: "혈압 기록".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("daily".to_string()),
+            materialization_policy: "per_occurrence".to_string(),
+            area: None,
+            note: None,
+            tags: Vec::new(),
+        })
+        .unwrap();
+    service.activate(&bystander.id, None).unwrap();
+
+    let created = service
+        .materialize_routine(&target.id, "2026-05-26", 2, 1)
+        .unwrap();
+
+    assert_eq!(
+        occurrence_keys(&created),
+        vec!["2026-05-25", "2026-05-26", "2026-05-27", "2026-05-28"]
+    );
+    assert!(
+        created
+            .iter()
+            .all(|task| task.routine_id.as_deref() == Some(target.id.as_str()))
+    );
+    assert!(
+        service
+            .list_items(ListFilter {
+                item_type: Some(ItemType::Task),
+                routine_id: Some(bystander.id.clone()),
+                ..Default::default()
+            })
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        service
+            .get(&bystander.id)
+            .unwrap()
+            .last_materialized_at
+            .is_none()
+    );
+
+    let repeated = service
+        .materialize_routine(&target.id, "2026-05-26", 2, 1)
+        .unwrap();
+
+    assert!(repeated.is_empty());
+}
+
+#[test]
+fn materialize_routine_reports_routines_it_cannot_materialize() {
+    let mut service = TodoService::in_memory();
+
+    assert_eq!(
+        service
+            .materialize_routine("rtn_missing", "2026-05-26", 7, 1)
+            .unwrap_err(),
+        TodoError::NotFound("rtn_missing".to_string())
+    );
+
+    let task = service
+        .propose_task("루틴 아님", ProposeTask::default())
+        .unwrap();
+    assert_eq!(
+        service
+            .materialize_routine(&task.id, "2026-05-26", 7, 1)
+            .unwrap_err(),
+        TodoError::Policy(format!("Routine must be routine: {}", task.id))
+    );
+
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "이불정리".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("daily".to_string()),
+            materialization_policy: "per_occurrence".to_string(),
+            area: None,
+            note: None,
+            tags: Vec::new(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        service
+            .materialize_routine(&routine.id, "2026-05-26", 7, 1)
+            .unwrap_err(),
+        TodoError::Policy("Routine must be active to materialize: approved".to_string())
+    );
+
+    service.activate(&routine.id, None).unwrap();
+
+    assert_eq!(
+        service
+            .materialize_routine(&routine.id, "2026-05-26", -1, 0)
+            .unwrap_err(),
+        TodoError::Validation("lookahead_days must be between 0 and 365: -1".to_string())
+    );
+}
+
+#[test]
+fn materialize_skips_an_occurrence_a_concurrent_writer_already_claimed() {
+    // Two connections over one database, the shape the HTTP API runs in: it
+    // opens a connection per request, so two requests can materialize the same
+    // routine at once.
+    let uri = "file:materialize_occurrence_race?mode=memory&cache=shared";
+    let keeper = connect(uri).unwrap();
+    init_schema(&keeper).unwrap();
+    let mut service = TodoService::persistent(SqliteTodoRepository::new(connect(uri).unwrap()));
+
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "이불정리".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("daily".to_string()),
+            materialization_policy: "per_occurrence".to_string(),
+            area: None,
+            note: None,
+            tags: Vec::new(),
+        })
+        .unwrap();
+    service.activate(&routine.id, None).unwrap();
+
+    // Stands in for a materialize that commits between this run's existence
+    // check and its insert. The row holds 2026-05-26, but carries no
+    // `generated_by` marker, so the check cannot see it and the insert is forced
+    // to race the unique index -- the same state the loser of a real race meets.
+    keeper
+        .execute(
+            "INSERT INTO items (id, type, title, status, routine_id, occurrence_key,
+                                proposed_by, created_at, updated_at)
+             VALUES ('task_raced', 'task', 'raced', 'approved', ?1, '2026-05-26',
+                     'system', '2026-05-26T00:00:00Z', '2026-05-26T00:00:00Z')",
+            [&routine.id],
+        )
+        .unwrap();
+
+    let created = service
+        .materialize_routine(&routine.id, "2026-05-26", 1, 1)
+        .unwrap();
+
+    // The contested day is skipped, not raised: the occurrence exists, which is
+    // what the check was after. The rest of the window still materializes.
+    assert_eq!(occurrence_keys(&created), vec!["2026-05-25", "2026-05-27"]);
+    assert!(
+        service
+            .get(&routine.id)
+            .unwrap()
+            .last_materialized_at
+            .is_some()
+    );
+}
+
+#[test]
+fn materialization_window_is_capped_on_both_surfaces() {
+    let mut service = TodoService::in_memory();
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "이불정리".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("daily".to_string()),
+            materialization_policy: "per_occurrence".to_string(),
+            area: None,
+            note: None,
+            tags: Vec::new(),
+        })
+        .unwrap();
+    service.activate(&routine.id, None).unwrap();
+
+    // One press must not be able to bury the item list: there is no bulk undo.
+    assert_eq!(
+        service
+            .materialize_routine(&routine.id, "2026-05-26", 366, 0)
+            .unwrap_err(),
+        TodoError::Validation("lookahead_days must be between 0 and 365: 366".to_string())
+    );
+    assert_eq!(
+        service
+            .materialize_routine(&routine.id, "2026-05-26", 0, 366)
+            .unwrap_err(),
+        TodoError::Validation("catchup_days must be between 0 and 365: 366".to_string())
+    );
+    // The bulk sweep shares the guard, so the CLI cannot route around it.
+    assert_eq!(
+        service
+            .materialize_routines("2026-05-26", 400, 0)
+            .unwrap_err(),
+        TodoError::Validation("lookahead_days must be between 0 and 365: 400".to_string())
+    );
+    assert_eq!(
+        service
+            .materialize_routines("2026-05-26", 0, -1)
+            .unwrap_err(),
+        TodoError::Validation("catchup_days must be between 0 and 365: -1".to_string())
+    );
+
+    // The cap itself is allowed.
+    assert!(
+        service
+            .materialize_routine(&routine.id, "2026-05-26", 365, 365)
+            .is_ok()
+    );
 }
 
 #[test]
