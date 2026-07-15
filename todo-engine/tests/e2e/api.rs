@@ -1225,6 +1225,172 @@ async fn view_period_bad_horizon_returns_400() {
     assert!(body["detail"].is_string(), "400 body must carry a detail");
 }
 
+async fn active_routine(db_path: &std::path::Path, title: &str, policy: &str) -> String {
+    let response = json_request(
+        router(db_path).unwrap(),
+        "POST",
+        "/routines/propose",
+        json!({
+            "title": title,
+            "recurrence_rule": "daily",
+            "materialization_policy": policy,
+            "actor": "user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let routine = body_json(response).await;
+    let id = routine["id"].as_str().unwrap().to_string();
+
+    let response = empty_request(
+        router(db_path).unwrap(),
+        "POST",
+        format!("/items/{id}/activate"),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    id
+}
+
+#[tokio::test]
+async fn materialize_route_creates_tasks_for_one_routine_and_is_repeatable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let target = active_routine(&db_path, "이불정리", "per_occurrence").await;
+    let bystander = active_routine(&db_path, "혈압 기록", "per_occurrence").await;
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/routines/{target}/materialize"),
+        json!({"lookahead_days": 2, "catchup_days": 1}),
+    )
+    .await;
+
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["routine"]["id"], target.as_str());
+    assert!(
+        body["routine"]["last_materialized_at"].is_string(),
+        "caller renders last_materialized_at, so it must come back set"
+    );
+    let created = body["created"].as_array().unwrap();
+    assert_eq!(created.len(), 4);
+    for task in created {
+        assert_eq!(task["type"], "task");
+        assert_eq!(task["status"], "approved");
+        assert_eq!(task["routine_id"], target.as_str());
+        assert_eq!(task["metadata_"]["generated_by"], "routine");
+        assert_eq!(task["scheduled"], task["occurrence_key"]);
+    }
+
+    // The window is already covered, so a second press is a no-op rather than a
+    // duplicate batch.
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/routines/{target}/materialize"),
+        json!({"lookahead_days": 2, "catchup_days": 1}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert!(
+        body_json(response).await["created"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        format!("/items?type=task&routine_id={bystander}"),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert!(body_json(response).await.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn materialize_route_defaults_the_window_and_rejects_bad_targets() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let routine = active_routine(&db_path, "이불정리", "single_open").await;
+
+    // Omitted fields => the CLI's 7/1 default window, and single_open caps it at
+    // one task.
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/routines/{routine}/materialize"),
+        json!({}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        body_json(response).await["created"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // An unparsable window must be rejected, not silently replaced by the
+    // default one -- that would materialize a window nobody asked for.
+    for bad_body in ["not json at all", r#"{"lookahead_days":"seven"}"#] {
+        let response = http_request(
+            router(&db_path).unwrap(),
+            "POST",
+            format!("/routines/{routine}/materialize"),
+            Body::from(bad_body),
+        )
+        .await;
+        assert_eq!(response.status(), 400, "body: {bad_body}");
+        assert!(body_json(response).await["detail"].is_string());
+    }
+
+    for bad_window in [json!({"lookahead_days": -1}), json!({"catchup_days": 366})] {
+        let response = json_request(
+            router(&db_path).unwrap(),
+            "POST",
+            format!("/routines/{routine}/materialize"),
+            bad_window.clone(),
+        )
+        .await;
+        assert_eq!(response.status(), 400, "window: {bad_window}");
+        assert!(body_json(response).await["detail"].is_string());
+    }
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/routines/rtn_missing/materialize",
+        json!({}),
+    )
+    .await;
+    assert_eq!(response.status(), 404);
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"루틴 아님","actor":"user"}),
+    )
+    .await;
+    let task_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/routines/{task_id}/materialize"),
+        json!({}),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+}
+
 #[tokio::test]
 async fn exports_today_md_route_is_not_available() {
     let tmp = tempfile::tempdir().unwrap();

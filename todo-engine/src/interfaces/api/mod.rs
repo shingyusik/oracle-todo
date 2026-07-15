@@ -34,6 +34,7 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
         .route("/goals/propose", post(propose_goal))
         .route("/projects/propose", post(propose_project))
         .route("/routines/propose", post(propose_routine))
+        .route("/routines/:id/materialize", post(materialize_routine))
         .route("/events/propose", post(propose_event))
         .route("/tasks/propose", post(propose_task))
         .route("/items", get(list_items))

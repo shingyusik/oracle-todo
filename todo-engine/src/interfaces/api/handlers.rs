@@ -7,7 +7,8 @@ use serde_json::json;
 
 use super::dto::{
     AgendaQuery, AreaBody, DateRangeQuery, EventProposeBody, GoalProposeBody, ItemsQuery,
-    PeriodQuery, ProjectProposeBody, ReasonBody, RoutineProposeBody, TaskProposeBody, UpdateBody,
+    PeriodQuery, ProjectProposeBody, ReasonBody, RoutineMaterializeBody, RoutineProposeBody,
+    TaskProposeBody, UpdateBody,
 };
 use super::{
     ApiResult, ApiState, non_empty, non_empty_string, parse_actor_or_default, parse_bool,
@@ -16,10 +17,11 @@ use super::{
 use crate::application::error::TodoError;
 use crate::application::ports::ListFilter;
 use crate::application::service::{
-    CreateArea, PeriodView, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
-    UpdateItem,
+    CreateArea, DEFAULT_CATCHUP_DAYS, DEFAULT_LOOKAHEAD_DAYS, PeriodView, ProposeEvent,
+    ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask, UpdateItem,
 };
 use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
+use crate::infrastructure::system::local_today_string;
 
 pub(super) async fn health() -> Json<serde_json::Value> {
     Json(json!({"ok": true}))
@@ -134,6 +136,30 @@ pub(super) async fn propose_routine(
         })
     })?;
     Ok(Json(item))
+}
+
+/// Materializing mutates two things the caller renders: the new tasks, and the
+/// routine's own `last_materialized_at`. Both are returned so a client does not
+/// have to re-read the routine to stay in sync.
+pub(super) async fn materialize_routine(
+    State(state): State<ApiState>,
+    AxumPath(id): AxumPath<String>,
+    body: std::result::Result<Json<RoutineMaterializeBody>, JsonRejection>,
+) -> ApiResult<Json<serde_json::Value>> {
+    // Not `Option<Json<_>>`: that turns an unparsable window into None and would
+    // silently materialize the default one instead of rejecting the request.
+    let Json(body) = body.map_err(validation_rejection)?;
+    let now = local_today_string();
+    let (routine, created) = with_service(&state, |service| {
+        let created = service.materialize_routine(
+            &id,
+            &now,
+            body.lookahead_days.unwrap_or(DEFAULT_LOOKAHEAD_DAYS),
+            body.catchup_days.unwrap_or(DEFAULT_CATCHUP_DAYS),
+        )?;
+        Ok((service.get(&id)?, created))
+    })?;
+    Ok(Json(json!({"routine": routine, "created": created})))
 }
 
 pub(super) async fn propose_event(

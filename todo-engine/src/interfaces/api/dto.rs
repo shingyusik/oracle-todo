@@ -73,6 +73,12 @@ pub(super) struct EventProposeBody {
     pub tags: Option<Vec<String>>,
 }
 
+#[derive(Deserialize)]
+pub(super) struct RoutineMaterializeBody {
+    pub lookahead_days: Option<i64>,
+    pub catchup_days: Option<i64>,
+}
+
 #[derive(Deserialize, Default)]
 pub(super) struct ReasonBody {
     pub reason: Option<String>,
