@@ -1591,6 +1591,63 @@ button {
   color: var(--color-shade-60);
 }
 
+.materialize-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.materialize-field {
+  width: 110px;
+  gap: 4px;
+  margin-bottom: 0;
+  font-size: 12px;
+}
+
+/* Inside the detail panel a `.field-label` is a `140px | control` row. These sit
+   inside one such row already, so they opt back out to a plain stacked field --
+   the same reset `.recurrence-field` needs. */
+.detail-properties-list .materialize-field {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  border-bottom: 0;
+  padding: 0;
+}
+
+.materialize-button {
+  min-height: 36px;
+  border: 1px solid var(--color-ink);
+  border-radius: var(--radius-xs);
+  background: var(--color-ink);
+  padding: 0 14px;
+  color: var(--color-on-dark);
+  font-size: 13px;
+}
+
+.materialize-button:disabled {
+  cursor: not-allowed;
+  border-color: var(--color-shade-30);
+  background: var(--color-shade-30);
+  color: var(--color-shade-50);
+}
+
+.materialize-status,
+.materialize-error {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+
+.materialize-status {
+  color: var(--color-shade-60);
+}
+
+.materialize-error {
+  color: var(--color-danger-text);
+}
+
 .recurrence-row {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);

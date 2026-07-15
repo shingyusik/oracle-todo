@@ -13,6 +13,7 @@ import {
 } from "@/domain/workbench/navigation";
 import {
   type CreateWorkspaceItemForm,
+  type MaterializeRoutineWindow,
   type PlannerControls,
   type WorkbenchController,
   type WorkspaceItemModel,
@@ -570,6 +571,27 @@ export function useWorkbenchController(): WorkbenchController {
     },
     workspaceItemTransitionState: (itemId) =>
       itemTransitionStates[itemId] ?? idleWorkspaceItemTransitionState,
+    materializeRoutine: async (itemId, window) => {
+      const { routine, created } = await postMaterializeRoutine(itemId, window);
+      // Generated tasks belong in `items` only where the tab already lists tasks;
+      // the routines tab lists routines, so injecting them there would corrupt it.
+      const listsTasks =
+        workspaceItemTypes[selection.leafTabId] === "task" ||
+        (plannerItemTypes[selection.leafTabId] ?? []).includes("task");
+
+      setDetailItem((current) => (current?.id === routine.id ? routine : current));
+      setWorkspaceItems((current) => {
+        const items = replaceWorkspaceItem(current.items, routine);
+
+        return {
+          ...current,
+          items: listsTasks ? [...created, ...items] : items,
+          tagOptions: mergeTagOptions(current.tagOptions, routine.tags),
+        };
+      });
+
+      return created;
+    },
     saveDetailItem: async (patch) => {
       if (!detailItem) {
         return;
@@ -627,6 +649,23 @@ function postArchiveItem(itemId: string): Promise<WorkspaceItemModel> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason: "Archived from workspace table" }),
+  }).then((response) => {
+    if (!response.ok) {
+      return throwApiError(response);
+    }
+
+    return response.json();
+  });
+}
+
+function postMaterializeRoutine(
+  itemId: string,
+  window: MaterializeRoutineWindow,
+): Promise<{ routine: WorkspaceItemModel; created: WorkspaceItemModel[] }> {
+  return fetch(`/todo-engine/routines/${itemId}/materialize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(window),
   }).then((response) => {
     if (!response.ok) {
       return throwApiError(response);

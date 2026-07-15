@@ -43,12 +43,15 @@ import {
   type PlannerSortBy,
   type PlannerSortRule,
 } from "@/features/workbench/model/planner-model";
-import type {
-  WorkbenchController,
-  WorkspaceItemModel,
-  WorkspaceItemsModel,
-  WorkspaceItemPatch,
-  WorkspaceItemTransitionAction,
+import {
+  DEFAULT_MATERIALIZE_WINDOW,
+  MAX_MATERIALIZE_WINDOW_DAYS,
+  type MaterializeRoutineWindow,
+  type WorkbenchController,
+  type WorkspaceItemModel,
+  type WorkspaceItemsModel,
+  type WorkspaceItemPatch,
+  type WorkspaceItemTransitionAction,
 } from "@/features/workbench/model/workbench-model";
 import { PlannerGroupPanel } from "@/features/workbench/ui/PlannerGroupPanel";
 
@@ -204,6 +207,7 @@ function DetailView({ controller }: MainPanelProps) {
               draft={draft}
               setField={setField}
               workspaceItems={controller.workspaceItems}
+              controller={controller}
             />
           </div>
         </div>
@@ -2589,11 +2593,13 @@ function DetailTypeFields({
   draft,
   setField,
   workspaceItems,
+  controller,
 }: {
   item: WorkspaceItemModel;
   draft: DetailDraft;
   setField: (field: keyof DetailDraft, value: string) => void;
   workspaceItems: WorkspaceItemsModel;
+  controller: WorkbenchController;
 }) {
   if (item.type === "project") {
     return (
@@ -2657,6 +2663,7 @@ function DetailTypeFields({
             ))}
           </select>
         </label>
+        <RoutineMaterializeField item={item} controller={controller} />
         <DetailTimestamps item={item} />
         <DetailTextAreaField
           label="Note"
@@ -2848,6 +2855,116 @@ function DetailTypeFields({
   }
 
   return null;
+}
+
+function validMaterializeWindowValue(value: string): boolean {
+  const days = Number(value);
+  return (
+    value.trim() !== "" &&
+    Number.isInteger(days) &&
+    days >= 0 &&
+    days <= MAX_MATERIALIZE_WINDOW_DAYS
+  );
+}
+
+// The window is a per-run parameter, not a routine column, so it lives in local
+// state next to the button rather than in the item draft.
+function RoutineMaterializeField({
+  item,
+  controller,
+}: {
+  item: WorkspaceItemModel;
+  controller: WorkbenchController;
+}) {
+  const [catchupDays, setCatchupDays] = React.useState(
+    DEFAULT_MATERIALIZE_WINDOW.catchup_days.toString(),
+  );
+  const [lookaheadDays, setLookaheadDays] = React.useState(
+    DEFAULT_MATERIALIZE_WINDOW.lookahead_days.toString(),
+  );
+  const [pending, setPending] = React.useState(false);
+  const [status, setStatus] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setStatus(null);
+    setError(null);
+  }, [item.id]);
+
+  const windowReady =
+    validMaterializeWindowValue(catchupDays) &&
+    validMaterializeWindowValue(lookaheadDays);
+
+  async function materialize() {
+    const window: MaterializeRoutineWindow = {
+      lookahead_days: Number(lookaheadDays),
+      catchup_days: Number(catchupDays),
+    };
+    setPending(true);
+    setStatus(null);
+    setError(null);
+    try {
+      const created = await controller.materializeRoutine(item.id, window);
+      setStatus(
+        created.length === 0
+          ? "No new tasks for this window"
+          : `Created ${created.length} task${created.length === 1 ? "" : "s"}`,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof TodoEngineApiError
+          ? cause.detail
+          : "Could not materialize routine.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="property-row">
+      <span>Materialize</span>
+      <div className="materialize-fields">
+        <label className="field-label materialize-field">
+          Catchup days
+          <input
+            type="number"
+            min={0}
+            max={MAX_MATERIALIZE_WINDOW_DAYS}
+            step={1}
+            value={catchupDays}
+            onChange={(event) => setCatchupDays(event.target.value)}
+          />
+        </label>
+        <label className="field-label materialize-field">
+          Lookahead days
+          <input
+            type="number"
+            min={0}
+            max={MAX_MATERIALIZE_WINDOW_DAYS}
+            step={1}
+            value={lookaheadDays}
+            onChange={(event) => setLookaheadDays(event.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          className="materialize-button"
+          disabled={pending || !windowReady}
+          onClick={() => void materialize()}
+        >
+          {pending ? "Materializing…" : "Materialize"}
+        </button>
+        {error ? (
+          <span className="materialize-error" role="alert">
+            {error}
+          </span>
+        ) : status ? (
+          <span className="materialize-status">{status}</span>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function DetailTimestamps({ item }: { item: WorkspaceItemModel }) {

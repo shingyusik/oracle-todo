@@ -178,6 +178,21 @@ describe("design system boundaries", () => {
     expect(missingDefinitions).toEqual([]);
   });
 
+  it("opts nested detail sub-fields out of the label/control two-column grid", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    // `.detail-properties-list .field-label` makes every field label a
+    // `140px | control` row. A field nested inside one of those rows already has
+    // its own label column, so it must reset back to a single stacked column --
+    // otherwise 140px eats the width, the control track collapses to 0, and the
+    // input renders at its intrinsic ~21px on top of the label text.
+    for (const field of [".recurrence-field", ".materialize-field"]) {
+      expect(source).toContain(
+        `.detail-properties-list ${field} {\n  display: grid;\n  grid-template-columns: 1fr;`,
+      );
+    }
+  });
+
   it("shows disabled detail save actions as unavailable", async () => {
     const source = await readSource("src/styles/globals.css");
 

@@ -5314,6 +5314,121 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Archive selected items" })).toBeEnabled();
   });
 
+  it("materializes a routine with the window shown next to the button", async () => {
+    const user = userEvent.setup();
+    const routine = {
+      id: "rtn-1",
+      type: "routine",
+      title: "이불정리",
+      status: "active",
+      recurrence_rule: "RRULE:FREQ=DAILY",
+      materialization_policy: "per_occurrence",
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url) === "/todo-engine/routines/rtn-1/materialize") {
+        expect(init?.method).toBe("POST");
+        expect(init?.body).toBe(
+          JSON.stringify({ lookahead_days: 2, catchup_days: 0 }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            routine: { ...routine, last_materialized_at: "2026-07-15T09:00:00Z" },
+            created: [
+              { id: "task-1", type: "task", title: "이불정리", status: "approved" },
+              { id: "task-2", type: "task", title: "이불정리", status: "approved" },
+              { id: "task-3", type: "task", title: "이불정리", status: "approved" },
+            ],
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => (String(url).includes("type=routine") ? [routine] : []),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await user.click(await screen.findByRole("cell", { name: "이불정리" }));
+
+    // Defaults match the CLI so both surfaces generate the same occurrences.
+    expect(screen.getByLabelText("Lookahead days")).toHaveValue(7);
+    expect(screen.getByLabelText("Catchup days")).toHaveValue(1);
+    expect(within(propertyRow("Last Materialized")).getByText("-")).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Lookahead days"));
+    await user.type(screen.getByLabelText("Lookahead days"), "2");
+    await user.clear(screen.getByLabelText("Catchup days"));
+    await user.type(screen.getByLabelText("Catchup days"), "0");
+    await user.click(screen.getByRole("button", { name: "Materialize" }));
+
+    expect(await screen.findByText("Created 3 tasks")).toBeInTheDocument();
+    expect(
+      within(propertyRow("Last Materialized")).queryByText("-"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("blocks an empty materialization window and reports a rejected one", async () => {
+    const user = userEvent.setup();
+    const routine = {
+      id: "rtn-1",
+      type: "routine",
+      title: "이불정리",
+      status: "approved",
+      recurrence_rule: "RRULE:FREQ=DAILY",
+      materialization_policy: "per_occurrence",
+    };
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url) === "/todo-engine/routines/rtn-1/materialize") {
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          json: async () => ({
+            code: "policy_violation",
+            detail: "Routine must be active to materialize: approved",
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => (String(url).includes("type=routine") ? [routine] : []),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await user.click(await screen.findByRole("cell", { name: "이불정리" }));
+
+    await user.clear(screen.getByLabelText("Lookahead days"));
+    expect(screen.getByRole("button", { name: "Materialize" })).toBeDisabled();
+
+    // A year is the cap: one press has no bulk undo, so 400 days of tasks is not
+    // an option the panel offers.
+    await user.type(screen.getByLabelText("Lookahead days"), "400");
+    expect(screen.getByRole("button", { name: "Materialize" })).toBeDisabled();
+    expect(screen.getByLabelText("Lookahead days")).toHaveAttribute("max", "365");
+    expect(screen.getByLabelText("Catchup days")).toHaveAttribute("max", "365");
+
+    await user.clear(screen.getByLabelText("Lookahead days"));
+    await user.type(screen.getByLabelText("Lookahead days"), "7");
+    await user.click(screen.getByRole("button", { name: "Materialize" }));
+
+    // The service owns the active-routine rule; the panel surfaces its wording
+    // rather than reimplementing the check.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Routine must be active to materialize: approved",
+    );
+  });
+
   it("patches an inline due edit without opening details", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

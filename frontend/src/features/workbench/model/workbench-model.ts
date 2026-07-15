@@ -129,6 +129,19 @@ export type WorkspaceItemTransitionState = {
   error: string | null;
 };
 
+export type MaterializeRoutineWindow = {
+  lookahead_days: number;
+  catchup_days: number;
+};
+
+export const DEFAULT_MATERIALIZE_WINDOW: MaterializeRoutineWindow = {
+  lookahead_days: 7,
+  catchup_days: 1,
+};
+
+// Mirrors the service-side cap; the service is what actually enforces it.
+export const MAX_MATERIALIZE_WINDOW_DAYS = 365;
+
 export type WorkbenchController = {
   selection: WorkbenchSelection;
   panel: WorkbenchPanelModel;
@@ -172,6 +185,10 @@ export type WorkbenchController = {
     action: WorkspaceItemTransitionAction,
   ) => Promise<void>;
   workspaceItemTransitionState: (itemId: string) => WorkspaceItemTransitionState;
+  materializeRoutine: (
+    itemId: string,
+    window: MaterializeRoutineWindow,
+  ) => Promise<WorkspaceItemModel[]>;
   saveDetailItem: (patch: WorkspaceItemPatch) => Promise<void>;
   closeDetailView: () => void;
 };
