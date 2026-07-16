@@ -3909,8 +3909,14 @@ describe("WorkbenchPageClient", () => {
       fetchMock.mock.calls.some(([url]) => url === "/todo-engine/routines/propose"),
     ).toBe(false);
 
-    await user.selectOptions(screen.getByLabelText("Frequency"), "weekly");
-    await user.selectOptions(screen.getByLabelText("Frequency"), "daily");
+    await user.clear(screen.getByLabelText("Every"));
+    await user.type(screen.getByLabelText("Every"), "5");
+    expect(screen.getByLabelText("Recurrence Rule Preview")).toHaveTextContent(
+      "RRULE:FREQ=DAILY;INTERVAL=5",
+    );
+    fireEvent.change(screen.getByLabelText("Every"), { target: { value: "0" } });
+    fireEvent.blur(screen.getByLabelText("Every"));
+    expect(screen.getByLabelText("Every")).toHaveValue(1);
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/routines/propose",

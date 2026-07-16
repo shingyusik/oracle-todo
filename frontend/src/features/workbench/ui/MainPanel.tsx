@@ -3661,6 +3661,9 @@ function RecurrenceRuleField({
             onBlur={() => {
               if (!validRecurrenceInterval(intervalDraft)) {
                 setIntervalDraft("1");
+                if (intervalDraft !== "") {
+                  onChange(formatRecurrenceRule({ ...parsed, interval: "1" }));
+                }
               }
             }}
           />
