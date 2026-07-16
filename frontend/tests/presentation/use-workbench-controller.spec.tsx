@@ -266,8 +266,8 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "approved" },
-          { id: "task-2", type: "task", title: "Two", status: "approved" },
+          { id: "task-1", type: "task", title: "One", status: "active" },
+          { id: "task-2", type: "task", title: "Two", status: "active" },
         ],
       });
     });
@@ -315,8 +315,8 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "approved" },
-          { id: "task-2", type: "task", title: "Two", status: "approved" },
+          { id: "task-1", type: "task", title: "One", status: "active" },
+          { id: "task-2", type: "task", title: "Two", status: "active" },
         ],
       });
     });
@@ -370,7 +370,7 @@ describe("useWorkbenchController", () => {
             id: "event-1",
             type: "event",
             title: "Review",
-            status: "approved",
+            status: "active",
             description: "Bring agenda",
             note: "Confirm room",
             metadata_: {
@@ -385,7 +385,7 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "event-1", type: "event", title: "Review", status: "approved" },
+          { id: "event-1", type: "event", title: "Review", status: "active" },
         ],
       });
     });
@@ -573,7 +573,6 @@ describe("useWorkbenchController", () => {
       .filter(([, init]) => init?.method === "POST")
       .map(([url]) => String(url));
     expect(creationUrls).toHaveLength(4);
-    expect(creationUrls.some((url) => url.endsWith("/activate"))).toBe(false);
   });
 
   it("anchors weekly planner goal creation to the active week", async () => {
@@ -587,7 +586,7 @@ describe("useWorkbenchController", () => {
             id: "goal-new",
             type: "goal",
             title: "New goal",
-            status: "approved",
+            status: "active",
             horizon: "week",
             scheduled: weekStart,
           }),
@@ -716,7 +715,7 @@ describe("useWorkbenchController", () => {
             id: "goal-new",
             type: "goal",
             title: JSON.parse(String(init?.body)).title,
-            status: "approved",
+            status: "active",
             horizon: JSON.parse(String(init?.body)).horizon,
             scheduled: JSON.parse(String(init?.body)).scheduled,
           }),
@@ -869,7 +868,7 @@ describe("useWorkbenchController", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             note: "Saved note",
           }),
         });
@@ -878,7 +877,7 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "approved", note: "Old note" },
+          { id: "task-1", type: "task", title: "One", status: "active", note: "Old note" },
         ],
       });
     });

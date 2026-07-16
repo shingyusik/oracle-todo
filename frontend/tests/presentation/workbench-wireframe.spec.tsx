@@ -3790,6 +3790,11 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/items/task-1/complete",
       expect.objectContaining({ method: "POST" }),
     );
+    expect(
+      fetchMock.mock.calls
+        .filter(([, init]) => init?.method === "POST")
+        .map(([url]) => url),
+    ).toEqual(["/todo-engine/items/task-1/complete"]);
   });
 
   it("requires a Project definition of done and includes it in creation", async () => {
