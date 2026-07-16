@@ -6,7 +6,7 @@
 
 - **SQLite is the source of truth.** CLI and HTTP API are both views over `todo.sqlite`.
 - **The Rust service layer enforces policy.** Every mutation goes through `TodoService`: validation plus a status state machine. CLI and API never bypass it.
-- **Approval gates agent work.** Agent-created items start as `proposed` and require user approval before activation; user-created items can start `approved`.
+- **Creation is direct-active.** Every creator produces `active` work. Projects require `definition_of_done`; routines require `recurrence_rule`.
 - **Audit events are mandatory.** Every service-layer mutation writes a `TodoEvent` row to the SQLite `events` table.
 - **Second_Brain refs are read-only.** `second_brain_refs` are reference input, never written back.
 
@@ -42,14 +42,14 @@ cargo build                                              # build (workspace root
 cargo run -p todo-engine -- init                         # create the SQLite DB at the data home
 cargo run -p todo-engine -- health                       # DB reachability + schema baseline
 cargo run -p todo-engine -- api                          # serve the HTTP API on 127.0.0.1:3002
-cargo run -p todo-engine -- pending                      # proposed / approved / active work
+cargo run -p todo-engine -- pending                      # active work
 cargo run -p todo-engine -- today                        # today's materialized task view
 cargo test                                               # all tests (workspace root)
 cargo fmt --check                                        # format gate
 cargo clippy --all-targets --all-features -- -D warnings # lint gate (warnings are errors)
 ```
 
-CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `task`, `routine`, `event`, `approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`.
+CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `goal`, `task`, `routine`, `event`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`, `agenda`, `date-range`, `period`.
 
 ## Data Home & Configuration
 
@@ -64,7 +64,7 @@ CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `task`, `ro
 - **Don't bypass `TodoService`.** Direct repository writes skip validation, the state machine, and the audit event — breaking the core invariant. All mutations route through the service layer.
 - **The live data home is canonical.** Never aim destructive experiments at `~/.todo-engine/todo.sqlite` without explicit approval. Copy it to a temp home for smoke checks (`*.sqlite` is gitignored).
 - **Schema init is additive.** `init_schema()` creates tables and backfills missing columns on older `items` tables. Don't drop or rewrite existing columns.
-- **Approval gating is policy, not UI.** Agent-created items must stay `proposed` until user approval.
+- **Legacy status migration is automatic.** Schema initialization normalizes legacy `proposed` and `approved` rows to `active`; provenance columns remain for compatibility and history.
 - **Layered tests guard shared behavior.** `todo-engine/tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration suites assert CLI/API behavior agrees with the service layer — keep them green when changing shared behavior.
 
 ## Skills & Hooks

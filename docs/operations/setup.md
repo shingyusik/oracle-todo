@@ -69,7 +69,8 @@ cargo run -p todo-engine -- init           # create todo.sqlite at the data home
 ```
 
 `init` creates the data home directory (if needed) and runs `init_schema`, which creates the
-`items` and `events` tables. It prints `initialized <path-to-todo.sqlite>`.
+`items` and `events` tables and normalizes legacy `proposed`/`approved` rows to `active`.
+It prints `initialized <path-to-todo.sqlite>`.
 
 ## Data home
 
@@ -97,7 +98,7 @@ The full layout (`todo.sqlite`, `logs/`) and resolution rules are documented in
 
 ```bash
 cargo run -p todo-engine -- health         # prints "ok db=<path> user_version=<n>"
-cargo run -p todo-engine -- pending        # proposed / approved / active work
+cargo run -p todo-engine -- pending        # active work
 cargo run -p todo-engine -- today          # today's task view
 ```
 

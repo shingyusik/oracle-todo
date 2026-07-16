@@ -26,46 +26,49 @@ single JSON line on stdout; view commands print rendered Markdown.
 Create an active area. Flags: `--review-cycle`, `--standard`, `--note`.
 
 ### `project propose <title>`
-Propose a project. Flags: `--area`, `--definition-of-done`, `--outcome`, `--due`, `--note`,
-`--actor` (default `agent`).
+Create an active project. `--definition-of-done` is required and must be non-blank; otherwise
+the command exits `2` with `Project requires definition_of_done`. Other flags: `--area`,
+`--outcome`, `--due`, `--note`, `--actor` (default `agent`).
 
 ### `task propose <title>`
-Propose a task. Flags: `--area`, `--due`, `--scheduled`, `--priority <int>`, `--description`,
+Create an active task. Flags: `--area`, `--due`, `--scheduled`, `--priority <int>`, `--description`,
+`--note`, `--actor` (default `agent`).
+
+### `goal propose <title>`
+Create an active goal. Required flags: `--horizon`, `--scheduled`. Other flags: `--parent`,
 `--note`, `--actor` (default `agent`).
 
 ### `routine propose <title>`
-Propose a routine. Flags: `--area`, `--recurrence-rule`, `--materialization-policy`
+Create an active routine. `--recurrence-rule` is required and must be non-blank; otherwise
+the command exits `2` with `Routine requires recurrence_rule`. Other flags: `--area`, `--materialization-policy`
 (default `single_open`), `--future-occurrences <int>` (default `7`, range `1..=365`),
 `--note`, `--actor` (default `agent`).
 
 ### `routine materialize`
 Fill every active routine to its stored target. Prints each created task as JSON, or
-`No routine tasks materialized`. Activation creates the initial tasks, and completing a
+`No routine tasks materialized`. Creation creates the initial tasks, and completing a
 generated task replenishes its active routine automatically.
 
 To materialize a single routine instead of sweeping all of them, use
 `POST /routines/{id}/materialize` (see [api-reference.md](api-reference.md)).
 
 ### `event propose <title> <scheduled>`
-Propose an event. `<scheduled>` is a positional date/time string. Flags: `--area`,
+Create an active event. `<scheduled>` is a positional date/time string. Flags: `--area`,
 `--project-id`, `--due`, `--priority <int>`, `--description`, `--note`, `--location`,
 `--with <participant>` (repeatable), `--commitment-type` (default `appointment`),
 `--actor` (default `agent`).
 
-> `--actor` accepts `agent`, `user`, or `system`. A `user` actor auto-approves the created
-> item; any other actor leaves it `proposed` (see
-> [../architecture/decisions/adr-0003-approval-gating.md](../architecture/decisions/adr-0003-approval-gating.md)).
+> `--actor` accepts `agent`, `user`, or `system`; every actor creates `active` work. The
+> compatible `propose` command name is retained for callers and does not imply a waiting state.
 
 ## Lifecycle (transition) commands
 
 Each takes a positional `<item_id>` and an optional `--reason`:
 
-`approve`, `activate`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`.
+`pause`, `resume`, `complete`, `archive`, `drop`, `cancel`.
 
 | Subcommand | Effect |
 | --- | --- |
-| `approve` | Approve a proposed item. |
-| `activate` | Activate an approved or user-created item. |
 | `pause` | Pause an item. |
 | `resume` | Resume a paused item. |
 | `complete` | Complete an item (terminal). |
@@ -85,10 +88,10 @@ Update mutable fields. Flags (all optional): `--title`, `--description`, `--note
 | --- | --- |
 | `list` | List items as Markdown. Filter flags: `--status`, `--type`, `--area-id`, `--project-id`, `--routine-id`, `--query`, `--include-archived`. |
 | `archive-list` | List terminal/archive items as Markdown. |
-| `pending` | Show proposed/approved/active work as Markdown. |
+| `pending` | Show active work as Markdown. |
 | `today` | Show today's task view as Markdown. |
 
-`--status` accepts: `proposed`, `approved`, `active`, `waiting`, `paused`, `completed`,
+`--status` accepts: `active`, `waiting`, `paused`, `completed`,
 `cancelled`, `dropped`, `archived`, `someday`, `rejected`. `--type` accepts: `area`,
 `project`, `routine`, `task`, `event`, `review`, `archive_item`, `goal`. Invalid values are rejected
 with a helpful message and a validation exit code.

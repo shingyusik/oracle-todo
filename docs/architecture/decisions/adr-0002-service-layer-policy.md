@@ -6,9 +6,9 @@ Accepted (v1).
 
 ## Context
 
-The engine has policy that must hold no matter who calls it: agent-created work needs
-approval, projects need a `definition_of_done` before activation, routines need a
-`recurrence_rule`, areas cannot be completed, and every change must be auditable. If the CLI
+The engine has policy that must hold no matter who calls it: projects need a non-blank
+`definition_of_done` at creation, routines need a non-blank `recurrence_rule` at creation,
+areas cannot be completed, and every change must be auditable. If the CLI
 and the API each re-implemented these rules — or if either wrote to SQLite directly — the
 rules would diverge and the audit trail would have gaps.
 
@@ -19,8 +19,8 @@ single place that:
 
 1. **Validates and enforces policy** before any write (the `creation`, `transitions`,
    `update`, and `materialization` submodules each enforce their slice of the state machine —
-   e.g. `ensure_relation` rejects terminal/parent-type-mismatch links, project activation
-   checks `definition_of_done`, routine activation checks `recurrence_rule`).
+   e.g. `ensure_relation` rejects terminal/parent-type-mismatch links, project creation
+   checks `definition_of_done`, and routine creation checks `recurrence_rule`).
 2. **Writes the item and its audit event atomically.** `store_item_and_event` constructs a
    `TodoEvent` (with `before`/`after` snapshots) and persists item + event together via
    `TodoStore::save_item_and_event`. There is no code path that saves an item without also

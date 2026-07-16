@@ -21,7 +21,7 @@ layout has been split into a directory module of focused submodules; the public 
 
 - **`application/service/`** — `TodoService` is split by lifecycle concern: `creation` (the
   request structs `CreateArea`/`ProposeTask`/`ProposeProject`/`ProposeRoutine`/`ProposeEvent`
-  and their methods), `transitions` (approve/activate/pause/resume/complete/archive/drop/cancel
+  and their methods), `transitions` (pause/resume/complete/reopen/archive/drop/cancel
   and the routine cascade helpers), `update` (`UpdateItem` + `update_item`), `materialization`
   (`materialize_routines` + generated-task helpers), and `queries` (`get`/`list_items`/`archive_items`).
   `mod.rs` keeps the struct, constructors, the deterministic ID/clock counters, and the shared

@@ -16,52 +16,46 @@ created/managed types and their invariants:
 - **`area`** — a long-lived responsibility domain (e.g. `재정`, `건강`). Created `active`
   immediately. Areas are *not* completed as ordinary work; they are paused or archived.
   Owns standards and a review rhythm.
-- **`project`** — finite, outcome-oriented work inside an area. Cannot become `active`
-  without a `definition_of_done`. Should represent outcomes, not single actions.
-- **`routine`** — a recurring work template. Cannot become `active`/materialize without a
+- **`project`** — finite, outcome-oriented work inside an area. Creation requires a non-blank
+  `definition_of_done`. Should represent outcomes, not single actions.
+- **`routine`** — a recurring work template. Creation/materialization requires a non-blank
   `recurrence_rule`. Active routines materialize task instances through the service layer;
   generated tasks link back via `routine_id` and are de-duplicated by `occurrence_key`.
   `materialization_policy` is `single_open` (default — at most one open generated task per
-  routine) or `per_occurrence` (maintain `future_occurrences` open generated tasks). Activation
+  routine) or `per_occurrence` (maintain `future_occurrences` open generated tasks). Creation
   fills the target, completion replenishes it, and reducing the target never deletes tasks.
-- **`task`** — a concrete action item. Agent-created tasks start `proposed`; user-created
-  tasks start `approved`. May belong to an area, a (non-terminal) project, or a
+- **`task`** — a concrete action item. Created `active` for every actor. May belong to an
+  area, a (non-terminal) project, or a
   (non-terminal) routine.
 - **`event`** — an external commitment / scheduled appointment. Requires `scheduled`. Uses
   `metadata` for location, participants, and commitment type. Listed separately from tasks.
 - **`review`** — a scheduled review/checkpoint item (reserved type).
 - **`archive_item`** — a historical/terminal item type (reserved type).
-- **`goal`** — a period-scoped planning goal (reserved type). Recognized and persisted with
-  an optional `horizon` (`year` / `month` / `week`) and round-trips through SQLite; there is
-  no dedicated creation command — the service-layer create/link/validation path is a separate
-  planning-layer concern.
+- **`goal`** — a period-scoped planning goal. Created `active` through the service, CLI, or
+  API with a required `horizon` (`year` / `month` / `week`) and canonical `scheduled` period
+  start. It may nest under a strictly coarser goal through `parent_id`.
 
 `ItemType` round-trips through `ItemType::as_str()` / `FromStr` using these exact canonical
 lowercase strings (with `archive_item` snake-cased). Unknown strings are rejected.
 
 ## Actor
 
-The `proposed_by` / `approved_by` columns use the `Actor` enum: `user`, `agent`, `system`
-(serialized lowercase). At creation, an item authored by `user` is auto-approved
-(`status = approved`, `approved_by = user`, `approved_at = now`); any other actor leaves the
-item `proposed` with no approval markers. This is the mechanism behind approval gating —
-see [decisions/adr-0003-approval-gating.md](decisions/adr-0003-approval-gating.md).
-SQLite reads treat legacy `oracle` actor values as `agent`; new writes use only the canonical
+The legacy-named `proposed_by` column records the creator as the `Actor` enum: `user`,
+`agent`, or `system` (serialized lowercase). The `approved_by` and `approved_at` columns
+remain only for compatibility and historical data; new creation leaves them empty. SQLite
+reads treat legacy `oracle` actor values as `agent`; new writes use only the canonical
 `user`, `agent`, and `system` values.
 
 ## Status lifecycle
 
-The `status` column is the Rust enum `ItemStatus` (serialized lowercase). It has **11
+The `status` column is the Rust enum `ItemStatus` (serialized lowercase). It has **9
 variants**, verified against `todo-engine/src/domain/status.rs`:
 
 | Phase | Statuses |
 | --- | --- |
-| Proposal | `proposed`, `rejected` |
-| Live work | `approved`, `active`, `waiting`, `paused` |
+| Live work | `active`, `waiting`, `paused` |
 | Terminal | `completed`, `cancelled`, `dropped`, `archived`, `someday`, `rejected` |
 
-- `proposed` → suggested item awaiting a user decision.
-- `approved` → accepted but not necessarily active.
 - `active` → current work or a maintained routine/project.
 - `waiting` → blocked/waiting; used for generated routine tasks when a routine is paused.
 - `paused` → temporarily stopped.
@@ -79,6 +73,10 @@ v1 has no hard delete (see [decisions/adr-0004-no-hard-delete.md](decisions/adr-
 `"Active"` is rejected; `"  active  "` parses to `Active`. App paths reject unknown status
 values rather than silently coercing them.
 
+Schema initialization converts legacy `proposed` and `approved` rows to `active` before
+normal reads. It does not invent missing content such as project completion criteria or
+routine recurrence rules.
+
 ## Recurrence rules
 
 Routine `recurrence_rule` strings are parsed by `domain::occurrences`. New rules use RRULE
@@ -91,7 +89,7 @@ and in `README.md`'s "Supported recurrence examples" table.
 
 Every service-layer mutation writes one `TodoEvent` row to the SQLite `events` table — this
 is an invariant, not a best-effort. Each event captures `id`, `at` (timestamp), `actor`,
-`action` (e.g. `propose_task`, `approve`, `materialize_routine_task`), `object_type`,
+`action` (e.g. `propose_task`, `pause`, `materialize_routine_task`), `object_type`,
 `object_id`, a `before` JSON snapshot, an `after` JSON snapshot, and an optional `reason`.
 The `before`/`after` snapshots are produced by serializing the `TodoItem`, so the event log
 is a complete change history. See `README.md`'s "Event log" table for the column reference,
@@ -110,6 +108,8 @@ factory, and the API service factory). It is **additive and idempotent** — ver
   for any column from the canonical set that an older database is missing (e.g. `note`,
   `materialization_policy`, `future_occurrences`, `occurrence_key`, `last_materialized_at`). Existing columns are
   left untouched.
+- Legacy rows with status `proposed` or `approved` are normalized to `active`; legacy
+  provenance columns remain in place for compatibility and history.
 - Indexes are created with `IF NOT EXISTS`, including a unique index on
   `(routine_id, occurrence_key)` (where both are non-null) that guards routine occurrence
   de-duplication, and the planning indexes `idx_items_parent_id` (`parent_id`),

@@ -47,13 +47,41 @@ cargo run -p todo-engine -- --home "$tmp_home" pending
 cargo run -p todo-engine -- --home "$tmp_home" today
 ```
 
+Opening the copied database runs schema initialization, so legacy `proposed` and `approved`
+rows must appear as `active`. No missing project `definition_of_done` or routine
+`recurrence_rule` is synthesized.
+
 Without a legacy database, start from a fresh init in a temp home:
 
 ```bash
 tmp_home="$(mktemp -d)"
 cargo run -p todo-engine -- --home "$tmp_home" init
+cargo run -p todo-engine -- --home "$tmp_home" task propose "Smoke task"
+cargo run -p todo-engine -- --home "$tmp_home" project propose "Smoke project" \
+  --definition-of-done "All smoke checks pass"
+cargo run -p todo-engine -- --home "$tmp_home" routine propose "Smoke routine" \
+  --recurrence-rule "RRULE:FREQ=DAILY"
 cargo run -p todo-engine -- --home "$tmp_home" pending
 cargo run -p todo-engine -- --home "$tmp_home" today
+```
+
+Creation output and `pending` must show `active` items. Also verify the exact creation
+validation errors (both commands exit `2`):
+
+```bash
+cargo run -p todo-engine -- --home "$tmp_home" project propose "Missing DoD"
+# Project requires definition_of_done
+cargo run -p todo-engine -- --home "$tmp_home" routine propose "Missing recurrence"
+# Routine requires recurrence_rule
+```
+
+The automated smoke coverage exercises the remaining lifecycle paths without relying on
+shell JSON parsing:
+
+```bash
+cargo test --test integration init_schema_migrates_legacy_open_statuses
+cargo test --test integration generated_routine_task_is_active_and_returns_to_active_after_resume
+cargo test --test integration materialization_fills_the_default_future_occurrence_target
 ```
 
 The smoke passes when every command succeeds against the temp home and the live home remains

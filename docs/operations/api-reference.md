@@ -26,8 +26,6 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `GET` | `/items` | `list_items` | `ItemsQuery` (see below) |
 | `GET` | `/items/archive` | `archive_items` | — |
 | `PATCH` | `/items/:id` | `update_item` | `UpdateBody` |
-| `POST` | `/items/:id/approve` | `approve_item` | — |
-| `POST` | `/items/:id/activate` | `activate_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/pause` | `pause_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/resume` | `resume_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/complete` | `complete_item` | — |
@@ -67,11 +65,11 @@ routine using stored targets, this acts only on `{id}`.
 - **`AreaBody`** — `title` (required), `review_cycle?`, `standard?`, `note?`, `tags?`.
 - **`TaskProposeBody`** — `title` (required), `area?`, `due?`, `scheduled?`, `priority?`,
   `description?`, `note?`, `tags?`, `actor?` (default `agent`).
-- **`ProjectProposeBody`** — `title` (required), `area?`, `definition_of_done?`, `outcome?`,
+- **`ProjectProposeBody`** — `title` (required), `area?`, `definition_of_done` (required and non-blank), `outcome?`,
   `due?`, `note?`, `tags?`, `actor?` (default `agent`).
 - **`GoalProposeBody`** — `title` (required), `horizon` (required: `year`, `month`, or `week`),
   `scheduled` (required canonical period start date), `parent_id?`, `actor?`, `note?`, `tags?`.
-- **`RoutineProposeBody`** — `title` (required), `area?`, `recurrence_rule?`,
+- **`RoutineProposeBody`** — `title` (required), `area?`, `recurrence_rule` (required and non-blank),
   `materialization_policy?` (default `single_open`), `future_occurrences?` (default `7`), `note?`, `tags?`,
   `actor?` (default `agent`).
 - **`RoutineMaterializeBody`** — `future_occurrences` (required integer `1..=365`). Values
@@ -86,6 +84,12 @@ routine using stored targets, this acts only on `{id}`.
   `scheduled`, `priority`, `tags`, `reason`.
 
 Common create/update fields:
+
+All creation routes return an item with `status: "active"`, regardless of actor. The
+compatible `/propose` route names remain for existing clients. Missing or blank project
+completion criteria returns HTTP `400` with detail `Project requires definition_of_done`;
+missing or blank routine recurrence returns HTTP `400` with detail
+`Routine requires recurrence_rule`.
 
 | Field | Type | Meaning |
 | --- | --- | --- |

@@ -2,8 +2,8 @@
 
 `todo-engine` is a policy-enforced, local-first personal ToDo engine for agent
 workflows. It keeps areas, projects, tasks, routines, and events in one SQLite-backed
-item graph. Agents may interpret and *propose* work, but the software
-itself enforces the operating system: approval gates, audit events, a status state
+item graph. Agents may interpret and create work through compatible `propose` surfaces, while the software
+itself enforces the operating system: creation validation, audit events, a status state
 machine, and read-only Second_Brain boundaries. Every external surface — CLI and HTTP API
 — is a thin view over the same Rust service layer and the same `todo.sqlite` database.
 The Rust crate lives in the `todo-engine/` workspace package (binary/lib `todo-engine`/`todo_engine`);
@@ -33,9 +33,10 @@ Telegram / CLI / Future Dashboard / Agent
 2. **The service layer enforces policy.** Every mutation routes through `TodoService`,
    which runs validation plus a status state machine before touching storage. CLI and API
    never bypass it. See [decisions/adr-0002-service-layer-policy.md](decisions/adr-0002-service-layer-policy.md).
-3. **Approval gates agent work.** Agent-created items start as `proposed` and
-   require user approval before they can become `active`; user-created items can start
-   `approved`. See [decisions/adr-0003-approval-gating.md](decisions/adr-0003-approval-gating.md).
+3. **Creation is direct-active.** Every creator produces `active` work. `TodoService`
+   rejects projects without a non-blank `definition_of_done` and routines without a
+   non-blank `recurrence_rule` before persistence. Schema initialization normalizes legacy
+   `proposed` and `approved` rows to `active`.
 4. **Audit events are mandatory.** Every service-layer mutation writes a `TodoEvent` row
    to the SQLite `events` table, with `before`/`after` JSON snapshots. There is no mutation
    path that skips the event.

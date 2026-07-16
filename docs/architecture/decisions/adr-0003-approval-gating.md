@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (v1).
+Superseded.
+
+Superseded by [Remove proposed/approved status design](../../superpowers/specs/2026-07-16-remove-proposed-approved-status-design.md). The decision below is retained as historical context.
 
 ## Context
 

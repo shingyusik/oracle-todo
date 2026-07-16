@@ -4,6 +4,8 @@
 
 Accepted (v1, 2026-06-22).
 
+The approval-specific portions of this ADR are superseded by [Remove proposed/approved status design](../../superpowers/specs/2026-07-16-remove-proposed-approved-status-design.md). The no-cascade decision remains accepted.
+
 ## Context
 
 The planning layer adds a `Goal` item type: a period plan (year / month / week)
