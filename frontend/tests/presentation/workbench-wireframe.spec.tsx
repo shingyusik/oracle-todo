@@ -5033,6 +5033,99 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("shows and saves routine task template fields", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
+        expect(JSON.parse(String(init.body))).toEqual({
+          project_id: "project-2",
+          description: "물을 천천히 마신다",
+          priority: 3,
+        });
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "routine-1",
+            type: "routine",
+            title: "물 마시기",
+            status: "active",
+            project_id: "project-2",
+            description: "물을 천천히 마신다",
+            priority: 3,
+            recurrence_rule: "daily",
+            materialization_policy: "single_open",
+            tags: ["health"],
+            note: "오후에도 반복",
+          }),
+        });
+      }
+
+      if (url === "/todo-engine/items?type=project") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "project-1", type: "project", title: "건강", status: "active" },
+            { id: "project-2", type: "project", title: "생활", status: "active" },
+          ],
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=routine"
+            ? [
+                {
+                  id: "routine-1",
+                  type: "routine",
+                  title: "물 마시기",
+                  status: "active",
+                  project_id: "project-1",
+                  description: "500ml를 마신다",
+                  priority: 2,
+                  recurrence_rule: "daily",
+                  materialization_policy: "single_open",
+                  tags: ["health"],
+                  note: "오후에도 반복",
+                },
+              ]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await screen.findByRole("option", { name: "건강" });
+    expect(screen.getByLabelText("Project for 물 마시기")).toHaveValue("project-1");
+    expect(screen.getByLabelText("Priority for 물 마시기")).toHaveValue("2");
+    expect(screen.getByRole("cell", { name: "500ml를 마신다" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("cell", { name: "물 마시기" }));
+
+    expect(screen.getByRole("button", { name: "Tags" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Note")).toHaveValue("오후에도 반복");
+    expect(screen.getByLabelText("Project for 물 마시기")).toHaveValue("project-1");
+    expect(screen.getByLabelText("Priority")).toHaveValue("2");
+    expect(screen.getByLabelText("Description")).toHaveValue("500ml를 마신다");
+
+    await user.selectOptions(screen.getByLabelText("Project for 물 마시기"), "project-2");
+    await user.clear(screen.getByLabelText("Description"));
+    await user.type(screen.getByLabelText("Description"), "물을 천천히 마신다");
+    await user.selectOptions(screen.getByLabelText("Priority"), "3");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/items/routine-1",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+  });
+
   it("opens legacy weekly recurrence without sending an unchanged recurrence rule patch", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
@@ -5161,7 +5254,8 @@ describe("WorkbenchPageClient", () => {
     expect(within(properties as HTMLElement).getByText("2026-06-21")).toBeInTheDocument();
     expect(screen.queryByLabelText("Last Materialized")).toBeNull();
     expectPropertyImmediatelyBeforeProperty("Updated", "Last Materialized");
-    expectPropertyImmediatelyBeforeField("Last Materialized", "Note");
+    expectPropertyImmediatelyBeforeField("Last Materialized", "Description");
+    expectFieldBefore("Description", "Note");
   });
 
   it("omits unchanged event participants from the detail PATCH body", async () => {
