@@ -4,8 +4,6 @@ use std::str::FromStr;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemStatus {
-    Proposed,
-    Approved,
     Active,
     Waiting,
     Paused,
@@ -24,11 +22,7 @@ pub enum ItemStatus {
 /// from THIS constant so the InMemory and Persistent stores cannot diverge
 /// (D-07 visibility parity). Adding/removing an open status here updates both
 /// loaders in lockstep.
-pub const OPEN_STATUSES: [ItemStatus; 3] = [
-    ItemStatus::Proposed,
-    ItemStatus::Approved,
-    ItemStatus::Active,
-];
+pub const OPEN_STATUSES: [ItemStatus; 1] = [ItemStatus::Active];
 
 pub fn terminal_status(status: ItemStatus) -> bool {
     matches!(
@@ -52,8 +46,6 @@ pub fn hidden_by_default_status(status: ItemStatus) -> bool {
 impl ItemStatus {
     pub fn as_str(self) -> &'static str {
         match self {
-            ItemStatus::Proposed => "proposed",
-            ItemStatus::Approved => "approved",
             ItemStatus::Active => "active",
             ItemStatus::Waiting => "waiting",
             ItemStatus::Paused => "paused",
@@ -72,8 +64,6 @@ impl FromStr for ItemStatus {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim() {
-            "proposed" => Ok(ItemStatus::Proposed),
-            "approved" => Ok(ItemStatus::Approved),
             "active" => Ok(ItemStatus::Active),
             "waiting" => Ok(ItemStatus::Waiting),
             "paused" => Ok(ItemStatus::Paused),

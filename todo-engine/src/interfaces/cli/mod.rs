@@ -71,10 +71,6 @@ enum Command {
         #[command(subcommand)]
         command: EventCommand,
     },
-    /// Approve a proposed item.
-    Approve(ItemTransitionArgs),
-    /// Activate an approved or user-created item.
-    Activate(ItemTransitionArgs),
     /// Pause an item.
     Pause(ItemTransitionArgs),
     /// Resume a paused item.
@@ -92,7 +88,7 @@ enum Command {
     /// List terminal/archive items.
     #[command(name = "archive-list")]
     ArchiveList,
-    /// Show proposed, approved, and active work.
+    /// Show active work.
     Pending,
     /// Show today's materialized task view.
     Today,
@@ -386,8 +382,6 @@ pub fn run() -> Result<()> {
         Command::Event {
             command: EventCommand::Propose(args),
         } => create::event_propose(&home, args),
-        Command::Approve(args) => lifecycle::approve(&home, args),
-        Command::Activate(args) => lifecycle::activate(&home, args),
         Command::Pause(args) => lifecycle::pause(&home, args),
         Command::Resume(args) => lifecycle::resume(&home, args),
         Command::Complete(args) => lifecycle::complete(&home, args),
@@ -451,8 +445,6 @@ fn command_label(command: &Command) -> &'static str {
         Command::Event {
             command: EventCommand::Propose(_),
         } => "event propose",
-        Command::Approve(_) => "approve",
-        Command::Activate(_) => "activate",
         Command::Pause(_) => "pause",
         Command::Resume(_) => "resume",
         Command::Complete(_) => "complete",
@@ -561,7 +553,7 @@ fn parse_actor(value: &str) -> std::result::Result<Actor, String> {
 fn parse_status(value: &str) -> std::result::Result<ItemStatus, String> {
     ItemStatus::from_str(value).map_err(|_| {
         format!(
-            "invalid status '{value}'; expected one of: proposed, approved, active, waiting, paused, completed, cancelled, dropped, archived, someday, rejected"
+            "invalid status '{value}'; expected one of: active, waiting, paused, completed, cancelled, dropped, archived, someday, rejected"
         )
     })
 }

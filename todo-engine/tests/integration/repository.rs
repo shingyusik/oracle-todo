@@ -117,7 +117,7 @@ fn saving_item_and_event_persists_to_sqlite() {
     assert_eq!(fetched.title, "테스트");
     assert_eq!(fetched.note.as_deref(), Some("간단 메모"));
     assert_eq!(fetched.future_occurrences, 3);
-    assert_eq!(fetched.status, ItemStatus::Proposed);
+    assert_eq!(fetched.status, ItemStatus::Active);
     assert_eq!(repo.list_items(ListFilter::default()).unwrap().len(), 1);
 
     let event = TodoEvent {
@@ -170,7 +170,7 @@ fn sqlite_backed_service_persists_items_and_events() {
     let item = service
         .propose_task("저장되는 태스크", Default::default())
         .unwrap();
-    service.approve(&item.id, Some("확인")).unwrap();
+    service.complete(&item.id, Some("확인")).unwrap();
 
     let conn = connect(db_path).unwrap();
     init_schema(&conn).unwrap();
@@ -316,7 +316,7 @@ fn list_items_honors_core_filters_and_hides_archived_by_default() {
         .iter()
         .map(|item| item.id.as_str())
         .collect::<Vec<_>>(),
-        vec!["task_active"]
+        vec!["area_1", "task_active"]
     );
     assert_eq!(
         repo.list_items(ListFilter {
@@ -417,7 +417,7 @@ fn repository_writes_canonical_enum_names() {
         item_row,
         (
             "task".to_string(),
-            "proposed".to_string(),
+            "active".to_string(),
             "agent".to_string()
         )
     );

@@ -37,11 +37,11 @@ fn occurrence_keys(items: &[TodoItem]) -> Vec<String> {
 }
 
 #[test]
-fn activation_fills_the_default_future_occurrence_target() {
+fn materialization_fills_the_default_future_occurrence_target() {
     let mut service = TodoService::in_memory();
     let routine = routine(&mut service, "per_occurrence");
 
-    service.activate(&routine.id, None).unwrap();
+    service.materialize_routines("2026-05-31").unwrap();
 
     assert_eq!(
         occurrence_keys(&tasks(&mut service, &routine.id)),
@@ -58,11 +58,11 @@ fn activation_fills_the_default_future_occurrence_target() {
 }
 
 #[test]
-fn single_open_activation_creates_only_one_task() {
+fn single_open_materialization_creates_only_one_task() {
     let mut service = TodoService::in_memory();
     let routine = routine(&mut service, "single_open");
 
-    service.activate(&routine.id, None).unwrap();
+    service.materialize_routines("2026-05-31").unwrap();
 
     assert_eq!(tasks(&mut service, &routine.id).len(), 1);
 }
@@ -71,7 +71,7 @@ fn single_open_activation_creates_only_one_task() {
 fn completion_replenishes_after_the_latest_generated_occurrence() {
     let mut service = TodoService::in_memory();
     let routine = routine(&mut service, "per_occurrence");
-    service.activate(&routine.id, None).unwrap();
+    service.materialize_routines("2026-05-31").unwrap();
     let first = tasks(&mut service, &routine.id).remove(0);
 
     service.complete(&first.id, None).unwrap();
@@ -95,7 +95,7 @@ fn completion_replenishes_after_the_latest_generated_occurrence() {
 fn reducing_the_target_keeps_existing_tasks_and_pauses_replenishment() {
     let mut service = TodoService::in_memory();
     let routine = routine(&mut service, "per_occurrence");
-    service.activate(&routine.id, None).unwrap();
+    service.materialize_routines("2026-05-31").unwrap();
     service
         .update_item(
             &routine.id,
@@ -125,8 +125,7 @@ fn manual_materialization_increases_one_routine_target() {
     let mut service = TodoService::in_memory();
     let target = routine(&mut service, "per_occurrence");
     let bystander = routine(&mut service, "per_occurrence");
-    service.activate(&target.id, None).unwrap();
-    service.activate(&bystander.id, None).unwrap();
+    service.materialize_routines("2026-05-31").unwrap();
 
     let created = service
         .materialize_routine(&target.id, "2026-05-31", Some(9))
@@ -147,9 +146,8 @@ fn materialization_validates_target_and_named_routine() {
         service
             .materialize_routine(&routine.id, "2026-05-31", Some(0))
             .unwrap_err(),
-        TodoError::Policy("Routine must be active to materialize: approved".to_string())
+        TodoError::Validation("future_occurrences must be between 1 and 365: 0".to_string())
     );
-    service.activate(&routine.id, None).unwrap();
     assert_eq!(
         service
             .materialize_routine(&routine.id, "2026-05-31", Some(366))
@@ -168,7 +166,7 @@ fn materialization_validates_target_and_named_routine() {
 fn paused_routine_waits_until_resume_to_replenish() {
     let mut service = TodoService::in_memory();
     let routine = routine(&mut service, "per_occurrence");
-    service.activate(&routine.id, None).unwrap();
+    service.materialize_routines("2026-05-31").unwrap();
     service.pause(&routine.id, None).unwrap();
     let first = tasks(&mut service, &routine.id).remove(0);
 
@@ -187,7 +185,7 @@ fn paused_routine_waits_until_resume_to_replenish() {
 }
 
 #[test]
-fn invalid_recurrence_fails_before_activation() {
+fn invalid_recurrence_fails_before_materialization() {
     let mut service = TodoService::in_memory();
     let mut routine = routine(&mut service, "per_occurrence");
     routine = service
@@ -201,20 +199,19 @@ fn invalid_recurrence_fails_before_activation() {
         .unwrap();
 
     assert_eq!(
-        service.activate(&routine.id, None).unwrap_err(),
+        service
+            .materialize_routine(&routine.id, "2026-05-31", None)
+            .unwrap_err(),
         TodoError::Policy("Unsupported recurrence_rule: every dayzz".to_string())
     );
-    assert_eq!(
-        service.get(&routine.id).unwrap().status,
-        ItemStatus::Approved
-    );
+    assert_eq!(service.get(&routine.id).unwrap().status, ItemStatus::Active);
 }
 
 #[test]
 fn completion_records_occurrence_history_before_replenishing() {
     let mut service = TodoService::in_memory();
     let routine = routine(&mut service, "single_open");
-    service.activate(&routine.id, None).unwrap();
+    service.materialize_routines("2026-05-31").unwrap();
     let task = tasks(&mut service, &routine.id).remove(0);
 
     service.complete(&task.id, Some("완료")).unwrap();

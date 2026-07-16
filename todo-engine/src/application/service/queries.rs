@@ -107,7 +107,7 @@ impl TodoService {
         Ok(items)
     }
 
-    /// Open (`Proposed`/`Approved`/`Active`) tasks only, the shared base for the
+    /// Open (`Active`) tasks only, the shared base for the
     /// date-view methods. Composes `list_items` so InMemory and Persistent stores
     /// agree (SC4 parity); the open-only narrowing is the D-05 allowlist.
     fn open_tasks(&mut self) -> TodoResult<Vec<TodoItem>> {

@@ -1,6 +1,5 @@
 use crate::support::TestHome;
 use assert_cmd::Command;
-use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 #[test]
@@ -128,7 +127,7 @@ fn task_propose_prints_json_item() {
         ])
         .assert()
         .success()
-        .stdout(contains("\"status\":\"proposed\""))
+        .stdout(contains("\"status\":\"active\""))
         .stdout(contains("\"note\":\"앱 최초 실행 후 확인\""));
 }
 
@@ -364,7 +363,7 @@ fn area_create_and_pending_show_current_cli_behavior() {
         .assert()
         .success()
         .stdout(contains("DB 확인"))
-        .stdout(contains("직접 승인된 일").not());
+        .stdout(contains("직접 승인된 일"));
 }
 
 #[test]
@@ -400,19 +399,7 @@ fn today_materializes_active_routines() {
         .stdout
         .clone();
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    let routine_id = routine["id"].as_str().unwrap();
     assert_eq!(routine["future_occurrences"], 2);
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "activate",
-            routine_id,
-        ])
-        .assert()
-        .success();
 
     Command::cargo_bin("todo-engine")
         .unwrap()
@@ -432,6 +419,18 @@ fn export_subcommand_is_not_available() {
         .assert()
         .failure()
         .stderr(contains("unrecognized subcommand 'export'"));
+}
+
+#[test]
+fn approval_subcommands_are_not_available() {
+    for command in ["approve", "activate"] {
+        Command::cargo_bin("todo-engine")
+            .unwrap()
+            .arg(command)
+            .assert()
+            .failure()
+            .stderr(contains("unrecognized subcommand"));
+    }
 }
 
 #[test]
@@ -525,7 +524,7 @@ fn list_project_propose_and_update_cover_cli_surface() {
         .assert()
         .success()
         .stdout(contains("\"type\":\"project\""))
-        .stdout(contains("\"status\":\"approved\""))
+        .stdout(contains("\"status\":\"active\""))
         .get_output()
         .stdout
         .clone();
@@ -576,7 +575,7 @@ fn lifecycle_commands_emit_json_status_changes() {
         .assert()
         .success();
 
-    let proposed = Command::cargo_bin("todo-engine")
+    let active = Command::cargo_bin("todo-engine")
         .unwrap()
         .args([
             "--home",
@@ -590,22 +589,8 @@ fn lifecycle_commands_emit_json_status_changes() {
         .get_output()
         .stdout
         .clone();
-    let proposed: serde_json::Value = serde_json::from_slice(&proposed).unwrap();
-    let proposed_id = proposed["id"].as_str().unwrap();
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "approve",
-            proposed_id,
-            "--reason",
-            "accepted",
-        ])
-        .assert()
-        .success()
-        .stdout(contains("\"status\":\"approved\""));
+    let active: serde_json::Value = serde_json::from_slice(&active).unwrap();
+    let active_id = active["id"].as_str().unwrap();
 
     Command::cargo_bin("todo-engine")
         .unwrap()
@@ -613,7 +598,7 @@ fn lifecycle_commands_emit_json_status_changes() {
             "--home",
             home.path().to_str().unwrap(),
             "complete",
-            proposed_id,
+            active_id,
         ])
         .assert()
         .success()
@@ -729,7 +714,7 @@ fn archive_list_shows_terminal_items() {
 }
 
 #[test]
-fn goal_propose_prints_proposed_json() {
+fn goal_propose_prints_active_json() {
     let home = TestHome::new();
 
     Command::cargo_bin("todo-engine")
@@ -754,7 +739,7 @@ fn goal_propose_prints_proposed_json() {
         .assert()
         .success()
         .stdout(contains("\"type\":\"goal\""))
-        .stdout(contains("\"status\":\"proposed\""))
+        .stdout(contains("\"status\":\"active\""))
         .stdout(contains("\"proposed_by\":\"agent\""));
 }
 
@@ -962,19 +947,7 @@ fn routine_materialize_covers_cli_intent() {
         .stdout
         .clone();
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    let routine_id = routine["id"].as_str().unwrap();
     assert_eq!(routine["future_occurrences"], 2);
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "activate",
-            routine_id,
-        ])
-        .assert()
-        .success();
 
     Command::cargo_bin("todo-engine")
         .unwrap()
@@ -986,7 +959,7 @@ fn routine_materialize_covers_cli_intent() {
         ])
         .assert()
         .success()
-        .stdout(contains("No routine tasks materialized"));
+        .stdout(contains("\"status\":\"active\""));
 
     // The target cap is shared service policy.
     Command::cargo_bin("todo-engine")

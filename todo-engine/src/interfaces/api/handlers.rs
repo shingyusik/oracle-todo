@@ -306,24 +306,6 @@ pub(super) async fn update_item(
     Ok(Json(item))
 }
 
-pub(super) async fn approve_item(
-    State(state): State<ApiState>,
-    AxumPath(id): AxumPath<String>,
-) -> ApiResult<Json<TodoItem>> {
-    let item = with_service(&state, |service| service.approve(&id, None))?;
-    Ok(Json(item))
-}
-
-pub(super) async fn activate_item(
-    State(state): State<ApiState>,
-    AxumPath(id): AxumPath<String>,
-    body: Option<Json<ReasonBody>>,
-) -> ApiResult<Json<TodoItem>> {
-    let reason = body.and_then(|Json(body)| body.reason);
-    let item = with_service(&state, |service| service.activate(&id, reason.as_deref()))?;
-    Ok(Json(item))
-}
-
 pub(super) async fn pause_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,

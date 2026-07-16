@@ -5,20 +5,6 @@ use super::output::print_json;
 use super::{ItemTransitionArgs, UpdateArgs, service};
 use crate::application::service::UpdateItem;
 
-pub(super) fn approve(home: &Path, args: ItemTransitionArgs) -> Result<()> {
-    let mut service = service(home)?;
-    let item = service.approve(&args.item_id, args.reason.as_deref())?;
-    print_json(&item)?;
-    Ok(())
-}
-
-pub(super) fn activate(home: &Path, args: ItemTransitionArgs) -> Result<()> {
-    let mut service = service(home)?;
-    let item = service.activate(&args.item_id, args.reason.as_deref())?;
-    print_json(&item)?;
-    Ok(())
-}
-
 pub(super) fn pause(home: &Path, args: ItemTransitionArgs) -> Result<()> {
     let mut service = service(home)?;
     let item = service.pause(&args.item_id, args.reason.as_deref())?;

@@ -26,9 +26,7 @@ fn every_mutation_records_event() {
         })
         .unwrap();
     let item = service.propose_task("테스트", Default::default()).unwrap();
-    let approved = service.approve(&item.id, None).unwrap();
-    let active = service.activate(&approved.id, None).unwrap();
-    let completed = service.complete(&active.id, None).unwrap();
+    let completed = service.complete(&item.id, None).unwrap();
     service
         .reopen(&completed.id, Some("planner checkbox"))
         .unwrap();
@@ -45,8 +43,6 @@ fn every_mutation_records_event() {
             "create_area".to_string(),
             "propose_project".to_string(),
             "propose_task".to_string(),
-            "approve".to_string(),
-            "activate".to_string(),
             "complete".to_string(),
             "reopen".to_string(),
         ]

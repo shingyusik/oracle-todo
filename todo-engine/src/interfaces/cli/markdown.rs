@@ -74,11 +74,7 @@ pub(super) fn current_today_items(
 fn today_tasks(items: &[TodoItem], today: &str) -> TodoResult<Vec<TodoItem>> {
     let today = parse_day(today)
         .ok_or_else(|| TodoError::Validation(format!("Invalid today date: {today}")))?;
-    let visible_statuses = [
-        ItemStatus::Proposed,
-        ItemStatus::Approved,
-        ItemStatus::Active,
-    ];
+    let visible_statuses = [ItemStatus::Active];
 
     Ok(items
         .iter()

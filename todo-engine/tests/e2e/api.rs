@@ -85,7 +85,7 @@ async fn task_propose_and_items_use_same_service_path() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let item: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(item["title"], "DB 확인");
-    assert_eq!(item["status"], "proposed");
+    assert_eq!(item["status"], "active");
     assert_eq!(item["proposed_by"], "agent");
 
     let fresh_app = router(&db_path).unwrap();
@@ -264,7 +264,7 @@ async fn create_area_returns_active_area() {
 }
 
 #[tokio::test]
-async fn approve_and_complete_items_return_mutated_items() {
+async fn complete_and_reopen_items_return_mutated_items() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
     let app = router(&db_path).unwrap();
@@ -283,23 +283,7 @@ async fn approve_and_complete_items_return_mutated_items() {
     let item: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let id = item["id"].as_str().unwrap();
 
-    let app = router(&db_path).unwrap();
-    let response = app
-        .oneshot(
-            http::Request::builder()
-                .method("POST")
-                .uri(format!("/items/{id}/approve"))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200);
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let item: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(item["id"], id);
-    assert_eq!(item["status"], "approved");
-    assert_eq!(item["approved_by"], "user");
+    assert_eq!(item["status"], "active");
 
     let app = router(&db_path).unwrap();
     let response = app
@@ -405,7 +389,7 @@ async fn items_query_filters_and_orders_items() {
     let response = app
         .oneshot(
             http::Request::builder()
-                .uri("/items?status=proposed&type=task")
+                .uri("/items?status=active&type=task")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -463,7 +447,7 @@ async fn operational_propose_routes_return_persisted_items() {
     assert_eq!(response.status(), 200);
     let project = body_json(response).await;
     assert_eq!(project["type"], "project");
-    assert_eq!(project["status"], "approved");
+    assert_eq!(project["status"], "active");
     assert_eq!(project["definition_of_done"], "copied DB smoke passes");
 
     let response = json_request(
@@ -504,7 +488,7 @@ async fn operational_propose_routes_return_persisted_items() {
     assert_eq!(response.status(), 200);
     let event = body_json(response).await;
     assert_eq!(event["type"], "event");
-    assert_eq!(event["status"], "approved");
+    assert_eq!(event["status"], "active");
     assert_eq!(event["metadata_"]["location"], "회의실");
     assert_eq!(event["metadata_"]["participants"][0], "팀");
 
@@ -524,7 +508,7 @@ async fn operational_propose_routes_return_persisted_items() {
     assert_eq!(response.status(), 200);
     let goal = body_json(response).await;
     assert_eq!(goal["type"], "goal");
-    assert_eq!(goal["status"], "approved");
+    assert_eq!(goal["status"], "active");
     assert_eq!(goal["horizon"], "month");
     assert_eq!(goal["scheduled"], "2026-06-01");
     assert_eq!(goal["note"], "월간 운영 안정화");
@@ -534,6 +518,45 @@ async fn operational_propose_routes_return_persisted_items() {
     let items = body_json(response).await;
     assert_eq!(items.as_array().unwrap().len(), 1);
     assert_eq!(items[0]["title"], "Rust cutover");
+}
+
+#[tokio::test]
+async fn project_and_routine_creation_require_non_blank_activation_fields() {
+    for body in [
+        json!({"title":"Project"}),
+        json!({"title":"Project", "definition_of_done":"   "}),
+    ] {
+        let response = json_request(
+            router(":memory:").unwrap(),
+            "POST",
+            "/projects/propose",
+            body,
+        )
+        .await;
+        assert_eq!(response.status(), 400);
+        assert_eq!(
+            body_json(response).await["detail"],
+            "Project requires definition_of_done"
+        );
+    }
+
+    for body in [
+        json!({"title":"Routine"}),
+        json!({"title":"Routine", "recurrence_rule":"   "}),
+    ] {
+        let response = json_request(
+            router(":memory:").unwrap(),
+            "POST",
+            "/routines/propose",
+            body,
+        )
+        .await;
+        assert_eq!(response.status(), 400);
+        assert_eq!(
+            body_json(response).await["detail"],
+            "Routine requires recurrence_rule"
+        );
+    }
 }
 
 #[tokio::test]
@@ -551,16 +574,6 @@ async fn operational_transition_routes_return_mutated_items() {
     assert_eq!(response.status(), 200);
     let item = body_json(response).await;
     let active_id = item["id"].as_str().unwrap();
-
-    let response = json_request(
-        router(&db_path).unwrap(),
-        "POST",
-        format!("/items/{active_id}/activate"),
-        json!({"reason":"start"}),
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-    assert_eq!(body_json(response).await["status"], "active");
 
     let response = json_request(
         router(&db_path).unwrap(),
@@ -980,7 +993,7 @@ async fn service_errors_return_detail_body() {
         .oneshot(
             http::Request::builder()
                 .method("POST")
-                .uri("/items/missing/approve")
+                .uri("/items/missing/pause")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -990,6 +1003,23 @@ async fn service_errors_return_detail_body() {
     assert_eq!(response.status(), 404);
     let body = body_json(response).await;
     assert!(body["detail"].as_str().unwrap().contains("missing"));
+}
+
+#[tokio::test]
+async fn approval_routes_are_not_available() {
+    let app = router(":memory:").unwrap();
+    let response = json_request(
+        app.clone(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"active task"}),
+    )
+    .await;
+    let id = body_json(response).await["id"].as_str().unwrap().to_owned();
+    for route in ["approve", "activate"] {
+        let response = empty_request(app.clone(), "POST", format!("/items/{id}/{route}")).await;
+        assert_eq!(response.status(), 404);
+    }
 }
 
 #[tokio::test]
@@ -1100,7 +1130,7 @@ async fn request_validation_errors_return_detail_body() {
 }
 
 #[tokio::test]
-async fn goal_propose_returns_proposed_item() {
+async fn goal_propose_returns_active_item() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
 
@@ -1113,13 +1143,10 @@ async fn goal_propose_returns_proposed_item() {
     .await;
     assert_eq!(response.status(), 200);
     let item = body_json(response).await;
-    // Mirrors the CLI assertion (goal_propose_prints_proposed_json) => state parity.
+    // Mirrors the CLI direct-active creation assertion.
     assert_eq!(item["type"], "goal");
-    assert_eq!(item["status"], "proposed");
+    assert_eq!(item["status"], "active");
     assert_eq!(item["proposed_by"], "agent");
-    // SC4 non-bypass: no body field sets status; an agent-created goal cannot
-    // be created `active` directly — the service state machine returns `proposed`.
-    assert_ne!(item["status"], "active");
 }
 
 #[tokio::test]
@@ -1244,10 +1271,11 @@ async fn active_routine(db_path: &std::path::Path, title: &str, policy: &str) ->
     let routine = body_json(response).await;
     let id = routine["id"].as_str().unwrap().to_string();
 
-    let response = empty_request(
+    let response = json_request(
         router(db_path).unwrap(),
         "POST",
-        format!("/items/{id}/activate"),
+        format!("/routines/{id}/materialize"),
+        json!({"future_occurrences":7}),
     )
     .await;
     assert_eq!(response.status(), 200);
@@ -1280,7 +1308,7 @@ async fn materialize_route_creates_tasks_for_one_routine_and_is_repeatable() {
     assert_eq!(created.len(), 2);
     for task in created {
         assert_eq!(task["type"], "task");
-        assert_eq!(task["status"], "approved");
+        assert_eq!(task["status"], "active");
         assert_eq!(task["routine_id"], target.as_str());
         assert_eq!(task["metadata_"]["generated_by"], "routine");
         assert_eq!(task["scheduled"], task["occurrence_key"]);

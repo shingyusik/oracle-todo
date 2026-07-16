@@ -10,7 +10,7 @@
 //!   sentinel / junk) are retained on the agenda/full-set path and sorted last.
 //! - SC3 (`agenda_union_dedup`): single-date `agenda` is the `scheduled == D`
 //!   union `due == D`, id-deduped to one row.
-//! - D-05 (`open_only`): only Proposed / Approved / Active surface; the reachable
+//! - D-05 (`open_only`): only Active surfaces; the reachable
 //!   closed/hidden statuses (Completed / Waiting / Paused) are excluded.
 //! - D-06 (`no_overdue_roll`): a past-scheduled task is absent from a later agenda.
 //!
@@ -21,7 +21,7 @@
 use todo_engine::application::service::{ProposeTask, TodoService, UpdateItem};
 use todo_engine::domain::Actor;
 
-/// Propose a user task (so it starts Approved and can be activated) with an
+/// Create an active user task with an
 /// optional `scheduled` and `due`, returning its id.
 fn task(service: &mut TodoService, scheduled: Option<&str>, due: Option<&str>) -> String {
     service
@@ -148,14 +148,14 @@ fn agenda_union_dedup() {
     );
 }
 
-/// D-05: only Proposed / Approved / Active surface in a date-view read. The
+/// D-05: only Active surfaces in a date-view read. The
 /// reachable closed/hidden statuses Completed (via `complete`) and Paused (via
 /// `pause`) are excluded. Waiting is omitted: the only producer is the
 /// routine-pause cascade, which fires solely on tasks carrying the
 /// `metadata["generated_by"] == "routine"` marker, and no public service API
 /// sets that marker — it is not drivable from a test fixture. The OPEN_STATUSES
 /// allowlist is exclusion-by-construction (anything not in
-/// {Proposed, Approved, Active} is excluded), so the reachable Completed/Paused
+/// {Active} is excluded), so the reachable Completed/Paused
 /// exclusions prove the allowlist semantics; Waiting/Someday are excluded the
 /// same way without a producer. Someday is likewise unreachable via any mutation.
 #[test]
@@ -164,11 +164,11 @@ fn open_only() {
     let day = "2026-06-23";
 
     // Open statuses — must be INCLUDED.
-    let proposed = service
+    let agent_task = service
         .propose_task(
             "proposed",
             ProposeTask {
-                actor: Actor::Agent, // agent-created stays Proposed
+                actor: Actor::Agent,
                 scheduled: Some(day.to_string()),
                 ..Default::default()
             },
@@ -176,10 +176,7 @@ fn open_only() {
         .unwrap()
         .id;
 
-    let approved = task(&mut service, Some(day), None); // user task -> Approved
-
-    let active = task(&mut service, Some(day), None);
-    service.activate(&active, None).unwrap();
+    let user_task = task(&mut service, Some(day), None);
 
     // Reachable closed/hidden statuses — must be EXCLUDED.
     let completed = task(&mut service, Some(day), None);
@@ -191,7 +188,7 @@ fn open_only() {
     let result = service.agenda(day).unwrap();
     let order = ids(&result);
 
-    for id in [&proposed, &approved, &active] {
+    for id in [&agent_task, &user_task] {
         assert!(order.contains(id), "open task {id} was excluded");
     }
     for id in [&completed, &paused] {

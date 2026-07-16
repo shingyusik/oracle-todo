@@ -1,87 +1,8 @@
 use super::{TodoService, format_time, generated_by_routine};
 use crate::application::error::{TodoError, TodoResult};
-use crate::domain::{Actor, ItemStatus, ItemType, TodoItem, future_occurrences, terminal_status};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
 
 impl TodoService {
-    pub fn approve(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
-        let mut item = self.get(item_id)?;
-        let before = Some(serde_json::to_value(&item).map_err(|error| {
-            TodoError::Internal(format!("failed to snapshot item before approve: {error}"))
-        })?);
-        if !matches!(item.status, ItemStatus::Proposed | ItemStatus::Approved) {
-            return Err(TodoError::Policy(format!(
-                "Cannot approve item in status {}",
-                item.status.as_str()
-            )));
-        }
-
-        let now = self.next_now();
-        item.status = ItemStatus::Approved;
-        item.approved_by = Some(Actor::User);
-        item.approved_at = Some(now);
-        item.updated_at = now;
-        self.store_item_and_event(Actor::User, "approve", before, item, _reason)
-    }
-
-    pub fn activate(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {
-        let mut item = self.get(item_id)?;
-        let before = Some(serde_json::to_value(&item).map_err(|error| {
-            TodoError::Internal(format!("failed to snapshot item before activate: {error}"))
-        })?);
-        if item.proposed_by != Actor::User && item.approved_at.is_none() {
-            return Err(TodoError::Policy(
-                "Agent-created items must be approved before activation".to_string(),
-            ));
-        }
-        if item.item_type == ItemType::Project && item.definition_of_done.is_none() {
-            return Err(TodoError::Policy(
-                "Project requires definition_of_done before activation".to_string(),
-            ));
-        }
-        if item.item_type == ItemType::Routine && item.recurrence_rule.is_none() {
-            return Err(TodoError::Policy(
-                "Routine requires recurrence_rule before activation".to_string(),
-            ));
-        }
-        if item.item_type == ItemType::Area {
-            return Err(TodoError::Policy(
-                "Areas are ongoing and are active at creation; do not activate as work".to_string(),
-            ));
-        }
-        if terminal_status(item.status) {
-            return Err(TodoError::Policy(format!(
-                "Cannot activate terminal item: {}",
-                item.status.as_str()
-            )));
-        }
-
-        let now = self.next_now();
-        if item.item_type == ItemType::Routine {
-            let rule = item
-                .recurrence_rule
-                .as_deref()
-                .expect("checked recurrence_rule");
-            future_occurrences(
-                rule,
-                now.date(),
-                now.date().previous_day().unwrap_or(time::Date::MIN),
-                1,
-            )
-            .map_err(|error| {
-                TodoError::Policy(format!("Unsupported recurrence_rule: {}", error.rule()))
-            })?;
-        }
-        item.status = ItemStatus::Active;
-        item.updated_at = now;
-        let activated =
-            self.store_item_and_event(Actor::User, "activate", before, item, _reason)?;
-        if activated.item_type == ItemType::Routine {
-            self.fill_routine_to_target(&activated.id, activated.updated_at.date())?;
-            return self.get(&activated.id);
-        }
-        Ok(activated)
-    }
-
     pub fn pause(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
         let mut item = self.get(item_id)?;
         let before = Some(serde_json::to_value(&item).map_err(|error| {
@@ -184,10 +105,10 @@ impl TodoService {
         item.updated_at = now;
         let item = self.store_item_and_event(Actor::User, "complete", before, item, _reason)?;
         self.record_generated_task_occurrence(&item, Actor::User, _reason)?;
-        if generated_by_routine(&item) {
-            if let Some(routine_id) = item.routine_id.as_deref() {
-                self.fill_routine_to_target(routine_id, item.updated_at.date())?;
-            }
+        if generated_by_routine(&item)
+            && let Some(routine_id) = item.routine_id.as_deref()
+        {
+            self.fill_routine_to_target(routine_id, item.updated_at.date())?;
         }
         Ok(item)
     }
