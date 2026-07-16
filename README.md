@@ -195,6 +195,9 @@ Recurring work template. Active routines materialize task instances through the 
 
 - Creation requires a non-blank `recurrence_rule`.
 - Generated tasks link back through `routine_id`.
+- Generated tasks copy `title`, `area_id`, `project_id`, `description`, `note`, `priority`, and
+  `tags` from the routine when they are created. Their `scheduled` value is the occurrence date.
+  Existing tasks are not synchronized after later routine updates.
 - `routine materialize` fills active routines to their stored targets. Once generated tasks
   exist, completing one replenishes its active routine automatically.
 - `single_open` maintains one non-terminal generated task per routine.
@@ -214,6 +217,10 @@ Required / useful columns:
 | `title` | yes | Routine task title used for generated tasks. |
 | `status` | yes | Created as `active`; may later be `paused`. |
 | `area_id` | recommended | Owning area ID. |
+| `project_id` | optional | Project copied to generated tasks; must point to a non-terminal project. |
+| `description` | optional | Detailed instructions copied to generated tasks. |
+| `priority` | optional | Integer priority copied to generated tasks. |
+| `tags` | optional | Tags copied to generated tasks. |
 | `recurrence_rule` | required at creation/materialization | RRULE recurrence string. |
 | `materialization_policy` | yes | `single_open` or `per_occurrence`; default `single_open`. |
 | `future_occurrences` | yes | Rolling target for `per_occurrence`; default `7`, range `1..=365`. |

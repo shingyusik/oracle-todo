@@ -72,9 +72,9 @@ routine using stored targets, this acts only on `{id}`.
   `due?`, `note?`, `tags?`, `actor?` (default `agent`).
 - **`GoalProposeBody`** — `title` (required), `horizon` (required: `year`, `month`, or `week`),
   `scheduled` (required canonical period start date), `parent_id?`, `actor?`, `note?`, `tags?`.
-- **`RoutineProposeBody`** — `title` (required), `area?`, `recurrence_rule` (required and non-blank),
-  `materialization_policy?` (default `single_open`), `future_occurrences?` (default `7`), `note?`, `tags?`,
-  `actor?` (default `agent`).
+- **`RoutineProposeBody`** — `title` (required), `area?`, `project_id?`, `description?`, `priority?`,
+  `recurrence_rule` (required and non-blank), `materialization_policy?` (default `single_open`),
+  `future_occurrences?` (default `7`), `note?`, `tags?`, `actor?` (default `agent`).
 - **`RoutineMaterializeBody`** — `future_occurrences` (required integer `1..=365`). Values
   outside that range return HTTP `400` with `code=validation_error`.
 - **`EventProposeBody`** — `title` (required), `scheduled` (required), `area?`, `project_id?`,
