@@ -1,6 +1,8 @@
 use super::TodoService;
 use crate::application::error::{TodoError, TodoResult};
-use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
+use crate::domain::{
+    Actor, Horizon, ItemStatus, ItemType, TodoItem, future_occurrences as recurrence_occurrences,
+};
 
 #[derive(Default)]
 pub struct CreateArea {
@@ -194,6 +196,11 @@ impl TodoService {
     }
 
     pub fn propose_project(&mut self, request: ProposeProject) -> TodoResult<TodoItem> {
+        let definition_of_done = request
+            .definition_of_done
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| TodoError::Policy("Project requires definition_of_done".to_owned()))?;
         let area_id = self.find_area(request.area)?;
         let now = self.next_now();
         let mut item = TodoItem::new(
@@ -204,7 +211,7 @@ impl TodoService {
             now,
         );
         item.area_id = area_id;
-        item.definition_of_done = request.definition_of_done;
+        item.definition_of_done = Some(definition_of_done);
         item.outcome = request.outcome;
         item.due = request.due;
         item.note = request.note;
@@ -237,6 +244,21 @@ impl TodoService {
     }
 
     pub fn propose_routine(&mut self, request: ProposeRoutine) -> TodoResult<TodoItem> {
+        let recurrence_rule = request
+            .recurrence_rule
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| TodoError::Policy("Routine requires recurrence_rule".to_owned()))?;
+        let now = self.next_now();
+        recurrence_occurrences(
+            &recurrence_rule,
+            now.date(),
+            now.date().previous_day().unwrap_or(time::Date::MIN),
+            1,
+        )
+        .map_err(|error| {
+            TodoError::Policy(format!("Unsupported recurrence_rule: {}", error.rule()))
+        })?;
         if !matches!(
             request.materialization_policy.as_str(),
             "single_open" | "per_occurrence"
@@ -248,7 +270,6 @@ impl TodoService {
         }
         let future_occurrences = super::validate_future_occurrences(request.future_occurrences)?;
         let area_id = self.find_area(request.area)?;
-        let now = self.next_now();
         let mut item = TodoItem::new(
             self.next_id("rtn"),
             ItemType::Routine,
@@ -257,7 +278,7 @@ impl TodoService {
             now,
         );
         item.area_id = area_id;
-        item.recurrence_rule = request.recurrence_rule;
+        item.recurrence_rule = Some(recurrence_rule);
         item.materialization_policy = request.materialization_policy;
         item.future_occurrences = future_occurrences;
         item.note = request.note;

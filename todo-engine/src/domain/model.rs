@@ -104,17 +104,11 @@ impl TodoItem {
         actor: Actor,
         now: OffsetDateTime,
     ) -> Self {
-        let approved = actor == Actor::User;
-
         Self {
             id: id.into(),
             item_type,
             title: title.into(),
-            status: if approved {
-                ItemStatus::Approved
-            } else {
-                ItemStatus::Proposed
-            },
+            status: ItemStatus::Active,
             area_id: None,
             project_id: None,
             routine_id: None,
@@ -134,8 +128,8 @@ impl TodoItem {
             scheduled: None,
             horizon: None,
             proposed_by: actor,
-            approved_by: approved.then_some(Actor::User),
-            approved_at: approved.then_some(now),
+            approved_by: None,
+            approved_at: None,
             completed_at: None,
             archived_at: None,
             last_materialized_at: None,

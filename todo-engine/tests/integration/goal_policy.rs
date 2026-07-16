@@ -14,21 +14,21 @@ fn goal(actor: Actor, horizon: &str, scheduled: &str, parent_id: Option<&str>) -
     }
 }
 
-// SC1: actor drives status and every create writes a propose_goal audit event.
+// SC1: every actor creates active work and every create writes a propose_goal audit event.
 #[test]
-fn agent_goal_is_proposed_user_goal_is_approved_and_audited() {
+fn every_actor_goal_is_active_and_audited() {
     let mut service = TodoService::in_memory();
 
     let agent_goal = service
         .propose_goal(goal(Actor::Agent, "year", "2026-01-01", None))
         .unwrap();
-    assert_eq!(agent_goal.status, ItemStatus::Proposed);
+    assert_eq!(agent_goal.status, ItemStatus::Active);
     assert_eq!(service.events().last().unwrap().action, "propose_goal");
 
     let user_goal = service
         .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
         .unwrap();
-    assert_eq!(user_goal.status, ItemStatus::Approved);
+    assert_eq!(user_goal.status, ItemStatus::Active);
     assert_eq!(service.events().last().unwrap().action, "propose_goal");
 }
 
@@ -252,7 +252,7 @@ fn link_task_to_non_goal_parent_is_rejected() {
         .propose_project(ProposeProject {
             title: "a project".to_string(),
             area: None,
-            definition_of_done: None,
+            definition_of_done: Some("Done when verified".to_owned()),
             outcome: None,
             due: None,
             actor: Actor::User,

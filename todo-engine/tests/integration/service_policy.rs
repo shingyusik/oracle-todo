@@ -1,6 +1,6 @@
 use todo_engine::application::error::TodoError;
 use todo_engine::application::service::{
-    CreateArea, ProposeEvent, ProposeProject, ProposeTask, TodoService,
+    CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, TodoService,
 };
 use todo_engine::domain::{Actor, ItemStatus, ItemType, terminal_status};
 
@@ -32,23 +32,13 @@ fn area_titles_resolve_in_service() {
 }
 
 #[test]
-fn agent_task_requires_approval_before_activation() {
+fn agent_task_is_active_on_creation() {
     let mut service = TodoService::in_memory();
     let item = service
         .propose_task("앱 열고 DB 확인", Default::default())
         .unwrap();
 
-    assert_eq!(item.status, ItemStatus::Proposed);
-
-    let error = service.activate(&item.id, None).unwrap_err();
-    assert_eq!(
-        error,
-        TodoError::Policy("Agent-created items must be approved before activation".to_string())
-    );
-
-    let approved = service.approve(&item.id, None).unwrap();
-    let active = service.activate(&approved.id, None).unwrap();
-    assert_eq!(active.status, ItemStatus::Active);
+    assert_eq!(item.status, ItemStatus::Active);
 }
 
 #[test]
@@ -76,26 +66,70 @@ fn area_creation_is_active_and_cannot_complete() {
 }
 
 #[test]
-fn project_requires_definition_of_done_before_activation() {
-    let mut service = TodoService::in_memory();
-    let project = service
-        .propose_project(ProposeProject {
-            title: "가계부 자동화 안정화".to_string(),
-            area: None,
-            definition_of_done: None,
-            outcome: None,
-            due: None,
-            actor: Actor::User,
-            note: None,
-            tags: Vec::new(),
-        })
-        .unwrap();
+fn project_creation_requires_definition_of_done() {
+    for definition_of_done in [None, Some("   ".to_string())] {
+        let error = TodoService::in_memory()
+            .propose_project(ProposeProject {
+                title: "Project".to_string(),
+                definition_of_done,
+                ..Default::default()
+            })
+            .unwrap_err();
 
-    let error = service.activate(&project.id, None).unwrap_err();
-    assert_eq!(
-        error,
-        TodoError::Policy("Project requires definition_of_done before activation".to_string())
-    );
+        assert_eq!(error.to_string(), "Project requires definition_of_done");
+    }
+}
+
+#[test]
+fn project_creation_trims_definition_and_is_active_for_every_actor() {
+    for actor in [Actor::User, Actor::Agent] {
+        let project = TodoService::in_memory()
+            .propose_project(ProposeProject {
+                title: "Project".to_string(),
+                definition_of_done: Some("  Ship when tests pass  ".to_string()),
+                actor,
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(
+            project.definition_of_done.as_deref(),
+            Some("Ship when tests pass")
+        );
+        assert_eq!(project.status, ItemStatus::Active);
+    }
+}
+
+#[test]
+fn routine_creation_requires_recurrence_rule() {
+    for recurrence_rule in [None, Some("   ".to_string())] {
+        let error = TodoService::in_memory()
+            .propose_routine(ProposeRoutine {
+                title: "Routine".to_string(),
+                recurrence_rule,
+                ..Default::default()
+            })
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "Routine requires recurrence_rule");
+    }
+}
+
+#[test]
+fn routine_creation_trims_rule_and_is_active_for_every_actor() {
+    for actor in [Actor::User, Actor::Agent] {
+        let routine = TodoService::in_memory()
+            .propose_routine(ProposeRoutine {
+                title: "Routine".to_string(),
+                recurrence_rule: Some("  RRULE:FREQ=DAILY  ".to_string()),
+                actor,
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(routine.recurrence_rule.as_deref(), Some("RRULE:FREQ=DAILY"));
+        assert_eq!(routine.status, ItemStatus::Active);
+    }
 }
 
 #[test]
@@ -190,7 +224,7 @@ fn reopen_rejects_non_completed_task() {
 
     assert_eq!(
         error,
-        TodoError::Policy("Cannot reopen task in status approved".to_string())
+        TodoError::Policy("Cannot reopen task in status active".to_string())
     );
 }
 
@@ -210,7 +244,7 @@ fn reopen_rejects_non_completed_event() {
 
     assert_eq!(
         error,
-        TodoError::Policy("Cannot reopen event in status approved".to_string())
+        TodoError::Policy("Cannot reopen event in status active".to_string())
     );
 }
 
@@ -221,7 +255,7 @@ fn reopen_rejects_completed_unsupported_item() {
         .propose_project(ProposeProject {
             title: "완료된 프로젝트".to_string(),
             area: None,
-            definition_of_done: None,
+            definition_of_done: Some("Done when verified".to_owned()),
             outcome: None,
             due: None,
             actor: Actor::User,

@@ -5,20 +5,14 @@ use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoItem};
 const NOW: OffsetDateTime = datetime!(2026 - 05 - 31 12:00 UTC);
 
 #[test]
-fn user_item_is_auto_approved() {
-    let item = TodoItem::new("t1", ItemType::Task, "X", Actor::User, NOW);
-    assert_eq!(item.status, ItemStatus::Approved);
-    assert_eq!(item.approved_by, Some(Actor::User));
-    assert_eq!(item.approved_at, Some(NOW));
-}
-
-#[test]
-fn agent_item_starts_proposed() {
-    let item = TodoItem::new("t1", ItemType::Task, "X", Actor::Agent, NOW);
-    assert_eq!(item.status, ItemStatus::Proposed);
-    assert_eq!(item.approved_by, None);
-    assert_eq!(item.approved_at, None);
-    assert_eq!(item.proposed_by, Actor::Agent);
+fn new_items_are_active_with_creator_provenance() {
+    for actor in [Actor::User, Actor::Agent] {
+        let item = TodoItem::new("t1", ItemType::Task, "X", actor, NOW);
+        assert_eq!(item.status, ItemStatus::Active);
+        assert_eq!(item.proposed_by, actor);
+        assert_eq!(item.approved_by, None);
+        assert_eq!(item.approved_at, None);
+    }
 }
 
 #[test]
@@ -40,7 +34,7 @@ fn new_task_is_a_task() {
     );
     assert_eq!(
         TodoItem::new_task("t1", "X", Actor::Agent, NOW).status,
-        ItemStatus::Proposed
+        ItemStatus::Active
     );
 }
 
@@ -75,5 +69,5 @@ fn timestamps_serialize_as_rfc3339() {
     let json = serde_json::to_value(&item).unwrap();
     assert_eq!(json["created_at"], "2026-05-31T12:00:00Z");
     assert_eq!(json["updated_at"], "2026-05-31T12:00:00Z");
-    assert_eq!(json["approved_at"], "2026-05-31T12:00:00Z");
+    assert!(json["approved_at"].is_null());
 }
