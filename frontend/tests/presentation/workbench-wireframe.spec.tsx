@@ -1720,8 +1720,8 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Choose Weekly date" })).toBeNull(),
     );
-    expect(screen.getByRole("heading", { name: start })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: end })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: `Mon · ${start}` })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: `Sun · ${end}` })).toBeInTheDocument();
 
     const updatedWeeklyTrigger = screen.getByRole("button", { name: "Choose Weekly date" });
     await user.click(updatedWeeklyTrigger);
