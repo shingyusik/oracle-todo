@@ -2324,6 +2324,10 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Monthly Goal")).toBeInTheDocument();
     expect(screen.getByText("Other Month Goal")).toBeInTheDocument();
     expect(screen.getByRole("grid", { name: "Monthly todo calendar" })).toBeInTheDocument();
+    const weekdayHeader = screen.getByRole("row", { name: "Monthly weekdays" });
+    expect(
+      within(weekdayHeader).getAllByRole("columnheader").map((header) => header.textContent),
+    ).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
     expect(screen.getAllByTestId("monthly-week-row").length).toBeGreaterThanOrEqual(4);
     expect(screen.getAllByTestId("monthly-day-card").length).toBeGreaterThanOrEqual(28);
     expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Active task");

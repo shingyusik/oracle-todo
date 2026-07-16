@@ -686,6 +686,18 @@ button {
   gap: 8px;
 }
 
+.monthly-weekday-row {
+  align-items: end;
+}
+
+.monthly-weekday {
+  color: var(--color-shade-60);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .monthly-day-card {
   min-width: 0;
   min-height: 96px;

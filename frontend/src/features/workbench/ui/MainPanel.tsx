@@ -38,6 +38,7 @@ import {
   type PlannerFilterRule,
   type PlannerFilterType,
   type PlannerFilterValue,
+  plannerWeekdayLabels,
   sortPlannerItems,
   type PlannerGroupBy,
   type PlannerSortBy,
@@ -313,6 +314,15 @@ function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
         cards={model.carousel}
       />
       <div className="monthly-calendar-planner" role="grid" aria-label="Monthly todo calendar">
+        <div className="monthly-week-row monthly-weekday-row" role="row" aria-label="Monthly weekdays">
+          <div className="monthly-week-days">
+            {plannerWeekdayLabels.map((day) => (
+              <span className="monthly-weekday" role="columnheader" key={day}>
+                {day}
+              </span>
+            ))}
+          </div>
+        </div>
         {model.weeks.map((week) => (
           <MonthlyPlannerWeekRow
             controller={controller}
