@@ -2457,6 +2457,7 @@ function detailPatchForItem(
     addStringPatch(patch, "due", draft.due, item.due);
   }
   if (item.type === "routine") {
+    addPriorityPatch(patch, draft.priority, item.priority);
     addStringPatch(
       patch,
       "recurrence_rule",
@@ -2657,6 +2658,14 @@ function DetailTypeFields({
           options={workspaceItems.relatedItems.areas}
           onChange={(area) => setField("area", area)}
         />
+        <DetailRelationField
+          label="Project"
+          controlLabel={`Project for ${item.title}`}
+          value={draft.project_id}
+          options={workspaceItems.relatedItems.projects}
+          allowNone
+          onChange={(project_id) => setField("project_id", project_id)}
+        />
         <RecurrenceRuleField
           value={draft.recurrence_rule}
           onChange={(value) => setField("recurrence_rule", value)}
@@ -2675,7 +2684,17 @@ function DetailTypeFields({
           </select>
         </label>
         <RoutineMaterializeField item={item} controller={controller} />
+        <DetailPriorityField
+          label="Priority"
+          value={draft.priority}
+          onChange={(value) => setField("priority", value)}
+        />
         <DetailTimestamps item={item} />
+        <DetailTextAreaField
+          label="Description"
+          value={draft.description}
+          onChange={(value) => setField("description", value)}
+        />
         <DetailTextAreaField
           label="Note"
           value={draft.note}
@@ -5191,6 +5210,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     ...sharedColumns,
     tagsColumn(),
     areaColumn(),
+    projectColumn(),
     { label: "Recurrence Rule", value: (item) => displayValue(item.recurrence_rule) },
     {
       label: "Materialization Policy",
@@ -5206,6 +5226,8 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
         />
       ),
     },
+    priorityColumn(),
+    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
     { label: "Note", value: (item) => displayValue(item.note) },
     {
       label: "Last Materialized",

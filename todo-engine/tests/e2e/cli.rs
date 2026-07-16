@@ -410,6 +410,66 @@ fn today_materializes_active_routines() {
 }
 
 #[test]
+fn routine_propose_preserves_task_template_fields() {
+    let home = TestHome::new();
+
+    let output = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "project",
+            "propose",
+            "수분 섭취",
+            "--definition-of-done",
+            "매일 충분히 마신다",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let project: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let project_id = project["id"].as_str().unwrap();
+
+    let output = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "routine",
+            "propose",
+            "물 마시기",
+            "--recurrence-rule",
+            "daily",
+            "--project-id",
+            project_id,
+            "--description",
+            "500ml를 마신다",
+            "--note",
+            "찬물 제외",
+            "--priority",
+            "2",
+            "--tag",
+            "health",
+            "--tag",
+            "daily",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
+
+    assert_eq!(routine["project_id"], project_id);
+    assert_eq!(routine["description"], "500ml를 마신다");
+    assert_eq!(routine["note"], "찬물 제외");
+    assert_eq!(routine["priority"], 2);
+    assert_eq!(routine["tags"], serde_json::json!(["health", "daily"]));
+}
+
+#[test]
 fn export_subcommand_is_not_available() {
     let home = TestHome::new();
 

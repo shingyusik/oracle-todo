@@ -40,9 +40,10 @@ Create an active goal. Required flags: `--horizon`, `--scheduled`. Other flags: 
 
 ### `routine propose <title>`
 Create an active routine. `--recurrence-rule` is required and must be non-blank; otherwise
-the command exits `2` with `Routine requires recurrence_rule`. Other flags: `--area`, `--materialization-policy`
-(default `single_open`), `--future-occurrences <int>` (default `7`, range `1..=365`),
-`--note`, `--actor` (default `agent`).
+the command exits `2` with `Routine requires recurrence_rule`. Other flags: `--area`,
+`--project-id`, `--description`, `--priority <int>`, `--tag <tag>` (repeatable),
+`--materialization-policy` (default `single_open`), `--future-occurrences <int>` (default `7`,
+range `1..=365`), `--note`, `--actor` (default `agent`).
 
 ### `routine materialize`
 Fill every active routine to its stored target. Prints each created task as JSON, or

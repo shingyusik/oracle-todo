@@ -126,6 +126,9 @@ pub(super) async fn propose_routine(
         service.propose_routine(ProposeRoutine {
             title: body.title,
             area: body.area,
+            project_id: body.project_id,
+            description: body.description,
+            priority: body.priority,
             actor,
             recurrence_rule: body.recurrence_rule,
             materialization_policy: body

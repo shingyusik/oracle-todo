@@ -128,7 +128,7 @@ enum TaskCommand {
 #[derive(Debug, Subcommand)]
 enum RoutineCommand {
     /// Propose a routine.
-    Propose(RoutineProposeArgs),
+    Propose(Box<RoutineProposeArgs>),
     /// Materialize due routine tasks.
     Materialize(RoutineMaterializeArgs),
 }
@@ -233,6 +233,12 @@ struct RoutineProposeArgs {
     #[arg(long)]
     area: Option<String>,
     #[arg(long)]
+    project_id: Option<String>,
+    #[arg(long)]
+    description: Option<String>,
+    #[arg(long)]
+    priority: Option<i64>,
+    #[arg(long)]
     recurrence_rule: Option<String>,
     #[arg(long, default_value = "single_open")]
     materialization_policy: String,
@@ -240,6 +246,8 @@ struct RoutineProposeArgs {
     future_occurrences: i64,
     #[arg(long)]
     note: Option<String>,
+    #[arg(long = "tag")]
+    tags: Vec<String>,
     #[arg(long, default_value = "agent", value_parser = parse_actor)]
     actor: Actor,
 }
@@ -375,7 +383,7 @@ pub fn run() -> Result<()> {
         } => create::task_propose(&home, args),
         Command::Routine {
             command: RoutineCommand::Propose(args),
-        } => create::routine_propose(&home, args),
+        } => create::routine_propose(&home, *args),
         Command::Routine {
             command: RoutineCommand::Materialize(args),
         } => views::routine_materialize(&home, args),
