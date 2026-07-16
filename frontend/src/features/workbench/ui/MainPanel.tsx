@@ -2395,7 +2395,8 @@ function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
     definition_of_done: item?.definition_of_done ?? "",
     review_cycle: item?.review_cycle ?? "",
     standard: item?.standard ?? "",
-    recurrence_rule: item?.recurrence_rule ?? "",
+    recurrence_rule:
+      item?.type === "routine" ? item.recurrence_rule ?? "RRULE:FREQ=DAILY" : "",
     materialization_policy: item?.materialization_policy ?? "single_open",
     location: item?.metadata_?.location ?? "",
     participants: item?.metadata_?.participants?.join(", ") ?? "",

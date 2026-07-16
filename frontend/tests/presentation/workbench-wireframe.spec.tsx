@@ -3841,6 +3841,57 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("saves the visible Daily recurrence before resuming a routine without a stored rule", async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    const routine = {
+      id: "routine-1",
+      type: "routine",
+      title: "Daily routine",
+      status: "paused",
+      recurrence_rule: null,
+      materialization_policy: "per_occurrence",
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
+        calls.push("patch");
+        expect(JSON.parse(String(init.body))).toEqual({
+          recurrence_rule: "RRULE:FREQ=DAILY",
+        });
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...routine, recurrence_rule: "RRULE:FREQ=DAILY" }),
+        });
+      }
+      if (url === "/todo-engine/items/routine-1/resume") {
+        calls.push("resume");
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ...routine,
+            status: "active",
+            recurrence_rule: "RRULE:FREQ=DAILY",
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => (url === "/todo-engine/items?type=routine" ? [routine] : []),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await user.click(await screen.findByRole("cell", { name: "Daily routine" }));
+    await user.selectOptions(screen.getByLabelText("Status for Daily routine"), "active");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(calls).toEqual(["patch", "resume"]));
+  });
+
   it("shows the same task fields in the table and detail while editing long fields only in detail", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
