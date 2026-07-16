@@ -185,6 +185,15 @@ function isVisiblePlannerWorkItem(item: WorkspaceItemModel): boolean {
 }
 
 const plannerWorkItemTypes = new Set(["task", "event"]);
+export const plannerWeekdayLabels = [
+  "Mon",
+  "Tue",
+  "Wed",
+  "Thu",
+  "Fri",
+  "Sat",
+  "Sun",
+] as const;
 const monthLabels = [
   "Jan",
   "Feb",
@@ -357,9 +366,9 @@ export function buildWeeklyPlannerModel(
         item.horizon === "week" &&
         weekDates.includes(datePart(item.scheduled) ?? ""),
     ),
-    days: weekDates.map((date) => ({
+    days: weekDates.map((date, index) => ({
       date,
-      label: date,
+      label: `${plannerWeekdayLabels[index]} · ${date}`,
       items: items.filter(
         (item) =>
           plannerWorkItemTypes.has(item.type) &&

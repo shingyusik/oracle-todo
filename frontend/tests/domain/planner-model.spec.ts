@@ -736,6 +736,15 @@ describe("planner model", () => {
     expect(weekly.monthGoals.map((item) => item.id)).toEqual(["month-goal"]);
     expect(weekly.weekGoals.map((item) => item.id)).toEqual(["week-goal"]);
     expect(weekly.days).toHaveLength(7);
+    expect(weekly.days.map((day) => day.label)).toEqual([
+      "Mon · 2026-07-06",
+      "Tue · 2026-07-07",
+      "Wed · 2026-07-08",
+      "Thu · 2026-07-09",
+      "Fri · 2026-07-10",
+      "Sat · 2026-07-11",
+      "Sun · 2026-07-12",
+    ]);
     expect(weekly.days[0].items.map((item) => item.id)).toEqual(["task"]);
   });
 
