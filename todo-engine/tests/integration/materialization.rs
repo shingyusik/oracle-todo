@@ -1,6 +1,6 @@
 use todo_engine::application::error::TodoError;
 use todo_engine::application::ports::ListFilter;
-use todo_engine::application::service::{ProposeRoutine, TodoService, UpdateItem};
+use todo_engine::application::service::{ProposeProject, ProposeRoutine, TodoService, UpdateItem};
 use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
 
 fn routine(service: &mut TodoService, policy: &str) -> TodoItem {
@@ -12,6 +12,9 @@ fn routine(service: &mut TodoService, policy: &str) -> TodoItem {
             materialization_policy: policy.to_string(),
             future_occurrences: 7,
             area: None,
+            project_id: None,
+            description: None,
+            priority: None,
             note: None,
             tags: Vec::new(),
         })
@@ -65,6 +68,45 @@ fn single_open_materialization_creates_only_one_task() {
     service.materialize_routines("2026-05-31").unwrap();
 
     assert_eq!(tasks(&mut service, &routine.id).len(), 1);
+}
+
+#[test]
+fn materialization_snapshots_the_routine_task_template() {
+    let mut service = TodoService::in_memory();
+    let project = service
+        .propose_project(ProposeProject {
+            title: "수분 섭취".to_string(),
+            definition_of_done: Some("매일 충분히 마신다".to_string()),
+            actor: Actor::User,
+            ..Default::default()
+        })
+        .unwrap();
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "물 마시기".to_string(),
+            actor: Actor::User,
+            recurrence_rule: Some("daily".to_string()),
+            materialization_policy: "single_open".to_string(),
+            future_occurrences: 7,
+            area: None,
+            project_id: Some(project.id.clone()),
+            description: Some("500ml를 마신다".to_string()),
+            priority: Some(2),
+            note: Some("찬물 제외".to_string()),
+            tags: vec!["health".to_string()],
+        })
+        .unwrap();
+
+    service.materialize_routines("2026-05-31").unwrap();
+
+    let task = tasks(&mut service, &routine.id).remove(0);
+    assert_eq!(task.description.as_deref(), Some("500ml를 마신다"));
+    assert_eq!(task.note.as_deref(), Some("찬물 제외"));
+    assert_eq!(task.priority, Some(2));
+    assert_eq!(task.tags, vec!["health"]);
+    assert_eq!(task.project_id.as_deref(), Some(project.id.as_str()));
+    assert_eq!(task.scheduled.as_deref(), task.occurrence_key.as_deref());
+    assert_eq!(task.routine_id.as_deref(), Some(routine.id.as_str()));
 }
 
 #[test]

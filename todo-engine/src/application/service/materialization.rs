@@ -155,6 +155,11 @@ impl TodoService {
             now,
         );
         task.area_id = routine.area_id.clone();
+        task.description = routine.description.clone();
+        task.note = routine.note.clone();
+        task.priority = routine.priority;
+        task.tags = routine.tags.clone();
+        task.project_id = routine.project_id.clone();
         task.routine_id = Some(routine.id.clone());
         task.occurrence_key = Some(occurrence_key.clone());
         task.scheduled = Some(occurrence_key);

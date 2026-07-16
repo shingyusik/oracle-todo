@@ -96,6 +96,9 @@ impl Default for ProposeGoal {
 pub struct ProposeRoutine {
     pub title: String,
     pub area: Option<String>,
+    pub project_id: Option<String>,
+    pub description: Option<String>,
+    pub priority: Option<i64>,
     pub actor: Actor,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: String,
@@ -109,6 +112,9 @@ impl Default for ProposeRoutine {
         Self {
             title: String::new(),
             area: None,
+            project_id: None,
+            description: None,
+            priority: None,
             actor: Actor::Agent,
             recurrence_rule: None,
             materialization_policy: "single_open".to_string(),
@@ -270,6 +276,7 @@ impl TodoService {
         }
         let future_occurrences = super::validate_future_occurrences(request.future_occurrences)?;
         let area_id = self.find_area(request.area)?;
+        let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
         let mut item = TodoItem::new(
             self.next_id("rtn"),
             ItemType::Routine,
@@ -278,6 +285,9 @@ impl TodoService {
             now,
         );
         item.area_id = area_id;
+        item.project_id = project_id;
+        item.description = request.description;
+        item.priority = request.priority;
         item.recurrence_rule = Some(recurrence_rule);
         item.materialization_policy = request.materialization_policy;
         item.future_occurrences = future_occurrences;

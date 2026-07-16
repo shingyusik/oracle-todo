@@ -49,6 +49,9 @@ pub(super) struct GoalProposeBody {
 pub(super) struct RoutineProposeBody {
     pub title: String,
     pub area: Option<String>,
+    pub project_id: Option<String>,
+    pub description: Option<String>,
+    pub priority: Option<i64>,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: Option<String>,
     pub future_occurrences: Option<i64>,

@@ -449,6 +449,7 @@ async fn operational_propose_routes_return_persisted_items() {
     assert_eq!(project["type"], "project");
     assert_eq!(project["status"], "active");
     assert_eq!(project["definition_of_done"], "copied DB smoke passes");
+    let project_id = project["id"].as_str().unwrap();
 
     let response = json_request(
         router(&db_path).unwrap(),
@@ -460,6 +461,11 @@ async fn operational_propose_routes_return_persisted_items() {
             "recurrence_rule":"daily",
             "materialization_policy":"single_open",
             "future_occurrences":3,
+            "project_id":project_id,
+            "description":"500ml를 마신다",
+            "note":"찬물 제외",
+            "priority":2,
+            "tags":["health"],
             "actor":"user"
         }),
     )
@@ -469,6 +475,28 @@ async fn operational_propose_routes_return_persisted_items() {
     assert_eq!(routine["type"], "routine");
     assert_eq!(routine["recurrence_rule"], "daily");
     assert_eq!(routine["future_occurrences"], 3);
+    assert_eq!(routine["project_id"], project_id);
+    assert_eq!(routine["description"], "500ml를 마신다");
+    assert_eq!(routine["note"], "찬물 제외");
+    assert_eq!(routine["priority"], 2);
+    assert_eq!(routine["tags"], json!(["health"]));
+
+    let routine_id = routine["id"].as_str().unwrap();
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/routines/{routine_id}/materialize"),
+        json!({"future_occurrences":1}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let materialized = body_json(response).await;
+    let task = &materialized["created"][0];
+    assert_eq!(task["project_id"], project_id);
+    assert_eq!(task["description"], "500ml를 마신다");
+    assert_eq!(task["note"], "찬물 제외");
+    assert_eq!(task["priority"], 2);
+    assert_eq!(task["tags"], json!(["health"]));
 
     let response = json_request(
         router(&db_path).unwrap(),
@@ -518,6 +546,41 @@ async fn operational_propose_routes_return_persisted_items() {
     let items = body_json(response).await;
     assert_eq!(items.as_array().unwrap().len(), 1);
     assert_eq!(items[0]["title"], "Rust cutover");
+}
+
+#[tokio::test]
+async fn routine_creation_rejects_a_terminal_project() {
+    let app = router(":memory:").unwrap();
+    let response = json_request(
+        app.clone(),
+        "POST",
+        "/projects/propose",
+        json!({"title":"끝난 프로젝트", "definition_of_done":"완료"}),
+    )
+    .await;
+    let project = body_json(response).await;
+    let project_id = project["id"].as_str().unwrap();
+
+    let response =
+        empty_request(app.clone(), "POST", format!("/items/{project_id}/complete")).await;
+    assert_eq!(response.status(), 200);
+
+    let response = json_request(
+        app,
+        "POST",
+        "/routines/propose",
+        json!({
+            "title":"실패할 루틴",
+            "recurrence_rule":"daily",
+            "project_id":project_id
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    assert_eq!(
+        body_json(response).await["detail"],
+        "Project is terminal: completed"
+    );
 }
 
 #[tokio::test]

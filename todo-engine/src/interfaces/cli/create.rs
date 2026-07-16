@@ -78,12 +78,15 @@ pub(super) fn routine_propose(home: &Path, args: RoutineProposeArgs) -> Result<(
     let item = service.propose_routine(ProposeRoutine {
         title: args.title,
         area: args.area,
+        project_id: args.project_id,
+        description: args.description,
+        priority: args.priority,
         actor: args.actor,
         recurrence_rule: args.recurrence_rule,
         materialization_policy: args.materialization_policy,
         future_occurrences: args.future_occurrences,
         note: args.note,
-        tags: Vec::new(),
+        tags: args.tags,
     })?;
     print_json(&item)?;
     Ok(())
