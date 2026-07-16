@@ -24,6 +24,36 @@ fn init_schema_creates_items_and_events_tables() {
 }
 
 #[test]
+fn init_schema_migrates_legacy_open_statuses() -> Result<(), Box<dyn std::error::Error>> {
+    let conn = connect(":memory:")?;
+    init_schema(&conn)?;
+    conn.execute_batch(
+        r#"
+        INSERT INTO items (id, type, title, status, proposed_by, created_at, updated_at)
+        VALUES
+            ('task_legacy_proposed', 'task', 'proposed', 'proposed', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'),
+            ('task_legacy_approved', 'task', 'approved', 'approved', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
+        "#,
+    )?;
+
+    init_schema(&conn)?;
+    let mut statement = conn.prepare("SELECT status FROM items ORDER BY id")?;
+    let statuses: Vec<String> = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    assert_eq!(statuses, vec!["active", "active"]);
+
+    drop(statement);
+    init_schema(&conn)?;
+    let mut statement = conn.prepare("SELECT status FROM items ORDER BY id")?;
+    let statuses: Vec<String> = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    assert_eq!(statuses, vec!["active", "active"]);
+    Ok(())
+}
+
+#[test]
 fn schema_rejects_null_primary_ids() {
     let conn = connect(":memory:").unwrap();
     init_schema(&conn).unwrap();
@@ -112,7 +142,7 @@ fn repository_reads_legacy_oracle_actor_as_agent() {
     conn.execute_batch(
         r#"
         INSERT INTO items (id, type, title, status, proposed_by, created_at, updated_at)
-        VALUES ('task_legacy_actor', 'task', 'legacy', 'proposed', 'oracle', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
+        VALUES ('task_legacy_actor', 'task', 'legacy', 'active', 'oracle', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
         INSERT INTO events (id, at, actor, action, object_type, object_id)
         VALUES ('evt_legacy_actor', '2026-06-01T00:00:00Z', 'oracle', 'propose_task', 'task', 'task_legacy_actor');
         "#,

@@ -154,13 +154,10 @@ impl TodoService {
             Actor::System,
             now,
         );
-        task.status = ItemStatus::Approved;
         task.area_id = routine.area_id.clone();
         task.routine_id = Some(routine.id.clone());
         task.occurrence_key = Some(occurrence_key.clone());
         task.scheduled = Some(occurrence_key);
-        task.approved_by = Some(Actor::User);
-        task.approved_at = Some(now);
         task.metadata.insert(
             "generated_by".to_string(),
             serde_json::Value::String("routine".to_string()),

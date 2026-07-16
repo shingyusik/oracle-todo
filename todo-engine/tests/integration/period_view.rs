@@ -31,8 +31,8 @@ fn goal(title: &str, horizon: &str, scheduled: &str, parent_id: Option<&str>) ->
     }
 }
 
-// Create an OPEN task (Proposed -> Approved -> Active via the real service API)
-// linked under `parent_goal_id` with an optional `scheduled`, returning its id.
+// Create an active task linked under `parent_goal_id` with an optional
+// `scheduled`, returning its id.
 // Mirrors date_view.rs:22 but sets `parent_id` (the audited update_item path,
 // which validates the parent is a non-terminal Goal via ensure_relation).
 fn open_task(
@@ -50,8 +50,6 @@ fn open_task(
             },
         )
         .unwrap();
-    service.approve(&item.id, None).unwrap();
-    service.activate(&item.id, None).unwrap();
     service
         .update_item(
             &item.id,

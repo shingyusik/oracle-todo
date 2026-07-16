@@ -54,7 +54,7 @@ pub(super) fn render_items(title: &str, items: &[TodoItem]) -> String {
 
 pub(super) fn pending_items(service: &mut TodoService) -> TodoResult<Vec<TodoItem>> {
     service.list_items(ListFilter {
-        status: Some(ItemStatus::Proposed),
+        status: Some(ItemStatus::Active),
         ..Default::default()
     })
 }

@@ -133,6 +133,29 @@ fn routine_creation_trims_rule_and_is_active_for_every_actor() {
 }
 
 #[test]
+fn generated_routine_task_is_active_and_returns_to_active_after_resume() {
+    let mut service = TodoService::in_memory();
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "Daily review".to_string(),
+            recurrence_rule: Some("daily".to_string()),
+            actor: Actor::User,
+            ..Default::default()
+        })
+        .unwrap();
+    let task = service
+        .materialize_routine(&routine.id, "2026-05-31", None)
+        .unwrap()
+        .remove(0);
+
+    assert_eq!(task.status, ItemStatus::Active);
+    service.pause(&routine.id, None).unwrap();
+    assert_eq!(service.get(&task.id).unwrap().status, ItemStatus::Waiting);
+    service.resume(&routine.id, None).unwrap();
+    assert_eq!(service.get(&task.id).unwrap().status, ItemStatus::Active);
+}
+
+#[test]
 fn completing_terminal_item_is_rejected() {
     let mut service = TodoService::in_memory();
     let item = service

@@ -150,7 +150,7 @@ impl TodoService {
         if resumed.item_type == ItemType::Routine {
             self.cascade_routine_generated_tasks(
                 &resumed.id,
-                ItemStatus::Approved,
+                ItemStatus::Active,
                 "routine_resume_generated_task",
                 reason,
                 Some(ItemStatus::Waiting),

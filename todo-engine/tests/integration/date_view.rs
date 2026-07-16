@@ -16,9 +16,7 @@ fn persistent_service() -> (tempfile::TempDir, TodoService) {
     (dir, TodoService::persistent(repo))
 }
 
-// Create an OPEN task (Proposed -> Approved -> Active via the real service API)
-// with the given scheduled/due, returning its id. User-proposed so approve()
-// and activate() flow without an extra approval gate.
+// Create an active task with the given scheduled/due, returning its id.
 fn open_task(
     service: &mut TodoService,
     title: &str,
@@ -34,8 +32,6 @@ fn open_task(
             },
         )
         .unwrap();
-    service.approve(&item.id, None).unwrap();
-    service.activate(&item.id, None).unwrap();
     if scheduled.is_some() || due.is_some() {
         service
             .update_item(

@@ -71,6 +71,12 @@ fn init_schema_inner(conn: &Connection) -> TodoResult<()> {
 
     ensure_item_columns(conn)?;
 
+    conn.execute(
+        "UPDATE items SET status = 'active' WHERE status IN ('proposed', 'approved')",
+        [],
+    )
+    .map_err(storage_error)?;
+
     conn.execute_batch(
         r#"
         CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
