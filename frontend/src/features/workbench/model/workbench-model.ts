@@ -119,8 +119,6 @@ export type WorkspaceItemPatch = {
 };
 
 export type WorkspaceItemTransitionAction =
-  | "approve"
-  | "activate"
   | "pause"
   | "resume"
   | "complete"

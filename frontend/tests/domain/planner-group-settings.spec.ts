@@ -77,6 +77,23 @@ describe("planner group settings", () => {
     ]);
   });
 
+  it("uses only surviving statuses for fixed status groups", () => {
+    const candidates = buildPlannerGroupCandidates({
+      view: "daily",
+      groupBy: "status",
+      items: [item("active-item", { status: "active" })],
+      relatedItems,
+    });
+
+    expect(candidates.map(({ key }) => key)).toEqual([
+      "active",
+      "paused",
+      "completed",
+      "waiting",
+    ]);
+    expect(candidates.filter(({ key }) => key === "active")).toHaveLength(1);
+  });
+
   it("orders visible groups and appends unknown manual keys in candidate order", () => {
     const candidates = [candidate("b", "Beta"), candidate("a", "Alpha")];
 

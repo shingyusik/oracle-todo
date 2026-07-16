@@ -165,12 +165,12 @@ async function renderMonthlyDayOverflow() {
   const responses: Record<string, unknown[]> = {
     "/todo-engine/items?type=goal": [],
     "/todo-engine/items?type=task": [
-      { id: "task-earliest", type: "task", title: "Earliest task", status: "approved", scheduled: firstWeekStart, updated_at: "2026-07-01T07:00:00Z" },
-      { id: "task-latest", type: "task", title: "Latest task", status: "approved", scheduled: firstWeekStart, updated_at: "2026-07-01T10:00:00Z" },
-      { id: "task-overflow", type: "task", title: "Overflow task", status: "approved", scheduled: firstWeekStart, updated_at: "2026-07-01T09:00:00Z" },
-      { id: "task-second-latest", type: "task", title: "Second day latest", status: "approved", scheduled: secondDate, updated_at: "2026-07-01T10:00:00Z" },
-      { id: "task-second-middle", type: "task", title: "Second day middle", status: "approved", scheduled: secondDate, updated_at: "2026-07-01T09:00:00Z" },
-      { id: "task-second-earliest", type: "task", title: "Second day earliest", status: "approved", scheduled: secondDate, updated_at: "2026-07-01T08:00:00Z" },
+      { id: "task-earliest", type: "task", title: "Earliest task", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T07:00:00Z" },
+      { id: "task-latest", type: "task", title: "Latest task", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T10:00:00Z" },
+      { id: "task-overflow", type: "task", title: "Overflow task", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T09:00:00Z" },
+      { id: "task-second-latest", type: "task", title: "Second day latest", status: "active", scheduled: secondDate, updated_at: "2026-07-01T10:00:00Z" },
+      { id: "task-second-middle", type: "task", title: "Second day middle", status: "active", scheduled: secondDate, updated_at: "2026-07-01T09:00:00Z" },
+      { id: "task-second-earliest", type: "task", title: "Second day earliest", status: "active", scheduled: secondDate, updated_at: "2026-07-01T08:00:00Z" },
     ],
     "/todo-engine/items?type=event": [
       { id: "event-middle", type: "event", title: "Middle event", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T08:00:00Z" },
@@ -244,9 +244,6 @@ describe("WorkbenchPageClient", () => {
     render(<WorkbenchPageClient />);
 
     expect(screen.queryByText("Local command center")).toBeNull();
-    expect(
-      screen.queryByText("Review proposed, approved, and active work from one place."),
-    ).toBeNull();
   });
 
   it("renders workspace and planner as todo sub navigation items", async () => {
@@ -503,11 +500,11 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/items?type=task": [
         { id: "task-active", type: "task", title: "Active task", status: "active", scheduled: weekStart },
         { id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: weekStart },
-        { id: "task-approved", type: "task", title: "Approved task", status: "approved", scheduled: weekStart },
+        { id: "task-secondary-active", type: "task", title: "Secondary active task", status: "active", scheduled: weekStart },
         { id: "task-waiting", type: "task", title: "Waiting task", status: "waiting", scheduled: weekStart },
       ],
       "/todo-engine/items?type=event": [
-        { id: "event-team", type: "event", title: "Team event", status: "approved", scheduled: weekStart },
+        { id: "event-team", type: "event", title: "Team event", status: "active", scheduled: weekStart },
         { id: "event-done", type: "event", title: "Completed event", status: "completed", scheduled: weekStart },
       ],
       "/todo-engine/items?type=routine": [],
@@ -538,7 +535,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Active task")).toBeInTheDocument();
     expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Complete Approved task" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Complete Secondary active task" })).not.toBeChecked();
     expect(screen.queryByRole("checkbox", { name: /Waiting task/ })).toBeNull();
     expect(screen.getByRole("checkbox", { name: "Complete Team event" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed event" })).toBeChecked();
@@ -577,7 +574,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-new",
             type: "goal",
             title: "Anchored weekly goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: monthStart,
           }),
@@ -655,7 +652,7 @@ describe("WorkbenchPageClient", () => {
             id: `goal-${goalBodies.length}`,
             type: "goal",
             title: body.title,
-            status: "approved",
+            status: "active",
             horizon: body.horizon,
             scheduled: body.scheduled,
           }),
@@ -855,10 +852,10 @@ describe("WorkbenchPageClient", () => {
           scheduled: today,
         },
         {
-          id: "task-approved",
+          id: "task-secondary-active",
           type: "task",
-          title: "Approved task",
-          status: "approved",
+          title: "Secondary active task",
+          status: "active",
           scheduled: today,
         },
         {
@@ -911,7 +908,7 @@ describe("WorkbenchPageClient", () => {
         },
       ],
       "/todo-engine/items?type=event": [
-        { id: "event-team", type: "event", title: "Team event", status: "approved", scheduled: today },
+        { id: "event-team", type: "event", title: "Team event", status: "active", scheduled: today },
       ],
       "/todo-engine/items?type=routine": [],
       "/todo-engine/items?type=area": [
@@ -960,7 +957,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Complete Approved task" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Complete Secondary active task" })).not.toBeChecked();
     expect(screen.getByText("Waiting task")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: /Waiting task/ })).toBeNull();
     expect(screen.getByRole("checkbox", { name: "Complete Team event" })).not.toBeChecked();
@@ -2295,13 +2292,13 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/items?type=task": [
         { id: "task-active", type: "task", title: "Active task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T09:00:00Z" },
         { id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T08:00:00Z" },
-        { id: "task-approved", type: "task", title: "Approved task", status: "approved", scheduled: testAddDays(firstWeekStart, 1), tags: ["month-todo"], updated_at: "2026-07-01T07:00:00Z" },
+        { id: "task-secondary-active", type: "task", title: "Secondary active task", status: "active", scheduled: testAddDays(firstWeekStart, 1), tags: ["month-todo"], updated_at: "2026-07-01T07:00:00Z" },
         { id: "task-waiting", type: "task", title: "Waiting task", status: "waiting", scheduled: testAddDays(firstWeekStart, 1), tags: ["month-todo"], updated_at: "2026-07-01T06:00:00Z" },
-        { id: "task-proposed", type: "task", title: "Proposed task", status: "proposed", scheduled: testAddDays(firstWeekStart, 3), tags: ["month-todo"], updated_at: "2026-07-01T05:00:00Z" },
+        { id: "task-additional-active", type: "task", title: "Additional active task", status: "active", scheduled: testAddDays(firstWeekStart, 3), tags: ["month-todo"], updated_at: "2026-07-01T05:00:00Z" },
         { id: "task-paused", type: "task", title: "Paused task", status: "paused", scheduled: testAddDays(firstWeekStart, 3), tags: ["month-todo"], updated_at: "2026-07-01T04:00:00Z" },
       ],
       "/todo-engine/items?type=event": [
-        { id: "event-month", type: "event", title: "Month Event", status: "approved", scheduled: firstWeekEventDate, tags: ["month-todo"] },
+        { id: "event-month", type: "event", title: "Month Event", status: "active", scheduled: firstWeekEventDate, tags: ["month-todo"] },
       ],
       "/todo-engine/items?type=routine": [],
       "/todo-engine/items?type=area": [],
@@ -2333,8 +2330,9 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("gridcell", { name: `${firstWeekStart} todo` })).toHaveTextContent("Completed task");
     expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Complete Approved task" })).not.toBeChecked();
-    for (const title of ["Proposed task", "Waiting task", "Paused task"]) {
+    expect(screen.getByRole("checkbox", { name: "Complete Secondary active task" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Complete Additional active task" })).not.toBeChecked();
+    for (const title of ["Waiting task", "Paused task"]) {
       expect(screen.getByRole("button", { name: title })).toBeInTheDocument();
       expect(screen.queryByRole("checkbox", { name: new RegExp(title) })).toBeNull();
     }
@@ -2944,7 +2942,7 @@ describe("WorkbenchPageClient", () => {
           id: "task-1",
           type: "task",
           title: "Book physio",
-          status: "approved",
+          status: "active",
           area_id: "area-1",
           project_id: "project-1",
           routine_id: "routine-1",
@@ -2959,7 +2957,7 @@ describe("WorkbenchPageClient", () => {
           id: "event-1",
           type: "event",
           title: "Planning review",
-          status: "approved",
+          status: "active",
           area_id: "area-1",
           scheduled: "2026-06-24T10:00:00Z",
           metadata_: { location: "Desk", participants: ["Me"] },
@@ -2971,7 +2969,7 @@ describe("WorkbenchPageClient", () => {
           id: "goal-1",
           type: "goal",
           title: "June outcome",
-          status: "approved",
+          status: "active",
           area_id: "area-1",
           horizon: "month",
           scheduled: "2026-06-01",
@@ -2983,7 +2981,7 @@ describe("WorkbenchPageClient", () => {
           id: "goal-root",
           type: "goal",
           title: "Root objective",
-          status: "approved",
+          status: "active",
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
@@ -3099,8 +3097,8 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "approved" },
-          { id: "task-2", type: "task", title: "Two", status: "approved" },
+          { id: "task-1", type: "task", title: "One", status: "active" },
+          { id: "task-2", type: "task", title: "Two", status: "active" },
         ],
       });
     });
@@ -3143,7 +3141,7 @@ describe("WorkbenchPageClient", () => {
         return Promise.resolve({
           ok: true,
           json: async () => [
-            { id: "task-1", type: "task", title: "One", status: "approved" },
+            { id: "task-1", type: "task", title: "One", status: "active" },
           ],
         });
       }),
@@ -3184,8 +3182,8 @@ describe("WorkbenchPageClient", () => {
         return Promise.resolve({
           ok: true,
           json: async () => [
-            { id: "task-1", type: "task", title: "One", status: "approved" },
-            { id: "task-2", type: "task", title: "Two", status: "approved" },
+            { id: "task-1", type: "task", title: "One", status: "active" },
+            { id: "task-2", type: "task", title: "Two", status: "active" },
           ],
         });
       }),
@@ -3298,7 +3296,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-new",
             type: "goal",
             title: "July goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-07-01",
           }),
@@ -3313,7 +3311,7 @@ describe("WorkbenchPageClient", () => {
               id: "goal-existing",
               type: "goal",
               title: "Existing July goal",
-              status: "approved",
+              status: "active",
               horizon: "month",
               scheduled: "2026-07-01",
             },
@@ -3421,7 +3419,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-retry",
             type: "goal",
             title: "Career",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-07-01",
           }),
@@ -3489,7 +3487,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             note: "Saved note",
           }),
         });
@@ -3498,7 +3496,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "approved", note: "Old note" },
+          { id: "task-1", type: "task", title: "One", status: "active", note: "Old note" },
         ],
       });
     });
@@ -3542,9 +3540,9 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
-  it("does not activate an approved goal when saving an unrelated detail field", async () => {
+  it("does not transition an active goal when saving an unrelated detail field", async () => {
     const user = userEvent.setup();
-    let apiStatus = "approved";
+    const apiStatus = "active";
     let apiNote = "Old note";
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
@@ -3554,22 +3552,7 @@ describe("WorkbenchPageClient", () => {
           json: async () => ({
             id: "goal-1",
             type: "goal",
-            title: "Approved goal",
-            status: apiStatus,
-            note: apiNote,
-            horizon: "month",
-          }),
-        });
-      }
-
-      if (url === "/todo-engine/items/goal-1/activate") {
-        apiStatus = "active";
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "goal-1",
-            type: "goal",
-            title: "Approved goal",
+            title: "Secondary active goal",
             status: apiStatus,
             note: apiNote,
             horizon: "month",
@@ -3583,7 +3566,7 @@ describe("WorkbenchPageClient", () => {
           {
             id: "goal-1",
             type: "goal",
-            title: "Approved goal",
+            title: "Secondary active goal",
             status: apiStatus,
             note: apiNote,
             horizon: "month",
@@ -3597,9 +3580,9 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    await user.click(await screen.findByRole("cell", { name: "Approved goal" }));
+    await user.click(await screen.findByRole("cell", { name: "Secondary active goal" }));
 
-    expect(screen.getByLabelText("Status for Approved goal")).toHaveValue("active");
+    expect(screen.getByLabelText("Status for Secondary active goal")).toHaveValue("active");
     await user.clear(screen.getByLabelText("Note"));
     await user.type(screen.getByLabelText("Note"), "Saved note");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -3610,12 +3593,8 @@ describe("WorkbenchPageClient", () => {
         expect.objectContaining({ method: "PATCH" }),
       );
     });
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      "/todo-engine/items/goal-1/activate",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(apiStatus).toBe("approved");
-    expect(screen.getByLabelText("Status for Approved goal")).toHaveValue("active");
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    expect(screen.getByLabelText("Status for Secondary active goal")).toHaveValue("active");
   });
 
   it("keeps detail tag clicks from triggering chip removal", async () => {
@@ -3671,7 +3650,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             description: "Draft detail text",
             area_id: "area-2",
             project_id: "project-1",
@@ -3715,7 +3694,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             area_id: "area-1",
             project_id: "project-1",
             routine_id: "routine-1",
@@ -3746,10 +3725,7 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/items/task-1",
       expect.objectContaining({ method: "PATCH" }),
     );
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/activate",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -3760,10 +3736,7 @@ describe("WorkbenchPageClient", () => {
       );
     });
     expect(fetchMock.mock.calls.find(([url]) => url === "/todo-engine/items/task-1")).toBeTruthy();
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/activate",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   });
 
   it("skips detail patch requests when save only changes status", async () => {
@@ -4000,7 +3973,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "Book physio",
-            status: "approved",
+            status: "active",
             scheduled: "2026-07-03",
             due: "2026-07-04",
             priority: 2,
@@ -4019,7 +3992,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "Book physio",
-            status: "approved",
+            status: "active",
             scheduled: "2026-07-03",
             due: "2026-07-04",
             priority: 1,
@@ -4171,7 +4144,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "June outcome",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-06-01",
             parent_id: "goal-root",
@@ -4253,7 +4226,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "week",
             scheduled: "2026-07-06",
           }),
@@ -4267,7 +4240,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-06-01",
           },
@@ -4314,7 +4287,7 @@ describe("WorkbenchPageClient", () => {
               id: "goal-1",
               type: "goal",
               title: "Goal",
-              status: "approved",
+              status: "active",
               horizon: "week",
               scheduled: "2026-07-06",
             },
@@ -4405,7 +4378,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2027-03-01",
           }),
@@ -4419,7 +4392,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-06-01",
           },
@@ -4469,7 +4442,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-06-01",
           },
@@ -4521,7 +4494,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "week",
             scheduled: "2026-07-06",
           },
@@ -4579,7 +4552,7 @@ describe("WorkbenchPageClient", () => {
               id: "goal-1",
               type: "goal",
               title: "Goal",
-              status: "approved",
+              status: "active",
               horizon: "month",
               scheduled: "2026-06-01",
             },
@@ -4643,7 +4616,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "year",
             scheduled: "2026-01-01",
           }),
@@ -4657,7 +4630,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-06-01",
           },
@@ -4702,7 +4675,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "year",
             scheduled: "2040-01-01",
           }),
@@ -4716,7 +4689,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-06-01",
           },
@@ -4767,7 +4740,7 @@ describe("WorkbenchPageClient", () => {
               id: "goal-1",
               type: "goal",
               title: "Long Goal",
-              status: "approved",
+              status: "active",
               horizon: "year",
               scheduled: "2120-01-01",
             },
@@ -4816,7 +4789,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "week",
             scheduled: "2026-07-06",
             parent_id: "goal-parent",
@@ -4825,7 +4798,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-parent",
             type: "goal",
             title: "Parent Goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-07-01",
           },
@@ -4889,7 +4862,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-1",
             type: "goal",
             title: "Goal",
-            status: "approved",
+            status: "active",
             horizon: "week",
             scheduled: "2026-07-06",
             parent_id: "goal-parent",
@@ -4898,7 +4871,7 @@ describe("WorkbenchPageClient", () => {
             id: "goal-parent",
             type: "goal",
             title: "Parent Goal",
-            status: "approved",
+            status: "active",
             horizon: "month",
             scheduled: "2026-07-01",
           },
@@ -4947,7 +4920,7 @@ describe("WorkbenchPageClient", () => {
             id: "project-1",
             type: "project",
             title: "Plan",
-            status: "approved",
+            status: "active",
             definition_of_done: "Ship review fixes",
             due: "2026-06-30",
           }),
@@ -4963,7 +4936,7 @@ describe("WorkbenchPageClient", () => {
                   id: "project-1",
                   type: "project",
                   title: "Plan",
-                  status: "approved",
+                  status: "active",
                   definition_of_done: "Old DoD",
                   due: "2026-06-30",
                 },
@@ -5005,7 +4978,7 @@ describe("WorkbenchPageClient", () => {
             id: "routine-1",
             type: "routine",
             title: "Stretch",
-            status: "approved",
+            status: "active",
             recurrence_rule: "weekly",
             materialization_policy: "single_open",
           }),
@@ -5021,7 +4994,7 @@ describe("WorkbenchPageClient", () => {
                   id: "routine-1",
                   type: "routine",
                   title: "Stretch",
-                  status: "approved",
+                  status: "active",
                   recurrence_rule: "daily",
                   materialization_policy: "single_open",
                 },
@@ -5067,7 +5040,7 @@ describe("WorkbenchPageClient", () => {
             id: "routine-1",
             type: "routine",
             title: "Stretch",
-            status: "approved",
+            status: "active",
             recurrence_rule: "every 2 weeks on monday",
             materialization_policy: "single_open",
             note: "Keep this stretch",
@@ -5084,7 +5057,7 @@ describe("WorkbenchPageClient", () => {
                   id: "routine-1",
                   type: "routine",
                   title: "Stretch",
-                  status: "approved",
+                  status: "active",
                   recurrence_rule: "every 2 weeks on monday",
                   materialization_policy: "single_open",
                   note: "",
@@ -5128,7 +5101,7 @@ describe("WorkbenchPageClient", () => {
           id: "routine-1",
           type: "routine",
           title: "Stretch",
-          status: "approved",
+          status: "active",
           recurrence_rule: rule,
           materialization_policy: "single_open",
         },
@@ -5160,7 +5133,7 @@ describe("WorkbenchPageClient", () => {
             id: "routine-1",
             type: "routine",
             title: "Stretch",
-            status: "approved",
+            status: "active",
             recurrence_rule: "daily",
             materialization_policy: "single_open",
             note: "After coffee",
@@ -5198,7 +5171,7 @@ describe("WorkbenchPageClient", () => {
             id: "event-1",
             type: "event",
             title: "Review",
-            status: "approved",
+            status: "active",
             scheduled: "2026-06-24T10:00:00Z",
             due: "2026-06-24",
             priority: 2,
@@ -5220,7 +5193,7 @@ describe("WorkbenchPageClient", () => {
                   id: "event-1",
                   type: "event",
                   title: "Review",
-                  status: "approved",
+                  status: "active",
                   scheduled: "2026-06-24T10:00:00Z",
                   due: "2026-06-24",
                   priority: 1,
@@ -5305,7 +5278,7 @@ describe("WorkbenchPageClient", () => {
     expect(await statusOptions("Review")).toEqual(["active", "paused", "completed"]);
   });
 
-  it("hides approved from task and event status even when stored data is approved", async () => {
+  it("renders the exact stored status without an alias", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -5313,23 +5286,9 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=event"
-              ? [
-                  {
-                    id: "event-1",
-                    type: "event",
-                    title: "Review",
-                    status: "approved",
-                  },
-                ]
-              : [
-                  {
-                    id: "task-1",
-                    type: "task",
-                    title: "One",
-                    status: "approved",
-                  },
-                ],
+            url === "/todo-engine/items?type=goal"
+              ? [{ id: "goal-1", type: "goal", title: "Waiting goal", status: "waiting" }]
+              : [],
         }),
       ),
     );
@@ -5337,16 +5296,9 @@ describe("WorkbenchPageClient", () => {
     render(<WorkbenchPageClient />);
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
-    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
 
-    const status = await screen.findByLabelText("Status for One");
-    expect(status).toHaveValue("active");
-    expect(await statusOptions("One")).toEqual(["active", "completed"]);
-
-    await user.click(screen.getByRole("button", { name: "Events" }));
-    const eventStatus = await screen.findByLabelText("Status for Review");
-    expect(eventStatus).toHaveValue("active");
-    expect(await statusOptions("Review")).toEqual(["active", "paused", "completed"]);
+    expect(await screen.findByLabelText("Status for Waiting goal")).toHaveValue("waiting");
   });
 
   it("lets project and parent selects choose none while area remains required", async () => {
@@ -5394,7 +5346,7 @@ describe("WorkbenchPageClient", () => {
       Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "approved" },
+          { id: "task-1", type: "task", title: "One", status: "active" },
         ],
       }),
     );
@@ -5428,7 +5380,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () => [
-            { id: "task-1", type: "task", title: "One", status: "approved" },
+            { id: "task-1", type: "task", title: "One", status: "active" },
           ],
         }),
       ),
@@ -5478,9 +5430,9 @@ describe("WorkbenchPageClient", () => {
           json: async () => ({
             routine: { ...routine, last_materialized_at: "2026-07-15T09:00:00Z" },
             created: [
-              { id: "task-1", type: "task", title: "이불정리", status: "approved" },
-              { id: "task-2", type: "task", title: "이불정리", status: "approved" },
-              { id: "task-3", type: "task", title: "이불정리", status: "approved" },
+              { id: "task-1", type: "task", title: "이불정리", status: "active" },
+              { id: "task-2", type: "task", title: "이불정리", status: "active" },
+              { id: "task-3", type: "task", title: "이불정리", status: "active" },
             ],
           }),
         });
@@ -5518,7 +5470,7 @@ describe("WorkbenchPageClient", () => {
       id: "rtn-1",
       type: "routine",
       title: "이불정리",
-      status: "approved",
+      status: "active",
       recurrence_rule: "RRULE:FREQ=DAILY",
       materialization_policy: "per_occurrence",
       future_occurrences: 7,
@@ -5530,7 +5482,7 @@ describe("WorkbenchPageClient", () => {
           status: 400,
           json: async () => ({
             code: "policy_violation",
-            detail: "Routine must be active to materialize: approved",
+            detail: "Routine is not eligible for materialization",
           }),
         });
       }
@@ -5562,7 +5514,7 @@ describe("WorkbenchPageClient", () => {
     // The service owns the active-routine rule; the panel surfaces its wording
     // rather than reimplementing the check.
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Routine must be active to materialize: approved",
+      "Routine is not eligible for materialization",
     );
   });
 
@@ -5577,7 +5529,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             due: "2026-06-30",
           }),
         });
@@ -5590,7 +5542,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             due: "2026-06-20",
           },
         ],
@@ -5629,7 +5581,7 @@ describe("WorkbenchPageClient", () => {
             id: "project-1",
             type: "project",
             title: "Plan",
-            status: "approved",
+            status: "active",
             due: "2026-07-01",
           }),
         });
@@ -5642,7 +5594,7 @@ describe("WorkbenchPageClient", () => {
             id: "project-1",
             type: "project",
             title: "Plan",
-            status: "approved",
+            status: "active",
             due: "2026-06-30",
           },
         ],
@@ -5680,7 +5632,7 @@ describe("WorkbenchPageClient", () => {
             id: "event-1",
             type: "event",
             title: "Review",
-            status: "approved",
+            status: "active",
             scheduled: "2026-06-25T11:30:00Z",
           }),
         });
@@ -5693,7 +5645,7 @@ describe("WorkbenchPageClient", () => {
             id: "event-1",
             type: "event",
             title: "Review",
-            status: "approved",
+            status: "active",
             scheduled: "2026-06-24T10:00:00Z",
           },
         ],
@@ -5762,56 +5714,6 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
-  it("transitions inline status without opening details", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/activate") {
-        expect(init).toEqual(
-          expect.objectContaining({
-            method: "POST",
-            body: JSON.stringify({}),
-          }),
-        );
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "task-1",
-            type: "task",
-            title: "One",
-            status: "active",
-          }),
-        });
-      }
-
-      return Promise.resolve({
-        ok: true,
-        json: async () => [
-          {
-            id: "task-1",
-            type: "task",
-            title: "One",
-            status: "approved",
-          },
-        ],
-      });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<WorkbenchPageClient />);
-    await user.click(screen.getByRole("button", { name: "ToDo" }));
-    await user.click(screen.getByRole("button", { name: "Workspace" }));
-    await user.click(screen.getByRole("button", { name: "Tasks" }));
-
-    const status = await screen.findByLabelText("Status for One");
-    await user.selectOptions(status, "active");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/activate",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
-  });
-
   it("reopens a completed task when inline status changes to active", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
@@ -5859,6 +5761,11 @@ describe("WorkbenchPageClient", () => {
       "/todo-engine/items/task-1/reopen",
       expect.objectContaining({ method: "POST" }),
     );
+    expect(
+      fetchMock.mock.calls
+        .filter(([, init]) => init?.method === "POST")
+        .map(([url]) => url),
+    ).toEqual(["/todo-engine/items/task-1/reopen"]);
   });
 
   it("archives an area from the inline status select", async () => {
@@ -5920,13 +5827,13 @@ describe("WorkbenchPageClient", () => {
           id: "project-1",
           type: "project",
           title: "Project without DoD",
-          status: "approved",
+          status: "active",
         },
         {
           id: "project-2",
           type: "project",
           title: "Project with DoD",
-          status: "approved",
+          status: "active",
           definition_of_done: "Done",
         },
       ],
@@ -5935,7 +5842,7 @@ describe("WorkbenchPageClient", () => {
           id: "routine-1",
           type: "routine",
           title: "Routine without rule",
-          status: "approved",
+          status: "active",
         },
         {
           id: "routine-2",
@@ -5950,7 +5857,7 @@ describe("WorkbenchPageClient", () => {
           id: "event-1",
           type: "event",
           title: "Event without scheduled",
-          status: "approved",
+          status: "active",
         },
         {
           id: "event-2",
@@ -5961,14 +5868,14 @@ describe("WorkbenchPageClient", () => {
         },
       ],
       "/todo-engine/items?type=goal": [
-        { id: "goal-1", type: "goal", title: "Proposed goal", status: "proposed" },
-        { id: "goal-2", type: "goal", title: "Approved goal", status: "approved" },
+        { id: "goal-1", type: "goal", title: "Additional active goal", status: "active" },
+        { id: "goal-2", type: "goal", title: "Secondary active goal", status: "active" },
         { id: "goal-3", type: "goal", title: "Active goal", status: "active" },
         { id: "goal-4", type: "goal", title: "Paused goal", status: "paused" },
         { id: "goal-5", type: "goal", title: "Waiting goal", status: "waiting" },
       ],
       "/todo-engine/items?type=task": [
-        { id: "task-1", type: "task", title: "Proposed task", status: "proposed" },
+        { id: "task-1", type: "task", title: "Additional active task", status: "active" },
       ],
     };
     vi.stubGlobal(
@@ -6002,26 +5909,26 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Goals" }));
     for (const title of [
-      "Proposed goal",
-      "Approved goal",
+      "Additional active goal",
+      "Secondary active goal",
       "Active goal",
       "Paused goal",
-      "Waiting goal",
     ]) {
       expect(await statusOptions(title)).toEqual(["active", "paused", "completed"]);
     }
-    expect(screen.getByLabelText("Status for Proposed goal")).toHaveValue("active");
-    expect(screen.getByLabelText("Status for Approved goal")).toHaveValue("active");
+    expect(screen.getByLabelText("Status for Additional active goal")).toHaveValue("active");
+    expect(screen.getByLabelText("Status for Secondary active goal")).toHaveValue("active");
     expect(screen.getByLabelText("Status for Paused goal")).toHaveValue("paused");
-    expect(screen.getByLabelText("Status for Waiting goal")).toHaveValue("active");
-    await user.click(screen.getByRole("cell", { name: "Proposed goal" }));
-    expect(await statusOptions("Proposed goal")).toEqual(["active", "paused", "completed"]);
-    expect(screen.getByLabelText("Status for Proposed goal")).toHaveValue("active");
+    expect(await statusOptions("Waiting goal")).toEqual(["waiting", "active", "paused", "completed"]);
+    expect(screen.getByLabelText("Status for Waiting goal")).toHaveValue("waiting");
+    await user.click(screen.getByRole("cell", { name: "Additional active goal" }));
+    expect(await statusOptions("Additional active goal")).toEqual(["active", "paused", "completed"]);
+    expect(screen.getByLabelText("Status for Additional active goal")).toHaveValue("active");
     await user.click(screen.getByRole("button", { name: "< Back" }));
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
-    expect(await statusOptions("Proposed task")).toEqual(["active", "completed"]);
-    expect(screen.getByLabelText("Status for Proposed task")).toHaveValue("active");
+    expect(await statusOptions("Additional active task")).toEqual(["active", "completed"]);
+    expect(screen.getByLabelText("Status for Additional active task")).toHaveValue("active");
   });
 
   it("disables the relation placeholder for an existing relation", async () => {
@@ -6043,7 +5950,7 @@ describe("WorkbenchPageClient", () => {
               id: "task-1",
               type: "task",
               title: "One",
-              status: "approved",
+              status: "active",
               area_id: "area-1",
             },
           ],
@@ -6071,7 +5978,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             area_id: "area-1",
           }),
         });
@@ -6090,7 +5997,7 @@ describe("WorkbenchPageClient", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "approved",
+            status: "active",
             area_id: "area-1",
           },
         ],

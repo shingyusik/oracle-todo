@@ -908,7 +908,7 @@ describe("useWorkbenchController", () => {
 
   it("transitions a workspace item and updates list state", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/activate") {
+      if (url === "/todo-engine/items/task-1/complete") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -922,7 +922,7 @@ describe("useWorkbenchController", () => {
             id: "task-1",
             type: "task",
             title: "One",
-            status: "active",
+            status: "completed",
           }),
         });
       }
@@ -930,7 +930,7 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "approved" },
+          { id: "task-1", type: "task", title: "One", status: "active" },
         ],
       });
     });
@@ -948,10 +948,10 @@ describe("useWorkbenchController", () => {
     );
 
     await act(async () => {
-      await result.current.transitionWorkspaceItem("task-1", "activate");
+      await result.current.transitionWorkspaceItem("task-1", "complete");
     });
 
-    expect(result.current.workspaceItems.items[0]?.status).toBe("active");
+    expect(result.current.workspaceItems.items[0]?.status).toBe("completed");
   });
 
   it("coalesces concurrent transitions for the same workspace item", async () => {

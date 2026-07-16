@@ -143,7 +143,7 @@ function DetailView({ controller }: MainPanelProps) {
     }
 
     const transition = transitionActionForStatus(
-      displayStatusForItem(detailItem),
+      detailItem.status,
       draft.status,
       detailItem.type,
     );
@@ -167,7 +167,7 @@ function DetailView({ controller }: MainPanelProps) {
           <div className="detail-heading">
             <div className="detail-kicker">
               <span>{item.type}</span>
-              <span>{displayStatusForItem(item)}</span>
+              <span>{item.status}</span>
             </div>
             <h1>{item.title}</h1>
           </div>
@@ -2317,7 +2317,7 @@ function PlannerCompletionCheckbox({
 }) {
   const checkableType = item.type === "task" || item.type === "event";
   const visible = checkableType &&
-    (item.status === "approved" || item.status === "active" || item.status === "completed");
+    (item.status === "active" || item.status === "completed");
 
   if (!visible) return null;
 
@@ -4843,7 +4843,7 @@ function StatusSelect({
     <select
       className="inline-cell-control"
       aria-label={`Status for ${item.title}`}
-      value={displayStatusForItem(item)}
+      value={item.status}
       onClick={stopRowEvent}
       onKeyDown={stopRowEvent}
       onChange={(event) => {
@@ -4896,30 +4896,16 @@ function DetailStatusField({
 }
 
 function statusOptionsForItem(item: WorkspaceItemModel): string[] {
-  if (item.type === "area") {
-    return areaStatusOptions;
-  }
-  if (item.type === "task") {
-    return taskStatusOptions;
-  }
-  return workItemStatusOptions;
+  const options = item.type === "area"
+    ? areaStatusOptions
+    : item.type === "task"
+      ? taskStatusOptions
+      : workItemStatusOptions;
+  return options.includes(item.status) ? options : [item.status, ...options];
 }
 
 function detailStatusForItem(item: WorkspaceItemModel | null): string {
-  return item ? displayStatusForItem(item) : "";
-}
-
-function displayStatusForItem(item: WorkspaceItemModel): string {
-  if (item.type === "area") {
-    return item.status === "archived" ? "archived" : "active";
-  }
-  if (item.type === "task") {
-    return item.status === "completed" ? "completed" : "active";
-  }
-  if (item.status === "paused" || item.status === "completed") {
-    return item.status;
-  }
-  return "active";
+  return item?.status ?? "";
 }
 
 function transitionActionForStatus(
@@ -4930,9 +4916,6 @@ function transitionActionForStatus(
   if (nextStatus === currentStatus) {
     return null;
   }
-  if (nextStatus === "approved") {
-    return "approve";
-  }
   if (nextStatus === "active") {
     if (
       currentStatus === "completed" &&
@@ -4940,7 +4923,7 @@ function transitionActionForStatus(
     ) {
       return "reopen";
     }
-    return currentStatus === "paused" ? "resume" : "activate";
+    return currentStatus === "paused" ? "resume" : null;
   }
   if (nextStatus === "paused") {
     return "pause";
