@@ -741,18 +741,6 @@ describe("WorkbenchPageClient", () => {
             id: "task-new",
             type: "task",
             title: "Weekly task",
-            status: "approved",
-            scheduled: weekStart,
-          }),
-        });
-      }
-      if (url === "/todo-engine/items/task-new/activate") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "task-new",
-            type: "task",
-            title: "Weekly task",
             status: "active",
             scheduled: weekStart,
           }),
@@ -789,6 +777,7 @@ describe("WorkbenchPageClient", () => {
               title: "Daily routine",
               actor: "user",
               materialization_policy: "single_open",
+              recurrence_rule: "RRULE:FREQ=DAILY",
             }),
           }),
         );
@@ -799,7 +788,7 @@ describe("WorkbenchPageClient", () => {
             id: "routine-new",
             type: "routine",
             title: "Daily routine",
-            status: "approved",
+            status: "active",
           }),
         });
       }
@@ -3228,17 +3217,6 @@ describe("WorkbenchPageClient", () => {
             id: "task-new",
             type: "task",
             title: "New task",
-            status: "approved",
-          }),
-        });
-      }
-      if (url === "/todo-engine/items/task-new/activate") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "task-new",
-            type: "task",
-            title: "New task",
             status: "active",
           }),
         });
@@ -3838,6 +3816,112 @@ describe("WorkbenchPageClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/task-1/complete",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("requires a Project definition of done and includes it in creation", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/projects/propose") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "project-new",
+            type: "project",
+            title: "Project title",
+            status: "active",
+            definition_of_done: "Done when verified",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Title"), "Project title");
+
+    expect(screen.getByLabelText("Definition of Done")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Definition of Done"));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Project requires definition_of_done",
+    );
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === "/todo-engine/projects/propose"),
+    ).toBe(false);
+
+    await user.type(screen.getByLabelText("Definition of Done"), "Done when verified");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/projects/propose",
+      expect.objectContaining({
+        body: JSON.stringify({
+          title: "Project title",
+          actor: "user",
+          definition_of_done: "Done when verified",
+        }),
+      }),
+    );
+  });
+
+  it("defaults Routine recurrence and rejects a cleared rule", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/routines/propose") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "routine-new",
+            type: "routine",
+            title: "Daily review",
+            status: "active",
+            recurrence_rule: "RRULE:FREQ=DAILY",
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Title"), "Daily review");
+
+    expect(screen.getByLabelText("Recurrence Rule Preview")).toHaveTextContent(
+      "RRULE:FREQ=DAILY",
+    );
+    await user.clear(screen.getByLabelText("Every"));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Routine requires recurrence_rule",
+    );
+    expect(screen.getByRole("dialog", { name: "Create Routines item" })).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === "/todo-engine/routines/propose"),
+    ).toBe(false);
+
+    await user.selectOptions(screen.getByLabelText("Frequency"), "weekly");
+    await user.selectOptions(screen.getByLabelText("Frequency"), "daily");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/routines/propose",
+      expect.objectContaining({
+        body: JSON.stringify({
+          title: "Daily review",
+          actor: "user",
+          materialization_policy: "single_open",
+          recurrence_rule: "RRULE:FREQ=DAILY",
+        }),
+      }),
     );
   });
 

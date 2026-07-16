@@ -3654,12 +3654,13 @@ function RecurrenceRuleField({
               setIntervalDraft(interval);
               if (validRecurrenceInterval(interval)) {
                 onChange(formatRecurrenceRule({ ...parsed, interval }));
+              } else if (interval === "") {
+                onChange("");
               }
             }}
             onBlur={() => {
               if (!validRecurrenceInterval(intervalDraft)) {
                 setIntervalDraft("1");
-                onChange(formatRecurrenceRule({ ...parsed, interval: "1" }));
               }
             }}
           />
@@ -4240,6 +4241,8 @@ function CreationDialog({ controller }: CreationDialogProps) {
   const [itemType, setItemType] = React.useState(plannerItemType);
   const [scheduled, setScheduled] = React.useState(plannerScheduled);
   const [horizon, setHorizon] = React.useState(plannerHorizon);
+  const [definitionOfDone, setDefinitionOfDone] = React.useState("");
+  const [recurrenceRule, setRecurrenceRule] = React.useState("RRULE:FREQ=DAILY");
   const [submitError, setSubmitError] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -4251,6 +4254,11 @@ function CreationDialog({ controller }: CreationDialogProps) {
       controller.panel.id === "monthly" ||
       controller.panel.id === "yearly");
   const needsGoalPeriod = isGoal || isPlannerGoal;
+  const isProject = controller.panel.id === "projects";
+  const isRoutine =
+    controller.panel.id === "routines" ||
+    ((controller.panel.id === "weekly" || controller.panel.id === "daily") &&
+      itemType === "routine");
   const needsScheduled =
     controller.panel.id === "events" ||
     ((controller.panel.id === "weekly" || controller.panel.id === "daily") &&
@@ -4296,6 +4304,16 @@ function CreationDialog({ controller }: CreationDialogProps) {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError("");
+    const trimmedDefinitionOfDone = definitionOfDone.trim();
+    const trimmedRecurrenceRule = recurrenceRule.trim();
+    if (isProject && !trimmedDefinitionOfDone) {
+      setSubmitError("Project requires definition_of_done");
+      return;
+    }
+    if (isRoutine && !trimmedRecurrenceRule) {
+      setSubmitError("Routine requires recurrence_rule");
+      return;
+    }
     setIsSubmitting(true);
     try {
       await controller.createWorkspaceItem({
@@ -4303,6 +4321,8 @@ function CreationDialog({ controller }: CreationDialogProps) {
         itemType,
         scheduled,
         horizon,
+        definition_of_done: isProject ? trimmedDefinitionOfDone : undefined,
+        recurrence_rule: isRoutine ? trimmedRecurrenceRule : undefined,
       });
     } catch (error) {
       setSubmitError(
@@ -4353,6 +4373,18 @@ function CreationDialog({ controller }: CreationDialogProps) {
             required
           />
         </label>
+        {isProject ? (
+          <label className="field-label">
+            Definition of Done
+            <input
+              value={definitionOfDone}
+              onChange={(event) => setDefinitionOfDone(event.target.value)}
+            />
+          </label>
+        ) : null}
+        {isRoutine ? (
+          <RecurrenceRuleField value={recurrenceRule} onChange={setRecurrenceRule} />
+        ) : null}
         {needsGoalPeriod ? (
           <GoalPeriodControl
             label="Period"

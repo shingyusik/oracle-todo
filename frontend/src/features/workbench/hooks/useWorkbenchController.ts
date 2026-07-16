@@ -732,21 +732,21 @@ function createItemRequest(
     return postJson("/todo-engine/areas", { title });
   }
   if (panelId === "projects") {
-    return postJson("/todo-engine/projects/propose", { title, actor: "user" });
+    return postJson("/todo-engine/projects/propose", {
+      title,
+      actor: "user",
+      definition_of_done: form.definition_of_done,
+    });
   }
   if (panelId === "tasks") {
-    return postJson("/todo-engine/tasks/propose", { title, actor: "user" }).then(
-      (item) =>
-        item.status === "active"
-          ? item
-          : postJson(`/todo-engine/items/${item.id}/activate`, {}),
-    );
+    return postJson("/todo-engine/tasks/propose", { title, actor: "user" });
   }
   if (panelId === "routines") {
     return postJson("/todo-engine/routines/propose", {
       title,
       actor: "user",
       materialization_policy: "single_open",
+      recurrence_rule: form.recurrence_rule,
     });
   }
   if (panelId === "events") {
@@ -754,11 +754,7 @@ function createItemRequest(
       title,
       scheduled: form.scheduled,
       actor: "user",
-    }).then((item) =>
-      item.status === "active"
-        ? item
-        : postJson(`/todo-engine/items/${item.id}/activate`, {}),
-    );
+    });
   }
   if (panelId === "goals") {
     return postJson("/todo-engine/goals/propose", {
@@ -785,31 +781,26 @@ function createItemRequest(
         title,
         scheduled: form.scheduled || planner.date,
         actor: "user",
-      }).then(activateIfNeeded);
+      });
     }
     if (plannerType === "event") {
       return postJson("/todo-engine/events/propose", {
         title,
         scheduled: form.scheduled || planner.date,
         actor: "user",
-      }).then(activateIfNeeded);
+      });
     }
     if (plannerType === "routine") {
       return postJson("/todo-engine/routines/propose", {
         title,
         actor: "user",
         materialization_policy: "single_open",
+        recurrence_rule: form.recurrence_rule,
       });
     }
   }
 
   throw new Error(`Cannot create item from ${panelId}`);
-}
-
-function activateIfNeeded(item: WorkspaceItemModel): Promise<WorkspaceItemModel> {
-  return item.status === "active"
-    ? Promise.resolve(item)
-    : postJson(`/todo-engine/items/${item.id}/activate`, {});
 }
 
 function plannerCreationType(

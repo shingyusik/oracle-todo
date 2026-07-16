@@ -511,28 +511,16 @@ describe("useWorkbenchController", () => {
     ]);
   });
 
-  it("creates a task from the active workspace table and opens it", async () => {
+  it("creates active workspace items with one complete request and no activation", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/tasks/propose") {
-        expect(init).toEqual(expect.objectContaining({ method: "POST" }));
+      if (String(url).endsWith("/propose")) {
+        const type = String(url).match(/\/todo-engine\/(tasks|events|projects|routines)\/propose/)?.[1];
         return Promise.resolve({
           ok: true,
           json: async () => ({
-            id: "task-new",
-            type: "task",
-            title: "New task",
-            status: "approved",
-          }),
-        });
-      }
-      if (url === "/todo-engine/items/task-new/activate") {
-        expect(init).toEqual(expect.objectContaining({ method: "POST" }));
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "task-new",
-            type: "task",
-            title: "New task",
+            id: `${type}-new`,
+            type: type?.slice(0, -1),
+            title: JSON.parse(String(init?.body)).title,
             status: "active",
           }),
         });
@@ -544,34 +532,48 @@ describe("useWorkbenchController", () => {
 
     const { result } = renderHook(() => useWorkbenchController());
 
-    await act(async () => {
-      result.current.selectTab("workspace");
-      result.current.selectTab("tasks");
-    });
+    const cases = [
+      ["tasks", { title: "New task" }, { title: "New task", actor: "user" }],
+      [
+        "events",
+        { title: "New event", scheduled: "2026-07-16" },
+        { title: "New event", scheduled: "2026-07-16", actor: "user" },
+      ],
+      [
+        "projects",
+        { title: "New project", definition_of_done: "Done when verified" },
+        { title: "New project", actor: "user", definition_of_done: "Done when verified" },
+      ],
+      [
+        "routines",
+        { title: "New routine", recurrence_rule: "RRULE:FREQ=DAILY" },
+        {
+          title: "New routine",
+          actor: "user",
+          materialization_policy: "single_open",
+          recurrence_rule: "RRULE:FREQ=DAILY",
+        },
+      ],
+    ] as const;
 
-    act(() => result.current.openCreationDialog());
-    expect(result.current.creationDialogOpen).toBe(true);
+    for (const [panel, form, body] of cases) {
+      await act(async () => {
+        result.current.selectTab("workspace");
+        result.current.selectTab(panel);
+      });
+      await act(async () => result.current.createWorkspaceItem(form));
 
-    await act(async () => {
-      await result.current.createWorkspaceItem({ title: "New task" });
-    });
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/todo-engine/${panel}/propose`,
+        expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
+      );
+    }
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/tasks/propose",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ title: "New task", actor: "user" }),
-      }),
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-new/activate",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({}),
-      }),
-    );
-    expect(result.current.detailItem?.id).toBe("task-new");
-    expect(result.current.detailItem?.status).toBe("active");
+    const creationUrls = fetchMock.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([url]) => String(url));
+    expect(creationUrls).toHaveLength(4);
+    expect(creationUrls.some((url) => url.endsWith("/activate"))).toBe(false);
   });
 
   it("anchors weekly planner goal creation to the active week", async () => {
@@ -806,18 +808,6 @@ describe("useWorkbenchController", () => {
   it("posts the user-provided scheduled value for events", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/events/propose") {
-        expect(init).toEqual(expect.objectContaining({ method: "POST" }));
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "event-new",
-            type: "event",
-            title: "New event",
-            status: "approved",
-          }),
-        });
-      }
-      if (url === "/todo-engine/items/event-new/activate") {
         expect(init).toEqual(expect.objectContaining({ method: "POST" }));
         return Promise.resolve({
           ok: true,
