@@ -105,11 +105,9 @@ impl TodoService {
         item.updated_at = now;
         let item = self.store_item_and_event(Actor::User, "complete", before, item, _reason)?;
         self.record_generated_task_occurrence(&item, Actor::User, _reason)?;
-        match (generated_by_routine(&item), item.routine_id.as_deref()) {
-            (true, Some(routine_id)) => {
-                self.fill_routine_to_target(routine_id, item.updated_at.date())?;
-            }
-            _ => {}
+        if let (true, Some(routine_id)) = (generated_by_routine(&item), item.routine_id.as_deref())
+        {
+            self.fill_routine_to_target(routine_id, item.updated_at.date())?;
         }
         Ok(item)
     }
