@@ -3864,6 +3864,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
       if (url === "/todo-engine/items/routine-1/resume") {
+        expect(init?.method).toBe("POST");
         calls.push("resume");
         return Promise.resolve({
           ok: true,
