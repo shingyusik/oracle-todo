@@ -166,7 +166,7 @@ fn open_only() {
     // Open statuses — must be INCLUDED.
     let agent_task = service
         .propose_task(
-            "proposed",
+            "scheduled",
             ProposeTask {
                 actor: Actor::Agent,
                 scheduled: Some(day.to_string()),

@@ -521,7 +521,7 @@ async fn operational_propose_routes_return_persisted_items() {
 }
 
 #[tokio::test]
-async fn project_and_routine_creation_require_non_blank_activation_fields() {
+async fn project_and_routine_creation_require_non_blank_creation_fields() {
     for body in [
         json!({"title":"Project"}),
         json!({"title":"Project", "definition_of_done":"   "}),
