@@ -22,8 +22,9 @@ created/managed types and their invariants:
   `recurrence_rule`. Active routines materialize task instances through the service layer;
   generated tasks link back via `routine_id` and are de-duplicated by `occurrence_key`.
   `materialization_policy` is `single_open` (default — at most one open generated task per
-  routine) or `per_occurrence` (maintain `future_occurrences` open generated tasks). Creation
-  fills the target, completion replenishes it, and reducing the target never deletes tasks.
+  routine) or `per_occurrence` (maintain `future_occurrences` open generated tasks). Explicit
+  materialization fills the target, completion replenishes existing generated work, and
+  reducing the target never deletes tasks.
 - **`task`** — a concrete action item. Created `active` for every actor. May belong to an
   area, a (non-terminal) project, or a
   (non-terminal) routine.

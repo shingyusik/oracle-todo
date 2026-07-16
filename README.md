@@ -195,8 +195,8 @@ Recurring work template. Active routines materialize task instances through the 
 
 - Creation requires a non-blank `recurrence_rule`.
 - Generated tasks link back through `routine_id`.
-- Creating a routine creates its initial future tasks; completing a generated task replenishes
-  the active routine automatically.
+- `routine materialize` fills active routines to their stored targets. Once generated tasks
+  exist, completing one replenishes its active routine automatically.
 - `single_open` maintains one non-terminal generated task per routine.
 - `per_occurrence` maintains `future_occurrences` non-terminal generated tasks.
 - `future_occurrences` defaults to `7` and must be between `1` and `365`.

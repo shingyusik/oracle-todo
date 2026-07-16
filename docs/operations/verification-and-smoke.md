@@ -84,8 +84,9 @@ cargo test --test integration generated_routine_task_is_active_and_returns_to_ac
 cargo test --test integration materialization_fills_the_default_future_occurrence_target
 ```
 
-The smoke passes when every command succeeds against the temp home and the live home remains
-untouched. `*.sqlite` is gitignored, so a temp copy is never committed.
+The smoke passes when the normal commands exit `0`, both validation probes exit `2` with the
+exact messages shown above, and the live home remains untouched. `*.sqlite` is gitignored,
+so a temp copy is never committed.
 
 ## Structure checks
 

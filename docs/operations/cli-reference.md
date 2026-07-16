@@ -46,8 +46,8 @@ the command exits `2` with `Routine requires recurrence_rule`. Other flags: `--a
 
 ### `routine materialize`
 Fill every active routine to its stored target. Prints each created task as JSON, or
-`No routine tasks materialized`. Creation creates the initial tasks, and completing a
-generated task replenishes its active routine automatically.
+`No routine tasks materialized`. Routine creation stores the active template without creating
+tasks. After materialization creates tasks, completing one replenishes its active routine.
 
 To materialize a single routine instead of sweeping all of them, use
 `POST /routines/{id}/materialize` (see [api-reference.md](api-reference.md)).
@@ -79,7 +79,8 @@ Each takes a positional `<item_id>` and an optional `--reason`:
 ### `update <item_id>`
 Update mutable fields. Flags (all optional): `--title`, `--description`, `--note`,
 `--outcome`, `--definition-of-done`, `--standard`, `--review-cycle`, `--recurrence-rule`,
-`--materialization-policy`, `--future-occurrences`, `--area`, `--project-id`, `--routine-id`, `--due`, `--scheduled`,
+`--materialization-policy`, `--future-occurrences`, `--area`, `--project-id`, `--parent-id`,
+`--routine-id`, `--due`, `--scheduled`,
 `--priority <int>`, `--tag <tag>` (repeatable), `--reason`.
 
 ## View commands
@@ -90,6 +91,9 @@ Update mutable fields. Flags (all optional): `--title`, `--description`, `--note
 | `archive-list` | List terminal/archive items as Markdown. |
 | `pending` | Show active work as Markdown. |
 | `today` | Show today's task view as Markdown. |
+| `agenda <date>` | Return scheduled or due items for one date as a JSON array. |
+| `date-range <from> <to>` | Return items in an inclusive date range as a JSON array. |
+| `period --horizon <year\|month\|week> --period <date>` | Return the goal-tree period view as JSON. |
 
 `--status` accepts: `active`, `waiting`, `paused`, `completed`,
 `cancelled`, `dropped`, `archived`, `someday`, `rejected`. `--type` accepts: `area`,

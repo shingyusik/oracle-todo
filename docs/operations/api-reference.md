@@ -25,6 +25,9 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `POST` | `/tasks/propose` | `propose_task` | `TaskProposeBody` |
 | `GET` | `/items` | `list_items` | `ItemsQuery` (see below) |
 | `GET` | `/items/archive` | `archive_items` | — |
+| `GET` | `/views/agenda` | `view_agenda` | `AgendaQuery`: required `date` |
+| `GET` | `/views/date-range` | `view_date_range` | `DateRangeQuery`: required `from`, `to` |
+| `GET` | `/views/period` | `view_period` | `PeriodQuery`: required `horizon`, `period` |
 | `PATCH` | `/items/:id` | `update_item` | `UpdateBody` |
 | `POST` | `/items/:id/pause` | `pause_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/resume` | `resume_item` | optional `ReasonBody` |
