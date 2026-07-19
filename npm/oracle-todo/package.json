@@ -1,6 +1,6 @@
 {
   "name": "@shings/oracle-todo",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "npx runner for the oracle-todo engine/UI GitHub Release bundle",
   "license": "MIT",
   "type": "commonjs",
