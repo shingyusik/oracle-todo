@@ -231,6 +231,9 @@ describe("design system boundaries", () => {
   it("keeps planner period cards motion-safe and dependency-free", async () => {
     const css = await readSource("src/styles/globals.css");
 
+    expect(css).toContain(
+      ".period-carousel-arrow {\n  position: relative;\n  z-index: 1;",
+    );
     expect(css).toContain(".period-carousel-card");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain(".period-carousel-card {\n    transition: none;");

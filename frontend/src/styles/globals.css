@@ -596,6 +596,8 @@ button {
 }
 
 .period-carousel-arrow {
+  position: relative;
+  z-index: 1;
   display: inline-grid;
   width: 36px;
   height: 36px;
