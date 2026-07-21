@@ -93,6 +93,38 @@ describe("useWorkbenchController", () => {
     expect(restored.result.current.planner.dailySortRules).toEqual(savedPreferences.dailySortRules);
   });
 
+  it("keeps planner changes made before saved preferences finish loading", async () => {
+    let resolveSettings: ((value: unknown) => void) | undefined;
+    const savedPreferences = {
+      dailyFilters: { tags: [], areaIds: [], projectIds: [], routineIds: [], itemTypes: [], statuses: [] },
+      filterMode: "and",
+      filterRules: [],
+      groupSettings: {},
+      dailySortRules: [],
+      yearlySortRules: [],
+      monthlySortRules: [],
+      weeklySortRules: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) =>
+        url === "/todo-engine/settings/planner" && !init
+          ? new Promise((resolve) => { resolveSettings = resolve; })
+          : Promise.resolve({ ok: true, json: async () => [] }),
+      ),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await waitFor(() => expect(resolveSettings).toBeDefined());
+    act(() => result.current.setPlannerFilterMode("or"));
+    await act(async () => {
+      resolveSettings?.({ ok: true, json: async () => savedPreferences });
+    });
+
+    expect(result.current.planner.filterMode).toBe("or");
+  });
+
   it("selects areas under todo when workspace is clicked", () => {
     const { result } = renderHook(() => useWorkbenchController());
 

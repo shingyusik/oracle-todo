@@ -368,6 +368,7 @@ export function useWorkbenchController(): WorkbenchController {
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
+  const plannerSettingsChanged = useRef(false);
   const [itemTransitionStates, setItemTransitionStates] = useState<
     Record<string, WorkspaceItemTransitionState>
   >({});
@@ -383,12 +384,19 @@ export function useWorkbenchController(): WorkbenchController {
   useEffect(() => {
     let active = true;
     void loadPlannerSettings().then((stored) => {
-      if (active && stored) setPlanner((current) => ({ ...current, ...stored }));
+      if (active && stored && !plannerSettingsChanged.current) {
+        setPlanner((current) => ({ ...current, ...stored }));
+      }
     });
     return () => {
       active = false;
     };
   }, []);
+
+  const persistChangedPlannerSettings = (next: PlannerControls) => {
+    plannerSettingsChanged.current = true;
+    persistPlannerSettings(next);
+  };
 
   useEffect(() => {
     setSelectedItemIds([]);
@@ -408,7 +416,7 @@ export function useWorkbenchController(): WorkbenchController {
         ...current,
         groupSettings: { ...current.groupSettings, [view]: nextSettings },
       };
-      persistPlannerSettings(next);
+      persistChangedPlannerSettings(next);
       return next;
     });
   };
@@ -558,25 +566,25 @@ export function useWorkbenchController(): WorkbenchController {
     setDailyFilter: (field, values) =>
       setPlanner((current) => {
         const next = { ...current, dailyFilters: { ...current.dailyFilters, [field]: values } };
-        persistPlannerSettings(next);
+        persistChangedPlannerSettings(next);
         return next;
       }),
     setPlannerFilterMode: (mode) =>
       setPlanner((current) => {
         const next = { ...current, filterMode: mode };
-        persistPlannerSettings(next);
+        persistChangedPlannerSettings(next);
         return next;
       }),
     setPlannerFilterRules: (rules) =>
       setPlanner((current) => {
         const next = { ...current, filterRules: rules };
-        persistPlannerSettings(next);
+        persistChangedPlannerSettings(next);
         return next;
       }),
     clearPlannerFilterRules: () =>
       setPlanner((current) => {
         const next = { ...current, filterMode: "and" as const, filterRules: [] };
-        persistPlannerSettings(next);
+        persistChangedPlannerSettings(next);
         return next;
       }),
     setDailyGroupBy: (groupBy) =>
@@ -584,7 +592,7 @@ export function useWorkbenchController(): WorkbenchController {
     setDailySortRules: (rules) =>
       setPlanner((current) => {
         const next = { ...current, dailySortRules: rules };
-        persistPlannerSettings(next);
+        persistChangedPlannerSettings(next);
         return next;
       }),
     setPlannerGroupBy: (groupBy) =>
@@ -615,17 +623,17 @@ export function useWorkbenchController(): WorkbenchController {
       setPlanner((current) => {
         if (selection.leafTabId === "weekly") {
           const next = { ...current, weeklySortRules: rules };
-          persistPlannerSettings(next);
+          persistChangedPlannerSettings(next);
           return next;
         }
         if (selection.leafTabId === "monthly") {
           const next = { ...current, monthlySortRules: rules };
-          persistPlannerSettings(next);
+          persistChangedPlannerSettings(next);
           return next;
         }
         if (selection.leafTabId === "yearly") {
           const next = { ...current, yearlySortRules: rules };
-          persistPlannerSettings(next);
+          persistChangedPlannerSettings(next);
           return next;
         }
         return current;
