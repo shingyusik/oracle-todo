@@ -25,6 +25,8 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `POST` | `/tasks/propose` | `propose_task` | `TaskProposeBody` |
 | `GET` | `/items` | `list_items` | `ItemsQuery` (see below) |
 | `GET` | `/items/archive` | `archive_items` | — |
+| `GET` | `/settings/planner` | `get_planner` | — (returns the saved JSON document or `null`) |
+| `PUT` | `/settings/planner` | `put_planner` | `{ "value": { ... } }` |
 | `GET` | `/views/agenda` | `view_agenda` | `AgendaQuery`: required `date` |
 | `GET` | `/views/date-range` | `view_date_range` | `DateRangeQuery`: required `from`, `to` |
 | `GET` | `/views/period` | `view_period` | `PeriodQuery`: required `horizon`, `period` |
@@ -36,6 +38,17 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `POST` | `/items/:id/archive` | `archive_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/drop` | `drop_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/cancel` | `cancel_item` | optional `ReasonBody` |
+
+### Planner settings
+
+`GET /settings/planner` returns the `planner.v1` preference document stored in
+`workspace_preferences`, or JSON `null` when it has not been saved. `PUT /settings/planner`
+accepts `{ "value": { ... } }`, requires `value` to be a JSON object, and returns the saved
+object. A non-object `value` returns HTTP `400`; storage failures return HTTP `500`.
+
+The preference is workspace-wide: it is persisted in the local workspace's `todo.sqlite`,
+which has no user or profile identity. The Planner frontend keeps in-memory defaults if the
+response is missing, malformed, or unavailable, and sends writes on a best-effort basis.
 
 ### Reopen a completed task or event
 

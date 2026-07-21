@@ -424,6 +424,20 @@ Every service-layer change creates a `TodoEvent` row.
 | `after` | JSON snapshot after the change. |
 | `reason` | Optional reason string. |
 
+## Workspace preferences
+
+SQLite table: `workspace_preferences`.
+
+Planner preferences are stored as the `planner.v1` JSON document in the workspace's
+`todo.sqlite`. They are workspace-wide because the local server has no user or profile
+identity. The document contains Planner filters, grouping, and sort settings.
+
+| Column | Meaning |
+| --- | --- |
+| `key` | Preference key; Planner uses `planner.v1`. |
+| `value` | JSON preference document. |
+| `updated_at` | Last write timestamp. |
+
 ## API
 
 `todo-engine/src/interfaces/api/mod.rs` provides an `axum` router over the same service layer.
@@ -433,6 +447,8 @@ Endpoints:
 - `GET /health`: health check.
 - `GET /items`: list items. Supports `status`, `type`, `area_id`, `project_id`, `parent_id`, `routine_id`, `horizon`, `scheduled`, `query`, `include_archived`.
 - `GET /items/archive`: list terminal/archive items.
+- `GET /settings/planner`: return the workspace-wide `planner.v1` document, or `null` when no preference has been saved.
+- `PUT /settings/planner`: upsert the workspace-wide Planner preference from `{ "value": { ... } }`; `value` must be a JSON object.
 - `POST /areas`: create area.
 - `POST /projects/propose`: create an active project; `definition_of_done` is required.
 - `POST /routines/propose`: create an active routine; `recurrence_rule` is required.
@@ -448,6 +464,10 @@ Endpoints:
 - `POST /items/{id}/archive`: archive item.
 - `POST /items/{id}/drop`: drop item.
 - `POST /items/{id}/cancel`: cancel item.
+
+The frontend loads Planner preferences through the local API and keeps its in-memory
+defaults when the value is missing, malformed, or unavailable. Preference writes are
+best-effort; a later successful write replaces the saved document.
 
 ## Verification
 
