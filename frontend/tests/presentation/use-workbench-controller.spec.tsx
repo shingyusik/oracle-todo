@@ -43,36 +43,54 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Dashboard");
   });
 
-  it("hydrates planner group settings after the deterministic first render", async () => {
-    window.localStorage.setItem(
-      "oracle-todo.planner-group-settings.v1.daily",
-      JSON.stringify({ groupBy: "tag", sort: "alphabetical", hideEmpty: false }),
+  it("restores planner preferences from the API after remounting", async () => {
+    const savedPreferences = {
+      dailyFilters: {
+        tags: ["focus"],
+        areaIds: [],
+        projectIds: [],
+        routineIds: [],
+        itemTypes: ["task"],
+        statuses: ["active"],
+      },
+      filterMode: "or",
+      filterRules: [
+        { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
+      ],
+      groupSettings: {
+        daily: { groupBy: "tag", sort: "alphabetical", hideEmpty: false },
+      },
+      dailySortRules: [{ id: "s1", field: "updated", direction: "desc" }],
+      yearlySortRules: [],
+      monthlySortRules: [],
+      weeklySortRules: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/settings/planner" ? savedPreferences : [],
+        }),
+      ),
     );
 
-    const { result } = renderHook(() => useWorkbenchController());
+    const { result, unmount } = renderHook(() => useWorkbenchController());
 
     await waitFor(() =>
-      expect(result.current.planner.groupSettings.daily).toMatchObject({
-        groupBy: "tag",
-        sort: "alphabetical",
-        hideEmpty: false,
-      }),
+      expect(result.current.planner.groupSettings.daily.groupBy).toBe("tag"),
     );
-  });
+    unmount();
 
-  it("recovers malformed saved group settings independently per planner view", async () => {
-    window.localStorage.setItem("oracle-todo.planner-group-settings.v1.daily", "{");
-    window.localStorage.setItem(
-      "oracle-todo.planner-group-settings.v1.weekly",
-      JSON.stringify({ groupBy: "status", sort: "manual", hideEmpty: true }),
-    );
-
-    const { result } = renderHook(() => useWorkbenchController());
+    const restored = renderHook(() => useWorkbenchController());
 
     await waitFor(() =>
-      expect(result.current.planner.groupSettings.weekly.groupBy).toBe("status"),
+      expect(restored.result.current.planner.filterMode).toBe("or"),
     );
-    expect(result.current.planner.groupSettings.daily.groupBy).toBe("none");
+    expect(restored.result.current.planner.dailyFilters.tags).toEqual(["focus"]);
+    expect(restored.result.current.planner.filterRules).toEqual(savedPreferences.filterRules);
+    expect(restored.result.current.planner.dailySortRules).toEqual(savedPreferences.dailySortRules);
   });
 
   it("selects areas under todo when workspace is clicked", () => {
@@ -109,7 +127,8 @@ describe("useWorkbenchController", () => {
       vi.fn((url: string) =>
         Promise.resolve({
           ok: true,
-          json: async () => (url === "/todo-engine/items?type=task" ? [] : []),
+          json: async () =>
+            url === "/todo-engine/settings/planner" ? null : [],
         }),
       ),
     );
@@ -958,7 +977,11 @@ describe("useWorkbenchController", () => {
     const transitionResponse = new Promise<Response>((resolve) => {
       resolveTransition = resolve;
     });
-    const fetchMock = vi.fn(() => transitionResponse);
+    const fetchMock = vi.fn((url: string) =>
+      url === "/todo-engine/settings/planner"
+        ? Promise.resolve({ ok: true, json: async () => null })
+        : transitionResponse,
+    );
     vi.stubGlobal("fetch", fetchMock);
     const { result } = renderHook(() => useWorkbenchController());
 
@@ -969,7 +992,11 @@ describe("useWorkbenchController", () => {
       duplicateTransition = result.current.transitionWorkspaceItem("task-1", "complete");
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url]) => url === "/todo-engine/items/task-1/complete",
+      ),
+    ).toHaveLength(1);
     expect(firstTransition).toBe(duplicateTransition);
     expect(result.current.workspaceItemTransitionState("task-1")).toEqual({
       pending: true,

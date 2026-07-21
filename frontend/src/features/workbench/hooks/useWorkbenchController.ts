@@ -26,7 +26,6 @@ import {
 import {
   defaultPlannerGroupSettings,
   normalizePlannerGroupSettings,
-  plannerGroupStorageKey,
   type PlannerGroupSettings,
   type PlannerViewId,
 } from "@/features/workbench/model/planner-group-settings";
@@ -95,26 +94,106 @@ function defaultPlannerGroupSettingsByView(): Record<
   ) as Record<PlannerViewId, PlannerGroupSettings>;
 }
 
-function loadPlannerGroupSettings(view: PlannerViewId): PlannerGroupSettings {
-  if (typeof window === "undefined") return defaultPlannerGroupSettings();
+type StoredPlannerSettings = Pick<
+  PlannerControls,
+  | "dailyFilters"
+  | "filterMode"
+  | "filterRules"
+  | "groupSettings"
+  | "dailySortRules"
+  | "yearlySortRules"
+  | "monthlySortRules"
+  | "weeklySortRules"
+>;
+
+async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
   try {
-    const stored = window.localStorage.getItem(plannerGroupStorageKey(view));
-    return normalizePlannerGroupSettings(stored ? JSON.parse(stored) : null);
+    const response = await fetch("/todo-engine/settings/planner");
+    if (!response.ok) return null;
+    const value = await response.json();
+    if (!value || typeof value !== "object") return null;
+    const defaults = createDefaultPlanner();
+    const candidate = value as Partial<PlannerControls>;
+    return {
+      dailyFilters: normalizeDailyFilters(candidate.dailyFilters, defaults.dailyFilters),
+      filterMode: candidate.filterMode === "or" ? "or" : "and",
+      filterRules: normalizeRules(candidate.filterRules),
+      groupSettings: Object.fromEntries(plannerViewIds.map((view) => [view, normalizePlannerGroupSettings((candidate.groupSettings as Partial<Record<PlannerViewId, unknown>> | undefined)?.[view])])) as Record<PlannerViewId, PlannerGroupSettings>,
+      dailySortRules: normalizeSortRules(candidate.dailySortRules, defaults.dailySortRules),
+      yearlySortRules: normalizeSortRules(candidate.yearlySortRules, defaults.yearlySortRules),
+      monthlySortRules: normalizeSortRules(candidate.monthlySortRules, defaults.monthlySortRules),
+      weeklySortRules: normalizeSortRules(candidate.weeklySortRules, defaults.weeklySortRules),
+    };
   } catch {
-    return defaultPlannerGroupSettings();
+    return null;
   }
 }
 
-function persistPlannerGroupSettings(
-  view: PlannerViewId,
-  settings: PlannerGroupSettings,
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(plannerGroupStorageKey(view), JSON.stringify(settings));
-  } catch {
-    // Browser storage is best-effort; in-memory state remains authoritative.
-  }
+function persistPlannerSettings(planner: PlannerControls): void {
+  const {
+    dailyFilters,
+    filterMode,
+    filterRules,
+    groupSettings,
+    dailySortRules,
+    yearlySortRules,
+    monthlySortRules,
+    weeklySortRules,
+  } = planner;
+  void fetch("/todo-engine/settings/planner", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      value: {
+        dailyFilters,
+        filterMode,
+        filterRules,
+        groupSettings,
+        dailySortRules,
+        yearlySortRules,
+        monthlySortRules,
+        weeklySortRules,
+      },
+    }),
+  }).catch(() => undefined);
+}
+
+function normalizeDailyFilters(value: unknown, defaults: PlannerControls["dailyFilters"]): PlannerControls["dailyFilters"] {
+  if (!value || typeof value !== "object") return defaults;
+  const candidate = value as Partial<PlannerControls["dailyFilters"]>;
+  const strings = (entry: unknown) =>
+    Array.isArray(entry)
+      ? entry.filter((item): item is string => typeof item === "string")
+      : [];
+  return {
+    tags: strings(candidate.tags),
+    areaIds: strings(candidate.areaIds),
+    projectIds: strings(candidate.projectIds),
+    routineIds: strings(candidate.routineIds),
+    itemTypes: strings(candidate.itemTypes),
+    statuses: strings(candidate.statuses),
+  };
+}
+
+function normalizeRules(value: unknown): PlannerControls["filterRules"] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((rule): rule is PlannerControls["filterRules"][number] =>
+    !!rule && typeof rule === "object" &&
+    typeof (rule as { id?: unknown }).id === "string" &&
+    typeof (rule as { field?: unknown }).field === "string" &&
+    typeof (rule as { type?: unknown }).type === "string" &&
+    typeof (rule as { operator?: unknown }).operator === "string",
+  );
+}
+
+function normalizeSortRules(value: unknown, defaults: PlannerControls["dailySortRules"]): PlannerControls["dailySortRules"] {
+  if (!Array.isArray(value)) return defaults;
+  return value.filter((rule): rule is PlannerControls["dailySortRules"][number] =>
+    !!rule && typeof rule === "object" &&
+    typeof (rule as { id?: unknown }).id === "string" &&
+    typeof (rule as { field?: unknown }).field === "string" &&
+    ((rule as { direction?: unknown }).direction === "asc" || (rule as { direction?: unknown }).direction === "desc"),
+  );
 }
 
 function plannerViewId(panelId: LeafTabId): PlannerViewId | null {
@@ -302,12 +381,13 @@ export function useWorkbenchController(): WorkbenchController {
   );
 
   useEffect(() => {
-    setPlanner((current) => ({
-      ...current,
-      groupSettings: Object.fromEntries(
-        plannerViewIds.map((view) => [view, loadPlannerGroupSettings(view)]),
-      ) as Record<PlannerViewId, PlannerGroupSettings>,
-    }));
+    let active = true;
+    void loadPlannerSettings().then((stored) => {
+      if (active && stored) setPlanner((current) => ({ ...current, ...stored }));
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -324,11 +404,12 @@ export function useWorkbenchController(): WorkbenchController {
       const view = plannerViewId(selection.leafTabId);
       if (!view) return current;
       const nextSettings = updater(current.groupSettings[view]);
-      persistPlannerGroupSettings(view, nextSettings);
-      return {
+      const next = {
         ...current,
         groupSettings: { ...current.groupSettings, [view]: nextSettings },
       };
+      persistPlannerSettings(next);
+      return next;
     });
   };
 
@@ -475,20 +556,37 @@ export function useWorkbenchController(): WorkbenchController {
       }));
     },
     setDailyFilter: (field, values) =>
-      setPlanner((current) => ({
-        ...current,
-        dailyFilters: { ...current.dailyFilters, [field]: values },
-      })),
+      setPlanner((current) => {
+        const next = { ...current, dailyFilters: { ...current.dailyFilters, [field]: values } };
+        persistPlannerSettings(next);
+        return next;
+      }),
     setPlannerFilterMode: (mode) =>
-      setPlanner((current) => ({ ...current, filterMode: mode })),
+      setPlanner((current) => {
+        const next = { ...current, filterMode: mode };
+        persistPlannerSettings(next);
+        return next;
+      }),
     setPlannerFilterRules: (rules) =>
-      setPlanner((current) => ({ ...current, filterRules: rules })),
+      setPlanner((current) => {
+        const next = { ...current, filterRules: rules };
+        persistPlannerSettings(next);
+        return next;
+      }),
     clearPlannerFilterRules: () =>
-      setPlanner((current) => ({ ...current, filterMode: "and", filterRules: [] })),
+      setPlanner((current) => {
+        const next = { ...current, filterMode: "and" as const, filterRules: [] };
+        persistPlannerSettings(next);
+        return next;
+      }),
     setDailyGroupBy: (groupBy) =>
       updateActiveGroupSettings((settings) => ({ ...settings, groupBy })),
     setDailySortRules: (rules) =>
-      setPlanner((current) => ({ ...current, dailySortRules: rules })),
+      setPlanner((current) => {
+        const next = { ...current, dailySortRules: rules };
+        persistPlannerSettings(next);
+        return next;
+      }),
     setPlannerGroupBy: (groupBy) =>
       updateActiveGroupSettings((settings) => ({ ...settings, groupBy })),
     setPlannerGroupSort: (sort) =>
@@ -516,13 +614,19 @@ export function useWorkbenchController(): WorkbenchController {
     setPlannerSortRules: (rules) =>
       setPlanner((current) => {
         if (selection.leafTabId === "weekly") {
-          return { ...current, weeklySortRules: rules };
+          const next = { ...current, weeklySortRules: rules };
+          persistPlannerSettings(next);
+          return next;
         }
         if (selection.leafTabId === "monthly") {
-          return { ...current, monthlySortRules: rules };
+          const next = { ...current, monthlySortRules: rules };
+          persistPlannerSettings(next);
+          return next;
         }
         if (selection.leafTabId === "yearly") {
-          return { ...current, yearlySortRules: rules };
+          const next = { ...current, yearlySortRules: rules };
+          persistPlannerSettings(next);
+          return next;
         }
         return current;
       }),
