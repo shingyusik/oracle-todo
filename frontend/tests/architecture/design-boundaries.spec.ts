@@ -73,7 +73,7 @@ describe("design system boundaries", () => {
       ".workbench-nav-grid",
     );
     expect(source).toContain(".tree-sidebar {\n  display: flex;\n  flex-direction: column;");
-    expect(source).toContain("grid-auto-columns: minmax(148px, 1fr);");
+    expect(source).not.toContain(".tree-sidebar {\n    display: grid;");
   });
 
   it("uses the Merovingian asset as the favicon", async () => {
@@ -125,6 +125,14 @@ describe("design system boundaries", () => {
 
     expect(source).toContain(".tree-sidebar-children {\n  margin-left: 22px;\n  border-left: 1px solid var(--color-hairline-light);");
     expect(source).toContain(".tree-sidebar-leaves {\n  margin-left: 14px;\n  border-left: 1px solid var(--color-hairline-light);");
+  });
+
+  it("keeps a collapsed-state indicator on tree parent buttons", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toContain(
+      ".tree-sidebar-parent[aria-expanded=\"false\"] > svg {\n  transform: rotate(-90deg);",
+    );
   });
 
   it("keeps select text clear of the native dropdown arrow", async () => {

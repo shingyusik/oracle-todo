@@ -160,6 +160,14 @@ button {
   gap: 5px;
 }
 
+.tree-sidebar-parent > svg {
+  transition: transform 120ms ease;
+}
+
+.tree-sidebar-parent[aria-expanded="false"] > svg {
+  transform: rotate(-90deg);
+}
+
 .tree-sidebar-leaves {
   margin-left: 14px;
   border-left: 1px solid var(--color-hairline-light);
@@ -1893,13 +1901,6 @@ button {
   .workbench-nav {
     grid-template-rows: auto auto;
     border-right: 0;
-  }
-
-  .tree-sidebar {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(148px, 1fr);
-    overflow-x: auto;
   }
 
   .recurrence-row {

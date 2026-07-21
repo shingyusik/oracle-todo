@@ -6,10 +6,7 @@ export const workbenchCopy = {
   logoTagline: "CONTROL. ANALYZE. OPTIMIZE.",
   navigation: {
     shellLabel: "Workbench navigation",
-    mainSidebarLabel: "Primary sections",
-    subSidebarLabel: "Workspace sections",
   },
-  disclosureLabel: "Show nested navigation",
   panels: {
     dashboard: {
       title: "Dashboard",
