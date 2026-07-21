@@ -283,22 +283,18 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Yearly" })).toBeNull();
   });
 
-  it("renders icon-only primary tabs with accessible tooltip labels", () => {
+  it("renders dashboard and todo in one labeled navigation tree", () => {
     render(<WorkbenchPageClient />);
 
-    for (const label of ["Dashboard", "ToDo"]) {
-      const tab = screen.getByRole("button", { name: label });
+    const navigation = screen.getByLabelText("Workbench navigation");
+    const dashboard = within(navigation).getByRole("button", { name: "Dashboard" });
+    const todo = within(navigation).getByRole("button", { name: "ToDo" });
 
-      expect(tab).toHaveAttribute("data-tooltip", label);
-      expect(tab).not.toHaveTextContent(label);
-
-      const icon = tab.querySelector(".main-sidebar-tab-icon");
-      expect(icon).not.toBeNull();
-      if (!icon) {
-        throw new Error(`Missing icon for ${label} primary tab`);
-      }
-      expect(icon).toHaveAttribute("aria-hidden", "true");
-    }
+    expect(dashboard).toHaveTextContent("Dashboard");
+    expect(todo).toHaveTextContent("ToDo");
+    expect(dashboard.compareDocumentPosition(todo) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(navigation.querySelector(".tree-sidebar-divider")).not.toBeNull();
   });
 
   it("shows only workspace and planner children when todo is selected", async () => {
@@ -329,9 +325,9 @@ describe("WorkbenchPageClient", () => {
 
     const workspaceTab = screen.getByRole("button", { name: "Workspace" });
     expect(workspaceTab).toContainElement(
-      workspaceTab.querySelector(".sub-sidebar-parent-icon"),
+      workspaceTab.querySelector("svg"),
     );
-    expect(workspaceTab).toHaveClass("sub-sidebar-tab-parent");
+    expect(workspaceTab).toHaveClass("tree-sidebar-parent");
   });
 
   it("opens planner children from the planner sibling tab", async () => {
