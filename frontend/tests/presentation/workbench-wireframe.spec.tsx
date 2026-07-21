@@ -395,6 +395,26 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("keeps workspace and planner independently expanded in the tree", async () => {
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+
+    expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Planner" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Areas" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Yearly" })).toBeInTheDocument();
+  });
+
   it("collapses workspace and planner when their expanded buttons are clicked again", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);

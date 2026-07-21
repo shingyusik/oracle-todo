@@ -53,24 +53,13 @@ describe("design system boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps CSS layout variables aligned with typed layout constants", async () => {
+  it("keeps the one-column tree sidebar at the typed total width", async () => {
     const source = await readSource("src/styles/globals.css");
     const totalSidebarWidth =
       workbenchLayout.mainSidebarWidthPx +
       workbenchLayout.separatorRailWidthPx +
       workbenchLayout.subSidebarWidthPx;
 
-    expect(source).toContain(
-      `--workbench-main-sidebar-width: ${workbenchLayout.mainSidebarWidthPx}px;`,
-    );
-    expect(source).toContain(
-      `--workbench-separator-rail-width: ${workbenchLayout.separatorRailWidthPx}px;`,
-    );
-    expect(source).toContain(
-      `--workbench-sub-sidebar-width: ${workbenchLayout.subSidebarWidthPx}px;`,
-    );
-    expect(workbenchLayout.subSidebarWidthPx).toBeGreaterThanOrEqual(148);
-    expect(workbenchLayout.subSidebarWidthPx).toBeLessThanOrEqual(152);
     expect(source).toContain(
       `--workbench-total-sidebar-width: ${totalSidebarWidth}px;`,
     );
@@ -80,17 +69,11 @@ describe("design system boundaries", () => {
     expect(source).toContain(
       "grid-template-columns: var(--workbench-total-sidebar-width) minmax(0, 1fr);",
     );
-    expect(source).toContain(
-      "grid-template-columns: var(--workbench-main-sidebar-width) var(--workbench-sub-sidebar-width);",
-    );
     expect(source).not.toContain(
-      "grid-template-columns: var(--workbench-main-sidebar-width) var(--workbench-separator-rail-width) var(--workbench-sub-sidebar-width);",
+      ".workbench-nav-grid",
     );
-    expect(workbenchLayout.separatorRailWidthPx).toBe(0);
-    expect(source).toContain(
-      "grid-auto-columns: minmax(var(--workbench-main-sidebar-width), 1fr);",
-    );
-    expect(source).toContain(".sub-sidebar-tab {\n  color: var(--color-ink);\n  font-size: 14px;");
+    expect(source).toContain(".tree-sidebar {\n  display: flex;\n  flex-direction: column;");
+    expect(source).toContain("grid-auto-columns: minmax(148px, 1fr);");
   });
 
   it("uses the Merovingian asset as the favicon", async () => {
@@ -137,19 +120,11 @@ describe("design system boundaries", () => {
     expect(configKeys("production")).not.toContain("rewrites");
   });
 
-  it("keeps todo parent hierarchy bars visible beside the dark sidebar", async () => {
+  it("keeps tree hierarchy guides visible in the sidebar", async () => {
     const source = await readSource("src/styles/globals.css");
 
-    expect(source).toContain("--color-aloe-strong: #3fae6a;");
-    expect(source).toContain(
-      "box-shadow: inset 3px 0 0 var(--color-aloe-strong);",
-    );
-    expect(source).not.toContain(
-      "box-shadow: inset 3px 0 0 var(--color-shade-50);",
-    );
-    expect(source).not.toContain(
-      ".sub-sidebar-tab-parent[data-active=\"true\"] {\n  background: var(--color-pistachio);\n  box-shadow: inset 3px 0 0 var(--color-ink);",
-    );
+    expect(source).toContain(".tree-sidebar-children {\n  margin-left: 22px;\n  border-left: 1px solid var(--color-hairline-light);");
+    expect(source).toContain(".tree-sidebar-leaves {\n  margin-left: 14px;\n  border-left: 1px solid var(--color-hairline-light);");
   });
 
   it("keeps select text clear of the native dropdown arrow", async () => {
