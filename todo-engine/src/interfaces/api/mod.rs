@@ -28,6 +28,7 @@ pub(super) struct ApiState {
 pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
     let (db_path, keeper) = api_db_path(db_path.as_ref())?;
     let state = ApiState { db_path, keeper };
+    let preferences_router = backend::api::router(state.db_path.clone());
     Ok(Router::new()
         .route("/health", get(health))
         .route("/areas", post(create_area))
@@ -50,7 +51,8 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
         .route("/items/:id/archive", post(archive_item))
         .route("/items/:id/drop", post(drop_item))
         .route("/items/:id/cancel", post(cancel_item))
-        .with_state(state))
+        .with_state(state)
+        .merge(preferences_router))
 }
 
 fn service(state: &ApiState) -> ApiResult<TodoService> {

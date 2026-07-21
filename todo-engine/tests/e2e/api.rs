@@ -65,6 +65,39 @@ async fn health_returns_ok() {
 }
 
 #[tokio::test]
+async fn planner_settings_round_trip_through_sqlite() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PUT",
+        "/settings/planner",
+        json!({"value": {"filterMode": "or"}}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = empty_request(router(&db_path).unwrap(), "GET", "/settings/planner").await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_json(response).await, json!({"filterMode": "or"}));
+}
+
+#[tokio::test]
+async fn planner_settings_require_an_object_value() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PUT",
+        "/settings/planner",
+        json!({"value": "not an object"}),
+    )
+    .await;
+
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
 async fn task_propose_and_items_use_same_service_path() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
