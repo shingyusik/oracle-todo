@@ -114,7 +114,7 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-None yet.
+- Add planner tabs and workspace relations — per-table saved Planner filter/sort/group tabs and linked-item navigation in Workspace details.
 
 ### Blockers/Concerns
 
