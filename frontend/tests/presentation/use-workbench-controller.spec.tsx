@@ -1128,6 +1128,96 @@ describe("useWorkbenchController", () => {
     }]);
   });
 
+  it("uses the moved planner period when a fixed goal context is submitted", async () => {
+    const requestBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose") {
+        const body = JSON.parse(String(init?.body));
+        requestBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "goal-moved", type: "goal", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("planner");
+      result.current.selectTab("yearly");
+    });
+    await waitFor(() => expect(result.current.panel.id).toBe("yearly"));
+
+    const openedYear = result.current.planner.date.slice(0, 4);
+    act(() => result.current.openPlannerCreationDialog({
+      tableId: "yearly.period-goals",
+      itemTypes: ["goal"],
+      scheduled: `${openedYear}-01-01`,
+      horizon: "year",
+      editableDate: false,
+      tableSettings: result.current.plannerTableSettings("yearly.period-goals"),
+    }));
+    act(() => result.current.movePlannerPeriod(1));
+    const movedAnchor = result.current.planner.date;
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({ title: "Moved year goal" });
+    });
+
+    expect(requestBodies).toEqual([{
+      title: "Moved year goal",
+      horizon: "year",
+      scheduled: movedAnchor,
+      actor: "user",
+    }]);
+  });
+
+  it("keeps an editable goal date while enforcing the table horizon at submit", async () => {
+    const requestBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose") {
+        const body = JSON.parse(String(init?.body));
+        requestBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "goal-editable", type: "goal", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("planner");
+      result.current.selectTab("monthly");
+    });
+    await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    act(() => result.current.openPlannerCreationDialog({
+      tableId: "monthly.week-goals",
+      itemTypes: ["task"],
+      scheduled: "2030-01-01",
+      horizon: "year",
+      editableDate: false,
+      tableSettings: result.current.plannerTableSettings("monthly.week-goals"),
+    }));
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({
+        title: "Editable week goal",
+        scheduled: "2026-07-22",
+        horizon: "month",
+      });
+    });
+
+    expect(requestBodies).toEqual([{
+      title: "Editable week goal",
+      horizon: "week",
+      scheduled: "2026-07-22",
+      actor: "user",
+    }]);
+  });
+
   it("canonicalizes forged Daily Unscheduled semantics on open and submit", async () => {
     const requestBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
