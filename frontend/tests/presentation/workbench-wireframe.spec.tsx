@@ -115,6 +115,42 @@ function testLongDateLabel(date: string): string {
   });
 }
 
+function linkedAreaItemsResponse(url: string) {
+  const area = { id: "area-1", type: "area", title: "Health", status: "active" };
+
+  if (url === "/todo-engine/items?type=area") {
+    return [area];
+  }
+
+  if (url === "/todo-engine/items") {
+    return [
+      area,
+      {
+        id: "project-1",
+        type: "project",
+        title: "Checkup",
+        status: "active",
+        area_id: "area-1",
+      },
+      {
+        id: "task-1",
+        type: "task",
+        title: "Book appointment",
+        status: "active",
+        area_id: "area-1",
+      },
+    ];
+  }
+
+  return [];
+}
+
+function taskWithoutLinkedItemsResponse(url: string) {
+  const task = { id: "task-1", type: "task", title: "Book appointment", status: "active" };
+
+  return url === "/todo-engine/items?type=task" || url === "/todo-engine/items" ? [task] : [];
+}
+
 function calendarSelectionRange(button: HTMLElement): { start: string; end: string } {
   const label = button.getAttribute("aria-label") ?? "";
   const match = label.match(/(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/);
@@ -3564,26 +3600,10 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
+      vi.fn((url: string) =>
         Promise.resolve({
           ok: true,
-          json: async () => [
-            { id: "area-1", type: "area", title: "Health", status: "active" },
-            {
-              id: "project-1",
-              type: "project",
-              title: "Checkup",
-              status: "active",
-              area_id: "area-1",
-            },
-            {
-              id: "task-1",
-              type: "task",
-              title: "Book appointment",
-              status: "active",
-              area_id: "area-1",
-            },
-          ],
+          json: async () => linkedAreaItemsResponse(url),
         }),
       ),
     );
@@ -3605,26 +3625,10 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
+      vi.fn((url: string) =>
         Promise.resolve({
           ok: true,
-          json: async () => [
-            { id: "area-1", type: "area", title: "Health", status: "active" },
-            {
-              id: "project-1",
-              type: "project",
-              title: "Checkup",
-              status: "active",
-              area_id: "area-1",
-            },
-            {
-              id: "task-1",
-              type: "task",
-              title: "Book appointment",
-              status: "active",
-              area_id: "area-1",
-            },
-          ],
+          json: async () => linkedAreaItemsResponse(url),
         }),
       ),
     );
@@ -3653,12 +3657,10 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
+      vi.fn((url: string) =>
         Promise.resolve({
           ok: true,
-          json: async () => [
-            { id: "task-1", type: "task", title: "Book appointment", status: "active" },
-          ],
+          json: async () => taskWithoutLinkedItemsResponse(url),
         }),
       ),
     );

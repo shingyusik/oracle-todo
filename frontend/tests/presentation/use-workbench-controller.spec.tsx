@@ -605,6 +605,58 @@ describe("useWorkbenchController", () => {
     ]);
   });
 
+  it("keeps typed workspace items separate from all loaded items", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => {
+            if (url === "/todo-engine/items?type=area") {
+              return [{ id: "area-1", type: "area", title: "Health", status: "active" }];
+            }
+            if (url === "/todo-engine/items") {
+              return [
+                { id: "area-1", type: "area", title: "Health", status: "active" },
+                {
+                  id: "project-1",
+                  type: "project",
+                  title: "Checkup",
+                  status: "active",
+                  area_id: "area-1",
+                },
+                {
+                  id: "task-1",
+                  type: "task",
+                  title: "Book appointment",
+                  status: "active",
+                  area_id: "area-1",
+                },
+              ];
+            }
+
+            return [];
+          },
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.selectTab("workspace"));
+
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    expect(result.current.workspaceItems.items.map((item) => item.id)).toEqual(["area-1"]);
+    expect(result.current.workspaceItems).toMatchObject({
+      allItems: [
+        { id: "area-1" },
+        { id: "project-1", area_id: "area-1" },
+        { id: "task-1", area_id: "area-1" },
+      ],
+    });
+  });
+
   it("creates active workspace items with one complete request and no activation", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).endsWith("/propose")) {

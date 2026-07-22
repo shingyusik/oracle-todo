@@ -143,7 +143,7 @@ function DetailView({ controller }: MainPanelProps) {
 
   const detailItem = item;
   const hasDraftChanges = hasDetailChanges(detailItem, draft);
-  const groups = linkedItemGroups(detailItem, controller.workspaceItems.items);
+  const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
 
   function setField(field: keyof DetailDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));

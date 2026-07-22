@@ -215,6 +215,7 @@ function plannerViewId(panelId: LeafTabId): PlannerViewId | null {
 const emptyWorkspaceItems: WorkspaceItemsModel = {
   status: "idle",
   items: [],
+  allItems: [],
   tagOptions: [],
   relatedItems: {
     areas: {},
@@ -453,6 +454,7 @@ export function useWorkbenchController(): WorkbenchController {
           setWorkspaceItems({
             status: "loaded",
             items: plannerItems ?? items,
+            allItems,
             tagOptions: collectTagOptions(allItems),
             relatedItems: buildRelatedItems(
               plannerItems ?? relatedItems.flat(),
