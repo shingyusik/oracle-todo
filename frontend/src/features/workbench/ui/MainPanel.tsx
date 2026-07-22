@@ -17,6 +17,7 @@ import {
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
 import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
+import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
   buildPlannerGroupCandidates,
   type PlannerGroupCandidate,
@@ -121,10 +122,21 @@ export function MainPanel({ controller }: MainPanelProps) {
 function DetailView({ controller }: MainPanelProps) {
   const item = controller.detailItem;
   const [draft, setDraft] = React.useState(() => detailDraftForItem(item));
+  const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
+    null,
+  );
+  const cancelLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
+  const discardLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
 
   React.useEffect(() => {
     setDraft(detailDraftForItem(item));
   }, [item]);
+
+  React.useEffect(() => {
+    if (pendingLinkedItem) {
+      cancelLinkedItemNavigationRef.current?.focus();
+    }
+  }, [pendingLinkedItem]);
 
   if (!item) {
     return null;
@@ -132,6 +144,7 @@ function DetailView({ controller }: MainPanelProps) {
 
   const detailItem = item;
   const hasDraftChanges = hasDetailChanges(detailItem, draft);
+  const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
 
   function setField(field: keyof DetailDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -150,6 +163,52 @@ function DetailView({ controller }: MainPanelProps) {
     );
     if (transition) {
       await controller.transitionWorkspaceItem(detailItem.id, transition);
+    }
+  }
+
+  function openLinkedItem(nextItem: WorkspaceItemModel) {
+    if (hasDraftChanges) {
+      setPendingLinkedItem(nextItem);
+      return;
+    }
+
+    controller.openDetailView(nextItem);
+  }
+
+  function discardDraftAndOpenLinkedItem() {
+    if (!pendingLinkedItem) {
+      return;
+    }
+
+    controller.openDetailView(pendingLinkedItem);
+    setPendingLinkedItem(null);
+  }
+
+  function cancelLinkedItemNavigation() {
+    setPendingLinkedItem(null);
+  }
+
+  function handleLinkedItemNavigationDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelLinkedItemNavigation();
+      return;
+    }
+
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const isCancelFocused = activeElement === cancelLinkedItemNavigationRef.current;
+    const isDiscardFocused = activeElement === discardLinkedItemNavigationRef.current;
+
+    if (event.shiftKey && isCancelFocused) {
+      event.preventDefault();
+      discardLinkedItemNavigationRef.current?.focus();
+    } else if (!event.shiftKey && isDiscardFocused) {
+      event.preventDefault();
+      cancelLinkedItemNavigationRef.current?.focus();
     }
   }
 
@@ -212,7 +271,63 @@ function DetailView({ controller }: MainPanelProps) {
             />
           </div>
         </div>
+        {groups.length > 0 ? (
+          <section className="linked-items" aria-label="Linked items">
+            <h2>Linked items</h2>
+            {groups.map((group) => (
+              <section className="linked-items-group" key={group.type}>
+                <h3>
+                  {group.label} · {group.items.length}
+                </h3>
+                <ul>
+                  {group.items.map((linkedItem) => (
+                    <li key={linkedItem.id}>
+                      <button
+                        type="button"
+                        aria-label={`Open ${linkedItem.title} details`}
+                        onClick={() => openLinkedItem(linkedItem)}
+                      >
+                        <span>{linkedItem.title}</span>
+                        <span>{linkedItem.status}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </section>
+        ) : null}
       </div>
+      {pendingLinkedItem ? (
+        <div className="confirmation-backdrop">
+          <section
+            className="confirmation-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Discard unsaved changes?"
+            onKeyDown={handleLinkedItemNavigationDialogKeyDown}
+          >
+            <h2>Discard unsaved changes?</h2>
+            <p>Your changes will be lost when you open another item.</p>
+            <div className="dialog-actions">
+              <button
+                ref={cancelLinkedItemNavigationRef}
+                type="button"
+                onClick={cancelLinkedItemNavigation}
+              >
+                Cancel
+              </button>
+              <button
+                ref={discardLinkedItemNavigationRef}
+                type="button"
+                onClick={discardDraftAndOpenLinkedItem}
+              >
+                Discard changes
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -2600,6 +2715,26 @@ function itemDescription(item: WorkspaceItemModel | null | undefined): string | 
     ?.description;
 }
 
+function relatedItemsForDetail(
+  items: WorkspaceItemModel[],
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+): WorkspaceItemsModel["relatedItems"] {
+  return {
+    areas: { ...relatedItems.areas, ...detailTitlesByType(items, "area") },
+    goals: { ...relatedItems.goals, ...detailTitlesByType(items, "goal") },
+    projects: { ...relatedItems.projects, ...detailTitlesByType(items, "project") },
+    routines: { ...relatedItems.routines, ...detailTitlesByType(items, "routine") },
+  };
+}
+
+function detailTitlesByType(items: WorkspaceItemModel[], type: string): Record<string, string> {
+  return Object.fromEntries(
+    items
+      .filter((item) => item.type === type)
+      .map((item) => [item.id, item.title]),
+  );
+}
+
 function DetailTypeFields({
   item,
   draft,
@@ -2613,6 +2748,11 @@ function DetailTypeFields({
   workspaceItems: WorkspaceItemsModel;
   controller: WorkbenchController;
 }) {
+  const detailRelatedItems = relatedItemsForDetail(
+    workspaceItems.allItems,
+    workspaceItems.relatedItems,
+  );
+
   if (item.type === "project") {
     return (
       <>
@@ -2620,7 +2760,7 @@ function DetailTypeFields({
           label="Area"
           controlLabel={`Area for ${item.title}`}
           value={draft.area}
-          options={workspaceItems.relatedItems.areas}
+          options={detailRelatedItems.areas}
           onChange={(area) => setField("area", area)}
         />
         <DetailTextField
@@ -2655,14 +2795,14 @@ function DetailTypeFields({
           label="Area"
           controlLabel={`Area for ${item.title}`}
           value={draft.area}
-          options={workspaceItems.relatedItems.areas}
+          options={detailRelatedItems.areas}
           onChange={(area) => setField("area", area)}
         />
         <DetailRelationField
           label="Project"
           controlLabel={`Project for ${item.title}`}
           value={draft.project_id}
-          options={workspaceItems.relatedItems.projects}
+          options={detailRelatedItems.projects}
           allowNone
           onChange={(project_id) => setField("project_id", project_id)}
         />
@@ -2710,20 +2850,20 @@ function DetailTypeFields({
           label="Area"
           controlLabel={`Area for ${item.title}`}
           value={draft.area}
-          options={workspaceItems.relatedItems.areas}
+          options={detailRelatedItems.areas}
           onChange={(area) => setField("area", area)}
         />
         <DetailRelationField
           label="Project"
           controlLabel={`Project for ${item.title}`}
           value={draft.project_id}
-          options={workspaceItems.relatedItems.projects}
+          options={detailRelatedItems.projects}
           allowNone
           onChange={(project_id) => setField("project_id", project_id)}
         />
         <div className="property-row">
           <span>Routine</span>
-          <span>{relatedTitle(workspaceItems.relatedItems.routines, item.routine_id)}</span>
+          <span>{relatedTitle(detailRelatedItems.routines, item.routine_id)}</span>
         </div>
         <DetailTextField
           label="Scheduled"
@@ -2763,14 +2903,14 @@ function DetailTypeFields({
           label="Area"
           controlLabel={`Area for ${item.title}`}
           value={draft.area}
-          options={workspaceItems.relatedItems.areas}
+          options={detailRelatedItems.areas}
           onChange={(area) => setField("area", area)}
         />
         <DetailRelationField
           label="Project"
           controlLabel={`Project for ${item.title}`}
           value={draft.project_id}
-          options={workspaceItems.relatedItems.projects}
+          options={detailRelatedItems.projects}
           allowNone
           onChange={(project_id) => setField("project_id", project_id)}
         />
@@ -2870,7 +3010,7 @@ function DetailTypeFields({
           label="Parent"
           controlLabel={`Parent for ${item.title}`}
           value={draft.parent_id}
-          options={workspaceItems.relatedItems.goals}
+          options={detailRelatedItems.goals}
           allowNone
           onChange={(parent_id) => setField("parent_id", parent_id)}
         />

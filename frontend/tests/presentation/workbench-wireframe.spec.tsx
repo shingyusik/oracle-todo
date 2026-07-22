@@ -115,6 +115,42 @@ function testLongDateLabel(date: string): string {
   });
 }
 
+function linkedAreaItemsResponse(url: string) {
+  const area = { id: "area-1", type: "area", title: "Health", status: "active" };
+
+  if (url === "/todo-engine/items?type=area") {
+    return [area];
+  }
+
+  if (url === "/todo-engine/items") {
+    return [
+      area,
+      {
+        id: "project-1",
+        type: "project",
+        title: "Checkup",
+        status: "active",
+        area_id: "area-1",
+      },
+      {
+        id: "task-1",
+        type: "task",
+        title: "Book appointment",
+        status: "active",
+        area_id: "area-1",
+      },
+    ];
+  }
+
+  return [];
+}
+
+function taskWithoutLinkedItemsResponse(url: string) {
+  const task = { id: "task-1", type: "task", title: "Book appointment", status: "active" };
+
+  return url === "/todo-engine/items?type=task" || url === "/todo-engine/items" ? [task] : [];
+}
+
 function calendarSelectionRange(button: HTMLElement): { start: string; end: string } {
   const label = button.getAttribute("aria-label") ?? "";
   const match = label.match(/(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/);
@@ -3558,6 +3594,96 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "< Back" }));
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
+  });
+
+  it("renders nonempty linked-item groups and opens the selected child", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => linkedAreaItemsResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+
+    const linkedItems = screen.getByRole("region", { name: "Linked items" });
+    expect(within(linkedItems).getByRole("heading", { name: "Projects · 1" })).toBeInTheDocument();
+    expect(within(linkedItems).getByRole("heading", { name: "Tasks · 1" })).toBeInTheDocument();
+    await user.click(within(linkedItems).getByRole("button", { name: "Open Checkup details" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    const areaSelect = screen.getByLabelText("Area for Checkup");
+    expect(areaSelect).toHaveValue("area-1");
+    expect(within(areaSelect).getByRole("option", { name: "Health" })).toHaveValue("area-1");
+  });
+
+  it("confirms before discarding a dirty detail draft to open a linked item", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => linkedAreaItemsResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Health draft");
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Discard changes" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Discard changes" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
+
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+  });
+
+  it("does not render linked items for a Task without direct children", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => taskWithoutLinkedItemsResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Open details for Book appointment" }),
+    );
+
+    expect(screen.queryByRole("region", { name: "Linked items" })).toBeNull();
   });
 
   it("does not transition an active goal when saving an unrelated detail field", async () => {

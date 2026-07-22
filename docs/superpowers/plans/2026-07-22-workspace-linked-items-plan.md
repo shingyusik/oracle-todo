@@ -4,7 +4,7 @@
 
 **Goal:** Show direct child Workspace items in typed detail-panel lists and let users navigate safely to a selected child.
 
-**Architecture:** A pure frontend model helper derives direct child relationships from the existing `workspaceItems.items` collection; it performs no I/O and does not alter parent selectors. The detail view renders the nonempty typed groups and owns the local unsaved-draft confirmation state before it calls the existing `openDetailView` controller action.
+**Architecture:** The Workbench controller preserves its existing all-item API response in `workspaceItems.allItems` while keeping `workspaceItems.items` scoped to the active table or planner view. A pure frontend model helper derives direct child relationships from `allItems`; the detail view renders the nonempty typed groups and owns the local unsaved-draft confirmation state before it calls the existing `openDetailView` controller action.
 
 **Tech Stack:** Next.js, React, TypeScript, Vitest, Testing Library, existing Workbench CSS.
 
@@ -23,6 +23,8 @@
 | --- | --- |
 | `frontend/src/features/workbench/model/linked-items.ts` | Pure direct-child filtering and stable type grouping. |
 | `frontend/tests/domain/linked-items.spec.ts` | Unit coverage for relationship predicates and group ordering. |
+| `frontend/src/features/workbench/model/workbench-model.ts` | Holds active-view items and the all-item relation source. |
+| `frontend/src/features/workbench/hooks/useWorkbenchController.ts` | Preserves the all-item API response for relationship lookups. |
 | `frontend/src/features/workbench/ui/MainPanel.tsx` | Detail-panel section, linked-row navigation, and dirty-draft confirmation dialog. |
 | `frontend/src/styles/globals.css` | Layout and interaction styles for linked-item groups and rows. |
 | `frontend/tests/presentation/workbench-wireframe.spec.tsx` | End-to-end presentation behavior for rendering and navigation safety. |
@@ -153,18 +155,20 @@ git commit -m $'[ADD] Model workspace linked items\n\n- 직접 연결된 하위 
 ### Task 2: Render linked-item groups and safe detail navigation
 
 **Files:**
+- Modify: `frontend/src/features/workbench/model/workbench-model.ts:58-70`
+- Modify: `frontend/src/features/workbench/hooks/useWorkbenchController.ts:213-230, 430-470`
 - Modify: `frontend/src/features/workbench/ui/MainPanel.tsx:1-45, 121-176`
 - Modify: `frontend/src/styles/globals.css:1413-1615`
 - Modify: `frontend/tests/presentation/workbench-wireframe.spec.tsx:3499-3545`
 
 **Interfaces:**
-- Consumes: `linkedItemGroups(item, controller.workspaceItems.items)` from Task 1.
+- Consumes: `linkedItemGroups(item, controller.workspaceItems.allItems)` from Task 1.
 - Consumes: `hasDetailChanges(item, draft)` and `controller.openDetailView(item)` already defined in the Workbench detail flow.
 - Produces: typed `Linked items` detail section and a modal `Discard unsaved changes?` confirmation before dirty-form navigation.
 
-- [ ] **Step 1: Write the failing presentation tests**
+- [ ] **Step 1: Write the failing controller and presentation tests**
 
-Add a fixture response containing an Area plus a directly linked Project and Task. Add tests with the existing `WorkbenchPageClient` render helper style:
+Add a controller test with a type-filtered Area response and a separate all-item response containing that Area plus a directly linked Project and Task. Assert `items` contains only the Area while `allItems` retains all three. Use the same URL-specific fixture shape in the presentation tests.
 
 ```tsx
 it("renders nonempty linked-item groups and opens the selected child", async () => {
@@ -209,11 +213,11 @@ Expected: FAIL because `Linked items` and the discard-navigation dialog are abse
 
 - [ ] **Step 3: Add detail view state and markup**
 
-In `DetailView`, add pending-navigation state next to `draft`, then derive `groups` after `hasDraftChanges`:
+Extend `WorkspaceItemsModel` and `emptyWorkspaceItems` with `allItems: WorkspaceItemModel[]`. Preserve the existing `fetchAllWorkspaceItems()` response in that field, keep `items` unchanged, and then derive `groups` in `DetailView` after `hasDraftChanges`:
 
 ```tsx
 const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(null);
-const groups = linkedItemGroups(detailItem, controller.workspaceItems.items);
+const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
 
 function openLinkedItem(nextItem: WorkspaceItemModel) {
   if (hasDraftChanges) {

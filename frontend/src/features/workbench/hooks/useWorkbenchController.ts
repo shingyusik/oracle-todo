@@ -215,6 +215,7 @@ function plannerViewId(panelId: LeafTabId): PlannerViewId | null {
 const emptyWorkspaceItems: WorkspaceItemsModel = {
   status: "idle",
   items: [],
+  allItems: [],
   tagOptions: [],
   relatedItems: {
     areas: {},
@@ -453,6 +454,7 @@ export function useWorkbenchController(): WorkbenchController {
           setWorkspaceItems({
             status: "loaded",
             items: plannerItems ?? items,
+            allItems,
             tagOptions: collectTagOptions(allItems),
             relatedItems: buildRelatedItems(
               plannerItems ?? relatedItems.flat(),
@@ -541,6 +543,7 @@ export function useWorkbenchController(): WorkbenchController {
       setWorkspaceItems((current) => ({
         ...current,
         items: current.items.filter((item) => !archivedIds.includes(item.id)),
+        allItems: current.allItems.filter((item) => !archivedIds.includes(item.id)),
       }));
       setSelectedItemIds(failedIds);
       setArchiveConfirmationOpen(false);
@@ -556,6 +559,7 @@ export function useWorkbenchController(): WorkbenchController {
       setWorkspaceItems((current) => ({
         ...current,
         items: [item, ...current.items],
+        allItems: [item, ...current.allItems],
       }));
       setDetailItem(item);
       setCreationDialogOpen(false);
@@ -567,6 +571,7 @@ export function useWorkbenchController(): WorkbenchController {
       setWorkspaceItems((current) => ({
         ...current,
         items: replaceWorkspaceItem(current.items, updated),
+        allItems: replaceWorkspaceItem(current.allItems, updated),
         tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
@@ -658,6 +663,7 @@ export function useWorkbenchController(): WorkbenchController {
         setWorkspaceItems((current) => ({
           ...current,
           items: replaceWorkspaceItem(current.items, updated),
+          allItems: replaceWorkspaceItem(current.allItems, updated),
           tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
         }));
       })();
@@ -701,10 +707,12 @@ export function useWorkbenchController(): WorkbenchController {
       setDetailItem((current) => (current?.id === routine.id ? routine : current));
       setWorkspaceItems((current) => {
         const items = replaceWorkspaceItem(current.items, routine);
+        const allItems = replaceWorkspaceItem(current.allItems, routine);
 
         return {
           ...current,
           items: listsTasks ? [...created, ...items] : items,
+          allItems: [...created, ...allItems],
           tagOptions: mergeTagOptions(current.tagOptions, routine.tags),
         };
       });
@@ -721,6 +729,7 @@ export function useWorkbenchController(): WorkbenchController {
       setWorkspaceItems((current) => ({
         ...current,
         items: replaceWorkspaceItem(current.items, updated),
+        allItems: replaceWorkspaceItem(current.allItems, updated),
         tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
