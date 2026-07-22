@@ -13,11 +13,17 @@ import {
   filterPlannerItemsByRules,
   groupPlannerItems,
   matchesPlannerFilterRules,
+  defaultPlannerTableSettings,
+  normalizePlannerTableSettings,
   plannerTableIds,
   sortPlannerItems,
   type PlannerFilterRule,
 } from "@/features/workbench/model/planner-model";
-import type { WorkspaceItemModel, WorkspaceItemsModel } from "@/features/workbench/model/workbench-model";
+import type {
+  LegacyPlannerControls,
+  WorkspaceItemModel,
+  WorkspaceItemsModel,
+} from "@/features/workbench/model/workbench-model";
 
 const relatedItems: WorkspaceItemsModel["relatedItems"] = {
   areas: { "area-1": "Work", "area-2": "Home" },
@@ -181,6 +187,23 @@ function item(
   };
 }
 
+function legacyPlannerControls(): LegacyPlannerControls {
+  return {
+    filterMode: "and",
+    filterRules: [],
+    groupSettings: {
+      daily: defaultPlannerGroupSettings(),
+      weekly: defaultPlannerGroupSettings(),
+      monthly: defaultPlannerGroupSettings(),
+      yearly: defaultPlannerGroupSettings(),
+    },
+    dailySortRules: [],
+    weeklySortRules: [],
+    monthlySortRules: [],
+    yearlySortRules: [],
+  };
+}
+
 describe("planner model", () => {
   it("defines stable planner table identifiers", () => {
     expect(plannerTableIds).toEqual([
@@ -189,6 +212,79 @@ describe("planner model", () => {
       "monthly.period-goals", "monthly.calendar", "monthly.week-goals",
       "yearly.period-goals", "yearly.month-goals",
     ]);
+  });
+
+  it("creates independently mutable planner table defaults", () => {
+    const first = defaultPlannerTableSettings("daily.today");
+    const second = defaultPlannerTableSettings("daily.today");
+
+    first.sortRules[0]!.id = "changed";
+    first.groupSettings.manualOrder.push("area-1");
+    first.groupSettings.hiddenGroupKeys.push("area-2");
+
+    expect(second.sortRules[0]!.id).toBe("daily.today-default-sort");
+    expect(second.groupSettings.manualOrder).toEqual([]);
+    expect(second.groupSettings.hiddenGroupKeys).toEqual([]);
+  });
+
+  it("deeply isolates nested legacy settings for each migrated table", () => {
+    const legacy = legacyPlannerControls();
+    legacy.filterRules = [
+      { id: "tags", field: "tags", type: "multiSelect", operator: "contains", value: ["focus"] },
+      {
+        id: "range",
+        field: "scheduled",
+        type: "date",
+        operator: "is_between",
+        value: { start: "2026-07-01", end: "2026-07-31" },
+      },
+    ];
+    legacy.groupSettings.daily = {
+      ...defaultPlannerGroupSettings(),
+      manualOrder: ["area-1"],
+      hiddenGroupKeys: ["area-2"],
+    };
+
+    const first = normalizePlannerTableSettings("daily.today", undefined, legacy);
+    const second = normalizePlannerTableSettings("daily.overdue", undefined, legacy);
+    (first.filterRules[0]!.value as string[]).push("ops");
+    (first.filterRules[1]!.value as { start: string; end: string }).start = "2026-07-02";
+    first.groupSettings.manualOrder.push("area-3");
+    first.groupSettings.hiddenGroupKeys.push("area-4");
+
+    expect(second.filterRules[0]!.value).toEqual(["focus"]);
+    expect(second.filterRules[1]!.value).toEqual({ start: "2026-07-01", end: "2026-07-31" });
+    expect(second.groupSettings.manualOrder).toEqual(["area-1"]);
+    expect(second.groupSettings.hiddenGroupKeys).toEqual(["area-2"]);
+  });
+
+  it("falls back only the malformed persisted table settings", () => {
+    const legacy = legacyPlannerControls();
+    const malformed = normalizePlannerTableSettings("daily.today", {
+      filterMode: "or",
+      filterRules: [
+        { id: "unknown-field", field: "unknown", type: "text", operator: "contains", value: "x" },
+        { id: "wrong-combination", field: "title", type: "date", operator: "is_before", value: "2026-07-22" },
+        { id: "bad-range", field: "scheduled", type: "date", operator: "is_between", value: "2026-07-22" },
+      ],
+      sortRules: [{ id: "bad-sort", field: "unknown", direction: "asc" }],
+      groupSettings: { groupBy: "unknown", manualOrder: ["safe", 3] },
+    }, legacy);
+    const valid = normalizePlannerTableSettings("daily.overdue", {
+      filterMode: "or",
+      filterRules: [{ id: "title", field: "title", type: "text", operator: "contains", value: "plan" }],
+      sortRules: [{ id: "title", field: "title", direction: "desc" }],
+      groupSettings: { groupBy: "area", sort: "manual", hideEmpty: true, manualOrder: ["area-1"] },
+    }, legacy);
+
+    expect(malformed.filterMode).toBe("or");
+    expect(malformed.filterRules).toEqual([]);
+    expect(malformed.sortRules).toEqual(defaultPlannerTableSettings("daily.today").sortRules);
+    expect(malformed.groupSettings.groupBy).toBe("none");
+    expect(malformed.groupSettings.manualOrder).toEqual(["safe"]);
+    expect(valid.filterRules).toHaveLength(1);
+    expect(valid.sortRules).toEqual([{ id: "title", field: "title", direction: "desc" }]);
+    expect(valid.groupSettings.manualOrder).toEqual(["area-1"]);
   });
 
   it("partitions raw Daily sections before table presentation controls", () => {

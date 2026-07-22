@@ -95,6 +95,41 @@ export type PlannerSortRule = {
   direction: PlannerSortDirection;
 };
 
+const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterType> = {
+  title: "text",
+  scheduled: "date",
+  due: "date",
+  tags: "multiSelect",
+  area: "relation",
+  project: "relation",
+  routine: "relation",
+  status: "select",
+  priority: "select",
+  horizon: "select",
+  parent: "relation",
+  recurrence_rule: "text",
+  materialization_policy: "select",
+  location: "text",
+  participants: "multiSelect",
+  commitment_type: "text",
+  description: "text",
+  note: "text",
+};
+
+const plannerFilterOperators: Record<PlannerFilterType, readonly PlannerFilterOperator[]> = {
+  date: ["is", "is_not", "is_before", "is_after", "is_on_or_before", "is_on_or_after", "is_between", "is_relative_to_today", "is_empty", "is_not_empty"],
+  number: ["is", "is_not", "greater_than", "less_than", "is_empty", "is_not_empty"],
+  text: ["contains", "does_not_contain", "is", "is_not", "starts_with", "ends_with", "is_empty", "is_not_empty"],
+  select: ["is", "is_not", "contains", "does_not_contain", "is_empty", "is_not_empty"],
+  multiSelect: ["is", "is_not", "contains", "does_not_contain", "is_empty", "is_not_empty"],
+  relation: ["is", "is_not", "contains", "does_not_contain", "is_empty", "is_not_empty"],
+};
+
+const plannerSortFields = new Set<PlannerSortBy>([
+  ...Object.keys(plannerFilterFieldTypes) as PlannerFilterField[],
+  "updated",
+]);
+
 export const plannerTableIds = [
   "daily.today",
   "daily.overdue",
@@ -135,19 +170,18 @@ export function normalizePlannerTableSettings(
   legacy: LegacyPlannerControls,
 ): PlannerTableSettings {
   const defaults = defaultPlannerTableSettings(tableId);
-  const value = candidate && typeof candidate === "object"
-    ? candidate as Partial<PlannerTableSettings>
-    : {};
+  const value = isRecord(candidate) ? candidate : undefined;
   const legacySettings = legacySettingsForTable(tableId, legacy);
 
   return {
-    filterMode: value.filterMode === "or" || value.filterMode === "and"
-      ? value.filterMode
-      : legacy.filterMode === "or" ? "or" : defaults.filterMode,
-    filterRules: normalizeFilterRules(value.filterRules ?? legacy.filterRules),
-    sortRules: normalizePlannerSortRules(value.sortRules, legacySettings.sortRules),
+    filterMode: normalizeFilterMode(value?.filterMode ?? legacy.filterMode, defaults.filterMode),
+    filterRules: normalizeFilterRules(value ? value.filterRules : legacy.filterRules),
+    sortRules: normalizePlannerSortRules(
+      value ? value.sortRules : legacySettings.sortRules,
+      value ? defaults.sortRules : legacySettings.sortRules,
+    ),
     groupSettings: normalizePlannerGroupSettings(
-      value.groupSettings ?? legacySettings.groupSettings,
+      value ? value.groupSettings : legacySettings.groupSettings,
     ),
   };
 }
@@ -175,29 +209,83 @@ function legacySettingsForTable(
   return { sortRules, groupSettings: legacy.groupSettings[view] };
 }
 
+function normalizeFilterMode(value: unknown, fallback: PlannerFilterMode): PlannerFilterMode {
+  return value === "and" || value === "or" ? value : fallback;
+}
+
 function normalizeFilterRules(value: unknown): PlannerFilterRule[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((rule): rule is PlannerFilterRule =>
-    !!rule && typeof rule === "object" &&
-    typeof (rule as PlannerFilterRule).id === "string" &&
-    typeof (rule as PlannerFilterRule).field === "string" &&
-    typeof (rule as PlannerFilterRule).type === "string" &&
-    typeof (rule as PlannerFilterRule).operator === "string",
-  ).map((rule) => ({ ...rule }));
+  return value.flatMap((rule) => {
+    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return [];
+    if (!isPlannerFilterField(rule.field) || plannerFilterFieldTypes[rule.field] !== rule.type) {
+      return [];
+    }
+    if (!isPlannerFilterOperator(rule.type, rule.operator) || !isPlannerFilterValue(rule.type, rule.operator, rule.value)) {
+      return [];
+    }
+    return [{
+      id: rule.id,
+      field: rule.field,
+      type: rule.type,
+      operator: rule.operator,
+      value: clonePlannerFilterValue(rule.value),
+    }];
+  });
 }
 
 function normalizePlannerSortRules(
   value: unknown,
   fallback: PlannerSortRule[],
 ): PlannerSortRule[] {
-  const rules = Array.isArray(value) ? value : fallback;
-  return rules.filter((rule): rule is PlannerSortRule =>
-    !!rule && typeof rule === "object" &&
-    typeof (rule as PlannerSortRule).id === "string" &&
-    typeof (rule as PlannerSortRule).field === "string" &&
-    ((rule as PlannerSortRule).direction === "asc" ||
-      (rule as PlannerSortRule).direction === "desc"),
-  ).map((rule) => ({ ...rule }));
+  if (!Array.isArray(value)) return fallback.map((rule) => ({ ...rule }));
+  const rules = value.flatMap((rule) => {
+    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return [];
+    if (!plannerSortFields.has(rule.field as PlannerSortBy)) return [];
+    if (rule.direction !== "asc" && rule.direction !== "desc") return [];
+    return [{ id: rule.id, field: rule.field as PlannerSortBy, direction: rule.direction }];
+  });
+  return rules.length === value.length ? rules : fallback.map((rule) => ({ ...rule }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPlannerFilterField(value: unknown): value is PlannerFilterField {
+  return typeof value === "string" && value in plannerFilterFieldTypes;
+}
+
+function isPlannerFilterOperator(
+  type: PlannerFilterType,
+  value: unknown,
+): value is PlannerFilterOperator {
+  return typeof value === "string" && plannerFilterOperators[type].includes(value as PlannerFilterOperator);
+}
+
+function isPlannerFilterValue(
+  type: PlannerFilterType,
+  operator: PlannerFilterOperator,
+  value: unknown,
+): value is PlannerFilterValue {
+  if (operator === "is_empty" || operator === "is_not_empty") return value === null;
+  if (type === "date" && operator === "is_between") {
+    return isRecord(value) && typeof value.start === "string" && typeof value.end === "string";
+  }
+  if (type === "date" && operator === "is_relative_to_today") {
+    return isRecord(value) && typeof value.amount === "string" &&
+      (value.unit === "day" || value.unit === "week" || value.unit === "month");
+  }
+  if (type === "select" || type === "multiSelect" || type === "relation") {
+    return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+  }
+  return typeof value === "string";
+}
+
+function clonePlannerFilterValue(value: PlannerFilterValue): PlannerFilterValue {
+  if (Array.isArray(value)) return [...value];
+  if (isRangeValue(value)) return { start: value.start, end: value.end };
+  if (isRelativeValue(value)) return { amount: value.amount, unit: value.unit };
+  return value;
 }
 
 export type DailyGroupBy = PlannerGroupBy;
