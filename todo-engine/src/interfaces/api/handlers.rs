@@ -62,6 +62,7 @@ pub(super) async fn propose_task(
             ProposeTask {
                 actor,
                 area: body.area,
+                project_id: body.project_id,
                 due: body.due,
                 scheduled: body.scheduled,
                 priority: body.priority,

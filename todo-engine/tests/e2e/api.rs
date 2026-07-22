@@ -139,6 +139,46 @@ async fn task_propose_and_items_use_same_service_path() {
 }
 
 #[tokio::test]
+async fn task_propose_persists_project_relationship() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    let project_response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/projects/propose",
+        json!({
+            "title":"API project",
+            "definition_of_done":"linked task persists"
+        }),
+    )
+    .await;
+    assert_eq!(project_response.status(), 200);
+    let project = body_json(project_response).await;
+    let project_id = project["id"].as_str().unwrap();
+
+    let task_response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({
+            "title":"Linked task",
+            "project_id":project_id
+        }),
+    )
+    .await;
+    assert_eq!(task_response.status(), 200);
+    let task = body_json(task_response).await;
+    assert_eq!(task["project_id"], project_id);
+
+    let items_response = empty_request(router(&db_path).unwrap(), "GET", "/items?type=task").await;
+    assert_eq!(items_response.status(), 200);
+    let items = body_json(items_response).await;
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["project_id"], project_id);
+}
+
+#[tokio::test]
 async fn parallel_item_reads_do_not_rerun_schema_migration() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
