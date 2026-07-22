@@ -79,8 +79,10 @@ routine using stored targets, this acts only on `{id}`.
 ## Request bodies
 
 - **`AreaBody`** — `title` (required), `review_cycle?`, `standard?`, `note?`, `tags?`.
-- **`TaskProposeBody`** — `title` (required), `area?`, `due?`, `scheduled?`, `priority?`,
-  `description?`, `note?`, `tags?`, `actor?` (default `agent`).
+- **`TaskProposeBody`** — `title` (required), `area?`, `project_id?`, `due?`, `scheduled?`,
+  `priority?`, `description?`, `note?`, `tags?`, `actor?` (default `agent`). When supplied,
+  `project_id` must identify a non-terminal project; a non-project or terminal relation returns
+  HTTP `400`, and an unknown ID returns HTTP `404`.
 - **`ProjectProposeBody`** — `title` (required), `area?`, `definition_of_done` (required and non-blank), `outcome?`,
   `due?`, `note?`, `tags?`, `actor?` (default `agent`).
 - **`GoalProposeBody`** — `title` (required), `horizon` (required: `year`, `month`, or `week`),
