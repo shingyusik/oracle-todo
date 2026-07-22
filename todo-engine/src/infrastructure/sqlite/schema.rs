@@ -69,6 +69,9 @@ fn init_schema_inner(conn: &Connection) -> TodoResult<()> {
     )
     .map_err(|error| TodoError::Migration(error.to_string()))?;
 
+    backend::preferences::init_schema(conn)
+        .map_err(|error| TodoError::Migration(error.to_string()))?;
+
     ensure_item_columns(conn)?;
 
     conn.execute(

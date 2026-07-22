@@ -38,7 +38,5 @@ async fn put_planner(
 }
 
 fn open_preferences(db_path: &PathBuf) -> Result<Connection, StatusCode> {
-    let connection = Connection::open(db_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    preferences::init_schema(&connection).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(connection)
+    Connection::open(db_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }

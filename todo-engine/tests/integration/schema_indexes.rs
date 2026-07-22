@@ -133,6 +133,22 @@ fn init_schema_adds_tags_column_to_legacy_items_table() {
     assert!(columns.iter().any(|column| column == "tags"));
 }
 
+#[test]
+fn init_schema_creates_workspace_preferences_table() {
+    let conn = connect(":memory:").unwrap();
+
+    init_schema(&conn).unwrap();
+
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspace_preferences')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(table_exists);
+}
+
 fn item_columns_vec(conn: &rusqlite::Connection) -> Vec<String> {
     let mut statement = conn.prepare("PRAGMA table_info(items)").unwrap();
     statement
