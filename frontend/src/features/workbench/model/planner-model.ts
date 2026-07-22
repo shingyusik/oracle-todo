@@ -125,11 +125,6 @@ const plannerFilterOperators: Record<PlannerFilterType, readonly PlannerFilterOp
   relation: ["is", "is_not", "contains", "does_not_contain", "is_empty", "is_not_empty"],
 };
 
-const plannerSortFields = new Set<PlannerSortBy>([
-  ...Object.keys(plannerFilterFieldTypes) as PlannerFilterField[],
-  "updated",
-]);
-
 export const plannerTableIds = [
   "daily.today",
   "daily.overdue",
@@ -217,16 +212,18 @@ function normalizeFilterRules(value: unknown): PlannerFilterRule[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((rule) => {
     if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return [];
-    if (!isPlannerFilterField(rule.field) || plannerFilterFieldTypes[rule.field] !== rule.type) {
+    if (!isPlannerFilterField(rule.field) || !isPlannerFilterType(rule.type)) return [];
+    const { field, type } = rule;
+    if (plannerFilterFieldTypes[field] !== type) {
       return [];
     }
-    if (!isPlannerFilterOperator(rule.type, rule.operator) || !isPlannerFilterValue(rule.type, rule.operator, rule.value)) {
+    if (!isPlannerFilterOperator(type, rule.operator) || !isPlannerFilterValue(type, rule.operator, rule.value)) {
       return [];
     }
     return [{
       id: rule.id,
-      field: rule.field,
-      type: rule.type,
+      field,
+      type,
       operator: rule.operator,
       value: clonePlannerFilterValue(rule.value),
     }];
@@ -240,9 +237,8 @@ function normalizePlannerSortRules(
   if (!Array.isArray(value)) return fallback.map((rule) => ({ ...rule }));
   const rules = value.flatMap((rule) => {
     if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return [];
-    if (!plannerSortFields.has(rule.field as PlannerSortBy)) return [];
-    if (rule.direction !== "asc" && rule.direction !== "desc") return [];
-    return [{ id: rule.id, field: rule.field as PlannerSortBy, direction: rule.direction }];
+    if (!isPlannerSortField(rule.field) || !isPlannerSortDirection(rule.direction)) return [];
+    return [{ id: rule.id, field: rule.field, direction: rule.direction }];
   });
   return rules.length === value.length ? rules : fallback.map((rule) => ({ ...rule }));
 }
@@ -253,6 +249,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPlannerFilterField(value: unknown): value is PlannerFilterField {
   return typeof value === "string" && value in plannerFilterFieldTypes;
+}
+
+function isPlannerFilterType(value: unknown): value is PlannerFilterType {
+  return typeof value === "string" && value in plannerFilterOperators;
+}
+
+function isPlannerSortField(value: unknown): value is PlannerSortBy {
+  return value === "updated" || isPlannerFilterField(value);
+}
+
+function isPlannerSortDirection(value: unknown): value is PlannerSortDirection {
+  return value === "asc" || value === "desc";
 }
 
 function isPlannerFilterOperator(
