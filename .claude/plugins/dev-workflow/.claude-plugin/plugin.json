@@ -1,5 +1,5 @@
 {
   "name": "dev-workflow",
-  "description": "Development workflow skills: build, run, and drive todo-engine end-to-end to verify a change",
+  "description": "Development workflow skills: verify todo-engine end-to-end and publish tag-based npm and GitHub releases",
   "version": "1.0.0"
 }
