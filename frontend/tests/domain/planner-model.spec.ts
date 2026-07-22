@@ -15,6 +15,8 @@ import {
   matchesPlannerFilterRules,
   defaultPlannerTableSettings,
   normalizePlannerTableSettings,
+  plannerFilterFieldsForTable,
+  plannerSortFieldsForTable,
   plannerTableIds,
   sortPlannerItems,
   type PlannerFilterRule,
@@ -227,6 +229,45 @@ describe("planner model", () => {
     expect(second.groupSettings.hiddenGroupKeys).toEqual([]);
   });
 
+  it("defines table-specific filter and sort field capabilities in the model", () => {
+    expect(plannerFilterFieldsForTable("weekly.week-goals")).toContain("horizon");
+    expect(plannerFilterFieldsForTable("weekly.week-goals")).not.toContain("project");
+    expect(plannerSortFieldsForTable("weekly.week-goals")).toContain("updated");
+    expect(plannerSortFieldsForTable("weekly.week-goals")).not.toContain("priority");
+
+    expect(plannerFilterFieldsForTable("weekly.day-grid")).toContain("project");
+    expect(plannerFilterFieldsForTable("weekly.day-grid")).not.toContain("horizon");
+    expect(plannerSortFieldsForTable("weekly.day-grid")).toContain("priority");
+  });
+
+  it("falls back only a table whose persisted fields exceed its capabilities", () => {
+    const legacy = legacyPlannerControls();
+    const unsupportedGoal = normalizePlannerTableSettings("weekly.week-goals", {
+      filterMode: "or",
+      filterRules: [
+        { id: "project", field: "project", type: "relation", operator: "is", value: ["project-1"] },
+      ],
+      sortRules: [{ id: "priority", field: "priority", direction: "desc" }],
+      groupSettings: { groupBy: "status", sort: "alphabetical", hideEmpty: false },
+    }, legacy);
+    const validDayGrid = normalizePlannerTableSettings("weekly.day-grid", {
+      filterMode: "or",
+      filterRules: [
+        { id: "project", field: "project", type: "relation", operator: "is", value: ["project-1"] },
+      ],
+      sortRules: [{ id: "priority", field: "priority", direction: "desc" }],
+      groupSettings: { groupBy: "project", sort: "alphabetical", hideEmpty: false },
+    }, legacy);
+
+    expect(unsupportedGoal).toEqual(defaultPlannerTableSettings("weekly.week-goals"));
+    expect(validDayGrid).toMatchObject({
+      filterMode: "or",
+      filterRules: [{ id: "project", field: "project", type: "relation", operator: "is", value: ["project-1"] }],
+      sortRules: [{ id: "priority", field: "priority", direction: "desc" }],
+      groupSettings: { groupBy: "project" },
+    });
+  });
+
   it("deeply isolates nested legacy settings for each migrated table", () => {
     const legacy = legacyPlannerControls();
     legacy.filterRules = [
@@ -298,7 +339,7 @@ describe("planner model", () => {
     },
   );
 
-  it("strictly validates legacy settings before migrating them", () => {
+  it("falls back a legacy-derived table when its former shared settings are malformed", () => {
     const legacy = legacyPlannerControls();
     legacy.filterMode = "or";
     legacy.filterRules = [
@@ -319,17 +360,7 @@ describe("planner model", () => {
 
     const migrated = normalizePlannerTableSettings("daily.today", undefined, legacy);
 
-    expect(migrated.filterMode).toBe("or");
-    expect(migrated.filterRules).toEqual([
-      { id: "valid-filter", field: "title", type: "text", operator: "contains", value: "legacy" },
-    ]);
-    expect(migrated.sortRules).toEqual(defaultPlannerTableSettings("daily.today").sortRules);
-    expect(migrated.groupSettings).toEqual({
-      ...defaultPlannerGroupSettings(),
-      groupBy: "area",
-      manualOrder: ["area-1"],
-      hiddenGroupKeys: ["area-2"],
-    });
+    expect(migrated).toEqual(defaultPlannerTableSettings("daily.today"));
   });
 
   it("falls back only the malformed persisted table settings", () => {
@@ -351,11 +382,7 @@ describe("planner model", () => {
       groupSettings: { groupBy: "area", sort: "manual", hideEmpty: true, manualOrder: ["area-1"] },
     }, legacy);
 
-    expect(malformed.filterMode).toBe("or");
-    expect(malformed.filterRules).toEqual([]);
-    expect(malformed.sortRules).toEqual(defaultPlannerTableSettings("daily.today").sortRules);
-    expect(malformed.groupSettings.groupBy).toBe("none");
-    expect(malformed.groupSettings.manualOrder).toEqual(["safe"]);
+    expect(malformed).toEqual(defaultPlannerTableSettings("daily.today"));
     expect(valid.filterRules).toHaveLength(1);
     expect(valid.sortRules).toEqual([{ id: "title", field: "title", direction: "desc" }]);
     expect(valid.groupSettings.manualOrder).toEqual(["area-1"]);
@@ -375,7 +402,7 @@ describe("planner model", () => {
     expect(settings.sortRules).toEqual(defaultPlannerTableSettings("daily.today").sortRules);
   });
 
-  it("rejects malformed date filter values while retaining valid calendar dates", () => {
+  it("falls back malformed date filter settings and retains valid calendar dates", () => {
     const settings = normalizePlannerTableSettings("daily.today", {
       filterRules: [
         { id: "malformed-date", field: "scheduled", type: "date", operator: "is", value: "2026-2-28" },
@@ -405,7 +432,22 @@ describe("planner model", () => {
       ],
     }, legacyPlannerControls());
 
-    expect(settings.filterRules).toEqual([
+    expect(settings).toEqual(defaultPlannerTableSettings("daily.today"));
+
+    const validSettings = normalizePlannerTableSettings("daily.today", {
+      filterRules: [
+        { id: "valid-date", field: "due", type: "date", operator: "is", value: "2026-02-28" },
+        {
+          id: "valid-relative",
+          field: "scheduled",
+          type: "date",
+          operator: "is_relative_to_today",
+          value: { amount: "2", unit: "week" },
+        },
+      ],
+    }, legacyPlannerControls());
+
+    expect(validSettings.filterRules).toEqual([
       { id: "valid-date", field: "due", type: "date", operator: "is", value: "2026-02-28" },
       {
         id: "valid-relative",

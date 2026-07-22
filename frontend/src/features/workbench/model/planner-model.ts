@@ -148,6 +148,62 @@ export type PlannerTableSettings = {
   groupSettings: PlannerGroupSettings;
 };
 
+const plannerDateWorkFilterFields = [
+  "title",
+  "status",
+  "tags",
+  "area",
+  "project",
+  "routine",
+  "scheduled",
+  "due",
+  "priority",
+  "recurrence_rule",
+  "materialization_policy",
+  "location",
+  "participants",
+  "commitment_type",
+  "description",
+  "note",
+] as const satisfies readonly PlannerFilterField[];
+
+const plannerGoalFilterFields = [
+  "title",
+  "status",
+  "tags",
+  "horizon",
+  "scheduled",
+  "due",
+  "parent",
+  "note",
+] as const satisfies readonly PlannerFilterField[];
+
+const plannerDateWorkSortFields = [
+  ...plannerDateWorkFilterFields,
+  "updated",
+] as const satisfies readonly PlannerSortBy[];
+
+const plannerGoalSortFields = [
+  ...plannerGoalFilterFields,
+  "updated",
+] as const satisfies readonly PlannerSortBy[];
+
+export function plannerFilterFieldsForTable(
+  tableId: PlannerTableId,
+): readonly PlannerFilterField[] {
+  return tableId.endsWith("goals")
+    ? plannerGoalFilterFields
+    : plannerDateWorkFilterFields;
+}
+
+export function plannerSortFieldsForTable(
+  tableId: PlannerTableId,
+): readonly PlannerSortBy[] {
+  return tableId.endsWith("goals")
+    ? plannerGoalSortFields
+    : plannerDateWorkSortFields;
+}
+
 export function defaultPlannerTableSettings(
   tableId: PlannerTableId,
 ): PlannerTableSettings {
@@ -165,25 +221,41 @@ export function normalizePlannerTableSettings(
   legacy: LegacyPlannerControls,
 ): PlannerTableSettings {
   const defaults = defaultPlannerTableSettings(tableId);
+  const allowedFilterFields = plannerFilterFieldsForTable(tableId);
+  const allowedSortFields = plannerSortFieldsForTable(tableId);
   if (candidate === undefined) {
     const legacySettings = legacySettingsForTable(tableId, legacy);
+    const filterRules = normalizeFilterRules(
+      legacy.filterRules,
+      allowedFilterFields,
+    );
+    const sortRules = normalizePlannerSortRules(
+      legacySettings.sortRules,
+      allowedSortFields,
+    );
+    if (!filterRules || !sortRules) return defaults;
     return {
       filterMode: normalizeFilterMode(legacy.filterMode, defaults.filterMode),
-      filterRules: normalizeFilterRules(legacy.filterRules),
-      sortRules: normalizePlannerSortRules(legacySettings.sortRules, defaults.sortRules),
+      filterRules,
+      sortRules,
       groupSettings: normalizePlannerGroupSettings(legacySettings.groupSettings),
     };
   }
 
   if (!isRecord(candidate)) return defaults;
 
+  const filterRules = candidate.filterRules === undefined
+    ? defaults.filterRules
+    : normalizeFilterRules(candidate.filterRules, allowedFilterFields);
+  const sortRules = candidate.sortRules === undefined
+    ? defaults.sortRules
+    : normalizePlannerSortRules(candidate.sortRules, allowedSortFields);
+  if (!filterRules || !sortRules) return defaults;
+
   return {
     filterMode: normalizeFilterMode(candidate.filterMode, defaults.filterMode),
-    filterRules: normalizeFilterRules(candidate.filterRules),
-    sortRules: normalizePlannerSortRules(
-      candidate.sortRules,
-      defaults.sortRules,
-    ),
+    filterRules,
+    sortRules,
     groupSettings: normalizePlannerGroupSettings(candidate.groupSettings),
   };
 }
@@ -215,39 +287,53 @@ function normalizeFilterMode(value: unknown, fallback: PlannerFilterMode): Plann
   return value === "and" || value === "or" ? value : fallback;
 }
 
-function normalizeFilterRules(value: unknown): PlannerFilterRule[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((rule) => {
-    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return [];
-    if (!isPlannerFilterField(rule.field) || !isPlannerFilterType(rule.type)) return [];
+function normalizeFilterRules(
+  value: unknown,
+  allowedFields: readonly PlannerFilterField[],
+): PlannerFilterRule[] | null {
+  if (!Array.isArray(value)) return null;
+  const rules: PlannerFilterRule[] = [];
+  for (const rule of value) {
+    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return null;
+    if (
+      !isPlannerFilterField(rule.field) ||
+      !allowedFields.includes(rule.field) ||
+      !isPlannerFilterType(rule.type)
+    ) return null;
     const { field, type } = rule;
     if (plannerFilterFieldTypes[field] !== type) {
-      return [];
+      return null;
     }
     if (!isPlannerFilterOperator(type, rule.operator) || !isPlannerFilterValue(type, rule.operator, rule.value)) {
-      return [];
+      return null;
     }
-    return [{
+    rules.push({
       id: rule.id,
       field,
       type,
       operator: rule.operator,
       value: clonePlannerFilterValue(rule.value),
-    }];
-  });
+    });
+  }
+  return rules;
 }
 
 function normalizePlannerSortRules(
   value: unknown,
-  fallback: PlannerSortRule[],
-): PlannerSortRule[] {
-  if (!Array.isArray(value)) return fallback.map((rule) => ({ ...rule }));
-  const rules = value.flatMap((rule) => {
-    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return [];
-    if (!isPlannerSortField(rule.field) || !isPlannerSortDirection(rule.direction)) return [];
-    return [{ id: rule.id, field: rule.field, direction: rule.direction }];
-  });
-  return rules.length === value.length ? rules : fallback.map((rule) => ({ ...rule }));
+  allowedFields: readonly PlannerSortBy[],
+): PlannerSortRule[] | null {
+  if (!Array.isArray(value)) return null;
+  const rules: PlannerSortRule[] = [];
+  for (const rule of value) {
+    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return null;
+    if (
+      !isPlannerSortField(rule.field) ||
+      !allowedFields.includes(rule.field) ||
+      !isPlannerSortDirection(rule.direction)
+    ) return null;
+    rules.push({ id: rule.id, field: rule.field, direction: rule.direction });
+  }
+  return rules;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

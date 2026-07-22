@@ -44,7 +44,7 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Dashboard");
   });
 
-  it("migrates legacy daily settings independently and weekly card settings only to the day grid", async () => {
+  it("migrates each table from its tab's former shared settings", async () => {
     const savedPreferences = {
       filterMode: "or",
       filterRules: [
@@ -69,7 +69,7 @@ describe("useWorkbenchController", () => {
       dailySortRules: [{ id: "s1", field: "updated", direction: "desc" }],
       yearlySortRules: [],
       monthlySortRules: [],
-      weeklySortRules: [{ id: "s2", field: "priority", direction: "desc" }],
+      weeklySortRules: [{ id: "s2", field: "updated", direction: "desc" }],
     };
     vi.stubGlobal(
       "fetch",
@@ -120,21 +120,23 @@ describe("useWorkbenchController", () => {
     });
     expect(result.current.plannerTableSettings("weekly.month-goals")).toMatchObject({
       filterMode: "or",
-      sortRules: [{
-        id: "weekly.month-goals-default-sort",
-        field: "scheduled",
-        direction: "asc",
-      }],
-      groupSettings: { groupBy: "none" },
+      sortRules: savedPreferences.weeklySortRules,
+      groupSettings: {
+        groupBy: "project",
+        sort: "reverse_alphabetical",
+        manualOrder: ["project-1"],
+        hiddenGroupKeys: ["project-2"],
+      },
     });
     expect(result.current.plannerTableSettings("weekly.week-goals")).toMatchObject({
       filterMode: "or",
-      sortRules: [{
-        id: "weekly.week-goals-default-sort",
-        field: "scheduled",
-        direction: "asc",
-      }],
-      groupSettings: { groupBy: "none" },
+      sortRules: savedPreferences.weeklySortRules,
+      groupSettings: {
+        groupBy: "project",
+        sort: "reverse_alphabetical",
+        manualOrder: ["project-1"],
+        hiddenGroupKeys: ["project-2"],
+      },
     });
   });
 
@@ -1054,6 +1056,49 @@ describe("useWorkbenchController", () => {
       actor: "user",
     }]);
     expect(result.current.plannerCreationContext).toBeNull();
+  });
+
+  it("rejects a contextual item type that the source table does not allow", async () => {
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
+      Promise.resolve({ ok: true, json: async () => [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.openPlannerCreationDialog({
+      tableId: "weekly.week-goals",
+      itemTypes: ["goal"],
+      scheduled: "2026-07-20",
+      horizon: "week",
+      editableDate: false,
+      tableSettings: {
+        filterMode: "and",
+        filterRules: [],
+        sortRules: [],
+        groupSettings: {
+          groupBy: "none",
+          sort: "manual",
+          hideEmpty: true,
+          manualOrder: [],
+          hiddenGroupKeys: [],
+        },
+      },
+    }));
+
+    await act(async () => {
+      await expect(result.current.createWorkspaceItem({
+        title: "Wrong type",
+        itemType: "event",
+      })).rejects.toMatchObject({
+        status: 400,
+        code: "validation_error",
+        detail: "Event is not allowed for weekly.week-goals.",
+      });
+    });
+
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    expect(result.current.creationDialogOpen).toBe(true);
+    expect(result.current.plannerCreationContext?.tableId).toBe("weekly.week-goals");
   });
 
   it("warns and discards all suggestions when contextual filters conflict", () => {

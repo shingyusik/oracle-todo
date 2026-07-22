@@ -35,7 +35,6 @@ import {
 import {
   addMonths,
   addYears,
-  defaultPlannerTableSettings,
   isoWeekStart,
   monthStart,
   normalizePlannerTableSettings,
@@ -230,17 +229,7 @@ function buildPlannerTableSettingsMap(
         return [tableId, normalizePlannerTableSettings(tableId, candidate, legacy)];
       }
 
-      const migrated = normalizePlannerTableSettings(tableId, undefined, legacy);
-      if (tableId !== "weekly.month-goals" && tableId !== "weekly.week-goals") {
-        return [tableId, migrated];
-      }
-
-      const defaults = defaultPlannerTableSettings(tableId);
-      return [tableId, {
-        ...migrated,
-        sortRules: defaults.sortRules,
-        groupSettings: defaults.groupSettings,
-      }];
+      return [tableId, normalizePlannerTableSettings(tableId, undefined, legacy)];
     }),
   ) as Record<PlannerTableId, PlannerTableSettings>;
 }
@@ -653,15 +642,30 @@ export function useWorkbenchController(): WorkbenchController {
       setPlannerCreationContext(null);
     },
     createWorkspaceItem: async (form) => {
-      const contextualForm = plannerCreationContext
-        ? {
-            itemType: plannerCreationContext.itemTypes[0],
-            scheduled: plannerCreationContext.scheduled,
-            horizon: plannerCreationContext.horizon,
-            ...plannerCreationAnalysis.prefills,
-            ...form,
-          }
-        : form;
+      let contextualForm = form;
+      if (plannerCreationContext) {
+        const requestedItemType = form.itemType ?? plannerCreationContext.itemTypes[0];
+        if (
+          !requestedItemType ||
+          !plannerCreationContext.itemTypes.some((itemType) => itemType === requestedItemType)
+        ) {
+          const label = requestedItemType
+            ? requestedItemType[0].toUpperCase() + requestedItemType.slice(1)
+            : "Item";
+          throw new TodoEngineApiError(
+            400,
+            "validation_error",
+            `${label} is not allowed for ${plannerCreationContext.tableId}.`,
+          );
+        }
+        contextualForm = {
+          scheduled: plannerCreationContext.scheduled,
+          horizon: plannerCreationContext.horizon,
+          ...plannerCreationAnalysis.prefills,
+          ...form,
+        };
+        contextualForm.itemType = requestedItemType;
+      }
       const item = await createItemRequest(
         selection.leafTabId,
         activePlanner,
