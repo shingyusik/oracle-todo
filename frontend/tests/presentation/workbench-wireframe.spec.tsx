@@ -2513,6 +2513,54 @@ describe("WorkbenchPageClient", () => {
     expect(within(yearlyGroupPanel).queryByText("annual-future")).toBeNull();
   });
 
+  it("keeps a Year Goals tag filter active when its option leaves the navigated period", async () => {
+    const user = userEvent.setup();
+    const currentYear = testYearStart(testToday());
+    const nextYear = testNextYearStart(currentYear);
+    const targetYear = testNextYearStart(nextYear);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=goal"
+              ? [
+                  { id: "goal-current", type: "goal", title: "Current annual goal", status: "active", horizon: "year", scheduled: currentYear, tags: ["focus"] },
+                  { id: "goal-target", type: "goal", title: "Other annual goal", status: "active", horizon: "year", scheduled: targetYear, tags: ["ops"] },
+                ]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await screen.findByText("Current annual goal");
+
+    await user.click(screen.getByRole("button", { name: "Filter Year Goals" }));
+    const filterDialog = screen.getByRole("dialog", { name: "Filter Year Goals" });
+    await user.click(within(filterDialog).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filterDialog).getByRole("option", { name: "Tags" }));
+    await user.click(within(filterDialog).getByRole("button", { name: "Select Tags filter values" }));
+    await user.click(within(filterDialog).getByRole("checkbox", { name: "focus" }));
+    await user.click(screen.getByRole("button", { name: "Filter Year Goals" }));
+
+    await user.click(screen.getByRole("button", { name: "Next year" }));
+    await user.click(screen.getByRole("button", { name: "Next year" }));
+
+    const selectedCard = screen
+      .getByRole("region", { name: "Year goal carousel" })
+      .querySelector<HTMLElement>('[data-position="selected"]');
+    expect(selectedCard).not.toBeNull();
+    expect(within(selectedCard as HTMLElement).queryAllByRole("button", { name: /annual goal/ })).toHaveLength(0);
+    expect(screen.queryByText("Other annual goal")).toBeNull();
+    expect(screen.getByText("1 rules")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Filter Year Goals" }));
+    expect(screen.getByRole("button", { name: "Select Tags filter values" })).toHaveTextContent("focus");
+  });
+
   it("renders monthly period carousel and ISO Monday week goal cards", async () => {
     const user = userEvent.setup();
     const today = testToday();
@@ -2597,6 +2645,57 @@ describe("WorkbenchPageClient", () => {
     expect(within(monthlyGroupPanel).getByText("week-current")).toBeInTheDocument();
     expect(within(monthlyGroupPanel).queryByText("month-current")).toBeNull();
     expect(within(monthlyGroupPanel).queryByText("month-future")).toBeNull();
+  });
+
+  it("keeps a Month Goals relation filter active when its option leaves the navigated period", async () => {
+    const user = userEvent.setup();
+    const currentMonth = testMonthStart(testToday());
+    const nextMonth = testNextMonthStart(currentMonth);
+    const targetMonth = testNextMonthStart(nextMonth);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=goal"
+              ? [
+                  { id: "parent-current", type: "goal", title: "Current parent", status: "active", horizon: "year", scheduled: testYearStart(currentMonth) },
+                  { id: "parent-target", type: "goal", title: "Target parent", status: "active", horizon: "year", scheduled: testYearStart(targetMonth) },
+                  { id: "goal-current-month", type: "goal", title: "Current month goal", status: "active", horizon: "month", scheduled: currentMonth, parent_id: "parent-current" },
+                  { id: "goal-target-month", type: "goal", title: "Other month goal", status: "active", horizon: "month", scheduled: targetMonth, parent_id: "parent-target" },
+                ]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    await screen.findByText("Current month goal");
+
+    await user.click(screen.getByRole("button", { name: "Filter Month Goals" }));
+    const filterDialog = screen.getByRole("dialog", { name: "Filter Month Goals" });
+    await user.click(within(filterDialog).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filterDialog).getByRole("option", { name: "Parent" }));
+    await user.click(within(filterDialog).getByRole("button", { name: "Select Parent filter values" }));
+    await user.click(within(filterDialog).getByRole("checkbox", { name: "Current parent" }));
+    await user.click(screen.getByRole("button", { name: "Filter Month Goals" }));
+
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+
+    const selectedCard = screen
+      .getByRole("region", { name: "Month goal carousel" })
+      .querySelector<HTMLElement>('[data-position="selected"]');
+    expect(selectedCard).not.toBeNull();
+    expect(within(selectedCard as HTMLElement).queryAllByRole("button", { name: /month goal/ })).toHaveLength(0);
+    expect(screen.queryByText("Other month goal")).toBeNull();
+    expect(screen.getByText("1 rules")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Filter Month Goals" }));
+    expect(screen.getByRole("button", { name: "Select Parent filter values" })).toHaveTextContent("Current parent");
   });
 
   it("opens monthly day overflow with sorted task and event items", async () => {

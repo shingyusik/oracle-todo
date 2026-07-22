@@ -1800,7 +1800,8 @@ function PlannerAdvancedFilterRuleRow({
   rule: PlannerFilterRule;
   prefix: string;
 }) {
-  const field = fields.find((option) => option.field === rule.field) ?? fields[0];
+  const baseField = fields.find((option) => option.field === rule.field) ?? fields[0];
+  const field = plannerFilterFieldWithStoredOptions(controller, baseField, rule);
 
   return (
     <div className="planner-advanced-filter-row">
@@ -1852,6 +1853,42 @@ function PlannerAdvancedFilterRuleRow({
       />
     </div>
   );
+}
+
+function plannerFilterFieldWithStoredOptions(
+  controller: WorkbenchController,
+  field: PlannerFilterFieldConfig,
+  rule: PlannerFilterRule,
+): PlannerFilterFieldConfig {
+  if (field.type !== "select" && field.type !== "multiSelect" && field.type !== "relation") {
+    return field;
+  }
+
+  const availableValues = new Set(field.options.map((option) => option.value));
+  const storedValues = (Array.isArray(rule.value) ? rule.value : [String(rule.value ?? "")])
+    .filter(Boolean);
+  const unavailableOptions = storedValues
+    .filter((value) => !availableValues.has(value))
+    .map((value) => ({
+      value,
+      label: plannerStoredFilterOptionLabel(controller, field.field, value),
+    }));
+
+  return unavailableOptions.length === 0
+    ? field
+    : { ...field, options: [...field.options, ...unavailableOptions] };
+}
+
+function plannerStoredFilterOptionLabel(
+  controller: WorkbenchController,
+  field: PlannerFilterField,
+  value: string,
+): string {
+  if (field === "area") return controller.workspaceItems.relatedItems.areas[value] ?? value;
+  if (field === "project") return controller.workspaceItems.relatedItems.projects[value] ?? value;
+  if (field === "routine") return controller.workspaceItems.relatedItems.routines[value] ?? value;
+  if (field === "parent") return controller.workspaceItems.relatedItems.goals[value] ?? value;
+  return value;
 }
 
 function PlannerFilterValueEditor({
@@ -2332,10 +2369,9 @@ function effectivePlannerTableFilterRules(
     if (!field) return [];
     if (rule.operator === "is_empty" || rule.operator === "is_not_empty") return [rule];
     if (field.type === "select" || field.type === "multiSelect" || field.type === "relation") {
-      const allowed = new Set(field.options.map((option) => option.value));
       const values = (Array.isArray(rule.value) ? rule.value : [String(rule.value ?? "")])
-        .filter((value) => allowed.has(value));
-      return values.length > 0 ? [{ ...rule, value: values }] : [];
+        .filter(Boolean);
+      return values.length > 0 ? [rule] : [];
     }
     return rule.value == null || rule.value === "" ? [] : [rule];
   });
@@ -2352,17 +2388,7 @@ function visiblePlannerTableFilterRules(
   return settings.filterRules.flatMap((rule) => {
     const field = fields.find((option) => option.field === rule.field);
     if (!field) return [];
-    if (field.type !== "select" && field.type !== "multiSelect" && field.type !== "relation") {
-      return [rule];
-    }
-
-    const allowed = new Set(field.options.map((option) => option.value));
-    const ruleValues = Array.isArray(rule.value) ? rule.value : [String(rule.value ?? "")];
-    const values = ruleValues.filter((value) => allowed.has(value));
-    if (values.length > 0 || ruleValues.length === 0 || ruleValues[0] === "") {
-      return [{ ...rule, value: values }];
-    }
-    return [];
+    return [rule];
   });
 }
 
