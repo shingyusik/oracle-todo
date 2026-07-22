@@ -26,7 +26,8 @@ The lists do not traverse multiple relationship levels. For example, an Area lis
 
 ## Data and Components
 
-- Derive linked items from the already loaded `workspaceItems.items` collection in the Workbench controller.
+- Preserve the existing all-item response in `workspaceItems.allItems` and derive linked items from that collection.
+- Keep `workspaceItems.items` limited to the active table or planner view.
 - Add a pure relation helper that filters direct children and groups them by item type.
 - Render a `Linked items` section in the existing detail view below the editable fields.
 - Each nonempty type group displays its localized type name and item count.
