@@ -1,9 +1,12 @@
 import {
+  defaultPlannerGroupSettings,
+  normalizePlannerGroupSettings,
   orderVisiblePlannerGroups,
   type PlannerGroupCandidate,
   type PlannerGroupSettings,
 } from "@/features/workbench/model/planner-group-settings";
 import type {
+  LegacyPlannerControls,
   WorkspaceItemModel,
   WorkspaceItemsModel,
 } from "@/features/workbench/model/workbench-model";
@@ -91,6 +94,324 @@ export type PlannerSortRule = {
   field: PlannerSortBy;
   direction: PlannerSortDirection;
 };
+
+const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterType> = {
+  title: "text",
+  scheduled: "date",
+  due: "date",
+  tags: "multiSelect",
+  area: "relation",
+  project: "relation",
+  routine: "relation",
+  status: "select",
+  priority: "select",
+  horizon: "select",
+  parent: "relation",
+  recurrence_rule: "text",
+  materialization_policy: "select",
+  location: "text",
+  participants: "multiSelect",
+  commitment_type: "text",
+  description: "text",
+  note: "text",
+};
+
+const plannerFilterOperators: Record<PlannerFilterType, readonly PlannerFilterOperator[]> = {
+  date: ["is", "is_not", "is_before", "is_after", "is_on_or_before", "is_on_or_after", "is_between", "is_relative_to_today", "is_empty", "is_not_empty"],
+  number: ["is", "is_not", "greater_than", "less_than", "is_empty", "is_not_empty"],
+  text: ["contains", "does_not_contain", "is", "is_not", "starts_with", "ends_with", "is_empty", "is_not_empty"],
+  select: ["is", "is_not", "contains", "does_not_contain", "is_empty", "is_not_empty"],
+  multiSelect: ["is", "is_not", "contains", "does_not_contain", "is_empty", "is_not_empty"],
+  relation: ["is", "is_not", "contains", "does_not_contain", "is_empty", "is_not_empty"],
+};
+
+export const plannerTableIds = [
+  "daily.today",
+  "daily.overdue",
+  "daily.unscheduled",
+  "weekly.month-goals",
+  "weekly.week-goals",
+  "weekly.day-grid",
+  "monthly.period-goals",
+  "monthly.calendar",
+  "monthly.week-goals",
+  "yearly.period-goals",
+  "yearly.month-goals",
+] as const;
+
+export type PlannerTableId = (typeof plannerTableIds)[number];
+
+export type PlannerTableSettings = {
+  filterMode: PlannerFilterMode;
+  filterRules: PlannerFilterRule[];
+  sortRules: PlannerSortRule[];
+  groupSettings: PlannerGroupSettings;
+};
+
+const plannerDateWorkFilterFields = [
+  "title",
+  "status",
+  "tags",
+  "area",
+  "project",
+  "routine",
+  "scheduled",
+  "due",
+  "priority",
+  "recurrence_rule",
+  "materialization_policy",
+  "location",
+  "participants",
+  "commitment_type",
+  "description",
+  "note",
+] as const satisfies readonly PlannerFilterField[];
+
+const plannerGoalFilterFields = [
+  "title",
+  "status",
+  "tags",
+  "horizon",
+  "scheduled",
+  "due",
+  "parent",
+  "note",
+] as const satisfies readonly PlannerFilterField[];
+
+const plannerDateWorkSortFields = [
+  ...plannerDateWorkFilterFields,
+  "updated",
+] as const satisfies readonly PlannerSortBy[];
+
+const plannerGoalSortFields = [
+  ...plannerGoalFilterFields,
+  "updated",
+] as const satisfies readonly PlannerSortBy[];
+
+const plannerGoalGroupByValues: readonly PlannerGroupBy[] = ["none", "tag", "status"];
+const maxRelativeDateAmount = 100_000;
+
+export function plannerFilterFieldsForTable(
+  tableId: PlannerTableId,
+): readonly PlannerFilterField[] {
+  return tableId.endsWith("goals")
+    ? plannerGoalFilterFields
+    : plannerDateWorkFilterFields;
+}
+
+export function plannerSortFieldsForTable(
+  tableId: PlannerTableId,
+): readonly PlannerSortBy[] {
+  return tableId.endsWith("goals")
+    ? plannerGoalSortFields
+    : plannerDateWorkSortFields;
+}
+
+export function defaultPlannerTableSettings(
+  tableId: PlannerTableId,
+): PlannerTableSettings {
+  return {
+    filterMode: "and",
+    filterRules: [],
+    sortRules: [defaultSortRule(tableId)],
+    groupSettings: defaultPlannerGroupSettings(),
+  };
+}
+
+export function normalizePlannerTableSettings(
+  tableId: PlannerTableId,
+  candidate: unknown,
+  legacy: LegacyPlannerControls,
+): PlannerTableSettings {
+  const defaults = defaultPlannerTableSettings(tableId);
+  const allowedFilterFields = plannerFilterFieldsForTable(tableId);
+  const allowedSortFields = plannerSortFieldsForTable(tableId);
+  if (candidate === undefined) {
+    const legacySettings = legacySettingsForTable(tableId, legacy);
+    const filterRules = sanitizeLegacyFilterRules(
+      legacy.filterRules,
+      allowedFilterFields,
+    );
+    const sortRules = sanitizeLegacySortRules(
+      legacySettings.sortRules,
+      allowedSortFields,
+    );
+    const groupSettings = normalizePlannerGroupSettings(legacySettings.groupSettings);
+    return {
+      filterMode: normalizeFilterMode(legacy.filterMode, defaults.filterMode),
+      filterRules,
+      sortRules,
+      groupSettings: tableId.endsWith("goals") &&
+          !plannerGoalGroupByValues.includes(groupSettings.groupBy)
+        ? { ...groupSettings, groupBy: "none" }
+        : groupSettings,
+    };
+  }
+
+  if (!isRecord(candidate)) return defaults;
+
+  const filterRules = candidate.filterRules === undefined
+    ? defaults.filterRules
+    : normalizeFilterRules(candidate.filterRules, allowedFilterFields);
+  const sortRules = candidate.sortRules === undefined
+    ? defaults.sortRules
+    : normalizePlannerSortRules(candidate.sortRules, allowedSortFields);
+  if (!filterRules || !sortRules) return defaults;
+
+  return {
+    filterMode: normalizeFilterMode(candidate.filterMode, defaults.filterMode),
+    filterRules,
+    sortRules,
+    groupSettings: normalizePlannerGroupSettings(candidate.groupSettings),
+  };
+}
+
+function defaultSortRule(tableId: PlannerTableId): PlannerSortRule {
+  return {
+    id: `${tableId}-default-sort`,
+    field: tableId.startsWith("daily.") ? "priority" : "scheduled",
+    direction: "asc",
+  };
+}
+
+function legacySettingsForTable(
+  tableId: PlannerTableId,
+  legacy: LegacyPlannerControls,
+): Pick<PlannerTableSettings, "sortRules" | "groupSettings"> {
+  const view = tableId.split(".")[0] as keyof LegacyPlannerControls["groupSettings"];
+  const sortRules = view === "daily"
+    ? legacy.dailySortRules
+    : view === "weekly"
+      ? legacy.weeklySortRules
+      : view === "monthly"
+        ? legacy.monthlySortRules
+        : legacy.yearlySortRules;
+  return { sortRules, groupSettings: legacy.groupSettings[view] };
+}
+
+function normalizeFilterMode(value: unknown, fallback: PlannerFilterMode): PlannerFilterMode {
+  return value === "and" || value === "or" ? value : fallback;
+}
+
+function normalizeFilterRules(
+  value: unknown,
+  allowedFields: readonly PlannerFilterField[],
+): PlannerFilterRule[] | null {
+  if (!Array.isArray(value)) return null;
+  const rules: PlannerFilterRule[] = [];
+  for (const rule of value) {
+    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return null;
+    if (
+      !isPlannerFilterField(rule.field) ||
+      !allowedFields.includes(rule.field) ||
+      !isPlannerFilterType(rule.type)
+    ) return null;
+    const { field, type } = rule;
+    if (plannerFilterFieldTypes[field] !== type) {
+      return null;
+    }
+    if (!isPlannerFilterOperator(type, rule.operator) || !isPlannerFilterValue(type, rule.operator, rule.value)) {
+      return null;
+    }
+    rules.push({
+      id: rule.id,
+      field,
+      type,
+      operator: rule.operator,
+      value: clonePlannerFilterValue(rule.value),
+    });
+  }
+  return rules;
+}
+
+function normalizePlannerSortRules(
+  value: unknown,
+  allowedFields: readonly PlannerSortBy[],
+): PlannerSortRule[] | null {
+  if (!Array.isArray(value)) return null;
+  const rules: PlannerSortRule[] = [];
+  for (const rule of value) {
+    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return null;
+    if (
+      !isPlannerSortField(rule.field) ||
+      !allowedFields.includes(rule.field) ||
+      !isPlannerSortDirection(rule.direction)
+    ) return null;
+    rules.push({ id: rule.id, field: rule.field, direction: rule.direction });
+  }
+  return rules;
+}
+
+function sanitizeLegacyFilterRules(
+  value: unknown,
+  allowedFields: readonly PlannerFilterField[],
+): PlannerFilterRule[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((rule) => normalizeFilterRules([rule], allowedFields) ?? []);
+}
+
+function sanitizeLegacySortRules(
+  value: unknown,
+  allowedFields: readonly PlannerSortBy[],
+): PlannerSortRule[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((rule) => normalizePlannerSortRules([rule], allowedFields) ?? []);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPlannerFilterField(value: unknown): value is PlannerFilterField {
+  return typeof value === "string" && hasOwn(plannerFilterFieldTypes, value);
+}
+
+function isPlannerFilterType(value: unknown): value is PlannerFilterType {
+  return typeof value === "string" && hasOwn(plannerFilterOperators, value);
+}
+
+function isPlannerSortField(value: unknown): value is PlannerSortBy {
+  return value === "updated" || isPlannerFilterField(value);
+}
+
+function isPlannerSortDirection(value: unknown): value is PlannerSortDirection {
+  return value === "asc" || value === "desc";
+}
+
+function isPlannerFilterOperator(
+  type: PlannerFilterType,
+  value: unknown,
+): value is PlannerFilterOperator {
+  return typeof value === "string" && plannerFilterOperators[type].includes(value as PlannerFilterOperator);
+}
+
+function isPlannerFilterValue(
+  type: PlannerFilterType,
+  operator: PlannerFilterOperator,
+  value: unknown,
+): value is PlannerFilterValue {
+  if (operator === "is_empty" || operator === "is_not_empty") return value === null;
+  if (type === "date" && operator === "is_between") {
+    return isRangeValue(value);
+  }
+  if (type === "date" && operator === "is_relative_to_today") {
+    return isRelativeValue(value);
+  }
+  if (type === "date") {
+    return isIsoDate(value);
+  }
+  if (type === "select" || type === "multiSelect" || type === "relation") {
+    return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+  }
+  return typeof value === "string";
+}
+
+function clonePlannerFilterValue(value: PlannerFilterValue): PlannerFilterValue {
+  if (Array.isArray(value)) return [...value];
+  if (isRangeValue(value)) return { start: value.start, end: value.end };
+  if (isRelativeValue(value)) return { amount: value.amount, unit: value.unit };
+  return value;
+}
 
 export type DailyGroupBy = PlannerGroupBy;
 
@@ -290,34 +611,19 @@ export function buildDailyPlannerModel(
   relatedItems: WorkspaceItemsModel["relatedItems"],
   options: DailyPlannerOptions,
 ): DailyPlannerModel {
-  const visible = items
-    .filter((item) => plannerWorkItemTypes.has(item.type))
-    .filter(isVisiblePlannerWorkItem)
-    .filter((item) => matchesDailyFilters(item, options.filters))
-    .sort((left, right) => comparePlannerItems(left, right, options.sortRules));
-
-  const today: WorkspaceItemModel[] = [];
-  const overdue: WorkspaceItemModel[] = [];
-  const unscheduled: WorkspaceItemModel[] = [];
+  const rawSections = buildDailyPlannerSections(items, options.date);
   const dateLabel = dailySectionDateLabel(options.date);
-
-  for (const item of visible) {
-    const date = datePart(item.scheduled);
-    if (!date) {
-      unscheduled.push(item);
-    } else if (date < options.date) {
-      overdue.push(item);
-    } else if (date === options.date) {
-      today.push(item);
-    }
-  }
+  const displayItems = (sectionItems: WorkspaceItemModel[]) =>
+    sectionItems
+      .filter((item) => matchesDailyFilters(item, options.filters))
+      .sort((left, right) => comparePlannerItems(left, right, options.sortRules));
 
   return {
     sections: {
       today: section(
         "today",
         dateLabel,
-        today,
+        displayItems(rawSections.today),
         relatedItems,
         options.groupSettings,
         options.groupCandidates,
@@ -325,7 +631,7 @@ export function buildDailyPlannerModel(
       overdue: section(
         "overdue",
         `Before ${dateLabel}`,
-        overdue,
+        displayItems(rawSections.overdue),
         relatedItems,
         options.groupSettings,
         options.groupCandidates,
@@ -333,13 +639,40 @@ export function buildDailyPlannerModel(
       unscheduled: section(
         "unscheduled",
         "Unscheduled",
-        unscheduled,
+        displayItems(rawSections.unscheduled),
         relatedItems,
         options.groupSettings,
         options.groupCandidates,
       ),
     },
   };
+}
+
+export function buildDailyPlannerSections(
+  items: WorkspaceItemModel[],
+  selectedDate: string,
+): Record<DailyPlannerSection["id"], WorkspaceItemModel[]> {
+  const sections: Record<DailyPlannerSection["id"], WorkspaceItemModel[]> = {
+    today: [],
+    overdue: [],
+    unscheduled: [],
+  };
+
+  for (const item of items) {
+    if (!plannerWorkItemTypes.has(item.type) || !isVisiblePlannerWorkItem(item)) {
+      continue;
+    }
+    const date = datePart(item.scheduled);
+    if (!date) {
+      sections.unscheduled.push(item);
+    } else if (date < selectedDate) {
+      sections.overdue.push(item);
+    } else if (date === selectedDate) {
+      sections.today.push(item);
+    }
+  }
+
+  return sections;
 }
 
 export function buildWeeklyPlannerModel(
@@ -548,15 +881,44 @@ function filterValueStrings(value: PlannerFilterValue): string[] {
 }
 
 function isRangeValue(
-  value: PlannerFilterValue,
+  value: unknown,
 ): value is { start: string; end: string } {
-  return typeof value === "object" && value != null && "start" in value && "end" in value;
+  return isRecord(value) && isIsoDate(value.start) && isIsoDate(value.end) && value.start <= value.end;
 }
 
 function isRelativeValue(
-  value: PlannerFilterValue,
+  value: unknown,
 ): value is { amount: string; unit: "day" | "week" | "month" } {
-  return typeof value === "object" && value != null && "amount" in value && "unit" in value;
+  return isRecord(value) && typeof value.amount === "string" && isNonNegativeInteger(value.amount) &&
+    Number(value.amount) <= maxRelativeDateAmount &&
+    (value.unit === "day" || value.unit === "week" || value.unit === "month");
+}
+
+function hasOwn(object: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function isIsoDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  return day <= daysInMonth(year, month);
+}
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  }
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
+}
+
+function isNonNegativeInteger(value: string): boolean {
+  return /^\d+$/.test(value) && Number.isSafeInteger(Number(value));
 }
 
 function addRelativeDate(

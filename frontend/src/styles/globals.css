@@ -593,6 +593,18 @@ button {
   padding-bottom: 4px;
 }
 
+.monthly-calendar-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.monthly-calendar-table-headers {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 230px);
+  gap: 12px;
+  min-width: 0;
+}
+
 .monthly-week-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(190px, 230px);
@@ -639,6 +651,15 @@ button {
   color: var(--color-shade-60);
   font-size: 12px;
   font-weight: 700;
+}
+
+.monthly-day-group-heading {
+  margin: 4px 0 3px;
+  color: var(--color-shade-60);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .monthly-day-empty {
@@ -1012,6 +1033,31 @@ button {
   min-width: 0;
 }
 
+.planner-panel .planner-table-header {
+  position: relative;
+  min-width: 0;
+}
+
+.planner-panel .planner-table-header-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-hairline-light);
+  padding-bottom: 4px;
+}
+
+.planner-panel .planner-table-header-row > h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-bottom: 0;
+}
+
+.planner-panel .planner-table-header-row > .planner-view-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .daily-planner {
   display: grid;
   gap: 18px;
@@ -1028,6 +1074,26 @@ button {
 @media (max-width: 760px) {
   .daily-planner-scheduled-grid {
     grid-template-columns: 1fr;
+  }
+
+  .monthly-calendar-table-headers {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .planner-panel .planner-table-header-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .planner-panel .planner-table-header-row > h2,
+  .planner-panel .planner-table-header-row > .planner-view-actions {
+    width: 100%;
+  }
+
+  .planner-panel .planner-table-header-row > .planner-view-actions {
+    margin-left: 0;
   }
 }
 
@@ -1381,6 +1447,8 @@ button {
 
 .confirmation-dialog {
   width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-md);
   background: var(--color-canvas-light);

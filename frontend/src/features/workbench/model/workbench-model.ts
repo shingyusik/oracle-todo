@@ -5,15 +5,14 @@ import type {
   WorkbenchTabId,
 } from "@/domain/workbench/navigation";
 import type {
-  DailyFilterState,
   PlannerFilterMode,
   PlannerFilterRule,
-  PlannerGroupBy,
   PlannerSortRule,
+  PlannerTableId,
+  PlannerTableSettings,
 } from "@/features/workbench/model/planner-model";
 import type {
   PlannerGroupSettings,
-  PlannerGroupSort,
   PlannerViewId,
 } from "@/features/workbench/model/planner-group-settings";
 
@@ -68,14 +67,7 @@ export type WorkspaceItemsModel = {
   };
 };
 
-export type PlannerControls = {
-  date: string;
-  weekStart: string;
-  yearlyDate: string;
-  monthlyDate: string;
-  weeklyDate: string;
-  dailyDate: string;
-  dailyFilters: DailyFilterState;
+export type LegacyPlannerControls = {
   filterMode: PlannerFilterMode;
   filterRules: PlannerFilterRule[];
   groupSettings: Record<PlannerViewId, PlannerGroupSettings>;
@@ -85,6 +77,16 @@ export type PlannerControls = {
   weeklySortRules: PlannerSortRule[];
 };
 
+export type PlannerControls = {
+  date: string;
+  weekStart: string;
+  yearlyDate: string;
+  monthlyDate: string;
+  weeklyDate: string;
+  dailyDate: string;
+  tableSettings: Record<PlannerTableId, PlannerTableSettings>;
+};
+
 export type CreateWorkspaceItemForm = {
   title: string;
   itemType?: "task" | "goal" | "routine" | "event";
@@ -92,7 +94,121 @@ export type CreateWorkspaceItemForm = {
   recurrence_rule?: string;
   scheduled?: string;
   horizon?: string;
+  area_id?: string;
+  project_id?: string;
+  priority?: number;
   tags?: string[];
+};
+
+export type PlannerCreationItemType = "task" | "goal" | "event";
+
+export type PlannerCreationAnchor =
+  | "daily-date"
+  | "previous-daily-date"
+  | "unscheduled"
+  | "weekly-month"
+  | "weekly-week"
+  | "weekly-day-grid"
+  | "monthly-period"
+  | "monthly-calendar"
+  | "monthly-first-week"
+  | "yearly-period"
+  | "yearly-first-month";
+
+export type PlannerCreationPolicy = {
+  itemTypes: readonly PlannerCreationItemType[];
+  horizon?: "year" | "month" | "week";
+  editableDate: boolean;
+  anchor: PlannerCreationAnchor;
+};
+
+const plannerCreationPolicies: Record<PlannerTableId, PlannerCreationPolicy> = {
+  "daily.today": {
+    itemTypes: ["task", "event"],
+    editableDate: false,
+    anchor: "daily-date",
+  },
+  "daily.overdue": {
+    itemTypes: ["task", "event"],
+    editableDate: false,
+    anchor: "previous-daily-date",
+  },
+  "daily.unscheduled": {
+    itemTypes: ["task"],
+    editableDate: false,
+    anchor: "unscheduled",
+  },
+  "weekly.month-goals": {
+    itemTypes: ["goal"],
+    horizon: "month",
+    editableDate: false,
+    anchor: "weekly-month",
+  },
+  "weekly.week-goals": {
+    itemTypes: ["goal"],
+    horizon: "week",
+    editableDate: false,
+    anchor: "weekly-week",
+  },
+  "weekly.day-grid": {
+    itemTypes: ["task", "event"],
+    editableDate: true,
+    anchor: "weekly-day-grid",
+  },
+  "monthly.period-goals": {
+    itemTypes: ["goal"],
+    horizon: "month",
+    editableDate: false,
+    anchor: "monthly-period",
+  },
+  "monthly.calendar": {
+    itemTypes: ["task", "event"],
+    editableDate: true,
+    anchor: "monthly-calendar",
+  },
+  "monthly.week-goals": {
+    itemTypes: ["goal"],
+    horizon: "week",
+    editableDate: true,
+    anchor: "monthly-first-week",
+  },
+  "yearly.period-goals": {
+    itemTypes: ["goal"],
+    horizon: "year",
+    editableDate: false,
+    anchor: "yearly-period",
+  },
+  "yearly.month-goals": {
+    itemTypes: ["goal"],
+    horizon: "month",
+    editableDate: true,
+    anchor: "yearly-first-month",
+  },
+};
+
+export function plannerCreationPolicyForTable(
+  tableId: PlannerTableId,
+): PlannerCreationPolicy {
+  return plannerCreationPolicies[tableId];
+}
+
+export type PlannerCreationContext = {
+  tableId: PlannerTableId;
+  itemTypes: PlannerCreationItemType[];
+  scheduled: string;
+  horizon?: string;
+  editableDate: boolean;
+  tableSettings: PlannerTableSettings;
+};
+
+export type PlannerCreationPrefills = Pick<
+  CreateWorkspaceItemForm,
+  "area_id" | "project_id" | "priority" | "tags"
+>;
+
+export type PlannerCreationAnalysis = {
+  prefills: PlannerCreationPrefills;
+  visibilityWarning: boolean;
 };
 
 export type WorkspaceItemPatch = {
@@ -147,6 +263,8 @@ export type WorkbenchController = {
   selectedItemIds: string[];
   archiveConfirmationOpen: boolean;
   creationDialogOpen: boolean;
+  plannerCreationContext: PlannerCreationContext | null;
+  plannerCreationAnalysis: PlannerCreationAnalysis;
   detailItem: WorkspaceItemModel | null;
   selectTab: (tabId: WorkbenchTabId) => void;
   toggleWorkspaceExpansion: () => void;
@@ -159,24 +277,16 @@ export type WorkbenchController = {
   cancelArchiveSelected: () => void;
   confirmArchiveSelected: () => Promise<void>;
   openCreationDialog: () => void;
+  openPlannerCreationDialog: (context: PlannerCreationContext) => void;
   closeCreationDialog: () => void;
   createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
   openDetailView: (item: WorkspaceItemModel) => void;
   patchWorkspaceItem: (itemId: string, patch: WorkspaceItemPatch) => Promise<void>;
-  setDailyFilter: (field: keyof DailyFilterState, values: string[]) => void;
-  setPlannerFilterMode: (mode: PlannerFilterMode) => void;
-  setPlannerFilterRules: (rules: PlannerFilterRule[]) => void;
-  clearPlannerFilterRules: () => void;
-  setDailyGroupBy: (groupBy: PlannerGroupBy) => void;
-  setDailySortRules: (rules: PlannerSortRule[]) => void;
-  setPlannerGroupBy: (groupBy: PlannerGroupBy) => void;
-  setPlannerGroupSort: (sort: PlannerGroupSort) => void;
-  setPlannerHideEmptyGroups: (hideEmpty: boolean) => void;
-  togglePlannerGroupVisibility: (key: string) => void;
-  setAllPlannerGroupsVisible: (keys: string[], visible: boolean) => void;
-  setPlannerManualGroupOrder: (keys: string[]) => void;
-  removePlannerGrouping: () => void;
-  setPlannerSortRules: (rules: PlannerSortRule[]) => void;
+  plannerTableSettings: (tableId: PlannerTableId) => PlannerTableSettings;
+  updatePlannerTableSettings: (
+    tableId: PlannerTableId,
+    updater: (settings: PlannerTableSettings) => PlannerTableSettings,
+  ) => void;
   transitionWorkspaceItem: (
     itemId: string,
     action: WorkspaceItemTransitionAction,

@@ -13,7 +13,11 @@ import {
 } from "@/domain/workbench/navigation";
 import {
   type CreateWorkspaceItemForm,
+  type LegacyPlannerControls,
   type MaterializeRoutineTarget,
+  type PlannerCreationAnalysis,
+  type PlannerCreationAnchor,
+  type PlannerCreationContext,
   type PlannerControls,
   type WorkbenchController,
   type WorkspaceItemModel,
@@ -22,6 +26,7 @@ import {
   type WorkspaceItemTransitionState,
   type WorkspaceItemsModel,
   createPanelModel,
+  plannerCreationPolicyForTable,
 } from "@/features/workbench/model/workbench-model";
 import {
   defaultPlannerGroupSettings,
@@ -34,6 +39,10 @@ import {
   addYears,
   isoWeekStart,
   monthStart,
+  normalizePlannerTableSettings,
+  plannerTableIds,
+  type PlannerTableId,
+  type PlannerTableSettings,
   yearStart,
 } from "@/features/workbench/model/planner-model";
 
@@ -94,17 +103,7 @@ function defaultPlannerGroupSettingsByView(): Record<
   ) as Record<PlannerViewId, PlannerGroupSettings>;
 }
 
-type StoredPlannerSettings = Pick<
-  PlannerControls,
-  | "dailyFilters"
-  | "filterMode"
-  | "filterRules"
-  | "groupSettings"
-  | "dailySortRules"
-  | "yearlySortRules"
-  | "monthlySortRules"
-  | "weeklySortRules"
->;
+type StoredPlannerSettings = Pick<PlannerControls, "tableSettings">;
 
 let plannerSettingsWrite = Promise.resolve();
 
@@ -114,17 +113,16 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
     if (!response.ok) return null;
     const value = await response.json();
     if (!value || typeof value !== "object") return null;
-    const defaults = createDefaultPlanner();
-    const candidate = value as Partial<PlannerControls>;
+    const candidate = value as Record<string, unknown>;
+    const legacy = normalizeLegacyPlannerControls(candidate);
+    const storedTableSettings = Object.prototype.hasOwnProperty.call(
+      candidate,
+      "tableSettings",
+    )
+      ? candidate.tableSettings
+      : undefined;
     return {
-      dailyFilters: normalizeDailyFilters(candidate.dailyFilters, defaults.dailyFilters),
-      filterMode: candidate.filterMode === "or" ? "or" : "and",
-      filterRules: normalizeRules(candidate.filterRules),
-      groupSettings: Object.fromEntries(plannerViewIds.map((view) => [view, normalizePlannerGroupSettings((candidate.groupSettings as Partial<Record<PlannerViewId, unknown>> | undefined)?.[view])])) as Record<PlannerViewId, PlannerGroupSettings>,
-      dailySortRules: normalizeSortRules(candidate.dailySortRules, defaults.dailySortRules),
-      yearlySortRules: normalizeSortRules(candidate.yearlySortRules, defaults.yearlySortRules),
-      monthlySortRules: normalizeSortRules(candidate.monthlySortRules, defaults.monthlySortRules),
-      weeklySortRules: normalizeSortRules(candidate.weeklySortRules, defaults.weeklySortRules),
+      tableSettings: buildPlannerTableSettingsMap(storedTableSettings, legacy),
     };
   } catch {
     return null;
@@ -132,26 +130,9 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
 }
 
 function persistPlannerSettings(planner: PlannerControls): void {
-  const {
-    dailyFilters,
-    filterMode,
-    filterRules,
-    groupSettings,
-    dailySortRules,
-    yearlySortRules,
-    monthlySortRules,
-    weeklySortRules,
-  } = planner;
   const body = JSON.stringify({
     value: {
-      dailyFilters,
-      filterMode,
-      filterRules,
-      groupSettings,
-      dailySortRules,
-      yearlySortRules,
-      monthlySortRules,
-      weeklySortRules,
+      tableSettings: planner.tableSettings,
     },
   });
   plannerSettingsWrite = plannerSettingsWrite
@@ -165,26 +146,9 @@ function persistPlannerSettings(planner: PlannerControls): void {
     .catch(() => undefined);
 }
 
-function normalizeDailyFilters(value: unknown, defaults: PlannerControls["dailyFilters"]): PlannerControls["dailyFilters"] {
-  if (!value || typeof value !== "object") return defaults;
-  const candidate = value as Partial<PlannerControls["dailyFilters"]>;
-  const strings = (entry: unknown) =>
-    Array.isArray(entry)
-      ? entry.filter((item): item is string => typeof item === "string")
-      : [];
-  return {
-    tags: strings(candidate.tags),
-    areaIds: strings(candidate.areaIds),
-    projectIds: strings(candidate.projectIds),
-    routineIds: strings(candidate.routineIds),
-    itemTypes: strings(candidate.itemTypes),
-    statuses: strings(candidate.statuses),
-  };
-}
-
-function normalizeRules(value: unknown): PlannerControls["filterRules"] {
+function normalizeRules(value: unknown): LegacyPlannerControls["filterRules"] {
   if (!Array.isArray(value)) return [];
-  return value.filter((rule): rule is PlannerControls["filterRules"][number] =>
+  return value.filter((rule): rule is LegacyPlannerControls["filterRules"][number] =>
     !!rule && typeof rule === "object" &&
     typeof (rule as { id?: unknown }).id === "string" &&
     typeof (rule as { field?: unknown }).field === "string" &&
@@ -193,9 +157,12 @@ function normalizeRules(value: unknown): PlannerControls["filterRules"] {
   );
 }
 
-function normalizeSortRules(value: unknown, defaults: PlannerControls["dailySortRules"]): PlannerControls["dailySortRules"] {
+function normalizeSortRules(
+  value: unknown,
+  defaults: LegacyPlannerControls["dailySortRules"],
+): LegacyPlannerControls["dailySortRules"] {
   if (!Array.isArray(value)) return defaults;
-  return value.filter((rule): rule is PlannerControls["dailySortRules"][number] =>
+  return value.filter((rule): rule is LegacyPlannerControls["dailySortRules"][number] =>
     !!rule && typeof rule === "object" &&
     typeof (rule as { id?: unknown }).id === "string" &&
     typeof (rule as { field?: unknown }).field === "string" &&
@@ -203,13 +170,74 @@ function normalizeSortRules(value: unknown, defaults: PlannerControls["dailySort
   );
 }
 
-function plannerViewId(panelId: LeafTabId): PlannerViewId | null {
-  return panelId === "yearly" ||
-    panelId === "monthly" ||
-    panelId === "weekly" ||
-    panelId === "daily"
-    ? panelId
-    : null;
+function normalizeLegacyPlannerControls(
+  candidate: Record<string, unknown>,
+): LegacyPlannerControls {
+  const defaults = createDefaultLegacyPlannerControls();
+  const candidateGroups = isRecord(candidate.groupSettings)
+    ? candidate.groupSettings
+    : {};
+  return {
+    filterMode: candidate.filterMode === "or" ? "or" : "and",
+    filterRules: normalizeRules(candidate.filterRules),
+    groupSettings: Object.fromEntries(
+      plannerViewIds.map((view) => [
+        view,
+        normalizePlannerGroupSettings(candidateGroups[view]),
+      ]),
+    ) as Record<PlannerViewId, PlannerGroupSettings>,
+    dailySortRules: normalizeSortRules(
+      candidate.dailySortRules,
+      defaults.dailySortRules,
+    ),
+    yearlySortRules: normalizeSortRules(
+      candidate.yearlySortRules,
+      defaults.yearlySortRules,
+    ),
+    monthlySortRules: normalizeSortRules(
+      candidate.monthlySortRules,
+      defaults.monthlySortRules,
+    ),
+    weeklySortRules: normalizeSortRules(
+      candidate.weeklySortRules,
+      defaults.weeklySortRules,
+    ),
+  };
+}
+
+function createDefaultLegacyPlannerControls(): LegacyPlannerControls {
+  return {
+    filterMode: "and",
+    filterRules: [],
+    groupSettings: defaultPlannerGroupSettingsByView(),
+    dailySortRules: [{ id: "daily-default-sort", field: "priority", direction: "asc" }],
+    yearlySortRules: [{ id: "yearly-default-sort", field: "scheduled", direction: "asc" }],
+    monthlySortRules: [{ id: "monthly-default-sort", field: "scheduled", direction: "asc" }],
+    weeklySortRules: [{ id: "weekly-default-sort", field: "scheduled", direction: "asc" }],
+  };
+}
+
+function buildPlannerTableSettingsMap(
+  stored: unknown | undefined,
+  legacy: LegacyPlannerControls,
+): Record<PlannerTableId, PlannerTableSettings> {
+  const storedMap = isRecord(stored) ? stored : {};
+  return Object.fromEntries(
+    plannerTableIds.map((tableId) => {
+      if (stored !== undefined) {
+        const candidate = Object.prototype.hasOwnProperty.call(storedMap, tableId)
+          ? storedMap[tableId]
+          : null;
+        return [tableId, normalizePlannerTableSettings(tableId, candidate, legacy)];
+      }
+
+      return [tableId, normalizePlannerTableSettings(tableId, undefined, legacy)];
+    }),
+  ) as Record<PlannerTableId, PlannerTableSettings>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 const emptyWorkspaceItems: WorkspaceItemsModel = {
@@ -245,6 +273,7 @@ function createDefaultPlanner(): PlannerControls {
   const yearlyDate = yearStart(date);
   const monthlyDate = monthStart(date);
   const weeklyDate = weekStartForDate(date);
+  const legacy = createDefaultLegacyPlannerControls();
   return {
     date,
     weekStart: weeklyDate,
@@ -252,21 +281,7 @@ function createDefaultPlanner(): PlannerControls {
     monthlyDate,
     weeklyDate,
     dailyDate: date,
-    dailyFilters: {
-      tags: [],
-      areaIds: [],
-      projectIds: [],
-      routineIds: [],
-      itemTypes: [],
-      statuses: [],
-    },
-    filterMode: "and",
-    filterRules: [],
-    groupSettings: defaultPlannerGroupSettingsByView(),
-    dailySortRules: [{ id: "daily-default-sort", field: "priority", direction: "asc" }],
-    yearlySortRules: [{ id: "yearly-default-sort", field: "scheduled", direction: "asc" }],
-    monthlySortRules: [{ id: "monthly-default-sort", field: "scheduled", direction: "asc" }],
-    weeklySortRules: [{ id: "weekly-default-sort", field: "scheduled", direction: "asc" }],
+    tableSettings: buildPlannerTableSettingsMap({}, legacy),
   };
 }
 
@@ -362,6 +377,120 @@ function replaceWorkspaceItem(
   return items.map((item) => (item.id === updated.id ? updated : item));
 }
 
+const emptyPlannerCreationAnalysis: PlannerCreationAnalysis = {
+  prefills: {},
+  visibilityWarning: false,
+};
+
+function plannerCreationScheduledAnchor(
+  anchor: PlannerCreationAnchor,
+  planner: PlannerControls,
+): string {
+  switch (anchor) {
+    case "daily-date":
+      return planner.dailyDate;
+    case "previous-daily-date":
+      return addDays(planner.dailyDate, -1);
+    case "unscheduled":
+      return "";
+    case "weekly-month":
+      return monthStart(planner.weeklyDate);
+    case "weekly-week":
+    case "weekly-day-grid":
+      return weekStartForDate(planner.weeklyDate);
+    case "monthly-period":
+    case "monthly-calendar":
+      return monthStart(planner.monthlyDate);
+    case "monthly-first-week":
+      return weekStartForDate(monthStart(planner.monthlyDate));
+    case "yearly-period":
+    case "yearly-first-month":
+      return yearStart(planner.yearlyDate);
+  }
+}
+
+function canonicalPlannerCreationContext(
+  context: PlannerCreationContext,
+  planner: PlannerControls,
+): PlannerCreationContext {
+  const policy = plannerCreationPolicyForTable(context.tableId);
+  return {
+    ...context,
+    itemTypes: [...policy.itemTypes],
+    scheduled: plannerCreationScheduledAnchor(policy.anchor, planner),
+    horizon: policy.horizon,
+    editableDate: policy.editableDate,
+  };
+}
+
+function analyzePlannerCreationContext(
+  context: PlannerCreationContext | null,
+): PlannerCreationAnalysis {
+  if (!context || context.tableSettings.filterRules.length === 0) {
+    return emptyPlannerCreationAnalysis;
+  }
+  if (context.tableSettings.filterMode !== "and") {
+    return { prefills: {}, visibilityWarning: true };
+  }
+
+  const prefills: PlannerCreationAnalysis["prefills"] = {};
+  const tags: string[] = [];
+  for (const rule of context.tableSettings.filterRules) {
+    const values = Array.isArray(rule.value) ? rule.value : [];
+    if (values.length !== 1 || values[0]?.trim() === "") {
+      return { prefills: {}, visibilityWarning: true };
+    }
+    const value = values[0];
+
+    if (rule.field === "area" && rule.type === "relation" && rule.operator === "is") {
+      if (prefills.area_id && prefills.area_id !== value) {
+        return { prefills: {}, visibilityWarning: true };
+      }
+      prefills.area_id = value;
+      continue;
+    }
+    if (
+      rule.field === "project" &&
+      rule.type === "relation" &&
+      rule.operator === "is"
+    ) {
+      if (prefills.project_id && prefills.project_id !== value) {
+        return { prefills: {}, visibilityWarning: true };
+      }
+      prefills.project_id = value;
+      continue;
+    }
+    if (
+      rule.field === "priority" &&
+      rule.type === "select" &&
+      rule.operator === "is"
+    ) {
+      const priority = Number(value);
+      if (
+        !Number.isInteger(priority) ||
+        (prefills.priority !== undefined && prefills.priority !== priority)
+      ) {
+        return { prefills: {}, visibilityWarning: true };
+      }
+      prefills.priority = priority;
+      continue;
+    }
+    if (
+      rule.field === "tags" &&
+      rule.type === "multiSelect" &&
+      (rule.operator === "is" || rule.operator === "contains")
+    ) {
+      if (!tags.includes(value)) tags.push(value);
+      continue;
+    }
+
+    return { prefills: {}, visibilityWarning: true };
+  }
+
+  if (tags.length > 0) prefills.tags = tags;
+  return { prefills, visibilityWarning: false };
+}
+
 export function useWorkbenchController(): WorkbenchController {
   const [selection, setSelection] = useState<WorkbenchSelection>(() =>
     resolveInitialSelection(),
@@ -374,6 +503,8 @@ export function useWorkbenchController(): WorkbenchController {
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
+  const [plannerCreationContext, setPlannerCreationContext] =
+    useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
   const plannerSettingsChanged = useRef(false);
@@ -387,6 +518,10 @@ export function useWorkbenchController(): WorkbenchController {
   const activePlanner = useMemo(
     () => withActivePlannerPeriod(planner, selection.leafTabId),
     [planner, selection.leafTabId],
+  );
+  const plannerCreationAnalysis = useMemo(
+    () => analyzePlannerCreationContext(plannerCreationContext),
+    [plannerCreationContext],
   );
 
   useEffect(() => {
@@ -410,24 +545,9 @@ export function useWorkbenchController(): WorkbenchController {
     setSelectedItemIds([]);
     setArchiveConfirmationOpen(false);
     setCreationDialogOpen(false);
+    setPlannerCreationContext(null);
     setDetailItem(null);
   }, [selection.leafTabId]);
-
-  const updateActiveGroupSettings = (
-    updater: (settings: PlannerGroupSettings) => PlannerGroupSettings,
-  ) => {
-    setPlanner((current) => {
-      const view = plannerViewId(selection.leafTabId);
-      if (!view) return current;
-      const nextSettings = updater(current.groupSettings[view]);
-      const next = {
-        ...current,
-        groupSettings: { ...current.groupSettings, [view]: nextSettings },
-      };
-      persistChangedPlannerSettings(next);
-      return next;
-    });
-  };
 
   useEffect(() => {
     const itemType = workspaceItemTypes[selection.leafTabId];
@@ -449,7 +569,12 @@ export function useWorkbenchController(): WorkbenchController {
         if (!cancelled) {
           const allItems = responses[responses.length - 1] ?? [];
           const typedResponses = responses.slice(0, -1);
-          const plannerItems = plannerTypes ? typedResponses.flat() : null;
+          const plannerRelatedItems = plannerTypes ? typedResponses.flat() : null;
+          const plannerItems = plannerRelatedItems
+            ? plannerRelatedItems.filter((item) =>
+                item.type === "goal" || item.type === "task" || item.type === "event",
+              )
+            : null;
           const [items, ...relatedItems] = typedResponses;
           setWorkspaceItems({
             status: "loaded",
@@ -457,7 +582,7 @@ export function useWorkbenchController(): WorkbenchController {
             allItems,
             tagOptions: collectTagOptions(allItems),
             relatedItems: buildRelatedItems(
-              plannerItems ?? relatedItems.flat(),
+              plannerRelatedItems ?? relatedItems.flat(),
             ),
           });
         }
@@ -481,6 +606,8 @@ export function useWorkbenchController(): WorkbenchController {
     selectedItemIds,
     archiveConfirmationOpen,
     creationDialogOpen,
+    plannerCreationContext,
+    plannerCreationAnalysis,
     detailItem,
     selectTab: (tabId: WorkbenchTabId) =>
       setSelection((currentSelection) => {
@@ -548,13 +675,56 @@ export function useWorkbenchController(): WorkbenchController {
       setSelectedItemIds(failedIds);
       setArchiveConfirmationOpen(false);
     },
-    openCreationDialog: () => setCreationDialogOpen(true),
-    closeCreationDialog: () => setCreationDialogOpen(false),
+    openCreationDialog: () => {
+      setPlannerCreationContext(null);
+      setCreationDialogOpen(true);
+    },
+    openPlannerCreationDialog: (context) => {
+      setPlannerCreationContext(canonicalPlannerCreationContext(context, activePlanner));
+      setCreationDialogOpen(true);
+    },
+    closeCreationDialog: () => {
+      setCreationDialogOpen(false);
+      setPlannerCreationContext(null);
+    },
     createWorkspaceItem: async (form) => {
+      let contextualForm = form;
+      if (plannerCreationContext) {
+        const canonicalContext = canonicalPlannerCreationContext(
+          plannerCreationContext,
+          activePlanner,
+        );
+        const requestedItemType = form.itemType ?? canonicalContext.itemTypes[0];
+        if (
+          !requestedItemType ||
+          !canonicalContext.itemTypes.some((itemType) => itemType === requestedItemType)
+        ) {
+          const label = requestedItemType
+            ? requestedItemType[0].toUpperCase() + requestedItemType.slice(1)
+            : "Item";
+          throw new TodoEngineApiError(
+            400,
+            "validation_error",
+            `${label} is not allowed for ${canonicalContext.tableId}.`,
+          );
+        }
+        contextualForm = {
+          scheduled: canonicalContext.scheduled,
+          ...plannerCreationAnalysis.prefills,
+          ...form,
+          horizon: canonicalContext.horizon,
+          ...(!canonicalContext.editableDate
+            ? {
+                scheduled: canonicalContext.scheduled,
+              }
+            : {}),
+        };
+        contextualForm.itemType = requestedItemType;
+      }
       const item = await createItemRequest(
         selection.leafTabId,
         activePlanner,
-        form,
+        contextualForm,
       );
       setWorkspaceItems((current) => ({
         ...current,
@@ -563,6 +733,7 @@ export function useWorkbenchController(): WorkbenchController {
       }));
       setDetailItem(item);
       setCreationDialogOpen(false);
+      setPlannerCreationContext(null);
     },
     openDetailView: (item) => setDetailItem(item),
     patchWorkspaceItem: async (itemId, patch) => {
@@ -575,80 +746,16 @@ export function useWorkbenchController(): WorkbenchController {
         tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
-    setDailyFilter: (field, values) =>
+    plannerTableSettings: (tableId) => activePlanner.tableSettings[tableId],
+    updatePlannerTableSettings: (tableId, updater) =>
       setPlanner((current) => {
-        const next = { ...current, dailyFilters: { ...current.dailyFilters, [field]: values } };
+        const nextSettings = updater(current.tableSettings[tableId]);
+        const next = {
+          ...current,
+          tableSettings: { ...current.tableSettings, [tableId]: nextSettings },
+        };
         persistChangedPlannerSettings(next);
         return next;
-      }),
-    setPlannerFilterMode: (mode) =>
-      setPlanner((current) => {
-        const next = { ...current, filterMode: mode };
-        persistChangedPlannerSettings(next);
-        return next;
-      }),
-    setPlannerFilterRules: (rules) =>
-      setPlanner((current) => {
-        const next = { ...current, filterRules: rules };
-        persistChangedPlannerSettings(next);
-        return next;
-      }),
-    clearPlannerFilterRules: () =>
-      setPlanner((current) => {
-        const next = { ...current, filterMode: "and" as const, filterRules: [] };
-        persistChangedPlannerSettings(next);
-        return next;
-      }),
-    setDailyGroupBy: (groupBy) =>
-      updateActiveGroupSettings((settings) => ({ ...settings, groupBy })),
-    setDailySortRules: (rules) =>
-      setPlanner((current) => {
-        const next = { ...current, dailySortRules: rules };
-        persistChangedPlannerSettings(next);
-        return next;
-      }),
-    setPlannerGroupBy: (groupBy) =>
-      updateActiveGroupSettings((settings) => ({ ...settings, groupBy })),
-    setPlannerGroupSort: (sort) =>
-      updateActiveGroupSettings((settings) => ({ ...settings, sort })),
-    setPlannerHideEmptyGroups: (hideEmpty) =>
-      updateActiveGroupSettings((settings) => ({ ...settings, hideEmpty })),
-    togglePlannerGroupVisibility: (key) =>
-      updateActiveGroupSettings((settings) => ({
-        ...settings,
-        hiddenGroupKeys: settings.hiddenGroupKeys.includes(key)
-          ? settings.hiddenGroupKeys.filter((entry) => entry !== key)
-          : [...settings.hiddenGroupKeys, key],
-      })),
-    setAllPlannerGroupsVisible: (keys, visible) =>
-      updateActiveGroupSettings((settings) => ({
-        ...settings,
-        hiddenGroupKeys: visible
-          ? settings.hiddenGroupKeys.filter((key) => !keys.includes(key))
-          : [...new Set([...settings.hiddenGroupKeys, ...keys])],
-      })),
-    setPlannerManualGroupOrder: (keys) =>
-      updateActiveGroupSettings((settings) => ({ ...settings, manualOrder: keys })),
-    removePlannerGrouping: () =>
-      updateActiveGroupSettings(() => defaultPlannerGroupSettings()),
-    setPlannerSortRules: (rules) =>
-      setPlanner((current) => {
-        if (selection.leafTabId === "weekly") {
-          const next = { ...current, weeklySortRules: rules };
-          persistChangedPlannerSettings(next);
-          return next;
-        }
-        if (selection.leafTabId === "monthly") {
-          const next = { ...current, monthlySortRules: rules };
-          persistChangedPlannerSettings(next);
-          return next;
-        }
-        if (selection.leafTabId === "yearly") {
-          const next = { ...current, yearlySortRules: rules };
-          persistChangedPlannerSettings(next);
-          return next;
-        }
-        return current;
       }),
     transitionWorkspaceItem: (
       itemId: string,
@@ -900,14 +1007,19 @@ function createItemRequest(
       title,
       horizon: goalDefaults.horizon,
       scheduled: goalDefaults.scheduled,
+      tags: form.tags,
       actor: "user",
     });
   }
-  if (panelId === "weekly" || panelId === "daily") {
+  if (panelId === "weekly" || panelId === "daily" || panelId === "monthly") {
     if (plannerType === "task") {
       return postJson("/todo-engine/tasks/propose", {
         title,
-        scheduled: form.scheduled || planner.date,
+        scheduled: form.scheduled === undefined ? planner.date : form.scheduled || undefined,
+        area: form.area_id,
+        project_id: form.project_id,
+        priority: form.priority,
+        tags: form.tags,
         actor: "user",
       });
     }
@@ -915,15 +1027,11 @@ function createItemRequest(
       return postJson("/todo-engine/events/propose", {
         title,
         scheduled: form.scheduled || planner.date,
+        area: form.area_id,
+        project_id: form.project_id,
+        priority: form.priority,
+        tags: form.tags,
         actor: "user",
-      });
-    }
-    if (plannerType === "routine") {
-      return postJson("/todo-engine/routines/propose", {
-        title,
-        actor: "user",
-        materialization_policy: "single_open",
-        recurrence_rule: form.recurrence_rule,
       });
     }
   }
@@ -935,11 +1043,14 @@ function plannerCreationType(
   panelId: LeafTabId,
   form: CreateWorkspaceItemForm,
 ): CreateWorkspaceItemForm["itemType"] {
+  if (form.itemType) {
+    return form.itemType;
+  }
   if (panelId === "daily") {
-    return form.itemType ?? "task";
+    return "task";
   }
   if (panelId === "weekly") {
-    return form.itemType ?? "goal";
+    return "goal";
   }
   if (panelId === "yearly" || panelId === "monthly") {
     return "goal";

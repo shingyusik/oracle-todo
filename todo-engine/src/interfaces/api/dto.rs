@@ -13,6 +13,7 @@ pub(super) struct AreaBody {
 pub(super) struct TaskProposeBody {
     pub title: String,
     pub area: Option<String>,
+    pub project_id: Option<String>,
     pub due: Option<String>,
     pub scheduled: Option<String>,
     pub priority: Option<i64>,
