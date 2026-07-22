@@ -101,6 +101,96 @@ export type CreateWorkspaceItemForm = {
 
 export type PlannerCreationItemType = "task" | "goal" | "event";
 
+export type PlannerCreationAnchor =
+  | "daily-date"
+  | "previous-daily-date"
+  | "unscheduled"
+  | "weekly-month"
+  | "weekly-week"
+  | "weekly-day-grid"
+  | "monthly-period"
+  | "monthly-calendar"
+  | "monthly-first-week"
+  | "yearly-period"
+  | "yearly-first-month";
+
+export type PlannerCreationPolicy = {
+  itemTypes: readonly PlannerCreationItemType[];
+  horizon?: "year" | "month" | "week";
+  editableDate: boolean;
+  anchor: PlannerCreationAnchor;
+};
+
+const plannerCreationPolicies: Record<PlannerTableId, PlannerCreationPolicy> = {
+  "daily.today": {
+    itemTypes: ["task", "event"],
+    editableDate: false,
+    anchor: "daily-date",
+  },
+  "daily.overdue": {
+    itemTypes: ["task", "event"],
+    editableDate: false,
+    anchor: "previous-daily-date",
+  },
+  "daily.unscheduled": {
+    itemTypes: ["task"],
+    editableDate: false,
+    anchor: "unscheduled",
+  },
+  "weekly.month-goals": {
+    itemTypes: ["goal"],
+    horizon: "month",
+    editableDate: false,
+    anchor: "weekly-month",
+  },
+  "weekly.week-goals": {
+    itemTypes: ["goal"],
+    horizon: "week",
+    editableDate: false,
+    anchor: "weekly-week",
+  },
+  "weekly.day-grid": {
+    itemTypes: ["task", "event"],
+    editableDate: true,
+    anchor: "weekly-day-grid",
+  },
+  "monthly.period-goals": {
+    itemTypes: ["goal"],
+    horizon: "month",
+    editableDate: false,
+    anchor: "monthly-period",
+  },
+  "monthly.calendar": {
+    itemTypes: ["task", "event"],
+    editableDate: true,
+    anchor: "monthly-calendar",
+  },
+  "monthly.week-goals": {
+    itemTypes: ["goal"],
+    horizon: "week",
+    editableDate: true,
+    anchor: "monthly-first-week",
+  },
+  "yearly.period-goals": {
+    itemTypes: ["goal"],
+    horizon: "year",
+    editableDate: false,
+    anchor: "yearly-period",
+  },
+  "yearly.month-goals": {
+    itemTypes: ["goal"],
+    horizon: "month",
+    editableDate: true,
+    anchor: "yearly-first-month",
+  },
+};
+
+export function plannerCreationPolicyForTable(
+  tableId: PlannerTableId,
+): PlannerCreationPolicy {
+  return plannerCreationPolicies[tableId];
+}
+
 export type PlannerCreationContext = {
   tableId: PlannerTableId;
   itemTypes: PlannerCreationItemType[];

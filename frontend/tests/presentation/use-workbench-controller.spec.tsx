@@ -907,7 +907,7 @@ describe("useWorkbenchController", () => {
   });
 
   it("prefills a contextual Task request with the filtered project", async () => {
-    const scheduled = "2026-07-20";
+    const scheduled = formatDate(new Date());
     const requestBodies: unknown[] = [];
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/tasks/propose") {
@@ -991,7 +991,7 @@ describe("useWorkbenchController", () => {
     }]);
   });
 
-  it("keeps user-entered contextual values instead of overwriting them with filter suggestions", async () => {
+  it("keeps user-entered dates for an approved editable creation context", async () => {
     const requestBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/events/propose") {
@@ -1005,9 +1005,9 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({ ok: true, json: async () => [] });
     }));
     const context = {
-      tableId: "daily.today",
+      tableId: "monthly.calendar",
       itemTypes: ["task", "event"],
-      scheduled: "2026-07-20",
+      scheduled: testMonthStart(),
       editableDate: true,
       tableSettings: {
         filterMode: "and",
@@ -1031,7 +1031,7 @@ describe("useWorkbenchController", () => {
     const { result } = renderHook(() => useWorkbenchController());
     act(() => {
       result.current.selectTab("planner");
-      result.current.selectTab("daily");
+      result.current.selectTab("monthly");
     });
     act(() => result.current.openPlannerCreationDialog(context));
     await act(async () => {
@@ -1058,8 +1058,9 @@ describe("useWorkbenchController", () => {
     expect(result.current.plannerCreationContext).toBeNull();
   });
 
-  it("enforces a fixed goal-table anchor and only persists supported Goal fields", async () => {
+  it("canonicalizes a forged weekly goal context and re-enforces its fixed policy", async () => {
     const requestBodies: unknown[] = [];
+    const weekStart = testWeekStart();
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/goals/propose") {
         const body = JSON.parse(String(init?.body));
@@ -1079,10 +1080,10 @@ describe("useWorkbenchController", () => {
     });
     act(() => result.current.openPlannerCreationDialog({
       tableId: "weekly.week-goals",
-      itemTypes: ["goal"],
-      scheduled: "2026-07-20",
-      horizon: "week",
-      editableDate: false,
+      itemTypes: ["task", "event"],
+      scheduled: "2030-01-01",
+      horizon: "month",
+      editableDate: true,
       tableSettings: {
         filterMode: "and",
         filterRules: [],
@@ -1096,6 +1097,14 @@ describe("useWorkbenchController", () => {
         },
       },
     }));
+
+    expect(result.current.plannerCreationContext).toMatchObject({
+      tableId: "weekly.week-goals",
+      itemTypes: ["goal"],
+      scheduled: weekStart,
+      horizon: "week",
+      editableDate: false,
+    });
 
     await act(async () => {
       await result.current.createWorkspaceItem({
@@ -1113,8 +1122,112 @@ describe("useWorkbenchController", () => {
     expect(requestBodies).toEqual([{
       title: "Fixed goal",
       horizon: "week",
-      scheduled: "2026-07-20",
+      scheduled: weekStart,
       tags: ["focus"],
+      actor: "user",
+    }]);
+  });
+
+  it("canonicalizes forged Daily Unscheduled semantics on open and submit", async () => {
+    const requestBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/tasks/propose") {
+        const body = JSON.parse(String(init?.body));
+        requestBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "task-unscheduled", type: "task", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("planner");
+      result.current.selectTab("daily");
+    });
+    act(() => result.current.openPlannerCreationDialog({
+      tableId: "daily.unscheduled",
+      itemTypes: ["event"],
+      scheduled: "2030-01-01",
+      horizon: "week",
+      editableDate: true,
+      tableSettings: result.current.plannerTableSettings("daily.unscheduled"),
+    }));
+
+    expect(result.current.plannerCreationContext).toMatchObject({
+      tableId: "daily.unscheduled",
+      itemTypes: ["task"],
+      scheduled: "",
+      editableDate: false,
+    });
+    expect(result.current.plannerCreationContext?.horizon).toBeUndefined();
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({
+        title: "No date",
+        itemType: "task",
+        scheduled: "2035-05-05",
+        horizon: "month",
+      });
+    });
+
+    expect(requestBodies).toEqual([{
+      title: "No date",
+      actor: "user",
+    }]);
+  });
+
+  it("canonicalizes forged Daily Today values and re-enforces the selected date", async () => {
+    const requestBodies: unknown[] = [];
+    const selectedDate = formatDate(new Date());
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/events/propose") {
+        const body = JSON.parse(String(init?.body));
+        requestBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "event-today", type: "event", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("planner");
+      result.current.selectTab("daily");
+    });
+    act(() => result.current.openPlannerCreationDialog({
+      tableId: "daily.today",
+      itemTypes: ["goal"],
+      scheduled: "2030-01-01",
+      horizon: "year",
+      editableDate: true,
+      tableSettings: result.current.plannerTableSettings("daily.today"),
+    }));
+
+    expect(result.current.plannerCreationContext).toMatchObject({
+      tableId: "daily.today",
+      itemTypes: ["task", "event"],
+      scheduled: selectedDate,
+      editableDate: false,
+    });
+    expect(result.current.plannerCreationContext?.horizon).toBeUndefined();
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({
+        title: "Today event",
+        itemType: "event",
+        scheduled: "2035-05-05",
+        horizon: "month",
+      });
+    });
+
+    expect(requestBodies).toEqual([{
+      title: "Today event",
+      scheduled: selectedDate,
       actor: "user",
     }]);
   });

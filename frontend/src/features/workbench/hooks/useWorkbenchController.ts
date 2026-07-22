@@ -16,6 +16,7 @@ import {
   type LegacyPlannerControls,
   type MaterializeRoutineTarget,
   type PlannerCreationAnalysis,
+  type PlannerCreationAnchor,
   type PlannerCreationContext,
   type PlannerControls,
   type WorkbenchController,
@@ -25,6 +26,7 @@ import {
   type WorkspaceItemTransitionState,
   type WorkspaceItemsModel,
   createPanelModel,
+  plannerCreationPolicyForTable,
 } from "@/features/workbench/model/workbench-model";
 import {
   defaultPlannerGroupSettings,
@@ -379,6 +381,47 @@ const emptyPlannerCreationAnalysis: PlannerCreationAnalysis = {
   visibilityWarning: false,
 };
 
+function plannerCreationScheduledAnchor(
+  anchor: PlannerCreationAnchor,
+  planner: PlannerControls,
+): string {
+  switch (anchor) {
+    case "daily-date":
+      return planner.dailyDate;
+    case "previous-daily-date":
+      return addDays(planner.dailyDate, -1);
+    case "unscheduled":
+      return "";
+    case "weekly-month":
+      return monthStart(planner.weeklyDate);
+    case "weekly-week":
+    case "weekly-day-grid":
+      return weekStartForDate(planner.weeklyDate);
+    case "monthly-period":
+    case "monthly-calendar":
+      return monthStart(planner.monthlyDate);
+    case "monthly-first-week":
+      return weekStartForDate(monthStart(planner.monthlyDate));
+    case "yearly-period":
+    case "yearly-first-month":
+      return yearStart(planner.yearlyDate);
+  }
+}
+
+function canonicalPlannerCreationContext(
+  context: PlannerCreationContext,
+  planner: PlannerControls,
+): PlannerCreationContext {
+  const policy = plannerCreationPolicyForTable(context.tableId);
+  return {
+    ...context,
+    itemTypes: [...policy.itemTypes],
+    scheduled: plannerCreationScheduledAnchor(policy.anchor, planner),
+    horizon: policy.horizon,
+    editableDate: policy.editableDate,
+  };
+}
+
 function analyzePlannerCreationContext(
   context: PlannerCreationContext | null,
 ): PlannerCreationAnalysis {
@@ -634,7 +677,7 @@ export function useWorkbenchController(): WorkbenchController {
       setCreationDialogOpen(true);
     },
     openPlannerCreationDialog: (context) => {
-      setPlannerCreationContext(context);
+      setPlannerCreationContext(canonicalPlannerCreationContext(context, activePlanner));
       setCreationDialogOpen(true);
     },
     closeCreationDialog: () => {
@@ -644,10 +687,14 @@ export function useWorkbenchController(): WorkbenchController {
     createWorkspaceItem: async (form) => {
       let contextualForm = form;
       if (plannerCreationContext) {
-        const requestedItemType = form.itemType ?? plannerCreationContext.itemTypes[0];
+        const canonicalContext = canonicalPlannerCreationContext(
+          plannerCreationContext,
+          activePlanner,
+        );
+        const requestedItemType = form.itemType ?? canonicalContext.itemTypes[0];
         if (
           !requestedItemType ||
-          !plannerCreationContext.itemTypes.some((itemType) => itemType === requestedItemType)
+          !canonicalContext.itemTypes.some((itemType) => itemType === requestedItemType)
         ) {
           const label = requestedItemType
             ? requestedItemType[0].toUpperCase() + requestedItemType.slice(1)
@@ -655,18 +702,17 @@ export function useWorkbenchController(): WorkbenchController {
           throw new TodoEngineApiError(
             400,
             "validation_error",
-            `${label} is not allowed for ${plannerCreationContext.tableId}.`,
+            `${label} is not allowed for ${canonicalContext.tableId}.`,
           );
         }
         contextualForm = {
-          scheduled: plannerCreationContext.scheduled,
-          horizon: plannerCreationContext.horizon,
+          scheduled: canonicalContext.scheduled,
           ...plannerCreationAnalysis.prefills,
           ...form,
-          ...(!plannerCreationContext.editableDate
+          horizon: canonicalContext.horizon,
+          ...(!canonicalContext.editableDate
             ? {
-                scheduled: plannerCreationContext.scheduled,
-                horizon: plannerCreationContext.horizon,
+                scheduled: canonicalContext.scheduled,
               }
             : {}),
         };
