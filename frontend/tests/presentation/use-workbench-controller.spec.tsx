@@ -904,18 +904,18 @@ describe("useWorkbenchController", () => {
     });
   });
 
-  it("prefills a contextual planner request from deterministic table filters", async () => {
+  it("prefills a contextual Task request with the filtered project", async () => {
     const scheduled = "2026-07-20";
     const requestBodies: unknown[] = [];
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/events/propose") {
+      if (url === "/todo-engine/tasks/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
           ok: true,
           json: async () => ({
-            id: "event-contextual",
-            type: "event",
+            id: "task-contextual",
+            type: "task",
             title: body.title,
             status: "active",
             ...body,
@@ -975,11 +975,11 @@ describe("useWorkbenchController", () => {
     act(() => result.current.openPlannerCreationDialog(context));
 
     await act(async () => {
-      await result.current.createWorkspaceItem({ title: "Filtered event", itemType: "event" });
+      await result.current.createWorkspaceItem({ title: "Filtered task", itemType: "task" });
     });
 
     expect(requestBodies).toEqual([{
-      title: "Filtered event",
+      title: "Filtered task",
       scheduled,
       area: "area-1",
       project_id: "project-1",

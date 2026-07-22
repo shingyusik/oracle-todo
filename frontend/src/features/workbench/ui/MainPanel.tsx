@@ -1004,11 +1004,12 @@ function PlannerTableHeader({
     tableId,
     filterOptions,
   );
-  const activeFilterCount = effectivePlannerTableFilterRules(
+  const effectiveFilterRules = effectivePlannerTableFilterRules(
     controller,
     tableId,
     filterOptions,
-  ).length;
+  );
+  const activeFilterCount = effectiveFilterRules.length;
   const groupBy = effectivePlannerTableGroupValue(tableId, settings.groupSettings.groupBy);
   const groupTriggerRef = useRef<HTMLButtonElement>(null);
   const groupPanelRef = useRef<HTMLDivElement>(null);
@@ -1087,7 +1088,10 @@ function PlannerTableHeader({
             onClick={() =>
               controller.openPlannerCreationDialog({
                 ...creationContext,
-                tableSettings: settings,
+                tableSettings: {
+                  ...settings,
+                  filterRules: effectiveFilterRules,
+                },
               })
             }
           >

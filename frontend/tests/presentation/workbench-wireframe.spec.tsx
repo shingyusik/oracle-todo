@@ -1451,6 +1451,104 @@ describe("WorkbenchPageClient", () => {
     }]);
   });
 
+  it("ignores empty and table-incompatible filters when creating from a planner table", async () => {
+    const user = userEvent.setup();
+    const taskBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/settings/planner") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            tableSettings: {
+              "daily.today": {
+                filterMode: "and",
+                filterRules: [
+                  { id: "project", field: "project", type: "relation", operator: "is", value: ["project-1"] },
+                  { id: "empty-title", field: "title", type: "text", operator: "contains", value: "" },
+                  { id: "hidden-horizon", field: "horizon", type: "select", operator: "is", value: ["week"] },
+                ],
+                sortRules: [],
+                groupSettings: {
+                  groupBy: "none",
+                  sort: "manual",
+                  hideEmpty: true,
+                  manualOrder: [],
+                  hiddenGroupKeys: [],
+                },
+              },
+            },
+          }),
+        });
+      }
+      if (url === "/todo-engine/tasks/propose") {
+        const body = JSON.parse(String(init?.body));
+        taskBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "task-effective-filter", type: "task", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await screen.findByText("1 rules");
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+
+    expect(screen.queryByText(/may not appear in the current table/i)).toBeNull();
+    await user.type(screen.getByLabelText("Title"), "Project task");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(taskBodies).toEqual([{
+      title: "Project task",
+      scheduled: testToday(),
+      project_id: "project-1",
+      actor: "user",
+    }]);
+  });
+
+  it("does not warn when an OR table has no effective filters", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url === "/todo-engine/settings/planner") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            tableSettings: {
+              "daily.today": {
+                filterMode: "or",
+                filterRules: [
+                  { id: "empty-project", field: "project", type: "relation", operator: "is", value: [] },
+                  { id: "hidden-horizon", field: "horizon", type: "select", operator: "is", value: ["week"] },
+                ],
+                sortRules: [],
+                groupSettings: {
+                  groupBy: "none",
+                  sort: "manual",
+                  hideEmpty: true,
+                  manualOrder: [],
+                  hiddenGroupKeys: [],
+                },
+              },
+            },
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+
+    expect(screen.queryByText(/may not appear in the current table/i)).toBeNull();
+  });
+
   it.each([
     ["or", [{ id: "area", field: "area", type: "relation", operator: "is", value: ["area-1"] }]],
     ["and", [{ id: "title", field: "title", type: "text", operator: "contains", value: "focus" }]],
