@@ -15,7 +15,6 @@ import {
   type CreateWorkspaceItemForm,
   type MaterializeRoutineTarget,
   type PlannerControls,
-  type PlannerFilterSettings,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
@@ -95,24 +94,11 @@ function defaultPlannerGroupSettingsByView(): Record<
   ) as Record<PlannerViewId, PlannerGroupSettings>;
 }
 
-function defaultPlannerFilterSettingsByView(): Record<
-  PlannerViewId,
-  PlannerFilterSettings
-> {
-  return Object.fromEntries(
-    plannerViewIds.map((view) => [
-      view,
-      { filterMode: "and", filterRules: [] },
-    ] as [PlannerViewId, PlannerFilterSettings]),
-  ) as Record<PlannerViewId, PlannerFilterSettings>;
-}
-
 type StoredPlannerSettings = Pick<
   PlannerControls,
   | "dailyFilters"
   | "filterMode"
   | "filterRules"
-  | "filterSettings"
   | "groupSettings"
   | "dailySortRules"
   | "yearlySortRules"
@@ -130,23 +116,10 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
     if (!value || typeof value !== "object") return null;
     const defaults = createDefaultPlanner();
     const candidate = value as Partial<PlannerControls>;
-    const legacyFilterSettings = {
-      filterMode: candidate.filterMode === "or" ? "or" : "and",
-      filterRules: normalizeRules(candidate.filterRules),
-    } as PlannerFilterSettings;
     return {
       dailyFilters: normalizeDailyFilters(candidate.dailyFilters, defaults.dailyFilters),
-      filterMode: legacyFilterSettings.filterMode,
-      filterRules: legacyFilterSettings.filterRules,
-      filterSettings: Object.fromEntries(plannerViewIds.map((view) => {
-        const stored = (candidate.filterSettings as Partial<Record<PlannerViewId, unknown>> | undefined)?.[view];
-        if (!stored || typeof stored !== "object") return [view, legacyFilterSettings];
-        const settings = stored as Partial<PlannerFilterSettings>;
-        return [view, {
-          filterMode: settings.filterMode === "or" ? "or" : "and",
-          filterRules: normalizeRules(settings.filterRules),
-        }];
-      })) as Record<PlannerViewId, PlannerFilterSettings>,
+      filterMode: candidate.filterMode === "or" ? "or" : "and",
+      filterRules: normalizeRules(candidate.filterRules),
       groupSettings: Object.fromEntries(plannerViewIds.map((view) => [view, normalizePlannerGroupSettings((candidate.groupSettings as Partial<Record<PlannerViewId, unknown>> | undefined)?.[view])])) as Record<PlannerViewId, PlannerGroupSettings>,
       dailySortRules: normalizeSortRules(candidate.dailySortRules, defaults.dailySortRules),
       yearlySortRules: normalizeSortRules(candidate.yearlySortRules, defaults.yearlySortRules),
@@ -163,7 +136,6 @@ function persistPlannerSettings(planner: PlannerControls): void {
     dailyFilters,
     filterMode,
     filterRules,
-    filterSettings,
     groupSettings,
     dailySortRules,
     yearlySortRules,
@@ -175,7 +147,6 @@ function persistPlannerSettings(planner: PlannerControls): void {
       dailyFilters,
       filterMode,
       filterRules,
-      filterSettings,
       groupSettings,
       dailySortRules,
       yearlySortRules,
@@ -290,7 +261,6 @@ function createDefaultPlanner(): PlannerControls {
     },
     filterMode: "and",
     filterRules: [],
-    filterSettings: defaultPlannerFilterSettingsByView(),
     groupSettings: defaultPlannerGroupSettingsByView(),
     dailySortRules: [{ id: "daily-default-sort", field: "priority", direction: "asc" }],
     yearlySortRules: [{ id: "yearly-default-sort", field: "scheduled", direction: "asc" }],
@@ -321,11 +291,8 @@ function withActivePlannerPeriod(
   panelId: LeafTabId,
 ): PlannerControls {
   const date = plannerDateForPanel(panelId, planner);
-  const view = plannerViewId(panelId);
-  const filterSettings = view ? planner.filterSettings[view] : undefined;
   return {
     ...planner,
-    ...(filterSettings ?? {}),
     date,
     weekStart: panelId === "weekly" ? date : weekStartForDate(date),
   };
@@ -455,22 +422,6 @@ export function useWorkbenchController(): WorkbenchController {
       const next = {
         ...current,
         groupSettings: { ...current.groupSettings, [view]: nextSettings },
-      };
-      persistChangedPlannerSettings(next);
-      return next;
-    });
-  };
-
-  const updateActiveFilterSettings = (
-    updater: (settings: PlannerFilterSettings) => PlannerFilterSettings,
-  ) => {
-    setPlanner((current) => {
-      const view = plannerViewId(selection.leafTabId) ?? "daily";
-      const settings = updater(current.filterSettings[view]);
-      const next = {
-        ...current,
-        ...settings,
-        filterSettings: { ...current.filterSettings, [view]: settings },
       };
       persistChangedPlannerSettings(next);
       return next;
@@ -626,11 +577,23 @@ export function useWorkbenchController(): WorkbenchController {
         return next;
       }),
     setPlannerFilterMode: (mode) =>
-      updateActiveFilterSettings((settings) => ({ ...settings, filterMode: mode })),
+      setPlanner((current) => {
+        const next = { ...current, filterMode: mode };
+        persistChangedPlannerSettings(next);
+        return next;
+      }),
     setPlannerFilterRules: (rules) =>
-      updateActiveFilterSettings((settings) => ({ ...settings, filterRules: rules })),
+      setPlanner((current) => {
+        const next = { ...current, filterRules: rules };
+        persistChangedPlannerSettings(next);
+        return next;
+      }),
     clearPlannerFilterRules: () =>
-      updateActiveFilterSettings(() => ({ filterMode: "and", filterRules: [] })),
+      setPlanner((current) => {
+        const next = { ...current, filterMode: "and" as const, filterRules: [] };
+        persistChangedPlannerSettings(next);
+        return next;
+      }),
     setDailyGroupBy: (groupBy) =>
       updateActiveGroupSettings((settings) => ({ ...settings, groupBy })),
     setDailySortRules: (rules) =>

@@ -77,18 +77,12 @@ export type PlannerControls = {
   dailyFilters: DailyFilterState;
   filterMode: PlannerFilterMode;
   filterRules: PlannerFilterRule[];
-  filterSettings: Record<PlannerViewId, PlannerFilterSettings>;
   groupSettings: Record<PlannerViewId, PlannerGroupSettings>;
   dailySortRules: PlannerSortRule[];
   yearlySortRules: PlannerSortRule[];
   monthlySortRules: PlannerSortRule[];
   weeklySortRules: PlannerSortRule[];
 };
-
-export type PlannerFilterSettings = Pick<
-  PlannerControls,
-  "filterMode" | "filterRules"
->;
 
 export type CreateWorkspaceItemForm = {
   title: string;
