@@ -1,9 +1,12 @@
 import {
+  defaultPlannerGroupSettings,
+  normalizePlannerGroupSettings,
   orderVisiblePlannerGroups,
   type PlannerGroupCandidate,
   type PlannerGroupSettings,
 } from "@/features/workbench/model/planner-group-settings";
 import type {
+  LegacyPlannerControls,
   WorkspaceItemModel,
   WorkspaceItemsModel,
 } from "@/features/workbench/model/workbench-model";
@@ -91,6 +94,111 @@ export type PlannerSortRule = {
   field: PlannerSortBy;
   direction: PlannerSortDirection;
 };
+
+export const plannerTableIds = [
+  "daily.today",
+  "daily.overdue",
+  "daily.unscheduled",
+  "weekly.month-goals",
+  "weekly.week-goals",
+  "weekly.day-grid",
+  "monthly.period-goals",
+  "monthly.calendar",
+  "monthly.week-goals",
+  "yearly.period-goals",
+  "yearly.month-goals",
+] as const;
+
+export type PlannerTableId = (typeof plannerTableIds)[number];
+
+export type PlannerTableSettings = {
+  filterMode: PlannerFilterMode;
+  filterRules: PlannerFilterRule[];
+  sortRules: PlannerSortRule[];
+  groupSettings: PlannerGroupSettings;
+};
+
+export function defaultPlannerTableSettings(
+  tableId: PlannerTableId,
+): PlannerTableSettings {
+  return {
+    filterMode: "and",
+    filterRules: [],
+    sortRules: [defaultSortRule(tableId)],
+    groupSettings: defaultPlannerGroupSettings(),
+  };
+}
+
+export function normalizePlannerTableSettings(
+  tableId: PlannerTableId,
+  candidate: unknown,
+  legacy: LegacyPlannerControls,
+): PlannerTableSettings {
+  const defaults = defaultPlannerTableSettings(tableId);
+  const value = candidate && typeof candidate === "object"
+    ? candidate as Partial<PlannerTableSettings>
+    : {};
+  const legacySettings = legacySettingsForTable(tableId, legacy);
+
+  return {
+    filterMode: value.filterMode === "or" || value.filterMode === "and"
+      ? value.filterMode
+      : legacy.filterMode === "or" ? "or" : defaults.filterMode,
+    filterRules: normalizeFilterRules(value.filterRules ?? legacy.filterRules),
+    sortRules: normalizePlannerSortRules(value.sortRules, legacySettings.sortRules),
+    groupSettings: normalizePlannerGroupSettings(
+      value.groupSettings ?? legacySettings.groupSettings,
+    ),
+  };
+}
+
+function defaultSortRule(tableId: PlannerTableId): PlannerSortRule {
+  return {
+    id: `${tableId}-default-sort`,
+    field: tableId.startsWith("daily.") ? "priority" : "scheduled",
+    direction: "asc",
+  };
+}
+
+function legacySettingsForTable(
+  tableId: PlannerTableId,
+  legacy: LegacyPlannerControls,
+): Pick<PlannerTableSettings, "sortRules" | "groupSettings"> {
+  const view = tableId.split(".")[0] as keyof LegacyPlannerControls["groupSettings"];
+  const sortRules = view === "daily"
+    ? legacy.dailySortRules
+    : view === "weekly"
+      ? legacy.weeklySortRules
+      : view === "monthly"
+        ? legacy.monthlySortRules
+        : legacy.yearlySortRules;
+  return { sortRules, groupSettings: legacy.groupSettings[view] };
+}
+
+function normalizeFilterRules(value: unknown): PlannerFilterRule[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((rule): rule is PlannerFilterRule =>
+    !!rule && typeof rule === "object" &&
+    typeof (rule as PlannerFilterRule).id === "string" &&
+    typeof (rule as PlannerFilterRule).field === "string" &&
+    typeof (rule as PlannerFilterRule).type === "string" &&
+    typeof (rule as PlannerFilterRule).operator === "string",
+  ).map((rule) => ({ ...rule }));
+}
+
+function normalizePlannerSortRules(
+  value: unknown,
+  fallback: PlannerSortRule[],
+): PlannerSortRule[] {
+  const rules = Array.isArray(value) ? value : fallback;
+  return rules.filter((rule): rule is PlannerSortRule =>
+    !!rule && typeof rule === "object" &&
+    typeof (rule as PlannerSortRule).id === "string" &&
+    typeof (rule as PlannerSortRule).field === "string" &&
+    ((rule as PlannerSortRule).direction === "asc" ||
+      (rule as PlannerSortRule).direction === "desc"),
+  ).map((rule) => ({ ...rule }));
+}
 
 export type DailyGroupBy = PlannerGroupBy;
 
@@ -290,34 +398,19 @@ export function buildDailyPlannerModel(
   relatedItems: WorkspaceItemsModel["relatedItems"],
   options: DailyPlannerOptions,
 ): DailyPlannerModel {
-  const visible = items
-    .filter((item) => plannerWorkItemTypes.has(item.type))
-    .filter(isVisiblePlannerWorkItem)
-    .filter((item) => matchesDailyFilters(item, options.filters))
-    .sort((left, right) => comparePlannerItems(left, right, options.sortRules));
-
-  const today: WorkspaceItemModel[] = [];
-  const overdue: WorkspaceItemModel[] = [];
-  const unscheduled: WorkspaceItemModel[] = [];
+  const rawSections = buildDailyPlannerSections(items, options.date);
   const dateLabel = dailySectionDateLabel(options.date);
-
-  for (const item of visible) {
-    const date = datePart(item.scheduled);
-    if (!date) {
-      unscheduled.push(item);
-    } else if (date < options.date) {
-      overdue.push(item);
-    } else if (date === options.date) {
-      today.push(item);
-    }
-  }
+  const displayItems = (sectionItems: WorkspaceItemModel[]) =>
+    sectionItems
+      .filter((item) => matchesDailyFilters(item, options.filters))
+      .sort((left, right) => comparePlannerItems(left, right, options.sortRules));
 
   return {
     sections: {
       today: section(
         "today",
         dateLabel,
-        today,
+        displayItems(rawSections.today),
         relatedItems,
         options.groupSettings,
         options.groupCandidates,
@@ -325,7 +418,7 @@ export function buildDailyPlannerModel(
       overdue: section(
         "overdue",
         `Before ${dateLabel}`,
-        overdue,
+        displayItems(rawSections.overdue),
         relatedItems,
         options.groupSettings,
         options.groupCandidates,
@@ -333,13 +426,40 @@ export function buildDailyPlannerModel(
       unscheduled: section(
         "unscheduled",
         "Unscheduled",
-        unscheduled,
+        displayItems(rawSections.unscheduled),
         relatedItems,
         options.groupSettings,
         options.groupCandidates,
       ),
     },
   };
+}
+
+export function buildDailyPlannerSections(
+  items: WorkspaceItemModel[],
+  selectedDate: string,
+): Record<DailyPlannerSection["id"], WorkspaceItemModel[]> {
+  const sections: Record<DailyPlannerSection["id"], WorkspaceItemModel[]> = {
+    today: [],
+    overdue: [],
+    unscheduled: [],
+  };
+
+  for (const item of items) {
+    if (!plannerWorkItemTypes.has(item.type) || !isVisiblePlannerWorkItem(item)) {
+      continue;
+    }
+    const date = datePart(item.scheduled);
+    if (!date) {
+      sections.unscheduled.push(item);
+    } else if (date < selectedDate) {
+      sections.overdue.push(item);
+    } else if (date === selectedDate) {
+      sections.today.push(item);
+    }
+  }
+
+  return sections;
 }
 
 export function buildWeeklyPlannerModel(

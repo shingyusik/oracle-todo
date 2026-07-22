@@ -67,14 +67,7 @@ export type WorkspaceItemsModel = {
   };
 };
 
-export type PlannerControls = {
-  date: string;
-  weekStart: string;
-  yearlyDate: string;
-  monthlyDate: string;
-  weeklyDate: string;
-  dailyDate: string;
-  dailyFilters: DailyFilterState;
+export type LegacyPlannerControls = {
   filterMode: PlannerFilterMode;
   filterRules: PlannerFilterRule[];
   groupSettings: Record<PlannerViewId, PlannerGroupSettings>;
@@ -82,6 +75,16 @@ export type PlannerControls = {
   yearlySortRules: PlannerSortRule[];
   monthlySortRules: PlannerSortRule[];
   weeklySortRules: PlannerSortRule[];
+};
+
+export type PlannerControls = LegacyPlannerControls & {
+  date: string;
+  weekStart: string;
+  yearlyDate: string;
+  monthlyDate: string;
+  weeklyDate: string;
+  dailyDate: string;
+  dailyFilters: DailyFilterState;
 };
 
 export type CreateWorkspaceItemForm = {

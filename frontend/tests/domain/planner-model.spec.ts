@@ -5,6 +5,7 @@ import {
   defaultPlannerGroupSettings,
 } from "@/features/workbench/model/planner-group-settings";
 import {
+  buildDailyPlannerSections,
   buildDailyPlannerModel,
   buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
@@ -12,6 +13,7 @@ import {
   filterPlannerItemsByRules,
   groupPlannerItems,
   matchesPlannerFilterRules,
+  plannerTableIds,
   sortPlannerItems,
   type PlannerFilterRule,
 } from "@/features/workbench/model/planner-model";
@@ -180,6 +182,45 @@ function item(
 }
 
 describe("planner model", () => {
+  it("defines stable planner table identifiers", () => {
+    expect(plannerTableIds).toEqual([
+      "daily.today", "daily.overdue", "daily.unscheduled",
+      "weekly.month-goals", "weekly.week-goals", "weekly.day-grid",
+      "monthly.period-goals", "monthly.calendar", "monthly.week-goals",
+      "yearly.period-goals", "yearly.month-goals",
+    ]);
+  });
+
+  it("partitions raw Daily sections before table presentation controls", () => {
+    const rawItems = [
+      item("today-task", { title: "Today", scheduled: "2026-07-22" }),
+      item("before-task", { title: "Before", scheduled: "2026-07-21" }),
+      item("no-date-task", { title: "No date", scheduled: null }),
+      item("routine", { type: "routine", scheduled: "2026-07-22" }),
+    ];
+    const sections = buildDailyPlannerSections(rawItems, "2026-07-22");
+
+    expect(sections.today.map((entry) => entry.id)).toEqual(["today-task"]);
+    expect(sections.overdue.map((entry) => entry.id)).toEqual(["before-task"]);
+    expect(sections.unscheduled.map((entry) => entry.id)).toEqual(["no-date-task"]);
+
+    const todayPresentation = sortPlannerItems(
+      filterPlannerItemsByRules(
+        sections.today,
+        relatedItems,
+        [{ id: "title", field: "title", type: "text", operator: "contains", value: "today" }],
+        "and",
+        "2026-07-22",
+      ),
+      [{ id: "descending-title", field: "title", direction: "desc" }],
+    );
+
+    expect(todayPresentation.map((entry) => entry.id)).toEqual(["today-task"]);
+    expect(sections.overdue.map((entry) => entry.id)).toEqual(["before-task"]);
+    expect(sections.unscheduled.map((entry) => entry.id)).toEqual(["no-date-task"]);
+    expect(Object.values(sections).flat().map((entry) => entry.id)).not.toContain("routine");
+  });
+
   it("sorts planner items by scheduled with unscheduled first matching existing compare behavior", () => {
     const result = sortPlannerItems(
       [
