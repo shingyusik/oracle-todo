@@ -273,8 +273,12 @@ function PlannerPanel({ controller }: MainPanelProps) {
       {panel.id === "daily" ? (
         <DailyPlanner controller={controller} onCreate={openPlannerCreation} />
       ) : null}
-      {panel.id === "yearly" ? <YearlyPeriodPlanner controller={controller} /> : null}
-      {panel.id === "monthly" ? <MonthlyPeriodPlanner controller={controller} /> : null}
+      {panel.id === "yearly" ? (
+        <YearlyPeriodPlanner controller={controller} onCreate={openPlannerCreation} />
+      ) : null}
+      {panel.id === "monthly" ? (
+        <MonthlyPeriodPlanner controller={controller} onCreate={openPlannerCreation} />
+      ) : null}
       {controller.creationDialogOpen ? (
         <CreationDialog controller={controller} creationContext={creationContext} />
       ) : null}
@@ -287,36 +291,91 @@ function PlannerPanel({ controller }: MainPanelProps) {
   }
 }
 
-function YearlyPeriodPlanner({ controller }: MainPanelProps) {
-  const items = filteredPlannerItems(controller);
-  const model = buildYearlyPeriodGoalCardsModel(items, controller.planner.date);
+function YearlyPeriodPlanner({
+  controller,
+  onCreate,
+}: MainPanelProps & { onCreate: (context: PlannerCreationContext) => void }) {
+  const model = buildYearlyPeriodGoalCardsModel(
+    controller.workspaceItems.items,
+    controller.planner.date,
+  );
+  const periodGoalItems = model.carousel.flatMap((card) => card.goals);
+  const monthGoalItems = model.months.flatMap((month) => month.goals);
 
   return (
     <div className="planner-period-panel">
-      <PeriodGoalCarousel
-        controller={controller}
-        ariaLabel="Year goal carousel"
-        previousLabel="Previous year"
-        nextLabel="Next year"
-        cards={model.carousel}
-      />
-      <div className="yearly-month-grid" aria-label="Month goals">
-        {model.months.map((month) => (
-          <PeriodGoalBucketCard
-            controller={controller}
-            bucket={month}
-            testId="yearly-month-card"
-            key={month.key}
-          />
-        ))}
-      </div>
+      <section className="planner-section" aria-label="Yearly period goals">
+        <PlannerTableHeader
+          controller={controller}
+          tableId="yearly.period-goals"
+          title="Year Goals"
+          heading="Year Goals"
+          rawItems={periodGoalItems}
+          creationContext={{
+            tableId: "yearly.period-goals",
+            itemTypes: ["goal"],
+            scheduled: yearStart(controller.planner.date),
+            horizon: "year",
+            editableDate: false,
+          }}
+          onCreate={onCreate}
+        />
+        <PeriodGoalCarousel
+          controller={controller}
+          tableId="yearly.period-goals"
+          groupUniverseItems={periodGoalItems}
+          ariaLabel="Year goal carousel"
+          previousLabel="Previous year"
+          nextLabel="Next year"
+          cards={model.carousel}
+        />
+      </section>
+      <section className="planner-section" aria-label="Yearly month goals">
+        <PlannerTableHeader
+          controller={controller}
+          tableId="yearly.month-goals"
+          title="Month Goals"
+          heading="Month Goals"
+          rawItems={monthGoalItems}
+          creationContext={{
+            tableId: "yearly.month-goals",
+            itemTypes: ["goal"],
+            scheduled: `${model.selectedYear}-01-01`,
+            horizon: "month",
+            editableDate: true,
+          }}
+          onCreate={onCreate}
+        />
+        <div className="yearly-month-grid" aria-label="Month goals">
+          {model.months.map((month) => (
+            <PeriodGoalBucketCard
+              controller={controller}
+              tableId="yearly.month-goals"
+              groupUniverseItems={monthGoalItems}
+              bucket={month}
+              testId="yearly-month-card"
+              key={month.key}
+            />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
 
-function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
-  const items = filteredPlannerItems(controller);
-  const model = buildMonthlyPeriodGoalCardsModel(items, controller.planner.date);
+function MonthlyPeriodPlanner({
+  controller,
+  onCreate,
+}: MainPanelProps & { onCreate: (context: PlannerCreationContext) => void }) {
+  const model = buildMonthlyPeriodGoalCardsModel(
+    controller.workspaceItems.items,
+    controller.planner.date,
+  );
+  const periodGoalItems = model.carousel.flatMap((card) => card.goals);
+  const calendarItems = model.weeks.flatMap((week) =>
+    week.days.flatMap((day) => day.items),
+  );
+  const weekGoalItems = model.weeks.flatMap((week) => week.goals);
   const [openOverflowDate, setOpenOverflowDate] = React.useState<string | null>(null);
 
   useEffect(() => {
@@ -325,32 +384,92 @@ function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
 
   return (
     <div className="planner-period-panel">
-      <PeriodGoalCarousel
-        controller={controller}
-        ariaLabel="Month goal carousel"
-        previousLabel="Previous month"
-        nextLabel="Next month"
-        cards={model.carousel}
-      />
-      <div className="monthly-calendar-planner" role="grid" aria-label="Monthly todo calendar">
-        <div className="monthly-week-row monthly-weekday-row" role="row" aria-label="Monthly weekdays">
-          <div className="monthly-week-days">
-            {plannerWeekdayLabels.map((day) => (
-              <span className="monthly-weekday" role="columnheader" key={day}>
-                {day}
-              </span>
-            ))}
-          </div>
+      <section className="planner-section" aria-label="Monthly period goals">
+        <PlannerTableHeader
+          controller={controller}
+          tableId="monthly.period-goals"
+          title="Month Goals"
+          heading="Month Goals"
+          rawItems={periodGoalItems}
+          creationContext={{
+            tableId: "monthly.period-goals",
+            itemTypes: ["goal"],
+            scheduled: model.selectedMonth,
+            horizon: "month",
+            editableDate: false,
+          }}
+          onCreate={onCreate}
+        />
+        <PeriodGoalCarousel
+          controller={controller}
+          tableId="monthly.period-goals"
+          groupUniverseItems={periodGoalItems}
+          ariaLabel="Month goal carousel"
+          previousLabel="Previous month"
+          nextLabel="Next month"
+          cards={model.carousel}
+        />
+      </section>
+      <div className="monthly-calendar-planner">
+        <div className="monthly-calendar-table-headers">
+          <section className="planner-section" aria-label="Monthly calendar controls">
+            <PlannerTableHeader
+              controller={controller}
+              tableId="monthly.calendar"
+              title="Calendar"
+              heading="Calendar"
+              rawItems={calendarItems}
+              groupUniverseItems={calendarItems}
+              creationContext={{
+                tableId: "monthly.calendar",
+                itemTypes: ["task", "event"],
+                scheduled: model.selectedMonth,
+                editableDate: true,
+              }}
+              onCreate={onCreate}
+            />
+          </section>
+          <section className="planner-section" aria-label="Monthly week goal controls">
+            <PlannerTableHeader
+              controller={controller}
+              tableId="monthly.week-goals"
+              title="Week Goals"
+              heading="Week Goals"
+              rawItems={weekGoalItems}
+              groupUniverseItems={weekGoalItems}
+              creationContext={{
+                tableId: "monthly.week-goals",
+                itemTypes: ["goal"],
+                scheduled: model.weeks[0]?.periodStart ?? model.selectedMonth,
+                horizon: "week",
+                editableDate: true,
+              }}
+              onCreate={onCreate}
+            />
+          </section>
         </div>
-        {model.weeks.map((week) => (
-          <MonthlyPlannerWeekRow
-            controller={controller}
-            week={week}
-            openOverflowDate={openOverflowDate}
-            onOpenOverflowChange={setOpenOverflowDate}
-            key={week.key}
-          />
-        ))}
+        <div className="monthly-calendar-grid" role="grid" aria-label="Monthly todo calendar">
+          <div className="monthly-week-row monthly-weekday-row" role="row" aria-label="Monthly weekdays">
+            <div className="monthly-week-days">
+              {plannerWeekdayLabels.map((day) => (
+                <span className="monthly-weekday" role="columnheader" key={day}>
+                  {day}
+                </span>
+              ))}
+            </div>
+          </div>
+          {model.weeks.map((week) => (
+            <MonthlyPlannerWeekRow
+              controller={controller}
+              week={week}
+              calendarUniverseItems={calendarItems}
+              weekGoalUniverseItems={weekGoalItems}
+              openOverflowDate={openOverflowDate}
+              onOpenOverflowChange={setOpenOverflowDate}
+              key={week.key}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -359,11 +478,15 @@ function MonthlyPeriodPlanner({ controller }: MainPanelProps) {
 function MonthlyPlannerWeekRow({
   controller,
   week,
+  calendarUniverseItems,
+  weekGoalUniverseItems,
   openOverflowDate,
   onOpenOverflowChange,
 }: {
   controller: WorkbenchController;
   week: MonthlyPlannerWeekModel;
+  calendarUniverseItems: WorkspaceItemModel[];
+  weekGoalUniverseItems: WorkspaceItemModel[];
   openOverflowDate: string | null;
   onOpenOverflowChange: (date: string | null) => void;
 }) {
@@ -371,7 +494,14 @@ function MonthlyPlannerWeekRow({
     <section className="monthly-week-row" role="row" data-testid="monthly-week-row">
       <div className="monthly-week-days">
         {week.days.map((day) => {
-          const dayItems = sortPlannerItems(day.items, plannerSortRules(controller));
+          const dayGroups = applyPlannerTableSettings(
+            day.items,
+            "monthly.calendar",
+            controller,
+            controller.workspaceItems.relatedItems,
+            controller.planner.date,
+            calendarUniverseItems,
+          );
 
           return (
             <section
@@ -386,7 +516,7 @@ function MonthlyPlannerWeekRow({
               <MonthlyDayItems
                 controller={controller}
                 date={day.date}
-                items={dayItems}
+                groups={dayGroups}
                 open={openOverflowDate === day.date}
                 onOpenChange={onOpenOverflowChange}
               />
@@ -397,6 +527,8 @@ function MonthlyPlannerWeekRow({
       <aside className="monthly-week-goal-rail" data-testid="monthly-week-goal-rail">
         <PeriodGoalBucketCard
           controller={controller}
+          tableId="monthly.week-goals"
+          groupUniverseItems={weekGoalUniverseItems}
           bucket={week}
           testId="monthly-week-card"
         />
@@ -408,18 +540,25 @@ function MonthlyPlannerWeekRow({
 function MonthlyDayItems({
   controller,
   date,
-  items,
+  groups,
   open,
   onOpenChange,
 }: {
   controller: WorkbenchController;
   date: string;
-  items: WorkspaceItemModel[];
+  groups: DailyPlannerSection["groups"];
   open: boolean;
   onOpenChange: (date: string | null) => void;
 }) {
-  const visibleItems = items.slice(0, 2);
-  const hiddenCount = items.length - visibleItems.length;
+  const entries = groups.flatMap((group) =>
+    group.items.map((item, index) => ({
+      groupKey: group.key,
+      groupLabel: group.label !== "All" && index === 0 ? group.label : null,
+      item,
+    })),
+  );
+  const visibleEntries = entries.slice(0, 2);
+  const hiddenCount = entries.length - visibleEntries.length;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties | null>(null);
@@ -495,14 +634,15 @@ function MonthlyDayItems({
     };
   }, [onOpenChange, open]);
 
-  if (items.length === 0) {
+  if (entries.length === 0) {
     return <p className="items-message monthly-day-empty">No items.</p>;
   }
 
   return (
     <ul className="monthly-day-item-list">
-      {visibleItems.map((item) => (
-        <li key={item.id}>
+      {visibleEntries.map(({ groupKey, groupLabel, item }) => (
+        <li key={`${groupKey}-${item.id}`}>
+          {groupLabel ? <h4 className="monthly-day-group-heading">{groupLabel}</h4> : null}
           <PlannerItemRow controller={controller} item={item} compact />
         </li>
       ))}
@@ -532,8 +672,9 @@ function MonthlyDayItems({
             >
               <h3>{date}</h3>
               <ul className="monthly-day-popover-list">
-                {items.map((item) => (
-                  <li key={item.id}>
+                {entries.map(({ groupKey, groupLabel, item }) => (
+                  <li key={`${groupKey}-${item.id}`}>
+                    {groupLabel ? <h4 className="monthly-day-group-heading">{groupLabel}</h4> : null}
                     <PlannerItemRow controller={controller} item={item} compact />
                   </li>
                 ))}
@@ -548,12 +689,16 @@ function MonthlyDayItems({
 
 function PeriodGoalCarousel({
   controller,
+  tableId,
+  groupUniverseItems,
   ariaLabel,
   previousLabel,
   nextLabel,
   cards,
 }: {
   controller: WorkbenchController;
+  tableId: PlannerTableId;
+  groupUniverseItems: WorkspaceItemModel[];
   ariaLabel: string;
   previousLabel: string;
   nextLabel: string;
@@ -573,7 +718,13 @@ function PeriodGoalCarousel({
         {cards.map((card) => (
           <article className="period-carousel-card" data-position={card.position} key={card.key}>
             <div className="period-card-kicker">{card.label}</div>
-            <GoalGroupContent controller={controller} goals={card.goals} emptyText="No goals found." />
+            <GoalGroupContent
+              controller={controller}
+              tableId={tableId}
+              groupUniverseItems={groupUniverseItems}
+              goals={card.goals}
+              emptyText="No goals found."
+            />
           </article>
         ))}
       </div>
@@ -591,10 +742,14 @@ function PeriodGoalCarousel({
 
 function PeriodGoalBucketCard({
   controller,
+  tableId,
+  groupUniverseItems,
   bucket,
   testId,
 }: {
   controller: WorkbenchController;
+  tableId: PlannerTableId;
+  groupUniverseItems: WorkspaceItemModel[];
   bucket: PeriodGoalBucketModel;
   testId: string;
 }) {
@@ -605,26 +760,37 @@ function PeriodGoalBucketCard({
       data-testid={testId}
     >
       <h3>{bucket.label}</h3>
-      <GoalGroupContent controller={controller} goals={bucket.goals} emptyText="No goals found." />
+      <GoalGroupContent
+        controller={controller}
+        tableId={tableId}
+        groupUniverseItems={groupUniverseItems}
+        goals={bucket.goals}
+        emptyText="No goals found."
+      />
     </section>
   );
 }
 
 function GoalGroupContent({
   controller,
+  tableId,
+  groupUniverseItems,
   goals,
   emptyText,
 }: {
   controller: WorkbenchController;
+  tableId: PlannerTableId;
+  groupUniverseItems: WorkspaceItemModel[];
   goals: WorkspaceItemModel[];
   emptyText: string;
 }) {
-  const sortedGoals = sortPlannerItems(goals, plannerSortRules(controller));
-  const groupedGoals = groupPlannerItems(
-    sortedGoals,
+  const groupedGoals = applyPlannerTableSettings(
+    goals,
+    tableId,
+    controller,
     controller.workspaceItems.relatedItems,
-    plannerGroupSettings(controller),
-    plannerGroupCandidates(controller, sortedGoals),
+    controller.planner.date,
+    groupUniverseItems,
   );
 
   return <>{renderPlannerGroups(controller, groupedGoals, emptyText)}</>;
@@ -2029,23 +2195,6 @@ function buildDailyFilterOptions(
   return filterOptionsForItems(dailyItems, relatedItems);
 }
 
-function buildPlannerFilterOptions(
-  controller: WorkbenchController,
-): PlannerFilterOptions {
-  if (controller.panel.id === "daily") {
-    const daily = buildDailyFilterOptions(controller);
-    return { tags: daily.tags, daily };
-  }
-
-  const daily = filterOptionsForItems(
-    controller.workspaceItems.items.filter((item) =>
-      isVisiblePlannerFilterItem(controller.panel.id, item, controller.planner),
-    ),
-    controller.workspaceItems.relatedItems,
-  );
-  return { tags: daily.tags, daily };
-}
-
 type PlannerFilterOptionSet = ReturnType<typeof buildDailyFilterOptions>;
 
 function filterOptionsForItems(
@@ -2069,10 +2218,6 @@ function filterOptionsForItems(
       items.flatMap((item) => item.metadata_?.participants ?? []),
     ),
   };
-}
-
-function plannerSortRules(controller: WorkbenchController): PlannerSortRule[] {
-  return controller.plannerTableSettings(primaryPlannerTableId(controller)).sortRules;
 }
 
 function setPlannerTableSortRules(
@@ -2117,35 +2262,6 @@ function plannerSortFieldOptions(
     seen.add(field.value);
     return true;
   });
-}
-
-function plannerGroupSettings(controller: WorkbenchController): PlannerGroupSettings {
-  const tableId = primaryPlannerTableId(controller);
-  const settings = controller.plannerTableSettings(tableId).groupSettings;
-  return {
-    ...settings,
-    groupBy: effectivePlannerTableGroupValue(tableId, settings.groupBy),
-  };
-}
-
-function plannerGroupCandidates(
-  controller: WorkbenchController,
-  items: WorkspaceItemModel[],
-): PlannerGroupCandidate[] {
-  const tableId = primaryPlannerTableId(controller);
-  return plannerTableGroupCandidates(
-    tableId,
-    controller.plannerTableSettings(tableId).groupSettings,
-    items,
-    controller.workspaceItems.relatedItems,
-  );
-}
-
-function primaryPlannerTableId(controller: WorkbenchController): PlannerTableId {
-  if (controller.panel.id === "daily") return "daily.today";
-  if (controller.panel.id === "weekly") return "weekly.day-grid";
-  if (controller.panel.id === "monthly") return "monthly.period-goals";
-  return "yearly.period-goals";
 }
 
 function plannerGroupOptionsForTable(
@@ -2201,19 +2317,6 @@ function plannerGroupOptions(
 
 function isDailyPlannerItem(item: WorkspaceItemModel): boolean {
   return item.type === "task" || item.type === "event" || item.type === "routine";
-}
-
-function filteredPlannerItems(controller: WorkbenchController): WorkspaceItemModel[] {
-  const tableId = primaryPlannerTableId(controller);
-  const filterOptions = buildPlannerFilterOptions(controller);
-  const settings = controller.plannerTableSettings(tableId);
-  return filterPlannerItemsByRules(
-    controller.workspaceItems.items,
-    controller.workspaceItems.relatedItems,
-    effectivePlannerTableFilterRules(controller, tableId, filterOptions),
-    settings.filterMode,
-    controller.planner.date,
-  );
 }
 
 function effectivePlannerTableFilterRules(
@@ -2310,54 +2413,6 @@ function applyPlannerTableSettings(
   );
 }
 
-function isVisiblePlannerFilterItem(
-  panelId: WorkbenchController["panel"]["id"],
-  item: WorkspaceItemModel,
-  planner: WorkbenchController["planner"],
-): boolean {
-  if (isTerminalPlannerItem(item)) {
-    return false;
-  }
-  if (panelId === "yearly") {
-    return (
-      item.type === "goal" &&
-      (item.horizon === "year" || item.horizon === "month") &&
-      goalMatchesPlannerPeriod(item, "year", planner.date)
-    );
-  }
-  if (panelId === "monthly") {
-    return (
-      (item.type === "goal" &&
-        ((item.horizon === "month" &&
-          goalMatchesPlannerPeriod(item, "month", planner.date)) ||
-          (item.horizon === "week" &&
-            weekGoalIntersectsPlannerMonth(item, planner.date)))) ||
-      (isDailyPlannerItem(item) && itemScheduledInPlannerMonthCalendar(item, planner.date))
-    );
-  }
-  if (panelId === "weekly") {
-    const scheduled = item.scheduled?.slice(0, 10);
-    const weekDates = Array.from({ length: 7 }, (_, offset) =>
-      addDays(planner.weekStart, offset),
-    );
-    return (
-      (item.type === "goal" &&
-        ((item.horizon === "month" &&
-          scheduled?.startsWith(planner.weekStart.slice(0, 7))) ||
-          (item.horizon === "week" &&
-            scheduled != null &&
-            weekDates.includes(scheduled)))) ||
-      (isDailyPlannerItem(item) &&
-        scheduled != null &&
-        weekDates.includes(scheduled))
-    );
-  }
-  if (panelId === "daily") {
-    return isDailyPlannerItem(item);
-  }
-  return true;
-}
-
 function isTerminalPlannerItem(item: WorkspaceItemModel): boolean {
   return (
     item.status === "completed" ||
@@ -2365,59 +2420,6 @@ function isTerminalPlannerItem(item: WorkspaceItemModel): boolean {
     item.status === "dropped" ||
     item.status === "cancelled"
   );
-}
-
-function goalMatchesPlannerPeriod(
-  item: WorkspaceItemModel,
-  horizon: "year" | "month",
-  plannerDate: string,
-): boolean {
-  const scheduled = item.scheduled?.slice(0, 10);
-  if (!scheduled) {
-    return false;
-  }
-  if (horizon === "year") {
-    return scheduled.slice(0, 4) === plannerDate.slice(0, 4);
-  }
-  return scheduled.slice(0, 7) === plannerDate.slice(0, 7);
-}
-
-function weekGoalIntersectsPlannerMonth(item: WorkspaceItemModel, plannerDate: string): boolean {
-  const scheduled = item.scheduled?.slice(0, 10);
-  if (!scheduled) {
-    return false;
-  }
-  const plannerMonth = plannerDate.slice(0, 7);
-  return scheduled.slice(0, 7) === plannerMonth || addDays(scheduled, 6).slice(0, 7) === plannerMonth;
-}
-
-function itemScheduledInPlannerMonthCalendar(
-  item: WorkspaceItemModel,
-  plannerDate: string,
-): boolean {
-  const scheduled = item.scheduled?.slice(0, 10);
-  if (!scheduled) {
-    return false;
-  }
-  const selectedMonth = `${plannerDate.slice(0, 7)}-01`;
-  const firstWeekStart = weekStartForPlannerDate(selectedMonth);
-  const monthEnd = plannerMonthEnd(selectedMonth);
-  const lastWeekEnd = addDays(weekStartForPlannerDate(monthEnd), 6);
-  return scheduled >= firstWeekStart && scheduled <= lastWeekEnd;
-}
-
-function weekStartForPlannerDate(date: string): string {
-  const value = new Date(`${date}T00:00:00`);
-  const day = value.getDay();
-  value.setDate(value.getDate() + (day === 0 ? -6 : 1 - day));
-  return formatDateForPlanner(value);
-}
-
-function plannerMonthEnd(monthStart: string): string {
-  const value = new Date(`${monthStart}T00:00:00`);
-  value.setMonth(value.getMonth() + 1);
-  value.setDate(0);
-  return formatDateForPlanner(value);
 }
 
 function addDays(date: string, days: number): string {
