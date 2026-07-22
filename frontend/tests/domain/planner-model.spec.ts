@@ -258,6 +258,26 @@ describe("planner model", () => {
     expect(second.groupSettings.hiddenGroupKeys).toEqual(["area-2"]);
   });
 
+  it("uses table defaults for partial persisted settings instead of legacy filter mode", () => {
+    const legacy = legacyPlannerControls();
+    legacy.filterMode = "or";
+
+    const partial = normalizePlannerTableSettings("daily.today", {
+      filterRules: [{ id: "invalid", field: "unknown" }],
+    }, legacy);
+    const neighboring = normalizePlannerTableSettings("daily.overdue", {
+      filterMode: "or",
+      filterRules: [{ id: "title", field: "title", type: "text", operator: "contains", value: "plan" }],
+    }, legacy);
+
+    expect(partial.filterMode).toBe("and");
+    expect(partial.filterRules).toEqual([]);
+    expect(neighboring.filterMode).toBe("or");
+    expect(neighboring.filterRules).toEqual([
+      { id: "title", field: "title", type: "text", operator: "contains", value: "plan" },
+    ]);
+  });
+
   it("falls back only the malformed persisted table settings", () => {
     const legacy = legacyPlannerControls();
     const malformed = normalizePlannerTableSettings("daily.today", {

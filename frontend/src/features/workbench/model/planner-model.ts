@@ -169,7 +169,9 @@ export function normalizePlannerTableSettings(
   const legacySettings = legacySettingsForTable(tableId, legacy);
 
   return {
-    filterMode: normalizeFilterMode(value?.filterMode ?? legacy.filterMode, defaults.filterMode),
+    filterMode: value
+      ? normalizeFilterMode(value.filterMode, defaults.filterMode)
+      : normalizeFilterMode(legacy.filterMode, defaults.filterMode),
     filterRules: normalizeFilterRules(value ? value.filterRules : legacy.filterRules),
     sortRules: normalizePlannerSortRules(
       value ? value.sortRules : legacySettings.sortRules,
