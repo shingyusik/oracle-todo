@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
+import type { PlannerCreationContext } from "@/features/workbench/model/workbench-model";
 
 function formatDate(date: Date): string {
   const year = date.getFullYear();
@@ -901,6 +902,235 @@ describe("useWorkbenchController", () => {
       horizon: "week",
       scheduled: weekStart,
     });
+  });
+
+  it("prefills a contextual planner request from deterministic table filters", async () => {
+    const scheduled = "2026-07-20";
+    const requestBodies: unknown[] = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/events/propose") {
+        const body = JSON.parse(String(init?.body));
+        requestBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "event-contextual",
+            type: "event",
+            title: body.title,
+            status: "active",
+            ...body,
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const context = {
+      tableId: "daily.today",
+      itemTypes: ["task", "event"],
+      scheduled,
+      editableDate: false,
+      tableSettings: {
+        filterMode: "and",
+        filterRules: [
+          { id: "area", field: "area", type: "relation", operator: "is", value: ["area-1"] },
+          { id: "project", field: "project", type: "relation", operator: "is", value: ["project-1"] },
+          { id: "priority", field: "priority", type: "select", operator: "is", value: ["3"] },
+          { id: "tags", field: "tags", type: "multiSelect", operator: "contains", value: ["focus"] },
+        ],
+        sortRules: [],
+        groupSettings: {
+          groupBy: "none",
+          sort: "manual",
+          hideEmpty: true,
+          manualOrder: [],
+          hiddenGroupKeys: [],
+        },
+      },
+    } satisfies PlannerCreationContext;
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("planner");
+      result.current.selectTab("daily");
+    });
+    act(() => result.current.openPlannerCreationDialog(context));
+
+    expect(result.current.plannerCreationAnalysis).toEqual({
+      prefills: {
+        area_id: "area-1",
+        project_id: "project-1",
+        priority: 3,
+        tags: ["focus"],
+      },
+      visibilityWarning: false,
+    });
+    act(() => result.current.closeCreationDialog());
+    expect(result.current.plannerCreationContext).toBeNull();
+    expect(result.current.plannerCreationAnalysis).toEqual({
+      prefills: {},
+      visibilityWarning: false,
+    });
+    act(() => result.current.openPlannerCreationDialog(context));
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({ title: "Filtered event", itemType: "event" });
+    });
+
+    expect(requestBodies).toEqual([{
+      title: "Filtered event",
+      scheduled,
+      area: "area-1",
+      project_id: "project-1",
+      priority: 3,
+      tags: ["focus"],
+      actor: "user",
+    }]);
+  });
+
+  it("keeps user-entered contextual values instead of overwriting them with filter suggestions", async () => {
+    const requestBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/events/propose") {
+        const body = JSON.parse(String(init?.body));
+        requestBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "event-user", type: "event", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    const context = {
+      tableId: "daily.today",
+      itemTypes: ["task", "event"],
+      scheduled: "2026-07-20",
+      editableDate: false,
+      tableSettings: {
+        filterMode: "and",
+        filterRules: [
+          { id: "area", field: "area", type: "relation", operator: "is", value: ["area-filter"] },
+          { id: "project", field: "project", type: "relation", operator: "is", value: ["project-filter"] },
+          { id: "priority", field: "priority", type: "select", operator: "is", value: ["2"] },
+          { id: "tags", field: "tags", type: "multiSelect", operator: "contains", value: ["filter-tag"] },
+        ],
+        sortRules: [],
+        groupSettings: {
+          groupBy: "none",
+          sort: "manual",
+          hideEmpty: true,
+          manualOrder: [],
+          hiddenGroupKeys: [],
+        },
+      },
+    } satisfies PlannerCreationContext;
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("planner");
+      result.current.selectTab("daily");
+    });
+    act(() => result.current.openPlannerCreationDialog(context));
+    await act(async () => {
+      await result.current.createWorkspaceItem({
+        title: "Explicit event",
+        itemType: "event",
+        scheduled: "2026-07-22",
+        area_id: "area-user",
+        project_id: "project-user",
+        priority: 8,
+        tags: ["user-tag"],
+      });
+    });
+
+    expect(requestBodies).toEqual([{
+      title: "Explicit event",
+      scheduled: "2026-07-22",
+      area: "area-user",
+      project_id: "project-user",
+      priority: 8,
+      tags: ["user-tag"],
+      actor: "user",
+    }]);
+    expect(result.current.plannerCreationContext).toBeNull();
+  });
+
+  it("warns and discards all suggestions when contextual filters conflict", () => {
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => result.current.openPlannerCreationDialog({
+      tableId: "daily.today",
+      itemTypes: ["task", "event"],
+      scheduled: "2026-07-20",
+      editableDate: false,
+      tableSettings: {
+        filterMode: "and",
+        filterRules: [
+          { id: "area-1", field: "area", type: "relation", operator: "is", value: ["area-1"] },
+          { id: "area-2", field: "area", type: "relation", operator: "is", value: ["area-2"] },
+        ],
+        sortRules: [],
+        groupSettings: {
+          groupBy: "none",
+          sort: "manual",
+          hideEmpty: true,
+          manualOrder: [],
+          hiddenGroupKeys: [],
+        },
+      },
+    }));
+
+    expect(result.current.plannerCreationAnalysis).toEqual({
+      prefills: {},
+      visibilityWarning: true,
+    });
+  });
+
+  it("creates date-work items from the monthly calendar context", async () => {
+    const requestBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/tasks/propose") {
+        const body = JSON.parse(String(init?.body));
+        requestBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "task-month", type: "task", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => result.current.selectTab("planner"));
+    act(() => result.current.selectTab("monthly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    act(() => result.current.openPlannerCreationDialog({
+      tableId: "monthly.calendar",
+      itemTypes: ["task", "event"],
+      scheduled: "2026-07-01",
+      editableDate: true,
+      tableSettings: {
+        filterMode: "and",
+        filterRules: [],
+        sortRules: [],
+        groupSettings: {
+          groupBy: "none",
+          sort: "manual",
+          hideEmpty: true,
+          manualOrder: [],
+          hiddenGroupKeys: [],
+        },
+      },
+    }));
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({ title: "Monthly task" });
+    });
+    expect(requestBodies).toEqual([{
+      title: "Monthly task",
+      scheduled: "2026-07-01",
+      actor: "user",
+    }]);
   });
 
   it("moves yearly and monthly planner periods through canonical dates", async () => {

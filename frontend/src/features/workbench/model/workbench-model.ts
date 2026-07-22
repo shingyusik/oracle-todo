@@ -93,7 +93,31 @@ export type CreateWorkspaceItemForm = {
   recurrence_rule?: string;
   scheduled?: string;
   horizon?: string;
+  area_id?: string;
+  project_id?: string;
+  priority?: number;
   tags?: string[];
+};
+
+export type PlannerCreationItemType = "task" | "goal" | "event";
+
+export type PlannerCreationContext = {
+  tableId: PlannerTableId;
+  itemTypes: PlannerCreationItemType[];
+  scheduled: string;
+  horizon?: string;
+  editableDate: boolean;
+  tableSettings: PlannerTableSettings;
+};
+
+export type PlannerCreationPrefills = Pick<
+  CreateWorkspaceItemForm,
+  "area_id" | "project_id" | "priority" | "tags"
+>;
+
+export type PlannerCreationAnalysis = {
+  prefills: PlannerCreationPrefills;
+  visibilityWarning: boolean;
 };
 
 export type WorkspaceItemPatch = {
@@ -148,6 +172,8 @@ export type WorkbenchController = {
   selectedItemIds: string[];
   archiveConfirmationOpen: boolean;
   creationDialogOpen: boolean;
+  plannerCreationContext: PlannerCreationContext | null;
+  plannerCreationAnalysis: PlannerCreationAnalysis;
   detailItem: WorkspaceItemModel | null;
   selectTab: (tabId: WorkbenchTabId) => void;
   toggleWorkspaceExpansion: () => void;
@@ -160,6 +186,7 @@ export type WorkbenchController = {
   cancelArchiveSelected: () => void;
   confirmArchiveSelected: () => Promise<void>;
   openCreationDialog: () => void;
+  openPlannerCreationDialog: (context: PlannerCreationContext) => void;
   closeCreationDialog: () => void;
   createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
   openDetailView: (item: WorkspaceItemModel) => void;

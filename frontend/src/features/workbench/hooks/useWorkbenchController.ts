@@ -15,6 +15,8 @@ import {
   type CreateWorkspaceItemForm,
   type LegacyPlannerControls,
   type MaterializeRoutineTarget,
+  type PlannerCreationAnalysis,
+  type PlannerCreationContext,
   type PlannerControls,
   type WorkbenchController,
   type WorkspaceItemModel,
@@ -383,6 +385,79 @@ function replaceWorkspaceItem(
   return items.map((item) => (item.id === updated.id ? updated : item));
 }
 
+const emptyPlannerCreationAnalysis: PlannerCreationAnalysis = {
+  prefills: {},
+  visibilityWarning: false,
+};
+
+function analyzePlannerCreationContext(
+  context: PlannerCreationContext | null,
+): PlannerCreationAnalysis {
+  if (!context || context.tableSettings.filterRules.length === 0) {
+    return emptyPlannerCreationAnalysis;
+  }
+  if (context.tableSettings.filterMode !== "and") {
+    return { prefills: {}, visibilityWarning: true };
+  }
+
+  const prefills: PlannerCreationAnalysis["prefills"] = {};
+  const tags: string[] = [];
+  for (const rule of context.tableSettings.filterRules) {
+    const values = Array.isArray(rule.value) ? rule.value : [];
+    if (values.length !== 1 || values[0]?.trim() === "") {
+      return { prefills: {}, visibilityWarning: true };
+    }
+    const value = values[0];
+
+    if (rule.field === "area" && rule.type === "relation" && rule.operator === "is") {
+      if (prefills.area_id && prefills.area_id !== value) {
+        return { prefills: {}, visibilityWarning: true };
+      }
+      prefills.area_id = value;
+      continue;
+    }
+    if (
+      rule.field === "project" &&
+      rule.type === "relation" &&
+      rule.operator === "is"
+    ) {
+      if (prefills.project_id && prefills.project_id !== value) {
+        return { prefills: {}, visibilityWarning: true };
+      }
+      prefills.project_id = value;
+      continue;
+    }
+    if (
+      rule.field === "priority" &&
+      rule.type === "select" &&
+      rule.operator === "is"
+    ) {
+      const priority = Number(value);
+      if (
+        !Number.isInteger(priority) ||
+        (prefills.priority !== undefined && prefills.priority !== priority)
+      ) {
+        return { prefills: {}, visibilityWarning: true };
+      }
+      prefills.priority = priority;
+      continue;
+    }
+    if (
+      rule.field === "tags" &&
+      rule.type === "multiSelect" &&
+      (rule.operator === "is" || rule.operator === "contains")
+    ) {
+      if (!tags.includes(value)) tags.push(value);
+      continue;
+    }
+
+    return { prefills: {}, visibilityWarning: true };
+  }
+
+  if (tags.length > 0) prefills.tags = tags;
+  return { prefills, visibilityWarning: false };
+}
+
 export function useWorkbenchController(): WorkbenchController {
   const [selection, setSelection] = useState<WorkbenchSelection>(() =>
     resolveInitialSelection(),
@@ -395,6 +470,8 @@ export function useWorkbenchController(): WorkbenchController {
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
+  const [plannerCreationContext, setPlannerCreationContext] =
+    useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
   const plannerSettingsChanged = useRef(false);
@@ -408,6 +485,10 @@ export function useWorkbenchController(): WorkbenchController {
   const activePlanner = useMemo(
     () => withActivePlannerPeriod(planner, selection.leafTabId),
     [planner, selection.leafTabId],
+  );
+  const plannerCreationAnalysis = useMemo(
+    () => analyzePlannerCreationContext(plannerCreationContext),
+    [plannerCreationContext],
   );
 
   useEffect(() => {
@@ -431,6 +512,7 @@ export function useWorkbenchController(): WorkbenchController {
     setSelectedItemIds([]);
     setArchiveConfirmationOpen(false);
     setCreationDialogOpen(false);
+    setPlannerCreationContext(null);
     setDetailItem(null);
   }, [selection.leafTabId]);
 
@@ -454,14 +536,19 @@ export function useWorkbenchController(): WorkbenchController {
         if (!cancelled) {
           const allItems = responses[responses.length - 1] ?? [];
           const typedResponses = responses.slice(0, -1);
-          const plannerItems = plannerTypes ? typedResponses.flat() : null;
+          const plannerRelatedItems = plannerTypes ? typedResponses.flat() : null;
+          const plannerItems = plannerRelatedItems
+            ? plannerRelatedItems.filter((item) =>
+                item.type === "goal" || item.type === "task" || item.type === "event",
+              )
+            : null;
           const [items, ...relatedItems] = typedResponses;
           setWorkspaceItems({
             status: "loaded",
             items: plannerItems ?? items,
             tagOptions: collectTagOptions(allItems),
             relatedItems: buildRelatedItems(
-              plannerItems ?? relatedItems.flat(),
+              plannerRelatedItems ?? relatedItems.flat(),
             ),
           });
         }
@@ -485,6 +572,8 @@ export function useWorkbenchController(): WorkbenchController {
     selectedItemIds,
     archiveConfirmationOpen,
     creationDialogOpen,
+    plannerCreationContext,
+    plannerCreationAnalysis,
     detailItem,
     selectTab: (tabId: WorkbenchTabId) =>
       setSelection((currentSelection) => {
@@ -551,13 +640,32 @@ export function useWorkbenchController(): WorkbenchController {
       setSelectedItemIds(failedIds);
       setArchiveConfirmationOpen(false);
     },
-    openCreationDialog: () => setCreationDialogOpen(true),
-    closeCreationDialog: () => setCreationDialogOpen(false),
+    openCreationDialog: () => {
+      setPlannerCreationContext(null);
+      setCreationDialogOpen(true);
+    },
+    openPlannerCreationDialog: (context) => {
+      setPlannerCreationContext(context);
+      setCreationDialogOpen(true);
+    },
+    closeCreationDialog: () => {
+      setCreationDialogOpen(false);
+      setPlannerCreationContext(null);
+    },
     createWorkspaceItem: async (form) => {
+      const contextualForm = plannerCreationContext
+        ? {
+            itemType: plannerCreationContext.itemTypes[0],
+            scheduled: plannerCreationContext.scheduled,
+            horizon: plannerCreationContext.horizon,
+            ...plannerCreationAnalysis.prefills,
+            ...form,
+          }
+        : form;
       const item = await createItemRequest(
         selection.leafTabId,
         activePlanner,
-        form,
+        contextualForm,
       );
       setWorkspaceItems((current) => ({
         ...current,
@@ -565,6 +673,7 @@ export function useWorkbenchController(): WorkbenchController {
       }));
       setDetailItem(item);
       setCreationDialogOpen(false);
+      setPlannerCreationContext(null);
     },
     openDetailView: (item) => setDetailItem(item),
     patchWorkspaceItem: async (itemId, patch) => {
@@ -833,14 +942,19 @@ function createItemRequest(
       title,
       horizon: goalDefaults.horizon,
       scheduled: goalDefaults.scheduled,
+      tags: form.tags,
       actor: "user",
     });
   }
-  if (panelId === "weekly" || panelId === "daily") {
+  if (panelId === "weekly" || panelId === "daily" || panelId === "monthly") {
     if (plannerType === "task") {
       return postJson("/todo-engine/tasks/propose", {
         title,
-        scheduled: form.scheduled || planner.date,
+        scheduled: form.scheduled === undefined ? planner.date : form.scheduled || undefined,
+        area: form.area_id,
+        project_id: form.project_id,
+        priority: form.priority,
+        tags: form.tags,
         actor: "user",
       });
     }
@@ -848,15 +962,11 @@ function createItemRequest(
       return postJson("/todo-engine/events/propose", {
         title,
         scheduled: form.scheduled || planner.date,
+        area: form.area_id,
+        project_id: form.project_id,
+        priority: form.priority,
+        tags: form.tags,
         actor: "user",
-      });
-    }
-    if (plannerType === "routine") {
-      return postJson("/todo-engine/routines/propose", {
-        title,
-        actor: "user",
-        materialization_policy: "single_open",
-        recurrence_rule: form.recurrence_rule,
       });
     }
   }
@@ -868,11 +978,14 @@ function plannerCreationType(
   panelId: LeafTabId,
   form: CreateWorkspaceItemForm,
 ): CreateWorkspaceItemForm["itemType"] {
+  if (form.itemType) {
+    return form.itemType;
+  }
   if (panelId === "daily") {
-    return form.itemType ?? "task";
+    return "task";
   }
   if (panelId === "weekly") {
-    return form.itemType ?? "goal";
+    return "goal";
   }
   if (panelId === "yearly" || panelId === "monthly") {
     return "goal";

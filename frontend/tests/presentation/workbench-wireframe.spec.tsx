@@ -782,7 +782,6 @@ describe("WorkbenchPageClient", () => {
   it("defaults weekly planner goal creation to the active week anchor and shows it", async () => {
     const user = userEvent.setup();
     const weekStart = testWeekStart(testToday());
-    const monthStart = testMonthStart(testToday());
     const responses: Record<string, unknown[]> = {
       "/todo-engine/items?type=goal": [],
       "/todo-engine/items?type=task": [],
@@ -798,8 +797,8 @@ describe("WorkbenchPageClient", () => {
             method: "POST",
             body: JSON.stringify({
               title: "Anchored weekly goal",
-              horizon: "month",
-              scheduled: monthStart,
+              horizon: "week",
+              scheduled: weekStart,
               actor: "user",
             }),
           }),
@@ -812,8 +811,8 @@ describe("WorkbenchPageClient", () => {
             type: "goal",
             title: "Anchored weekly goal",
             status: "active",
-            horizon: "month",
-            scheduled: monthStart,
+            horizon: "week",
+            scheduled: weekStart,
           }),
         });
       }
@@ -832,19 +831,10 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     await user.click(screen.getByRole("button", { name: "Add to Week Goals" }));
 
-    const trigger = screen.getByRole("button", { name: "Period" });
-    expect(trigger).toHaveTextContent("Week");
-
-    await user.click(trigger);
-    const picker = screen.getByRole("dialog", { name: "Period" });
-    expect(
-      within(picker).getByText(`${weekStart} to ${testAddDays(weekStart, 6)}`),
-    ).toBeInTheDocument();
-    await user.click(within(picker).getByRole("button", { name: "Month" }));
-    expect(
-      within(picker).getByText(`${monthStart} to ${testMonthEnd(testToday())}`),
-    ).toBeInTheDocument();
-    await user.click(within(picker).getByRole("button", { name: "July 2026" }));
+    const period = screen.getByRole("group", { name: "Period" });
+    expect(period).toHaveTextContent("Week");
+    expect(period).toHaveTextContent(`${weekStart} to ${testAddDays(weekStart, 6)}`);
+    expect(within(period).queryByRole("button", { name: "Period" })).toBeNull();
 
     await user.type(screen.getByLabelText("Title"), "Anchored weekly goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -909,13 +899,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Add to Year Goals" }));
 
-    const yearlyTrigger = screen.getByRole("button", { name: "Period" });
-    expect(yearlyTrigger).toHaveTextContent("Year");
-    await user.click(yearlyTrigger);
-    expect(
-      within(screen.getByRole("dialog", { name: "Period" })).getByLabelText("Goal year"),
-    ).toHaveValue(yearStart.slice(0, 4));
-    await user.keyboard("{Escape}");
+    const yearlyPeriod = screen.getByRole("group", { name: "Period" });
+    expect(yearlyPeriod).toHaveTextContent("Year");
+    expect(yearlyPeriod).toHaveTextContent(
+      `${yearStart} to ${yearStart.slice(0, 4)}-12-31`,
+    );
 
     await user.type(screen.getByLabelText("Title"), "Year anchor goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -931,7 +919,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     await user.click(screen.getByRole("button", { name: "Add to Month Goals" }));
 
-    expect(screen.getByRole("button", { name: "Period" })).toHaveTextContent("Month");
+    expect(screen.getByRole("group", { name: "Period" })).toHaveTextContent("Month");
 
     await user.type(screen.getByLabelText("Title"), "Month anchor goal");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -1263,6 +1251,263 @@ describe("WorkbenchPageClient", () => {
     expect(within(type).queryByRole("option", { name: "Routine" })).toBeNull();
     expect(within(type).queryByRole("option", { name: "Event" })).toBeNull();
     expect(screen.queryByLabelText("Scheduled")).toBeNull();
+  });
+
+  it("uses each date-work table anchor and never renders Routine in Planner creation or date rows", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const weekStart = testWeekStart(today);
+    const monthStart = testMonthStart(today);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=routine"
+          ? [{
+              id: "routine-related",
+              type: "routine",
+              title: "Related routine metadata",
+              status: "active",
+              scheduled: today,
+              recurrence_rule: "RRULE:FREQ=DAILY",
+            }]
+          : [],
+      })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    expect(await screen.findByLabelText("Daily planner")).toBeInTheDocument();
+    expect(screen.queryByText("Related routine metadata")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+    expect(screen.getByLabelText("Scheduled")).toHaveValue(today);
+    expect(screen.getByLabelText("Scheduled")).toHaveAttribute("readonly");
+    expect(within(screen.getByLabelText("Type")).queryByRole("option", { name: "Routine" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByRole("button", { name: "Add to Before" }));
+    expect(screen.getByLabelText("Scheduled")).toHaveValue(testAddDays(today, -1));
+    expect(screen.getByLabelText("Scheduled")).toHaveAttribute("readonly");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByRole("button", { name: "Add to Unscheduled" }));
+    expect(within(screen.getByLabelText("Type")).getAllByRole("option").map((option) => option.textContent)).toEqual(["Task"]);
+    expect(screen.queryByLabelText("Scheduled")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    await user.click(screen.getByRole("button", { name: "Add to Weekday grid" }));
+    expect(screen.getByLabelText("Scheduled")).toHaveValue(weekStart);
+    expect(screen.getByLabelText("Scheduled")).not.toHaveAttribute("readonly");
+    expect(within(screen.getByLabelText("Type")).queryByRole("option", { name: "Routine" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    await user.click(screen.getByRole("button", { name: "Add to Calendar" }));
+    expect(screen.getByLabelText("Scheduled")).toHaveValue(monthStart);
+    expect(screen.getByLabelText("Scheduled")).not.toHaveAttribute("readonly");
+    expect(within(screen.getByLabelText("Type")).queryByRole("option", { name: "Routine" })).toBeNull();
+  });
+
+  it("constrains all goal-table creation to Goal and the approved period anchor", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const weekStart = testWeekStart(today);
+    const monthStart = testMonthStart(today);
+    const yearStart = testYearStart(today);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+
+    async function expectFixedGoalContext(buttonName: string, horizon: string, range: string) {
+      await user.click(screen.getByRole("button", { name: buttonName }));
+      expect(within(screen.getByLabelText("Type")).getAllByRole("option").map((option) => option.textContent)).toEqual(["Goal"]);
+      const period = screen.getByRole("group", { name: "Period" });
+      expect(period).toHaveTextContent(horizon);
+      expect(period).toHaveTextContent(range);
+      expect(within(period).queryByRole("button", { name: "Period" })).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+    }
+
+    async function expectEditableGoalContext(buttonName: string, horizon: string, range: string) {
+      await user.click(screen.getByRole("button", { name: buttonName }));
+      expect(within(screen.getByLabelText("Type")).getAllByRole("option").map((option) => option.textContent)).toEqual(["Goal"]);
+      const trigger = screen.getByRole("button", { name: "Period" });
+      expect(trigger).toHaveTextContent(horizon);
+      await user.click(trigger);
+      const picker = screen.getByRole("dialog", { name: "Period" });
+      expect(within(picker).getByText(range)).toBeInTheDocument();
+      expect(within(picker).queryByRole("button", { name: /^(Year|Month|Week)$/ })).toBeNull();
+      await user.keyboard("{Escape}");
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+    }
+
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    await expectFixedGoalContext(
+      "Add to Month Goals",
+      "Month",
+      `${monthStart} to ${testMonthEnd(today)}`,
+    );
+    await expectFixedGoalContext(
+      "Add to Week Goals",
+      "Week",
+      `${weekStart} to ${testAddDays(weekStart, 6)}`,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    await expectFixedGoalContext(
+      "Add to Month Goals",
+      "Month",
+      `${monthStart} to ${testMonthEnd(today)}`,
+    );
+    await expectEditableGoalContext(
+      "Add to Week Goals",
+      "Week",
+      `${testWeekStart(monthStart)} to ${testAddDays(testWeekStart(monthStart), 6)}`,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Yearly" }));
+    await expectFixedGoalContext(
+      "Add to Year Goals",
+      "Year",
+      `${yearStart} to ${yearStart.slice(0, 4)}-12-31`,
+    );
+    await expectEditableGoalContext(
+      "Add to Month Goals",
+      "Month",
+      `${yearStart} to ${yearStart.slice(0, 4)}-01-31`,
+    );
+  });
+
+  it("prefills deterministic planner filters and warns without forcing nondeterministic filters", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const deterministicSettings = {
+      filterMode: "and",
+      filterRules: [
+        { id: "area", field: "area", type: "relation", operator: "is", value: ["area-1"] },
+        { id: "project", field: "project", type: "relation", operator: "is", value: ["project-1"] },
+        { id: "priority", field: "priority", type: "select", operator: "is", value: ["4"] },
+        { id: "tag", field: "tags", type: "multiSelect", operator: "contains", value: ["focus"] },
+      ],
+      sortRules: [],
+      groupSettings: {
+        groupBy: "none",
+        sort: "manual",
+        hideEmpty: true,
+        manualOrder: [],
+        hiddenGroupKeys: [],
+      },
+    };
+    const eventBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/settings/planner") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tableSettings: { "daily.today": deterministicSettings } }),
+        });
+      }
+      if (url === "/todo-engine/events/propose") {
+        const body = JSON.parse(String(init?.body));
+        eventBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "event-filtered", type: "event", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await screen.findByText("4 rules");
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+
+    expect(screen.queryByText(/may not appear in the current table/i)).toBeNull();
+    await user.selectOptions(screen.getByLabelText("Type"), "event");
+    await user.type(screen.getByLabelText("Title"), "Filtered event");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(eventBodies).toEqual([{
+      title: "Filtered event",
+      scheduled: today,
+      area: "area-1",
+      project_id: "project-1",
+      priority: 4,
+      tags: ["focus"],
+      actor: "user",
+    }]);
+  });
+
+  it.each([
+    ["or", [{ id: "area", field: "area", type: "relation", operator: "is", value: ["area-1"] }]],
+    ["and", [{ id: "title", field: "title", type: "text", operator: "contains", value: "focus" }]],
+    ["and", [{ id: "scheduled", field: "scheduled", type: "date", operator: "is_after", value: testToday() }]],
+    ["and", [{ id: "tags", field: "tags", type: "multiSelect", operator: "contains", value: ["focus", "ops"] }]],
+  ] as const)("warns for %s nondeterministic contextual filters", async (filterMode, filterRules) => {
+    const user = userEvent.setup();
+    const taskBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/settings/planner") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            tableSettings: {
+              "daily.today": {
+                filterMode,
+                filterRules,
+                sortRules: [],
+                groupSettings: {
+                  groupBy: "none",
+                  sort: "manual",
+                  hideEmpty: true,
+                  manualOrder: [],
+                  hiddenGroupKeys: [],
+                },
+              },
+            },
+          }),
+        });
+      }
+      if (url === "/todo-engine/tasks/propose") {
+        const body = JSON.parse(String(init?.body));
+        taskBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "task-warning", type: "task", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await screen.findByText("1 rules");
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+
+    expect(screen.getByText(/may not appear in the current table/i)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Title"), "Warning task");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(taskBodies).toEqual([{
+      title: "Warning task",
+      scheduled: testToday(),
+      actor: "user",
+    }]);
   });
 
   it("completes a daily planner task without opening its detail from the checkbox", async () => {

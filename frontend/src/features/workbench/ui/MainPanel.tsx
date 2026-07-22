@@ -49,7 +49,10 @@ import {
 import {
   DEFAULT_FUTURE_OCCURRENCES,
   MAX_FUTURE_OCCURRENCES,
+  type CreateWorkspaceItemForm,
   type MaterializeRoutineTarget,
+  type PlannerCreationContext,
+  type PlannerCreationItemType,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemsModel,
@@ -64,15 +67,7 @@ type MainPanelProps = {
 
 type PlannerDropdownKind = "filter" | "sort" | "group";
 
-type PlannerCreationItemType = "task" | "goal" | "routine" | "event";
-
-type PlannerCreationContext = {
-  tableId: PlannerTableId;
-  itemTypes: PlannerCreationItemType[];
-  scheduled: string;
-  horizon?: string;
-  editableDate: boolean;
-};
+type PlannerCreationSourceContext = Omit<PlannerCreationContext, "tableSettings">;
 
 type ItemColumn = {
   label: string;
@@ -235,7 +230,6 @@ function isPlannerPanel(leafTabId: LeafTabId): boolean {
 
 function PlannerPanel({ controller }: MainPanelProps) {
   const { panel, workspaceItems } = controller;
-  const [creationContext, setCreationContext] = React.useState<PlannerCreationContext | null>(null);
 
   if (workspaceItems.status === "idle") {
     return null;
@@ -268,33 +262,27 @@ function PlannerPanel({ controller }: MainPanelProps) {
     >
       <PlannerControlToolbar controller={controller} />
       {panel.id === "weekly" ? (
-        <WeeklyPlanner controller={controller} onCreate={openPlannerCreation} />
+        <WeeklyPlanner controller={controller} />
       ) : null}
       {panel.id === "daily" ? (
-        <DailyPlanner controller={controller} onCreate={openPlannerCreation} />
+        <DailyPlanner controller={controller} />
       ) : null}
       {panel.id === "yearly" ? (
-        <YearlyPeriodPlanner controller={controller} onCreate={openPlannerCreation} />
+        <YearlyPeriodPlanner controller={controller} />
       ) : null}
       {panel.id === "monthly" ? (
-        <MonthlyPeriodPlanner controller={controller} onCreate={openPlannerCreation} />
+        <MonthlyPeriodPlanner controller={controller} />
       ) : null}
       {controller.creationDialogOpen ? (
-        <CreationDialog controller={controller} creationContext={creationContext} />
+        <CreationDialog controller={controller} />
       ) : null}
     </section>
   );
-
-  function openPlannerCreation(context: PlannerCreationContext) {
-    setCreationContext(context);
-    controller.openCreationDialog();
-  }
 }
 
 function YearlyPeriodPlanner({
   controller,
-  onCreate,
-}: MainPanelProps & { onCreate: (context: PlannerCreationContext) => void }) {
+}: MainPanelProps) {
   const model = buildYearlyPeriodGoalCardsModel(
     controller.workspaceItems.items,
     controller.planner.date,
@@ -318,7 +306,6 @@ function YearlyPeriodPlanner({
             horizon: "year",
             editableDate: false,
           }}
-          onCreate={onCreate}
         />
         <PeriodGoalCarousel
           controller={controller}
@@ -344,7 +331,6 @@ function YearlyPeriodPlanner({
             horizon: "month",
             editableDate: true,
           }}
-          onCreate={onCreate}
         />
         <div className="yearly-month-grid" aria-label="Month goals">
           {model.months.map((month) => (
@@ -365,8 +351,7 @@ function YearlyPeriodPlanner({
 
 function MonthlyPeriodPlanner({
   controller,
-  onCreate,
-}: MainPanelProps & { onCreate: (context: PlannerCreationContext) => void }) {
+}: MainPanelProps) {
   const model = buildMonthlyPeriodGoalCardsModel(
     controller.workspaceItems.items,
     controller.planner.date,
@@ -398,7 +383,6 @@ function MonthlyPeriodPlanner({
             horizon: "month",
             editableDate: false,
           }}
-          onCreate={onCreate}
         />
         <PeriodGoalCarousel
           controller={controller}
@@ -426,7 +410,6 @@ function MonthlyPeriodPlanner({
                 scheduled: model.selectedMonth,
                 editableDate: true,
               }}
-              onCreate={onCreate}
             />
           </section>
           <section className="planner-section" aria-label="Monthly week goal controls">
@@ -444,7 +427,6 @@ function MonthlyPeriodPlanner({
                 horizon: "week",
                 editableDate: true,
               }}
-              onCreate={onCreate}
             />
           </section>
         </div>
@@ -798,8 +780,7 @@ function GoalGroupContent({
 
 function WeeklyPlanner({
   controller,
-  onCreate,
-}: MainPanelProps & { onCreate: (context: PlannerCreationContext) => void }) {
+}: MainPanelProps) {
   const model = buildWeeklyPlannerModel(
     controller.workspaceItems.items,
     controller.planner.weekStart,
@@ -837,7 +818,6 @@ function WeeklyPlanner({
               horizon: "month",
               editableDate: false,
             }}
-            onCreate={onCreate}
           />
           {renderPlannerGroups(controller, monthGoalGroups, "No goals found.")}
         </section>
@@ -855,7 +835,6 @@ function WeeklyPlanner({
               horizon: "week",
               editableDate: false,
             }}
-            onCreate={onCreate}
           />
           {renderPlannerGroups(controller, weekGoalGroups, "No goals found.")}
         </section>
@@ -874,7 +853,6 @@ function WeeklyPlanner({
             scheduled: controller.planner.weekStart,
             editableDate: true,
           }}
-          onCreate={onCreate}
         />
         <div className="weekly-day-grid">
           {model.days.map((day) => {
@@ -906,8 +884,7 @@ function WeeklyPlanner({
 
 function DailyPlanner({
   controller,
-  onCreate,
-}: MainPanelProps & { onCreate: (context: PlannerCreationContext) => void }) {
+}: MainPanelProps) {
   const rawSections = buildDailyPlannerSections(
     controller.workspaceItems.items,
     controller.planner.date,
@@ -929,7 +906,6 @@ function DailyPlanner({
             scheduled: controller.planner.date,
             editableDate: false,
           }}
-          onCreate={onCreate}
         />
         <DailyPlannerSectionView
           controller={controller}
@@ -943,7 +919,6 @@ function DailyPlanner({
             scheduled: addLocalDays(controller.planner.date, -1),
             editableDate: false,
           }}
-          onCreate={onCreate}
         />
       </div>
       <DailyPlannerSectionView
@@ -958,7 +933,6 @@ function DailyPlanner({
           scheduled: "",
           editableDate: false,
         }}
-        onCreate={onCreate}
       />
     </div>
   );
@@ -1010,7 +984,6 @@ function PlannerTableHeader({
   rawItems,
   groupUniverseItems = rawItems,
   creationContext,
-  onCreate,
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
@@ -1018,8 +991,7 @@ function PlannerTableHeader({
   heading: string;
   rawItems: WorkspaceItemModel[];
   groupUniverseItems?: WorkspaceItemModel[];
-  creationContext: PlannerCreationContext;
-  onCreate: (context: PlannerCreationContext) => void;
+  creationContext: PlannerCreationSourceContext;
 }) {
   const [openDropdown, setOpenDropdown] = React.useState<PlannerDropdownKind | null>(null);
   const settings = controller.plannerTableSettings(tableId);
@@ -1112,7 +1084,12 @@ function PlannerTableHeader({
             className="items-toolbar-button"
             type="button"
             aria-label={`Add to ${title}`}
-            onClick={() => onCreate(creationContext)}
+            onClick={() =>
+              controller.openPlannerCreationDialog({
+                ...creationContext,
+                tableSettings: settings,
+              })
+            }
           >
             <Plus size={16} aria-hidden="true" />
           </button>
@@ -2491,15 +2468,13 @@ function DailyPlannerSectionView({
   title,
   rawItems,
   creationContext,
-  onCreate,
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
   controlTitle: string;
   title: string;
   rawItems: WorkspaceItemModel[];
-  creationContext: PlannerCreationContext;
-  onCreate: (context: PlannerCreationContext) => void;
+  creationContext: PlannerCreationSourceContext;
 }) {
   const groups = applyPlannerTableSettings(
     rawItems,
@@ -2518,7 +2493,6 @@ function DailyPlannerSectionView({
         heading={title}
         rawItems={rawItems}
         creationContext={creationContext}
-        onCreate={onCreate}
       />
       {renderPlannerGroups(controller, groups, "No items found.")}
     </section>
@@ -3375,6 +3349,8 @@ type GoalPeriodControlProps = {
   horizon: string | null | undefined;
   scheduled: string | null | undefined;
   onCommit: (period: { horizon: GoalHorizon; scheduled: string }) => void | Promise<void>;
+  editable?: boolean;
+  lockHorizon?: boolean;
 };
 
 type GoalPeriodCommitError = {
@@ -3389,6 +3365,8 @@ function GoalPeriodControl({
   horizon,
   scheduled,
   onCommit,
+  editable = true,
+  lockHorizon = false,
 }: GoalPeriodControlProps) {
   const safeHorizon = isGoalHorizon(horizon) ? horizon : "year";
   const safeScheduled =
@@ -3521,6 +3499,20 @@ function GoalPeriodControl({
     : "";
   const commitErrorMessage = goalPeriodCommitErrorMessage(commitError);
 
+  if (!editable) {
+    const range = goalPeriodRange(safeHorizon, safeScheduled);
+    return (
+      <div className="goal-period-control" role="group" aria-label={label}>
+        <span className="goal-period-trigger">
+          {goalPeriodTriggerLabel(safeHorizon, safeScheduled)}
+        </span>
+        <p className="goal-period-range">
+          {range.start} to {range.end}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={controlRef}
@@ -3559,18 +3551,20 @@ function GoalPeriodControl({
             aria-label={label}
             onClick={stopRowEvent}
           >
-            <div className="goal-period-types" aria-label="Period type">
-              {goalHorizons.map((horizonOption) => (
-                <button
-                  type="button"
-                  key={horizonOption}
-                  aria-pressed={candidateHorizon === horizonOption}
-                  onClick={() => setCandidateHorizon(horizonOption)}
-                >
-                  {capitalize(horizonOption)}
-                </button>
-              ))}
-            </div>
+            {!lockHorizon ? (
+              <div className="goal-period-types" aria-label="Period type">
+                {goalHorizons.map((horizonOption) => (
+                  <button
+                    type="button"
+                    key={horizonOption}
+                    aria-pressed={candidateHorizon === horizonOption}
+                    onClick={() => setCandidateHorizon(horizonOption)}
+                  >
+                    {capitalize(horizonOption)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             {candidateHorizon === "year" ? (
               <label className="field-label">
@@ -4516,18 +4510,16 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
   );
 }
 
-type CreationDialogProps = {
-  controller: WorkbenchController;
-  creationContext?: PlannerCreationContext | null;
-};
-
-function CreationDialog({ controller, creationContext = null }: CreationDialogProps) {
+function CreationDialog({ controller }: { controller: WorkbenchController }) {
+  const creationContext = controller.plannerCreationContext;
   const plannerScheduled = defaultCreationScheduled(controller, creationContext);
   const plannerHorizon = defaultCreationHorizon(controller, creationContext);
   const plannerItemType = defaultCreationItemType(controller, creationContext);
   const plannerTypeOptions = plannerCreationTypeOptions(controller, creationContext);
   const [title, setTitle] = React.useState("");
-  const [itemType, setItemType] = React.useState(plannerItemType);
+  const [itemType, setItemType] = React.useState<CreateWorkspaceItemForm["itemType"]>(
+    plannerItemType,
+  );
   const [scheduled, setScheduled] = React.useState(plannerScheduled);
   const [horizon, setHorizon] = React.useState(plannerHorizon);
   const [definitionOfDone, setDefinitionOfDone] = React.useState("");
@@ -4640,6 +4632,12 @@ function CreationDialog({ controller, creationContext = null }: CreationDialogPr
         onSubmit={handleSubmit}
       >
         <h2>Create {controller.panel.title} item</h2>
+        {controller.plannerCreationAnalysis.visibilityWarning ? (
+          <p className="items-message" role="alert">
+            This item may not appear in the current table because its filters cannot be
+            applied automatically.
+          </p>
+        ) : null}
         {creationContext != null || plannerTypeOptions.length > 1 ? (
           <label className="field-label">
             Type
@@ -4683,6 +4681,8 @@ function CreationDialog({ controller, creationContext = null }: CreationDialogPr
             label="Period"
             horizon={horizon}
             scheduled={scheduled}
+            editable={creationContext?.editableDate ?? true}
+            lockHorizon={creationContext != null}
             onCommit={({ horizon, scheduled }) => {
               setHorizon(horizon);
               setScheduled(scheduled);
@@ -4696,6 +4696,7 @@ function CreationDialog({ controller, creationContext = null }: CreationDialogPr
               type="date"
               value={scheduled}
               onChange={(event) => setScheduled(event.target.value)}
+              readOnly={creationContext != null && !creationContext.editableDate}
               required={needsScheduled}
             />
           </label>
@@ -4819,14 +4820,12 @@ function plannerCreationTypeOptions(
     return [
       { value: "goal", label: "Goal" },
       { value: "task", label: "Task" },
-      { value: "routine", label: "Routine" },
       { value: "event", label: "Event" },
     ];
   }
   if (controller.panel.id === "daily") {
     return [
       { value: "task", label: "Task" },
-      { value: "routine", label: "Routine" },
       { value: "event", label: "Event" },
     ];
   }
