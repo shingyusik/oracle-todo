@@ -248,11 +248,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isPlannerFilterField(value: unknown): value is PlannerFilterField {
-  return typeof value === "string" && value in plannerFilterFieldTypes;
+  return typeof value === "string" && hasOwn(plannerFilterFieldTypes, value);
 }
 
 function isPlannerFilterType(value: unknown): value is PlannerFilterType {
-  return typeof value === "string" && value in plannerFilterOperators;
+  return typeof value === "string" && hasOwn(plannerFilterOperators, value);
 }
 
 function isPlannerSortField(value: unknown): value is PlannerSortBy {
@@ -277,11 +277,13 @@ function isPlannerFilterValue(
 ): value is PlannerFilterValue {
   if (operator === "is_empty" || operator === "is_not_empty") return value === null;
   if (type === "date" && operator === "is_between") {
-    return isRecord(value) && typeof value.start === "string" && typeof value.end === "string";
+    return isRangeValue(value);
   }
   if (type === "date" && operator === "is_relative_to_today") {
-    return isRecord(value) && typeof value.amount === "string" &&
-      (value.unit === "day" || value.unit === "week" || value.unit === "month");
+    return isRelativeValue(value);
+  }
+  if (type === "date") {
+    return isIsoDate(value);
   }
   if (type === "select" || type === "multiSelect" || type === "relation") {
     return Array.isArray(value) && value.every((entry) => typeof entry === "string");
@@ -764,15 +766,43 @@ function filterValueStrings(value: PlannerFilterValue): string[] {
 }
 
 function isRangeValue(
-  value: PlannerFilterValue,
+  value: unknown,
 ): value is { start: string; end: string } {
-  return typeof value === "object" && value != null && "start" in value && "end" in value;
+  return isRecord(value) && isIsoDate(value.start) && isIsoDate(value.end) && value.start <= value.end;
 }
 
 function isRelativeValue(
-  value: PlannerFilterValue,
+  value: unknown,
 ): value is { amount: string; unit: "day" | "week" | "month" } {
-  return typeof value === "object" && value != null && "amount" in value && "unit" in value;
+  return isRecord(value) && typeof value.amount === "string" && isNonNegativeInteger(value.amount) &&
+    (value.unit === "day" || value.unit === "week" || value.unit === "month");
+}
+
+function hasOwn(object: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function isIsoDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  return day <= daysInMonth(year, month);
+}
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  }
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
+}
+
+function isNonNegativeInteger(value: string): boolean {
+  return /^\d+$/.test(value) && Number.isSafeInteger(Number(value));
 }
 
 function addRelativeDate(

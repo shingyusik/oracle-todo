@@ -287,6 +287,62 @@ describe("planner model", () => {
     expect(valid.groupSettings.manualOrder).toEqual(["area-1"]);
   });
 
+  it("rejects inherited prototype keys as persisted filter and sort fields", () => {
+    const settings = normalizePlannerTableSettings("daily.today", {
+      filterRules: [
+        { id: "prototype-filter", field: "toString", type: "text", operator: "contains", value: "x" },
+      ],
+      sortRules: [
+        { id: "prototype-sort", field: "constructor", direction: "asc" },
+      ],
+    }, legacyPlannerControls());
+
+    expect(settings.filterRules).toEqual([]);
+    expect(settings.sortRules).toEqual(defaultPlannerTableSettings("daily.today").sortRules);
+  });
+
+  it("rejects malformed date filter values while retaining valid calendar dates", () => {
+    const settings = normalizePlannerTableSettings("daily.today", {
+      filterRules: [
+        { id: "malformed-date", field: "scheduled", type: "date", operator: "is", value: "2026-2-28" },
+        { id: "impossible-date", field: "scheduled", type: "date", operator: "is", value: "2026-02-30" },
+        {
+          id: "reversed-range",
+          field: "scheduled",
+          type: "date",
+          operator: "is_between",
+          value: { start: "2026-07-31", end: "2026-07-01" },
+        },
+        {
+          id: "nonnumeric-relative",
+          field: "scheduled",
+          type: "date",
+          operator: "is_relative_to_today",
+          value: { amount: "tomorrow", unit: "day" },
+        },
+        { id: "valid-date", field: "due", type: "date", operator: "is", value: "2026-02-28" },
+        {
+          id: "valid-relative",
+          field: "scheduled",
+          type: "date",
+          operator: "is_relative_to_today",
+          value: { amount: "2", unit: "week" },
+        },
+      ],
+    }, legacyPlannerControls());
+
+    expect(settings.filterRules).toEqual([
+      { id: "valid-date", field: "due", type: "date", operator: "is", value: "2026-02-28" },
+      {
+        id: "valid-relative",
+        field: "scheduled",
+        type: "date",
+        operator: "is_relative_to_today",
+        value: { amount: "2", unit: "week" },
+      },
+    ]);
+  });
+
   it("partitions raw Daily sections before table presentation controls", () => {
     const rawItems = [
       item("today-task", { title: "Today", scheduled: "2026-07-22" }),
