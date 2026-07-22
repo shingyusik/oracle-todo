@@ -226,6 +226,56 @@ describe("useWorkbenchController", () => {
     expect(result.current.planner.filterRules).toEqual([]);
   });
 
+  it("keeps advanced filter settings independent for each planner view", async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/settings/planner" ? null : [],
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      fetchMock,
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/todo-engine/settings/planner"),
+    );
+
+    act(() => {
+      result.current.selectTab("daily");
+      result.current.setPlannerFilterMode("or");
+      result.current.setPlannerFilterRules([
+        { id: "daily-title", field: "title", type: "text", operator: "contains", value: "today" },
+      ]);
+    });
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    act(() => {
+      result.current.selectTab("weekly");
+    });
+
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    expect(result.current.planner.filterMode).toBe("and");
+    expect(result.current.planner.filterRules).toEqual([]);
+
+    act(() => {
+      result.current.setPlannerFilterRules([
+        { id: "weekly-status", field: "status", type: "select", operator: "contains", value: ["active"] },
+      ]);
+      result.current.selectTab("daily");
+    });
+
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    expect(result.current.planner.filterMode).toBe("or");
+    expect(result.current.planner.filterRules).toEqual([
+      { id: "daily-title", field: "title", type: "text", operator: "contains", value: "today" },
+    ]);
+  });
+
   it("selects yearly under the planner sibling branch", () => {
     const { result } = renderHook(() => useWorkbenchController());
 
