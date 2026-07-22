@@ -595,6 +595,30 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("group", { name: "Week Goals controls" })).toBeInTheDocument();
     const dayGridControls = screen.getByRole("group", { name: "Weekday grid controls" });
 
+    await user.click(screen.getByRole("button", { name: "Group Month Goals" }));
+    const goalGroupDialog = screen.getByRole("dialog", { name: "Group Month Goals" });
+    await user.click(within(goalGroupDialog).getByRole("button", { name: "Choose group property" }));
+    expect(within(goalGroupDialog).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "None",
+      "Tag",
+      "Status",
+    ]);
+    await user.keyboard("{Escape}{Escape}");
+
+    await user.click(within(dayGridControls).getByRole("button", { name: "Group Weekday grid" }));
+    const workGroupDialog = screen.getByRole("dialog", { name: "Group Weekday grid" });
+    await user.click(within(workGroupDialog).getByRole("button", { name: "Choose group property" }));
+    expect(within(workGroupDialog).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "None",
+      "Area",
+      "Project",
+      "Routine",
+      "Tag",
+      "Item type",
+      "Status",
+    ]);
+    await user.keyboard("{Escape}{Escape}");
+
     await user.click(within(dayGridControls).getByRole("button", { name: "Sort Weekday grid" }));
     const sortDialog = screen.getByRole("dialog", { name: "Sort Weekday grid" });
     await user.selectOptions(within(sortDialog).getByLabelText("Sort field"), "title");
@@ -611,6 +635,56 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Week Alpha").compareDocumentPosition(
       screen.getByText("Week Zulu"),
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("gives every table control an independent accessible disclosure", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    await screen.findByLabelText("Weekly planner");
+
+    const monthControls = screen.getByRole("group", { name: "Month Goals controls" });
+    const weekControls = screen.getByRole("group", { name: "Week Goals controls" });
+    const monthFilter = within(monthControls).getByRole("button", { name: "Filter Month Goals" });
+    const weekSort = within(weekControls).getByRole("button", { name: "Sort Week Goals" });
+
+    expect(monthFilter).toHaveAttribute("aria-expanded", "false");
+    expect(weekSort).toHaveAttribute("aria-expanded", "false");
+    expect(monthFilter.getAttribute("aria-controls")).not.toBe(weekSort.getAttribute("aria-controls"));
+
+    await user.click(monthFilter);
+    expect(monthFilter).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("dialog", { name: "Filter Month Goals" })).toHaveAttribute(
+      "id",
+      monthFilter.getAttribute("aria-controls"),
+    );
+
+    await user.click(weekSort);
+    expect(monthFilter).toHaveAttribute("aria-expanded", "false");
+    expect(weekSort).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("dialog", { name: "Filter Month Goals" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Sort Week Goals" })).toHaveAttribute(
+      "id",
+      weekSort.getAttribute("aria-controls"),
+    );
+
+    await user.keyboard("{Escape}");
+    expect(weekSort).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog", { name: "Sort Week Goals" })).toBeNull();
+    expect(weekSort).toHaveFocus();
+
+    await user.click(monthFilter);
+    await user.click(screen.getByRole("heading", { name: "Goals for this week" }));
+    expect(monthFilter).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog", { name: "Filter Month Goals" })).toBeNull();
+    await waitFor(() => expect(monthFilter).toHaveFocus());
   });
 
   it("groups every Monthly calendar cell without changing goals and exposes scoped Add buttons", async () => {
@@ -1424,6 +1498,24 @@ describe("WorkbenchPageClient", () => {
           json: async () => ({ id: "event-filtered", type: "event", status: "active", ...body }),
         });
       }
+      if (url === "/todo-engine/items?type=area") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "area-1", type: "area", title: "Suggested area", status: "active" },
+            { id: "area-2", type: "area", title: "Chosen area", status: "active" },
+          ],
+        });
+      }
+      if (url === "/todo-engine/items?type=project") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "project-1", type: "project", title: "Suggested project", status: "active" },
+            { id: "project-2", type: "project", title: "Chosen project", status: "active" },
+          ],
+        });
+      }
       return Promise.resolve({ ok: true, json: async () => [] });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1436,22 +1528,31 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
 
     expect(screen.queryByText(/may not appear in the current table/i)).toBeNull();
+    expect(screen.getByLabelText("Area")).toHaveValue("area-1");
+    expect(screen.getByLabelText("Project")).toHaveValue("project-1");
+    expect(screen.getByLabelText("Priority")).toHaveValue("4");
+    expect(screen.getByLabelText("Tags")).toHaveValue("focus");
     await user.selectOptions(screen.getByLabelText("Type"), "event");
+    await user.selectOptions(screen.getByLabelText("Area"), "area-2");
+    await user.selectOptions(screen.getByLabelText("Project"), "project-2");
+    await user.selectOptions(screen.getByLabelText("Priority"), "8");
+    await user.clear(screen.getByLabelText("Tags"));
+    await user.type(screen.getByLabelText("Tags"), "user, edited");
     await user.type(screen.getByLabelText("Title"), "Filtered event");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     expect(eventBodies).toEqual([{
       title: "Filtered event",
       scheduled: today,
-      area: "area-1",
-      project_id: "project-1",
-      priority: 4,
-      tags: ["focus"],
+      area: "area-2",
+      project_id: "project-2",
+      priority: 8,
+      tags: ["user", "edited"],
       actor: "user",
     }]);
   });
 
-  it("ignores empty and table-incompatible filters when creating from a planner table", async () => {
+  it("resets table-incompatible persisted filters before planner creation", async () => {
     const user = userEvent.setup();
     const taskBodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
@@ -1495,7 +1596,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Daily" }));
-    await screen.findByText("1 rules");
+    await screen.findByLabelText("Daily planner");
+    expect(screen.queryByText("1 rules")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
 
     expect(screen.queryByText(/may not appear in the current table/i)).toBeNull();
@@ -1505,7 +1607,6 @@ describe("WorkbenchPageClient", () => {
     expect(taskBodies).toEqual([{
       title: "Project task",
       scheduled: testToday(),
-      project_id: "project-1",
       actor: "user",
     }]);
   });

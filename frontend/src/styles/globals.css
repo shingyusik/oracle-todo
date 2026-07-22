@@ -1447,6 +1447,8 @@ button {
 
 .confirmation-dialog {
   width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-md);
   background: var(--color-canvas-light);

@@ -39,6 +39,8 @@ import {
   type PlannerFilterRule,
   type PlannerFilterType,
   type PlannerFilterValue,
+  plannerFilterFieldsForTable,
+  plannerSortFieldsForTable,
   plannerWeekdayLabels,
   sortPlannerItems,
   type PlannerGroupBy,
@@ -1011,22 +1013,56 @@ function PlannerTableHeader({
   );
   const activeFilterCount = effectiveFilterRules.length;
   const groupBy = effectivePlannerTableGroupValue(tableId, settings.groupSettings.groupBy);
+  const filterTriggerRef = useRef<HTMLButtonElement>(null);
+  const sortTriggerRef = useRef<HTMLButtonElement>(null);
   const groupTriggerRef = useRef<HTMLButtonElement>(null);
+  const filterPanelRef = useRef<HTMLDivElement>(null);
+  const sortPanelRef = useRef<HTMLDivElement>(null);
   const groupPanelRef = useRef<HTMLDivElement>(null);
-  const groupDropdownId = `planner-group-dropdown-${tableId.replaceAll(".", "-")}`;
+  const dropdownIds: Record<PlannerDropdownKind, string> = {
+    filter: `planner-filter-dropdown-${tableId.replaceAll(".", "-")}`,
+    sort: `planner-sort-dropdown-${tableId.replaceAll(".", "-")}`,
+    group: `planner-group-dropdown-${tableId.replaceAll(".", "-")}`,
+  };
+  const triggerRefs: Record<PlannerDropdownKind, React.RefObject<HTMLButtonElement>> = {
+    filter: filterTriggerRef,
+    sort: sortTriggerRef,
+    group: groupTriggerRef,
+  };
+  const panelRefs: Record<PlannerDropdownKind, React.RefObject<HTMLDivElement>> = {
+    filter: filterPanelRef,
+    sort: sortPanelRef,
+    group: groupPanelRef,
+  };
 
   useEffect(() => {
-    if (openDropdown !== "group") return;
+    if (!openDropdown) return;
+    const triggerRef = triggerRefs[openDropdown];
+    const panelRef = panelRefs[openDropdown];
     function dismiss(event: MouseEvent | KeyboardEvent) {
       if (event instanceof KeyboardEvent && event.key !== "Escape") return;
       if (
         event instanceof MouseEvent &&
         event.target instanceof Node &&
-        (groupPanelRef.current?.contains(event.target) ||
-          groupTriggerRef.current?.contains(event.target))
+        (panelRef.current?.contains(event.target) ||
+          triggerRef.current?.contains(event.target))
       ) return;
       setOpenDropdown(null);
-      groupTriggerRef.current?.focus();
+      if (event instanceof MouseEvent) {
+        const pointerTarget = event.target instanceof Element
+          ? event.target
+          : event.target instanceof Node
+            ? event.target.parentElement
+            : null;
+        const nextInteractiveTarget = pointerTarget?.closest(
+          "button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])",
+        );
+        if (!nextInteractiveTarget) {
+          requestAnimationFrame(() => triggerRef.current?.focus());
+        }
+      } else {
+        triggerRef.current?.focus();
+      }
     }
     document.addEventListener("mousedown", dismiss);
     document.addEventListener("keydown", dismiss);
@@ -1059,6 +1095,9 @@ function PlannerTableHeader({
             ariaLabel={`Filter ${title}`}
             title="Filter"
             onClick={() => toggleDropdown("filter")}
+            buttonRef={filterTriggerRef}
+            ariaExpanded={openDropdown === "filter"}
+            ariaControls={dropdownIds.filter}
           >
             <Filter size={16} aria-hidden="true" />
           </PlannerDropdownButton>
@@ -1067,6 +1106,9 @@ function PlannerTableHeader({
             ariaLabel={`Sort ${title}`}
             title="Sort"
             onClick={() => toggleDropdown("sort")}
+            buttonRef={sortTriggerRef}
+            ariaExpanded={openDropdown === "sort"}
+            ariaControls={dropdownIds.sort}
           >
             <ArrowDownUp size={16} aria-hidden="true" />
           </PlannerDropdownButton>
@@ -1077,7 +1119,7 @@ function PlannerTableHeader({
             onClick={() => toggleDropdown("group")}
             buttonRef={groupTriggerRef}
             ariaExpanded={openDropdown === "group"}
-            ariaControls={groupDropdownId}
+            ariaControls={dropdownIds.group}
           >
             <Group size={16} aria-hidden="true" />
           </PlannerDropdownButton>
@@ -1106,27 +1148,31 @@ function PlannerTableHeader({
         showSort={!isDefaultPlannerTableSort(tableId, settings.sortRules)}
       />
       {openDropdown === "filter" ? (
-        <PlannerControlDropdown title={`Filter ${title}`}>
-          <PlannerFilterRulePanel
-            controller={controller}
-            tableId={tableId}
-            filterOptions={filterOptions}
-            rules={visibleFilterRules}
-          />
-        </PlannerControlDropdown>
+        <div ref={filterPanelRef}>
+          <PlannerControlDropdown id={dropdownIds.filter} title={`Filter ${title}`}>
+            <PlannerFilterRulePanel
+              controller={controller}
+              tableId={tableId}
+              filterOptions={filterOptions}
+              rules={visibleFilterRules}
+            />
+          </PlannerControlDropdown>
+        </div>
       ) : null}
       {openDropdown === "sort" ? (
-        <PlannerControlDropdown title={`Sort ${title}`}>
-          <PlannerSortPanel
-            controller={controller}
-            tableId={tableId}
-            filterOptions={filterOptions}
-          />
-        </PlannerControlDropdown>
+        <div ref={sortPanelRef}>
+          <PlannerControlDropdown id={dropdownIds.sort} title={`Sort ${title}`}>
+            <PlannerSortPanel
+              controller={controller}
+              tableId={tableId}
+              filterOptions={filterOptions}
+            />
+          </PlannerControlDropdown>
+        </div>
       ) : null}
       {openDropdown === "group" ? (
         <div ref={groupPanelRef}>
-          <PlannerControlDropdown id={groupDropdownId} title={`Group ${title}`} compact>
+          <PlannerControlDropdown id={dropdownIds.group} title={`Group ${title}`} compact>
             <PlannerGroupPanel
               settings={{ ...settings.groupSettings, groupBy }}
               candidates={plannerTableGroupCandidates(
@@ -1986,7 +2032,7 @@ const emptyOperators = new Set<PlannerFilterOperator>(["is_empty", "is_not_empty
 function plannerFilterFieldConfigs(
   controller: WorkbenchController,
   filterOptions: PlannerFilterOptions,
-  tableId?: PlannerTableId,
+  tableId: PlannerTableId,
 ): PlannerFilterFieldConfig[] {
   const configs: Record<PlannerFilterField, PlannerFilterFieldConfig> = {
     title: { field: "title", label: "Title", type: "text", options: [] },
@@ -2069,51 +2115,8 @@ function plannerFilterFieldConfigs(
     },
   };
 
-  const goalTable = tableId
-    ? tableId.endsWith("goals")
-    : controller.panel.id === "yearly" || controller.panel.id === "monthly";
-  const mixedWeeklyView = !tableId && controller.panel.id === "weekly";
-
-  if (goalTable) {
-    return workspaceGoalFilterFields.map((field) => configs[field]);
-  }
-  if (mixedWeeklyView) {
-    return [...workspaceDailyFilterFields, ...workspaceGoalFilterFields].map(
-      (field) => configs[field],
-    );
-  }
-  return workspaceDailyFilterFields.map((field) => configs[field]);
+  return plannerFilterFieldsForTable(tableId).map((field) => configs[field]);
 }
-
-const workspaceDailyFilterFields: PlannerFilterField[] = [
-  "title",
-  "status",
-  "tags",
-  "area",
-  "project",
-  "routine",
-  "scheduled",
-  "due",
-  "priority",
-  "recurrence_rule",
-  "materialization_policy",
-  "location",
-  "participants",
-  "commitment_type",
-  "description",
-  "note",
-];
-
-const workspaceGoalFilterFields: PlannerFilterField[] = [
-  "title",
-  "status",
-  "tags",
-  "horizon",
-  "scheduled",
-  "due",
-  "parent",
-  "note",
-];
 
 function addPlannerRule(
   controller: WorkbenchController,
@@ -2260,7 +2263,7 @@ function newPlannerSortRule(field: PlannerSortBy): PlannerSortRule {
 function plannerSortFieldOptions(
   controller: WorkbenchController,
   filterOptions: PlannerFilterOptions,
-  tableId?: PlannerTableId,
+  tableId: PlannerTableId,
 ): PlannerSortFieldOption[] {
   const fields: PlannerSortFieldOption[] = plannerFilterFieldConfigs(
     controller,
@@ -2275,7 +2278,9 @@ function plannerSortFieldOptions(
     ...fields,
     { value: "updated", label: "Updated" },
   ];
+  const allowedFields = plannerSortFieldsForTable(tableId);
   return allFields.filter((field) => {
+    if (!allowedFields.includes(field.value)) return false;
     if (seen.has(field.value)) return false;
     seen.add(field.value);
     return true;
@@ -2285,6 +2290,10 @@ function plannerSortFieldOptions(
 function plannerGroupOptionsForTable(
   tableId: PlannerTableId,
 ): { value: PlannerGroupBy; label: string }[] {
+  if (tableId.endsWith("goals")) {
+    return goalPlannerGroupOptions;
+  }
+
   return plannerGroupOptions(tableId.split(".")[0] as WorkbenchController["panel"]["id"]);
 }
 
@@ -2315,23 +2324,27 @@ function plannerGroupOptions(
   panelId: WorkbenchController["panel"]["id"],
 ): { value: PlannerGroupBy; label: string }[] {
   if (panelId === "yearly" || panelId === "monthly") {
-    return [
-      { value: "none", label: "None" },
-      { value: "tag", label: "Tag" },
-      { value: "status", label: "Status" },
-    ];
+    return goalPlannerGroupOptions;
   }
 
-  return [
-    { value: "none", label: "None" },
-    { value: "area", label: "Area" },
-    { value: "project", label: "Project" },
-    { value: "routine", label: "Routine" },
-    { value: "tag", label: "Tag" },
-    { value: "item_type", label: "Item type" },
-    { value: "status", label: "Status" },
-  ];
+  return workPlannerGroupOptions;
 }
+
+const goalPlannerGroupOptions: { value: PlannerGroupBy; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "tag", label: "Tag" },
+  { value: "status", label: "Status" },
+];
+
+const workPlannerGroupOptions: { value: PlannerGroupBy; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "area", label: "Area" },
+  { value: "project", label: "Project" },
+  { value: "routine", label: "Routine" },
+  { value: "tag", label: "Tag" },
+  { value: "item_type", label: "Item type" },
+  { value: "status", label: "Status" },
+];
 
 function isDailyPlannerItem(item: WorkspaceItemModel): boolean {
   return item.type === "task" || item.type === "event" || item.type === "routine";
@@ -4516,6 +4529,7 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
 
 function CreationDialog({ controller }: { controller: WorkbenchController }) {
   const creationContext = controller.plannerCreationContext;
+  const creationPrefills = controller.plannerCreationAnalysis.prefills;
   const plannerScheduled = defaultCreationScheduled(controller, creationContext);
   const plannerHorizon = defaultCreationHorizon(controller, creationContext);
   const plannerItemType = defaultCreationItemType(controller, creationContext);
@@ -4528,6 +4542,12 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
   const [horizon, setHorizon] = React.useState(plannerHorizon);
   const [definitionOfDone, setDefinitionOfDone] = React.useState("");
   const [recurrenceRule, setRecurrenceRule] = React.useState("RRULE:FREQ=DAILY");
+  const [areaId, setAreaId] = React.useState(creationPrefills.area_id ?? "");
+  const [projectId, setProjectId] = React.useState(creationPrefills.project_id ?? "");
+  const [priority, setPriority] = React.useState(
+    creationPrefills.priority?.toString() ?? "",
+  );
+  const [tags, setTags] = React.useState(formatTags(creationPrefills.tags));
   const [submitError, setSubmitError] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -4610,6 +4630,17 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
         itemType,
         scheduled,
         horizon,
+        ...(creationContext
+          ? {
+              area_id: areaId || undefined,
+              project_id: projectId || undefined,
+              priority: priority ? Number(priority) : undefined,
+              tags:
+                tags.trim() !== "" || (creationPrefills.tags?.length ?? 0) > 0
+                  ? parseTagInput(tags)
+                  : undefined,
+            }
+          : {}),
         definition_of_done: isProject ? trimmedDefinitionOfDone : undefined,
         recurrence_rule: isRoutine ? trimmedRecurrenceRule : undefined,
       });
@@ -4668,6 +4699,51 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
             required
           />
         </label>
+        {creationContext ? (
+          <>
+            <label className="field-label">
+              Area
+              <select value={areaId} onChange={(event) => setAreaId(event.target.value)}>
+                <option value="">None</option>
+                {plannerCreationRelationOptions(
+                  controller.workspaceItems.relatedItems.areas,
+                  areaId,
+                ).map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field-label">
+              Project
+              <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+                <option value="">None</option>
+                {plannerCreationRelationOptions(
+                  controller.workspaceItems.relatedItems.projects,
+                  projectId,
+                ).map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field-label">
+              Priority
+              <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+                <option value="">None</option>
+                {priorityOptions.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field-label">
+              Tags
+              <input
+                value={tags}
+                onChange={(event) => setTags(event.target.value)}
+                placeholder="Comma-separated tags"
+              />
+            </label>
+          </>
+        ) : null}
         {isProject ? (
           <label className="field-label">
             Definition of Done
@@ -4721,6 +4797,17 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
       </form>
     </div>
   );
+}
+
+function plannerCreationRelationOptions(
+  labels: Record<string, string>,
+  selectedValue: string,
+): Array<{ value: string; label: string }> {
+  const options = Object.entries(labels).map(([value, label]) => ({ value, label }));
+  if (selectedValue && !labels[selectedValue]) {
+    options.push({ value: selectedValue, label: selectedValue });
+  }
+  return options.sort((left, right) => left.label.localeCompare(right.label));
 }
 
 function defaultCreationScheduled(
