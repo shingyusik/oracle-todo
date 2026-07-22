@@ -43,27 +43,32 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Dashboard");
   });
 
-  it("restores planner preferences from the API after remounting", async () => {
+  it("migrates legacy daily settings independently and weekly card settings only to the day grid", async () => {
     const savedPreferences = {
-      dailyFilters: {
-        tags: ["focus"],
-        areaIds: [],
-        projectIds: [],
-        routineIds: [],
-        itemTypes: ["task"],
-        statuses: ["active"],
-      },
       filterMode: "or",
       filterRules: [
         { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
       ],
       groupSettings: {
-        daily: { groupBy: "tag", sort: "alphabetical", hideEmpty: false },
+        daily: {
+          groupBy: "tag",
+          sort: "alphabetical",
+          hideEmpty: false,
+          manualOrder: ["focus"],
+          hiddenGroupKeys: ["later"],
+        },
+        weekly: {
+          groupBy: "project",
+          sort: "reverse_alphabetical",
+          hideEmpty: false,
+          manualOrder: ["project-1"],
+          hiddenGroupKeys: ["project-2"],
+        },
       },
       dailySortRules: [{ id: "s1", field: "updated", direction: "desc" }],
       yearlySortRules: [],
       monthlySortRules: [],
-      weeklySortRules: [],
+      weeklySortRules: [{ id: "s2", field: "priority", direction: "desc" }],
     };
     vi.stubGlobal(
       "fetch",
@@ -76,21 +81,127 @@ describe("useWorkbenchController", () => {
       ),
     );
 
-    const { result, unmount } = renderHook(() => useWorkbenchController());
+    const { result } = renderHook(() => useWorkbenchController());
 
     await waitFor(() =>
-      expect(result.current.planner.groupSettings.daily.groupBy).toBe("tag"),
+      expect(result.current.plannerTableSettings("daily.today").groupSettings.groupBy).toBe("tag"),
     );
-    unmount();
+    const dailyToday = result.current.plannerTableSettings("daily.today");
+    const dailyOverdue = result.current.plannerTableSettings("daily.overdue");
+    const dailyUnscheduled = result.current.plannerTableSettings("daily.unscheduled");
+    for (const settings of [dailyToday, dailyOverdue, dailyUnscheduled]) {
+      expect(settings.filterMode).toBe("or");
+      expect(settings.filterRules).toEqual(savedPreferences.filterRules);
+      expect(settings.sortRules).toEqual(savedPreferences.dailySortRules);
+      expect(settings.groupSettings).toMatchObject({
+        groupBy: "tag",
+        sort: "alphabetical",
+        manualOrder: ["focus"],
+        hiddenGroupKeys: ["later"],
+      });
+    }
+    expect(dailyToday.filterRules).not.toBe(dailyOverdue.filterRules);
+    expect(dailyToday.sortRules).not.toBe(dailyOverdue.sortRules);
+    expect(dailyToday.groupSettings.manualOrder).not.toBe(
+      dailyOverdue.groupSettings.manualOrder,
+    );
 
-    const restored = renderHook(() => useWorkbenchController());
+    expect(result.current.plannerTableSettings("weekly.day-grid")).toMatchObject({
+      filterMode: "or",
+      sortRules: savedPreferences.weeklySortRules,
+      groupSettings: {
+        groupBy: "project",
+        sort: "reverse_alphabetical",
+        hideEmpty: false,
+        manualOrder: ["project-1"],
+        hiddenGroupKeys: ["project-2"],
+      },
+    });
+    expect(result.current.plannerTableSettings("weekly.month-goals")).toMatchObject({
+      filterMode: "or",
+      sortRules: [{
+        id: "weekly.month-goals-default-sort",
+        field: "scheduled",
+        direction: "asc",
+      }],
+      groupSettings: { groupBy: "none" },
+    });
+    expect(result.current.plannerTableSettings("weekly.week-goals")).toMatchObject({
+      filterMode: "or",
+      sortRules: [{
+        id: "weekly.week-goals-default-sort",
+        field: "scheduled",
+        direction: "asc",
+      }],
+      groupSettings: { groupBy: "none" },
+    });
+  });
+
+  it("isolates a malformed persisted table from a valid neighboring table", async () => {
+    const validOverdue = {
+      filterMode: "or",
+      filterRules: [
+        { id: "overdue-filter", field: "title", type: "text", operator: "contains", value: "late" },
+      ],
+      sortRules: [{ id: "overdue-sort", field: "title", direction: "desc" }],
+      groupSettings: {
+        groupBy: "status",
+        sort: "alphabetical",
+        hideEmpty: false,
+        manualOrder: [],
+        hiddenGroupKeys: [],
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => url === "/todo-engine/settings/planner"
+            ? { tableSettings: { "daily.today": "broken", "daily.overdue": validOverdue } }
+            : [],
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
 
     await waitFor(() =>
-      expect(restored.result.current.planner.filterMode).toBe("or"),
+      expect(result.current.plannerTableSettings("daily.overdue").filterMode).toBe("or"),
     );
-    expect(restored.result.current.planner.dailyFilters.tags).toEqual(["focus"]);
-    expect(restored.result.current.planner.filterRules).toEqual(savedPreferences.filterRules);
-    expect(restored.result.current.planner.dailySortRules).toEqual(savedPreferences.dailySortRules);
+    expect(result.current.plannerTableSettings("daily.overdue")).toEqual(validOverdue);
+    expect(result.current.plannerTableSettings("daily.today")).toMatchObject({
+      filterMode: "and",
+      filterRules: [],
+      sortRules: [{ field: "priority", direction: "asc" }],
+    });
+  });
+
+  it("uses fresh defaults instead of legacy migration when the table settings map is malformed", async () => {
+    let resolveSettings: ((value: unknown) => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => url === "/todo-engine/settings/planner"
+        ? new Promise((resolve) => { resolveSettings = resolve; })
+        : Promise.resolve({ ok: true, json: async () => [] })),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await waitFor(() => expect(resolveSettings).toBeDefined());
+    await act(async () => resolveSettings?.({
+      ok: true,
+      json: async () => ({
+        tableSettings: "broken",
+        filterMode: "or",
+        dailySortRules: [{ id: "legacy-sort", field: "title", direction: "desc" }],
+      }),
+    }));
+
+    expect(result.current.plannerTableSettings("daily.today").sortRules[0]?.id).toBe(
+      "daily.today-default-sort",
+    );
+    expect(result.current.plannerTableSettings("daily.today").filterMode).toBe("and");
   });
 
   it("keeps planner changes made before saved preferences finish loading", async () => {
@@ -117,12 +228,15 @@ describe("useWorkbenchController", () => {
     const { result } = renderHook(() => useWorkbenchController());
 
     await waitFor(() => expect(resolveSettings).toBeDefined());
-    act(() => result.current.setPlannerFilterMode("or"));
+    act(() => result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+      ...settings,
+      filterMode: "or",
+    })));
     await act(async () => {
       resolveSettings?.({ ok: true, json: async () => savedPreferences });
     });
 
-    expect(result.current.planner.filterMode).toBe("or");
+    expect(result.current.plannerTableSettings("daily.today").filterMode).toBe("or");
   });
 
   it("persists the latest planner settings when earlier writes finish last", async () => {
@@ -151,10 +265,16 @@ describe("useWorkbenchController", () => {
     const { result } = renderHook(() => useWorkbenchController());
 
     act(() => {
-      result.current.setPlannerFilterMode("or");
-      result.current.setPlannerFilterRules([
-        { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
-      ]);
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterRules: [
+          { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
+        ],
+      }));
     });
 
     await waitFor(() => expect(pendingWrites).toHaveLength(1));
@@ -163,8 +283,12 @@ describe("useWorkbenchController", () => {
     await act(async () => pendingWrites.shift()?.());
 
     expect(serverSettings).toMatchObject({
-      filterMode: "or",
-      filterRules: [{ id: "r1", field: "title", type: "text", operator: "contains", value: "plan" }],
+      tableSettings: {
+        "daily.today": {
+          filterMode: "or",
+          filterRules: [{ id: "r1", field: "title", type: "text", operator: "contains", value: "plan" }],
+        },
+      },
     });
   });
 
@@ -196,7 +320,7 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Daily");
   });
 
-  it("stores planner advanced filter rules", async () => {
+  it("updates one planner table without changing its neighbor", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>
@@ -209,21 +333,76 @@ describe("useWorkbenchController", () => {
     );
 
     const { result } = renderHook(() => useWorkbenchController());
+    const overdueBefore = result.current.plannerTableSettings("daily.overdue");
 
-    act(() => {
-      result.current.setPlannerFilterMode("or");
-      result.current.setPlannerFilterRules([
+    act(() => result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+      ...settings,
+      filterMode: "or",
+      filterRules: [
         { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
-      ]);
+      ],
+    })));
+
+    expect(result.current.plannerTableSettings("daily.today")).toMatchObject({
+      filterMode: "or",
+      filterRules: [
+        { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
+      ],
     });
+    expect(result.current.plannerTableSettings("daily.overdue")).toBe(overdueBefore);
+  });
 
-    expect(result.current.planner.filterMode).toBe("or");
-    expect(result.current.planner.filterRules).toHaveLength(1);
+  it("persists table settings and restores the changed table after remounting", async () => {
+    let serverSettings: unknown = null;
+    const putBodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url !== "/todo-engine/settings/planner") {
+          return Promise.resolve({ ok: true, json: async () => [] });
+        }
+        if (init?.method === "PUT") {
+          const body = JSON.parse(String(init.body));
+          putBodies.push(body);
+          serverSettings = body.value;
+          return Promise.resolve({ ok: true, json: async () => body.value });
+        }
+        return Promise.resolve({ ok: true, json: async () => serverSettings });
+      }),
+    );
 
-    act(() => result.current.clearPlannerFilterRules());
+    const first = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(first.result.current.plannerTableSettings("daily.today")).toBeDefined());
 
-    expect(result.current.planner.filterMode).toBe("and");
-    expect(result.current.planner.filterRules).toEqual([]);
+    act(() => first.result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+      ...settings,
+      filterMode: "or",
+      filterRules: [
+        { id: "saved", field: "title", type: "text", operator: "contains", value: "persisted" },
+      ],
+    })));
+
+    await waitFor(() => expect(putBodies).toHaveLength(1));
+    expect(putBodies[0]).toEqual({
+      value: expect.objectContaining({
+        tableSettings: expect.objectContaining({
+          "daily.today": expect.objectContaining({ filterMode: "or" }),
+        }),
+      }),
+    });
+    expect(Object.keys((putBodies[0] as { value: Record<string, unknown> }).value)).toEqual([
+      "tableSettings",
+    ]);
+
+    first.unmount();
+    const restored = renderHook(() => useWorkbenchController());
+
+    await waitFor(() =>
+      expect(restored.result.current.plannerTableSettings("daily.today").filterMode).toBe("or"),
+    );
+    expect(restored.result.current.plannerTableSettings("daily.today").filterRules).toEqual([
+      { id: "saved", field: "title", type: "text", operator: "contains", value: "persisted" },
+    ]);
   });
 
   it("selects yearly under the planner sibling branch", () => {

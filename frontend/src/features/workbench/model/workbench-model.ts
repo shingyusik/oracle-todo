@@ -5,15 +5,14 @@ import type {
   WorkbenchTabId,
 } from "@/domain/workbench/navigation";
 import type {
-  DailyFilterState,
   PlannerFilterMode,
   PlannerFilterRule,
-  PlannerGroupBy,
   PlannerSortRule,
+  PlannerTableId,
+  PlannerTableSettings,
 } from "@/features/workbench/model/planner-model";
 import type {
   PlannerGroupSettings,
-  PlannerGroupSort,
   PlannerViewId,
 } from "@/features/workbench/model/planner-group-settings";
 
@@ -77,14 +76,14 @@ export type LegacyPlannerControls = {
   weeklySortRules: PlannerSortRule[];
 };
 
-export type PlannerControls = LegacyPlannerControls & {
+export type PlannerControls = {
   date: string;
   weekStart: string;
   yearlyDate: string;
   monthlyDate: string;
   weeklyDate: string;
   dailyDate: string;
-  dailyFilters: DailyFilterState;
+  tableSettings: Record<PlannerTableId, PlannerTableSettings>;
 };
 
 export type CreateWorkspaceItemForm = {
@@ -165,20 +164,11 @@ export type WorkbenchController = {
   createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
   openDetailView: (item: WorkspaceItemModel) => void;
   patchWorkspaceItem: (itemId: string, patch: WorkspaceItemPatch) => Promise<void>;
-  setDailyFilter: (field: keyof DailyFilterState, values: string[]) => void;
-  setPlannerFilterMode: (mode: PlannerFilterMode) => void;
-  setPlannerFilterRules: (rules: PlannerFilterRule[]) => void;
-  clearPlannerFilterRules: () => void;
-  setDailyGroupBy: (groupBy: PlannerGroupBy) => void;
-  setDailySortRules: (rules: PlannerSortRule[]) => void;
-  setPlannerGroupBy: (groupBy: PlannerGroupBy) => void;
-  setPlannerGroupSort: (sort: PlannerGroupSort) => void;
-  setPlannerHideEmptyGroups: (hideEmpty: boolean) => void;
-  togglePlannerGroupVisibility: (key: string) => void;
-  setAllPlannerGroupsVisible: (keys: string[], visible: boolean) => void;
-  setPlannerManualGroupOrder: (keys: string[]) => void;
-  removePlannerGrouping: () => void;
-  setPlannerSortRules: (rules: PlannerSortRule[]) => void;
+  plannerTableSettings: (tableId: PlannerTableId) => PlannerTableSettings;
+  updatePlannerTableSettings: (
+    tableId: PlannerTableId,
+    updater: (settings: PlannerTableSettings) => PlannerTableSettings,
+  ) => void;
   transitionWorkspaceItem: (
     itemId: string,
     action: WorkspaceItemTransitionAction,
