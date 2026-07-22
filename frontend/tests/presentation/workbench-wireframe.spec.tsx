@@ -3619,6 +3619,9 @@ describe("WorkbenchPageClient", () => {
     expect(within(linkedItems).getByRole("heading", { name: "Tasks · 1" })).toBeInTheDocument();
     await user.click(within(linkedItems).getByRole("button", { name: "Open Checkup details" }));
     expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    const areaSelect = screen.getByLabelText("Area for Checkup");
+    expect(areaSelect).toHaveValue("area-1");
+    expect(within(areaSelect).getByRole("option", { name: "Health" })).toHaveValue("area-1");
   });
 
   it("confirms before discarding a dirty detail draft to open a linked item", async () => {
@@ -3644,7 +3647,14 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
 
     expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Discard changes" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Discard changes" })).toHaveFocus();
+    await user.keyboard("{Escape}");
     expect(screen.getByLabelText("Health details")).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
 
