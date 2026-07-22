@@ -122,7 +122,7 @@ describe("useWorkbenchController", () => {
       filterMode: "or",
       sortRules: savedPreferences.weeklySortRules,
       groupSettings: {
-        groupBy: "project",
+        groupBy: "none",
         sort: "reverse_alphabetical",
         manualOrder: ["project-1"],
         hiddenGroupKeys: ["project-2"],
@@ -132,7 +132,7 @@ describe("useWorkbenchController", () => {
       filterMode: "or",
       sortRules: savedPreferences.weeklySortRules,
       groupSettings: {
-        groupBy: "project",
+        groupBy: "none",
         sort: "reverse_alphabetical",
         manualOrder: ["project-1"],
         hiddenGroupKeys: ["project-2"],
@@ -1008,7 +1008,7 @@ describe("useWorkbenchController", () => {
       tableId: "daily.today",
       itemTypes: ["task", "event"],
       scheduled: "2026-07-20",
-      editableDate: false,
+      editableDate: true,
       tableSettings: {
         filterMode: "and",
         filterRules: [
@@ -1056,6 +1056,67 @@ describe("useWorkbenchController", () => {
       actor: "user",
     }]);
     expect(result.current.plannerCreationContext).toBeNull();
+  });
+
+  it("enforces a fixed goal-table anchor and only persists supported Goal fields", async () => {
+    const requestBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/goals/propose") {
+        const body = JSON.parse(String(init?.body));
+        requestBodies.push(body);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: "goal-fixed", type: "goal", status: "active", ...body }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("planner");
+      result.current.selectTab("weekly");
+    });
+    act(() => result.current.openPlannerCreationDialog({
+      tableId: "weekly.week-goals",
+      itemTypes: ["goal"],
+      scheduled: "2026-07-20",
+      horizon: "week",
+      editableDate: false,
+      tableSettings: {
+        filterMode: "and",
+        filterRules: [],
+        sortRules: [],
+        groupSettings: {
+          groupBy: "none",
+          sort: "manual",
+          hideEmpty: true,
+          manualOrder: [],
+          hiddenGroupKeys: [],
+        },
+      },
+    }));
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({
+        title: "Fixed goal",
+        itemType: "goal",
+        scheduled: "2030-01-01",
+        horizon: "month",
+        area_id: "area-1",
+        project_id: "project-1",
+        priority: 8,
+        tags: ["focus"],
+      });
+    });
+
+    expect(requestBodies).toEqual([{
+      title: "Fixed goal",
+      horizon: "week",
+      scheduled: "2026-07-20",
+      tags: ["focus"],
+      actor: "user",
+    }]);
   });
 
   it("rejects a contextual item type that the source table does not allow", async () => {

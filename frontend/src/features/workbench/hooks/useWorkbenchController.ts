@@ -663,6 +663,12 @@ export function useWorkbenchController(): WorkbenchController {
           horizon: plannerCreationContext.horizon,
           ...plannerCreationAnalysis.prefills,
           ...form,
+          ...(!plannerCreationContext.editableDate
+            ? {
+                scheduled: plannerCreationContext.scheduled,
+                horizon: plannerCreationContext.horizon,
+              }
+            : {}),
         };
         contextualForm.itemType = requestedItemType;
       }

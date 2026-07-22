@@ -4572,9 +4572,16 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
       ? creationContext.scheduled !== "" && (itemType === "task" || itemType === "event")
       : (controller.panel.id === "weekly" || controller.panel.id === "daily") &&
         (itemType === "task" || itemType === "event"));
+  const showsDateWorkMetadata = creationContext != null && itemType !== "goal";
 
   useEffect(() => {
+    const returnFocusTarget = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     titleInputRef.current?.focus();
+    return () => {
+      if (returnFocusTarget?.isConnected) returnFocusTarget.focus();
+    };
   }, []);
 
   useEffect(() => {
@@ -4701,39 +4708,43 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
         </label>
         {creationContext ? (
           <>
-            <label className="field-label">
-              Area
-              <select value={areaId} onChange={(event) => setAreaId(event.target.value)}>
-                <option value="">None</option>
-                {plannerCreationRelationOptions(
-                  controller.workspaceItems.relatedItems.areas,
-                  areaId,
-                ).map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field-label">
-              Project
-              <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-                <option value="">None</option>
-                {plannerCreationRelationOptions(
-                  controller.workspaceItems.relatedItems.projects,
-                  projectId,
-                ).map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field-label">
-              Priority
-              <select value={priority} onChange={(event) => setPriority(event.target.value)}>
-                <option value="">None</option>
-                {priorityOptions.map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </select>
-            </label>
+            {showsDateWorkMetadata ? (
+              <>
+                <label className="field-label">
+                  Area
+                  <select value={areaId} onChange={(event) => setAreaId(event.target.value)}>
+                    <option value="">None</option>
+                    {plannerCreationRelationOptions(
+                      controller.workspaceItems.relatedItems.areas,
+                      areaId,
+                    ).map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field-label">
+                  Project
+                  <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+                    <option value="">None</option>
+                    {plannerCreationRelationOptions(
+                      controller.workspaceItems.relatedItems.projects,
+                      projectId,
+                    ).map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field-label">
+                  Priority
+                  <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+                    <option value="">None</option>
+                    {priorityOptions.map((value) => (
+                      <option key={value} value={value}>{value}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : null}
             <label className="field-label">
               Tags
               <input

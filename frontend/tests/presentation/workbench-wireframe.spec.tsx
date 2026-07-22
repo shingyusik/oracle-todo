@@ -1405,6 +1405,10 @@ describe("WorkbenchPageClient", () => {
     async function expectFixedGoalContext(buttonName: string, horizon: string, range: string) {
       await user.click(screen.getByRole("button", { name: buttonName }));
       expect(within(screen.getByLabelText("Type")).getAllByRole("option").map((option) => option.textContent)).toEqual(["Goal"]);
+      expect(screen.queryByLabelText("Area")).toBeNull();
+      expect(screen.queryByLabelText("Project")).toBeNull();
+      expect(screen.queryByLabelText("Priority")).toBeNull();
+      expect(screen.getByLabelText("Tags")).toBeInTheDocument();
       const period = screen.getByRole("group", { name: "Period" });
       expect(period).toHaveTextContent(horizon);
       expect(period).toHaveTextContent(range);
@@ -4040,7 +4044,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    const addButton = screen.getByRole("button", { name: "Add item" });
+    await user.click(addButton);
 
     const dialog = screen.getByRole("dialog", { name: "Create Goals item" });
     expect(dialog).toBeInTheDocument();
@@ -4057,6 +4062,12 @@ describe("WorkbenchPageClient", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
+    expect(addButton).toHaveFocus();
+
+    await user.click(addButton);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Create Goals item" })).toBeNull();
+    expect(addButton).toHaveFocus();
   });
 
   it("creates workspace goals through one period control", async () => {

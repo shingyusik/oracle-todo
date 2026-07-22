@@ -339,7 +339,7 @@ describe("planner model", () => {
     },
   );
 
-  it("falls back a legacy-derived table when its former shared settings are malformed", () => {
+  it("sanitizes malformed legacy rules without discarding compatible settings", () => {
     const legacy = legacyPlannerControls();
     legacy.filterMode = "or";
     legacy.filterRules = [
@@ -360,7 +360,59 @@ describe("planner model", () => {
 
     const migrated = normalizePlannerTableSettings("daily.today", undefined, legacy);
 
-    expect(migrated).toEqual(defaultPlannerTableSettings("daily.today"));
+    expect(migrated).toMatchObject({
+      filterMode: "or",
+      filterRules: [
+        { id: "valid-filter", field: "title", type: "text", operator: "contains", value: "legacy" },
+      ],
+      sortRules: [{ id: "valid-sort", field: "title", direction: "desc" }],
+      groupSettings: {
+        groupBy: "area",
+        sort: "manual",
+        hideEmpty: true,
+        manualOrder: ["area-1"],
+        hiddenGroupKeys: ["area-2"],
+      },
+    });
+  });
+
+  it("retains compatible legacy controls when migrating a mixed weekly configuration to a goal table", () => {
+    const legacy = legacyPlannerControls();
+    legacy.filterMode = "or";
+    legacy.filterRules = [
+      { id: "status", field: "status", type: "select", operator: "is", value: ["active"] },
+      { id: "tag", field: "tags", type: "multiSelect", operator: "contains", value: ["focus"] },
+      { id: "priority", field: "priority", type: "select", operator: "is", value: ["1"] },
+      { id: "project", field: "project", type: "relation", operator: "is", value: ["project-1"] },
+    ];
+    legacy.weeklySortRules = [
+      { id: "updated", field: "updated", direction: "desc" },
+      { id: "priority", field: "priority", direction: "asc" },
+      { id: "project", field: "project", direction: "asc" },
+    ];
+    legacy.groupSettings.weekly = {
+      groupBy: "status",
+      sort: "reverse_alphabetical",
+      hideEmpty: false,
+      manualOrder: ["active", "completed"],
+      hiddenGroupKeys: ["archived"],
+    };
+
+    expect(normalizePlannerTableSettings("weekly.week-goals", undefined, legacy)).toEqual({
+      filterMode: "or",
+      filterRules: [
+        { id: "status", field: "status", type: "select", operator: "is", value: ["active"] },
+        { id: "tag", field: "tags", type: "multiSelect", operator: "contains", value: ["focus"] },
+      ],
+      sortRules: [{ id: "updated", field: "updated", direction: "desc" }],
+      groupSettings: {
+        groupBy: "status",
+        sort: "reverse_alphabetical",
+        hideEmpty: false,
+        manualOrder: ["active", "completed"],
+        hiddenGroupKeys: ["archived"],
+      },
+    });
   });
 
   it("falls back only the malformed persisted table settings", () => {
@@ -457,6 +509,22 @@ describe("planner model", () => {
         value: { amount: "2", unit: "week" },
       },
     ]);
+  });
+
+  it("rejects persisted relative dates that exceed the safe Date range", () => {
+    const settings = normalizePlannerTableSettings("daily.today", {
+      filterRules: [
+        {
+          id: "unsafe-relative",
+          field: "scheduled",
+          type: "date",
+          operator: "is_relative_to_today",
+          value: { amount: String(Number.MAX_SAFE_INTEGER), unit: "month" },
+        },
+      ],
+    }, legacyPlannerControls());
+
+    expect(settings).toEqual(defaultPlannerTableSettings("daily.today"));
   });
 
   it("partitions raw Daily sections before table presentation controls", () => {

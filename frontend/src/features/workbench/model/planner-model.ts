@@ -188,6 +188,9 @@ const plannerGoalSortFields = [
   "updated",
 ] as const satisfies readonly PlannerSortBy[];
 
+const plannerGoalGroupByValues: readonly PlannerGroupBy[] = ["none", "tag", "status"];
+const maxRelativeDateAmount = 100_000;
+
 export function plannerFilterFieldsForTable(
   tableId: PlannerTableId,
 ): readonly PlannerFilterField[] {
@@ -225,20 +228,23 @@ export function normalizePlannerTableSettings(
   const allowedSortFields = plannerSortFieldsForTable(tableId);
   if (candidate === undefined) {
     const legacySettings = legacySettingsForTable(tableId, legacy);
-    const filterRules = normalizeFilterRules(
+    const filterRules = sanitizeLegacyFilterRules(
       legacy.filterRules,
       allowedFilterFields,
     );
-    const sortRules = normalizePlannerSortRules(
+    const sortRules = sanitizeLegacySortRules(
       legacySettings.sortRules,
       allowedSortFields,
     );
-    if (!filterRules || !sortRules) return defaults;
+    const groupSettings = normalizePlannerGroupSettings(legacySettings.groupSettings);
     return {
       filterMode: normalizeFilterMode(legacy.filterMode, defaults.filterMode),
       filterRules,
       sortRules,
-      groupSettings: normalizePlannerGroupSettings(legacySettings.groupSettings),
+      groupSettings: tableId.endsWith("goals") &&
+          !plannerGoalGroupByValues.includes(groupSettings.groupBy)
+        ? { ...groupSettings, groupBy: "none" }
+        : groupSettings,
     };
   }
 
@@ -334,6 +340,22 @@ function normalizePlannerSortRules(
     rules.push({ id: rule.id, field: rule.field, direction: rule.direction });
   }
   return rules;
+}
+
+function sanitizeLegacyFilterRules(
+  value: unknown,
+  allowedFields: readonly PlannerFilterField[],
+): PlannerFilterRule[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((rule) => normalizeFilterRules([rule], allowedFields) ?? []);
+}
+
+function sanitizeLegacySortRules(
+  value: unknown,
+  allowedFields: readonly PlannerSortBy[],
+): PlannerSortRule[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((rule) => normalizePlannerSortRules([rule], allowedFields) ?? []);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -868,6 +890,7 @@ function isRelativeValue(
   value: unknown,
 ): value is { amount: string; unit: "day" | "week" | "month" } {
   return isRecord(value) && typeof value.amount === "string" && isNonNegativeInteger(value.amount) &&
+    Number(value.amount) <= maxRelativeDateAmount &&
     (value.unit === "day" || value.unit === "week" || value.unit === "month");
 }
 
