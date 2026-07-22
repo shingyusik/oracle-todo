@@ -1494,6 +1494,69 @@ button {
   gap: 8px;
 }
 
+.linked-items {
+  display: grid;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.linked-items h2 {
+  margin: 0;
+  color: var(--color-shade-60);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.linked-items-group {
+  display: grid;
+  gap: 6px;
+}
+
+.linked-items-group h3 {
+  margin: 0;
+  color: var(--color-shade-60);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.linked-items-group ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linked-items-group button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-cream);
+  padding: 9px 10px;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.linked-items-group button span:last-child {
+  color: var(--color-shade-60);
+  font-size: 12px;
+}
+
+.linked-items-group button:hover {
+  border-color: var(--color-shade-40);
+}
+
+.linked-items-group button:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
 .detail-properties-list .field-label {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);

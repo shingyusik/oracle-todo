@@ -3560,6 +3560,120 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
   });
 
+  it("renders nonempty linked-item groups and opens the selected child", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "area-1", type: "area", title: "Health", status: "active" },
+            {
+              id: "project-1",
+              type: "project",
+              title: "Checkup",
+              status: "active",
+              area_id: "area-1",
+            },
+            {
+              id: "task-1",
+              type: "task",
+              title: "Book appointment",
+              status: "active",
+              area_id: "area-1",
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+
+    const linkedItems = screen.getByRole("region", { name: "Linked items" });
+    expect(within(linkedItems).getByRole("heading", { name: "Projects · 1" })).toBeInTheDocument();
+    expect(within(linkedItems).getByRole("heading", { name: "Tasks · 1" })).toBeInTheDocument();
+    await user.click(within(linkedItems).getByRole("button", { name: "Open Checkup details" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+  });
+
+  it("confirms before discarding a dirty detail draft to open a linked item", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "area-1", type: "area", title: "Health", status: "active" },
+            {
+              id: "project-1",
+              type: "project",
+              title: "Checkup",
+              status: "active",
+              area_id: "area-1",
+            },
+            {
+              id: "task-1",
+              type: "task",
+              title: "Book appointment",
+              status: "active",
+              area_id: "area-1",
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Health draft");
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
+
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+  });
+
+  it("does not render linked items for a Task without direct children", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "task-1", type: "task", title: "Book appointment", status: "active" },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Open details for Book appointment" }),
+    );
+
+    expect(screen.queryByRole("region", { name: "Linked items" })).toBeNull();
+  });
+
   it("does not transition an active goal when saving an unrelated detail field", async () => {
     const user = userEvent.setup();
     const apiStatus = "active";

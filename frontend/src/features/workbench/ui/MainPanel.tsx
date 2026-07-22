@@ -17,6 +17,7 @@ import {
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
 import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
+import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
   buildPlannerGroupCandidates,
   type PlannerGroupCandidate,
@@ -121,10 +122,20 @@ export function MainPanel({ controller }: MainPanelProps) {
 function DetailView({ controller }: MainPanelProps) {
   const item = controller.detailItem;
   const [draft, setDraft] = React.useState(() => detailDraftForItem(item));
+  const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
+    null,
+  );
+  const cancelLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
 
   React.useEffect(() => {
     setDraft(detailDraftForItem(item));
   }, [item]);
+
+  React.useEffect(() => {
+    if (pendingLinkedItem) {
+      cancelLinkedItemNavigationRef.current?.focus();
+    }
+  }, [pendingLinkedItem]);
 
   if (!item) {
     return null;
@@ -132,6 +143,7 @@ function DetailView({ controller }: MainPanelProps) {
 
   const detailItem = item;
   const hasDraftChanges = hasDetailChanges(detailItem, draft);
+  const groups = linkedItemGroups(detailItem, controller.workspaceItems.items);
 
   function setField(field: keyof DetailDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -150,6 +162,35 @@ function DetailView({ controller }: MainPanelProps) {
     );
     if (transition) {
       await controller.transitionWorkspaceItem(detailItem.id, transition);
+    }
+  }
+
+  function openLinkedItem(nextItem: WorkspaceItemModel) {
+    if (hasDraftChanges) {
+      setPendingLinkedItem(nextItem);
+      return;
+    }
+
+    controller.openDetailView(nextItem);
+  }
+
+  function discardDraftAndOpenLinkedItem() {
+    if (!pendingLinkedItem) {
+      return;
+    }
+
+    controller.openDetailView(pendingLinkedItem);
+    setPendingLinkedItem(null);
+  }
+
+  function cancelLinkedItemNavigation() {
+    setPendingLinkedItem(null);
+  }
+
+  function handleLinkedItemNavigationDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelLinkedItemNavigation();
     }
   }
 
@@ -212,7 +253,59 @@ function DetailView({ controller }: MainPanelProps) {
             />
           </div>
         </div>
+        {groups.length > 0 ? (
+          <section className="linked-items" aria-label="Linked items">
+            <h2>Linked items</h2>
+            {groups.map((group) => (
+              <section className="linked-items-group" key={group.type}>
+                <h3>
+                  {group.label} · {group.items.length}
+                </h3>
+                <ul>
+                  {group.items.map((linkedItem) => (
+                    <li key={linkedItem.id}>
+                      <button
+                        type="button"
+                        aria-label={`Open ${linkedItem.title} details`}
+                        onClick={() => openLinkedItem(linkedItem)}
+                      >
+                        <span>{linkedItem.title}</span>
+                        <span>{linkedItem.status}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </section>
+        ) : null}
       </div>
+      {pendingLinkedItem ? (
+        <div className="confirmation-backdrop">
+          <section
+            className="confirmation-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Discard unsaved changes?"
+            onKeyDown={handleLinkedItemNavigationDialogKeyDown}
+          >
+            <h2>Discard unsaved changes?</h2>
+            <p>Your changes will be lost when you open another item.</p>
+            <div className="dialog-actions">
+              <button
+                ref={cancelLinkedItemNavigationRef}
+                type="button"
+                onClick={cancelLinkedItemNavigation}
+              >
+                Cancel
+              </button>
+              <button type="button" onClick={discardDraftAndOpenLinkedItem}>
+                Discard changes
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
