@@ -12,6 +12,7 @@ logs/*
 .mock-data/
 .worktrees/
 frontend/.next/
+frontend/out/
 frontend/node_modules/
 frontend/tsconfig.tsbuildinfo
 .superpowers/
