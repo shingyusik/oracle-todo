@@ -114,6 +114,7 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
+- Separate planner table settings — independent filter, sort, and group state per Planner table.
 - Add planner custom tabs — save and restore several filter, sort, and group combinations within a Planner table.
 - Show workspace linked items — linked-item lists and direct-detail navigation in Workspace details.
 
