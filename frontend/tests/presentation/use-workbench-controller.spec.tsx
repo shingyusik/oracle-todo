@@ -390,6 +390,7 @@ describe("useWorkbenchController", () => {
       "/todo-engine/items/task-1/archive",
       expect.objectContaining({ method: "POST" }),
     );
+    expect(result.current.workspaceItems.allItems.map((item) => item.id)).toEqual(["task-2"]);
     expect(result.current.selectedItemIds).toEqual([]);
     expect(result.current.archiveConfirmationOpen).toBe(false);
   });
@@ -559,6 +560,55 @@ describe("useWorkbenchController", () => {
     expect(result.current.workspaceItems.items[0].tags).toEqual([
       "deep-work",
       "planning",
+    ]);
+    expect(result.current.workspaceItems.allItems[0]?.tags).toEqual([
+      "deep-work",
+      "planning",
+    ]);
+  });
+
+  it("adds created workspace items to all loaded items", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/todo-engine/tasks/propose") {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ id: "task-new", type: "task", title: "New", status: "active" }),
+          });
+        }
+        if (url === "/todo-engine/items?type=task" || url === "/todo-engine/items") {
+          return Promise.resolve({
+            ok: true,
+            json: async () => [
+              { id: "task-1", type: "task", title: "Existing", status: "active" },
+            ],
+          });
+        }
+
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    await act(async () => {
+      await result.current.createWorkspaceItem({ title: "New" });
+    });
+
+    expect(result.current.workspaceItems.items.map((item) => item.id)).toEqual([
+      "task-new",
+      "task-1",
+    ]);
+    expect(result.current.workspaceItems.allItems.map((item) => item.id)).toEqual([
+      "task-new",
+      "task-1",
     ]);
   });
 
@@ -1097,6 +1147,70 @@ describe("useWorkbenchController", () => {
     });
 
     expect(result.current.workspaceItems.items[0]?.status).toBe("completed");
+    expect(result.current.workspaceItems.allItems[0]?.status).toBe("completed");
+  });
+
+  it("replaces the routine and adds materialized tasks to all loaded items", async () => {
+    const routine = {
+      id: "routine-1",
+      type: "routine",
+      title: "Review inbox",
+      status: "active",
+      recurrence_rule: "RRULE:FREQ=DAILY",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/todo-engine/routines/routine-1/materialize") {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              routine: { ...routine, last_materialized_at: "2026-07-22T09:00:00Z" },
+              created: [
+                {
+                  id: "task-1",
+                  type: "task",
+                  title: "Review inbox",
+                  status: "active",
+                  routine_id: "routine-1",
+                },
+              ],
+            }),
+          });
+        }
+        if (url === "/todo-engine/items?type=routine" || url === "/todo-engine/items") {
+          return Promise.resolve({ ok: true, json: async () => [routine] });
+        }
+
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("routines");
+    });
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    await act(async () => {
+      await result.current.materializeRoutine("routine-1", { future_occurrences: 1 });
+    });
+
+    expect(result.current.workspaceItems.items).toEqual([
+      { ...routine, last_materialized_at: "2026-07-22T09:00:00Z" },
+    ]);
+    expect(result.current.workspaceItems.allItems).toEqual([
+      {
+        id: "task-1",
+        type: "task",
+        title: "Review inbox",
+        status: "active",
+        routine_id: "routine-1",
+      },
+      { ...routine, last_materialized_at: "2026-07-22T09:00:00Z" },
+    ]);
   });
 
   it("coalesces concurrent transitions for the same workspace item", async () => {
