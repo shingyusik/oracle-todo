@@ -125,6 +125,49 @@ describe("useWorkbenchController", () => {
     expect(result.current.planner.filterMode).toBe("or");
   });
 
+  it("persists the latest planner settings when earlier writes finish last", async () => {
+    const pendingWrites: Array<() => void> = [];
+    let serverSettings: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url !== "/todo-engine/settings/planner") {
+          return Promise.resolve({ ok: true, json: async () => [] });
+        }
+        if (init?.method !== "PUT") {
+          return Promise.resolve({ ok: true, json: async () => null });
+        }
+
+        const value = JSON.parse(String(init.body)).value;
+        return new Promise((resolve) => {
+          pendingWrites.push(() => {
+            serverSettings = value;
+            resolve({ ok: true, json: async () => value });
+          });
+        });
+      }),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => {
+      result.current.setPlannerFilterMode("or");
+      result.current.setPlannerFilterRules([
+        { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
+      ]);
+    });
+
+    await waitFor(() => expect(pendingWrites).toHaveLength(1));
+    await act(async () => pendingWrites.shift()?.());
+    await waitFor(() => expect(pendingWrites).toHaveLength(1));
+    await act(async () => pendingWrites.shift()?.());
+
+    expect(serverSettings).toMatchObject({
+      filterMode: "or",
+      filterRules: [{ id: "r1", field: "title", type: "text", operator: "contains", value: "plan" }],
+    });
+  });
+
   it("selects areas under todo when workspace is clicked", () => {
     const { result } = renderHook(() => useWorkbenchController());
 

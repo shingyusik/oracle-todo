@@ -106,6 +106,8 @@ type StoredPlannerSettings = Pick<
   | "weeklySortRules"
 >;
 
+let plannerSettingsWrite = Promise.resolve();
+
 async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
   try {
     const response = await fetch("/todo-engine/settings/planner");
@@ -140,22 +142,27 @@ function persistPlannerSettings(planner: PlannerControls): void {
     monthlySortRules,
     weeklySortRules,
   } = planner;
-  void fetch("/todo-engine/settings/planner", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      value: {
-        dailyFilters,
-        filterMode,
-        filterRules,
-        groupSettings,
-        dailySortRules,
-        yearlySortRules,
-        monthlySortRules,
-        weeklySortRules,
-      },
-    }),
-  }).catch(() => undefined);
+  const body = JSON.stringify({
+    value: {
+      dailyFilters,
+      filterMode,
+      filterRules,
+      groupSettings,
+      dailySortRules,
+      yearlySortRules,
+      monthlySortRules,
+      weeklySortRules,
+    },
+  });
+  plannerSettingsWrite = plannerSettingsWrite
+    .catch(() => undefined)
+    .then(() => fetch("/todo-engine/settings/planner", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body,
+    }))
+    .then(() => undefined)
+    .catch(() => undefined);
 }
 
 function normalizeDailyFilters(value: unknown, defaults: PlannerControls["dailyFilters"]): PlannerControls["dailyFilters"] {
