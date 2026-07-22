@@ -335,9 +335,9 @@ button {
 }
 
 .planner-control-dropdown {
-  position: fixed;
-  top: 74px;
-  right: clamp(12px, 4vw, 32px);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
   z-index: 20;
   width: fit-content;
   min-width: min(540px, calc(100vw - 24px));
@@ -1054,6 +1054,7 @@ button {
 }
 
 .planner-panel .planner-table-header-row > .planner-view-actions {
+  position: relative;
   flex: 0 0 auto;
   margin-left: auto;
 }

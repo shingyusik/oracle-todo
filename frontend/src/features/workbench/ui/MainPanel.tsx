@@ -1254,6 +1254,64 @@ function PlannerTableHeader({
           >
             <Plus size={16} aria-hidden="true" />
           </button>
+          {openDropdown === "filter" ? (
+            <div ref={filterPanelRef}>
+              <PlannerControlDropdown id={dropdownIds.filter} title={`Filter ${title}`}>
+                <PlannerFilterRulePanel
+                  controller={controller}
+                  tableId={tableId}
+                  filterOptions={filterOptions}
+                  rules={visibleFilterRules}
+                />
+              </PlannerControlDropdown>
+            </div>
+          ) : null}
+          {openDropdown === "sort" ? (
+            <div ref={sortPanelRef}>
+              <PlannerControlDropdown id={dropdownIds.sort} title={`Sort ${title}`}>
+                <PlannerSortPanel
+                  controller={controller}
+                  tableId={tableId}
+                  filterOptions={filterOptions}
+                />
+              </PlannerControlDropdown>
+            </div>
+          ) : null}
+          {openDropdown === "group" ? (
+            <div ref={groupPanelRef}>
+              <PlannerControlDropdown id={dropdownIds.group} title={`Group ${title}`} compact>
+                <PlannerGroupPanel
+                  settings={{ ...settings.groupSettings, groupBy }}
+                  candidates={plannerTableGroupCandidates(
+                    tableId,
+                    settings.groupSettings,
+                    groupUniverseItems,
+                    controller.workspaceItems.relatedItems,
+                  )}
+                  groupOptions={plannerGroupOptionsForTable(tableId)}
+                  onGroupByChange={(value) => updateGroupSettings((current) => ({ ...current, groupBy: value }))}
+                  onSortChange={(value) => updateGroupSettings((current) => ({ ...current, sort: value }))}
+                  onHideEmptyChange={(value) => updateGroupSettings((current) => ({ ...current, hideEmpty: value }))}
+                  onVisibilityToggle={(key) => updateGroupSettings((current) => ({
+                    ...current,
+                    hiddenGroupKeys: current.hiddenGroupKeys.includes(key)
+                      ? current.hiddenGroupKeys.filter((candidate) => candidate !== key)
+                      : [...current.hiddenGroupKeys, key],
+                  }))}
+                  onAllVisibilityChange={(keys, visible) => updateGroupSettings((current) => ({
+                    ...current,
+                    hiddenGroupKeys: visible ? [] : keys,
+                  }))}
+                  onManualOrderChange={(keys) => updateGroupSettings((current) => ({ ...current, manualOrder: keys }))}
+                  onRemove={() => updateGroupSettings((current) => ({ ...current, groupBy: "none" }))}
+                  onRequestOuterClose={() => {
+                    setOpenDropdown(null);
+                    groupTriggerRef.current?.focus();
+                  }}
+                />
+              </PlannerControlDropdown>
+            </div>
+          ) : null}
         </div>
       </div>
       <PlannerActiveControlPills
@@ -1262,64 +1320,6 @@ function PlannerTableHeader({
         groupBy={groupBy}
         showSort={!isDefaultPlannerTableSort(tableId, settings.sortRules)}
       />
-      {openDropdown === "filter" ? (
-        <div ref={filterPanelRef}>
-          <PlannerControlDropdown id={dropdownIds.filter} title={`Filter ${title}`}>
-            <PlannerFilterRulePanel
-              controller={controller}
-              tableId={tableId}
-              filterOptions={filterOptions}
-              rules={visibleFilterRules}
-            />
-          </PlannerControlDropdown>
-        </div>
-      ) : null}
-      {openDropdown === "sort" ? (
-        <div ref={sortPanelRef}>
-          <PlannerControlDropdown id={dropdownIds.sort} title={`Sort ${title}`}>
-            <PlannerSortPanel
-              controller={controller}
-              tableId={tableId}
-              filterOptions={filterOptions}
-            />
-          </PlannerControlDropdown>
-        </div>
-      ) : null}
-      {openDropdown === "group" ? (
-        <div ref={groupPanelRef}>
-          <PlannerControlDropdown id={dropdownIds.group} title={`Group ${title}`} compact>
-            <PlannerGroupPanel
-              settings={{ ...settings.groupSettings, groupBy }}
-              candidates={plannerTableGroupCandidates(
-                tableId,
-                settings.groupSettings,
-                groupUniverseItems,
-                controller.workspaceItems.relatedItems,
-              )}
-              groupOptions={plannerGroupOptionsForTable(tableId)}
-              onGroupByChange={(value) => updateGroupSettings((current) => ({ ...current, groupBy: value }))}
-              onSortChange={(value) => updateGroupSettings((current) => ({ ...current, sort: value }))}
-              onHideEmptyChange={(value) => updateGroupSettings((current) => ({ ...current, hideEmpty: value }))}
-              onVisibilityToggle={(key) => updateGroupSettings((current) => ({
-                ...current,
-                hiddenGroupKeys: current.hiddenGroupKeys.includes(key)
-                  ? current.hiddenGroupKeys.filter((candidate) => candidate !== key)
-                  : [...current.hiddenGroupKeys, key],
-              }))}
-              onAllVisibilityChange={(keys, visible) => updateGroupSettings((current) => ({
-                ...current,
-                hiddenGroupKeys: visible ? [] : keys,
-              }))}
-              onManualOrderChange={(keys) => updateGroupSettings((current) => ({ ...current, manualOrder: keys }))}
-              onRemove={() => updateGroupSettings((current) => ({ ...current, groupBy: "none" }))}
-              onRequestOuterClose={() => {
-                setOpenDropdown(null);
-                groupTriggerRef.current?.focus();
-              }}
-            />
-          </PlannerControlDropdown>
-        </div>
-      ) : null}
     </header>
   );
 }
