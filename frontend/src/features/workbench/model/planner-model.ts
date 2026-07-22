@@ -165,21 +165,26 @@ export function normalizePlannerTableSettings(
   legacy: LegacyPlannerControls,
 ): PlannerTableSettings {
   const defaults = defaultPlannerTableSettings(tableId);
-  const value = isRecord(candidate) ? candidate : undefined;
-  const legacySettings = legacySettingsForTable(tableId, legacy);
+  if (candidate === undefined) {
+    const legacySettings = legacySettingsForTable(tableId, legacy);
+    return {
+      filterMode: normalizeFilterMode(legacy.filterMode, defaults.filterMode),
+      filterRules: normalizeFilterRules(legacy.filterRules),
+      sortRules: normalizePlannerSortRules(legacySettings.sortRules, defaults.sortRules),
+      groupSettings: normalizePlannerGroupSettings(legacySettings.groupSettings),
+    };
+  }
+
+  if (!isRecord(candidate)) return defaults;
 
   return {
-    filterMode: value
-      ? normalizeFilterMode(value.filterMode, defaults.filterMode)
-      : normalizeFilterMode(legacy.filterMode, defaults.filterMode),
-    filterRules: normalizeFilterRules(value ? value.filterRules : legacy.filterRules),
+    filterMode: normalizeFilterMode(candidate.filterMode, defaults.filterMode),
+    filterRules: normalizeFilterRules(candidate.filterRules),
     sortRules: normalizePlannerSortRules(
-      value ? value.sortRules : legacySettings.sortRules,
-      value ? defaults.sortRules : legacySettings.sortRules,
+      candidate.sortRules,
+      defaults.sortRules,
     ),
-    groupSettings: normalizePlannerGroupSettings(
-      value ? value.groupSettings : legacySettings.groupSettings,
-    ),
+    groupSettings: normalizePlannerGroupSettings(candidate.groupSettings),
   };
 }
 

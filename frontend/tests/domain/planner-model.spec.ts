@@ -278,6 +278,60 @@ describe("planner model", () => {
     ]);
   });
 
+  it.each([null, "malformed", []] as const)(
+    "uses table defaults when a persisted settings candidate is malformed: %j",
+    (candidate) => {
+      const legacy = legacyPlannerControls();
+      legacy.filterMode = "or";
+      legacy.filterRules = [
+        { id: "legacy-filter", field: "title", type: "text", operator: "contains", value: "legacy" },
+      ];
+      legacy.dailySortRules = [{ id: "legacy-sort", field: "title", direction: "desc" }];
+      legacy.groupSettings.daily = {
+        ...defaultPlannerGroupSettings(),
+        groupBy: "area",
+      };
+
+      expect(normalizePlannerTableSettings("daily.today", candidate, legacy)).toEqual(
+        defaultPlannerTableSettings("daily.today"),
+      );
+    },
+  );
+
+  it("strictly validates legacy settings before migrating them", () => {
+    const legacy = legacyPlannerControls();
+    legacy.filterMode = "or";
+    legacy.filterRules = [
+      { id: "valid-filter", field: "title", type: "text", operator: "contains", value: "legacy" },
+      { id: "malformed-filter", field: "scheduled", type: "date", operator: "is", value: "not-a-date" },
+    ] as PlannerFilterRule[];
+    legacy.dailySortRules = [
+      { id: "valid-sort", field: "title", direction: "desc" },
+      { id: "malformed-sort", field: "unknown", direction: "asc" },
+    ] as never;
+    legacy.groupSettings.daily = {
+      groupBy: "area",
+      sort: "manual",
+      hideEmpty: true,
+      manualOrder: ["area-1", 3],
+      hiddenGroupKeys: ["area-2", null],
+    } as never;
+
+    const migrated = normalizePlannerTableSettings("daily.today", undefined, legacy);
+
+    expect(migrated.filterMode).toBe("or");
+    expect(migrated.filterRules).toEqual([
+      { id: "valid-filter", field: "title", type: "text", operator: "contains", value: "legacy" },
+    ]);
+    expect(migrated.sortRules).toEqual(defaultPlannerTableSettings("daily.today").sortRules);
+    expect(migrated.groupSettings).toEqual({
+      ...defaultPlannerGroupSettings(),
+      groupBy: "area",
+      manualOrder: ["area-1"],
+      hiddenGroupKeys: ["area-2"],
+    });
+  });
+
   it("falls back only the malformed persisted table settings", () => {
     const legacy = legacyPlannerControls();
     const malformed = normalizePlannerTableSettings("daily.today", {
