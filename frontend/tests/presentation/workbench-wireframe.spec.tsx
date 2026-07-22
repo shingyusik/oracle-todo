@@ -346,7 +346,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Areas" })).toBeNull();
   });
 
-  it("renders shared planner view controls on every planner tab", async () => {
+  it("keeps period navigation global and renders controls inside Daily and Weekly tables", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -363,15 +363,15 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Planner" }));
 
-    for (const tab of ["Yearly", "Monthly", "Weekly", "Daily"]) {
-      if (tab !== "Yearly") {
-        await user.click(screen.getByRole("button", { name: tab }));
-      }
-
-      expect(screen.getByRole("button", { name: "Filter planner view" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Sort planner view" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Group planner view" })).toBeInTheDocument();
-    }
+    expect(screen.queryByRole("button", { name: "Filter planner view" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    expect(screen.getByRole("group", { name: "Month Goals controls" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Week Goals controls" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Weekday grid controls" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    expect(screen.getByRole("group", { name: "Today controls" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Before controls" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Unscheduled controls" })).toBeInTheDocument();
   });
 
   it("keeps workspace and planner sibling branches open together", async () => {
@@ -558,6 +558,61 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getAllByTestId("weekly-day-card")).toHaveLength(7);
   });
 
+  it("scopes weekly goal and weekday-grid controls to their own tables", async () => {
+    const user = userEvent.setup();
+    const weekStart = testWeekStart(testToday());
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=goal": [
+        { id: "month-a", type: "goal", title: "Month Alpha", status: "active", horizon: "month", scheduled: testMonthStart(weekStart) },
+        { id: "month-z", type: "goal", title: "Month Zulu", status: "active", horizon: "month", scheduled: testMonthStart(weekStart) },
+        { id: "week-a", type: "goal", title: "Week Alpha", status: "active", horizon: "week", scheduled: weekStart },
+        { id: "week-z", type: "goal", title: "Week Zulu", status: "active", horizon: "week", scheduled: weekStart },
+      ],
+      "/todo-engine/items?type=task": Array.from({ length: 7 }, (_, offset) => [
+        { id: `day-${offset}-a`, type: "task", title: `Alpha ${offset}`, status: "active", scheduled: testAddDays(weekStart, offset) },
+        { id: `day-${offset}-z`, type: "task", title: `Zulu ${offset}`, status: "active", scheduled: testAddDays(weekStart, offset) },
+      ]).flat(),
+      "/todo-engine/items?type=event": [],
+      "/todo-engine/items?type=routine": [],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => Promise.resolve({
+        ok: true,
+        json: async () => responses[url] ?? [],
+      })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    await screen.findByText("Month Alpha");
+
+    expect(screen.getByRole("group", { name: "Month Goals controls" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Week Goals controls" })).toBeInTheDocument();
+    const dayGridControls = screen.getByRole("group", { name: "Weekday grid controls" });
+
+    await user.click(within(dayGridControls).getByRole("button", { name: "Sort Weekday grid" }));
+    const sortDialog = screen.getByRole("dialog", { name: "Sort Weekday grid" });
+    await user.selectOptions(within(sortDialog).getByLabelText("Sort field"), "title");
+    await user.selectOptions(within(sortDialog).getByLabelText("Sort direction"), "desc");
+
+    for (const [offset, card] of screen.getAllByTestId("weekly-day-card").entries()) {
+      expect(within(card).getByText(`Zulu ${offset}`).compareDocumentPosition(
+        within(card).getByText(`Alpha ${offset}`),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(screen.getByText("Month Alpha").compareDocumentPosition(
+      screen.getByText("Month Zulu"),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Week Alpha").compareDocumentPosition(
+      screen.getByText("Week Zulu"),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("defaults weekly planner goal creation to the active week anchor and shows it", async () => {
     const user = userEvent.setup();
     const weekStart = testWeekStart(testToday());
@@ -609,7 +664,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Weekly" }));
-    await user.click(screen.getByRole("button", { name: "Add planner item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Week Goals" }));
 
     const trigger = screen.getByRole("button", { name: "Period" });
     expect(trigger).toHaveTextContent("Week");
@@ -723,7 +778,7 @@ describe("WorkbenchPageClient", () => {
     });
   });
 
-  it("creates weekly planner tasks and daily planner events or routines from the type selector", async () => {
+  it("creates weekly planner tasks and daily planner events from table type selectors", async () => {
     const user = userEvent.setup();
     const today = testToday();
     const weekStart = testWeekStart(today);
@@ -782,30 +837,6 @@ describe("WorkbenchPageClient", () => {
           }),
         });
       }
-      if (url === "/todo-engine/routines/propose") {
-        expect(init).toEqual(
-          expect.objectContaining({
-            method: "POST",
-            body: JSON.stringify({
-              title: "Daily routine",
-              actor: "user",
-              materialization_policy: "single_open",
-              recurrence_rule: "RRULE:FREQ=DAILY",
-            }),
-          }),
-        );
-
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "routine-new",
-            type: "routine",
-            title: "Daily routine",
-            status: "active",
-          }),
-        });
-      }
-
       return Promise.resolve({
         ok: true,
         json: async () => responses[url] ?? [],
@@ -818,7 +849,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Weekly" }));
-    await user.click(screen.getByRole("button", { name: "Add planner item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Weekday grid" }));
     await user.selectOptions(screen.getByLabelText("Type"), "task");
     expect(screen.getByLabelText("Scheduled")).toHaveValue(weekStart);
     await user.type(screen.getByLabelText("Title"), "Weekly task");
@@ -830,20 +861,13 @@ describe("WorkbenchPageClient", () => {
     ).not.toBeChecked();
 
     await user.click(screen.getByRole("button", { name: "Daily" }));
-    await user.click(screen.getByRole("button", { name: "Add planner item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+    expect(within(screen.getByLabelText("Type")).queryByRole("option", { name: "Routine" })).toBeNull();
     await user.selectOptions(screen.getByLabelText("Type"), "event");
     expect(screen.getByLabelText("Scheduled")).toHaveValue(today);
     await user.type(screen.getByLabelText("Title"), "Daily event");
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByText("Daily event")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    await user.click(screen.getByRole("button", { name: "Add planner item" }));
-    await user.selectOptions(screen.getByLabelText("Type"), "routine");
-    expect(screen.queryByLabelText("Scheduled")).toBeNull();
-    await user.type(screen.getByLabelText("Title"), "Daily routine");
-    await user.click(screen.getByRole("button", { name: "Create" }));
-    expect(await screen.findByRole("heading", { name: "Daily routine" })).toBeInTheDocument();
   });
 
   it("renders daily planner sections with filter, group, and sort controls", async () => {
@@ -967,9 +991,9 @@ describe("WorkbenchPageClient", () => {
     expect(
       await screen.findByRole("heading", { name: testLongDateLabel(today) }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Filter planner view" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Group planner view" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sort planner view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Filter Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Group Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sort Today" })).toBeInTheDocument();
     expect(screen.getByText("Today Task")).toBeInTheDocument();
     expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
@@ -997,8 +1021,8 @@ describe("WorkbenchPageClient", () => {
       screen.queryByRole("button", { name: "Project Should Not Render" }),
     ).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
-    const filterDialog = screen.getByRole("dialog", { name: "Filter" });
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
+    const filterDialog = screen.getByRole("dialog", { name: "Filter Today" });
     expect(filterDialog).not.toHaveClass("planner-control-dropdown-compact");
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
@@ -1006,9 +1030,9 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("checkbox", { name: "Focus" }));
 
     expect(screen.getByText("Today Task")).toBeInTheDocument();
-    expect(screen.queryByText("Overdue Task")).toBeNull();
+    expect(screen.getByText("Overdue Task")).toBeInTheDocument();
     expect(screen.queryByText("Upcoming Task")).toBeNull();
-    expect(screen.queryByText("Inbox Task")).toBeNull();
+    expect(screen.getByText("Inbox Task")).toBeInTheDocument();
     expect(screen.getByText("1 rules")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
@@ -1021,6 +1045,59 @@ describe("WorkbenchPageClient", () => {
 
     expect(screen.getByText("Or")).toBeInTheDocument();
   }, 10_000);
+
+  it("keeps Daily table controls isolated and constrains Unscheduled creation to Task", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=task": [
+        { id: "today-keep", type: "task", title: "Keep today", status: "active", scheduled: today },
+        { id: "today-hide", type: "task", title: "Hide today", status: "active", scheduled: today },
+        { id: "before", type: "task", title: "Before remains", status: "active", scheduled: testAddDays(today, -1) },
+        { id: "unscheduled", type: "task", title: "Inbox remains", status: "active" },
+      ],
+      "/todo-engine/items?type=event": [],
+      "/todo-engine/items?type=routine": [],
+      "/todo-engine/items?type=goal": [],
+      "/todo-engine/items?type=area": [],
+      "/todo-engine/items?type=project": [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => Promise.resolve({
+        ok: true,
+        json: async () => responses[url] ?? [],
+      })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await screen.findByText("Keep today");
+
+    const todayControls = screen.getByRole("group", { name: "Today controls" });
+    expect(screen.getByRole("group", { name: "Before controls" })).toBeInTheDocument();
+    const unscheduledControls = screen.getByRole("group", { name: "Unscheduled controls" });
+
+    await user.click(within(todayControls).getByRole("button", { name: "Filter Today" }));
+    const filterDialog = screen.getByRole("dialog", { name: "Filter Today" });
+    await user.click(within(filterDialog).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filterDialog).getByRole("option", { name: "Title" }));
+    await user.type(within(filterDialog).getByLabelText("Filter value"), "Keep");
+
+    expect(screen.getByText("Keep today")).toBeInTheDocument();
+    expect(screen.queryByText("Hide today")).toBeNull();
+    expect(screen.getByText("Before remains")).toBeInTheDocument();
+    expect(screen.getByText("Inbox remains")).toBeInTheDocument();
+
+    await user.click(within(unscheduledControls).getByRole("button", { name: "Add to Unscheduled" }));
+    const type = screen.getByLabelText("Type");
+    expect(within(type).getAllByRole("option").map((option) => option.textContent)).toEqual(["Task"]);
+    expect(within(type).queryByRole("option", { name: "Routine" })).toBeNull();
+    expect(within(type).queryByRole("option", { name: "Event" })).toBeNull();
+    expect(screen.queryByLabelText("Scheduled")).toBeNull();
+  });
 
   it("completes a daily planner task without opening its detail from the checkbox", async () => {
     const user = userEvent.setup();
@@ -1216,7 +1293,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await screen.findByRole("checkbox", { name: "Complete Shared task" });
-    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Group Today" }));
     await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
 
@@ -1318,7 +1395,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
 
     await screen.findByText("Focus Task");
-    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     expect(screen.getByRole("option", { name: "Title" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Item type" })).toBeNull();
@@ -1337,7 +1414,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Ops Task")).toBeInTheDocument();
   });
 
-  it("hides unsupported filter rules after switching planner views", async () => {
+  it("does not carry Daily table filters into Weekly goal tables", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -1393,7 +1470,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
 
     await screen.findByText("Focus Task");
-    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
     await user.click(screen.getByRole("button", { name: "Add filter rule" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
     await user.click(screen.getByRole("button", { name: "Select Area filter values" }));
@@ -1401,9 +1478,9 @@ describe("WorkbenchPageClient", () => {
 
     expect(screen.getByText("1 rules")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
     expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Filter planner view" }));
+    await user.click(screen.getByRole("button", { name: "Filter Month Goals" }));
 
     expect(screen.queryByText("1 rules")).toBeNull();
     expect(screen.queryByDisplayValue("Title")).toBeNull();
@@ -1458,16 +1535,16 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await screen.findByText("A Task");
 
-    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
+    await user.click(screen.getByRole("button", { name: "Sort Today" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
 
     const selectedDaySection = screen.getByLabelText(testLongDateLabel(testToday()));
     expect(
-      within(selectedDaySection).getAllByRole("button").map((button) => button.textContent),
+      Array.from(selectedDaySection.querySelectorAll(".planner-item")).map((button) => button.textContent),
     ).toEqual(["A Task", "B Task"]);
 
-    await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    expect(screen.getByRole("dialog", { name: "Group" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Group Today" }));
+    expect(screen.getByRole("dialog", { name: "Group Today" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Group settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close group settings" })).not.toBeInTheDocument();
@@ -1496,26 +1573,26 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Daily" }));
 
-    const groupTrigger = screen.getByRole("button", { name: "Group planner view" });
+    const groupTrigger = screen.getByRole("button", { name: "Group Today" });
     await user.click(groupTrigger);
-    const groupDialog = screen.getByRole("dialog", { name: "Group" });
-    expect(groupTrigger).toHaveAttribute("aria-controls", "planner-group-dropdown");
-    expect(groupDialog).toHaveAttribute("id", "planner-group-dropdown");
+    const groupDialog = screen.getByRole("dialog", { name: "Group Today" });
+    expect(groupTrigger).toHaveAttribute("aria-controls", "planner-group-dropdown-daily-today");
+    expect(groupDialog).toHaveAttribute("id", "planner-group-dropdown-daily-today");
     expect(groupDialog).toHaveClass("planner-control-dropdown-compact");
 
     await user.click(screen.getByRole("button", { name: "Choose group sort" }));
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("listbox", { name: "Choose group sort" })).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Group" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Group Today" })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Group" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Group Today" })).not.toBeInTheDocument();
     expect(groupTrigger).toHaveFocus();
 
     await user.click(groupTrigger);
     fireEvent.mouseDown(document.body);
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Group" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Group Today" })).not.toBeInTheDocument();
     });
     expect(groupTrigger).toHaveFocus();
   });
@@ -1585,7 +1662,7 @@ describe("WorkbenchPageClient", () => {
 
     const titlePill = document.querySelector(".planner-view-pill");
     const trigger = screen.getByRole("button", { name: "Choose Weekly date" });
-    const addButton = screen.getByRole("button", { name: "Add planner item" });
+    const addButton = screen.getByRole("button", { name: "Add to Month Goals" });
     const leadingGroup = trigger.closest(".planner-view-leading");
 
     expect(titlePill).not.toBeNull();
@@ -1892,24 +1969,23 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     await screen.findByText("Alpha Month Goal");
 
-    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
+    await user.click(screen.getByRole("button", { name: "Sort Month Goals" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
-    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Group Month Goals" }));
     await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
 
     const monthGoals = screen.getByLabelText("Weekly month goals");
     expect(within(monthGoals).getByRole("heading", { name: "focus" })).toBeInTheDocument();
     expect(
-      within(monthGoals).getAllByRole("button").map((button) => button.textContent),
+      Array.from(monthGoals.querySelectorAll(".planner-item")).map((button) => button.textContent),
     ).toEqual(["Alpha Month Goal", "Beta Month Goal"]);
 
     const weekGoals = screen.getByLabelText("Weekly goals");
-    expect(within(weekGoals).getByRole("heading", { name: "focus" })).toBeInTheDocument();
-    expect(within(weekGoals).getByRole("heading", { name: "ops" })).toBeInTheDocument();
-    expect(
-      within(weekGoals).getAllByRole("button").map((button) => button.textContent),
-    ).toEqual(["Alpha Week Goal", "Beta Week Goal", "Ops Week Goal"]);
+    expect(within(weekGoals).queryByRole("heading", { name: "focus" })).toBeNull();
+    expect(within(weekGoals).getByText("Alpha Week Goal")).toBeInTheDocument();
+    expect(within(weekGoals).getByText("Beta Week Goal")).toBeInTheDocument();
+    expect(within(weekGoals).getByText("Ops Week Goal")).toBeInTheDocument();
 
     expect(screen.getByText("Monday Task")).toBeInTheDocument();
     expect(screen.getAllByTestId("weekly-day-card")).toHaveLength(7);
@@ -1950,7 +2026,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Planner" }));
     await user.click(screen.getByRole("button", { name: "Weekly" }));
 
-    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Group Weekday grid" }));
     await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
 
@@ -1960,17 +2036,7 @@ describe("WorkbenchPageClient", () => {
     await screen.findByText("Work Goal");
 
     expect(screen.queryByText("Grouped by area")).toBeNull();
-    expect(screen.getByRole("button", { name: "Group planner view" })).toHaveAttribute(
-      "data-active",
-      "false",
-    );
     expect(screen.queryByRole("heading", { name: "Work" })).toBeNull();
-
-    await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: "Choose group property" }));
-
-    expect(screen.getByRole("option", { name: "None" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByRole("button", { name: "Area" })).toBeNull();
   });
 
   it("keeps weekly sort and group choices isolated from monthly and yearly tabs", async () => {
@@ -2040,9 +2106,9 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     await screen.findByText("Week Goal");
 
-    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
+    await user.click(screen.getByRole("button", { name: "Sort Weekday grid" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
-    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Group Weekday grid" }));
     await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Area" }));
 
@@ -2065,7 +2131,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Grouped by area")).toBeInTheDocument();
   });
 
-  it("does not let monthly sort and group choices mutate weekly planner state", async () => {
+  it("keeps weekday-grid sort and group choices after visiting monthly", async () => {
     const user = userEvent.setup();
     const today = testToday();
     const weekStart = testWeekStart(today);
@@ -2129,29 +2195,19 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     await screen.findByText("Week Goal");
 
-    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
+    await user.click(screen.getByRole("button", { name: "Sort Weekday grid" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
-    await user.click(screen.getByRole("button", { name: "Group planner view" }));
+    await user.click(screen.getByRole("button", { name: "Group Weekday grid" }));
     await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     await screen.findByText("Alpha Month Goal");
-    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
-    await user.selectOptions(screen.getByLabelText("Sort field"), "updated");
-    await user.click(screen.getByRole("button", { name: "Group planner view" }));
-    await user.click(screen.getByRole("button", { name: "Choose group property" }));
-    await user.click(screen.getByRole("option", { name: "Status" }));
-
-    expect(screen.getByText("Sorted by updated")).toBeInTheDocument();
-    expect(screen.getByText("Grouped by status")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     await screen.findByText("Week Goal");
     expect(screen.getByText("Sorted by title")).toBeInTheDocument();
     expect(screen.getByText("Grouped by tag")).toBeInTheDocument();
-    expect(screen.queryByText("Sorted by updated")).toBeNull();
-    expect(screen.queryByText("Grouped by status")).toBeNull();
   });
 
   it("shows an active sort pill when planner sort differs from the tab default", async () => {
@@ -2195,7 +2251,7 @@ describe("WorkbenchPageClient", () => {
 
     expect(screen.queryByLabelText("Active planner controls")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Sort planner view" }));
+    await user.click(screen.getByRole("button", { name: "Sort Weekday grid" }));
     await user.selectOptions(screen.getByLabelText("Sort field"), "title");
 
     expect(screen.getByLabelText("Active planner controls")).toBeInTheDocument();

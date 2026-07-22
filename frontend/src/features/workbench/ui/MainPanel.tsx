@@ -23,7 +23,7 @@ import {
   type PlannerGroupSettings,
 } from "@/features/workbench/model/planner-group-settings";
 import {
-  buildDailyPlannerModel,
+  buildDailyPlannerSections,
   buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
   buildYearlyPeriodGoalCardsModel,
@@ -34,6 +34,7 @@ import {
   type PeriodGoalBucketModel,
   type PeriodGoalCardModel,
   type PlannerFilterField,
+  type PlannerFilterMode,
   type PlannerFilterOperator,
   type PlannerFilterRule,
   type PlannerFilterType,
@@ -43,6 +44,7 @@ import {
   type PlannerGroupBy,
   type PlannerSortBy,
   type PlannerSortRule,
+  type PlannerTableId,
 } from "@/features/workbench/model/planner-model";
 import {
   DEFAULT_FUTURE_OCCURRENCES,
@@ -61,6 +63,16 @@ type MainPanelProps = {
 };
 
 type PlannerDropdownKind = "filter" | "sort" | "group";
+
+type PlannerCreationItemType = "task" | "goal" | "routine" | "event";
+
+type PlannerCreationContext = {
+  tableId: PlannerTableId;
+  itemTypes: PlannerCreationItemType[];
+  scheduled: string;
+  horizon?: string;
+  editableDate: boolean;
+};
 
 type ItemColumn = {
   label: string;
@@ -223,6 +235,7 @@ function isPlannerPanel(leafTabId: LeafTabId): boolean {
 
 function PlannerPanel({ controller }: MainPanelProps) {
   const { panel, workspaceItems } = controller;
+  const [creationContext, setCreationContext] = React.useState<PlannerCreationContext | null>(null);
 
   if (workspaceItems.status === "idle") {
     return null;
@@ -248,24 +261,30 @@ function PlannerPanel({ controller }: MainPanelProps) {
     );
   }
 
-  const filterOptions = buildPlannerFilterOptions(controller);
-
   return (
     <section
       className="items-section planner-panel"
       aria-label={`${panel.title} planner`}
     >
-      <PlannerControlToolbar
-        controller={controller}
-        filterOptions={filterOptions}
-      />
-      {panel.id === "weekly" ? <WeeklyPlanner controller={controller} /> : null}
-      {panel.id === "daily" ? <DailyPlanner controller={controller} /> : null}
+      <PlannerControlToolbar controller={controller} />
+      {panel.id === "weekly" ? (
+        <WeeklyPlanner controller={controller} onCreate={openPlannerCreation} />
+      ) : null}
+      {panel.id === "daily" ? (
+        <DailyPlanner controller={controller} onCreate={openPlannerCreation} />
+      ) : null}
       {panel.id === "yearly" ? <YearlyPeriodPlanner controller={controller} /> : null}
       {panel.id === "monthly" ? <MonthlyPeriodPlanner controller={controller} /> : null}
-      {controller.creationDialogOpen ? <CreationDialog controller={controller} /> : null}
+      {controller.creationDialogOpen ? (
+        <CreationDialog controller={controller} creationContext={creationContext} />
+      ) : null}
     </section>
   );
+
+  function openPlannerCreation(context: PlannerCreationContext) {
+    setCreationContext(context);
+    controller.openCreationDialog();
+  }
 }
 
 function YearlyPeriodPlanner({ controller }: MainPanelProps) {
@@ -611,93 +630,169 @@ function GoalGroupContent({
   return <>{renderPlannerGroups(controller, groupedGoals, emptyText)}</>;
 }
 
-function WeeklyPlanner({ controller }: MainPanelProps) {
+function WeeklyPlanner({
+  controller,
+  onCreate,
+}: MainPanelProps & { onCreate: (context: PlannerCreationContext) => void }) {
   const model = buildWeeklyPlannerModel(
-    filteredPlannerItems(controller),
+    controller.workspaceItems.items,
     controller.planner.weekStart,
   );
-  const settings = plannerGroupSettings(controller);
-  const sortedMonthGoals = sortPlannerItems(model.monthGoals, plannerSortRules(controller));
-  const sortedWeekGoals = sortPlannerItems(model.weekGoals, plannerSortRules(controller));
-  const monthGoalGroups = groupPlannerItems(
-    sortedMonthGoals,
+  const dayGridItems = model.days.flatMap((day) => day.items);
+  const monthGoalGroups = applyPlannerTableSettings(
+    model.monthGoals,
+    "weekly.month-goals",
+    controller,
     controller.workspaceItems.relatedItems,
-    settings,
-    plannerGroupCandidates(controller, sortedMonthGoals),
+    controller.planner.date,
   );
-  const weekGoalGroups = groupPlannerItems(
-    sortedWeekGoals,
+  const weekGoalGroups = applyPlannerTableSettings(
+    model.weekGoals,
+    "weekly.week-goals",
+    controller,
     controller.workspaceItems.relatedItems,
-    settings,
-    plannerGroupCandidates(controller, sortedWeekGoals),
+    controller.planner.date,
   );
 
   return (
     <div className="planner-panel">
       <div className="planner-goal-grid">
         <section className="planner-section" aria-label="Weekly month goals">
-          <h2>Goals for this month</h2>
+          <PlannerTableHeader
+            controller={controller}
+            tableId="weekly.month-goals"
+            title="Month Goals"
+            heading="Goals for this month"
+            rawItems={model.monthGoals}
+            creationContext={{
+              tableId: "weekly.month-goals",
+              itemTypes: ["goal"],
+              scheduled: monthStart(controller.planner.weekStart),
+              horizon: "month",
+              editableDate: false,
+            }}
+            onCreate={onCreate}
+          />
           {renderPlannerGroups(controller, monthGoalGroups, "No goals found.")}
         </section>
         <section className="planner-section" aria-label="Weekly goals">
-          <h2>Goals for this week</h2>
+          <PlannerTableHeader
+            controller={controller}
+            tableId="weekly.week-goals"
+            title="Week Goals"
+            heading="Goals for this week"
+            rawItems={model.weekGoals}
+            creationContext={{
+              tableId: "weekly.week-goals",
+              itemTypes: ["goal"],
+              scheduled: controller.planner.weekStart,
+              horizon: "week",
+              editableDate: false,
+            }}
+            onCreate={onCreate}
+          />
           {renderPlannerGroups(controller, weekGoalGroups, "No goals found.")}
         </section>
       </div>
-      <div className="weekly-day-grid">
-        {model.days.map((day) => {
-          const sortedDayItems = sortPlannerItems(day.items, plannerSortRules(controller));
-          const dayGroups = groupPlannerItems(
-            sortedDayItems,
-            controller.workspaceItems.relatedItems,
-            settings,
-            plannerGroupCandidates(controller, sortedDayItems),
-          );
+      <section className="planner-section" aria-label="Weekly weekday grid">
+        <PlannerTableHeader
+          controller={controller}
+          tableId="weekly.day-grid"
+          title="Weekday grid"
+          heading="Weekday grid"
+          rawItems={dayGridItems}
+          groupUniverseItems={dayGridItems}
+          creationContext={{
+            tableId: "weekly.day-grid",
+            itemTypes: ["task", "event"],
+            scheduled: controller.planner.weekStart,
+            editableDate: true,
+          }}
+          onCreate={onCreate}
+        />
+        <div className="weekly-day-grid">
+          {model.days.map((day) => {
+            const dayGroups = applyPlannerTableSettings(
+              day.items,
+              "weekly.day-grid",
+              controller,
+              controller.workspaceItems.relatedItems,
+              controller.planner.date,
+              dayGridItems,
+            );
 
-          return (
-            <section
-              className="planner-card"
-              key={day.date}
-              data-testid="weekly-day-card"
-            >
-              <h3>{day.label}</h3>
-              {renderPlannerGroups(controller, dayGroups, "No scheduled items.")}
-            </section>
-          );
-        })}
-      </div>
+            return (
+              <section
+                className="planner-card"
+                key={day.date}
+                data-testid="weekly-day-card"
+              >
+                <h3>{day.label}</h3>
+                {renderPlannerGroups(controller, dayGroups, "No scheduled items.")}
+              </section>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
 
-function DailyPlanner({ controller }: MainPanelProps) {
-  const model = buildDailyPlannerModel(
-    filteredPlannerItems(controller),
-    controller.workspaceItems.relatedItems,
-    {
-      date: controller.planner.date,
-      filters: emptyDailyFilters(),
-      groupSettings: plannerGroupSettings(controller),
-      groupCandidates: plannerGroupCandidates(controller, filteredPlannerItems(controller)),
-      sortRules: controller.planner.dailySortRules,
-    },
+function DailyPlanner({
+  controller,
+  onCreate,
+}: MainPanelProps & { onCreate: (context: PlannerCreationContext) => void }) {
+  const rawSections = buildDailyPlannerSections(
+    controller.workspaceItems.items,
+    controller.planner.date,
   );
+  const dateTitle = plannerDateLabel(controller.planner.date);
 
   return (
     <div className="planner-panel daily-planner">
       <div className="daily-planner-scheduled-grid" aria-label="Scheduled daily work">
         <DailyPlannerSectionView
           controller={controller}
-          section={model.sections.today}
+          tableId="daily.today"
+          controlTitle="Today"
+          title={dateTitle}
+          rawItems={rawSections.today}
+          creationContext={{
+            tableId: "daily.today",
+            itemTypes: ["task", "event"],
+            scheduled: controller.planner.date,
+            editableDate: false,
+          }}
+          onCreate={onCreate}
         />
         <DailyPlannerSectionView
           controller={controller}
-          section={model.sections.overdue}
+          tableId="daily.overdue"
+          controlTitle="Before"
+          title={`Before ${dateTitle}`}
+          rawItems={rawSections.overdue}
+          creationContext={{
+            tableId: "daily.overdue",
+            itemTypes: ["task", "event"],
+            scheduled: addLocalDays(controller.planner.date, -1),
+            editableDate: false,
+          }}
+          onCreate={onCreate}
         />
       </div>
       <DailyPlannerSectionView
         controller={controller}
-        section={model.sections.unscheduled}
+        tableId="daily.unscheduled"
+        controlTitle="Unscheduled"
+        title="Unscheduled"
+        rawItems={rawSections.unscheduled}
+        creationContext={{
+          tableId: "daily.unscheduled",
+          itemTypes: ["task"],
+          scheduled: "",
+          editableDate: false,
+        }}
+        onCreate={onCreate}
       />
     </div>
   );
@@ -710,38 +805,11 @@ type PlannerFilterOptions = {
 
 function PlannerControlToolbar({
   controller,
-  filterOptions,
 }: {
   controller: WorkbenchController;
-  filterOptions: PlannerFilterOptions;
 }) {
-  const [openDropdown, setOpenDropdown] =
-    React.useState<PlannerDropdownKind | null>(null);
-  const visibleFilterRules = visiblePlannerFilterRules(controller, filterOptions);
-  const activeFilterCount = effectivePlannerFilterRules(controller).length;
-  const sortRules = plannerSortRules(controller);
-  const groupBy = plannerGroupValue(controller);
   const nowDisabled = plannerPeriodMatchesToday(controller);
   const showPeriodNavigation = controller.panel.id === "weekly" || controller.panel.id === "daily";
-  const groupTriggerRef = useRef<HTMLButtonElement>(null);
-  const groupPanelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (openDropdown !== "group") return;
-    function dismiss(event: MouseEvent | KeyboardEvent) {
-      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
-      if (event instanceof MouseEvent && event.target instanceof Node && (groupPanelRef.current?.contains(event.target) || groupTriggerRef.current?.contains(event.target))) return;
-      setOpenDropdown(null);
-      groupTriggerRef.current?.focus();
-    }
-    document.addEventListener("mousedown", dismiss);
-    document.addEventListener("keydown", dismiss);
-    return () => { document.removeEventListener("mousedown", dismiss); document.removeEventListener("keydown", dismiss); };
-  }, [openDropdown]);
-
-  function toggleDropdown(kind: PlannerDropdownKind) {
-    setOpenDropdown((current) => (current === kind ? null : kind));
-  }
 
   return (
     <div className="planner-view-controls">
@@ -751,33 +819,6 @@ function PlannerControlToolbar({
           {showPeriodNavigation ? <PlannerPeriodNavigation controller={controller} /> : null}
         </div>
         <div className="planner-view-actions">
-          <PlannerDropdownButton
-            active={openDropdown === "filter" || activeFilterCount > 0}
-            ariaLabel="Filter planner view"
-            title="Filter"
-            onClick={() => toggleDropdown("filter")}
-          >
-            <Filter size={16} aria-hidden="true" />
-          </PlannerDropdownButton>
-          <PlannerDropdownButton
-            active={openDropdown === "sort" || !isDefaultPlannerSort(controller)}
-            ariaLabel="Sort planner view"
-            title="Sort"
-            onClick={() => toggleDropdown("sort")}
-          >
-            <ArrowDownUp size={16} aria-hidden="true" />
-          </PlannerDropdownButton>
-          <PlannerDropdownButton
-            active={openDropdown === "group" || groupBy !== "none"}
-            ariaLabel="Group planner view"
-            title="Group by"
-            onClick={() => toggleDropdown("group")}
-            buttonRef={groupTriggerRef}
-            ariaExpanded={openDropdown === "group"}
-            ariaControls="planner-group-dropdown"
-          >
-            <Group size={16} aria-hidden="true" />
-          </PlannerDropdownButton>
           {showPeriodNavigation ? null : (
             <button
               className="items-toolbar-button"
@@ -789,11 +830,123 @@ function PlannerControlToolbar({
               Now
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlannerTableHeader({
+  controller,
+  tableId,
+  title,
+  heading,
+  rawItems,
+  groupUniverseItems = rawItems,
+  creationContext,
+  onCreate,
+}: {
+  controller: WorkbenchController;
+  tableId: PlannerTableId;
+  title: string;
+  heading: string;
+  rawItems: WorkspaceItemModel[];
+  groupUniverseItems?: WorkspaceItemModel[];
+  creationContext: PlannerCreationContext;
+  onCreate: (context: PlannerCreationContext) => void;
+}) {
+  const [openDropdown, setOpenDropdown] = React.useState<PlannerDropdownKind | null>(null);
+  const settings = controller.plannerTableSettings(tableId);
+  const filterOptions = plannerFilterOptionsForItems(
+    rawItems,
+    controller.workspaceItems.relatedItems,
+  );
+  const visibleFilterRules = visiblePlannerTableFilterRules(
+    controller,
+    tableId,
+    filterOptions,
+  );
+  const activeFilterCount = effectivePlannerTableFilterRules(
+    controller,
+    tableId,
+    filterOptions,
+  ).length;
+  const groupBy = effectivePlannerTableGroupValue(tableId, settings.groupSettings.groupBy);
+  const groupTriggerRef = useRef<HTMLButtonElement>(null);
+  const groupPanelRef = useRef<HTMLDivElement>(null);
+  const groupDropdownId = `planner-group-dropdown-${tableId.replaceAll(".", "-")}`;
+
+  useEffect(() => {
+    if (openDropdown !== "group") return;
+    function dismiss(event: MouseEvent | KeyboardEvent) {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      if (
+        event instanceof MouseEvent &&
+        event.target instanceof Node &&
+        (groupPanelRef.current?.contains(event.target) ||
+          groupTriggerRef.current?.contains(event.target))
+      ) return;
+      setOpenDropdown(null);
+      groupTriggerRef.current?.focus();
+    }
+    document.addEventListener("mousedown", dismiss);
+    document.addEventListener("keydown", dismiss);
+    return () => {
+      document.removeEventListener("mousedown", dismiss);
+      document.removeEventListener("keydown", dismiss);
+    };
+  }, [openDropdown]);
+
+  function toggleDropdown(kind: PlannerDropdownKind) {
+    setOpenDropdown((current) => (current === kind ? null : kind));
+  }
+
+  function updateGroupSettings(
+    updater: (current: PlannerGroupSettings) => PlannerGroupSettings,
+  ) {
+    controller.updatePlannerTableSettings(tableId, (current) => ({
+      ...current,
+      groupSettings: updater(current.groupSettings),
+    }));
+  }
+
+  return (
+    <header className="planner-table-header">
+      <div className="planner-table-header-row">
+        <h2>{heading}</h2>
+        <div className="planner-view-actions" role="group" aria-label={`${title} controls`}>
+          <PlannerDropdownButton
+            active={openDropdown === "filter" || activeFilterCount > 0}
+            ariaLabel={`Filter ${title}`}
+            title="Filter"
+            onClick={() => toggleDropdown("filter")}
+          >
+            <Filter size={16} aria-hidden="true" />
+          </PlannerDropdownButton>
+          <PlannerDropdownButton
+            active={openDropdown === "sort" || !isDefaultPlannerTableSort(tableId, settings.sortRules)}
+            ariaLabel={`Sort ${title}`}
+            title="Sort"
+            onClick={() => toggleDropdown("sort")}
+          >
+            <ArrowDownUp size={16} aria-hidden="true" />
+          </PlannerDropdownButton>
+          <PlannerDropdownButton
+            active={openDropdown === "group" || groupBy !== "none"}
+            ariaLabel={`Group ${title}`}
+            title="Group by"
+            onClick={() => toggleDropdown("group")}
+            buttonRef={groupTriggerRef}
+            ariaExpanded={openDropdown === "group"}
+            ariaControls={groupDropdownId}
+          >
+            <Group size={16} aria-hidden="true" />
+          </PlannerDropdownButton>
           <button
             className="items-toolbar-button"
             type="button"
-            aria-label="Add planner item"
-            onClick={controller.openCreationDialog}
+            aria-label={`Add to ${title}`}
+            onClick={() => onCreate(creationContext)}
           >
             <Plus size={16} aria-hidden="true" />
           </button>
@@ -801,44 +954,65 @@ function PlannerControlToolbar({
       </div>
       <PlannerActiveControlPills
         filterCount={activeFilterCount}
-        sortRules={sortRules}
+        sortRules={settings.sortRules}
         groupBy={groupBy}
-        showSort={!isDefaultPlannerSort(controller)}
+        showSort={!isDefaultPlannerTableSort(tableId, settings.sortRules)}
       />
       {openDropdown === "filter" ? (
-        <PlannerControlDropdown title="Filter">
+        <PlannerControlDropdown title={`Filter ${title}`}>
           <PlannerFilterRulePanel
             controller={controller}
+            tableId={tableId}
             filterOptions={filterOptions}
             rules={visibleFilterRules}
           />
         </PlannerControlDropdown>
       ) : null}
       {openDropdown === "sort" ? (
-        <PlannerControlDropdown title="Sort">
-          <PlannerSortPanel controller={controller} filterOptions={filterOptions} />
+        <PlannerControlDropdown title={`Sort ${title}`}>
+          <PlannerSortPanel
+            controller={controller}
+            tableId={tableId}
+            filterOptions={filterOptions}
+          />
         </PlannerControlDropdown>
       ) : null}
       {openDropdown === "group" ? (
         <div ref={groupPanelRef}>
-          <PlannerControlDropdown id="planner-group-dropdown" title="Group" compact>
+          <PlannerControlDropdown id={groupDropdownId} title={`Group ${title}`} compact>
             <PlannerGroupPanel
-              settings={plannerGroupSettings(controller)}
-              candidates={plannerGroupCandidates(controller, plannerGroupUniverseItems(controller))}
-              groupOptions={plannerGroupOptions(controller.panel.id)}
-              onGroupByChange={(value) => setPlannerGroupValue(controller, value)}
-              onSortChange={controller.setPlannerGroupSort}
-              onHideEmptyChange={controller.setPlannerHideEmptyGroups}
-              onVisibilityToggle={controller.togglePlannerGroupVisibility}
-              onAllVisibilityChange={controller.setAllPlannerGroupsVisible}
-              onManualOrderChange={controller.setPlannerManualGroupOrder}
-              onRemove={controller.removePlannerGrouping}
-              onRequestOuterClose={() => { setOpenDropdown(null); groupTriggerRef.current?.focus(); }}
+              settings={{ ...settings.groupSettings, groupBy }}
+              candidates={plannerTableGroupCandidates(
+                tableId,
+                settings.groupSettings,
+                groupUniverseItems,
+                controller.workspaceItems.relatedItems,
+              )}
+              groupOptions={plannerGroupOptionsForTable(tableId)}
+              onGroupByChange={(value) => updateGroupSettings((current) => ({ ...current, groupBy: value }))}
+              onSortChange={(value) => updateGroupSettings((current) => ({ ...current, sort: value }))}
+              onHideEmptyChange={(value) => updateGroupSettings((current) => ({ ...current, hideEmpty: value }))}
+              onVisibilityToggle={(key) => updateGroupSettings((current) => ({
+                ...current,
+                hiddenGroupKeys: current.hiddenGroupKeys.includes(key)
+                  ? current.hiddenGroupKeys.filter((candidate) => candidate !== key)
+                  : [...current.hiddenGroupKeys, key],
+              }))}
+              onAllVisibilityChange={(keys, visible) => updateGroupSettings((current) => ({
+                ...current,
+                hiddenGroupKeys: visible ? [] : keys,
+              }))}
+              onManualOrderChange={(keys) => updateGroupSettings((current) => ({ ...current, manualOrder: keys }))}
+              onRemove={() => updateGroupSettings((current) => ({ ...current, groupBy: "none" }))}
+              onRequestOuterClose={() => {
+                setOpenDropdown(null);
+                groupTriggerRef.current?.focus();
+              }}
             />
           </PlannerControlDropdown>
         </div>
       ) : null}
-    </div>
+    </header>
   );
 }
 
@@ -1118,48 +1292,57 @@ function plannerControlLabel(value: string): string {
 
 function PlannerFilterRulePanel({
   controller,
+  tableId,
   filterOptions,
   rules,
 }: {
   controller: WorkbenchController;
+  tableId: PlannerTableId;
   filterOptions: PlannerFilterOptions;
   rules: PlannerFilterRule[];
 }) {
-  const fields = plannerFilterFieldConfigs(controller, filterOptions);
+  const fields = plannerFilterFieldConfigs(controller, filterOptions, tableId);
+  const settings = controller.plannerTableSettings(tableId);
 
   if (rules.length === 0) {
     return (
       <PlannerFilterFieldPicker
         fields={fields}
-        onPick={(field) => addPlannerRule(controller, field)}
+        onPick={(field) => addPlannerRule(controller, tableId, field)}
       />
     );
   }
 
   return (
     <div className="planner-filter-rule-panel">
-      {rules.length > 1 ? <PlannerFilterModeControl controller={controller} /> : null}
+      {rules.length > 1 ? (
+        <PlannerFilterModeControl controller={controller} tableId={tableId} />
+      ) : null}
       {rules.map((rule, index) => (
         <PlannerAdvancedFilterRuleRow
           key={rule.id}
           controller={controller}
+          tableId={tableId}
           fields={fields}
           rule={rule}
-          prefix={index === 0 ? "Where" : formatPlannerFilterMode(controller.planner.filterMode)}
+          prefix={index === 0 ? "Where" : formatPlannerFilterMode(settings.filterMode)}
         />
       ))}
       <button
         type="button"
         className="planner-filter-action"
         aria-label="Add filter rule"
-        onClick={() => addPlannerRule(controller, fields[0])}
+        onClick={() => addPlannerRule(controller, tableId, fields[0])}
       >
         + Add filter rule
       </button>
       <button
         type="button"
         className="planner-filter-action planner-filter-action-danger"
-        onClick={controller.clearPlannerFilterRules}
+        onClick={() => controller.updatePlannerTableSettings(tableId, (current) => ({
+          ...current,
+          filterRules: [],
+        }))}
       >
         Delete filter
       </button>
@@ -1174,21 +1357,23 @@ type PlannerSortFieldOption = {
 
 function PlannerSortPanel({
   controller,
+  tableId,
   filterOptions,
 }: {
   controller: WorkbenchController;
+  tableId: PlannerTableId;
   filterOptions: PlannerFilterOptions;
 }) {
   const [addOpen, setAddOpen] = React.useState(false);
-  const rules = plannerSortRules(controller);
-  const fields = plannerSortFieldOptions(controller, filterOptions);
+  const rules = controller.plannerTableSettings(tableId).sortRules;
+  const fields = plannerSortFieldOptions(controller, filterOptions, tableId);
 
   if (rules.length === 0) {
     return (
       <PlannerSortFieldPicker
         fields={fields}
         onPick={(field) => {
-          setPlannerSortRules(controller, [newPlannerSortRule(field.value)]);
+          setPlannerTableSortRules(controller, tableId, [newPlannerSortRule(field.value)]);
           setAddOpen(false);
         }}
       />
@@ -1196,19 +1381,20 @@ function PlannerSortPanel({
   }
 
   function addSort(field: PlannerSortFieldOption) {
-    setPlannerSortRules(controller, [...rules, newPlannerSortRule(field.value)]);
+    setPlannerTableSortRules(controller, tableId, [...rules, newPlannerSortRule(field.value)]);
     setAddOpen(false);
   }
 
   function updateRule(ruleId: string, patch: Partial<PlannerSortRule>) {
-    setPlannerSortRules(
+    setPlannerTableSortRules(
       controller,
+      tableId,
       rules.map((rule) => (rule.id === ruleId ? { ...rule, ...patch } : rule)),
     );
   }
 
   function removeRule(ruleId: string) {
-    setPlannerSortRules(controller, rules.filter((rule) => rule.id !== ruleId));
+    setPlannerTableSortRules(controller, tableId, rules.filter((rule) => rule.id !== ruleId));
   }
 
   function moveRule(fromId: string, toId: string) {
@@ -1218,7 +1404,7 @@ function PlannerSortPanel({
     const next = [...rules];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
-    setPlannerSortRules(controller, next);
+    setPlannerTableSortRules(controller, tableId, next);
   }
 
   return (
@@ -1292,7 +1478,7 @@ function PlannerSortPanel({
       <button
         type="button"
         className="planner-filter-action planner-filter-action-danger"
-        onClick={() => setPlannerSortRules(controller, [])}
+        onClick={() => setPlannerTableSortRules(controller, tableId, [])}
       >
         Delete sort
       </button>
@@ -1391,10 +1577,13 @@ function PlannerFilterFieldPicker({
 
 function PlannerFilterModeControl({
   controller,
+  tableId,
 }: {
   controller: WorkbenchController;
+  tableId: PlannerTableId;
 }) {
   const [open, setOpen] = React.useState(false);
+  const mode = controller.plannerTableSettings(tableId).filterMode;
 
   return (
     <div className="planner-filter-mode-menu">
@@ -1405,7 +1594,7 @@ function PlannerFilterModeControl({
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        Mode: {formatPlannerFilterMode(controller.planner.filterMode)}
+        Mode: {formatPlannerFilterMode(mode)}
       </button>
       {open ? (
         <div className="planner-filter-field-options" role="listbox" aria-label="Filter mode options">
@@ -1413,10 +1602,13 @@ function PlannerFilterModeControl({
             <button
               type="button"
               role="option"
-              aria-selected={mode === controller.planner.filterMode}
+              aria-selected={mode === controller.plannerTableSettings(tableId).filterMode}
               key={mode}
               onClick={() => {
-                controller.setPlannerFilterMode(mode);
+                controller.updatePlannerTableSettings(tableId, (current) => ({
+                  ...current,
+                  filterMode: mode,
+                }));
                 setOpen(false);
               }}
             >
@@ -1431,11 +1623,13 @@ function PlannerFilterModeControl({
 
 function PlannerAdvancedFilterRuleRow({
   controller,
+  tableId,
   fields,
   rule,
   prefix,
 }: {
   controller: WorkbenchController;
+  tableId: PlannerTableId;
   fields: PlannerFilterFieldConfig[];
   rule: PlannerFilterRule;
   prefix: string;
@@ -1452,7 +1646,9 @@ function PlannerAdvancedFilterRuleRow({
           value={field.field}
           onChange={(event) => {
             const nextField = fields.find((option) => option.field === event.target.value);
-            if (nextField) updatePlannerRule(controller, rule.id, ruleForField(rule.id, nextField));
+            if (nextField) {
+              updatePlannerRule(controller, tableId, rule.id, ruleForField(rule.id, nextField));
+            }
           }}
         >
           {fields.map((option) => (
@@ -1468,7 +1664,7 @@ function PlannerAdvancedFilterRuleRow({
           aria-label={`Operator for ${field.label}`}
           value={rule.operator}
           onChange={(event) =>
-            updatePlannerRule(controller, rule.id, {
+            updatePlannerRule(controller, tableId, rule.id, {
               operator: event.target.value as PlannerFilterOperator,
               value: emptyOperators.has(event.target.value as PlannerFilterOperator)
                 ? null
@@ -1486,7 +1682,7 @@ function PlannerAdvancedFilterRuleRow({
       <PlannerFilterValueEditor
         rule={rule}
         field={field}
-        onChange={(value) => updatePlannerRule(controller, rule.id, { value })}
+        onChange={(value) => updatePlannerRule(controller, tableId, rule.id, { value })}
       />
     </div>
   );
@@ -1606,6 +1802,7 @@ const emptyOperators = new Set<PlannerFilterOperator>(["is_empty", "is_not_empty
 function plannerFilterFieldConfigs(
   controller: WorkbenchController,
   filterOptions: PlannerFilterOptions,
+  tableId?: PlannerTableId,
 ): PlannerFilterFieldConfig[] {
   const configs: Record<PlannerFilterField, PlannerFilterFieldConfig> = {
     title: { field: "title", label: "Title", type: "text", options: [] },
@@ -1688,10 +1885,15 @@ function plannerFilterFieldConfigs(
     },
   };
 
-  if (controller.panel.id === "yearly" || controller.panel.id === "monthly") {
+  const goalTable = tableId
+    ? tableId.endsWith("goals")
+    : controller.panel.id === "yearly" || controller.panel.id === "monthly";
+  const mixedWeeklyView = !tableId && controller.panel.id === "weekly";
+
+  if (goalTable) {
     return workspaceGoalFilterFields.map((field) => configs[field]);
   }
-  if (controller.panel.id === "weekly") {
+  if (mixedWeeklyView) {
     return [...workspaceDailyFilterFields, ...workspaceGoalFilterFields].map(
       (field) => configs[field],
     );
@@ -1731,28 +1933,34 @@ const workspaceGoalFilterFields: PlannerFilterField[] = [
 
 function addPlannerRule(
   controller: WorkbenchController,
+  tableId: PlannerTableId,
   field: PlannerFilterFieldConfig | undefined,
 ) {
   if (!field) return;
-  controller.setPlannerFilterRules([
-    ...controller.planner.filterRules,
-    ruleForField(
-      `filter-${field.field}-${controller.planner.filterRules.length}-${Date.now()}`,
-      field,
-    ),
-  ]);
+  controller.updatePlannerTableSettings(tableId, (current) => ({
+    ...current,
+    filterRules: [
+      ...current.filterRules,
+      ruleForField(
+        `filter-${field.field}-${current.filterRules.length}-${Date.now()}`,
+        field,
+      ),
+    ],
+  }));
 }
 
 function updatePlannerRule(
   controller: WorkbenchController,
+  tableId: PlannerTableId,
   ruleId: string,
   patch: Partial<PlannerFilterRule>,
 ) {
-  controller.setPlannerFilterRules(
-    controller.planner.filterRules.map((rule) =>
+  controller.updatePlannerTableSettings(tableId, (current) => ({
+    ...current,
+    filterRules: current.filterRules.map((rule) =>
       rule.id === ruleId ? { ...rule, ...patch } : rule,
     ),
-  );
+  }));
 }
 
 function ruleForField(
@@ -1795,7 +2003,7 @@ function operatorLabel(operator: PlannerFilterOperator): string {
   return operator.replaceAll("_", " ");
 }
 
-function formatPlannerFilterMode(mode: WorkbenchController["planner"]["filterMode"]): string {
+function formatPlannerFilterMode(mode: PlannerFilterMode): string {
   return mode === "and" ? "And" : "Or";
 }
 
@@ -1864,43 +2072,18 @@ function filterOptionsForItems(
 }
 
 function plannerSortRules(controller: WorkbenchController): PlannerSortRule[] {
-  if (controller.panel.id === "daily") {
-    return controller.planner.dailySortRules;
-  }
-  if (controller.panel.id === "weekly") {
-    return controller.planner.weeklySortRules;
-  }
-  if (controller.panel.id === "monthly") {
-    return controller.planner.monthlySortRules;
-  }
-  return controller.planner.yearlySortRules;
+  return controller.plannerTableSettings(primaryPlannerTableId(controller)).sortRules;
 }
 
-function defaultPlannerSortRules(controller: WorkbenchController): PlannerSortRule[] {
-  return [
-    newPlannerSortRule(controller.panel.id === "daily" ? "priority" : "scheduled"),
-  ];
-}
-
-function isDefaultPlannerSort(controller: WorkbenchController): boolean {
-  const current = plannerSortRules(controller);
-  const defaults = defaultPlannerSortRules(controller);
-  return current.length === defaults.length &&
-    current.every((rule, index) =>
-      rule.field === defaults[index].field &&
-      rule.direction === defaults[index].direction,
-    );
-}
-
-function setPlannerSortRules(
+function setPlannerTableSortRules(
   controller: WorkbenchController,
+  tableId: PlannerTableId,
   rules: PlannerSortRule[],
 ) {
-  if (controller.panel.id === "daily") {
-    controller.setDailySortRules(rules);
-    return;
-  }
-  controller.setPlannerSortRules(rules);
+  controller.updatePlannerTableSettings(tableId, (current) => ({
+    ...current,
+    sortRules: rules,
+  }));
 }
 
 function newPlannerSortRule(field: PlannerSortBy): PlannerSortRule {
@@ -1914,10 +2097,12 @@ function newPlannerSortRule(field: PlannerSortBy): PlannerSortRule {
 function plannerSortFieldOptions(
   controller: WorkbenchController,
   filterOptions: PlannerFilterOptions,
+  tableId?: PlannerTableId,
 ): PlannerSortFieldOption[] {
   const fields: PlannerSortFieldOption[] = plannerFilterFieldConfigs(
     controller,
     filterOptions,
+    tableId,
   ).map((field) => ({
     value: field.field as PlannerSortBy,
     label: field.label,
@@ -1935,90 +2120,61 @@ function plannerSortFieldOptions(
 }
 
 function plannerGroupSettings(controller: WorkbenchController): PlannerGroupSettings {
-  const settings = controller.planner.groupSettings[plannerViewId(controller)];
+  const tableId = primaryPlannerTableId(controller);
+  const settings = controller.plannerTableSettings(tableId).groupSettings;
   return {
     ...settings,
-    groupBy: effectivePlannerGroupValue(controller.panel.id, settings.groupBy),
+    groupBy: effectivePlannerTableGroupValue(tableId, settings.groupBy),
   };
 }
 
 function plannerGroupCandidates(
   controller: WorkbenchController,
-  _items: WorkspaceItemModel[],
+  items: WorkspaceItemModel[],
 ): PlannerGroupCandidate[] {
-  return buildPlannerGroupCandidates({
-    view: plannerViewId(controller),
-    groupBy: plannerGroupValue(controller),
-    items: plannerGroupUniverseItems(controller),
-    relatedItems: controller.workspaceItems.relatedItems,
-  });
+  const tableId = primaryPlannerTableId(controller);
+  return plannerTableGroupCandidates(
+    tableId,
+    controller.plannerTableSettings(tableId).groupSettings,
+    items,
+    controller.workspaceItems.relatedItems,
+  );
 }
 
-function plannerGroupUniverseItems(controller: WorkbenchController): WorkspaceItemModel[] {
-  const items = filteredPlannerItems(controller);
-  const view = plannerViewId(controller);
-  let visible: WorkspaceItemModel[];
-  if (view === "daily") {
-    const model = buildDailyPlannerModel(items, controller.workspaceItems.relatedItems, {
-      date: controller.planner.date,
-      filters: emptyDailyFilters(),
-      groupSettings: defaultUngroupedSettings(),
-      groupCandidates: [],
-      sortRules: controller.planner.dailySortRules,
-    });
-    visible = Object.values(model.sections).flatMap((section) =>
-      section.groups.flatMap((group) => group.items),
-    );
-  } else if (view === "weekly") {
-    const model = buildWeeklyPlannerModel(items, controller.planner.weekStart);
-    visible = [...model.monthGoals, ...model.weekGoals, ...model.days.flatMap((day) => day.items)];
-  } else if (view === "yearly") {
-    const model = buildYearlyPeriodGoalCardsModel(items, controller.planner.date);
-    const selectedGoals = model.carousel.find((card) => card.position === "selected")?.goals ?? [];
-    visible = [...selectedGoals, ...model.months.flatMap((month) => month.goals)];
-  } else {
-    const model = buildMonthlyPeriodGoalCardsModel(items, controller.planner.date);
-    const selectedGoals = model.carousel.find((card) => card.position === "selected")?.goals ?? [];
-    visible = [...selectedGoals, ...model.weeks.flatMap((week) => week.goals)];
-  }
-  return [...new Map(visible.map((item) => [item.id, item])).values()];
+function primaryPlannerTableId(controller: WorkbenchController): PlannerTableId {
+  if (controller.panel.id === "daily") return "daily.today";
+  if (controller.panel.id === "weekly") return "weekly.day-grid";
+  if (controller.panel.id === "monthly") return "monthly.period-goals";
+  return "yearly.period-goals";
 }
 
-function defaultUngroupedSettings(): PlannerGroupSettings {
-  return { groupBy: "none", sort: "manual", hideEmpty: true, manualOrder: [], hiddenGroupKeys: [] };
+function plannerGroupOptionsForTable(
+  tableId: PlannerTableId,
+): { value: PlannerGroupBy; label: string }[] {
+  return plannerGroupOptions(tableId.split(".")[0] as WorkbenchController["panel"]["id"]);
 }
 
-function plannerViewId(
-  controller: WorkbenchController,
-): "yearly" | "monthly" | "weekly" | "daily" {
-  return controller.panel.id === "yearly" ||
-    controller.panel.id === "monthly" ||
-    controller.panel.id === "weekly" ||
-    controller.panel.id === "daily"
-    ? controller.panel.id
-    : "daily";
-}
-
-function plannerGroupValue(controller: WorkbenchController): PlannerGroupBy {
-  return plannerGroupSettings(controller).groupBy;
-}
-
-function effectivePlannerGroupValue(
-  panelId: WorkbenchController["panel"]["id"],
+function effectivePlannerTableGroupValue(
+  tableId: PlannerTableId,
   value: PlannerGroupBy,
 ): PlannerGroupBy {
-  return plannerGroupOptions(panelId).some((option) => option.value === value) ? value : "none";
+  return plannerGroupOptionsForTable(tableId).some((option) => option.value === value)
+    ? value
+    : "none";
 }
 
-function setPlannerGroupValue(
-  controller: WorkbenchController,
-  value: PlannerGroupBy,
-) {
-  if (controller.panel.id === "daily") {
-    controller.setDailyGroupBy(value);
-    return;
-  }
-  controller.setPlannerGroupBy(value);
+function plannerTableGroupCandidates(
+  tableId: PlannerTableId,
+  settings: PlannerGroupSettings,
+  items: WorkspaceItemModel[],
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+): PlannerGroupCandidate[] {
+  return buildPlannerGroupCandidates({
+    view: tableId.split(".")[0] as "yearly" | "monthly" | "weekly" | "daily",
+    groupBy: effectivePlannerTableGroupValue(tableId, settings.groupBy),
+    items,
+    relatedItems,
+  });
 }
 
 function plannerGroupOptions(
@@ -2048,19 +2204,27 @@ function isDailyPlannerItem(item: WorkspaceItemModel): boolean {
 }
 
 function filteredPlannerItems(controller: WorkbenchController): WorkspaceItemModel[] {
+  const tableId = primaryPlannerTableId(controller);
+  const filterOptions = buildPlannerFilterOptions(controller);
+  const settings = controller.plannerTableSettings(tableId);
   return filterPlannerItemsByRules(
     controller.workspaceItems.items,
     controller.workspaceItems.relatedItems,
-    effectivePlannerFilterRules(controller),
-    controller.planner.filterMode,
+    effectivePlannerTableFilterRules(controller, tableId, filterOptions),
+    settings.filterMode,
     controller.planner.date,
   );
 }
 
-function effectivePlannerFilterRules(controller: WorkbenchController): PlannerFilterRule[] {
-  const fields = plannerFilterFieldConfigs(controller, buildPlannerFilterOptions(controller));
+function effectivePlannerTableFilterRules(
+  controller: WorkbenchController,
+  tableId: PlannerTableId,
+  filterOptions: PlannerFilterOptions,
+): PlannerFilterRule[] {
+  const fields = plannerFilterFieldConfigs(controller, filterOptions, tableId);
+  const settings = controller.plannerTableSettings(tableId);
 
-  return controller.planner.filterRules.flatMap((rule) => {
+  return settings.filterRules.flatMap((rule) => {
     const field = fields.find((option) => option.field === rule.field);
     if (!field) return [];
     if (rule.operator === "is_empty" || rule.operator === "is_not_empty") return [rule];
@@ -2074,13 +2238,15 @@ function effectivePlannerFilterRules(controller: WorkbenchController): PlannerFi
   });
 }
 
-function visiblePlannerFilterRules(
+function visiblePlannerTableFilterRules(
   controller: WorkbenchController,
+  tableId: PlannerTableId,
   filterOptions: PlannerFilterOptions,
 ): PlannerFilterRule[] {
-  const fields = plannerFilterFieldConfigs(controller, filterOptions);
+  const fields = plannerFilterFieldConfigs(controller, filterOptions, tableId);
+  const settings = controller.plannerTableSettings(tableId);
 
-  return controller.planner.filterRules.flatMap((rule) => {
+  return settings.filterRules.flatMap((rule) => {
     const field = fields.find((option) => option.field === rule.field);
     if (!field) return [];
     if (field.type !== "select" && field.type !== "multiSelect" && field.type !== "relation") {
@@ -2097,15 +2263,51 @@ function visiblePlannerFilterRules(
   });
 }
 
-function emptyDailyFilters(): WorkbenchController["planner"]["dailyFilters"] {
-  return {
-    tags: [],
-    areaIds: [],
-    projectIds: [],
-    routineIds: [],
-    itemTypes: [],
-    statuses: [],
+function plannerFilterOptionsForItems(
+  items: WorkspaceItemModel[],
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+): PlannerFilterOptions {
+  const daily = filterOptionsForItems(items, relatedItems);
+  return { tags: daily.tags, daily };
+}
+
+function isDefaultPlannerTableSort(
+  tableId: PlannerTableId,
+  rules: PlannerSortRule[],
+): boolean {
+  const field: PlannerSortBy = tableId.startsWith("daily.") ? "priority" : "scheduled";
+  return rules.length === 1 && rules[0]?.field === field && rules[0]?.direction === "asc";
+}
+
+function applyPlannerTableSettings(
+  rawItems: WorkspaceItemModel[],
+  tableId: PlannerTableId,
+  controller: WorkbenchController,
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+  date: string,
+  tableUniverseItems: WorkspaceItemModel[] = rawItems,
+): DailyPlannerSection["groups"] {
+  const settings = controller.plannerTableSettings(tableId);
+  const filterOptions = plannerFilterOptionsForItems(tableUniverseItems, relatedItems);
+  const filtered = filterPlannerItemsByRules(
+    rawItems,
+    relatedItems,
+    effectivePlannerTableFilterRules(controller, tableId, filterOptions),
+    settings.filterMode,
+    date,
+  );
+  const sorted = sortPlannerItems(filtered, settings.sortRules);
+  const groupSettings = {
+    ...settings.groupSettings,
+    groupBy: effectivePlannerTableGroupValue(tableId, settings.groupSettings.groupBy),
   };
+
+  return groupPlannerItems(
+    sorted,
+    relatedItems,
+    groupSettings,
+    plannerTableGroupCandidates(tableId, groupSettings, tableUniverseItems, relatedItems),
+  );
 }
 
 function isVisiblePlannerFilterItem(
@@ -2256,15 +2458,41 @@ function toFilterOptions(
 
 function DailyPlannerSectionView({
   controller,
-  section,
+  tableId,
+  controlTitle,
+  title,
+  rawItems,
+  creationContext,
+  onCreate,
 }: {
   controller: WorkbenchController;
-  section: DailyPlannerSection;
+  tableId: PlannerTableId;
+  controlTitle: string;
+  title: string;
+  rawItems: WorkspaceItemModel[];
+  creationContext: PlannerCreationContext;
+  onCreate: (context: PlannerCreationContext) => void;
 }) {
+  const groups = applyPlannerTableSettings(
+    rawItems,
+    tableId,
+    controller,
+    controller.workspaceItems.relatedItems,
+    controller.planner.date,
+  );
+
   return (
-    <section className="planner-section" aria-label={section.title}>
-      <h2>{section.title}</h2>
-      {renderPlannerGroups(controller, section.groups, "No items found.")}
+    <section className="planner-section" aria-label={title}>
+      <PlannerTableHeader
+        controller={controller}
+        tableId={tableId}
+        title={controlTitle}
+        heading={title}
+        rawItems={rawItems}
+        creationContext={creationContext}
+        onCreate={onCreate}
+      />
+      {renderPlannerGroups(controller, groups, "No items found.")}
     </section>
   );
 }
@@ -4262,13 +4490,14 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
 
 type CreationDialogProps = {
   controller: WorkbenchController;
+  creationContext?: PlannerCreationContext | null;
 };
 
-function CreationDialog({ controller }: CreationDialogProps) {
-  const plannerScheduled = defaultCreationScheduled(controller);
-  const plannerHorizon = defaultCreationHorizon(controller);
-  const plannerItemType = defaultCreationItemType(controller);
-  const plannerTypeOptions = plannerCreationTypeOptions(controller);
+function CreationDialog({ controller, creationContext = null }: CreationDialogProps) {
+  const plannerScheduled = defaultCreationScheduled(controller, creationContext);
+  const plannerHorizon = defaultCreationHorizon(controller, creationContext);
+  const plannerItemType = defaultCreationItemType(controller, creationContext);
+  const plannerTypeOptions = plannerCreationTypeOptions(controller, creationContext);
   const [title, setTitle] = React.useState("");
   const [itemType, setItemType] = React.useState(plannerItemType);
   const [scheduled, setScheduled] = React.useState(plannerScheduled);
@@ -4282,19 +4511,23 @@ function CreationDialog({ controller }: CreationDialogProps) {
   const isGoal = controller.panel.id === "goals";
   const isPlannerGoal =
     itemType === "goal" &&
-    (controller.panel.id === "weekly" ||
+    (creationContext != null ||
+      controller.panel.id === "weekly" ||
       controller.panel.id === "monthly" ||
       controller.panel.id === "yearly");
   const needsGoalPeriod = isGoal || isPlannerGoal;
   const isProject = controller.panel.id === "projects";
   const isRoutine =
     controller.panel.id === "routines" ||
-    ((controller.panel.id === "weekly" || controller.panel.id === "daily") &&
+    (creationContext == null &&
+      (controller.panel.id === "weekly" || controller.panel.id === "daily") &&
       itemType === "routine");
   const needsScheduled =
     controller.panel.id === "events" ||
-    ((controller.panel.id === "weekly" || controller.panel.id === "daily") &&
-      (itemType === "task" || itemType === "event"));
+    (creationContext != null
+      ? creationContext.scheduled !== "" && (itemType === "task" || itemType === "event")
+      : (controller.panel.id === "weekly" || controller.panel.id === "daily") &&
+        (itemType === "task" || itemType === "event"));
 
   useEffect(() => {
     titleInputRef.current?.focus();
@@ -4379,7 +4612,7 @@ function CreationDialog({ controller }: CreationDialogProps) {
         onSubmit={handleSubmit}
       >
         <h2>Create {controller.panel.title} item</h2>
-        {plannerTypeOptions.length > 1 ? (
+        {creationContext != null || plannerTypeOptions.length > 1 ? (
           <label className="field-label">
             Type
             <select
@@ -4457,7 +4690,13 @@ function CreationDialog({ controller }: CreationDialogProps) {
   );
 }
 
-function defaultCreationScheduled(controller: WorkbenchController): string {
+function defaultCreationScheduled(
+  controller: WorkbenchController,
+  creationContext: PlannerCreationContext | null = null,
+): string {
+  if (creationContext) {
+    return creationContext.scheduled;
+  }
   if (controller.panel.id === "goals") {
     return `${new Date().getFullYear()}-01-01`;
   }
@@ -4496,7 +4735,13 @@ function plannerPeriodMatchesToday(controller: WorkbenchController): boolean {
   return false;
 }
 
-function defaultCreationHorizon(controller: WorkbenchController): string {
+function defaultCreationHorizon(
+  controller: WorkbenchController,
+  creationContext: PlannerCreationContext | null = null,
+): string {
+  if (creationContext?.horizon) {
+    return creationContext.horizon;
+  }
   if (controller.panel.id === "goals") {
     return "year";
   }
@@ -4513,11 +4758,13 @@ function defaultCreationHorizon(controller: WorkbenchController): string {
   return "month";
 }
 
-type PlannerCreationItemType = "task" | "goal" | "routine" | "event";
-
 function defaultCreationItemType(
   controller: WorkbenchController,
+  creationContext: PlannerCreationContext | null = null,
 ): PlannerCreationItemType | undefined {
+  if (creationContext) {
+    return creationContext.itemTypes[0];
+  }
   if (controller.panel.id === "weekly") {
     return "goal";
   }
@@ -4532,7 +4779,14 @@ function defaultCreationItemType(
 
 function plannerCreationTypeOptions(
   controller: WorkbenchController,
+  creationContext: PlannerCreationContext | null = null,
 ): Array<{ value: PlannerCreationItemType; label: string }> {
+  if (creationContext) {
+    return creationContext.itemTypes.map((value) => ({
+      value,
+      label: value[0]?.toUpperCase() + value.slice(1),
+    }));
+  }
   if (controller.panel.id === "weekly") {
     return [
       { value: "goal", label: "Goal" },
