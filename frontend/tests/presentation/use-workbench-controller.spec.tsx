@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
+import { defaultPlannerTableSettings } from "@/features/workbench/model/planner-model";
 import type { PlannerCreationContext } from "@/features/workbench/model/workbench-model";
 
 function formatDate(date: Date): string {
@@ -25,6 +26,21 @@ function testYearStart(): string {
 function testMonthStart(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function capturePlannerSettingsWrites(): unknown[] {
+  const writes: unknown[] = [];
+  vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+    if (url !== "/todo-engine/settings/planner") {
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }
+    if (!init) {
+      return Promise.resolve({ ok: true, json: async () => null });
+    }
+    writes.push(JSON.parse(String(init.body)).value);
+    return Promise.resolve({ ok: true, json: async () => null });
+  }));
+  return writes;
 }
 
 describe("useWorkbenchController", () => {
@@ -100,6 +116,87 @@ describe("useWorkbenchController", () => {
     expect(result.current.selection.leafTabId).toBe("weekly");
     expect(result.current.planner.weeklyDate).toBe("2026-07-20");
   });
+
+  it.each([
+    [
+      "daily",
+      { kind: "daily", date: "2026-07-25" },
+      "daily.today",
+      "weekly.day-grid",
+    ],
+    [
+      "daily-overdue",
+      { kind: "daily-overdue", date: "2026-07-26" },
+      "daily.overdue",
+      "weekly.day-grid",
+    ],
+    [
+      "weekly",
+      { kind: "weekly", weekStart: "2026-07-20" },
+      "weekly.day-grid",
+      "daily.today",
+    ],
+  ] as const)(
+    "resets visible Planner tabs on Dashboard %s re-entry",
+    (kind, destination, targetTableId, unrelatedTableId) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_url: string, init?: RequestInit) =>
+          init?.method === "PUT"
+            ? Promise.resolve({ ok: true, json: async () => null })
+            : new Promise(() => {})
+        ),
+      );
+      const { result } = renderHook(() => useWorkbenchController());
+      const targetLeaf = kind === "weekly" ? "weekly" : "daily";
+
+      act(() => result.current.selectTab(targetLeaf));
+      act(() => {
+        result.current.createPlannerTableTab(targetTableId, "Second");
+        result.current.createPlannerTableTab(unrelatedTableId, "Unrelated");
+      });
+      const targetSecondId =
+        result.current.plannerTableTabs(targetTableId).tabs[1]!.id;
+      const unrelatedSecondId =
+        result.current.plannerTableTabs(unrelatedTableId).tabs[1]!.id;
+      expect(result.current.plannerTableTabs(targetTableId).activeTabId).toBe(
+        targetSecondId,
+      );
+
+      act(() => result.current.selectTab("dashboard"));
+      expect(result.current.selection.leafTabId).toBe("dashboard");
+      expect(result.current.plannerTabConfirmation).toBeNull();
+
+      act(() => result.current.navigateDashboard(destination));
+
+      expect(result.current.selection.leafTabId).toBe(targetLeaf);
+      expect(result.current.plannerTabConfirmation).toBeNull();
+      if (kind === "weekly") {
+        expect(result.current.planner.weeklyDate).toBe(destination.weekStart);
+      } else {
+        expect(result.current.planner.dailyDate).toBe(destination.date);
+      }
+      const visibleTableIds = targetLeaf === "weekly"
+        ? [
+            "weekly.month-goals",
+            "weekly.week-goals",
+            "weekly.day-grid",
+          ] as const
+        : [
+            "daily.today",
+            "daily.overdue",
+            "daily.unscheduled",
+          ] as const;
+      for (const tableId of visibleTableIds) {
+        const tableTabs = result.current.plannerTableTabs(tableId);
+        expect(tableTabs.activeTabId).toBe(tableTabs.tabs[0]?.id);
+        expect(tableTabs.draftSettings).toEqual(tableTabs.tabs[0]?.settings);
+      }
+      expect(
+        result.current.plannerTableTabs(unrelatedTableId).activeTabId,
+      ).toBe(unrelatedSecondId);
+    },
+  );
 
   it("waits for the target list refresh before opening an Area detail", async () => {
     let deferTargetItems = false;
@@ -572,7 +669,408 @@ describe("useWorkbenchController", () => {
     expect(result.current.plannerTableSettings("daily.today").filterMode).toBe("or");
   });
 
-  it("persists the latest planner settings when earlier writes finish last", async () => {
+  it("replays early saved edits and tab creation over a delayed stored tab document", async () => {
+    let resolveSettings:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    const writes: unknown[] = [];
+    const storedSettings = defaultPlannerTableSettings("daily.today");
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url !== "/todo-engine/settings/planner") {
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }
+      if (!init) {
+        return new Promise((resolve) => {
+          resolveSettings = resolve;
+        });
+      }
+      writes.push(JSON.parse(String(init.body)).value);
+      return Promise.resolve({ ok: true, json: async () => null });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(resolveSettings).toBeDefined());
+    const initialTabId =
+      result.current.plannerTableTabs("daily.today").activeTabId;
+
+    act(() => {
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.savePlannerTableTab("daily.today");
+      expect(result.current.renamePlannerTableTab(
+        "daily.today",
+        initialTabId,
+        "Renamed stored",
+      )).toBe(true);
+      expect(result.current.createPlannerTableTab("daily.today", "Early")).toBe(true);
+    });
+
+    expect(writes).toHaveLength(0);
+    await act(async () => resolveSettings?.({
+      ok: true,
+      json: async () => ({
+        tableTabs: {
+          "daily.today": {
+            tabs: [
+              { id: "stored-one", name: "Stored one", settings: storedSettings },
+              { id: "stored-two", name: "Stored two", settings: storedSettings },
+            ],
+          },
+        },
+      }),
+    }));
+
+    await waitFor(() =>
+      expect(
+        result.current.plannerTableTabs("daily.today").tabs.map(({ name }) => name),
+      ).toEqual(["Renamed stored", "Stored two", "Early"]),
+    );
+    expect(
+      result.current.plannerTableTabs("daily.today").tabs[0]?.settings.filterMode,
+    ).toBe("or");
+    expect(
+      result.current.plannerTableTabs("daily.today").tabs[1]?.settings.filterMode,
+    ).toBe("and");
+    expect(result.current.plannerTableSettings("daily.today").filterMode).toBe("or");
+    await waitFor(() => expect(writes).toHaveLength(3));
+    expect(
+      (writes.at(-1) as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.today"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Renamed stored", "Stored two", "Early"]);
+  });
+
+  it("replays and persists queued tab commands after the initial settings load fails", async () => {
+    let rejectSettings: ((reason: Error) => void) | undefined;
+    const writes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url !== "/todo-engine/settings/planner") {
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }
+      if (!init) {
+        return new Promise((_resolve, reject) => {
+          rejectSettings = reject;
+        });
+      }
+      writes.push(JSON.parse(String(init.body)).value);
+      return Promise.resolve({ ok: true, json: async () => null });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(rejectSettings).toBeDefined());
+
+    act(() => {
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.savePlannerTableTab("daily.today");
+      expect(result.current.createPlannerTableTab("daily.today", "Offline")).toBe(true);
+    });
+    expect(writes).toHaveLength(0);
+
+    await act(async () => rejectSettings?.(new Error("offline")));
+
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(
+      result.current.plannerTableTabs("daily.today").tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Offline"]);
+    expect(result.current.plannerTableTabs("daily.today").tabs[0]?.settings.filterMode).toBe(
+      "or",
+    );
+    expect(
+      (writes.at(-1) as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.today"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Offline"]);
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "does not persist queued tab commands after unmount when settings %s",
+    async (settlement) => {
+      let resolveSettings:
+        | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+        | undefined;
+      let rejectSettings: ((reason: Error) => void) | undefined;
+      const writes: unknown[] = [];
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+        if (url !== "/todo-engine/settings/planner") {
+          return Promise.resolve({ ok: true, json: async () => [] });
+        }
+        if (!init) {
+          return new Promise((resolve, reject) => {
+            resolveSettings = resolve;
+            rejectSettings = reject;
+          });
+        }
+        writes.push(JSON.parse(String(init.body)).value);
+        return Promise.resolve({ ok: true, json: async () => null });
+      }));
+      const hook = renderHook(() => useWorkbenchController());
+
+      act(() => {
+        expect(hook.result.current.createPlannerTableTab(
+          "daily.today",
+          "Queued",
+        )).toBe(true);
+      });
+      expect(writes).toHaveLength(0);
+      hook.unmount();
+
+      await act(async () => {
+        if (settlement === "resolve") {
+          resolveSettings?.({ ok: true, json: async () => null });
+        } else {
+          rejectSettings?.(new Error("offline"));
+        }
+      });
+
+      expect(writes).toHaveLength(0);
+      expect(consoleError).not.toHaveBeenCalled();
+    },
+  );
+
+  it("migrates tableSettings into one Table tab and persists only saved tabs", async () => {
+    const writes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url !== "/todo-engine/settings/planner") {
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }
+      if (!init) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            tableSettings: {
+              "daily.today": {
+                ...defaultPlannerTableSettings("daily.today"),
+                filterMode: "or",
+              },
+            },
+          }),
+        });
+      }
+      writes.push(JSON.parse(String(init.body)).value);
+      return Promise.resolve({ ok: true, json: async () => null });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() =>
+      expect(result.current.plannerTableTabs("daily.today").tabs[0]?.name).toBe("Table"),
+    );
+
+    act(() => result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+      ...settings,
+      filterMode: "and",
+    })));
+    expect(result.current.plannerTableIsDirty("daily.today")).toBe(true);
+    expect(writes).toHaveLength(0);
+
+    act(() => result.current.savePlannerTableTab("daily.today"));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(
+      (writes[0] as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.today"]?.tabs[0]?.name,
+    ).toBe("Table");
+    expect(
+      (writes[0] as { tableTabs: Record<string, Record<string, unknown>> })
+        .tableTabs["daily.today"],
+    ).not.toHaveProperty("activeTabId");
+    expect(
+      (writes[0] as { tableTabs: Record<string, Record<string, unknown>> })
+        .tableTabs["daily.today"],
+    ).not.toHaveProperty("draftSettings");
+    expect(writes[0]).not.toHaveProperty("tableSettings");
+  });
+
+  it("creates, renames, and deletes tabs without crossing table boundaries", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    const overdueBefore = result.current.plannerTableTabs("daily.overdue");
+
+    act(() => {
+      expect(result.current.createPlannerTableTab("daily.today", "새 보기")).toBe(true);
+    });
+    const created = result.current.plannerTableTabs("daily.today");
+    expect(created.tabs).toHaveLength(2);
+    expect(created.tabs[1]?.name).toBe("새 보기");
+    expect(result.current.plannerTableTabs("daily.overdue")).toBe(overdueBefore);
+
+    act(() => {
+      expect(result.current.renamePlannerTableTab(
+        "daily.today",
+        created.activeTabId,
+        "Table",
+      )).toBe(true);
+    });
+    expect(result.current.plannerTableTabs("daily.today").tabs[1]?.name).toBe("Table 2");
+
+    act(() => result.current.requestDeletePlannerTableTab(
+      "daily.today",
+      created.activeTabId,
+    ));
+    expect(result.current.plannerTabConfirmation?.kind).toBe("delete");
+    act(() => result.current.confirmPlannerTabAction());
+    expect(result.current.plannerTableTabs("daily.today").tabs).toHaveLength(1);
+  });
+
+  it("requires discard confirmation before switching a dirty tab", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "PUT"
+          ? Promise.resolve({ ok: true, json: async () => null })
+          : new Promise(() => {})
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.createPlannerTableTab("daily.today", "Second");
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+    });
+    const firstId = result.current.plannerTableTabs("daily.today").tabs[0]!.id;
+
+    act(() => result.current.selectPlannerTableTab("daily.today", firstId));
+    expect(result.current.plannerTabConfirmation).toEqual({
+      kind: "select",
+      tableId: "daily.today",
+      targetTabId: firstId,
+    });
+    expect(result.current.plannerTableTabs("daily.today").activeTabId).not.toBe(firstId);
+
+    act(() => result.current.cancelPlannerTabAction());
+    expect(result.current.plannerTabConfirmation).toBeNull();
+
+    act(() => result.current.selectPlannerTableTab("daily.today", firstId));
+    act(() => result.current.confirmPlannerTabAction());
+    expect(result.current.plannerTableTabs("daily.today").activeTabId).toBe(firstId);
+    expect(result.current.plannerTableIsDirty("daily.today")).toBe(false);
+  });
+
+  it("reconciles a pending tab selection target after delayed stored tabs load", async () => {
+    let resolveSettings:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url !== "/todo-engine/settings/planner") {
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }
+      if (!init) {
+        return new Promise((resolve) => {
+          resolveSettings = resolve;
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => null });
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+    const optimisticDefaultId =
+      result.current.plannerTableTabs("daily.today").activeTabId;
+
+    act(() => {
+      result.current.createPlannerTableTab("daily.today", "Second");
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.selectPlannerTableTab("daily.today", optimisticDefaultId);
+    });
+    expect(result.current.plannerTabConfirmation).toEqual({
+      kind: "select",
+      tableId: "daily.today",
+      targetTabId: optimisticDefaultId,
+    });
+
+    await waitFor(() => expect(resolveSettings).toBeDefined());
+    await act(async () => resolveSettings?.({
+      ok: true,
+      json: async () => ({
+        tableTabs: {
+          "daily.today": {
+            tabs: [
+              { id: "stored-one", name: "Stored one", settings: {} },
+              { id: "stored-two", name: "Stored two", settings: {} },
+            ],
+          },
+        },
+      }),
+    }));
+
+    expect(result.current.plannerTabConfirmation).toEqual({
+      kind: "select",
+      tableId: "daily.today",
+      targetTabId: "stored-one",
+    });
+  });
+
+  it("discards every dirty table on the departing Planner screen", () => {
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => result.current.selectTab("daily"));
+    act(() => {
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.updatePlannerTableSettings("daily.overdue", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+    });
+
+    act(() => result.current.selectTab("weekly"));
+    expect(result.current.selection.leafTabId).toBe("daily");
+    expect(result.current.plannerTabConfirmation?.kind).toBe("navigate");
+
+    act(() => result.current.confirmPlannerTabAction());
+    expect(result.current.selection.leafTabId).toBe("weekly");
+    expect(result.current.plannerTableIsDirty("daily.today")).toBe(false);
+    expect(result.current.plannerTableIsDirty("daily.overdue")).toBe(false);
+  });
+
+  it("activates the first table tabs whenever a Planner screen is entered", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "PUT"
+          ? Promise.resolve({ ok: true, json: async () => null })
+          : new Promise(() => {})
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => result.current.selectTab("weekly"));
+    act(() => {
+      result.current.createPlannerTableTab("weekly.day-grid", "Second");
+    });
+    expect(result.current.plannerTableTabs("weekly.day-grid").activeTabId).toBe(
+      result.current.plannerTableTabs("weekly.day-grid").tabs[1]?.id,
+    );
+
+    act(() => result.current.selectTab("daily"));
+    act(() => result.current.selectTab("weekly"));
+
+    for (const tableId of [
+      "weekly.month-goals",
+      "weekly.week-goals",
+      "weekly.day-grid",
+    ] as const) {
+      const tableTabs = result.current.plannerTableTabs(tableId);
+      expect(tableTabs.activeTabId).toBe(tableTabs.tabs[0]?.id);
+      expect(tableTabs.draftSettings).toEqual(tableTabs.tabs[0]?.settings);
+    }
+  });
+
+  it("serializes persisted tab mutations so the latest full document wins", async () => {
     const pendingWrites: Array<() => void> = [];
     let serverSettings: unknown;
     vi.stubGlobal(
@@ -598,31 +1096,136 @@ describe("useWorkbenchController", () => {
     const { result } = renderHook(() => useWorkbenchController());
 
     act(() => {
-      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
-        ...settings,
-        filterMode: "or",
-      }));
-      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
-        ...settings,
-        filterRules: [
-          { id: "r1", field: "title", type: "text", operator: "contains", value: "plan" },
-        ],
-      }));
+      expect(result.current.createPlannerTableTab("daily.today", "Focus")).toBe(true);
     });
 
     await waitFor(() => expect(pendingWrites).toHaveLength(1));
+    const activeId = result.current.plannerTableTabs("daily.today").activeTabId;
+    act(() => {
+      expect(result.current.renamePlannerTableTab(
+        "daily.today",
+        activeId,
+        "Deep focus",
+      )).toBe(true);
+    });
+    expect(pendingWrites).toHaveLength(1);
     await act(async () => pendingWrites.shift()?.());
     await waitFor(() => expect(pendingWrites).toHaveLength(1));
     await act(async () => pendingWrites.shift()?.());
 
     expect(serverSettings).toMatchObject({
-      tableSettings: {
+      tableTabs: {
         "daily.today": {
-          filterMode: "or",
-          filterRules: [{ id: "r1", field: "title", type: "text", operator: "contains", value: "plan" }],
-        },
+          tabs: [{ name: "Table" }, { name: "Deep focus" }],
+        }
       },
     });
+  });
+
+  it("keeps consecutive same-table commands in one React batch", async () => {
+    const writes = capturePlannerSettingsWrites();
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => {
+      expect(result.current.createPlannerTableTab("daily.today", "Focus")).toBe(true);
+      expect(result.current.createPlannerTableTab("daily.today", "Deep")).toBe(true);
+    });
+
+    expect(
+      result.current.plannerTableTabs("daily.today").tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Focus", "Deep"]);
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(
+      (writes[1] as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.today"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Focus", "Deep"]);
+  });
+
+  it("keeps consecutive cross-table commands in one React batch", async () => {
+    const writes = capturePlannerSettingsWrites();
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => {
+      expect(result.current.createPlannerTableTab("daily.today", "Focus")).toBe(true);
+      expect(result.current.createPlannerTableTab("daily.overdue", "Recovery")).toBe(true);
+    });
+
+    expect(result.current.plannerTableTabs("daily.today").tabs).toHaveLength(2);
+    expect(result.current.plannerTableTabs("daily.overdue").tabs).toHaveLength(2);
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(
+      (writes[1] as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.today"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Focus"]);
+    expect(
+      (writes[1] as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.overdue"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Recovery"]);
+  });
+
+  it("saves a draft edited immediately before save in one React batch", async () => {
+    const writes = capturePlannerSettingsWrites();
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => {
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.savePlannerTableTab("daily.today");
+    });
+
+    expect(result.current.plannerTableSettings("daily.today").filterMode).toBe("or");
+    expect(result.current.plannerTableIsDirty("daily.today")).toBe(false);
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(
+      (writes[0] as {
+        tableTabs: Record<string, { tabs: Array<{ settings: { filterMode: string } }> }>;
+      }).tableTabs["daily.today"]?.tabs[0]?.settings.filterMode,
+    ).toBe("or");
+  });
+
+  it("keeps session tabs after a failed write and retries the full document", async () => {
+    const bodies: unknown[] = [];
+    let putCount = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url !== "/todo-engine/settings/planner") {
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }
+      if (!init) {
+        return Promise.resolve({ ok: true, json: async () => null });
+      }
+      putCount += 1;
+      bodies.push(JSON.parse(String(init.body)).value);
+      return putCount === 1
+        ? Promise.reject(new Error("offline"))
+        : Promise.resolve({ ok: true, json: async () => null });
+    }));
+
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      expect(result.current.createPlannerTableTab("daily.today", "Focus")).toBe(true);
+    });
+    await waitFor(() => expect(putCount).toBe(1));
+    expect(result.current.plannerTableTabs("daily.today").tabs).toHaveLength(2);
+
+    const activeId = result.current.plannerTableTabs("daily.today").activeTabId;
+    act(() => {
+      expect(result.current.renamePlannerTableTab(
+        "daily.today",
+        activeId,
+        "Deep focus",
+      )).toBe(true);
+    });
+    await waitFor(() => expect(putCount).toBe(2));
+    expect(
+      (bodies[1] as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.today"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Deep focus"]);
   });
 
   it("selects areas under todo when workspace is clicked", () => {
@@ -688,7 +1291,7 @@ describe("useWorkbenchController", () => {
     expect(result.current.plannerTableSettings("daily.overdue")).toBe(overdueBefore);
   });
 
-  it("persists table settings and restores the changed table after remounting", async () => {
+  it("persists saved tab settings and restores the changed table after remounting", async () => {
     let serverSettings: unknown = null;
     const putBodies: unknown[] = [];
     vi.stubGlobal(
@@ -717,17 +1320,25 @@ describe("useWorkbenchController", () => {
         { id: "saved", field: "title", type: "text", operator: "contains", value: "persisted" },
       ],
     })));
+    expect(putBodies).toHaveLength(0);
+    act(() => first.result.current.savePlannerTableTab("daily.today"));
 
     await waitFor(() => expect(putBodies).toHaveLength(1));
     expect(putBodies[0]).toEqual({
       value: expect.objectContaining({
-        tableSettings: expect.objectContaining({
-          "daily.today": expect.objectContaining({ filterMode: "or" }),
+        tableTabs: expect.objectContaining({
+          "daily.today": {
+            tabs: [
+              expect.objectContaining({
+                settings: expect.objectContaining({ filterMode: "or" }),
+              }),
+            ],
+          },
         }),
       }),
     });
     expect(Object.keys((putBodies[0] as { value: Record<string, unknown> }).value)).toEqual([
-      "tableSettings",
+      "tableTabs",
     ]);
 
     first.unmount();

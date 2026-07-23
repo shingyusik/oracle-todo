@@ -20,6 +20,7 @@ import {
   type PlannerCreationAnchor,
   type PlannerCreationContext,
   type PlannerControls,
+  type PlannerTabConfirmation,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
@@ -40,12 +41,24 @@ import {
   addYears,
   isoWeekStart,
   monthStart,
-  normalizePlannerTableSettings,
   plannerTableIds,
   type PlannerTableId,
-  type PlannerTableSettings,
   yearStart,
 } from "@/features/workbench/model/planner-model";
+import {
+  buildPlannerTabsState,
+  createPlannerTab,
+  deletePlannerTab,
+  discardPlannerTabDraft,
+  plannerTabIsDirty,
+  renamePlannerTab,
+  resetPlannerTabsToFirst,
+  savePlannerTabDraft,
+  selectPlannerTab,
+  updatePlannerTabDraft,
+  type PlannerTableTabsState,
+  type StoredPlannerTableTabs,
+} from "@/features/workbench/model/planner-tabs";
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 type DashboardDetailLeafTabId = "areas" | "projects";
@@ -53,6 +66,10 @@ type PendingDashboardDetail = {
   itemId: string;
   targetLeafTabId: DashboardDetailLeafTabId;
   requestId: number | null;
+};
+type PendingPlannerSettingsCommand = {
+  apply: (planner: PlannerControls) => PlannerControls;
+  persist: boolean;
 };
 
 export class TodoEngineApiError extends Error {
@@ -96,10 +113,17 @@ const plannerItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
 };
 
 const plannerViewIds: PlannerViewId[] = ["yearly", "monthly", "weekly", "daily"];
+const plannerLeafTabIds = new Set<LeafTabId>(plannerViewIds);
 const idleWorkspaceItemTransitionState: WorkspaceItemTransitionState = {
   pending: false,
   error: null,
 };
+
+function tableIdsForPlannerLeaf(leafTabId: LeafTabId): PlannerTableId[] {
+  return plannerLeafTabIds.has(leafTabId)
+    ? plannerTableIds.filter((tableId) => tableId.startsWith(`${leafTabId}.`))
+    : [];
+}
 
 function defaultPlannerGroupSettingsByView(): Record<
   PlannerViewId,
@@ -110,9 +134,10 @@ function defaultPlannerGroupSettingsByView(): Record<
   ) as Record<PlannerViewId, PlannerGroupSettings>;
 }
 
-type StoredPlannerSettings = Pick<PlannerControls, "tableSettings">;
+type StoredPlannerSettings = Pick<PlannerControls, "tableTabs">;
 
 let plannerSettingsWrite = Promise.resolve();
+let plannerTabIdCounter = 0;
 
 async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
   try {
@@ -122,6 +147,12 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
     if (!value || typeof value !== "object") return null;
     const candidate = value as Record<string, unknown>;
     const legacy = normalizeLegacyPlannerControls(candidate);
+    const storedTabs = Object.prototype.hasOwnProperty.call(
+      candidate,
+      "tableTabs",
+    )
+      ? candidate.tableTabs
+      : undefined;
     const storedTableSettings = Object.prototype.hasOwnProperty.call(
       candidate,
       "tableSettings",
@@ -129,7 +160,7 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
       ? candidate.tableSettings
       : undefined;
     return {
-      tableSettings: buildPlannerTableSettingsMap(storedTableSettings, legacy),
+      tableTabs: buildPlannerTabsState(storedTabs, storedTableSettings, legacy),
     };
   } catch {
     return null;
@@ -137,9 +168,15 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
 }
 
 function persistPlannerSettings(planner: PlannerControls): void {
+  const storedTableTabs = Object.fromEntries(
+    plannerTableIds.map((tableId) => [
+      tableId,
+      { tabs: planner.tableTabs[tableId].tabs },
+    ]),
+  ) as Record<PlannerTableId, StoredPlannerTableTabs>;
   const body = JSON.stringify({
     value: {
-      tableSettings: planner.tableSettings,
+      tableTabs: storedTableTabs,
     },
   });
   plannerSettingsWrite = plannerSettingsWrite
@@ -224,25 +261,6 @@ function createDefaultLegacyPlannerControls(): LegacyPlannerControls {
   };
 }
 
-function buildPlannerTableSettingsMap(
-  stored: unknown | undefined,
-  legacy: LegacyPlannerControls,
-): Record<PlannerTableId, PlannerTableSettings> {
-  const storedMap = isRecord(stored) ? stored : {};
-  return Object.fromEntries(
-    plannerTableIds.map((tableId) => {
-      if (stored !== undefined) {
-        const candidate = Object.prototype.hasOwnProperty.call(storedMap, tableId)
-          ? storedMap[tableId]
-          : null;
-        return [tableId, normalizePlannerTableSettings(tableId, candidate, legacy)];
-      }
-
-      return [tableId, normalizePlannerTableSettings(tableId, undefined, legacy)];
-    }),
-  ) as Record<PlannerTableId, PlannerTableSettings>;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -288,8 +306,30 @@ function createDefaultPlanner(): PlannerControls {
     monthlyDate,
     weeklyDate,
     dailyDate: date,
-    tableSettings: buildPlannerTableSettingsMap({}, legacy),
+    tableTabs: buildPlannerTabsState(undefined, undefined, legacy),
   };
+}
+
+function updateTableTabs(
+  planner: PlannerControls,
+  tableId: PlannerTableId,
+  updater: (state: PlannerTableTabsState) => PlannerTableTabsState,
+): PlannerControls {
+  return {
+    ...planner,
+    tableTabs: {
+      ...planner.tableTabs,
+      [tableId]: updater(planner.tableTabs[tableId]),
+    },
+  };
+}
+
+function nextPlannerTabId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  plannerTabIdCounter += 1;
+  return `planner-tab-${Date.now()}-${plannerTabIdCounter}`;
 }
 
 function plannerDateForPanel(panelId: LeafTabId, planner: PlannerControls): string {
@@ -499,17 +539,43 @@ function analyzePlannerCreationContext(
 }
 
 export function useWorkbenchController(): WorkbenchController {
-  const [selection, setSelection] = useState<WorkbenchSelection>(() =>
+  const [selection, setSelectionState] = useState<WorkbenchSelection>(() =>
     resolveInitialSelection(),
   );
+  const selectionStateRef = useRef(selection);
+  const setSelection = (
+    update:
+      | WorkbenchSelection
+      | ((current: WorkbenchSelection) => WorkbenchSelection),
+  ): WorkbenchSelection => {
+    const next = typeof update === "function"
+      ? update(selectionStateRef.current)
+      : update;
+    selectionStateRef.current = next;
+    setSelectionState(next);
+    return next;
+  };
   const [workspaceItems, setWorkspaceItems] =
     useState<WorkspaceItemsModel>(emptyWorkspaceItems);
-  const [planner, setPlanner] = useState<PlannerControls>(() =>
+  const [planner, setPlannerState] = useState<PlannerControls>(() =>
     createDefaultPlanner(),
   );
+  const plannerStateRef = useRef(planner);
+  const setPlanner = (
+    update: PlannerControls | ((current: PlannerControls) => PlannerControls),
+  ): PlannerControls => {
+    const next = typeof update === "function"
+      ? update(plannerStateRef.current)
+      : update;
+    plannerStateRef.current = next;
+    setPlannerState(next);
+    return next;
+  };
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
+  const [plannerTabConfirmation, setPlannerTabConfirmation] =
+    useState<PlannerTabConfirmation | null>(null);
   const [plannerCreationContext, setPlannerCreationContext] =
     useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
@@ -517,7 +583,10 @@ export function useWorkbenchController(): WorkbenchController {
   const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
   const workspaceRequestId = useRef(0);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
-  const plannerSettingsChanged = useRef(false);
+  const initialPlannerTableTabs = useRef(planner.tableTabs);
+  const plannerSettingsLoaded = useRef(false);
+  const pendingPlannerSettingsCommands =
+    useRef<PendingPlannerSettingsCommand[]>([]);
   const [itemTransitionStates, setItemTransitionStates] = useState<
     Record<string, WorkspaceItemTransitionState>
   >({});
@@ -534,22 +603,72 @@ export function useWorkbenchController(): WorkbenchController {
     [plannerCreationContext],
   );
 
+  const applyPlannerSettingsCommand = (
+    apply: PendingPlannerSettingsCommand["apply"],
+    persist = false,
+  ): PlannerControls => {
+    const next = apply(plannerStateRef.current);
+    setPlanner(next);
+    if (plannerSettingsLoaded.current) {
+      if (persist) persistPlannerSettings(next);
+    } else {
+      pendingPlannerSettingsCommands.current.push({ apply, persist });
+    }
+    return next;
+  };
+
+  const resolvePlannerTabCommandId = (
+    tableId: PlannerTableId,
+    tableTabs: PlannerTableTabsState,
+    requestedTabId: string,
+  ): string => {
+    if (tableTabs.tabs.some((tab) => tab.id === requestedTabId)) {
+      return requestedTabId;
+    }
+    const initialIndex = initialPlannerTableTabs.current[tableId].tabs.findIndex(
+      (tab) => tab.id === requestedTabId,
+    );
+    return initialIndex >= 0
+      ? tableTabs.tabs[initialIndex]?.id ?? requestedTabId
+      : requestedTabId;
+  };
+
   useEffect(() => {
     let active = true;
     void loadPlannerSettings().then((stored) => {
-      if (active && stored && !plannerSettingsChanged.current) {
-        setPlanner((current) => ({ ...current, ...stored }));
+      if (!active) return;
+
+      let next: PlannerControls = {
+        ...plannerStateRef.current,
+        tableTabs: stored?.tableTabs ?? initialPlannerTableTabs.current,
+      };
+      const persistedStates: PlannerControls[] = [];
+      for (const command of pendingPlannerSettingsCommands.current) {
+        next = command.apply(next);
+        if (command.persist) persistedStates.push(next);
+      }
+      pendingPlannerSettingsCommands.current = [];
+      plannerSettingsLoaded.current = true;
+      setPlannerTabConfirmation((current) => {
+        if (!current || current.kind === "navigate") return current;
+        const targetTabId = resolvePlannerTabCommandId(
+          current.tableId,
+          next.tableTabs[current.tableId],
+          current.targetTabId,
+        );
+        return targetTabId === current.targetTabId
+          ? current
+          : { ...current, targetTabId };
+      });
+      setPlanner(next);
+      for (const persistedState of persistedStates) {
+        persistPlannerSettings(persistedState);
       }
     });
     return () => {
       active = false;
     };
   }, []);
-
-  const persistChangedPlannerSettings = (next: PlannerControls) => {
-    plannerSettingsChanged.current = true;
-    persistPlannerSettings(next);
-  };
 
   useEffect(() => {
     setSelectedItemIds([]);
@@ -662,6 +781,42 @@ export function useWorkbenchController(): WorkbenchController {
     };
   }, [dashboardReload, selection.leafTabId]);
 
+  const requestSelection = (nextSelection: WorkbenchSelection): void => {
+    const currentSelection = selectionStateRef.current;
+    const leafChanged = nextSelection.leafTabId !== currentSelection.leafTabId;
+    const departingTableIds = tableIdsForPlannerLeaf(currentSelection.leafTabId);
+    if (
+      leafChanged &&
+      departingTableIds.some((tableId) =>
+        plannerTabIsDirty(plannerStateRef.current.tableTabs[tableId])
+      )
+    ) {
+      setPlannerTabConfirmation({
+        kind: "navigate",
+        targetSelection: nextSelection,
+      });
+      return;
+    }
+
+    if (leafChanged) {
+      applyPlannerSettingsCommand((current) => {
+        let next = current;
+        for (const tableId of tableIdsForPlannerLeaf(nextSelection.leafTabId)) {
+          next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
+        }
+        return next;
+      });
+    }
+
+    if (
+      pendingDashboardDetail.current &&
+      pendingDashboardDetail.current.targetLeafTabId !== nextSelection.leafTabId
+    ) {
+      pendingDashboardDetail.current = null;
+    }
+    setSelection(nextSelection);
+  };
+
   const navigateDashboard = (destination: DashboardDestination): void => {
     switch (destination.kind) {
       case "areas":
@@ -700,20 +855,45 @@ export function useWorkbenchController(): WorkbenchController {
         setPlanner((current) =>
           setPlannerDateForPanel(current, "daily", destination.date),
         );
-        setSelection((current) => resolveSelection("daily", current));
+        requestSelection(
+          resolveSelection("daily", selectionStateRef.current),
+        );
         return;
       case "weekly":
         pendingDashboardDetail.current = null;
         setPlanner((current) =>
           setPlannerDateForPanel(current, "weekly", destination.weekStart),
         );
-        setSelection((current) => resolveSelection("weekly", current));
+        requestSelection(
+          resolveSelection("weekly", selectionStateRef.current),
+        );
         return;
       default: {
         const exhaustiveDestination: never = destination;
         return exhaustiveDestination;
       }
     }
+  };
+
+  const persistTableTabs = (
+    tableId: PlannerTableId,
+    updater: (
+      tableTabs: PlannerTableTabsState,
+    ) => PlannerTableTabsState | null,
+  ): boolean => {
+    const current = plannerStateRef.current;
+    const tableTabs = updater(current.tableTabs[tableId]);
+    if (!tableTabs) return false;
+    applyPlannerSettingsCommand(
+      (planner) => {
+        const updatedTabs = updater(planner.tableTabs[tableId]);
+        return updatedTabs
+          ? updateTableTabs(planner, tableId, () => updatedTabs)
+          : planner;
+      },
+      true,
+    );
+    return true;
   };
 
   return {
@@ -724,25 +904,18 @@ export function useWorkbenchController(): WorkbenchController {
     selectedItemIds,
     archiveConfirmationOpen,
     creationDialogOpen,
+    plannerTabConfirmation,
     plannerCreationContext,
     plannerCreationAnalysis,
     detailItem,
-    selectTab: (tabId: WorkbenchTabId) =>
-      setSelection((currentSelection) => {
-        const nextSelection =
-          tabId === "workspace" || tabId === "planner"
-            ? toggleTodoGroupExpansion(currentSelection, tabId)
-            : resolveSelection(tabId, currentSelection);
-        if (
-          pendingDashboardDetail.current &&
-          pendingDashboardDetail.current.targetLeafTabId !==
-            nextSelection.leafTabId
-        ) {
-          pendingDashboardDetail.current = null;
-        }
-
-        return nextSelection;
-      }),
+    selectTab: (tabId: WorkbenchTabId) => {
+      const currentSelection = selectionStateRef.current;
+      const nextSelection =
+        tabId === "workspace" || tabId === "planner"
+          ? toggleTodoGroupExpansion(currentSelection, tabId)
+          : resolveSelection(tabId, currentSelection);
+      requestSelection(nextSelection);
+    },
     navigateDashboard,
     reloadDashboard: () => setDashboardReload((value) => value + 1),
     toggleWorkspaceExpansion: () =>
@@ -874,17 +1047,140 @@ export function useWorkbenchController(): WorkbenchController {
         tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
-    plannerTableSettings: (tableId) => activePlanner.tableSettings[tableId],
-    updatePlannerTableSettings: (tableId, updater) =>
-      setPlanner((current) => {
-        const nextSettings = updater(current.tableSettings[tableId]);
-        const next = {
-          ...current,
-          tableSettings: { ...current.tableSettings, [tableId]: nextSettings },
-        };
-        persistChangedPlannerSettings(next);
-        return next;
-      }),
+    plannerTableTabs: (tableId) => activePlanner.tableTabs[tableId],
+    plannerTableSettings: (tableId) =>
+      activePlanner.tableTabs[tableId].draftSettings,
+    plannerTableIsDirty: (tableId) =>
+      plannerTabIsDirty(activePlanner.tableTabs[tableId]),
+    updatePlannerTableSettings: (tableId, updater) => {
+      applyPlannerSettingsCommand((current) => {
+        const tableTabs = current.tableTabs[tableId];
+        return updateTableTabs(current, tableId, () =>
+          updatePlannerTabDraft(tableTabs, updater(tableTabs.draftSettings)),
+        );
+      });
+    },
+    selectPlannerTableTab: (tableId, tabId) => {
+      const tableTabs = plannerStateRef.current.tableTabs[tableId];
+      if (
+        tableTabs.activeTabId === tabId ||
+        !tableTabs.tabs.some((tab) => tab.id === tabId)
+      ) {
+        return;
+      }
+      if (plannerTabIsDirty(tableTabs)) {
+        setPlannerTabConfirmation({
+          kind: "select",
+          tableId,
+          targetTabId: tabId,
+        });
+        return;
+      }
+      applyPlannerSettingsCommand((current) =>
+        updateTableTabs(current, tableId, (currentTabs) =>
+          selectPlannerTab(
+            currentTabs,
+            resolvePlannerTabCommandId(tableId, currentTabs, tabId),
+          ),
+        ),
+      );
+    },
+    savePlannerTableTab: (tableId) => {
+      persistTableTabs(tableId, savePlannerTabDraft);
+    },
+    createPlannerTableTab: (tableId, name) => {
+      if (name.trim().length === 0) return false;
+      const tabId = nextPlannerTabId();
+      return persistTableTabs(tableId, (tableTabs) =>
+        createPlannerTab(tableTabs, tabId, name),
+      );
+    },
+    renamePlannerTableTab: (tableId, tabId, name) => {
+      if (name.trim().length === 0) return false;
+      return persistTableTabs(tableId, (tableTabs) =>
+        renamePlannerTab(
+          tableTabs,
+          resolvePlannerTabCommandId(tableId, tableTabs, tabId),
+          name,
+        ),
+      );
+    },
+    requestDeletePlannerTableTab: (tableId, tabId) => {
+      const tableTabs = plannerStateRef.current.tableTabs[tableId];
+      if (
+        tableTabs.tabs.length <= 1 ||
+        !tableTabs.tabs.some((tab) => tab.id === tabId)
+      ) {
+        return;
+      }
+      setPlannerTabConfirmation({
+        kind: "delete",
+        tableId,
+        targetTabId: tabId,
+      });
+    },
+    confirmPlannerTabAction: () => {
+      if (!plannerTabConfirmation) return;
+      switch (plannerTabConfirmation.kind) {
+        case "select": {
+          applyPlannerSettingsCommand((current) =>
+            updateTableTabs(
+              current,
+              plannerTabConfirmation.tableId,
+              (tableTabs) => {
+                const targetTabId = resolvePlannerTabCommandId(
+                  plannerTabConfirmation.tableId,
+                  tableTabs,
+                  plannerTabConfirmation.targetTabId,
+                );
+                return selectPlannerTab(
+                  discardPlannerTabDraft(tableTabs),
+                  targetTabId,
+                );
+              },
+            ),
+          );
+          break;
+        }
+        case "delete": {
+          applyPlannerSettingsCommand((current) => {
+            const tableTabs =
+              current.tableTabs[plannerTabConfirmation.tableId];
+            const targetTabId = resolvePlannerTabCommandId(
+              plannerTabConfirmation.tableId,
+              tableTabs,
+              plannerTabConfirmation.targetTabId,
+            );
+            const deleted = deletePlannerTab(tableTabs, targetTabId);
+            if (!deleted) return current;
+            return updateTableTabs(
+              current,
+              plannerTabConfirmation.tableId,
+              () => deleted,
+            );
+          }, true);
+          break;
+        }
+        case "navigate": {
+          applyPlannerSettingsCommand((current) => {
+            let next = current;
+            for (const tableId of tableIdsForPlannerLeaf(selection.leafTabId)) {
+              next = updateTableTabs(next, tableId, discardPlannerTabDraft);
+            }
+            for (const tableId of tableIdsForPlannerLeaf(
+              plannerTabConfirmation.targetSelection.leafTabId,
+            )) {
+              next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
+            }
+            return next;
+          });
+          setSelection(plannerTabConfirmation.targetSelection);
+          break;
+        }
+      }
+      setPlannerTabConfirmation(null);
+    },
+    cancelPlannerTabAction: () => setPlannerTabConfirmation(null),
     transitionWorkspaceItem: (
       itemId: string,
       action: WorkspaceItemTransitionAction,

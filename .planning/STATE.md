@@ -114,8 +114,6 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-- Add planner custom tabs — save and restore several filter, sort, and group combinations within a Planner table.
-
 ### Blockers/Concerns
 
 [Issues that affect future work]

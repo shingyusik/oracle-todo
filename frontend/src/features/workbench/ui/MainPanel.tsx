@@ -64,6 +64,7 @@ import {
   type WorkspaceItemTransitionAction,
 } from "@/features/workbench/model/workbench-model";
 import { PlannerGroupPanel } from "@/features/workbench/ui/PlannerGroupPanel";
+import { PlannerTableTabs } from "@/features/workbench/ui/PlannerTableTabs";
 
 type MainPanelProps = {
   controller: WorkbenchController;
@@ -1323,6 +1324,7 @@ function PlannerTableHeader({
           ) : null}
         </div>
       </div>
+      <PlannerTableTabs controller={controller} tableId={tableId} title={title} />
       <PlannerActiveControlPills
         filterCount={activeFilterCount}
         sortRules={settings.sortRules}

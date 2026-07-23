@@ -3,6 +3,7 @@ import React from "react";
 import { workbenchCopy } from "@/design/copy";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { MainPanel } from "@/features/workbench/ui/MainPanel";
+import { PlannerTabConfirmationDialog } from "@/features/workbench/ui/PlannerTabConfirmationDialog";
 import { TreeSidebar } from "@/features/workbench/ui/TreeSidebar";
 
 type WorkbenchWireframeProps = {
@@ -34,6 +35,7 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
         />
       </aside>
       <MainPanel controller={controller} />
+      <PlannerTabConfirmationDialog controller={controller} />
     </div>
   );
 }
