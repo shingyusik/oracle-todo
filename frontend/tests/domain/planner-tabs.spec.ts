@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildPlannerTabsState,
@@ -132,6 +132,28 @@ describe("planner table tabs", () => {
 
     expect(renamed.tabs[0]?.name).toBe("second 2");
     expect(renamePlannerTab(renamed, "missing", "Other")).toBeNull();
+  });
+
+  it("resolves name collisions without consulting the runtime locale", () => {
+    const localeLowerCase = vi
+      .spyOn(String.prototype, "toLocaleLowerCase")
+      .mockImplementation(() => {
+        throw new Error("locale-sensitive comparison");
+      });
+    try {
+      const initial = buildPlannerTabsState(
+        undefined,
+        undefined,
+        legacyPlannerControls(),
+      )["daily.today"];
+
+      const created = createPlannerTab(initial, "second", "table");
+
+      expect(created?.tabs[1]?.name).toBe("table 2");
+      expect(localeLowerCase).not.toHaveBeenCalled();
+    } finally {
+      localeLowerCase.mockRestore();
+    }
   });
 
   it("activates the right neighbor, then the left neighbor, after deleting the active tab", () => {

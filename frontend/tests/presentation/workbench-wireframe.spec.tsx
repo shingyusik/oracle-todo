@@ -493,6 +493,55 @@ describe("WorkbenchPageClient", () => {
     expect(within(todayTabs).getByRole("tab", { name: "새 보기" })).not.toHaveTextContent("•");
   });
 
+  it("remeasures the tab editor overlay when validation changes its height", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement): DOMRect {
+        const isAddTrigger = this.getAttribute("aria-label") === "Add Today view";
+        const isOverlay = this.classList.contains("planner-table-tab-overlay");
+        const height = isOverlay
+          ? this.querySelector(".planner-table-tab-name-error") ? 160 : 80
+          : 20;
+        const top = isAddTrigger ? 700 : 0;
+        const left = isAddTrigger ? 100 : 0;
+        const width = isOverlay ? 220 : 20;
+        return {
+          x: left,
+          y: top,
+          top,
+          right: left + width,
+          bottom: top + height,
+          left,
+          width,
+          height,
+          toJSON: () => ({}),
+        } as DOMRect;
+      },
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(within(
+      screen.getByRole("tablist", { name: "Today views" }),
+    ).getByRole("button", { name: "Add Today view" }));
+
+    const overlay = document.querySelector<HTMLElement>(".planner-table-tab-overlay");
+    expect(overlay).not.toBeNull();
+    await waitFor(() => expect(overlay).toHaveStyle({ top: "616px" }));
+
+    await user.clear(screen.getByRole("textbox", { name: "View name" }));
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByText("View name is required.")).toBeInTheDocument();
+    await waitFor(() => expect(overlay).toHaveStyle({ top: "536px" }));
+  });
+
   it("cancels add and rename popovers with Escape and restores trigger focus", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(

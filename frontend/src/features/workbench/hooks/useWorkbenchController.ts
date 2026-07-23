@@ -67,6 +67,10 @@ type PendingDashboardDetail = {
   targetLeafTabId: DashboardDetailLeafTabId;
   requestId: number | null;
 };
+type PendingPlannerSettingsCommand = {
+  apply: (planner: PlannerControls) => PlannerControls;
+  persist: boolean;
+};
 
 export class TodoEngineApiError extends Error {
   constructor(
@@ -579,7 +583,10 @@ export function useWorkbenchController(): WorkbenchController {
   const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
   const workspaceRequestId = useRef(0);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
-  const plannerSettingsChanged = useRef(false);
+  const initialPlannerTableTabs = useRef(planner.tableTabs);
+  const plannerSettingsLoaded = useRef(false);
+  const pendingPlannerSettingsCommands =
+    useRef<PendingPlannerSettingsCommand[]>([]);
   const [itemTransitionStates, setItemTransitionStates] = useState<
     Record<string, WorkspaceItemTransitionState>
   >({});
@@ -596,22 +603,61 @@ export function useWorkbenchController(): WorkbenchController {
     [plannerCreationContext],
   );
 
+  const applyPlannerSettingsCommand = (
+    apply: PendingPlannerSettingsCommand["apply"],
+    persist = false,
+  ): PlannerControls => {
+    const next = apply(plannerStateRef.current);
+    setPlanner(next);
+    if (plannerSettingsLoaded.current) {
+      if (persist) persistPlannerSettings(next);
+    } else {
+      pendingPlannerSettingsCommands.current.push({ apply, persist });
+    }
+    return next;
+  };
+
+  const resolvePlannerTabCommandId = (
+    tableId: PlannerTableId,
+    tableTabs: PlannerTableTabsState,
+    requestedTabId: string,
+  ): string => {
+    if (tableTabs.tabs.some((tab) => tab.id === requestedTabId)) {
+      return requestedTabId;
+    }
+    const initialIndex = initialPlannerTableTabs.current[tableId].tabs.findIndex(
+      (tab) => tab.id === requestedTabId,
+    );
+    return initialIndex >= 0
+      ? tableTabs.tabs[initialIndex]?.id ?? requestedTabId
+      : requestedTabId;
+  };
+
   useEffect(() => {
     let active = true;
     void loadPlannerSettings().then((stored) => {
-      if (active && stored && !plannerSettingsChanged.current) {
-        setPlanner((current) => ({ ...current, ...stored }));
+      if (!active) return;
+
+      let next: PlannerControls = {
+        ...plannerStateRef.current,
+        tableTabs: stored?.tableTabs ?? initialPlannerTableTabs.current,
+      };
+      const persistedStates: PlannerControls[] = [];
+      for (const command of pendingPlannerSettingsCommands.current) {
+        next = command.apply(next);
+        if (command.persist) persistedStates.push(next);
+      }
+      pendingPlannerSettingsCommands.current = [];
+      plannerSettingsLoaded.current = true;
+      setPlanner(next);
+      for (const persistedState of persistedStates) {
+        persistPlannerSettings(persistedState);
       }
     });
     return () => {
       active = false;
     };
   }, []);
-
-  const persistChangedPlannerSettings = (next: PlannerControls) => {
-    plannerSettingsChanged.current = true;
-    persistPlannerSettings(next);
-  };
 
   useEffect(() => {
     setSelectedItemIds([]);
@@ -742,7 +788,7 @@ export function useWorkbenchController(): WorkbenchController {
     }
 
     if (leafChanged) {
-      setPlanner((current) => {
+      applyPlannerSettingsCommand((current) => {
         let next = current;
         for (const tableId of tableIdsForPlannerLeaf(nextSelection.leafTabId)) {
           next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
@@ -827,9 +873,15 @@ export function useWorkbenchController(): WorkbenchController {
     const current = plannerStateRef.current;
     const tableTabs = updater(current.tableTabs[tableId]);
     if (!tableTabs) return false;
-    const next = updateTableTabs(current, tableId, () => tableTabs);
-    setPlanner(next);
-    persistChangedPlannerSettings(next);
+    applyPlannerSettingsCommand(
+      (planner) => {
+        const updatedTabs = updater(planner.tableTabs[tableId]);
+        return updatedTabs
+          ? updateTableTabs(planner, tableId, () => updatedTabs)
+          : planner;
+      },
+      true,
+    );
     return true;
   };
 
@@ -990,8 +1042,7 @@ export function useWorkbenchController(): WorkbenchController {
     plannerTableIsDirty: (tableId) =>
       plannerTabIsDirty(activePlanner.tableTabs[tableId]),
     updatePlannerTableSettings: (tableId, updater) => {
-      plannerSettingsChanged.current = true;
-      setPlanner((current) => {
+      applyPlannerSettingsCommand((current) => {
         const tableTabs = current.tableTabs[tableId];
         return updateTableTabs(current, tableId, () =>
           updatePlannerTabDraft(tableTabs, updater(tableTabs.draftSettings)),
@@ -1014,9 +1065,12 @@ export function useWorkbenchController(): WorkbenchController {
         });
         return;
       }
-      setPlanner((current) =>
+      applyPlannerSettingsCommand((current) =>
         updateTableTabs(current, tableId, (currentTabs) =>
-          selectPlannerTab(currentTabs, tabId),
+          selectPlannerTab(
+            currentTabs,
+            resolvePlannerTabCommandId(tableId, currentTabs, tabId),
+          ),
         ),
       );
     },
@@ -1025,14 +1079,19 @@ export function useWorkbenchController(): WorkbenchController {
     },
     createPlannerTableTab: (tableId, name) => {
       if (name.trim().length === 0) return false;
+      const tabId = nextPlannerTabId();
       return persistTableTabs(tableId, (tableTabs) =>
-        createPlannerTab(tableTabs, nextPlannerTabId(), name),
+        createPlannerTab(tableTabs, tabId, name),
       );
     },
     renamePlannerTableTab: (tableId, tabId, name) => {
       if (name.trim().length === 0) return false;
       return persistTableTabs(tableId, (tableTabs) =>
-        renamePlannerTab(tableTabs, tabId, name),
+        renamePlannerTab(
+          tableTabs,
+          resolvePlannerTabCommandId(tableId, tableTabs, tabId),
+          name,
+        ),
       );
     },
     requestDeletePlannerTableTab: (tableId, tabId) => {
@@ -1053,38 +1112,46 @@ export function useWorkbenchController(): WorkbenchController {
       if (!plannerTabConfirmation) return;
       switch (plannerTabConfirmation.kind) {
         case "select": {
-          setPlanner((current) =>
+          applyPlannerSettingsCommand((current) =>
             updateTableTabs(
               current,
               plannerTabConfirmation.tableId,
-              (tableTabs) =>
-                selectPlannerTab(
-                  discardPlannerTabDraft(tableTabs),
+              (tableTabs) => {
+                const targetTabId = resolvePlannerTabCommandId(
+                  plannerTabConfirmation.tableId,
+                  tableTabs,
                   plannerTabConfirmation.targetTabId,
-                ),
+                );
+                return selectPlannerTab(
+                  discardPlannerTabDraft(tableTabs),
+                  targetTabId,
+                );
+              },
             ),
           );
           break;
         }
         case "delete": {
-          setPlanner((current) => {
-            const deleted = deletePlannerTab(
-              current.tableTabs[plannerTabConfirmation.tableId],
+          applyPlannerSettingsCommand((current) => {
+            const tableTabs =
+              current.tableTabs[plannerTabConfirmation.tableId];
+            const targetTabId = resolvePlannerTabCommandId(
+              plannerTabConfirmation.tableId,
+              tableTabs,
               plannerTabConfirmation.targetTabId,
             );
+            const deleted = deletePlannerTab(tableTabs, targetTabId);
             if (!deleted) return current;
-            const next = updateTableTabs(
+            return updateTableTabs(
               current,
               plannerTabConfirmation.tableId,
               () => deleted,
             );
-            persistChangedPlannerSettings(next);
-            return next;
-          });
+          }, true);
           break;
         }
         case "navigate": {
-          setPlanner((current) => {
+          applyPlannerSettingsCommand((current) => {
             let next = current;
             for (const tableId of tableIdsForPlannerLeaf(selection.leafTabId)) {
               next = updateTableTabs(next, tableId, discardPlannerTabDraft);

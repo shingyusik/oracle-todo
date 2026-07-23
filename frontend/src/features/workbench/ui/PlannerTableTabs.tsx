@@ -99,7 +99,13 @@ export function PlannerTableTabs({
       window.removeEventListener("resize", updateOverlayPosition);
       window.removeEventListener("scroll", updateOverlayPosition, true);
     };
-  }, [nameEditor?.kind, nameEditor?.tabId, openMenuTabId, overlayOpen]);
+  }, [
+    nameEditor?.error,
+    nameEditor?.kind,
+    nameEditor?.tabId,
+    openMenuTabId,
+    overlayOpen,
+  ]);
 
   useEffect(() => {
     if (openMenuTabId && !openMenuTab) {

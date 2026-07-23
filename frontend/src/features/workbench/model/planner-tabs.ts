@@ -238,11 +238,11 @@ function uniqueId(candidate: string, usedIds: ReadonlySet<string>): string {
 function uniqueName(requestedName: string, existingNames: readonly string[]): string | null {
   const baseName = requestedName.trim();
   if (baseName.length === 0) return null;
-  const usedNames = new Set(existingNames.map((name) => name.toLocaleLowerCase()));
-  if (!usedNames.has(baseName.toLocaleLowerCase())) return baseName;
+  const usedNames = new Set(existingNames.map((name) => name.toLowerCase()));
+  if (!usedNames.has(baseName.toLowerCase())) return baseName;
 
   let suffix = 2;
-  while (usedNames.has(`${baseName} ${suffix}`.toLocaleLowerCase())) suffix += 1;
+  while (usedNames.has(`${baseName} ${suffix}`.toLowerCase())) suffix += 1;
   return `${baseName} ${suffix}`;
 }
 
