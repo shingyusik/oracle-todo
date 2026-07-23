@@ -5,6 +5,8 @@ import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { DashboardChartSpec } from "@/features/dashboard/model/dashboard-widgets";
+import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 type TestItem = {
@@ -44,6 +46,14 @@ function weekStart(): string {
   const day = value.getDay();
   value.setDate(value.getDate() + (day === 0 ? -6 : 1 - day));
   return formatDate(value);
+}
+
+function plannerDateLabel(value: string): string {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 function populatedItems(): TestItem[] {
@@ -221,7 +231,9 @@ describe("DashboardPanel", () => {
     render(<WorkbenchPageClient />);
 
     await user.click(
-      await screen.findByRole("button", { name: "Release: 82% complete" }),
+      await screen.findByRole("button", {
+        name: "Release: 82% complete (9 completed)",
+      }),
     );
 
     expect(
@@ -233,15 +245,65 @@ describe("DashboardPanel", () => {
     const user = userEvent.setup();
     mockLoadedDashboard();
     render(<WorkbenchPageClient />);
+    const selectedDate = weekStart();
 
     await user.click(
-      await screen.findByRole("button", { name: `${weekStart()}: 1 scheduled` }),
+      await screen.findByRole("button", { name: `${selectedDate}: 1 scheduled` }),
     );
 
     expect(await screen.findByRole("button", { name: "Daily" })).toHaveAttribute(
       "data-active",
       "true",
     );
+    expect(
+      screen.getByRole("button", { name: "Choose Daily date" }),
+    ).toHaveTextContent(plannerDateLabel(selectedDate));
+    expect(
+      screen.getByRole("heading", { name: plannerDateLabel(selectedDate) }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders presentation-ready point values without deriving Project semantics", () => {
+    const chart: DashboardChartSpec = {
+      kind: "stacked-bar",
+      ariaLabel: "Provided presentation",
+      series: [{
+        id: "completed",
+        label: "Completed",
+        tone: "primary",
+        points: [{
+          id: "project-release-completed",
+          label: "Release",
+          value: 4,
+          displayValue: "4",
+          ariaLabel: "Release: 82% complete (4 completed)",
+          sizePercent: 37,
+          destination: { kind: "project-detail", itemId: "project-release" },
+        }],
+      }, {
+        id: "remaining",
+        label: "Remaining",
+        tone: "secondary",
+        points: [{
+          id: "project-release-remaining",
+          label: "Release",
+          value: 1,
+          displayValue: "1",
+          ariaLabel: "Release: 1 remaining",
+          sizePercent: 63,
+          destination: { kind: "project-detail", itemId: "project-release" },
+        }],
+      }],
+    };
+
+    render(<DashboardChart chart={chart} onNavigate={vi.fn()} />);
+
+    const completed = screen.getByRole("button", {
+      name: "Release: 82% complete (4 completed)",
+    });
+    expect(completed).toHaveTextContent("4");
+    expect(completed.style.getPropertyValue("--dashboard-point-scale")).toBe("37");
+    expect(completed.style.getPropertyValue("--dashboard-point-stack")).toBe("37%");
   });
 
   it("renders numerical text in every interactive chart point", async () => {
@@ -264,7 +326,7 @@ describe("DashboardPanel", () => {
         button.querySelector(".dashboard-chart-value"),
       ).toHaveTextContent(/^\d+$/);
       expect(button).toHaveAccessibleName(
-        /: (?:\d+ (?:active|paused|completed|remaining|scheduled|due)|\d+% complete)$/,
+        /: (?:\d+ (?:active|paused|completed|remaining|scheduled|due)|\d+% complete \(\d+ completed\))$/,
       );
     }
   });

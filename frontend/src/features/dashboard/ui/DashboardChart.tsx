@@ -21,12 +21,6 @@ export function DashboardChart({
     0,
     ...chart.series.map((series) => series.points.length),
   );
-  const maximumValue = Math.max(
-    1,
-    ...chart.series.flatMap((series) =>
-      series.points.map((point) => point.value),
-    ),
-  );
 
   return (
     <div
@@ -47,13 +41,9 @@ export function DashboardChart({
       </div>
       <div className="dashboard-chart-plot">
         {Array.from({ length: pointCount }, (_, pointIndex) => {
-          const points = chart.series.flatMap((series) => {
-            const point = series.points[pointIndex];
-            return point ? [{ point, series }] : [];
-          });
-          const total = points.reduce((sum, { point }) => sum + point.value, 0);
-          const label = points[0]?.point.label ?? "";
-          const projectProgress = projectProgressPercent(chart, pointIndex);
+          const label =
+            chart.series.find((series) => series.points[pointIndex])
+              ?.points[pointIndex]?.label ?? "";
 
           return (
             <div
@@ -62,16 +52,16 @@ export function DashboardChart({
             >
               <span className="dashboard-chart-category-label">{label}</span>
               <div className="dashboard-chart-bars">
-                {points.map(({ point, series }) => {
+                {chart.series.map((series) => {
+                  const point = series.points[pointIndex];
+                  if (!point) {
+                    return null;
+                  }
+
                   const style: ChartPointStyle = {
-                    "--dashboard-point-scale": (point.value / maximumValue) * 100,
-                    "--dashboard-point-stack":
-                      total === 0 ? "0%" : `${(point.value / total) * 100}%`,
+                    "--dashboard-point-scale": point.sizePercent,
+                    "--dashboard-point-stack": `${point.sizePercent}%`,
                   };
-                  const accessibleLabel =
-                    projectProgress !== null && series.id === "completed"
-                      ? `${point.label}: ${projectProgress}% complete`
-                      : `${point.label}: ${point.value} ${series.label.toLowerCase()}`;
 
                   return (
                     <button
@@ -79,12 +69,11 @@ export function DashboardChart({
                       type="button"
                       className={`dashboard-chart-point tone-${series.tone}`}
                       style={style}
-                      aria-label={accessibleLabel}
+                      aria-label={point.ariaLabel}
                       onClick={() => onNavigate(point.destination)}
                     >
-                      <span className="dashboard-chart-value">{point.value}</span>
-                      <span className="sr-only">
-                        {point.label}, {series.label}
+                      <span className="dashboard-chart-value">
+                        {point.displayValue}
                       </span>
                     </button>
                   );
@@ -96,23 +85,4 @@ export function DashboardChart({
       </div>
     </div>
   );
-}
-
-function projectProgressPercent(
-  chart: DashboardChartSpec,
-  pointIndex: number,
-): number | null {
-  if (
-    chart.kind !== "stacked-bar" ||
-    chart.series.length !== 2 ||
-    chart.series[0]?.id !== "completed" ||
-    chart.series[1]?.id !== "remaining"
-  ) {
-    return null;
-  }
-
-  const completed = chart.series[0].points[pointIndex]?.value ?? 0;
-  const remaining = chart.series[1].points[pointIndex]?.value ?? 0;
-  const total = completed + remaining;
-  return total === 0 ? null : Math.round((completed / total) * 100);
 }

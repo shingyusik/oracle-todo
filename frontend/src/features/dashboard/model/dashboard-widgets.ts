@@ -5,6 +5,9 @@ export type DashboardPoint = {
   id: string;
   label: string;
   value: number;
+  displayValue: string;
+  ariaLabel: string;
+  sizePercent: number;
   destination: DashboardDestination;
 };
 
@@ -146,6 +149,12 @@ function areaSeries(
       id: `${area.id}-${key}`,
       label: area.title,
       value: area[key],
+      displayValue: String(area[key]),
+      ariaLabel: `${area.title}: ${area[key]} ${label.toLowerCase()}`,
+      sizePercent: percent(
+        area[key],
+        area.active + area.paused + area.completed,
+      ),
       destination: { kind: "area-detail", itemId: area.id },
     })),
   };
@@ -165,6 +174,9 @@ function projectSeries(
       id: `${project.id}-${key}`,
       label: project.title,
       value: project[key],
+      displayValue: String(project[key]),
+      ariaLabel: projectPointAriaLabel(project, key),
+      sizePercent: projectPointSize(project.progress, key),
       destination: { kind: "project-detail", itemId: project.id },
     })),
   };
@@ -176,6 +188,11 @@ function plannerSeries(
   tone: DashboardChartSpec["series"][number]["tone"],
   snapshot: DashboardSnapshot,
 ): DashboardChartSpec["series"][number] {
+  const maximum = Math.max(
+    1,
+    ...snapshot.planner.days.flatMap((day) => [day.scheduled, day.due]),
+  );
+
   return {
     id: key,
     label,
@@ -184,9 +201,43 @@ function plannerSeries(
       id: `${day.date}-${key}`,
       label: day.date,
       value: day[key],
+      displayValue: String(day[key]),
+      ariaLabel: `${day.date}: ${day[key]} ${label.toLowerCase()}`,
+      sizePercent: percent(day[key], maximum),
       destination: { kind: "daily", date: day.date },
     })),
   };
+}
+
+function projectPointAriaLabel(
+  project: DashboardSnapshot["projects"][number],
+  key: "completed" | "remaining",
+): string {
+  if (key === "remaining") {
+    return `${project.title}: ${project.remaining} remaining`;
+  }
+
+  if (project.progress === null) {
+    return `${project.title}: ${project.completed} completed`;
+  }
+
+  return `${project.title}: ${Math.round(project.progress * 100)}% complete (${project.completed} completed)`;
+}
+
+function projectPointSize(
+  progress: number | null,
+  key: "completed" | "remaining",
+): number {
+  if (progress === null) {
+    return 0;
+  }
+
+  const completedPercent = Math.round(progress * 100);
+  return key === "completed" ? completedPercent : 100 - completedPercent;
+}
+
+function percent(value: number, total: number): number {
+  return total === 0 ? 0 : Math.round((value / total) * 100);
 }
 
 function weekStart(snapshot: DashboardSnapshot): string {

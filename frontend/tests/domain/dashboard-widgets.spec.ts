@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 
+import type { DashboardSnapshot } from "@/features/dashboard/model/dashboard-model";
 import { dashboardWidgets } from "@/features/dashboard/model/dashboard-widgets";
 
-const sampleDashboardSnapshot = {
+const sampleDashboardSnapshot: DashboardSnapshot = {
   summary: { activeAreas: 1, activeProjects: 1, activeWork: 2, attentionProjects: 0 },
   areas: [],
-  projects: [],
+  projects: [{
+    id: "project-release",
+    title: "Release",
+    completed: 9,
+    remaining: 2,
+    progress: 9 / 11,
+    attention: "normal",
+  }],
   planner: {
     todayDate: "2026-07-23",
     today: 1,
@@ -28,10 +36,41 @@ describe("dashboard widget registry", () => {
     const model = widget?.build(sampleDashboardSnapshot);
 
     expect(model?.chart?.series).toHaveLength(2);
-    expect(model?.chart?.series[0]?.points[0]?.destination).toEqual({
-      kind: "daily",
-      date: "2026-07-21",
+    expect(model?.chart?.series[0]?.points[0]).toEqual({
+      id: "2026-07-21-scheduled",
+      label: "2026-07-21",
+      value: 1,
+      displayValue: "1",
+      ariaLabel: "2026-07-21: 1 scheduled",
+      sizePercent: 100,
+      destination: {
+        kind: "daily",
+        date: "2026-07-21",
+      },
     });
+  });
+
+  it("builds Project completion presentation from snapshot progress", () => {
+    const widget = dashboardWidgets.find(({ id }) => id === "project-progress");
+    const model = widget?.build(sampleDashboardSnapshot);
+
+    expect(model?.chart?.series[0]?.points[0]).toEqual({
+      id: "project-release-completed",
+      label: "Release",
+      value: 9,
+      displayValue: "9",
+      ariaLabel: "Release: 82% complete (9 completed)",
+      sizePercent: 82,
+      destination: {
+        kind: "project-detail",
+        itemId: "project-release",
+      },
+    });
+    expect(model?.chart?.series[1]?.points[0]).toEqual(expect.objectContaining({
+      displayValue: "2",
+      ariaLabel: "Release: 2 remaining",
+      sizePercent: 18,
+    }));
   });
 
   it("keeps Today and Overdue navigation on the selected dashboard date", () => {
