@@ -724,6 +724,42 @@ export function useWorkbenchController(): WorkbenchController {
     };
   }, [dashboardReload, selection.leafTabId]);
 
+  const requestSelection = (nextSelection: WorkbenchSelection): void => {
+    const currentSelection = selectionStateRef.current;
+    const leafChanged = nextSelection.leafTabId !== currentSelection.leafTabId;
+    const departingTableIds = tableIdsForPlannerLeaf(currentSelection.leafTabId);
+    if (
+      leafChanged &&
+      departingTableIds.some((tableId) =>
+        plannerTabIsDirty(plannerStateRef.current.tableTabs[tableId])
+      )
+    ) {
+      setPlannerTabConfirmation({
+        kind: "navigate",
+        targetSelection: nextSelection,
+      });
+      return;
+    }
+
+    if (leafChanged) {
+      setPlanner((current) => {
+        let next = current;
+        for (const tableId of tableIdsForPlannerLeaf(nextSelection.leafTabId)) {
+          next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
+        }
+        return next;
+      });
+    }
+
+    if (
+      pendingDashboardDetail.current &&
+      pendingDashboardDetail.current.targetLeafTabId !== nextSelection.leafTabId
+    ) {
+      pendingDashboardDetail.current = null;
+    }
+    setSelection(nextSelection);
+  };
+
   const navigateDashboard = (destination: DashboardDestination): void => {
     switch (destination.kind) {
       case "areas":
@@ -762,14 +798,18 @@ export function useWorkbenchController(): WorkbenchController {
         setPlanner((current) =>
           setPlannerDateForPanel(current, "daily", destination.date),
         );
-        setSelection((current) => resolveSelection("daily", current));
+        requestSelection(
+          resolveSelection("daily", selectionStateRef.current),
+        );
         return;
       case "weekly":
         pendingDashboardDetail.current = null;
         setPlanner((current) =>
           setPlannerDateForPanel(current, "weekly", destination.weekStart),
         );
-        setSelection((current) => resolveSelection("weekly", current));
+        requestSelection(
+          resolveSelection("weekly", selectionStateRef.current),
+        );
         return;
       default: {
         const exhaustiveDestination: never = destination;
@@ -791,42 +831,6 @@ export function useWorkbenchController(): WorkbenchController {
     setPlanner(next);
     persistChangedPlannerSettings(next);
     return true;
-  };
-
-  const requestSelection = (nextSelection: WorkbenchSelection): void => {
-    const currentSelection = selectionStateRef.current;
-    const leafChanged = nextSelection.leafTabId !== currentSelection.leafTabId;
-    const departingTableIds = tableIdsForPlannerLeaf(currentSelection.leafTabId);
-    if (
-      leafChanged &&
-      departingTableIds.some((tableId) =>
-        plannerTabIsDirty(plannerStateRef.current.tableTabs[tableId])
-      )
-    ) {
-      setPlannerTabConfirmation({
-        kind: "navigate",
-        targetSelection: nextSelection,
-      });
-      return;
-    }
-
-    if (leafChanged) {
-      setPlanner((current) => {
-        let next = current;
-        for (const tableId of tableIdsForPlannerLeaf(nextSelection.leafTabId)) {
-          next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
-        }
-        return next;
-      });
-    }
-
-    if (
-      pendingDashboardDetail.current &&
-      pendingDashboardDetail.current.targetLeafTabId !== nextSelection.leafTabId
-    ) {
-      pendingDashboardDetail.current = null;
-    }
-    setSelection(nextSelection);
   };
 
   return {

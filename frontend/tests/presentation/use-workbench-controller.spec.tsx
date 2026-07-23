@@ -117,6 +117,87 @@ describe("useWorkbenchController", () => {
     expect(result.current.planner.weeklyDate).toBe("2026-07-20");
   });
 
+  it.each([
+    [
+      "daily",
+      { kind: "daily", date: "2026-07-25" },
+      "daily.today",
+      "weekly.day-grid",
+    ],
+    [
+      "daily-overdue",
+      { kind: "daily-overdue", date: "2026-07-26" },
+      "daily.overdue",
+      "weekly.day-grid",
+    ],
+    [
+      "weekly",
+      { kind: "weekly", weekStart: "2026-07-20" },
+      "weekly.day-grid",
+      "daily.today",
+    ],
+  ] as const)(
+    "resets visible Planner tabs on Dashboard %s re-entry",
+    (kind, destination, targetTableId, unrelatedTableId) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_url: string, init?: RequestInit) =>
+          init?.method === "PUT"
+            ? Promise.resolve({ ok: true, json: async () => null })
+            : new Promise(() => {})
+        ),
+      );
+      const { result } = renderHook(() => useWorkbenchController());
+      const targetLeaf = kind === "weekly" ? "weekly" : "daily";
+
+      act(() => result.current.selectTab(targetLeaf));
+      act(() => {
+        result.current.createPlannerTableTab(targetTableId, "Second");
+        result.current.createPlannerTableTab(unrelatedTableId, "Unrelated");
+      });
+      const targetSecondId =
+        result.current.plannerTableTabs(targetTableId).tabs[1]!.id;
+      const unrelatedSecondId =
+        result.current.plannerTableTabs(unrelatedTableId).tabs[1]!.id;
+      expect(result.current.plannerTableTabs(targetTableId).activeTabId).toBe(
+        targetSecondId,
+      );
+
+      act(() => result.current.selectTab("dashboard"));
+      expect(result.current.selection.leafTabId).toBe("dashboard");
+      expect(result.current.plannerTabConfirmation).toBeNull();
+
+      act(() => result.current.navigateDashboard(destination));
+
+      expect(result.current.selection.leafTabId).toBe(targetLeaf);
+      expect(result.current.plannerTabConfirmation).toBeNull();
+      if (kind === "weekly") {
+        expect(result.current.planner.weeklyDate).toBe(destination.weekStart);
+      } else {
+        expect(result.current.planner.dailyDate).toBe(destination.date);
+      }
+      const visibleTableIds = targetLeaf === "weekly"
+        ? [
+            "weekly.month-goals",
+            "weekly.week-goals",
+            "weekly.day-grid",
+          ] as const
+        : [
+            "daily.today",
+            "daily.overdue",
+            "daily.unscheduled",
+          ] as const;
+      for (const tableId of visibleTableIds) {
+        const tableTabs = result.current.plannerTableTabs(tableId);
+        expect(tableTabs.activeTabId).toBe(tableTabs.tabs[0]?.id);
+        expect(tableTabs.draftSettings).toEqual(tableTabs.tabs[0]?.settings);
+      }
+      expect(
+        result.current.plannerTableTabs(unrelatedTableId).activeTabId,
+      ).toBe(unrelatedSecondId);
+    },
+  );
+
   it("waits for the target list refresh before opening an Area detail", async () => {
     let deferTargetItems = false;
     let resolveItems:
