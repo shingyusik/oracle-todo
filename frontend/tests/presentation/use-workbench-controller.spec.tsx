@@ -28,6 +28,21 @@ function testMonthStart(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
+function capturePlannerSettingsWrites(): unknown[] {
+  const writes: unknown[] = [];
+  vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+    if (url !== "/todo-engine/settings/planner") {
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }
+    if (!init) {
+      return Promise.resolve({ ok: true, json: async () => null });
+    }
+    writes.push(JSON.parse(String(init.body)).value);
+    return Promise.resolve({ ok: true, json: async () => null });
+  }));
+  return writes;
+}
+
 describe("useWorkbenchController", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -711,6 +726,72 @@ describe("useWorkbenchController", () => {
         }
       },
     });
+  });
+
+  it("keeps consecutive same-table commands in one React batch", async () => {
+    const writes = capturePlannerSettingsWrites();
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => {
+      expect(result.current.createPlannerTableTab("daily.today", "Focus")).toBe(true);
+      expect(result.current.createPlannerTableTab("daily.today", "Deep")).toBe(true);
+    });
+
+    expect(
+      result.current.plannerTableTabs("daily.today").tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Focus", "Deep"]);
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(
+      (writes[1] as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.today"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Focus", "Deep"]);
+  });
+
+  it("keeps consecutive cross-table commands in one React batch", async () => {
+    const writes = capturePlannerSettingsWrites();
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => {
+      expect(result.current.createPlannerTableTab("daily.today", "Focus")).toBe(true);
+      expect(result.current.createPlannerTableTab("daily.overdue", "Recovery")).toBe(true);
+    });
+
+    expect(result.current.plannerTableTabs("daily.today").tabs).toHaveLength(2);
+    expect(result.current.plannerTableTabs("daily.overdue").tabs).toHaveLength(2);
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(
+      (writes[1] as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.today"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Focus"]);
+    expect(
+      (writes[1] as {
+        tableTabs: Record<string, { tabs: Array<{ name: string }> }>;
+      }).tableTabs["daily.overdue"]?.tabs.map(({ name }) => name),
+    ).toEqual(["Table", "Recovery"]);
+  });
+
+  it("saves a draft edited immediately before save in one React batch", async () => {
+    const writes = capturePlannerSettingsWrites();
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => {
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.savePlannerTableTab("daily.today");
+    });
+
+    expect(result.current.plannerTableSettings("daily.today").filterMode).toBe("or");
+    expect(result.current.plannerTableIsDirty("daily.today")).toBe(false);
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(
+      (writes[0] as {
+        tableTabs: Record<string, { tabs: Array<{ settings: { filterMode: string } }> }>;
+      }).tableTabs["daily.today"]?.tabs[0]?.settings.filterMode,
+    ).toBe("or");
   });
 
   it("keeps session tabs after a failed write and retries the full document", async () => {

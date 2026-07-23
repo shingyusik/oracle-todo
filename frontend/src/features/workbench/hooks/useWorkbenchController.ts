@@ -531,9 +531,20 @@ export function useWorkbenchController(): WorkbenchController {
   );
   const [workspaceItems, setWorkspaceItems] =
     useState<WorkspaceItemsModel>(emptyWorkspaceItems);
-  const [planner, setPlanner] = useState<PlannerControls>(() =>
+  const [planner, setPlannerState] = useState<PlannerControls>(() =>
     createDefaultPlanner(),
   );
+  const plannerStateRef = useRef(planner);
+  const setPlanner = (
+    update: PlannerControls | ((current: PlannerControls) => PlannerControls),
+  ): PlannerControls => {
+    const next = typeof update === "function"
+      ? update(plannerStateRef.current)
+      : update;
+    plannerStateRef.current = next;
+    setPlannerState(next);
+    return next;
+  };
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
@@ -747,11 +758,17 @@ export function useWorkbenchController(): WorkbenchController {
 
   const persistTableTabs = (
     tableId: PlannerTableId,
-    tableTabs: PlannerTableTabsState,
-  ): void => {
-    const next = updateTableTabs(planner, tableId, () => tableTabs);
+    updater: (
+      tableTabs: PlannerTableTabsState,
+    ) => PlannerTableTabsState | null,
+  ): boolean => {
+    const current = plannerStateRef.current;
+    const tableTabs = updater(current.tableTabs[tableId]);
+    if (!tableTabs) return false;
+    const next = updateTableTabs(current, tableId, () => tableTabs);
     setPlanner(next);
     persistChangedPlannerSettings(next);
+    return true;
   };
 
   return {
@@ -933,35 +950,23 @@ export function useWorkbenchController(): WorkbenchController {
           selectPlannerTab(tableTabs, tabId),
         ),
       ),
-    savePlannerTableTab: (tableId) =>
-      persistTableTabs(
-        tableId,
-        savePlannerTabDraft(planner.tableTabs[tableId]),
-      ),
+    savePlannerTableTab: (tableId) => {
+      persistTableTabs(tableId, savePlannerTabDraft);
+    },
     createPlannerTableTab: (tableId, name) => {
       if (name.trim().length === 0) return false;
-      const nextTableTabs = createPlannerTab(
-        planner.tableTabs[tableId],
-        nextPlannerTabId(),
-        name,
+      return persistTableTabs(tableId, (tableTabs) =>
+        createPlannerTab(tableTabs, nextPlannerTabId(), name),
       );
-      if (!nextTableTabs) return false;
-      persistTableTabs(tableId, nextTableTabs);
-      return true;
     },
     renamePlannerTableTab: (tableId, tabId, name) => {
       if (name.trim().length === 0) return false;
-      const nextTableTabs = renamePlannerTab(
-        planner.tableTabs[tableId],
-        tabId,
-        name,
+      return persistTableTabs(tableId, (tableTabs) =>
+        renamePlannerTab(tableTabs, tabId, name),
       );
-      if (!nextTableTabs) return false;
-      persistTableTabs(tableId, nextTableTabs);
-      return true;
     },
     requestDeletePlannerTableTab: (tableId, tabId) => {
-      const tableTabs = planner.tableTabs[tableId];
+      const tableTabs = plannerStateRef.current.tableTabs[tableId];
       if (
         tableTabs.tabs.length <= 1 ||
         !tableTabs.tabs.some((tab) => tab.id === tabId)
@@ -976,13 +981,13 @@ export function useWorkbenchController(): WorkbenchController {
     },
     confirmPlannerTabAction: () => {
       if (plannerTabConfirmation?.kind === "delete") {
-        const nextTableTabs = deletePlannerTab(
-          planner.tableTabs[plannerTabConfirmation.tableId],
-          plannerTabConfirmation.targetTabId,
+        persistTableTabs(
+          plannerTabConfirmation.tableId,
+          (tableTabs) => deletePlannerTab(
+            tableTabs,
+            plannerTabConfirmation.targetTabId,
+          ),
         );
-        if (nextTableTabs) {
-          persistTableTabs(plannerTabConfirmation.tableId, nextTableTabs);
-        }
       }
       setPlannerTabConfirmation(null);
     },
