@@ -676,6 +676,98 @@ describe("useWorkbenchController", () => {
     expect(result.current.plannerTableTabs("daily.today").tabs).toHaveLength(1);
   });
 
+  it("requires discard confirmation before switching a dirty tab", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "PUT"
+          ? Promise.resolve({ ok: true, json: async () => null })
+          : new Promise(() => {})
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.createPlannerTableTab("daily.today", "Second");
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+    });
+    const firstId = result.current.plannerTableTabs("daily.today").tabs[0]!.id;
+
+    act(() => result.current.selectPlannerTableTab("daily.today", firstId));
+    expect(result.current.plannerTabConfirmation).toEqual({
+      kind: "select",
+      tableId: "daily.today",
+      targetTabId: firstId,
+    });
+    expect(result.current.plannerTableTabs("daily.today").activeTabId).not.toBe(firstId);
+
+    act(() => result.current.cancelPlannerTabAction());
+    expect(result.current.plannerTabConfirmation).toBeNull();
+
+    act(() => result.current.selectPlannerTableTab("daily.today", firstId));
+    act(() => result.current.confirmPlannerTabAction());
+    expect(result.current.plannerTableTabs("daily.today").activeTabId).toBe(firstId);
+    expect(result.current.plannerTableIsDirty("daily.today")).toBe(false);
+  });
+
+  it("discards every dirty table on the departing Planner screen", () => {
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => result.current.selectTab("daily"));
+    act(() => {
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.updatePlannerTableSettings("daily.overdue", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+    });
+
+    act(() => result.current.selectTab("weekly"));
+    expect(result.current.selection.leafTabId).toBe("daily");
+    expect(result.current.plannerTabConfirmation?.kind).toBe("navigate");
+
+    act(() => result.current.confirmPlannerTabAction());
+    expect(result.current.selection.leafTabId).toBe("weekly");
+    expect(result.current.plannerTableIsDirty("daily.today")).toBe(false);
+    expect(result.current.plannerTableIsDirty("daily.overdue")).toBe(false);
+  });
+
+  it("activates the first table tabs whenever a Planner screen is entered", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "PUT"
+          ? Promise.resolve({ ok: true, json: async () => null })
+          : new Promise(() => {})
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => result.current.selectTab("weekly"));
+    act(() => {
+      result.current.createPlannerTableTab("weekly.day-grid", "Second");
+    });
+    expect(result.current.plannerTableTabs("weekly.day-grid").activeTabId).toBe(
+      result.current.plannerTableTabs("weekly.day-grid").tabs[1]?.id,
+    );
+
+    act(() => result.current.selectTab("daily"));
+    act(() => result.current.selectTab("weekly"));
+
+    for (const tableId of [
+      "weekly.month-goals",
+      "weekly.week-goals",
+      "weekly.day-grid",
+    ] as const) {
+      const tableTabs = result.current.plannerTableTabs(tableId);
+      expect(tableTabs.activeTabId).toBe(tableTabs.tabs[0]?.id);
+      expect(tableTabs.draftSettings).toEqual(tableTabs.tabs[0]?.settings);
+    }
+  });
+
   it("serializes persisted tab mutations so the latest full document wins", async () => {
     const pendingWrites: Array<() => void> = [];
     let serverSettings: unknown;

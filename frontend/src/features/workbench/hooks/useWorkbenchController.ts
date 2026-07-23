@@ -49,8 +49,10 @@ import {
   buildPlannerTabsState,
   createPlannerTab,
   deletePlannerTab,
+  discardPlannerTabDraft,
   plannerTabIsDirty,
   renamePlannerTab,
+  resetPlannerTabsToFirst,
   savePlannerTabDraft,
   selectPlannerTab,
   updatePlannerTabDraft,
@@ -107,10 +109,17 @@ const plannerItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
 };
 
 const plannerViewIds: PlannerViewId[] = ["yearly", "monthly", "weekly", "daily"];
+const plannerLeafTabIds = new Set<LeafTabId>(plannerViewIds);
 const idleWorkspaceItemTransitionState: WorkspaceItemTransitionState = {
   pending: false,
   error: null,
 };
+
+function tableIdsForPlannerLeaf(leafTabId: LeafTabId): PlannerTableId[] {
+  return plannerLeafTabIds.has(leafTabId)
+    ? plannerTableIds.filter((tableId) => tableId.startsWith(`${leafTabId}.`))
+    : [];
+}
 
 function defaultPlannerGroupSettingsByView(): Record<
   PlannerViewId,
@@ -526,9 +535,22 @@ function analyzePlannerCreationContext(
 }
 
 export function useWorkbenchController(): WorkbenchController {
-  const [selection, setSelection] = useState<WorkbenchSelection>(() =>
+  const [selection, setSelectionState] = useState<WorkbenchSelection>(() =>
     resolveInitialSelection(),
   );
+  const selectionStateRef = useRef(selection);
+  const setSelection = (
+    update:
+      | WorkbenchSelection
+      | ((current: WorkbenchSelection) => WorkbenchSelection),
+  ): WorkbenchSelection => {
+    const next = typeof update === "function"
+      ? update(selectionStateRef.current)
+      : update;
+    selectionStateRef.current = next;
+    setSelectionState(next);
+    return next;
+  };
   const [workspaceItems, setWorkspaceItems] =
     useState<WorkspaceItemsModel>(emptyWorkspaceItems);
   const [planner, setPlannerState] = useState<PlannerControls>(() =>
@@ -771,6 +793,42 @@ export function useWorkbenchController(): WorkbenchController {
     return true;
   };
 
+  const requestSelection = (nextSelection: WorkbenchSelection): void => {
+    const currentSelection = selectionStateRef.current;
+    const leafChanged = nextSelection.leafTabId !== currentSelection.leafTabId;
+    const departingTableIds = tableIdsForPlannerLeaf(currentSelection.leafTabId);
+    if (
+      leafChanged &&
+      departingTableIds.some((tableId) =>
+        plannerTabIsDirty(plannerStateRef.current.tableTabs[tableId])
+      )
+    ) {
+      setPlannerTabConfirmation({
+        kind: "navigate",
+        targetSelection: nextSelection,
+      });
+      return;
+    }
+
+    if (leafChanged) {
+      setPlanner((current) => {
+        let next = current;
+        for (const tableId of tableIdsForPlannerLeaf(nextSelection.leafTabId)) {
+          next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
+        }
+        return next;
+      });
+    }
+
+    if (
+      pendingDashboardDetail.current &&
+      pendingDashboardDetail.current.targetLeafTabId !== nextSelection.leafTabId
+    ) {
+      pendingDashboardDetail.current = null;
+    }
+    setSelection(nextSelection);
+  };
+
   return {
     selection,
     panel,
@@ -783,22 +841,14 @@ export function useWorkbenchController(): WorkbenchController {
     plannerCreationContext,
     plannerCreationAnalysis,
     detailItem,
-    selectTab: (tabId: WorkbenchTabId) =>
-      setSelection((currentSelection) => {
-        const nextSelection =
-          tabId === "workspace" || tabId === "planner"
-            ? toggleTodoGroupExpansion(currentSelection, tabId)
-            : resolveSelection(tabId, currentSelection);
-        if (
-          pendingDashboardDetail.current &&
-          pendingDashboardDetail.current.targetLeafTabId !==
-            nextSelection.leafTabId
-        ) {
-          pendingDashboardDetail.current = null;
-        }
-
-        return nextSelection;
-      }),
+    selectTab: (tabId: WorkbenchTabId) => {
+      const currentSelection = selectionStateRef.current;
+      const nextSelection =
+        tabId === "workspace" || tabId === "planner"
+          ? toggleTodoGroupExpansion(currentSelection, tabId)
+          : resolveSelection(tabId, currentSelection);
+      requestSelection(nextSelection);
+    },
     navigateDashboard,
     reloadDashboard: () => setDashboardReload((value) => value + 1),
     toggleWorkspaceExpansion: () =>
@@ -944,12 +994,28 @@ export function useWorkbenchController(): WorkbenchController {
         );
       });
     },
-    selectPlannerTableTab: (tableId, tabId) =>
+    selectPlannerTableTab: (tableId, tabId) => {
+      const tableTabs = plannerStateRef.current.tableTabs[tableId];
+      if (
+        tableTabs.activeTabId === tabId ||
+        !tableTabs.tabs.some((tab) => tab.id === tabId)
+      ) {
+        return;
+      }
+      if (plannerTabIsDirty(tableTabs)) {
+        setPlannerTabConfirmation({
+          kind: "select",
+          tableId,
+          targetTabId: tabId,
+        });
+        return;
+      }
       setPlanner((current) =>
-        updateTableTabs(current, tableId, (tableTabs) =>
-          selectPlannerTab(tableTabs, tabId),
+        updateTableTabs(current, tableId, (currentTabs) =>
+          selectPlannerTab(currentTabs, tabId),
         ),
-      ),
+      );
+    },
     savePlannerTableTab: (tableId) => {
       persistTableTabs(tableId, savePlannerTabDraft);
     },
@@ -980,14 +1046,55 @@ export function useWorkbenchController(): WorkbenchController {
       });
     },
     confirmPlannerTabAction: () => {
-      if (plannerTabConfirmation?.kind === "delete") {
-        persistTableTabs(
-          plannerTabConfirmation.tableId,
-          (tableTabs) => deletePlannerTab(
-            tableTabs,
-            plannerTabConfirmation.targetTabId,
-          ),
-        );
+      if (!plannerTabConfirmation) return;
+      switch (plannerTabConfirmation.kind) {
+        case "select": {
+          setPlanner((current) =>
+            updateTableTabs(
+              current,
+              plannerTabConfirmation.tableId,
+              (tableTabs) =>
+                selectPlannerTab(
+                  discardPlannerTabDraft(tableTabs),
+                  plannerTabConfirmation.targetTabId,
+                ),
+            ),
+          );
+          break;
+        }
+        case "delete": {
+          setPlanner((current) => {
+            const deleted = deletePlannerTab(
+              current.tableTabs[plannerTabConfirmation.tableId],
+              plannerTabConfirmation.targetTabId,
+            );
+            if (!deleted) return current;
+            const next = updateTableTabs(
+              current,
+              plannerTabConfirmation.tableId,
+              () => deleted,
+            );
+            persistChangedPlannerSettings(next);
+            return next;
+          });
+          break;
+        }
+        case "navigate": {
+          setPlanner((current) => {
+            let next = current;
+            for (const tableId of tableIdsForPlannerLeaf(selection.leafTabId)) {
+              next = updateTableTabs(next, tableId, discardPlannerTabDraft);
+            }
+            for (const tableId of tableIdsForPlannerLeaf(
+              plannerTabConfirmation.targetSelection.leafTabId,
+            )) {
+              next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
+            }
+            return next;
+          });
+          setSelection(plannerTabConfirmation.targetSelection);
+          break;
+        }
       }
       setPlannerTabConfirmation(null);
     },

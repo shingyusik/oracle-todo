@@ -71,6 +71,20 @@ function plannerViewActions(name: string): HTMLElement {
   return screen.getByRole("group", { name: `${name} view actions` });
 }
 
+async function savePlannerView(
+  user: ReturnType<typeof userEvent.setup>,
+  tablistName: string,
+  viewName = "Table",
+): Promise<void> {
+  const tablist = screen.getByRole("tablist", { name: tablistName });
+  await user.click(within(tablist).getByRole("button", {
+    name: `Open ${viewName} view menu`,
+  }));
+  await user.click(within(plannerViewActions(viewName)).getByRole("button", {
+    name: "Save current settings",
+  }));
+}
+
 function formatDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -700,6 +714,57 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(
       within(todayTabs).getByRole("tab", { name: "새 보기" }),
     ).toHaveFocus());
+  });
+
+  it("cancels and confirms dirty Planner navigation through the discard dialog", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    await user.click(within(todayTabs).getByRole("button", { name: "Add Today view" }));
+    await user.keyboard("{Enter}");
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    await user.click(screen.getByRole("option", { name: "Title" }));
+
+    const activeDirtyTab = within(todayTabs).getByRole("tab", {
+      name: "새 보기, 저장되지 않은 변경사항",
+    });
+    const dailyButton = screen.getByRole("button", { name: "Daily" });
+    const weeklyButton = screen.getByRole("button", { name: "Weekly" });
+    await user.click(weeklyButton);
+
+    const firstDialog = screen.getByRole("dialog", {
+      name: "Discard unsaved Planner changes?",
+    });
+    expect(firstDialog).toHaveTextContent(
+      "Your unsaved filter, sort, and group changes will be lost.",
+    );
+    expect(within(firstDialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    expect(activeDirtyTab).toHaveAttribute("aria-selected", "true");
+    expect(dailyButton).toHaveAttribute("data-active", "true");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", {
+      name: "Discard unsaved Planner changes?",
+    })).toBeNull();
+    expect(activeDirtyTab).toHaveAttribute("aria-selected", "true");
+    expect(dailyButton).toHaveAttribute("data-active", "true");
+
+    await user.click(weeklyButton);
+    await user.click(within(
+      screen.getByRole("dialog", { name: "Discard unsaved Planner changes?" }),
+    ).getByRole("button", { name: "Discard changes" }));
+    expect(weeklyButton).toHaveAttribute("data-active", "true");
+    expect(screen.queryByRole("tablist", { name: "Today views" })).toBeNull();
   });
 
   it("keeps Planner table tab state isolated between two Daily tables", async () => {
@@ -2452,6 +2517,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("checkbox", { name: "Focus" }));
 
     expect(screen.getByText("1 rules")).toBeInTheDocument();
+    await savePlannerView(user, "Today views");
 
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     expect(await screen.findByText("Monthly Goal")).toBeInTheDocument();
@@ -3006,6 +3072,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("option", { name: "Area" }));
 
     expect(screen.getByText("Grouped by area")).toBeInTheDocument();
+    await savePlannerView(user, "Weekday grid views");
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     await screen.findByText("Work Goal");
@@ -3089,6 +3156,7 @@ describe("WorkbenchPageClient", () => {
 
     expect(screen.getByText("Sorted by title")).toBeInTheDocument();
     expect(screen.getByText("Grouped by area")).toBeInTheDocument();
+    await savePlannerView(user, "Weekday grid views");
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     await screen.findByText("Month Goal");
@@ -3175,6 +3243,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Group Weekday grid" }));
     await user.click(screen.getByRole("button", { name: "Choose group property" }));
     await user.click(screen.getByRole("option", { name: "Tag" }));
+    await savePlannerView(user, "Weekday grid views");
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
     await screen.findByText("Alpha Month Goal");
