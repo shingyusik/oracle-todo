@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -763,6 +763,83 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(
       within(todayTabs).getByRole("tab", { name: "새 보기" }),
     ).toHaveFocus());
+  });
+
+  it("keeps the dirty delete warning and target after delayed stored tabs load", async () => {
+    const user = userEvent.setup();
+    let resolveSettings:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    const writes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url !== "/todo-engine/settings/planner") {
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }
+      if (!init) {
+        return new Promise((resolve) => {
+          resolveSettings = resolve;
+        });
+      }
+      writes.push(JSON.parse(String(init.body)).value);
+      return Promise.resolve({ ok: true, json: async () => null });
+    }));
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    await user.click(within(todayTabs).getByRole("button", {
+      name: "Add Today view",
+    }));
+    await user.keyboard("{Enter}");
+    await user.click(within(todayTabs).getByRole("tab", { name: "Table" }));
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    await user.click(screen.getByRole("option", { name: "Title" }));
+    await user.click(within(todayTabs).getByRole("button", {
+      name: "Open Table view menu",
+    }));
+    await user.click(within(plannerViewActions("Table")).getByRole("button", {
+      name: "Delete",
+    }));
+
+    const dialog = screen.getByRole("dialog", { name: "Delete this view?" });
+    expect(dialog).toHaveTextContent(
+      "Its unsaved filter, sort, and group changes will also be discarded.",
+    );
+    expect(writes).toHaveLength(0);
+
+    await waitFor(() => expect(resolveSettings).toBeDefined());
+    await act(async () => resolveSettings?.({
+      ok: true,
+      json: async () => ({
+        tableTabs: {
+          "daily.today": {
+            tabs: [
+              { id: "stored-one", name: "Stored one", settings: {} },
+              { id: "stored-two", name: "Stored two", settings: {} },
+            ],
+          },
+        },
+      }),
+    }));
+
+    await waitFor(() =>
+      expect(within(todayTabs).getByRole("tab", {
+        name: "Stored one, 저장되지 않은 변경사항",
+      })).toBeInTheDocument(),
+    );
+    expect(dialog).toHaveTextContent(
+      "Its unsaved filter, sort, and group changes will also be discarded.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(within(todayTabs).queryByRole("tab", { name: /^Stored one/ })).toBeNull();
+    expect(within(todayTabs).getByRole("tab", { name: "Stored two" })).toBeInTheDocument();
+    expect(within(todayTabs).getByRole("tab", { name: "새 보기" })).toBeInTheDocument();
   });
 
   it("cancels and confirms dirty Planner navigation through the discard dialog", async () => {

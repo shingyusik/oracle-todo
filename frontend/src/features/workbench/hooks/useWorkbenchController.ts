@@ -649,6 +649,17 @@ export function useWorkbenchController(): WorkbenchController {
       }
       pendingPlannerSettingsCommands.current = [];
       plannerSettingsLoaded.current = true;
+      setPlannerTabConfirmation((current) => {
+        if (!current || current.kind === "navigate") return current;
+        const targetTabId = resolvePlannerTabCommandId(
+          current.tableId,
+          next.tableTabs[current.tableId],
+          current.targetTabId,
+        );
+        return targetTabId === current.targetTabId
+          ? current
+          : { ...current, targetTabId };
+      });
       setPlanner(next);
       for (const persistedState of persistedStates) {
         persistPlannerSettings(persistedState);

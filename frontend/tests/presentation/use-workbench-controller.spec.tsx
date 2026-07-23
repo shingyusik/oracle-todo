@@ -787,6 +787,54 @@ describe("useWorkbenchController", () => {
     ).toEqual(["Table", "Offline"]);
   });
 
+  it.each(["resolve", "reject"] as const)(
+    "does not persist queued tab commands after unmount when settings %s",
+    async (settlement) => {
+      let resolveSettings:
+        | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+        | undefined;
+      let rejectSettings: ((reason: Error) => void) | undefined;
+      const writes: unknown[] = [];
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+        if (url !== "/todo-engine/settings/planner") {
+          return Promise.resolve({ ok: true, json: async () => [] });
+        }
+        if (!init) {
+          return new Promise((resolve, reject) => {
+            resolveSettings = resolve;
+            rejectSettings = reject;
+          });
+        }
+        writes.push(JSON.parse(String(init.body)).value);
+        return Promise.resolve({ ok: true, json: async () => null });
+      }));
+      const hook = renderHook(() => useWorkbenchController());
+
+      act(() => {
+        expect(hook.result.current.createPlannerTableTab(
+          "daily.today",
+          "Queued",
+        )).toBe(true);
+      });
+      expect(writes).toHaveLength(0);
+      hook.unmount();
+
+      await act(async () => {
+        if (settlement === "resolve") {
+          resolveSettings?.({ ok: true, json: async () => null });
+        } else {
+          rejectSettings?.(new Error("offline"));
+        }
+      });
+
+      expect(writes).toHaveLength(0);
+      expect(consoleError).not.toHaveBeenCalled();
+    },
+  );
+
   it("migrates tableSettings into one Table tab and persists only saved tabs", async () => {
     const writes: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
@@ -909,6 +957,61 @@ describe("useWorkbenchController", () => {
     act(() => result.current.confirmPlannerTabAction());
     expect(result.current.plannerTableTabs("daily.today").activeTabId).toBe(firstId);
     expect(result.current.plannerTableIsDirty("daily.today")).toBe(false);
+  });
+
+  it("reconciles a pending tab selection target after delayed stored tabs load", async () => {
+    let resolveSettings:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url !== "/todo-engine/settings/planner") {
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }
+      if (!init) {
+        return new Promise((resolve) => {
+          resolveSettings = resolve;
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => null });
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+    const optimisticDefaultId =
+      result.current.plannerTableTabs("daily.today").activeTabId;
+
+    act(() => {
+      result.current.createPlannerTableTab("daily.today", "Second");
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      result.current.selectPlannerTableTab("daily.today", optimisticDefaultId);
+    });
+    expect(result.current.plannerTabConfirmation).toEqual({
+      kind: "select",
+      tableId: "daily.today",
+      targetTabId: optimisticDefaultId,
+    });
+
+    await waitFor(() => expect(resolveSettings).toBeDefined());
+    await act(async () => resolveSettings?.({
+      ok: true,
+      json: async () => ({
+        tableTabs: {
+          "daily.today": {
+            tabs: [
+              { id: "stored-one", name: "Stored one", settings: {} },
+              { id: "stored-two", name: "Stored two", settings: {} },
+            ],
+          },
+        },
+      }),
+    }));
+
+    expect(result.current.plannerTabConfirmation).toEqual({
+      kind: "select",
+      tableId: "daily.today",
+      targetTabId: "stored-one",
+    });
   });
 
   it("discards every dirty table on the departing Planner screen", () => {
