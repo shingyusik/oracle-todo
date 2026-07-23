@@ -1077,10 +1077,6 @@ button {
   padding: 4px 0;
 }
 
-.planner-table-tabs[data-overlay-open="true"] {
-  overflow: visible;
-}
-
 .planner-table-tab-item,
 .planner-table-tab-add {
   position: relative;
@@ -1124,11 +1120,15 @@ button {
   color: var(--color-shade-60);
 }
 
-.planner-table-tabs .planner-table-tab-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
+.planner-table-tab-overlay {
+  position: fixed;
   z-index: 30;
+  display: grid;
+  gap: 4px;
+  width: min(220px, calc(100vw - 16px));
+}
+
+.planner-table-tab-overlay .planner-table-tab-menu {
   display: grid;
   min-width: 190px;
   border: 1px solid var(--color-shade-30);
@@ -1138,7 +1138,7 @@ button {
   box-shadow: 0 10px 24px rgb(0 0 0 / 12%);
 }
 
-.planner-table-tabs .planner-table-tab-menu > button {
+.planner-table-tab-overlay .planner-table-tab-menu > button {
   border: 0;
   border-radius: var(--radius-xs);
   background: transparent;
@@ -1147,17 +1147,13 @@ button {
   text-align: left;
 }
 
-.planner-table-tabs .planner-table-tab-menu > button:hover:not(:disabled),
-.planner-table-tabs .planner-table-tab-menu > button:focus-visible {
+.planner-table-tab-overlay .planner-table-tab-menu > button:hover:not(:disabled),
+.planner-table-tab-overlay .planner-table-tab-menu > button:focus-visible {
   background: var(--color-canvas-cream);
 }
 
-.planner-table-tabs .planner-table-tab-name-editor {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 31;
-  width: 220px;
+.planner-table-tab-overlay .planner-table-tab-name-editor {
+  width: 100%;
   border: 1px solid var(--color-shade-30);
   border-radius: var(--radius-xs);
   background: var(--color-canvas-light);
@@ -1165,14 +1161,14 @@ button {
   box-shadow: 0 10px 24px rgb(0 0 0 / 12%);
 }
 
-.planner-table-tabs .planner-table-tab-name-editor label {
+.planner-table-tab-overlay .planner-table-tab-name-editor label {
   display: grid;
   gap: 4px;
   color: var(--color-shade-70);
   font-size: 12px;
 }
 
-.planner-table-tabs .planner-table-tab-name-editor input {
+.planner-table-tab-overlay .planner-table-tab-name-editor input {
   width: 100%;
   min-height: 32px;
   border: 1px solid var(--color-hairline-light);
@@ -1180,13 +1176,13 @@ button {
   padding: 6px 8px;
 }
 
-.planner-table-tabs .planner-table-tab-name-error {
+.planner-table-tab-overlay .planner-table-tab-name-error {
   margin: 6px 0 0;
   color: var(--color-red, #c9362b);
   font-size: 12px;
 }
 
-.planner-table-tabs .planner-table-tab-name-actions {
+.planner-table-tab-overlay .planner-table-tab-name-actions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
