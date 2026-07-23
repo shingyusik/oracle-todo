@@ -11,6 +11,7 @@ import {
   toggleTodoGroupExpansion,
   toggleWorkspaceExpansion,
 } from "@/domain/workbench/navigation";
+import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import {
   type CreateWorkspaceItemForm,
   type LegacyPlannerControls,
@@ -506,6 +507,8 @@ export function useWorkbenchController(): WorkbenchController {
   const [plannerCreationContext, setPlannerCreationContext] =
     useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
+  const [dashboardReload, setDashboardReload] = useState(0);
+  const pendingDashboardDetailId = useRef<string | null>(null);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
   const plannerSettingsChanged = useRef(false);
   const [itemTransitionStates, setItemTransitionStates] = useState<
@@ -550,6 +553,33 @@ export function useWorkbenchController(): WorkbenchController {
   }, [selection.leafTabId]);
 
   useEffect(() => {
+    if (selection.leafTabId === "dashboard") {
+      let cancelled = false;
+      setWorkspaceItems({ ...emptyWorkspaceItems, status: "loading" });
+
+      void fetchAllWorkspaceItems()
+        .then((allItems) => {
+          if (!cancelled) {
+            setWorkspaceItems({
+              status: "loaded",
+              items: [],
+              allItems,
+              tagOptions: collectTagOptions(allItems),
+              relatedItems: buildRelatedItems(allItems),
+            });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setWorkspaceItems({ ...emptyWorkspaceItems, status: "error" });
+          }
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const itemType = workspaceItemTypes[selection.leafTabId];
     const plannerTypes = plannerItemTypes[selection.leafTabId];
     const requestedTypes = itemType
@@ -585,10 +615,18 @@ export function useWorkbenchController(): WorkbenchController {
               plannerRelatedItems ?? relatedItems.flat(),
             ),
           });
+          const pendingDetailId = pendingDashboardDetailId.current;
+          if (pendingDetailId) {
+            pendingDashboardDetailId.current = null;
+            setDetailItem(
+              allItems.find((item) => item.id === pendingDetailId) ?? null,
+            );
+          }
         }
       })
       .catch(() => {
         if (!cancelled) {
+          pendingDashboardDetailId.current = null;
           setWorkspaceItems({ ...emptyWorkspaceItems, status: "error" });
         }
       });
@@ -596,7 +634,47 @@ export function useWorkbenchController(): WorkbenchController {
     return () => {
       cancelled = true;
     };
-  }, [selection.leafTabId]);
+  }, [dashboardReload, selection.leafTabId]);
+
+  const navigateDashboard = (destination: DashboardDestination): void => {
+    switch (destination.kind) {
+      case "areas":
+        pendingDashboardDetailId.current = null;
+        setSelection((current) => resolveSelection("areas", current));
+        return;
+      case "area-detail":
+        pendingDashboardDetailId.current = destination.itemId;
+        setSelection((current) => resolveSelection("areas", current));
+        return;
+      case "projects":
+        pendingDashboardDetailId.current = null;
+        setSelection((current) => resolveSelection("projects", current));
+        return;
+      case "project-detail":
+        pendingDashboardDetailId.current = destination.itemId;
+        setSelection((current) => resolveSelection("projects", current));
+        return;
+      case "daily":
+      case "daily-overdue":
+        pendingDashboardDetailId.current = null;
+        setPlanner((current) =>
+          setPlannerDateForPanel(current, "daily", destination.date),
+        );
+        setSelection((current) => resolveSelection("daily", current));
+        return;
+      case "weekly":
+        pendingDashboardDetailId.current = null;
+        setPlanner((current) =>
+          setPlannerDateForPanel(current, "weekly", destination.weekStart),
+        );
+        setSelection((current) => resolveSelection("weekly", current));
+        return;
+      default: {
+        const exhaustiveDestination: never = destination;
+        return exhaustiveDestination;
+      }
+    }
+  };
 
   return {
     selection,
@@ -617,6 +695,8 @@ export function useWorkbenchController(): WorkbenchController {
 
         return resolveSelection(tabId, currentSelection);
       }),
+    navigateDashboard,
+    reloadDashboard: () => setDashboardReload((value) => value + 1),
     toggleWorkspaceExpansion: () =>
       setSelection((currentSelection) =>
         toggleWorkspaceExpansion(currentSelection),

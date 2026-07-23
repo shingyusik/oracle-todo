@@ -4,6 +4,7 @@ import type {
   WorkbenchSelection,
   WorkbenchTabId,
 } from "@/domain/workbench/navigation";
+import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import type {
   PlannerFilterMode,
   PlannerFilterRule,
@@ -267,6 +268,8 @@ export type WorkbenchController = {
   plannerCreationAnalysis: PlannerCreationAnalysis;
   detailItem: WorkspaceItemModel | null;
   selectTab: (tabId: WorkbenchTabId) => void;
+  navigateDashboard: (destination: DashboardDestination) => void;
+  reloadDashboard: () => void;
   toggleWorkspaceExpansion: () => void;
   movePlannerPeriod: (direction: -1 | 1) => void;
   selectPlannerPeriodDate: (date: string) => void;

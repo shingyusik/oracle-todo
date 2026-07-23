@@ -44,6 +44,249 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Dashboard");
   });
 
+  it("loads all items when the initial Dashboard is selected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items"
+              ? [
+                  {
+                    id: "area",
+                    type: "area",
+                    title: "Health",
+                    status: "active",
+                  },
+                ]
+              : [],
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await waitFor(() =>
+      expect(result.current.workspaceItems.allItems).toHaveLength(1),
+    );
+    expect(fetch).toHaveBeenCalledWith("/todo-engine/items");
+  });
+
+  it("opens a Daily Planner date from a Dashboard destination", () => {
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() =>
+      result.current.navigateDashboard({
+        kind: "daily",
+        date: "2026-07-25",
+      }),
+    );
+
+    expect(result.current.selection.leafTabId).toBe("daily");
+    expect(result.current.planner.dailyDate).toBe("2026-07-25");
+  });
+
+  it("opens a Weekly Planner date from a Dashboard destination", () => {
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() =>
+      result.current.navigateDashboard({
+        kind: "weekly",
+        weekStart: "2026-07-20",
+      }),
+    );
+
+    expect(result.current.selection.leafTabId).toBe("weekly");
+    expect(result.current.planner.weeklyDate).toBe("2026-07-20");
+  });
+
+  it("waits for the target list refresh before opening an Area detail", async () => {
+    let deferTargetItems = false;
+    let resolveItems:
+      | ((value: { ok: boolean; json: () => Promise<unknown[]> }) => void)
+      | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/todo-engine/items" && deferTargetItems) {
+          return new Promise((resolve) => {
+            resolveItems = resolve;
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => [],
+        });
+      }),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    deferTargetItems = true;
+    act(() =>
+      result.current.navigateDashboard({
+        kind: "area-detail",
+        itemId: "area-1",
+      }),
+    );
+
+    expect(result.current.selection.leafTabId).toBe("areas");
+    expect(result.current.detailItem).toBeNull();
+    await waitFor(() => expect(resolveItems).toBeDefined());
+    await act(async () =>
+      resolveItems?.({
+        ok: true,
+        json: async () => [
+          {
+            id: "area-1",
+            type: "area",
+            title: "Health",
+            status: "active",
+          },
+        ],
+      }),
+    );
+    await waitFor(() => expect(result.current.detailItem?.id).toBe("area-1"));
+  });
+
+  it("waits for the target list refresh before opening a Project detail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items"
+              ? [
+                  {
+                    id: "project-1",
+                    type: "project",
+                    title: "Launch",
+                    status: "active",
+                  },
+                ]
+              : [],
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    act(() =>
+      result.current.navigateDashboard({
+        kind: "project-detail",
+        itemId: "project-1",
+      }),
+    );
+
+    expect(result.current.selection.leafTabId).toBe("projects");
+    await waitFor(() =>
+      expect(result.current.detailItem?.id).toBe("project-1"),
+    );
+  });
+
+  it("discards a pending Dashboard detail when the target refresh fails", async () => {
+    let requestMode: "dashboard" | "area-failure" | "projects" = "dashboard";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/todo-engine/items" && requestMode === "area-failure") {
+          return Promise.reject(new Error("unavailable"));
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items" && requestMode === "projects"
+              ? [
+                  {
+                    id: "area-1",
+                    type: "area",
+                    title: "Health",
+                    status: "active",
+                  },
+                ]
+              : [],
+        });
+      }),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    requestMode = "area-failure";
+    act(() =>
+      result.current.navigateDashboard({
+        kind: "area-detail",
+        itemId: "area-1",
+      }),
+    );
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("error"),
+    );
+
+    requestMode = "projects";
+    act(() => result.current.selectTab("projects"));
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    expect(result.current.detailItem).toBeNull();
+  });
+
+  it("routes Dashboard workspace summaries without opening an item", () => {
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.navigateDashboard({ kind: "areas" }));
+    expect(result.current.selection.leafTabId).toBe("areas");
+    expect(result.current.detailItem).toBeNull();
+
+    act(() => result.current.navigateDashboard({ kind: "projects" }));
+    expect(result.current.selection.leafTabId).toBe("projects");
+    expect(result.current.detailItem).toBeNull();
+  });
+
+  it("routes the overdue summary to Daily on today without changing any item", () => {
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() =>
+      result.current.navigateDashboard({
+        kind: "daily-overdue",
+        date: "2026-07-23",
+      }),
+    );
+
+    expect(result.current.selection.leafTabId).toBe("daily");
+    expect(result.current.planner.dailyDate).toBe("2026-07-23");
+    expect(result.current.detailItem).toBeNull();
+  });
+
+  it("repeats only the Dashboard all-items request when retrying", async () => {
+    const fetchMock = vi.fn((_url: string) =>
+      Promise.resolve({ ok: true, json: async () => [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+    const allItemCalls = () =>
+      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items");
+
+    await waitFor(() => expect(allItemCalls()).toHaveLength(1));
+    act(() => result.current.reloadDashboard());
+    await waitFor(() => expect(allItemCalls()).toHaveLength(2));
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).startsWith("/todo-engine/items?type="),
+      ),
+    ).toHaveLength(0);
+  });
+
   it("migrates each table from its tab's former shared settings", async () => {
     const savedPreferences = {
       filterMode: "or",
@@ -336,6 +579,9 @@ describe("useWorkbenchController", () => {
     );
 
     const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
     const overdueBefore = result.current.plannerTableSettings("daily.overdue");
 
     act(() => result.current.updatePlannerTableSettings("daily.today", (settings) => ({
