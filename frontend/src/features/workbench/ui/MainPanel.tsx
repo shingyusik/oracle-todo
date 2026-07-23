@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import type { LeafTabId } from "@/domain/workbench/navigation";
+import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
 import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
@@ -109,6 +110,14 @@ export function MainPanel({ controller }: MainPanelProps) {
     return (
       <main className="main-panel">
         <DetailView controller={controller} />
+      </main>
+    );
+  }
+
+  if (controller.selection.leafTabId === "dashboard") {
+    return (
+      <main className="main-panel">
+        <DashboardPanel controller={controller} />
       </main>
     );
   }

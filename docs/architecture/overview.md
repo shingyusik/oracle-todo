@@ -7,14 +7,16 @@ itself enforces the operating system: creation validation, audit events, a statu
 machine, and read-only Second_Brain boundaries. Every external surface — CLI and HTTP API
 — is a thin view over the same Rust service layer and the same `todo.sqlite` database.
 The Rust crate lives in the `todo-engine/` workspace package (binary/lib `todo-engine`/`todo_engine`);
-`frontend/` is a reserved sibling package slot for a future UI.
+`frontend/` is the Next.js workbench package. Its Dashboard derives Area,
+Project, and Planner analytics from the existing all-items API without adding
+server-side aggregation or another source of truth.
 
 ## Pipeline
 
 All input paths converge on a single service; all output paths read back through it.
 
 ```text
-Telegram / CLI / Future Dashboard / Agent
+Telegram / CLI / Dashboard / Agent
                   ↓
               TodoService
                   ↓

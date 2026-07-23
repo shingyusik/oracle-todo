@@ -15,7 +15,7 @@
 - Area and Project work calculations use only directly linked `task`, `event`, and `routine` items.
 - Planner calculations use active or paused `task` and `event` items only.
 - A Planner summary deduplicates an item with both `scheduled` and `due`; the weekly chart keeps scheduled and due as separate series.
-- A Project is Risk for overdue due date or 14+ inactive days; Attention for due within 7 days or 7+ inactive days; Risk wins.
+- A Project is Risk for overdue due date or 14+ inactive days; Attention for due within 7 days or 7+ inactive days; Risk wins. A Project without `updated_at` has no inactivity signal.
 - Every clickable chart element must be a labelled button and expose its numeric value in text; color alone cannot convey status.
 - Keep feature components free of raw hex colors; add any new color through existing CSS custom properties.
 
@@ -189,6 +189,18 @@ Commit body must explain the Korean data-boundary and deduplication rules.
 import { describe, expect, it } from "vitest";
 import { dashboardWidgets } from "@/features/dashboard/model/dashboard-widgets";
 
+const sampleDashboardSnapshot = {
+  summary: { activeAreas: 1, activeProjects: 1, activeWork: 2, attentionProjects: 0 },
+  areas: [],
+  projects: [],
+  planner: {
+    today: 1,
+    thisWeek: 1,
+    overdue: 0,
+    days: [{ date: "2026-07-21", scheduled: 1, due: 0 }],
+  },
+};
+
 it("registers the summary, Area, Project, and Planner widgets with unique IDs", () => {
   expect(dashboardWidgets.map((widget) => widget.id)).toEqual([
     "summary", "area-status", "project-progress", "planner-week",
@@ -217,6 +229,9 @@ export type DashboardPoint = {
   id: string;
   label: string;
   value: number;
+  displayValue?: string;
+  ariaLabel?: string;
+  sizePercent?: number;
   destination: DashboardDestination;
 };
 export type DashboardChartSpec = {
@@ -239,7 +254,7 @@ export type DashboardWidget = {
 };
 ```
 
-Implement exactly four registry entries. Summary routes its Area and Project statistics to list destinations. Area points route to `area-detail`, Project points route to `project-detail`, daily Planner points route to `daily`, and the three Planner buckets route to `daily`, `weekly`, and `daily-overdue` respectively.
+Implement exactly four registry entries. Summary routes its Area and Project statistics to list destinations. Area points route to `area-detail`, Project points route to `project-detail`, daily Planner points route to `daily`, and the three Planner buckets route to `daily`, `weekly`, and `daily-overdue` respectively. A widget supplies any domain-specific display value, accessible wording, and normalized visual size through `displayValue`, `ariaLabel`, and `sizePercent`; the chart renderer must never infer those values from series identifiers.
 
 - [ ] **Step 4: Run registry tests and type checking**
 
@@ -358,9 +373,10 @@ it("repeats only the Dashboard all-items request when retrying", async () => {
   const fetchMock = vi.fn(() => Promise.resolve({ ok: true, json: async () => [] }));
   vi.stubGlobal("fetch", fetchMock);
   const { result } = renderHook(() => useWorkbenchController());
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  const allItemCalls = () => fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items");
+  await waitFor(() => expect(allItemCalls()).toHaveLength(1));
   act(() => result.current.reloadDashboard());
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(allItemCalls()).toHaveLength(2));
 });
 ```
 
@@ -388,6 +404,7 @@ Commit body must state that Dashboard consumes the existing all-items endpoint a
 **Files:**
 - Create: `frontend/src/features/dashboard/ui/DashboardChart.tsx`
 - Create: `frontend/src/features/dashboard/ui/DashboardPanel.tsx`
+- Modify: `frontend/src/features/dashboard/model/dashboard-widgets.ts` only when a generic renderer needs a presentation-ready field absent from the chart contract
 - Modify: `frontend/src/features/workbench/ui/MainPanel.tsx`
 - Modify: `frontend/src/styles/globals.css`
 - Create: `frontend/tests/presentation/dashboard-panel.spec.tsx`
@@ -428,6 +445,8 @@ Run: `npm test -- tests/presentation/dashboard-panel.spec.tsx`
 Expected: FAIL because Dashboard still renders the generic Workspace table.
 
 - [ ] **Step 3: Implement generic chart rendering without domain calculations**
+
+The renderer displays `DashboardPoint.displayValue`, `DashboardPoint.ariaLabel`, and `DashboardPoint.sizePercent` when supplied, with generic defaults only for absent optional presentation fields. It must not inspect series IDs such as `completed` or `remaining`.
 
 ```tsx
 export function DashboardChart({ chart, onNavigate }: {
