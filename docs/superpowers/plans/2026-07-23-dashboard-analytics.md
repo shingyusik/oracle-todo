@@ -229,6 +229,9 @@ export type DashboardPoint = {
   id: string;
   label: string;
   value: number;
+  displayValue?: string;
+  ariaLabel?: string;
+  sizePercent?: number;
   destination: DashboardDestination;
 };
 export type DashboardChartSpec = {
@@ -251,7 +254,7 @@ export type DashboardWidget = {
 };
 ```
 
-Implement exactly four registry entries. Summary routes its Area and Project statistics to list destinations. Area points route to `area-detail`, Project points route to `project-detail`, daily Planner points route to `daily`, and the three Planner buckets route to `daily`, `weekly`, and `daily-overdue` respectively.
+Implement exactly four registry entries. Summary routes its Area and Project statistics to list destinations. Area points route to `area-detail`, Project points route to `project-detail`, daily Planner points route to `daily`, and the three Planner buckets route to `daily`, `weekly`, and `daily-overdue` respectively. A widget supplies any domain-specific display value, accessible wording, and normalized visual size through `displayValue`, `ariaLabel`, and `sizePercent`; the chart renderer must never infer those values from series identifiers.
 
 - [ ] **Step 4: Run registry tests and type checking**
 
@@ -401,6 +404,7 @@ Commit body must state that Dashboard consumes the existing all-items endpoint a
 **Files:**
 - Create: `frontend/src/features/dashboard/ui/DashboardChart.tsx`
 - Create: `frontend/src/features/dashboard/ui/DashboardPanel.tsx`
+- Modify: `frontend/src/features/dashboard/model/dashboard-widgets.ts` only when a generic renderer needs a presentation-ready field absent from the chart contract
 - Modify: `frontend/src/features/workbench/ui/MainPanel.tsx`
 - Modify: `frontend/src/styles/globals.css`
 - Create: `frontend/tests/presentation/dashboard-panel.spec.tsx`
@@ -441,6 +445,8 @@ Run: `npm test -- tests/presentation/dashboard-panel.spec.tsx`
 Expected: FAIL because Dashboard still renders the generic Workspace table.
 
 - [ ] **Step 3: Implement generic chart rendering without domain calculations**
+
+The renderer displays `DashboardPoint.displayValue`, `DashboardPoint.ariaLabel`, and `DashboardPoint.sizePercent` when supplied, with generic defaults only for absent optional presentation fields. It must not inspect series IDs such as `completed` or `remaining`.
 
 ```tsx
 export function DashboardChart({ chart, onNavigate }: {
