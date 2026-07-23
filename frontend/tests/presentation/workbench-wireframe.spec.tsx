@@ -9,6 +9,7 @@ import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient
 
 beforeEach(() => {
   window.localStorage.clear();
+  vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
 });
 
 async function statusOptions(title: string): Promise<string[]> {

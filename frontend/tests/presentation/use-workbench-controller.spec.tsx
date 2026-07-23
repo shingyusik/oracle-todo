@@ -241,6 +241,73 @@ describe("useWorkbenchController", () => {
     expect(result.current.detailItem).toBeNull();
   });
 
+  it("does not open a cancelled Area detail from a later Projects refresh", async () => {
+    let requestMode: "dashboard" | "areas" | "projects" = "dashboard";
+    let resolveAreaItems:
+      | ((value: { ok: boolean; json: () => Promise<unknown[]> }) => void)
+      | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/todo-engine/items" && requestMode === "areas") {
+          return new Promise((resolve) => {
+            resolveAreaItems = resolve;
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items" && requestMode === "projects"
+              ? [
+                  {
+                    id: "area-1",
+                    type: "area",
+                    title: "Health",
+                    status: "active",
+                  },
+                ]
+              : [],
+        });
+      }),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    requestMode = "areas";
+    act(() =>
+      result.current.navigateDashboard({
+        kind: "area-detail",
+        itemId: "area-1",
+      }),
+    );
+    await waitFor(() => expect(resolveAreaItems).toBeDefined());
+
+    requestMode = "projects";
+    act(() => result.current.selectTab("projects"));
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    expect(result.current.detailItem).toBeNull();
+    await act(async () =>
+      resolveAreaItems?.({
+        ok: true,
+        json: async () => [
+          {
+            id: "area-1",
+            type: "area",
+            title: "Health",
+            status: "active",
+          },
+        ],
+      }),
+    );
+    expect(result.current.detailItem).toBeNull();
+  });
+
   it("routes Dashboard workspace summaries without opening an item", () => {
     const { result } = renderHook(() => useWorkbenchController());
 
@@ -254,6 +321,10 @@ describe("useWorkbenchController", () => {
   });
 
   it("routes the overdue summary to Daily on today without changing any item", () => {
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
+      new Promise(() => {}),
+    );
+    vi.stubGlobal("fetch", fetchMock);
     const { result } = renderHook(() => useWorkbenchController());
 
     act(() =>
@@ -266,6 +337,13 @@ describe("useWorkbenchController", () => {
     expect(result.current.selection.leafTabId).toBe("daily");
     expect(result.current.planner.dailyDate).toBe("2026-07-23");
     expect(result.current.detailItem).toBeNull();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) =>
+        ["POST", "PUT", "PATCH", "DELETE"].includes(
+          (init as RequestInit | undefined)?.method ?? "",
+        ),
+      ),
+    ).toHaveLength(0);
   });
 
   it("repeats only the Dashboard all-items request when retrying", async () => {

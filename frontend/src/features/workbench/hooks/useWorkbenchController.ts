@@ -48,6 +48,12 @@ import {
 } from "@/features/workbench/model/planner-model";
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
+type DashboardDetailLeafTabId = "areas" | "projects";
+type PendingDashboardDetail = {
+  itemId: string;
+  targetLeafTabId: DashboardDetailLeafTabId;
+  requestId: number | null;
+};
 
 export class TodoEngineApiError extends Error {
   constructor(
@@ -508,7 +514,8 @@ export function useWorkbenchController(): WorkbenchController {
     useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const [dashboardReload, setDashboardReload] = useState(0);
-  const pendingDashboardDetailId = useRef<string | null>(null);
+  const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
+  const workspaceRequestId = useRef(0);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
   const plannerSettingsChanged = useRef(false);
   const [itemTransitionStates, setItemTransitionStates] = useState<
@@ -592,6 +599,18 @@ export function useWorkbenchController(): WorkbenchController {
     }
 
     let cancelled = false;
+    const requestId = workspaceRequestId.current + 1;
+    workspaceRequestId.current = requestId;
+    const pendingDetail =
+      pendingDashboardDetail.current?.targetLeafTabId === selection.leafTabId
+        ? {
+            ...pendingDashboardDetail.current,
+            requestId,
+          }
+        : null;
+    if (pendingDetail) {
+      pendingDashboardDetail.current = pendingDetail;
+    }
     setWorkspaceItems({ ...emptyWorkspaceItems, status: "loading" });
 
     Promise.all([...requestedTypes.map(fetchWorkspaceItems), fetchAllWorkspaceItems()])
@@ -615,55 +634,70 @@ export function useWorkbenchController(): WorkbenchController {
               plannerRelatedItems ?? relatedItems.flat(),
             ),
           });
-          const pendingDetailId = pendingDashboardDetailId.current;
-          if (pendingDetailId) {
-            pendingDashboardDetailId.current = null;
+          if (
+            pendingDetail &&
+            pendingDashboardDetail.current?.requestId === requestId
+          ) {
+            pendingDashboardDetail.current = null;
             setDetailItem(
-              allItems.find((item) => item.id === pendingDetailId) ?? null,
+              allItems.find((item) => item.id === pendingDetail.itemId) ?? null,
             );
           }
         }
       })
       .catch(() => {
         if (!cancelled) {
-          pendingDashboardDetailId.current = null;
+          if (pendingDashboardDetail.current?.requestId === requestId) {
+            pendingDashboardDetail.current = null;
+          }
           setWorkspaceItems({ ...emptyWorkspaceItems, status: "error" });
         }
       });
 
     return () => {
       cancelled = true;
+      if (pendingDashboardDetail.current?.requestId === requestId) {
+        pendingDashboardDetail.current = null;
+      }
     };
   }, [dashboardReload, selection.leafTabId]);
 
   const navigateDashboard = (destination: DashboardDestination): void => {
     switch (destination.kind) {
       case "areas":
-        pendingDashboardDetailId.current = null;
+        pendingDashboardDetail.current = null;
         setSelection((current) => resolveSelection("areas", current));
         return;
       case "area-detail":
-        pendingDashboardDetailId.current = destination.itemId;
+        pendingDashboardDetail.current = {
+          itemId: destination.itemId,
+          targetLeafTabId: "areas",
+          requestId: null,
+        };
         setSelection((current) => resolveSelection("areas", current));
         return;
       case "projects":
-        pendingDashboardDetailId.current = null;
+        pendingDashboardDetail.current = null;
         setSelection((current) => resolveSelection("projects", current));
         return;
       case "project-detail":
-        pendingDashboardDetailId.current = destination.itemId;
+        pendingDashboardDetail.current = {
+          itemId: destination.itemId,
+          targetLeafTabId: "projects",
+          requestId: null,
+        };
         setSelection((current) => resolveSelection("projects", current));
         return;
       case "daily":
       case "daily-overdue":
-        pendingDashboardDetailId.current = null;
+        pendingDashboardDetail.current = null;
         setPlanner((current) =>
           setPlannerDateForPanel(current, "daily", destination.date),
         );
         setSelection((current) => resolveSelection("daily", current));
         return;
       case "weekly":
-        pendingDashboardDetailId.current = null;
+        pendingDashboardDetail.current = null;
         setPlanner((current) =>
           setPlannerDateForPanel(current, "weekly", destination.weekStart),
         );
@@ -689,11 +723,19 @@ export function useWorkbenchController(): WorkbenchController {
     detailItem,
     selectTab: (tabId: WorkbenchTabId) =>
       setSelection((currentSelection) => {
-        if (tabId === "workspace" || tabId === "planner") {
-          return toggleTodoGroupExpansion(currentSelection, tabId);
+        const nextSelection =
+          tabId === "workspace" || tabId === "planner"
+            ? toggleTodoGroupExpansion(currentSelection, tabId)
+            : resolveSelection(tabId, currentSelection);
+        if (
+          pendingDashboardDetail.current &&
+          pendingDashboardDetail.current.targetLeafTabId !==
+            nextSelection.leafTabId
+        ) {
+          pendingDashboardDetail.current = null;
         }
 
-        return resolveSelection(tabId, currentSelection);
+        return nextSelection;
       }),
     navigateDashboard,
     reloadDashboard: () => setDashboardReload((value) => value + 1),
