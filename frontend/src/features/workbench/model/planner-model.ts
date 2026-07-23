@@ -218,6 +218,24 @@ export function defaultPlannerTableSettings(
   };
 }
 
+export function clonePlannerTableSettings(
+  settings: PlannerTableSettings,
+): PlannerTableSettings {
+  return {
+    filterMode: settings.filterMode,
+    filterRules: settings.filterRules.map((rule) => ({
+      ...rule,
+      value: clonePlannerFilterValue(rule.value),
+    })),
+    sortRules: settings.sortRules.map((rule) => ({ ...rule })),
+    groupSettings: {
+      ...settings.groupSettings,
+      manualOrder: [...settings.groupSettings.manualOrder],
+      hiddenGroupKeys: [...settings.groupSettings.hiddenGroupKeys],
+    },
+  };
+}
+
 export function normalizePlannerTableSettings(
   tableId: PlannerTableId,
   candidate: unknown,
