@@ -20,6 +20,7 @@ import {
   type PlannerCreationAnchor,
   type PlannerCreationContext,
   type PlannerControls,
+  type PlannerTabConfirmation,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
@@ -40,12 +41,22 @@ import {
   addYears,
   isoWeekStart,
   monthStart,
-  normalizePlannerTableSettings,
   plannerTableIds,
   type PlannerTableId,
-  type PlannerTableSettings,
   yearStart,
 } from "@/features/workbench/model/planner-model";
+import {
+  buildPlannerTabsState,
+  createPlannerTab,
+  deletePlannerTab,
+  plannerTabIsDirty,
+  renamePlannerTab,
+  savePlannerTabDraft,
+  selectPlannerTab,
+  updatePlannerTabDraft,
+  type PlannerTableTabsState,
+  type StoredPlannerTableTabs,
+} from "@/features/workbench/model/planner-tabs";
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 type DashboardDetailLeafTabId = "areas" | "projects";
@@ -110,9 +121,10 @@ function defaultPlannerGroupSettingsByView(): Record<
   ) as Record<PlannerViewId, PlannerGroupSettings>;
 }
 
-type StoredPlannerSettings = Pick<PlannerControls, "tableSettings">;
+type StoredPlannerSettings = Pick<PlannerControls, "tableTabs">;
 
 let plannerSettingsWrite = Promise.resolve();
+let plannerTabIdCounter = 0;
 
 async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
   try {
@@ -122,6 +134,12 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
     if (!value || typeof value !== "object") return null;
     const candidate = value as Record<string, unknown>;
     const legacy = normalizeLegacyPlannerControls(candidate);
+    const storedTabs = Object.prototype.hasOwnProperty.call(
+      candidate,
+      "tableTabs",
+    )
+      ? candidate.tableTabs
+      : undefined;
     const storedTableSettings = Object.prototype.hasOwnProperty.call(
       candidate,
       "tableSettings",
@@ -129,7 +147,7 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
       ? candidate.tableSettings
       : undefined;
     return {
-      tableSettings: buildPlannerTableSettingsMap(storedTableSettings, legacy),
+      tableTabs: buildPlannerTabsState(storedTabs, storedTableSettings, legacy),
     };
   } catch {
     return null;
@@ -137,9 +155,15 @@ async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
 }
 
 function persistPlannerSettings(planner: PlannerControls): void {
+  const storedTableTabs = Object.fromEntries(
+    plannerTableIds.map((tableId) => [
+      tableId,
+      { tabs: planner.tableTabs[tableId].tabs },
+    ]),
+  ) as Record<PlannerTableId, StoredPlannerTableTabs>;
   const body = JSON.stringify({
     value: {
-      tableSettings: planner.tableSettings,
+      tableTabs: storedTableTabs,
     },
   });
   plannerSettingsWrite = plannerSettingsWrite
@@ -224,25 +248,6 @@ function createDefaultLegacyPlannerControls(): LegacyPlannerControls {
   };
 }
 
-function buildPlannerTableSettingsMap(
-  stored: unknown | undefined,
-  legacy: LegacyPlannerControls,
-): Record<PlannerTableId, PlannerTableSettings> {
-  const storedMap = isRecord(stored) ? stored : {};
-  return Object.fromEntries(
-    plannerTableIds.map((tableId) => {
-      if (stored !== undefined) {
-        const candidate = Object.prototype.hasOwnProperty.call(storedMap, tableId)
-          ? storedMap[tableId]
-          : null;
-        return [tableId, normalizePlannerTableSettings(tableId, candidate, legacy)];
-      }
-
-      return [tableId, normalizePlannerTableSettings(tableId, undefined, legacy)];
-    }),
-  ) as Record<PlannerTableId, PlannerTableSettings>;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -288,8 +293,30 @@ function createDefaultPlanner(): PlannerControls {
     monthlyDate,
     weeklyDate,
     dailyDate: date,
-    tableSettings: buildPlannerTableSettingsMap({}, legacy),
+    tableTabs: buildPlannerTabsState(undefined, undefined, legacy),
   };
+}
+
+function updateTableTabs(
+  planner: PlannerControls,
+  tableId: PlannerTableId,
+  updater: (state: PlannerTableTabsState) => PlannerTableTabsState,
+): PlannerControls {
+  return {
+    ...planner,
+    tableTabs: {
+      ...planner.tableTabs,
+      [tableId]: updater(planner.tableTabs[tableId]),
+    },
+  };
+}
+
+function nextPlannerTabId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  plannerTabIdCounter += 1;
+  return `planner-tab-${Date.now()}-${plannerTabIdCounter}`;
 }
 
 function plannerDateForPanel(panelId: LeafTabId, planner: PlannerControls): string {
@@ -510,6 +537,8 @@ export function useWorkbenchController(): WorkbenchController {
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
+  const [plannerTabConfirmation, setPlannerTabConfirmation] =
+    useState<PlannerTabConfirmation | null>(null);
   const [plannerCreationContext, setPlannerCreationContext] =
     useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
@@ -716,6 +745,15 @@ export function useWorkbenchController(): WorkbenchController {
     }
   };
 
+  const persistTableTabs = (
+    tableId: PlannerTableId,
+    tableTabs: PlannerTableTabsState,
+  ): void => {
+    const next = updateTableTabs(planner, tableId, () => tableTabs);
+    setPlanner(next);
+    persistChangedPlannerSettings(next);
+  };
+
   return {
     selection,
     panel,
@@ -724,6 +762,7 @@ export function useWorkbenchController(): WorkbenchController {
     selectedItemIds,
     archiveConfirmationOpen,
     creationDialogOpen,
+    plannerTabConfirmation,
     plannerCreationContext,
     plannerCreationAnalysis,
     detailItem,
@@ -874,17 +913,80 @@ export function useWorkbenchController(): WorkbenchController {
         tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
-    plannerTableSettings: (tableId) => activePlanner.tableSettings[tableId],
-    updatePlannerTableSettings: (tableId, updater) =>
+    plannerTableTabs: (tableId) => activePlanner.tableTabs[tableId],
+    plannerTableSettings: (tableId) =>
+      activePlanner.tableTabs[tableId].draftSettings,
+    plannerTableIsDirty: (tableId) =>
+      plannerTabIsDirty(activePlanner.tableTabs[tableId]),
+    updatePlannerTableSettings: (tableId, updater) => {
+      plannerSettingsChanged.current = true;
       setPlanner((current) => {
-        const nextSettings = updater(current.tableSettings[tableId]);
-        const next = {
-          ...current,
-          tableSettings: { ...current.tableSettings, [tableId]: nextSettings },
-        };
-        persistChangedPlannerSettings(next);
-        return next;
-      }),
+        const tableTabs = current.tableTabs[tableId];
+        return updateTableTabs(current, tableId, () =>
+          updatePlannerTabDraft(tableTabs, updater(tableTabs.draftSettings)),
+        );
+      });
+    },
+    selectPlannerTableTab: (tableId, tabId) =>
+      setPlanner((current) =>
+        updateTableTabs(current, tableId, (tableTabs) =>
+          selectPlannerTab(tableTabs, tabId),
+        ),
+      ),
+    savePlannerTableTab: (tableId) =>
+      persistTableTabs(
+        tableId,
+        savePlannerTabDraft(planner.tableTabs[tableId]),
+      ),
+    createPlannerTableTab: (tableId, name) => {
+      if (name.trim().length === 0) return false;
+      const nextTableTabs = createPlannerTab(
+        planner.tableTabs[tableId],
+        nextPlannerTabId(),
+        name,
+      );
+      if (!nextTableTabs) return false;
+      persistTableTabs(tableId, nextTableTabs);
+      return true;
+    },
+    renamePlannerTableTab: (tableId, tabId, name) => {
+      if (name.trim().length === 0) return false;
+      const nextTableTabs = renamePlannerTab(
+        planner.tableTabs[tableId],
+        tabId,
+        name,
+      );
+      if (!nextTableTabs) return false;
+      persistTableTabs(tableId, nextTableTabs);
+      return true;
+    },
+    requestDeletePlannerTableTab: (tableId, tabId) => {
+      const tableTabs = planner.tableTabs[tableId];
+      if (
+        tableTabs.tabs.length <= 1 ||
+        !tableTabs.tabs.some((tab) => tab.id === tabId)
+      ) {
+        return;
+      }
+      setPlannerTabConfirmation({
+        kind: "delete",
+        tableId,
+        targetTabId: tabId,
+      });
+    },
+    confirmPlannerTabAction: () => {
+      if (plannerTabConfirmation?.kind === "delete") {
+        const nextTableTabs = deletePlannerTab(
+          planner.tableTabs[plannerTabConfirmation.tableId],
+          plannerTabConfirmation.targetTabId,
+        );
+        if (nextTableTabs) {
+          persistTableTabs(plannerTabConfirmation.tableId, nextTableTabs);
+        }
+      }
+      setPlannerTabConfirmation(null);
+    },
+    cancelPlannerTabAction: () => setPlannerTabConfirmation(null),
     transitionWorkspaceItem: (
       itemId: string,
       action: WorkspaceItemTransitionAction,

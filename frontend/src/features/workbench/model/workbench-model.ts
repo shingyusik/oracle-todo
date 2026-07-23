@@ -16,6 +16,10 @@ import type {
   PlannerGroupSettings,
   PlannerViewId,
 } from "@/features/workbench/model/planner-group-settings";
+import type {
+  PlannerTableTabsState,
+  PlannerTabsState,
+} from "@/features/workbench/model/planner-tabs";
 
 export type WorkbenchPanelModel = {
   id: LeafTabId;
@@ -85,8 +89,13 @@ export type PlannerControls = {
   monthlyDate: string;
   weeklyDate: string;
   dailyDate: string;
-  tableSettings: Record<PlannerTableId, PlannerTableSettings>;
+  tableTabs: PlannerTabsState;
 };
+
+export type PlannerTabConfirmation =
+  | { kind: "select"; tableId: PlannerTableId; targetTabId: string }
+  | { kind: "delete"; tableId: PlannerTableId; targetTabId: string }
+  | { kind: "navigate"; targetSelection: WorkbenchSelection };
 
 export type CreateWorkspaceItemForm = {
   title: string;
@@ -264,6 +273,7 @@ export type WorkbenchController = {
   selectedItemIds: string[];
   archiveConfirmationOpen: boolean;
   creationDialogOpen: boolean;
+  plannerTabConfirmation: PlannerTabConfirmation | null;
   plannerCreationContext: PlannerCreationContext | null;
   plannerCreationAnalysis: PlannerCreationAnalysis;
   detailItem: WorkspaceItemModel | null;
@@ -285,11 +295,27 @@ export type WorkbenchController = {
   createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
   openDetailView: (item: WorkspaceItemModel) => void;
   patchWorkspaceItem: (itemId: string, patch: WorkspaceItemPatch) => Promise<void>;
+  plannerTableTabs: (tableId: PlannerTableId) => PlannerTableTabsState;
   plannerTableSettings: (tableId: PlannerTableId) => PlannerTableSettings;
+  plannerTableIsDirty: (tableId: PlannerTableId) => boolean;
   updatePlannerTableSettings: (
     tableId: PlannerTableId,
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
   ) => void;
+  selectPlannerTableTab: (tableId: PlannerTableId, tabId: string) => void;
+  savePlannerTableTab: (tableId: PlannerTableId) => void;
+  createPlannerTableTab: (tableId: PlannerTableId, name: string) => boolean;
+  renamePlannerTableTab: (
+    tableId: PlannerTableId,
+    tabId: string,
+    name: string,
+  ) => boolean;
+  requestDeletePlannerTableTab: (
+    tableId: PlannerTableId,
+    tabId: string,
+  ) => void;
+  confirmPlannerTabAction: () => void;
+  cancelPlannerTabAction: () => void;
   transitionWorkspaceItem: (
     itemId: string,
     action: WorkspaceItemTransitionAction,
