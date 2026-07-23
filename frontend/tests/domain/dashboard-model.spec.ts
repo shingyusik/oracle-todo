@@ -29,7 +29,7 @@ describe("dashboard model", () => {
       { id: "task", type: "task", title: "Ship", status: "active", scheduled: today, due: today },
     ], today);
 
-    expect(snapshot.planner).toMatchObject({ today: 1, thisWeek: 1, overdue: 0 });
+    expect(snapshot.planner).toMatchObject({ todayDate: today, today: 1, thisWeek: 1, overdue: 0 });
     expect(snapshot.planner.days.find((day) => day.date === today)).toMatchObject({ scheduled: 1, due: 1 });
   });
 

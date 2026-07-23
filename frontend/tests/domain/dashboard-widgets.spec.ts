@@ -7,6 +7,7 @@ const sampleDashboardSnapshot = {
   areas: [],
   projects: [],
   planner: {
+    todayDate: "2026-07-23",
     today: 1,
     thisWeek: 1,
     overdue: 0,
@@ -31,5 +32,22 @@ describe("dashboard widget registry", () => {
       kind: "daily",
       date: "2026-07-21",
     });
+  });
+
+  it("keeps Today and Overdue navigation on the selected dashboard date", () => {
+    const widget = dashboardWidgets.find(({ id }) => id === "planner-week");
+    const model = widget?.build(sampleDashboardSnapshot);
+
+    expect(model?.destination).toEqual({ kind: "weekly", weekStart: "2026-07-21" });
+    expect(model?.stats).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: "Today",
+        destination: { kind: "daily", date: "2026-07-23" },
+      }),
+      expect.objectContaining({
+        label: "Overdue",
+        destination: { kind: "daily-overdue", date: "2026-07-23" },
+      }),
+    ]));
   });
 });

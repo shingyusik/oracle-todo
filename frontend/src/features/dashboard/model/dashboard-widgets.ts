@@ -115,7 +115,7 @@ export const dashboardWidgets: DashboardWidget[] = [
         {
           label: "Today",
           value: snapshot.planner.today,
-          destination: { kind: "daily", date: weekStart(snapshot) },
+          destination: { kind: "daily", date: snapshot.planner.todayDate },
         },
         {
           label: "This Week",
@@ -125,7 +125,7 @@ export const dashboardWidgets: DashboardWidget[] = [
         {
           label: "Overdue",
           value: snapshot.planner.overdue,
-          destination: { kind: "daily-overdue", date: weekStart(snapshot) },
+          destination: { kind: "daily-overdue", date: snapshot.planner.todayDate },
         },
       ],
     }),

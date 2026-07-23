@@ -9,6 +9,7 @@ export type PlannerDay = {
 };
 
 export type PlannerSummary = {
+  todayDate: string;
   today: number;
   thisWeek: number;
   overdue: number;
@@ -129,6 +130,7 @@ function buildPlannerStats(
   const byDate = (date: string | null | undefined) => dateOnly(date);
 
   return {
+    todayDate: today,
     today: countUnique(plannerWork, (item) => byDate(item.scheduled) === today || byDate(item.due) === today),
     thisWeek: countUnique(plannerWork, (item) => {
       const scheduled = byDate(item.scheduled);
