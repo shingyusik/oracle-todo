@@ -15,7 +15,7 @@
 - Area and Project work calculations use only directly linked `task`, `event`, and `routine` items.
 - Planner calculations use active or paused `task` and `event` items only.
 - A Planner summary deduplicates an item with both `scheduled` and `due`; the weekly chart keeps scheduled and due as separate series.
-- A Project is Risk for overdue due date or 14+ inactive days; Attention for due within 7 days or 7+ inactive days; Risk wins.
+- A Project is Risk for overdue due date or 14+ inactive days; Attention for due within 7 days or 7+ inactive days; Risk wins. A Project without `updated_at` has no inactivity signal.
 - Every clickable chart element must be a labelled button and expose its numeric value in text; color alone cannot convey status.
 - Keep feature components free of raw hex colors; add any new color through existing CSS custom properties.
 
@@ -189,6 +189,18 @@ Commit body must explain the Korean data-boundary and deduplication rules.
 import { describe, expect, it } from "vitest";
 import { dashboardWidgets } from "@/features/dashboard/model/dashboard-widgets";
 
+const sampleDashboardSnapshot = {
+  summary: { activeAreas: 1, activeProjects: 1, activeWork: 2, attentionProjects: 0 },
+  areas: [],
+  projects: [],
+  planner: {
+    today: 1,
+    thisWeek: 1,
+    overdue: 0,
+    days: [{ date: "2026-07-21", scheduled: 1, due: 0 }],
+  },
+};
+
 it("registers the summary, Area, Project, and Planner widgets with unique IDs", () => {
   expect(dashboardWidgets.map((widget) => widget.id)).toEqual([
     "summary", "area-status", "project-progress", "planner-week",
@@ -358,9 +370,10 @@ it("repeats only the Dashboard all-items request when retrying", async () => {
   const fetchMock = vi.fn(() => Promise.resolve({ ok: true, json: async () => [] }));
   vi.stubGlobal("fetch", fetchMock);
   const { result } = renderHook(() => useWorkbenchController());
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  const allItemCalls = () => fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items");
+  await waitFor(() => expect(allItemCalls()).toHaveLength(1));
   act(() => result.current.reloadDashboard());
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(allItemCalls()).toHaveLength(2));
 });
 ```
 

@@ -52,7 +52,8 @@ An active Project is:
 | Normal | Neither Risk nor Attention applies |
 
 Risk wins when more than one rule applies. Paused and completed Projects do
-not contribute to the attention summary.
+not contribute to the attention summary. A Project without `updated_at` has no
+inactivity signal; its attention state can still be raised by its due date.
 
 ### Planner rules
 
