@@ -2396,9 +2396,18 @@ button {
     background-color 140ms ease;
 }
 
-.dashboard-stat:hover {
+.dashboard-stat:not(.dashboard-stat-composite):hover {
   border-color: var(--color-accent-strong);
   background: var(--color-accent-soft);
+}
+
+.dashboard-stat-composite {
+  gap: 12px;
+}
+
+.dashboard-stat-primary {
+  display: grid;
+  gap: 4px;
 }
 
 .dashboard-stat-value {
@@ -2411,6 +2420,47 @@ button {
   overflow: hidden;
   color: var(--color-text-muted);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-stat-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: auto;
+}
+
+.dashboard-stat-action {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 6px 4px;
+  color: var(--color-ink);
+  text-align: center;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.dashboard-stat-action:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.dashboard-stat-action-value {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.dashboard-stat-action-label {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2505,6 +2555,7 @@ button {
 .dashboard-chart-point:focus-visible,
 .dashboard-chart-zero:focus-visible,
 .dashboard-stat:focus-visible,
+.dashboard-stat-action:focus-visible,
 .dashboard-widget-header h2 button:focus-visible,
 .dashboard-error button:focus-visible {
   outline: 3px solid var(--color-ink);
@@ -2664,7 +2715,8 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   .dashboard-chart-point,
-  .dashboard-stat {
+  .dashboard-stat,
+  .dashboard-stat-action {
     transition: none;
   }
 }

@@ -26,6 +26,22 @@ export type DashboardChartSpec = {
   }>;
 };
 
+export type DashboardLinkedStat = {
+  kind: "linked";
+  label: string;
+  value: number;
+  destination: DashboardDestination;
+};
+
+export type DashboardCompositeStat = {
+  kind: "composite";
+  label: string;
+  value: number;
+  items: DashboardLinkedStat[];
+};
+
+export type DashboardStatModel = DashboardLinkedStat | DashboardCompositeStat;
+
 export type DashboardWidgetModel = {
   id: string;
   title: string;
@@ -33,7 +49,7 @@ export type DashboardWidgetModel = {
   emptyMessage: string;
   destination?: DashboardDestination;
   chart?: DashboardChartSpec;
-  stats?: Array<{ label: string; value: number; destination: DashboardDestination }>;
+  stats?: DashboardStatModel[];
 };
 
 export type DashboardWidget = {
@@ -50,24 +66,48 @@ export const dashboardWidgets: DashboardWidget[] = [
       description: "Active Areas, Projects, and work requiring attention.",
       emptyMessage: "Create an Area, Project, or work item to populate analytics.",
       stats: [
-        { label: "Active Areas", value: snapshot.summary.activeAreas, destination: { kind: "areas" } },
-        { label: "Active Projects", value: snapshot.summary.activeProjects, destination: { kind: "projects" } },
         {
-          label: "Active Tasks",
-          value: snapshot.summary.activeTasks,
-          destination: { kind: "tasks" },
+          kind: "linked",
+          label: "Active Areas",
+          value: snapshot.summary.activeAreas,
+          destination: { kind: "areas" },
         },
         {
-          label: "Active Events",
-          value: snapshot.summary.activeEvents,
-          destination: { kind: "events" },
+          kind: "linked",
+          label: "Active Projects",
+          value: snapshot.summary.activeProjects,
+          destination: { kind: "projects" },
         },
         {
-          label: "Active Routines",
-          value: snapshot.summary.activeRoutines,
-          destination: { kind: "routines" },
+          kind: "composite",
+          label: "Active Work",
+          value:
+            snapshot.summary.activeTasks
+            + snapshot.summary.activeEvents
+            + snapshot.summary.activeRoutines,
+          items: [
+            {
+              kind: "linked",
+              label: "Tasks",
+              value: snapshot.summary.activeTasks,
+              destination: { kind: "tasks" },
+            },
+            {
+              kind: "linked",
+              label: "Events",
+              value: snapshot.summary.activeEvents,
+              destination: { kind: "events" },
+            },
+            {
+              kind: "linked",
+              label: "Routines",
+              value: snapshot.summary.activeRoutines,
+              destination: { kind: "routines" },
+            },
+          ],
         },
         {
+          kind: "linked",
           label: "Attention Projects",
           value: snapshot.summary.attentionProjects,
           destination: { kind: "projects" },
@@ -130,16 +170,19 @@ export const dashboardWidgets: DashboardWidget[] = [
       },
       stats: [
         {
+          kind: "linked",
           label: "Today",
           value: snapshot.planner.today,
           destination: { kind: "daily", date: snapshot.planner.todayDate },
         },
         {
+          kind: "linked",
           label: "This Week",
           value: snapshot.planner.thisWeek,
           destination: { kind: "weekly", weekStart: weekStart(snapshot) },
         },
         {
+          kind: "linked",
           label: "Overdue",
           value: snapshot.planner.overdue,
           destination: { kind: "daily-overdue", date: snapshot.planner.todayDate },

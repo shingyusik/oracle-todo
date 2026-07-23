@@ -241,6 +241,50 @@ describe("DashboardPanel", () => {
     expect(screen.getByRole("button", { name: "Today: 1" })).toBeInTheDocument();
   });
 
+  it("renders four summary cards and routes each Active Work action directly", async () => {
+    const user = userEvent.setup();
+    const navigateDashboard = vi.fn();
+    const controller = {
+      workspaceItems: {
+        status: "loaded",
+        items: [],
+        allItems: [
+          ...populatedItems(),
+          {
+            id: "routine-review",
+            type: "routine",
+            title: "Weekly review",
+            status: "active",
+          },
+        ],
+        tagOptions: [],
+        relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
+      },
+      reloadDashboard: vi.fn(),
+      navigateDashboard,
+    } as unknown as WorkbenchController;
+
+    render(<DashboardPanel controller={controller} />);
+
+    const summary = screen.getByRole("region", { name: "Workspace summary" });
+    expect(
+      summary.querySelectorAll(".dashboard-stat-grid > .dashboard-stat"),
+    ).toHaveLength(4);
+
+    const activeWork = within(summary).getByRole("group", {
+      name: "Active Work: 4 total",
+    });
+    await user.click(within(activeWork).getByRole("button", { name: "Tasks: 2" }));
+    await user.click(within(activeWork).getByRole("button", { name: "Events: 1" }));
+    await user.click(within(activeWork).getByRole("button", { name: "Routines: 1" }));
+
+    expect(navigateDashboard.mock.calls).toEqual([
+      [{ kind: "tasks" }],
+      [{ kind: "events" }],
+      [{ kind: "routines" }],
+    ]);
+  });
+
   it("shows Project risk in text and applies the warning tone", async () => {
     mockLoadedDashboard([
       {

@@ -38,7 +38,7 @@ describe("dashboard widget registry", () => {
     expect(new Set(dashboardWidgets.map((widget) => widget.id)).size).toBe(dashboardWidgets.length);
   });
 
-  it("routes separate active Task, Event, and Routine summaries to their Workspace lists", () => {
+  it("combines active work into one summary card with direct Workspace links", () => {
     const widget = dashboardWidgets.find(({ id }) => id === "summary");
     const model = widget?.build({
       ...sampleDashboardSnapshot,
@@ -50,14 +50,37 @@ describe("dashboard widget registry", () => {
       },
     });
 
-    expect(model?.stats).toEqual(expect.arrayContaining([
-      { label: "Active Tasks", value: 3, destination: { kind: "tasks" } },
-      { label: "Active Events", value: 2, destination: { kind: "events" } },
-      { label: "Active Routines", value: 1, destination: { kind: "routines" } },
-    ]));
-    expect(model?.stats).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Active Work" }),
-    ]));
+    expect(model?.stats).toHaveLength(4);
+    expect(model?.stats).toEqual([
+      {
+        kind: "linked",
+        label: "Active Areas",
+        value: 1,
+        destination: { kind: "areas" },
+      },
+      {
+        kind: "linked",
+        label: "Active Projects",
+        value: 1,
+        destination: { kind: "projects" },
+      },
+      {
+        kind: "composite",
+        label: "Active Work",
+        value: 6,
+        items: [
+          { kind: "linked", label: "Tasks", value: 3, destination: { kind: "tasks" } },
+          { kind: "linked", label: "Events", value: 2, destination: { kind: "events" } },
+          { kind: "linked", label: "Routines", value: 1, destination: { kind: "routines" } },
+        ],
+      },
+      {
+        kind: "linked",
+        label: "Attention Projects",
+        value: 0,
+        destination: { kind: "projects" },
+      },
+    ]);
   });
 
   it("emits an accessible chart specification and typed destination for every data point", () => {

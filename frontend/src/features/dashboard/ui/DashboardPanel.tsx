@@ -7,6 +7,8 @@ import {
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import {
   dashboardWidgets,
+  type DashboardLinkedStat,
+  type DashboardStatModel,
   type DashboardWidgetModel,
 } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
@@ -128,16 +130,11 @@ function DashboardWidget({ model, onNavigate }: DashboardWidgetProps) {
       {model.stats ? (
         <div className="dashboard-stat-grid">
           {model.stats.map((stat) => (
-            <button
-              type="button"
-              className="dashboard-stat"
-              aria-label={`${stat.label}: ${stat.value}`}
-              onClick={() => onNavigate(stat.destination)}
+            <DashboardStat
               key={stat.label}
-            >
-              <span className="dashboard-stat-value">{stat.value}</span>
-              <span className="dashboard-stat-label">{stat.label}</span>
-            </button>
+              stat={stat}
+              onNavigate={onNavigate}
+            />
           ))}
         </div>
       ) : null}
@@ -148,5 +145,64 @@ function DashboardWidget({ model, onNavigate }: DashboardWidgetProps) {
         <p className="dashboard-widget-empty">{model.emptyMessage}</p>
       ) : null}
     </section>
+  );
+}
+
+function DashboardStat({
+  stat,
+  onNavigate,
+}: {
+  stat: DashboardStatModel;
+  onNavigate: (destination: DashboardDestination) => void;
+}) {
+  if (stat.kind === "linked") {
+    return <DashboardStatLink stat={stat} onNavigate={onNavigate} />;
+  }
+
+  return (
+    <div
+      className="dashboard-stat dashboard-stat-composite"
+      role="group"
+      aria-label={`${stat.label}: ${stat.value} total`}
+    >
+      <div className="dashboard-stat-primary">
+        <span className="dashboard-stat-value">{stat.value}</span>
+        <span className="dashboard-stat-label">{stat.label}</span>
+      </div>
+      <div className="dashboard-stat-actions">
+        {stat.items.map((item) => (
+          <button
+            type="button"
+            className="dashboard-stat-action"
+            aria-label={`${item.label}: ${item.value}`}
+            onClick={() => onNavigate(item.destination)}
+            key={item.label}
+          >
+            <span className="dashboard-stat-action-value">{item.value}</span>
+            <span className="dashboard-stat-action-label">{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DashboardStatLink({
+  stat,
+  onNavigate,
+}: {
+  stat: DashboardLinkedStat;
+  onNavigate: (destination: DashboardDestination) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="dashboard-stat"
+      aria-label={`${stat.label}: ${stat.value}`}
+      onClick={() => onNavigate(stat.destination)}
+    >
+      <span className="dashboard-stat-value">{stat.value}</span>
+      <span className="dashboard-stat-label">{stat.label}</span>
+    </button>
   );
 }
