@@ -1,7 +1,7 @@
 # Planner Custom Tabs Design
 
 **Date:** 2026-07-23
-**Status:** Pending written-spec review
+**Status:** Approved for implementation planning
 
 ## Goal
 
