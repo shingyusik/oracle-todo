@@ -5,6 +5,22 @@ import { buildDashboardSnapshot } from "@/features/dashboard/model/dashboard-mod
 const today = "2026-07-23";
 
 describe("dashboard model", () => {
+  it("counts active Tasks, Events, and Routines separately", () => {
+    const snapshot = buildDashboardSnapshot([
+      { id: "task-active", type: "task", title: "Write", status: "active" },
+      { id: "task-paused", type: "task", title: "Wait", status: "paused" },
+      { id: "event-active", type: "event", title: "Meet", status: "active" },
+      { id: "routine-active", type: "routine", title: "Review", status: "active" },
+      { id: "routine-done", type: "routine", title: "Old review", status: "completed" },
+    ], today);
+
+    expect(snapshot.summary).toMatchObject({
+      activeTasks: 1,
+      activeEvents: 1,
+      activeRoutines: 1,
+    });
+  });
+
   it("counts only direct Area work by status", () => {
     const snapshot = buildDashboardSnapshot([
       { id: "area", type: "area", title: "Health", status: "active" },

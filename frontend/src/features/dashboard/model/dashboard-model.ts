@@ -20,7 +20,9 @@ export type DashboardSnapshot = {
   summary: {
     activeAreas: number;
     activeProjects: number;
-    activeWork: number;
+    activeTasks: number;
+    activeEvents: number;
+    activeRoutines: number;
     attentionProjects: number;
   };
   areas: Array<{
@@ -73,7 +75,9 @@ function buildSummary(
   return {
     activeAreas: items.filter((item) => item.type === "area" && item.status === "active").length,
     activeProjects: items.filter((item) => item.type === "project" && item.status === "active").length,
-    activeWork: work.filter((item) => item.status === "active").length,
+    activeTasks: work.filter((item) => item.type === "task" && item.status === "active").length,
+    activeEvents: work.filter((item) => item.type === "event" && item.status === "active").length,
+    activeRoutines: work.filter((item) => item.type === "routine" && item.status === "active").length,
     attentionProjects: projects.filter((project) => project.attention !== "normal").length,
   };
 }

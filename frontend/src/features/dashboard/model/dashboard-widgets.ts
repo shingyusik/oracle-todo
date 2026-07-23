@@ -53,9 +53,19 @@ export const dashboardWidgets: DashboardWidget[] = [
         { label: "Active Areas", value: snapshot.summary.activeAreas, destination: { kind: "areas" } },
         { label: "Active Projects", value: snapshot.summary.activeProjects, destination: { kind: "projects" } },
         {
-          label: "Active Work",
-          value: snapshot.summary.activeWork,
-          destination: { kind: "weekly", weekStart: weekStart(snapshot) },
+          label: "Active Tasks",
+          value: snapshot.summary.activeTasks,
+          destination: { kind: "tasks" },
+        },
+        {
+          label: "Active Events",
+          value: snapshot.summary.activeEvents,
+          destination: { kind: "events" },
+        },
+        {
+          label: "Active Routines",
+          value: snapshot.summary.activeRoutines,
+          destination: { kind: "routines" },
         },
         {
           label: "Attention Projects",

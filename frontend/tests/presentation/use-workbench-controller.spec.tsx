@@ -318,6 +318,15 @@ describe("useWorkbenchController", () => {
     act(() => result.current.navigateDashboard({ kind: "projects" }));
     expect(result.current.selection.leafTabId).toBe("projects");
     expect(result.current.detailItem).toBeNull();
+
+    act(() => result.current.navigateDashboard({ kind: "tasks" }));
+    expect(result.current.selection.leafTabId).toBe("tasks");
+
+    act(() => result.current.navigateDashboard({ kind: "events" }));
+    expect(result.current.selection.leafTabId).toBe("events");
+
+    act(() => result.current.navigateDashboard({ kind: "routines" }));
+    expect(result.current.selection.leafTabId).toBe("routines");
   });
 
   it("routes the overdue summary to Daily on today without changing any item", () => {

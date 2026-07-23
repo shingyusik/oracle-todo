@@ -680,6 +680,12 @@ export function useWorkbenchController(): WorkbenchController {
         pendingDashboardDetail.current = null;
         setSelection((current) => resolveSelection("projects", current));
         return;
+      case "tasks":
+      case "events":
+      case "routines":
+        pendingDashboardDetail.current = null;
+        setSelection((current) => resolveSelection(destination.kind, current));
+        return;
       case "project-detail":
         pendingDashboardDetail.current = {
           itemId: destination.itemId,

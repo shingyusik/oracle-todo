@@ -4,7 +4,14 @@ import type { DashboardSnapshot } from "@/features/dashboard/model/dashboard-mod
 import { dashboardWidgets } from "@/features/dashboard/model/dashboard-widgets";
 
 const sampleDashboardSnapshot: DashboardSnapshot = {
-  summary: { activeAreas: 1, activeProjects: 1, activeWork: 2, attentionProjects: 0 },
+  summary: {
+    activeAreas: 1,
+    activeProjects: 1,
+    activeTasks: 2,
+    activeEvents: 1,
+    activeRoutines: 1,
+    attentionProjects: 0,
+  },
   areas: [],
   projects: [{
     id: "project-release",
@@ -29,6 +36,28 @@ describe("dashboard widget registry", () => {
       "summary", "area-status", "project-progress", "planner-week",
     ]);
     expect(new Set(dashboardWidgets.map((widget) => widget.id)).size).toBe(dashboardWidgets.length);
+  });
+
+  it("routes separate active Task, Event, and Routine summaries to their Workspace lists", () => {
+    const widget = dashboardWidgets.find(({ id }) => id === "summary");
+    const model = widget?.build({
+      ...sampleDashboardSnapshot,
+      summary: {
+        ...sampleDashboardSnapshot.summary,
+        activeTasks: 3,
+        activeEvents: 2,
+        activeRoutines: 1,
+      },
+    });
+
+    expect(model?.stats).toEqual(expect.arrayContaining([
+      { label: "Active Tasks", value: 3, destination: { kind: "tasks" } },
+      { label: "Active Events", value: 2, destination: { kind: "events" } },
+      { label: "Active Routines", value: 1, destination: { kind: "routines" } },
+    ]));
+    expect(model?.stats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Active Work" }),
+    ]));
   });
 
   it("emits an accessible chart specification and typed destination for every data point", () => {
