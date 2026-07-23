@@ -430,7 +430,9 @@ SQLite table: `workspace_preferences`.
 
 Planner preferences are stored as the `planner.v1` JSON document in the workspace's
 `todo.sqlite`. They are workspace-wide because the local server has no user or profile
-identity. The document contains Planner filters, grouping, and sort settings.
+identity. Each stable Planner table ID owns an ordered, non-empty tab list. Every tab
+stores a name plus a filter, sort, and group settings snapshot; active tabs and unsaved
+drafts remain frontend runtime state and are not persisted.
 
 | Column | Meaning |
 | --- | --- |
