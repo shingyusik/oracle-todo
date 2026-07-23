@@ -1067,6 +1067,136 @@ button {
   margin-left: auto;
 }
 
+.planner-table-tabs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-hairline-light);
+  padding: 4px 0;
+}
+
+.planner-table-tabs[data-overlay-open="true"] {
+  overflow: visible;
+}
+
+.planner-table-tab-item,
+.planner-table-tab-add {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.planner-table-tab {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  padding: 4px 8px;
+  color: var(--color-shade-60);
+  white-space: nowrap;
+}
+
+.planner-table-tab[aria-selected="true"] {
+  background: var(--color-canvas-cream);
+  color: var(--color-ink);
+  font-weight: 700;
+}
+
+.planner-table-tab-dirty {
+  color: var(--color-blue-strong, #2383e2);
+}
+
+.planner-table-tabs .planner-table-tab-menu-trigger,
+.planner-table-tabs .planner-table-tab-add-trigger {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-shade-60);
+}
+
+.planner-table-tabs .planner-table-tab-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 190px;
+  border: 1px solid var(--color-shade-30);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 4px;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 12%);
+}
+
+.planner-table-tabs .planner-table-tab-menu > button {
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  padding: 7px 9px;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.planner-table-tabs .planner-table-tab-menu > button:hover:not(:disabled),
+.planner-table-tabs .planner-table-tab-menu > button:focus-visible {
+  background: var(--color-canvas-cream);
+}
+
+.planner-table-tabs .planner-table-tab-name-editor {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 31;
+  width: 220px;
+  border: 1px solid var(--color-shade-30);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 10px;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 12%);
+}
+
+.planner-table-tabs .planner-table-tab-name-editor label {
+  display: grid;
+  gap: 4px;
+  color: var(--color-shade-70);
+  font-size: 12px;
+}
+
+.planner-table-tabs .planner-table-tab-name-editor input {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  padding: 6px 8px;
+}
+
+.planner-table-tabs .planner-table-tab-name-error {
+  margin: 6px 0 0;
+  color: var(--color-red, #c9362b);
+  font-size: 12px;
+}
+
+.planner-table-tabs .planner-table-tab-name-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.planner-tab-confirmation-backdrop {
+  z-index: 50;
+}
+
 .daily-planner {
   display: grid;
   gap: 18px;

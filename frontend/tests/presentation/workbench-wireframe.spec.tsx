@@ -401,14 +401,247 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Planner" }));
 
     expect(screen.queryByRole("button", { name: "Filter planner view" })).toBeNull();
+    expect(screen.getByRole("tablist", { name: "Year Goals views" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Month Goals views" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Weekly" }));
     expect(screen.getByRole("group", { name: "Month Goals controls" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Week Goals controls" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Weekday grid controls" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Month Goals views" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Week Goals views" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Weekday grid views" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    expect(screen.getByRole("tablist", { name: "Month Goals views" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Calendar views" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Week Goals views" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Daily" }));
     expect(screen.getByRole("group", { name: "Today controls" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Before controls" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Unscheduled controls" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Today views" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Before views" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Unscheduled views" })).toBeInTheDocument();
+  });
+
+  it("manages named tabs below each Planner table title", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    expect(within(todayTabs).getByRole("tab", { name: "Table" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await user.click(within(todayTabs).getByRole("button", { name: "Add Today view" }));
+    const nameInput = screen.getByRole("textbox", { name: "View name" });
+    expect(nameInput).toHaveValue("새 보기");
+    expect(nameInput).toHaveFocus();
+    expect(nameInput).toHaveProperty("selectionStart", 0);
+    expect(nameInput).toHaveProperty("selectionEnd", "새 보기".length);
+    await user.keyboard("{Enter}");
+
+    expect(within(todayTabs).getByRole("tab", { name: "새 보기" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    await user.click(screen.getByRole("option", { name: "Title" }));
+    expect(within(todayTabs).getByRole("tab", {
+      name: "새 보기, 저장되지 않은 변경사항",
+    })).toHaveTextContent("•");
+
+    await user.click(within(todayTabs).getByRole("button", {
+      name: "Open 새 보기 view menu",
+    }));
+    expect(todayTabs).toHaveAttribute("data-overlay-open", "true");
+    await user.click(screen.getByRole("menuitem", { name: "Save current settings" }));
+    expect(todayTabs).toHaveAttribute("data-overlay-open", "false");
+    expect(within(todayTabs).getByRole("tab", { name: "새 보기" })).not.toHaveTextContent("•");
+  });
+
+  it("cancels add and rename popovers with Escape and restores trigger focus", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    const addTrigger = within(todayTabs).getByRole("button", { name: "Add Today view" });
+    await user.click(addTrigger);
+    await user.clear(screen.getByRole("textbox", { name: "View name" }));
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("View name is required.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "View name" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("textbox", { name: "View name" })).toBeNull();
+    expect(addTrigger).toHaveFocus();
+
+    await user.click(addTrigger);
+    await user.keyboard("{Enter}");
+    await user.click(within(todayTabs).getByRole("button", {
+      name: "Open 새 보기 view menu",
+    }));
+    const renameTrigger = screen.getByRole("menuitem", { name: "Rename" });
+    await user.click(renameTrigger);
+    expect(screen.getByRole("textbox", { name: "View name" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("textbox", { name: "View name" })).toBeNull();
+    expect(renameTrigger).toHaveFocus();
+  });
+
+  it("moves tab focus with arrows without selecting until Enter", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    await user.click(within(todayTabs).getByRole("button", { name: "Add Today view" }));
+    await user.keyboard("{Enter}");
+
+    const tableTab = within(todayTabs).getByRole("tab", { name: "Table" });
+    const newTab = within(todayTabs).getByRole("tab", { name: "새 보기" });
+    newTab.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(tableTab).toHaveFocus();
+    expect(tableTab).toHaveAttribute("aria-selected", "false");
+    expect(newTab).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{Enter}");
+    expect(tableTab).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{ArrowRight}");
+    expect(newTab).toHaveFocus();
+    expect(tableTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard(" ");
+    expect(newTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("suffixes rename collisions and scopes save and delete menu actions", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    const tableMenu = within(todayTabs).getByRole("button", {
+      name: "Open Table view menu",
+    });
+    await user.click(tableMenu);
+    expect(screen.getByRole("menuitem", { name: "Save current settings" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+
+    await user.click(within(todayTabs).getByRole("button", { name: "Add Today view" }));
+    await user.keyboard("{Enter}");
+    await user.click(tableMenu);
+    expect(screen.queryByRole("menuitem", { name: "Save current settings" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeEnabled();
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+    const renameInput = screen.getByRole("textbox", { name: "View name" });
+    await user.clear(renameInput);
+    await user.type(renameInput, "새 보기{Enter}");
+
+    expect(within(todayTabs).getByRole("tab", { name: "새 보기 2" })).toBeInTheDocument();
+  });
+
+  it("deletes tabs through confirmation and activates the right neighbor then the left", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    const addTrigger = within(todayTabs).getByRole("button", { name: "Add Today view" });
+    await user.click(addTrigger);
+    await user.keyboard("{Enter}");
+
+    await user.click(within(todayTabs).getByRole("tab", { name: "Table" }));
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    await user.click(screen.getByRole("option", { name: "Title" }));
+    await user.click(within(todayTabs).getByRole("button", {
+      name: "Open Table view menu",
+    }));
+    const deleteMenuItem = screen.getByRole("menuitem", { name: "Delete" });
+    await user.click(deleteMenuItem);
+    const firstDialog = screen.getByRole("dialog", { name: "Delete this view?" });
+    const cancelButton = within(firstDialog).getByRole("button", { name: "Cancel" });
+    const confirmDeleteButton = within(firstDialog).getByRole("button", { name: "Delete" });
+    expect(cancelButton).toHaveFocus();
+    expect(firstDialog).toHaveTextContent(
+      "Its unsaved filter, sort, and group changes will also be discarded.",
+    );
+    await user.tab({ shift: true });
+    expect(confirmDeleteButton).toHaveFocus();
+    await user.tab();
+    expect(cancelButton).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Delete this view?" })).toBeNull();
+    await waitFor(() => expect(deleteMenuItem).toHaveFocus());
+    await user.click(deleteMenuItem);
+    await user.click(within(
+      screen.getByRole("dialog", { name: "Delete this view?" }),
+    ).getByRole("button", { name: "Delete" }));
+    expect(within(todayTabs).getByRole("tab", { name: "새 보기" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await waitFor(() => expect(
+      within(todayTabs).getByRole("tab", { name: "새 보기" }),
+    ).toHaveFocus());
+
+    await user.click(addTrigger);
+    await user.clear(screen.getByRole("textbox", { name: "View name" }));
+    await user.type(screen.getByRole("textbox", { name: "View name" }), "끝{Enter}");
+    await user.click(within(todayTabs).getByRole("button", {
+      name: "Open 끝 view menu",
+    }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await user.click(within(
+      screen.getByRole("dialog", { name: "Delete this view?" }),
+    ).getByRole("button", { name: "Delete" }));
+    expect(within(todayTabs).getByRole("tab", { name: "새 보기" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await waitFor(() => expect(
+      within(todayTabs).getByRole("tab", { name: "새 보기" }),
+    ).toHaveFocus());
   });
 
   it("keeps workspace and planner sibling branches open together", async () => {
