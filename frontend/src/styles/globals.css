@@ -2482,11 +2482,28 @@ button {
     filter 140ms ease;
 }
 
-.dashboard-chart-point:hover {
+.dashboard-chart-zero {
+  display: grid;
+  min-width: 22px;
+  place-items: center;
+  align-self: end;
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  color: var(--color-text-muted);
+}
+
+.dashboard-chart-zero.tone-warning {
+  color: var(--dashboard-chart-tone);
+}
+
+.dashboard-chart-point:hover,
+.dashboard-chart-zero:hover {
   filter: brightness(0.92);
 }
 
 .dashboard-chart-point:focus-visible,
+.dashboard-chart-zero:focus-visible,
 .dashboard-stat:focus-visible,
 .dashboard-widget-header h2 button:focus-visible,
 .dashboard-error button:focus-visible {
@@ -2571,6 +2588,12 @@ button {
   min-width: 22px;
   height: max(30px, calc(var(--dashboard-point-scale) * 1px));
   border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  flex: 0 1 30px;
+}
+
+.dashboard-chart-grouped-bar .dashboard-chart-zero,
+.dashboard-widget-project-progress .dashboard-chart-zero {
+  width: min(30px, calc(50% - 3px));
   flex: 0 1 30px;
 }
 

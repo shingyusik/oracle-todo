@@ -73,6 +73,70 @@ describe("dashboard widget registry", () => {
     }));
   });
 
+  it("exposes distinct Project risk and attention states without relying on color", () => {
+    const widget = dashboardWidgets.find(({ id }) => id === "project-progress");
+    const model = widget?.build({
+      ...sampleDashboardSnapshot,
+      projects: [
+        {
+          id: "project-risk",
+          title: "Risky release",
+          completed: 1,
+          remaining: 1,
+          progress: 0.5,
+          attention: "risk",
+        },
+        {
+          id: "project-attention",
+          title: "Watch release",
+          completed: 1,
+          remaining: 1,
+          progress: 0.5,
+          attention: "attention",
+        },
+      ],
+    });
+
+    expect(model?.chart?.series[0]?.points[0]).toEqual(expect.objectContaining({
+      label: "Risky release · Risk",
+      ariaLabel: expect.stringContaining("Risk"),
+      tone: "warning",
+    }));
+    expect(model?.chart?.series[0]?.points[1]).toEqual(expect.objectContaining({
+      label: "Watch release · Attention",
+      ariaLabel: expect.stringContaining("Attention"),
+    }));
+  });
+
+  it("presents unavailable progress as a dash for a Project without linked work", () => {
+    const widget = dashboardWidgets.find(({ id }) => id === "project-progress");
+    const model = widget?.build({
+      ...sampleDashboardSnapshot,
+      projects: [{
+        id: "project-empty",
+        title: "Unplanned",
+        completed: 0,
+        remaining: 0,
+        progress: null,
+        attention: "normal",
+      }],
+    });
+
+    expect(model?.chart?.series[0]?.points[0]).toEqual(expect.objectContaining({
+      label: "Unplanned · Progress —",
+      value: 0,
+      displayValue: "—",
+      sizePercent: 0,
+      placeholder: true,
+      ariaLabel: expect.stringContaining("progress unavailable (—)"),
+    }));
+    expect(model?.chart?.series[1]?.points[0]).toEqual(expect.objectContaining({
+      value: 0,
+      displayValue: "0",
+      sizePercent: 0,
+    }));
+  });
+
   it("keeps Today and Overdue navigation on the selected dashboard date", () => {
     const widget = dashboardWidgets.find(({ id }) => id === "planner-week");
     const model = widget?.build(sampleDashboardSnapshot);

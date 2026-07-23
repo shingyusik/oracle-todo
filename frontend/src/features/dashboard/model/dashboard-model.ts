@@ -61,6 +61,10 @@ export function buildDashboardSnapshot(
   };
 }
 
+export function dashboardToday(date: Date = new Date()): string {
+  return formatDateOnly(date);
+}
+
 function buildSummary(
   items: WorkspaceItemModel[],
   work: WorkspaceItemModel[],

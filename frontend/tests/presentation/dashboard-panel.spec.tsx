@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DashboardChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
+import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 type TestItem = {
@@ -114,6 +116,7 @@ function mockLoadedDashboard(items = populatedItems()) {
 
 describe("DashboardPanel", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -211,6 +214,76 @@ describe("DashboardPanel", () => {
     ).toHaveTextContent("1");
   });
 
+  it("uses the browser local today after the Planner anchor has moved to an old date", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 23, 12));
+    const controller = {
+      workspaceItems: {
+        status: "loaded",
+        items: [],
+        allItems: [{
+          id: "task-today",
+          type: "task",
+          title: "Local today",
+          status: "active",
+          scheduled: "2026-07-23",
+        }],
+        tagOptions: [],
+        relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
+      },
+      planner: { date: "2001-01-01" },
+      reloadDashboard: vi.fn(),
+      navigateDashboard: vi.fn(),
+    } as unknown as WorkbenchController;
+
+    render(<DashboardPanel controller={controller} />);
+
+    expect(screen.getByRole("button", { name: "Today: 1" })).toBeInTheDocument();
+  });
+
+  it("shows Project risk in text and applies the warning tone", async () => {
+    mockLoadedDashboard([
+      {
+        id: "project-risk",
+        type: "project",
+        title: "Risky release",
+        status: "active",
+        due: "2001-01-01",
+      },
+      {
+        id: "task-complete",
+        type: "task",
+        title: "Finished",
+        status: "completed",
+        project_id: "project-risk",
+      },
+    ]);
+
+    render(<WorkbenchPageClient />);
+
+    expect(await screen.findByText("Risky release · Risk")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /Risky release: Risk; 100% complete \(1 completed\)/,
+      }),
+    ).toHaveClass("tone-warning");
+  });
+
+  it("renders unavailable Project progress as a dash", async () => {
+    mockLoadedDashboard([
+      {
+        id: "project-empty",
+        type: "project",
+        title: "Unplanned",
+        status: "active",
+      },
+    ]);
+
+    render(<WorkbenchPageClient />);
+
+    expect(await screen.findByText("Unplanned · Progress —")).toBeInTheDocument();
+  });
+
   it("opens the selected Area detail from its graph segment", async () => {
     const user = userEvent.setup();
     mockLoadedDashboard();
@@ -304,6 +377,34 @@ describe("DashboardPanel", () => {
     expect(completed).toHaveTextContent("4");
     expect(completed.style.getPropertyValue("--dashboard-point-scale")).toBe("37");
     expect(completed.style.getPropertyValue("--dashboard-point-stack")).toBe("37%");
+  });
+
+  it("keeps a zero value interactive without drawing a chart bar", () => {
+    const chart: DashboardChartSpec = {
+      kind: "grouped-bar",
+      ariaLabel: "Zero value",
+      series: [{
+        id: "scheduled",
+        label: "Scheduled",
+        tone: "primary",
+        points: [{
+          id: "zero",
+          label: "2026-07-23",
+          value: 0,
+          displayValue: "0",
+          ariaLabel: "2026-07-23: 0 scheduled",
+          sizePercent: 0,
+          destination: { kind: "daily", date: "2026-07-23" },
+        }],
+      }],
+    };
+
+    render(<DashboardChart chart={chart} onNavigate={vi.fn()} />);
+
+    const zero = screen.getByRole("button", { name: "2026-07-23: 0 scheduled" });
+    expect(zero).toHaveTextContent("0");
+    expect(zero).toHaveClass("dashboard-chart-zero");
+    expect(zero).not.toHaveClass("dashboard-chart-point");
   });
 
   it("renders numerical text in every interactive chart point", async () => {

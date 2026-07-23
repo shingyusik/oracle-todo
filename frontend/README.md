@@ -1,6 +1,8 @@
 # frontend
 
-Next.js workbench frontend for `todo-engine`.
+Next.js workbench frontend for `todo-engine`. The Dashboard derives Area,
+Project, and current-week Planner analytics from the existing all-items API and
+links each summary or chart point to the corresponding workbench view.
 
 ## Commands
 
@@ -46,5 +48,8 @@ otherwise the development rewrite falls back to `http://127.0.0.1:3002`.
 - `src/app`: thin route entries.
 - `src/design`: tokens, copy, and layout constants.
 - `src/domain`: pure policy and navigation rules.
-- `src/features`: workbench model, controller hooks, and UI.
+- `src/features/dashboard`: local analytics model, declarative widgets, and
+  accessible chart UI.
+- `src/features/workbench`: workbench model, controller hooks, Planner, and
+  workspace UI.
 - `tests`: architecture, domain, and presentation tests.

@@ -62,12 +62,16 @@ export function DashboardChart({
                     "--dashboard-point-scale": point.sizePercent,
                     "--dashboard-point-stack": `${point.sizePercent}%`,
                   };
+                  const tone = point.tone ?? series.tone;
+                  const pointClassName = point.sizePercent === 0
+                    ? `dashboard-chart-zero tone-${tone}`
+                    : `dashboard-chart-point tone-${tone}`;
 
                   return (
                     <button
                       key={point.id}
                       type="button"
-                      className={`dashboard-chart-point tone-${series.tone}`}
+                      className={pointClassName}
                       style={style}
                       aria-label={point.ariaLabel}
                       onClick={() => onNavigate(point.destination)}

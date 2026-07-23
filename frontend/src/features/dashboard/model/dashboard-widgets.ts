@@ -8,8 +8,12 @@ export type DashboardPoint = {
   displayValue: string;
   ariaLabel: string;
   sizePercent: number;
+  tone?: DashboardTone;
+  placeholder?: boolean;
   destination: DashboardDestination;
 };
+
+type DashboardTone = "primary" | "secondary" | "warning";
 
 export type DashboardChartSpec = {
   kind: "stacked-bar" | "grouped-bar";
@@ -17,7 +21,7 @@ export type DashboardChartSpec = {
   series: Array<{
     id: string;
     label: string;
-    tone: "primary" | "secondary" | "warning";
+    tone: DashboardTone;
     points: DashboardPoint[];
   }>;
 };
@@ -172,11 +176,18 @@ function projectSeries(
     tone,
     points: snapshot.projects.map((project) => ({
       id: `${project.id}-${key}`,
-      label: project.title,
+      label: projectPointLabel(project),
       value: project[key],
-      displayValue: String(project[key]),
+      displayValue:
+        project.progress === null && key === "completed"
+          ? "—"
+          : String(project[key]),
       ariaLabel: projectPointAriaLabel(project, key),
       sizePercent: projectPointSize(project.progress, key),
+      ...(project.attention === "risk" ? { tone: "warning" as const } : {}),
+      ...(project.progress === null && key === "completed"
+        ? { placeholder: true }
+        : {}),
       destination: { kind: "project-detail", itemId: project.id },
     })),
   };
@@ -213,15 +224,37 @@ function projectPointAriaLabel(
   project: DashboardSnapshot["projects"][number],
   key: "completed" | "remaining",
 ): string {
-  if (key === "remaining") {
-    return `${project.title}: ${project.remaining} remaining`;
-  }
+  const state =
+    project.attention === "normal"
+      ? ""
+      : `${attentionLabel(project.attention)}; `;
 
   if (project.progress === null) {
-    return `${project.title}: ${project.completed} completed`;
+    return `${project.title}: ${state}progress unavailable (—); ${project[key]} ${key}`;
   }
 
-  return `${project.title}: ${Math.round(project.progress * 100)}% complete (${project.completed} completed)`;
+  if (key === "remaining") {
+    return `${project.title}: ${state}${project.remaining} remaining`;
+  }
+
+  return `${project.title}: ${state}${Math.round(project.progress * 100)}% complete (${project.completed} completed)`;
+}
+
+function projectPointLabel(
+  project: DashboardSnapshot["projects"][number],
+): string {
+  const parts = [project.title];
+  if (project.attention !== "normal") {
+    parts.push(attentionLabel(project.attention));
+  }
+  if (project.progress === null) {
+    parts.push("Progress —");
+  }
+  return parts.join(" · ");
+}
+
+function attentionLabel(attention: Exclude<DashboardSnapshot["projects"][number]["attention"], "normal">): string {
+  return attention === "risk" ? "Risk" : "Attention";
 }
 
 function projectPointSize(

@@ -1,6 +1,9 @@
 import React from "react";
 
-import { buildDashboardSnapshot } from "@/features/dashboard/model/dashboard-model";
+import {
+  buildDashboardSnapshot,
+  dashboardToday,
+} from "@/features/dashboard/model/dashboard-model";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import {
   dashboardWidgets,
@@ -52,7 +55,7 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
 
   const snapshot = buildDashboardSnapshot(
     workspaceItems.allItems,
-    controller.planner.date,
+    dashboardToday(),
   );
 
   return (
@@ -98,7 +101,7 @@ function DashboardLoading() {
 
 function DashboardWidget({ model, onNavigate }: DashboardWidgetProps) {
   const chartHasData = model.chart?.series.some((series) =>
-    series.points.some((point) => point.value > 0),
+    series.points.some((point) => point.value > 0 || point.placeholder),
   );
   const widgetDestination = model.destination;
 
