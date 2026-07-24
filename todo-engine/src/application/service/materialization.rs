@@ -1,6 +1,8 @@
 use time::Date;
 
-use super::{TodoService, generated_by_routine, parse_day, validate_future_occurrences};
+use super::{
+    ItemEventWrite, TodoService, generated_by_routine, parse_day, validate_future_occurrences,
+};
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::ListFilter;
 use crate::domain::{Actor, ItemStatus, ItemType, TodoItem, future_occurrences, terminal_status};
@@ -147,6 +149,11 @@ impl TodoService {
         routine: &TodoItem,
         occurrence_key: String,
     ) -> TodoResult<TodoItem> {
+        let task = self.new_generated_task(routine, occurrence_key);
+        self.store_item_and_event(Actor::System, "materialize_routine_task", None, task, None)
+    }
+
+    fn new_generated_task(&mut self, routine: &TodoItem, occurrence_key: String) -> TodoItem {
         let now = self.next_now();
         let mut task = TodoItem::new_task(
             self.next_id("task"),
@@ -167,7 +174,90 @@ impl TodoService {
             "generated_by".to_string(),
             serde_json::Value::String("routine".to_string()),
         );
-        self.store_item_and_event(Actor::System, "materialize_routine_task", None, task, None)
+        task
+    }
+
+    pub(super) fn prepare_postpone_routine_writes<'a>(
+        &mut self,
+        source: &TodoItem,
+        today: Date,
+        reason: Option<&'a str>,
+    ) -> TodoResult<Vec<ItemEventWrite<'a>>> {
+        let Some((occurrence_before, mut routine)) =
+            self.prepare_generated_task_occurrence(source)?
+        else {
+            return Ok(Vec::new());
+        };
+        let mut writes = vec![(
+            Actor::User,
+            "routine_occurrence_someday",
+            occurrence_before,
+            routine.clone(),
+            reason,
+        )];
+
+        if routine.item_type != ItemType::Routine || routine.status != ItemStatus::Active {
+            return Ok(writes);
+        }
+        let Some(rule) = routine.recurrence_rule.clone() else {
+            return Ok(writes);
+        };
+
+        let mut generated = self
+            .generated_tasks_for_routine(&routine.id)?
+            .into_iter()
+            .filter(generated_by_routine)
+            .collect::<Vec<_>>();
+        if let Some(stored_source) = generated.iter_mut().find(|task| task.id == source.id) {
+            *stored_source = source.clone();
+        }
+        let target = if routine.materialization_policy == "single_open" {
+            1
+        } else {
+            routine.future_occurrences as usize
+        };
+        let open = generated
+            .iter()
+            .filter(|task| !terminal_status(task.status))
+            .count();
+        if open >= target {
+            return Ok(writes);
+        }
+
+        let dates = generated
+            .iter()
+            .filter_map(|task| task.occurrence_key.as_deref())
+            .map(parse_day)
+            .collect::<TodoResult<Vec<_>>>()?;
+        let anchor = dates.iter().copied().min().unwrap_or(today);
+        let latest = dates.iter().copied().max();
+        let yesterday = today.previous_day().unwrap_or(Date::MIN);
+        let after = latest.map_or(yesterday, |latest| latest.max(yesterday));
+        let candidates =
+            future_occurrences(&rule, anchor, after, target - open).map_err(|error| {
+                TodoError::Policy(format!("Unsupported recurrence_rule: {}", error.rule()))
+            })?;
+        for occurrence in candidates {
+            let task = self.new_generated_task(&routine, occurrence.to_string());
+            writes.push((Actor::System, "materialize_routine_task", None, task, None));
+        }
+
+        let materialize_before = Some(serde_json::to_value(&routine).map_err(|error| {
+            TodoError::Internal(format!(
+                "failed to snapshot item before materialize_routine: {error}"
+            ))
+        })?);
+        let now = self.next_now();
+        routine.last_materialized_at = Some(now);
+        routine.updated_at = now;
+        writes.push((
+            Actor::System,
+            "materialize_routine",
+            materialize_before,
+            routine,
+            None,
+        ));
+        Ok(writes)
     }
 
     fn mark_routine_materialized(&mut self, routine: &mut TodoItem) -> TodoResult<()> {

@@ -1,7 +1,8 @@
 use todo_engine::application::error::TodoError;
-use todo_engine::application::ports::ListFilter;
+use todo_engine::application::ports::{ListFilter, TodoRepository};
 use todo_engine::application::service::{ProposeProject, ProposeRoutine, TodoService, UpdateItem};
 use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
+use todo_engine::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
 
 fn routine(service: &mut TodoService, policy: &str) -> TodoItem {
     service
@@ -297,4 +298,60 @@ fn postponing_generated_task_records_occurrence_and_restores_open_target() {
     assert_eq!(replenished.occurrence_key.as_deref(), Some("2026-06-01"));
     assert_eq!(replenished.routine_id.as_deref(), Some(routine.id.as_str()));
     assert_eq!(replenished.metadata["generated_by"], "routine");
+}
+
+#[test]
+fn failed_routine_replenishment_rolls_back_the_entire_postpone() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("todo.sqlite");
+    let db_path = db_path.to_str().unwrap();
+    let conn = connect(db_path).unwrap();
+    init_schema(&conn).unwrap();
+    let mut service = TodoService::persistent(SqliteTodoRepository::new(conn));
+    let routine = routine(&mut service, "single_open");
+    service.materialize_routines("2026-05-31").unwrap();
+    let generated = tasks(&mut service, &routine.id).remove(0);
+
+    let failure_injector = connect(db_path).unwrap();
+    failure_injector
+        .execute_batch(
+            r#"
+            CREATE TRIGGER fail_postpone_replenishment
+            BEFORE INSERT ON events
+            WHEN NEW.action = 'materialize_routine_task'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected replenish failure');
+            END;
+            "#,
+        )
+        .unwrap();
+    drop(failure_injector);
+
+    assert!(matches!(
+        service.postpone(&generated.id, "2026-06-01", "2026-05-31", None),
+        Err(TodoError::Storage(message)) if message.contains("injected replenish failure")
+    ));
+    drop(service);
+
+    let mut repository = SqliteTodoRepository::new(connect(db_path).unwrap());
+    let persisted_source = repository.get_item(&generated.id).unwrap().unwrap();
+    let persisted_routine = repository.get_item(&routine.id).unwrap().unwrap();
+    let persisted_tasks = repository
+        .list_items(ListFilter {
+            item_type: Some(ItemType::Task),
+            include_archived: true,
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(persisted_source.status, ItemStatus::Active);
+    assert_eq!(persisted_tasks, vec![persisted_source]);
+    assert!(persisted_routine.metadata.get("occurrences").is_none());
+    assert!(
+        repository
+            .list_events_for_item(&generated.id)
+            .unwrap()
+            .iter()
+            .all(|event| event.action != "postpone")
+    );
 }

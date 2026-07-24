@@ -29,6 +29,8 @@ pub trait EventRepository: Send {
 
 pub trait TodoStore: TodoRepository + EventRepository {
     fn save_item_and_event(&mut self, item: &TodoItem, event: &TodoEvent) -> TodoResult<()>;
+    /// Persist every item/event pair as one atomic unit. On error, none of the
+    /// supplied items or events may remain visible.
     fn save_items_and_events(&mut self, writes: &[(TodoItem, TodoEvent)]) -> TodoResult<()>;
 }
 

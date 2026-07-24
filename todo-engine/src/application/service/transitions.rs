@@ -150,19 +150,24 @@ impl TodoService {
             "postponed_to".to_string(),
             serde_json::Value::String(follow_up.id.clone()),
         );
+        let postponed_source = source.clone();
 
-        let mut stored = self.store_items_and_events(vec![
+        let mut writes = vec![
             (Actor::User, "postpone", source_before, source, reason),
             (Actor::User, "postpone_follow_up", None, follow_up, reason),
-        ])?;
-        let follow_up = stored.pop().expect("paired postpone write has follow-up");
-        let source = stored.pop().expect("paired postpone write has source");
+        ];
 
-        if let Some(routine_id) = generated_routine_id {
-            self.record_generated_task_occurrence(&source, Actor::User, reason)?;
-            self.fill_routine_to_target(&routine_id, today)?;
+        if generated_routine_id.is_some() {
+            writes.extend(self.prepare_postpone_routine_writes(
+                &postponed_source,
+                today,
+                reason,
+            )?);
         }
 
+        let stored = self.store_items_and_events(writes)?;
+        let source = stored[0].clone();
+        let follow_up = stored[1].clone();
         Ok((source, follow_up))
     }
 
@@ -337,12 +342,29 @@ impl TodoService {
         actor: Actor,
         reason: Option<&str>,
     ) -> TodoResult<()> {
+        let Some((before, routine)) = self.prepare_generated_task_occurrence(task)? else {
+            return Ok(());
+        };
+        self.store_item_and_event(
+            actor,
+            &format!("routine_occurrence_{}", task.status.as_str()),
+            before,
+            routine,
+            reason,
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn prepare_generated_task_occurrence(
+        &mut self,
+        task: &TodoItem,
+    ) -> TodoResult<Option<(Option<serde_json::Value>, TodoItem)>> {
         if task.item_type != ItemType::Task
             || task.routine_id.is_none()
             || task.occurrence_key.is_none()
             || !generated_by_routine(task)
         {
-            return Ok(());
+            return Ok(None);
         }
         let routine_id = task.routine_id.as_ref().expect("checked routine_id");
         let occurrence_key = task
@@ -399,13 +421,6 @@ impl TodoService {
         );
         routine.metadata = metadata;
         routine.updated_at = self.next_now();
-        self.store_item_and_event(
-            actor,
-            &format!("routine_occurrence_{}", task.status.as_str()),
-            before,
-            routine,
-            reason,
-        )?;
-        Ok(())
+        Ok(Some((before, routine)))
     }
 }
