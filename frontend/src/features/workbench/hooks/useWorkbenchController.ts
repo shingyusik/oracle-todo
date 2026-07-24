@@ -434,6 +434,30 @@ function appendWorkspaceItem(
     : [...items, item];
 }
 
+function itemMatchesCollection(item: WorkspaceItemModel, leafTabId: LeafTabId): boolean {
+  const workspaceType = workspaceItemTypes[leafTabId];
+  if (workspaceType) {
+    return item.type === workspaceType;
+  }
+
+  return (plannerItemTypes[leafTabId] ?? []).some((itemType) => itemType === item.type);
+}
+
+function applyPostponeToCollection(
+  items: WorkspaceItemModel[],
+  result: PostponeResult,
+  leafTabId: LeafTabId,
+): WorkspaceItemModel[] {
+  const containsSource = items.some((item) => item.id === result.source.id);
+  const updated = containsSource
+    ? replaceWorkspaceItem(items, result.source)
+    : items;
+
+  return containsSource || itemMatchesCollection(result.follow_up, leafTabId)
+    ? appendWorkspaceItem(updated, result.follow_up)
+    : updated;
+}
+
 const emptyPlannerCreationAnalysis: PlannerCreationAnalysis = {
   prefills: {},
   visibilityWarning: false,
@@ -1246,9 +1270,10 @@ export function useWorkbenchController(): WorkbenchController {
         );
         setWorkspaceItems((current) => ({
           ...current,
-          items: appendWorkspaceItem(
-            replaceWorkspaceItem(current.items, result.source),
-            result.follow_up,
+          items: applyPostponeToCollection(
+            current.items,
+            result,
+            selectionStateRef.current.leafTabId,
           ),
           allItems: appendWorkspaceItem(
             replaceWorkspaceItem(current.allItems, result.source),

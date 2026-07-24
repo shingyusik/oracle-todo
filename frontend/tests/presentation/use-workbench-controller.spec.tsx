@@ -2882,6 +2882,72 @@ describe("useWorkbenchController", () => {
     expect(result.current.detailItem?.status).toBe("someday");
   });
 
+  it("keeps a linked postponed task out of the current routines collection", async () => {
+    const routine = {
+      id: "routine-1",
+      type: "routine",
+      title: "Daily review",
+      status: "active",
+    };
+    const linkedTask = {
+      id: "task-1",
+      type: "task",
+      title: "Daily review task",
+      status: "active",
+      routine_id: "routine-1",
+    };
+    const followUp = {
+      ...linkedTask,
+      id: "task-2",
+      routine_id: null,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/todo-engine/items/task-1/postpone") {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              source: { ...linkedTask, status: "someday" },
+              follow_up: followUp,
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=routine"
+              ? [routine]
+              : url === "/todo-engine/items"
+                ? [routine, linkedTask]
+                : [],
+        });
+      }),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("routines");
+    });
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    act(() => result.current.openDetailView(linkedTask));
+
+    await act(async () => {
+      await result.current.postponeWorkspaceItem(linkedTask.id);
+    });
+
+    expect(result.current.workspaceItems.items.map((item) => item.id)).toEqual([
+      routine.id,
+    ]);
+    expect(result.current.workspaceItems.allItems.map((item) => item.id)).toEqual([
+      routine.id,
+      linkedTask.id,
+      followUp.id,
+    ]);
+    expect(result.current.detailItem?.status).toBe("someday");
+  });
+
   it("posts an explicit date when postponing a workspace item", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1/postpone") {

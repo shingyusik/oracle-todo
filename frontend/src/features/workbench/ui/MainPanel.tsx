@@ -169,7 +169,7 @@ function DetailView({ controller }: MainPanelProps) {
   const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
   const postponeVisible =
     (detailItem.type === "task" || detailItem.type === "event") &&
-    detailItem.status === "active";
+    ["active", "waiting", "paused"].includes(detailItem.status);
   const transitionState = controller.workspaceItemTransitionState(detailItem.id);
   const tomorrow = addDays(formatDateForPlanner(new Date()), 1);
   const postponeDateValid = postponeDate >= tomorrow;
@@ -192,6 +192,16 @@ function DetailView({ controller }: MainPanelProps) {
     if (transition) {
       await controller.transitionWorkspaceItem(detailItem.id, transition);
     }
+  }
+
+  async function postponeDetail() {
+    if (!postponeDateValid || transitionState.pending) {
+      return;
+    }
+    if (hasDraftChanges) {
+      await saveDraft();
+    }
+    await controller.postponeWorkspaceItem(detailItem.id, postponeDate);
   }
 
   function openLinkedItem(nextItem: WorkspaceItemModel) {
@@ -314,10 +324,7 @@ function DetailView({ controller }: MainPanelProps) {
               type="button"
               disabled={!postponeDateValid || transitionState.pending}
               onClick={() => {
-                if (!postponeDateValid || transitionState.pending) return;
-                void controller
-                  .postponeWorkspaceItem(detailItem.id, postponeDate)
-                  .catch(() => undefined);
+                void postponeDetail().catch(() => undefined);
               }}
             >
               Postpone to…

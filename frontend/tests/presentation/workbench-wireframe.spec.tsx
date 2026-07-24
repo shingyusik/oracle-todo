@@ -2572,6 +2572,129 @@ describe("WorkbenchPageClient", () => {
     });
   });
 
+  it.each([
+    { itemType: "task", status: "waiting", tab: "Tasks" },
+    { itemType: "task", status: "paused", tab: "Tasks" },
+    { itemType: "event", status: "waiting", tab: "Events" },
+    { itemType: "event", status: "paused", tab: "Events" },
+  ])(
+    "postpones a $status $itemType from its detail view",
+    async ({ itemType, status, tab }) => {
+      const user = userEvent.setup();
+      const target = testAddDays(testToday(), 2);
+      const item = {
+        id: `${itemType}-${status}`,
+        type: itemType,
+        title: `${status} ${itemType}`,
+        status,
+      };
+      const fetchMock = vi.fn((url: string) => {
+        if (url === `/todo-engine/items/${item.id}/postpone`) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              source: { ...item, status: "someday" },
+              follow_up: { ...item, id: `${item.id}-follow-up`, status: "active" },
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === `/todo-engine/items?type=${itemType}` ? [item] : [],
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<WorkbenchPageClient />);
+      await user.click(screen.getByRole("button", { name: "ToDo" }));
+      await user.click(screen.getByRole("button", { name: "Workspace" }));
+      await user.click(screen.getByRole("button", { name: tab }));
+      await user.click(
+        await screen.findByRole("button", { name: `Open details for ${item.title}` }),
+      );
+
+      await user.type(screen.getByLabelText("Postpone date"), target);
+      await user.click(screen.getByRole("button", { name: "Postpone to…" }));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          `/todo-engine/items/${item.id}/postpone`,
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({ scheduled: target }),
+          }),
+        );
+      });
+    },
+  );
+
+  it("saves a dirty detail draft before postponing it", async () => {
+    const user = userEvent.setup();
+    const target = testAddDays(testToday(), 3);
+    const task = {
+      id: "task-dirty-postpone",
+      type: "task",
+      title: "Original title",
+      status: "active",
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === `/todo-engine/items/${task.id}` && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...task, title: "Saved title" }),
+        });
+      }
+      if (url === `/todo-engine/items/${task.id}/postpone`) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            source: { ...task, title: "Saved title", status: "someday" },
+            follow_up: {
+              ...task,
+              id: "task-dirty-postpone-follow-up",
+              title: "Saved title",
+              scheduled: target,
+            },
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task" ? [task] : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(
+      await screen.findByRole("button", { name: `Open details for ${task.title}` }),
+    );
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Saved title");
+    await user.type(screen.getByLabelText("Postpone date"), target);
+
+    await user.click(screen.getByRole("button", { name: "Postpone to…" }));
+
+    await waitFor(() => {
+      const mutations = fetchMock.mock.calls.filter(([, init]) =>
+        init?.method === "PATCH" || init?.method === "POST"
+      );
+      expect(mutations.map(([url]) => url)).toEqual([
+        `/todo-engine/items/${task.id}`,
+        `/todo-engine/items/${task.id}/postpone`,
+      ]);
+      expect(mutations[0]?.[1]).toEqual(
+        expect.objectContaining({
+          body: JSON.stringify({ title: "Saved title" }),
+        }),
+      );
+    });
+  });
+
   it("does not postpone a task detail to today or a past date", async () => {
     const user = userEvent.setup();
     const today = testToday();
