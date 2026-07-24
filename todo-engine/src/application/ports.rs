@@ -29,6 +29,7 @@ pub trait EventRepository: Send {
 
 pub trait TodoStore: TodoRepository + EventRepository {
     fn save_item_and_event(&mut self, item: &TodoItem, event: &TodoEvent) -> TodoResult<()>;
+    fn save_items_and_events(&mut self, writes: &[(TodoItem, TodoEvent)]) -> TodoResult<()>;
 }
 
 #[derive(Clone, Debug, Default)]

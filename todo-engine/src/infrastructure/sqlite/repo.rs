@@ -140,6 +140,15 @@ impl TodoStore for SqliteTodoRepository {
         transaction.commit().map_err(storage_error)?;
         Ok(())
     }
+
+    fn save_items_and_events(&mut self, writes: &[(TodoItem, TodoEvent)]) -> TodoResult<()> {
+        let transaction = self.conn.transaction().map_err(storage_error)?;
+        for (item, event) in writes {
+            save_item_on(&transaction, item)?;
+            save_event_on(&transaction, event)?;
+        }
+        transaction.commit().map_err(storage_error)
+    }
 }
 
 fn save_item_on(conn: &Connection, item: &TodoItem) -> TodoResult<()> {

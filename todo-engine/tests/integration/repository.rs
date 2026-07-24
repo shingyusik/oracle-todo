@@ -1,4 +1,5 @@
 use time::{OffsetDateTime, macros::datetime};
+use todo_engine::application::error::TodoError;
 use todo_engine::application::ports::{EventRepository, ListFilter, TodoRepository, TodoStore};
 use todo_engine::application::service::TodoService;
 use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoEvent, TodoItem};
@@ -266,6 +267,80 @@ fn item_and_event_are_saved_atomically() {
     assert!(repo.save_item_and_event(&item, &conflicting).is_err());
 
     assert!(repo.get_item(&item.id).unwrap().is_none());
+}
+
+#[test]
+fn item_and_event_batches_are_saved_atomically() {
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut store = SqliteTodoRepository::new(conn);
+    let now = datetime!(2026-06-01 00:00 UTC);
+    let first_item = TodoItem::new_task("task_first", "첫 번째", Actor::Agent, now);
+    let second_item = TodoItem::new_task("task_second", "두 번째", Actor::Agent, now);
+    let first_event = TodoEvent {
+        id: "evt_first".to_string(),
+        at: now,
+        actor: Actor::Agent,
+        action: "propose_task".to_string(),
+        object_type: "task".to_string(),
+        object_id: first_item.id.clone(),
+        before: None,
+        after: Some(serde_json::to_value(&first_item).unwrap()),
+        reason: None,
+    };
+    let second_event = TodoEvent {
+        id: "evt_second".to_string(),
+        object_id: second_item.id.clone(),
+        after: Some(serde_json::to_value(&second_item).unwrap()),
+        ..first_event.clone()
+    };
+
+    store
+        .save_items_and_events(&[
+            (first_item.clone(), first_event),
+            (second_item.clone(), second_event),
+        ])
+        .unwrap();
+
+    assert_eq!(store.get_item("task_first").unwrap(), Some(first_item));
+    assert_eq!(store.get_item("task_second").unwrap(), Some(second_item));
+    assert_eq!(store.list_events_for_item("task_first").unwrap().len(), 1);
+    assert_eq!(store.list_events_for_item("task_second").unwrap().len(), 1);
+}
+
+#[test]
+fn item_and_event_batch_rolls_back_on_duplicate_event_id() {
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut store = SqliteTodoRepository::new(conn);
+    let now = datetime!(2026-06-01 00:00 UTC);
+    let first_item = TodoItem::new_task("task_first", "첫 번째", Actor::Agent, now);
+    let second_item = TodoItem::new_task("task_second", "두 번째", Actor::Agent, now);
+    let first_event = TodoEvent {
+        id: "evt_duplicate".to_string(),
+        at: now,
+        actor: Actor::Agent,
+        action: "propose_task".to_string(),
+        object_type: "task".to_string(),
+        object_id: first_item.id.clone(),
+        before: None,
+        after: Some(serde_json::to_value(&first_item).unwrap()),
+        reason: None,
+    };
+    let duplicate_id_event = TodoEvent {
+        object_id: second_item.id.clone(),
+        after: Some(serde_json::to_value(&second_item).unwrap()),
+        ..first_event.clone()
+    };
+
+    let error = store
+        .save_items_and_events(&[(first_item, first_event), (second_item, duplicate_id_event)])
+        .unwrap_err();
+
+    assert!(matches!(error, TodoError::Storage(_)));
+    assert!(store.get_item("task_first").unwrap().is_none());
+    assert!(store.get_item("task_second").unwrap().is_none());
+    assert!(store.list_events_for_item("task_first").unwrap().is_empty());
 }
 
 #[test]

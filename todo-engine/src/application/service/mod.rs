@@ -51,6 +51,14 @@ pub(super) enum ServiceStore {
     Persistent(Box<dyn TodoStore>),
 }
 
+pub(super) type ItemEventWrite<'a> = (
+    Actor,
+    &'a str,
+    Option<serde_json::Value>,
+    TodoItem,
+    Option<&'a str>,
+);
+
 impl TodoService {
     pub fn in_memory() -> Self {
         Self {
@@ -136,27 +144,47 @@ impl TodoService {
         item: TodoItem,
         reason: Option<&str>,
     ) -> TodoResult<TodoItem> {
-        let event = TodoEvent {
-            id: self.next_event_id(),
-            at: item.updated_at,
-            actor,
-            action: action.to_string(),
-            object_type: item.item_type.as_str().to_string(),
-            object_id: item.id.clone(),
-            before,
-            after: Some(serde_json::to_value(&item).expect("TodoItem serialization cannot fail")),
-            reason: reason.map(ToOwned::to_owned),
-        };
+        Ok(self
+            .store_items_and_events(vec![(actor, action, before, item, reason)])?
+            .pop()
+            .expect("single item write must return one item"))
+    }
+
+    pub(super) fn store_items_and_events(
+        &mut self,
+        writes: Vec<ItemEventWrite<'_>>,
+    ) -> TodoResult<Vec<TodoItem>> {
+        let mut item_event_pairs = Vec::with_capacity(writes.len());
+        for (actor, action, before, item, reason) in writes {
+            let event = TodoEvent {
+                id: self.next_event_id(),
+                at: item.updated_at,
+                actor,
+                action: action.to_string(),
+                object_type: item.item_type.as_str().to_string(),
+                object_id: item.id.clone(),
+                before,
+                after: Some(serde_json::to_value(&item).map_err(|error| {
+                    TodoError::Internal(format!("failed to snapshot item after {action}: {error}"))
+                })?),
+                reason: reason.map(ToOwned::to_owned),
+            };
+            item_event_pairs.push((item, event));
+        }
+
         match &mut self.store {
             ServiceStore::InMemory(items) => {
-                items.insert(item.id.clone(), item.clone());
+                for (item, _) in &item_event_pairs {
+                    items.insert(item.id.clone(), item.clone());
+                }
             }
             ServiceStore::Persistent(store) => {
-                store.save_item_and_event(&item, &event)?;
+                store.save_items_and_events(&item_event_pairs)?;
             }
         }
-        self.events.push(event);
-        Ok(item)
+        self.events
+            .extend(item_event_pairs.iter().map(|(_, event)| event.clone()));
+        Ok(item_event_pairs.into_iter().map(|(item, _)| item).collect())
     }
 
     pub(super) fn set_terminal_status(
