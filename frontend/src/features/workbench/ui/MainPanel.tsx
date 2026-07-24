@@ -172,6 +172,7 @@ function DetailView({ controller }: MainPanelProps) {
     detailItem.status === "active";
   const transitionState = controller.workspaceItemTransitionState(detailItem.id);
   const tomorrow = addDays(formatDateForPlanner(new Date()), 1);
+  const postponeDateValid = postponeDate >= tomorrow;
 
   function setField(field: keyof DetailDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -311,8 +312,9 @@ function DetailView({ controller }: MainPanelProps) {
             />
             <button
               type="button"
-              disabled={!postponeDate || transitionState.pending}
+              disabled={!postponeDateValid || transitionState.pending}
               onClick={() => {
+                if (!postponeDateValid || transitionState.pending) return;
                 void controller
                   .postponeWorkspaceItem(detailItem.id, postponeDate)
                   .catch(() => undefined);

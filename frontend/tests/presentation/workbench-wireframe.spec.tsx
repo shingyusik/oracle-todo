@@ -2572,6 +2572,51 @@ describe("WorkbenchPageClient", () => {
     });
   });
 
+  it("does not postpone a task detail to today or a past date", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const past = testAddDays(today, -1);
+    const tomorrow = testAddDays(today, 1);
+    const task = {
+      id: "task-detail",
+      type: "task",
+      title: "Detail task",
+      status: "active",
+      scheduled: today,
+    };
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task" ? [task] : [],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(await screen.findByRole("button", { name: "Detail task" }));
+
+    const dateInput = screen.getByLabelText("Postpone date");
+    const postponeButton = screen.getByRole("button", { name: "Postpone to…" });
+
+    for (const invalidDate of [today, past]) {
+      fireEvent.change(dateInput, { target: { value: invalidDate } });
+      expect(postponeButton).toBeDisabled();
+
+      postponeButton.removeAttribute("disabled");
+      fireEvent.click(postponeButton);
+      fireEvent.change(dateInput, { target: { value: tomorrow } });
+    }
+
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url]) => url === "/todo-engine/items/task-detail/postpone",
+      ),
+    ).toHaveLength(0);
+  });
+
   it("keeps a completed daily planner task checked when reopening fails", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string) => {
