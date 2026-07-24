@@ -1,14 +1,29 @@
 use anyhow::Result;
+use serde_json::json;
 use std::path::Path;
+use time::{Date, format_description::parse};
 
 use super::output::print_json;
-use super::{ItemTransitionArgs, UpdateArgs, service};
+use super::{ItemTransitionArgs, PostponeArgs, UpdateArgs, service, today_string};
 use crate::application::service::UpdateItem;
 
 pub(super) fn pause(home: &Path, args: ItemTransitionArgs) -> Result<()> {
     let mut service = service(home)?;
     let item = service.pause(&args.item_id, args.reason.as_deref())?;
     print_json(&item)?;
+    Ok(())
+}
+
+pub(super) fn postpone(home: &Path, args: PostponeArgs) -> Result<()> {
+    let today = today_string();
+    let scheduled = match args.scheduled {
+        Some(scheduled) => scheduled,
+        None => next_day(&today)?,
+    };
+    let mut service = service(home)?;
+    let (source, follow_up) =
+        service.postpone(&args.item_id, &scheduled, &today, args.reason.as_deref())?;
+    print_json(&json!({"source": source, "follow_up": follow_up}))?;
     Ok(())
 }
 
@@ -83,4 +98,13 @@ pub(super) fn update(home: &Path, args: UpdateArgs) -> Result<()> {
     )?;
     print_json(&item)?;
     Ok(())
+}
+
+fn next_day(today: &str) -> Result<String> {
+    let format = parse("[year]-[month]-[day]")?;
+    let today = Date::parse(today, &format)?;
+    let tomorrow = today
+        .next_day()
+        .ok_or_else(|| anyhow::anyhow!("local date has no following day"))?;
+    tomorrow.format(&format).map_err(Into::into)
 }

@@ -32,6 +32,7 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `GET` | `/views/period` | `view_period` | `PeriodQuery`: required `horizon`, `period` |
 | `PATCH` | `/items/:id` | `update_item` | `UpdateBody` |
 | `POST` | `/items/:id/pause` | `pause_item` | optional `ReasonBody` |
+| `POST` | `/items/:id/postpone` | `postpone_item` | `PostponeBody` |
 | `POST` | `/items/:id/resume` | `resume_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/complete` | `complete_item` | — |
 | `POST` | `/items/:id/reopen` | `reopen_item` | — |
@@ -58,6 +59,22 @@ response is missing, malformed, or unavailable, and sends writes on a best-effor
 - Returns the item with `status=active` and `completed_at=null`.
 - Writes a `reopen` audit event.
 - Returns HTTP `400` with `code=policy_error` for another item type or source status.
+
+### Postpone a task or event
+
+`POST /items/{id}/postpone`
+
+- Accepts an active, waiting, or paused task or event.
+- Requires a JSON object. `scheduled` and `reason` are optional; omitting `scheduled` selects
+  tomorrow in the local calendar. Malformed JSON returns HTTP `400`.
+- An explicit `scheduled` value must use `YYYY-MM-DD` and be later than the local current date;
+  today, a past date, or an invalid date returns HTTP `400`.
+- Returns `{"source": TodoItem, "follow_up": TodoItem}`. The source has `status=someday` and
+  retains its original `scheduled` value; the follow-up has `status=active` and the requested
+  date.
+- The source remains filterable through `GET /items?status=someday`.
+- For a routine-generated task, the source occurrence is recorded and the active follow-up is
+  detached: `routine_id` and `occurrence_key` are null and `metadata.generated_by` is absent.
 
 ### Materialize one routine
 
@@ -96,6 +113,7 @@ routine using stored targets, this acts only on `{id}`.
   `due?`, `priority?`, `description?`, `note?`, `location?`, `participants?` (array),
   `commitment_type?` (default `appointment`), `tags?`, `actor?` (default `agent`).
 - **`ReasonBody`** — `reason?`. Optional on the transition endpoints that accept it.
+- **`PostponeBody`** — `scheduled?` (ISO `YYYY-MM-DD`, defaults to tomorrow), `reason?`.
 - **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
   `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,
   `materialization_policy`, `future_occurrences`, `area`, `project_id`, `parent_id`, `routine_id`, `due`,

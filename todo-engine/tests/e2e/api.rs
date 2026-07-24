@@ -2,7 +2,9 @@ use crate::support::TestHome;
 use axum::body::Body;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use time::{Date, format_description::parse};
 use todo_engine::infrastructure::sqlite::init_schema;
+use todo_engine::infrastructure::system::local_today_string;
 use todo_engine::interfaces::api::router;
 use tower::ServiceExt;
 
@@ -44,6 +46,16 @@ async fn http_request(
     )
     .await
     .unwrap()
+}
+
+fn local_day() -> Date {
+    let format = parse("[year]-[month]-[day]").unwrap();
+    Date::parse(&local_today_string(), &format).unwrap()
+}
+
+fn format_day(day: Date) -> String {
+    let format = parse("[year]-[month]-[day]").unwrap();
+    day.format(&format).unwrap()
 }
 
 #[tokio::test]
@@ -756,6 +768,164 @@ async fn operational_transition_routes_return_mutated_items() {
         assert_eq!(response.status(), 200);
         assert_eq!(body_json(response).await["status"], status);
     }
+}
+
+#[tokio::test]
+async fn postpone_defaults_to_tomorrow_and_keeps_source_filterable_as_someday() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"내일 처리", "scheduled":"2026-07-01", "actor":"user"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    let task_id = task["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{task_id}/postpone"),
+        json!({"reason":"오늘은 중단"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["source"]["id"], task_id);
+    assert_eq!(body["source"]["status"], "someday");
+    assert_eq!(body["source"]["scheduled"], "2026-07-01");
+    assert_eq!(body["follow_up"]["status"], "active");
+    assert_eq!(
+        body["follow_up"]["scheduled"],
+        format_day(local_day().next_day().unwrap())
+    );
+
+    let response = empty_request(router(&db_path).unwrap(), "GET", "/items?status=someday").await;
+    assert_eq!(response.status(), 200);
+    let someday = body_json(response).await;
+    assert_eq!(someday.as_array().unwrap().len(), 1);
+    assert_eq!(someday[0]["id"], task_id);
+    assert_eq!(someday[0]["scheduled"], "2026-07-01");
+}
+
+#[tokio::test]
+async fn postpone_event_accepts_an_explicit_future_date() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/events/propose",
+        json!({
+            "title":"고객 미팅",
+            "scheduled":"2098-12-31T10:00:00",
+            "location":"회의실 A",
+            "actor":"user"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let event = body_json(response).await;
+    let event_id = event["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{event_id}/postpone"),
+        json!({"scheduled":"2099-01-02", "reason":"일정 조정"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["source"]["type"], "event");
+    assert_eq!(body["source"]["status"], "someday");
+    assert_eq!(body["source"]["scheduled"], "2098-12-31T10:00:00");
+    assert_eq!(body["follow_up"]["type"], "event");
+    assert_eq!(body["follow_up"]["status"], "active");
+    assert_eq!(body["follow_up"]["scheduled"], "2099-01-02");
+    assert_eq!(body["follow_up"]["metadata_"]["location"], "회의실 A");
+}
+
+#[tokio::test]
+async fn postpone_detaches_a_routine_generated_follow_up() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let routine_id = active_routine(&db_path, "물 마시기", "single_open").await;
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        format!("/items?type=task&routine_id={routine_id}"),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let tasks = body_json(response).await;
+    let generated = &tasks[0];
+    let generated_id = generated["id"].as_str().unwrap();
+    let original_schedule = generated["scheduled"].clone();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{generated_id}/postpone"),
+        json!({"scheduled":"2099-01-02"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["source"]["status"], "someday");
+    assert_eq!(body["source"]["scheduled"], original_schedule);
+    assert_eq!(body["source"]["routine_id"], routine_id);
+    assert_eq!(body["follow_up"]["status"], "active");
+    assert_eq!(body["follow_up"]["scheduled"], "2099-01-02");
+    assert!(body["follow_up"]["routine_id"].is_null());
+    assert!(body["follow_up"]["occurrence_key"].is_null());
+    assert!(body["follow_up"]["metadata_"]["generated_by"].is_null());
+}
+
+#[tokio::test]
+async fn postpone_rejects_today_past_dates_and_malformed_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+
+    for scheduled in [
+        format_day(local_day()),
+        format_day(local_day().previous_day().unwrap()),
+    ] {
+        let response = json_request(
+            router(&db_path).unwrap(),
+            "POST",
+            "/tasks/propose",
+            json!({"title":"날짜 거절", "actor":"user"}),
+        )
+        .await;
+        let task = body_json(response).await;
+        let task_id = task["id"].as_str().unwrap();
+        let response = json_request(
+            router(&db_path).unwrap(),
+            "POST",
+            format!("/items/{task_id}/postpone"),
+            json!({"scheduled":scheduled}),
+        )
+        .await;
+        assert_eq!(response.status(), 400);
+        assert_eq!(
+            body_json(response).await["detail"],
+            "Postpone target date must be later than today"
+        );
+    }
+
+    let response = http_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/items/task_missing/postpone",
+        Body::from(r#"{"scheduled":1}"#),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    assert!(body_json(response).await["detail"].is_string());
 }
 
 #[tokio::test]

@@ -88,6 +88,12 @@ pub(super) struct ReasonBody {
     pub reason: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub(super) struct PostponeBody {
+    pub scheduled: Option<String>,
+    pub reason: Option<String>,
+}
+
 #[derive(Deserialize, Default)]
 pub(super) struct UpdateBody {
     pub title: Option<String>,

@@ -73,6 +73,8 @@ enum Command {
     },
     /// Pause an item.
     Pause(ItemTransitionArgs),
+    /// Postpone a task or event.
+    Postpone(PostponeArgs),
     /// Resume a paused item.
     Resume(ItemTransitionArgs),
     /// Complete an item.
@@ -289,6 +291,15 @@ struct ItemTransitionArgs {
 }
 
 #[derive(Debug, Args)]
+struct PostponeArgs {
+    item_id: String,
+    #[arg(long)]
+    scheduled: Option<String>,
+    #[arg(long)]
+    reason: Option<String>,
+}
+
+#[derive(Debug, Args)]
 struct UpdateArgs {
     item_id: String,
     #[arg(long)]
@@ -391,6 +402,7 @@ pub fn run() -> Result<()> {
             command: EventCommand::Propose(args),
         } => create::event_propose(&home, args),
         Command::Pause(args) => lifecycle::pause(&home, args),
+        Command::Postpone(args) => lifecycle::postpone(&home, args),
         Command::Resume(args) => lifecycle::resume(&home, args),
         Command::Complete(args) => lifecycle::complete(&home, args),
         Command::Archive(args) => lifecycle::archive(&home, args),
@@ -454,6 +466,7 @@ fn command_label(command: &Command) -> &'static str {
             command: EventCommand::Propose(_),
         } => "event propose",
         Command::Pause(_) => "pause",
+        Command::Postpone(_) => "postpone",
         Command::Resume(_) => "resume",
         Command::Complete(_) => "complete",
         Command::Archive(_) => "archive",

@@ -64,18 +64,33 @@ Create an active event. `<scheduled>` is a positional date/time string. Flags: `
 
 ## Lifecycle (transition) commands
 
-Each takes a positional `<item_id>` and an optional `--reason`:
+These commands take a positional `<item_id>` and an optional `--reason`:
 
-`pause`, `resume`, `complete`, `archive`, `drop`, `cancel`.
+`pause`, `postpone`, `resume`, `complete`, `archive`, `drop`, `cancel`.
 
 | Subcommand | Effect |
 | --- | --- |
 | `pause` | Pause an item. |
+| `postpone` | Move a task or event to `someday` and create an active follow-up. |
 | `resume` | Resume a paused item. |
 | `complete` | Complete an item (terminal). |
 | `archive` | Archive an item (terminal). |
 | `drop` | Drop an item (terminal). |
 | `cancel` | Cancel an item (terminal). |
+
+### `postpone <item_id>`
+
+Postpone an active, waiting, or paused task or event. Flags: `--scheduled <ISO_DATE>` and
+`--reason <TEXT>`.
+
+- `--scheduled` defaults to tomorrow in the local calendar.
+- An explicit date must use `YYYY-MM-DD` and be later than the local current date.
+- The source becomes `someday`, retains its original `scheduled` value, and remains available
+  through `list --status someday`.
+- The new follow-up is `active` at the requested date.
+- A routine-generated source records its occurrence, while the follow-up is detached from the
+  routine: it has no `routine_id`, `occurrence_key`, or `metadata.generated_by`.
+- Output is `{"source": TodoItem, "follow_up": TodoItem}`.
 
 ### `update <item_id>`
 Update mutable fields. Flags (all optional): `--title`, `--description`, `--note`,

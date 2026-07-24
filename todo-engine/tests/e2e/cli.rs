@@ -731,6 +731,70 @@ fn lifecycle_commands_emit_json_status_changes() {
 }
 
 #[test]
+fn postpone_prints_source_and_follow_up_json() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["--home", home.path().to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    let output = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "task",
+            "propose",
+            "미룰 일",
+            "--scheduled",
+            "2099-01-01",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let task: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let task_id = task["id"].as_str().unwrap();
+
+    let output = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "postpone",
+            task_id,
+            "--scheduled",
+            "2099-01-02",
+            "--reason",
+            "내일 처리",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let postponed: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(postponed["source"]["id"], task_id);
+    assert_eq!(postponed["source"]["status"], "someday");
+    assert_eq!(postponed["source"]["scheduled"], "2099-01-01");
+    assert_eq!(postponed["follow_up"]["status"], "active");
+    assert_eq!(postponed["follow_up"]["scheduled"], "2099-01-02");
+}
+
+#[test]
+fn postpone_help_documents_the_scheduled_option() {
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["postpone", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("--scheduled"));
+}
+
+#[test]
 fn archive_list_shows_terminal_items() {
     let home = TestHome::new();
 
