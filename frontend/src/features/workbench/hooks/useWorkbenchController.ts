@@ -21,6 +21,7 @@ import {
   type PlannerCreationContext,
   type PlannerControls,
   type PlannerTabConfirmation,
+  type PostponeResult,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
@@ -422,6 +423,15 @@ function replaceWorkspaceItem(
   updated: WorkspaceItemModel,
 ): WorkspaceItemModel[] {
   return items.map((item) => (item.id === updated.id ? updated : item));
+}
+
+function appendWorkspaceItem(
+  items: WorkspaceItemModel[],
+  item: WorkspaceItemModel,
+): WorkspaceItemModel[] {
+  return items.some((current) => current.id === item.id)
+    ? items
+    : [...items, item];
 }
 
 const emptyPlannerCreationAnalysis: PlannerCreationAnalysis = {
@@ -1225,6 +1235,58 @@ export function useWorkbenchController(): WorkbenchController {
       );
       return transition;
     },
+    postponeWorkspaceItem: (itemId, scheduled) => {
+      const existing = itemTransitions.current.get(itemId);
+      if (existing) return existing;
+
+      const transition = (async () => {
+        const result = await postPostponeItem(itemId, scheduled);
+        setDetailItem((current) =>
+          current?.id === result.source.id ? result.source : current
+        );
+        setWorkspaceItems((current) => ({
+          ...current,
+          items: appendWorkspaceItem(
+            replaceWorkspaceItem(current.items, result.source),
+            result.follow_up,
+          ),
+          allItems: appendWorkspaceItem(
+            replaceWorkspaceItem(current.allItems, result.source),
+            result.follow_up,
+          ),
+          tagOptions: mergeTagOptions(
+            mergeTagOptions(current.tagOptions, result.source.tags),
+            result.follow_up.tags,
+          ),
+        }));
+      })();
+      itemTransitions.current.set(itemId, transition);
+      setItemTransitionStates((current) => ({
+        ...current,
+        [itemId]: { pending: true, error: null },
+      }));
+      const clearTransition = (error: string | null) => {
+        if (itemTransitions.current.get(itemId) === transition) {
+          itemTransitions.current.delete(itemId);
+          setItemTransitionStates((current) =>
+            error
+              ? { ...current, [itemId]: { pending: false, error } }
+              : Object.fromEntries(
+                  Object.entries(current).filter(([key]) => key !== itemId),
+                ),
+          );
+        }
+      };
+      void transition.then(
+        () => clearTransition(null),
+        (cause) => clearTransition(
+          cause instanceof TodoEngineApiError
+            ? cause.detail
+            : "Could not update item.",
+        ),
+      );
+      return transition;
+    },
     workspaceItemTransitionState: (itemId) =>
       itemTransitionStates[itemId] ?? idleWorkspaceItemTransitionState,
     materializeRoutine: async (itemId, window) => {
@@ -1325,6 +1387,23 @@ function postMaterializeRoutine(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(target),
+  }).then((response) => {
+    if (!response.ok) {
+      return throwApiError(response);
+    }
+
+    return response.json();
+  });
+}
+
+function postPostponeItem(
+  itemId: string,
+  scheduled?: string,
+): Promise<PostponeResult> {
+  return fetch(`/todo-engine/items/${itemId}/postpone`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scheduled ? { scheduled } : {}),
   }).then((response) => {
     if (!response.ok) {
       return throwApiError(response);

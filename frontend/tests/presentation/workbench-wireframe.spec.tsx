@@ -2377,6 +2377,201 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("shows postpone controls only for active task and event rows across Planner views", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const responses: Record<string, unknown[]> = {
+      "/todo-engine/items?type=task": [
+        { id: "task-active", type: "task", title: "Active task", status: "active", scheduled: today },
+        { id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: today },
+        { id: "task-waiting", type: "task", title: "Waiting task", status: "waiting", scheduled: today },
+        { id: "task-paused", type: "task", title: "Paused task", status: "paused", scheduled: today },
+      ],
+      "/todo-engine/items?type=event": [
+        { id: "event-active", type: "event", title: "Active event", status: "active", scheduled: today },
+      ],
+      "/todo-engine/items?type=routine": [
+        { id: "routine-active", type: "routine", title: "Active routine", status: "active", scheduled: today },
+      ],
+      "/todo-engine/items?type=goal": [
+        { id: "goal-active", type: "goal", title: "Active goal", status: "active", horizon: "week", scheduled: testWeekStart(today) },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => responses[url] ?? [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+
+    for (const view of ["Daily", "Weekly", "Monthly"]) {
+      await user.click(screen.getByRole("button", { name: view }));
+      expect(
+        await screen.findByRole("button", { name: "Postpone Active task" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Postpone Active event" }),
+      ).toBeInTheDocument();
+    }
+
+    for (const title of [
+      "Completed task",
+      "Waiting task",
+      "Paused task",
+      "Active routine",
+      "Active goal",
+    ]) {
+      expect(screen.queryByRole("button", { name: `Postpone ${title}` })).toBeNull();
+    }
+  });
+
+  it("shares postpone pending state across duplicate Planner rows", async () => {
+    const user = userEvent.setup();
+    let resolvePostpone!: (value: Response) => void;
+    const postponeResponse = new Promise<Response>((resolve) => {
+      resolvePostpone = resolve;
+    });
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/items/task-shared/postpone") {
+        return postponeResponse;
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task"
+          ? [{
+              id: "task-shared",
+              type: "task",
+              title: "Shared task",
+              status: "active",
+              scheduled: testToday(),
+              tags: ["focus", "ops"],
+            }]
+          : [],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await screen.findByRole("button", { name: "Postpone Shared task" });
+    await user.click(screen.getByRole("button", { name: "Group Today" }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
+    await user.click(screen.getByRole("option", { name: "Tag" }));
+
+    let postponeButtons = screen.getAllByRole("button", {
+      name: "Postpone Shared task",
+    });
+    expect(postponeButtons).toHaveLength(2);
+    await user.click(postponeButtons[0]);
+
+    postponeButtons = screen.getAllByRole("button", {
+      name: "Postpone Shared task",
+    });
+    expect(postponeButtons.every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(
+      screen
+        .getAllByRole("checkbox", { name: "Complete Shared task" })
+        .every((checkbox) => checkbox.hasAttribute("disabled")),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url]) => url === "/todo-engine/items/task-shared/postpone",
+      ),
+    ).toHaveLength(1);
+
+    resolvePostpone({
+      ok: true,
+      json: async () => ({
+        source: {
+          id: "task-shared",
+          type: "task",
+          title: "Shared task",
+          status: "someday",
+          scheduled: testToday(),
+          tags: ["focus", "ops"],
+        },
+        follow_up: {
+          id: "task-follow-up",
+          type: "task",
+          title: "Shared task",
+          status: "active",
+          scheduled: testAddDays(testToday(), 1),
+          tags: ["focus", "ops"],
+        },
+      }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Postpone Shared task" }),
+      ).toBeNull();
+    });
+  });
+
+  it("postpones a task detail to the selected future date", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const tomorrow = testAddDays(today, 1);
+    const target = testAddDays(today, 4);
+    const task = {
+      id: "task-detail",
+      type: "task",
+      title: "Detail task",
+      status: "active",
+      scheduled: today,
+    };
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/todo-engine/items/task-detail/postpone") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            source: { ...task, status: "someday" },
+            follow_up: { ...task, id: "task-follow-up", scheduled: target },
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task" ? [task] : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(await screen.findByRole("button", { name: "Detail task" }));
+
+    const dateInput = screen.getByLabelText("Postpone date");
+    expect(dateInput).toHaveAttribute("min", tomorrow);
+    const postponeButton = screen.getByRole("button", { name: "Postpone to…" });
+    expect(postponeButton).toBeDisabled();
+
+    await user.type(dateInput, target);
+    await user.click(postponeButton);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-detail/postpone",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ scheduled: target }),
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Status for Detail task")).toHaveValue("someday");
+    });
+  });
+
   it("keeps a completed daily planner task checked when reopening fails", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string) => {
@@ -3711,8 +3906,7 @@ describe("WorkbenchPageClient", () => {
     const overflow = screen.getByRole("dialog", { name: `${firstWeekStart} items` });
     expect(within(overflow).queryByText("Monthly routine")).toBeNull();
     expect(
-      within(overflow)
-        .getAllByRole("button")
+      Array.from(overflow.querySelectorAll(".monthly-day-item"))
         .map((button) => button.textContent),
     ).toEqual(["Latest task", "Overflow task", "Middle event", "Earliest task"]);
 

@@ -2812,6 +2812,151 @@ describe("useWorkbenchController", () => {
     expect(result.current.workspaceItems.allItems[0]?.status).toBe("completed");
   });
 
+  it("postpones a workspace item and synchronizes the source and follow-up once", async () => {
+    const source = {
+      id: "task-1",
+      type: "task",
+      title: "One",
+      status: "active",
+      scheduled: "2026-07-24",
+      tags: ["focus"],
+    };
+    const followUp = {
+      id: "task-2",
+      type: "task",
+      title: "One",
+      status: "active",
+      scheduled: "2026-07-25",
+      tags: ["next"],
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/postpone") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({}),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            source: { ...source, status: "someday", tags: ["focus", "deferred"] },
+            follow_up: followUp,
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [source],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    act(() => result.current.openDetailView(source));
+
+    await act(async () => {
+      await result.current.postponeWorkspaceItem("task-1");
+    });
+
+    expect(result.current.workspaceItems.items.map((item) => item.id)).toEqual([
+      "task-1",
+      "task-2",
+    ]);
+    expect(result.current.workspaceItems.allItems.map((item) => item.id)).toEqual([
+      "task-1",
+      "task-2",
+    ]);
+    expect(result.current.workspaceItems.items[0]?.status).toBe("someday");
+    expect(result.current.workspaceItems.tagOptions).toEqual([
+      "deferred",
+      "focus",
+      "next",
+    ]);
+    expect(result.current.detailItem?.status).toBe("someday");
+  });
+
+  it("posts an explicit date when postponing a workspace item", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/postpone") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({ scheduled: "2026-08-01" }),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            source: {
+              id: "task-1",
+              type: "task",
+              title: "One",
+              status: "someday",
+            },
+            follow_up: {
+              id: "task-2",
+              type: "task",
+              title: "One",
+              status: "active",
+              scheduled: "2026-08-01",
+            },
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      await result.current.postponeWorkspaceItem("task-1", "2026-08-01");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/items/task-1/postpone",
+      expect.objectContaining({ body: JSON.stringify({ scheduled: "2026-08-01" }) }),
+    );
+  });
+
+  it("exposes postpone API errors through the workspace item transition state", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url === "/todo-engine/items/task-1/postpone"
+            ? {
+                ok: false,
+                status: 400,
+                json: async () => ({
+                  code: "validation_error",
+                  detail: "scheduled must be in the future",
+                }),
+              }
+            : { ok: true, json: async () => [] },
+        ),
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      await expect(
+        result.current.postponeWorkspaceItem("task-1"),
+      ).rejects.toThrow("scheduled must be in the future");
+    });
+
+    expect(result.current.workspaceItemTransitionState("task-1")).toEqual({
+      pending: false,
+      error: "scheduled must be in the future",
+    });
+  });
+
   it("replaces the routine and adds materialized tasks to all loaded items", async () => {
     const routine = {
       id: "routine-1",

@@ -257,6 +257,11 @@ export type WorkspaceItemTransitionState = {
   error: string | null;
 };
 
+export type PostponeResult = {
+  source: WorkspaceItemModel;
+  follow_up: WorkspaceItemModel;
+};
+
 export type MaterializeRoutineTarget = {
   future_occurrences: number;
 };
@@ -320,6 +325,7 @@ export type WorkbenchController = {
     itemId: string,
     action: WorkspaceItemTransitionAction,
   ) => Promise<void>;
+  postponeWorkspaceItem: (itemId: string, scheduled?: string) => Promise<void>;
   workspaceItemTransitionState: (itemId: string) => WorkspaceItemTransitionState;
   materializeRoutine: (
     itemId: string,

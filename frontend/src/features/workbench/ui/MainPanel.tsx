@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   ArrowDownUp,
   ArrowLeft,
+  CalendarClock,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -141,6 +142,7 @@ export function MainPanel({ controller }: MainPanelProps) {
 function DetailView({ controller }: MainPanelProps) {
   const item = controller.detailItem;
   const [draft, setDraft] = React.useState(() => detailDraftForItem(item));
+  const [postponeDate, setPostponeDate] = React.useState("");
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
     null,
   );
@@ -149,6 +151,7 @@ function DetailView({ controller }: MainPanelProps) {
 
   React.useEffect(() => {
     setDraft(detailDraftForItem(item));
+    setPostponeDate("");
   }, [item]);
 
   React.useEffect(() => {
@@ -164,6 +167,11 @@ function DetailView({ controller }: MainPanelProps) {
   const detailItem = item;
   const hasDraftChanges = hasDetailChanges(detailItem, draft);
   const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
+  const postponeVisible =
+    (detailItem.type === "task" || detailItem.type === "event") &&
+    detailItem.status === "active";
+  const transitionState = controller.workspaceItemTransitionState(detailItem.id);
+  const tomorrow = addDays(formatDateForPlanner(new Date()), 1);
 
   function setField(field: keyof DetailDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -290,6 +298,33 @@ function DetailView({ controller }: MainPanelProps) {
             />
           </div>
         </div>
+        {postponeVisible ? (
+          <div className="detail-postpone">
+            <label htmlFor={`postpone-${detailItem.id}`}>Postpone date</label>
+            <input
+              id={`postpone-${detailItem.id}`}
+              type="date"
+              min={tomorrow}
+              value={postponeDate}
+              disabled={transitionState.pending}
+              onChange={(event) => setPostponeDate(event.target.value)}
+            />
+            <button
+              type="button"
+              disabled={!postponeDate || transitionState.pending}
+              onClick={() => {
+                void controller
+                  .postponeWorkspaceItem(detailItem.id, postponeDate)
+                  .catch(() => undefined);
+              }}
+            >
+              Postpone to…
+            </button>
+            {transitionState.error ? (
+              <span role="alert">{transitionState.error}</span>
+            ) : null}
+          </div>
+        ) : null}
         {groups.length > 0 ? (
           <section className="linked-items" aria-label="Linked items">
             <h2>Linked items</h2>
@@ -2674,11 +2709,14 @@ function PlannerItemRow({
   item: WorkspaceItemModel;
   compact?: boolean;
 }) {
+  const transitionState = controller.workspaceItemTransitionState(item.id);
+
   return (
     <div
       className={`planner-item-row${item.status === "completed" ? " is-completed" : ""}${compact ? " is-compact" : ""}`}
     >
       <PlannerCompletionCheckbox controller={controller} item={item} />
+      <PlannerPostponeButton controller={controller} item={item} />
       <button
         className={compact ? "monthly-day-item" : "planner-item"}
         type="button"
@@ -2687,6 +2725,9 @@ function PlannerItemRow({
       >
         {item.title}
       </button>
+      {transitionState.error
+        ? <span className="planner-task-error" role="alert">{transitionState.error}</span>
+        : null}
     </div>
   );
 }
@@ -2715,19 +2756,46 @@ function PlannerCompletionCheckbox({
   };
 
   return (
-    <>
-      <input
-        aria-label={label}
-        checked={checked}
-        className="planner-task-checkbox"
-        disabled={transitionState.pending}
-        type="checkbox"
-        onChange={transition}
-      />
-      {transitionState.error
-        ? <span className="planner-task-error" role="alert">{transitionState.error}</span>
-        : null}
-    </>
+    <input
+      aria-label={label}
+      checked={checked}
+      className="planner-task-checkbox"
+      disabled={transitionState.pending}
+      type="checkbox"
+      onChange={transition}
+    />
+  );
+}
+
+function PlannerPostponeButton({
+  controller,
+  item,
+}: {
+  controller: WorkbenchController;
+  item: WorkspaceItemModel;
+}) {
+  const visible =
+    (item.type === "task" || item.type === "event") &&
+    item.status === "active";
+
+  if (!visible) return null;
+
+  const transitionState = controller.workspaceItemTransitionState(item.id);
+
+  return (
+    <button
+      type="button"
+      className="planner-postpone-button"
+      aria-label={`Postpone ${item.title}`}
+      title={`Postpone ${item.title}`}
+      disabled={transitionState.pending}
+      onClick={() => {
+        if (transitionState.pending) return;
+        void controller.postponeWorkspaceItem(item.id).catch(() => undefined);
+      }}
+    >
+      <CalendarClock size={14} aria-hidden="true" />
+    </button>
   );
 }
 
