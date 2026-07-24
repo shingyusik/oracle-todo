@@ -1,4 +1,4 @@
-use super::{TodoService, format_time, generated_by_routine};
+use super::{TodoService, format_time, generated_by_routine, parse_day};
 use crate::application::error::{TodoError, TodoResult};
 use crate::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
 
@@ -80,6 +80,90 @@ impl TodoService {
             return self.get(&resumed.id);
         }
         Ok(resumed)
+    }
+
+    pub fn postpone(
+        &mut self,
+        item_id: &str,
+        target_date: &str,
+        today: &str,
+        reason: Option<&str>,
+    ) -> TodoResult<(TodoItem, TodoItem)> {
+        let target_date = parse_day(target_date)?;
+        let today = parse_day(today)?;
+        if target_date <= today {
+            return Err(TodoError::Validation(
+                "Postpone target date must be later than today".to_string(),
+            ));
+        }
+
+        let mut source = self.get(item_id)?;
+        if !matches!(source.item_type, ItemType::Task | ItemType::Event) {
+            return Err(TodoError::Policy(
+                "Only tasks and events can be postponed".to_string(),
+            ));
+        }
+        if !matches!(
+            source.status,
+            ItemStatus::Active | ItemStatus::Waiting | ItemStatus::Paused
+        ) {
+            return Err(TodoError::Policy(format!(
+                "Cannot postpone item in status {}",
+                source.status.as_str()
+            )));
+        }
+
+        let follow_up_id = self.next_id(match source.item_type {
+            ItemType::Task => "task",
+            ItemType::Event => "evt",
+            _ => unreachable!("postpone item type checked above"),
+        });
+        let generated_routine_id = generated_by_routine(&source)
+            .then(|| source.routine_id.clone())
+            .flatten();
+        let source_before = Some(serde_json::to_value(&source).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before postpone: {error}"))
+        })?);
+        let now = self.next_now();
+
+        let mut follow_up = source.clone();
+        follow_up.id = follow_up_id;
+        follow_up.status = ItemStatus::Active;
+        follow_up.scheduled = Some(target_date.to_string());
+        follow_up.routine_id = None;
+        follow_up.occurrence_key = None;
+        follow_up.completed_at = None;
+        follow_up.archived_at = None;
+        follow_up.last_materialized_at = None;
+        follow_up.created_at = now;
+        follow_up.updated_at = now;
+        follow_up.metadata.remove("generated_by");
+        follow_up.metadata.insert(
+            "postponed_from".to_string(),
+            serde_json::Value::String(source.id.clone()),
+        );
+
+        source.status = ItemStatus::Someday;
+        source.archived_at = Some(now);
+        source.updated_at = now;
+        source.metadata.insert(
+            "postponed_to".to_string(),
+            serde_json::Value::String(follow_up.id.clone()),
+        );
+
+        let mut stored = self.store_items_and_events(vec![
+            (Actor::User, "postpone", source_before, source, reason),
+            (Actor::User, "postpone_follow_up", None, follow_up, reason),
+        ])?;
+        let follow_up = stored.pop().expect("paired postpone write has follow-up");
+        let source = stored.pop().expect("paired postpone write has source");
+
+        if let Some(routine_id) = generated_routine_id {
+            self.record_generated_task_occurrence(&source, Actor::User, reason)?;
+            self.fill_routine_to_target(&routine_id, today)?;
+        }
+
+        Ok((source, follow_up))
     }
 
     pub fn complete(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {

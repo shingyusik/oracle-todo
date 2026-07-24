@@ -265,3 +265,36 @@ fn completion_records_occurrence_history_before_replenishing() {
     );
     assert_eq!(tasks(&mut service, &routine.id).len(), 2);
 }
+
+#[test]
+fn postponing_generated_task_records_occurrence_and_restores_open_target() {
+    let mut service = TodoService::in_memory();
+    let routine = routine(&mut service, "single_open");
+    service.materialize_routines("2026-05-31").unwrap();
+    let generated = tasks(&mut service, &routine.id).remove(0);
+
+    let (source, follow_up) = service
+        .postpone(&generated.id, "2026-06-01", "2026-05-31", None)
+        .unwrap();
+
+    assert_eq!(source.status, ItemStatus::Someday);
+    assert_eq!(
+        service.get(&routine.id).unwrap().metadata["occurrences"]
+            [generated.occurrence_key.as_ref().unwrap()]["status"],
+        "someday"
+    );
+    assert!(follow_up.routine_id.is_none());
+    assert!(follow_up.occurrence_key.is_none());
+    assert!(follow_up.metadata.get("generated_by").is_none());
+    assert_eq!(follow_up.scheduled.as_deref(), Some("2026-06-01"));
+
+    let generated_tasks = tasks(&mut service, &routine.id);
+    assert_eq!(generated_tasks.len(), 2);
+    let replenished = generated_tasks
+        .iter()
+        .find(|task| task.status == ItemStatus::Active)
+        .unwrap();
+    assert_eq!(replenished.occurrence_key.as_deref(), Some("2026-06-01"));
+    assert_eq!(replenished.routine_id.as_deref(), Some(routine.id.as_str()));
+    assert_eq!(replenished.metadata["generated_by"], "routine");
+}

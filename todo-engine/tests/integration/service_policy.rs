@@ -477,3 +477,264 @@ fn relationships_must_reference_expected_item_types() {
         TodoError::Policy(format!("Routine must be routine: {}", project.id))
     );
 }
+
+#[test]
+fn postpone_task_preserves_business_fields_and_emits_paired_audit_events() {
+    let mut service = TodoService::in_memory();
+    let area = service
+        .create_area(CreateArea {
+            title: "업무".to_string(),
+            review_cycle: None,
+            standard: None,
+            note: None,
+            tags: Vec::new(),
+        })
+        .unwrap();
+    let project = service
+        .propose_project(ProposeProject {
+            title: "출시".to_string(),
+            area: Some(area.id.clone()),
+            definition_of_done: Some("배포 완료".to_string()),
+            actor: Actor::User,
+            ..Default::default()
+        })
+        .unwrap();
+    let task = service
+        .propose_task(
+            "릴리스 확인",
+            ProposeTask {
+                actor: Actor::Agent,
+                area: Some(area.id.clone()),
+                project_id: Some(project.id.clone()),
+                due: Some("2026-06-30".to_string()),
+                scheduled: Some("2026-05-31".to_string()),
+                priority: Some(2),
+                description: Some("체크리스트를 검토한다".to_string()),
+                note: Some("배포 창 확인".to_string()),
+                tags: vec!["release".to_string(), "urgent".to_string()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let event_count = service.events().len();
+
+    let (source, follow_up) = service
+        .postpone(&task.id, "2026-06-01", "2026-05-31", Some("다음 날 처리"))
+        .unwrap();
+
+    assert_eq!(source.status, ItemStatus::Someday);
+    assert_eq!(source.scheduled.as_deref(), Some("2026-05-31"));
+    assert!(source.archived_at.is_some());
+    assert_eq!(source.metadata["postponed_to"], follow_up.id);
+    assert_eq!(follow_up.item_type, ItemType::Task);
+    assert_eq!(follow_up.status, ItemStatus::Active);
+    assert_eq!(follow_up.title, task.title);
+    assert_eq!(follow_up.description, task.description);
+    assert_eq!(follow_up.note, task.note);
+    assert_eq!(follow_up.tags, task.tags);
+    assert_eq!(follow_up.priority, task.priority);
+    assert_eq!(follow_up.area_id, task.area_id);
+    assert_eq!(follow_up.project_id, task.project_id);
+    assert_eq!(follow_up.parent_id, task.parent_id);
+    assert_eq!(follow_up.due, task.due);
+    assert_eq!(follow_up.scheduled.as_deref(), Some("2026-06-01"));
+    assert!(follow_up.completed_at.is_none());
+    assert!(follow_up.archived_at.is_none());
+    assert_eq!(follow_up.metadata["postponed_from"], task.id);
+    assert_eq!(
+        service.events()[event_count..]
+            .iter()
+            .map(|event| event.action.as_str())
+            .collect::<Vec<_>>(),
+        vec!["postpone", "postpone_follow_up"]
+    );
+    assert!(
+        service.events()[event_count..]
+            .iter()
+            .all(|event| event.reason.as_deref() == Some("다음 날 처리"))
+    );
+}
+
+#[test]
+fn postpone_event_keeps_event_fields_and_changes_only_its_schedule() {
+    let mut service = TodoService::in_memory();
+    let event = service
+        .propose_event(ProposeEvent {
+            title: "고객 미팅".to_string(),
+            actor: Actor::User,
+            scheduled: Some("2026-05-31T10:00:00".to_string()),
+            due: Some("2026-06-07".to_string()),
+            priority: Some(1),
+            description: Some("분기 리뷰".to_string()),
+            location: Some("회의실 A".to_string()),
+            participants: vec!["민수".to_string()],
+            commitment_type: "appointment".to_string(),
+            note: Some("자료 준비".to_string()),
+            tags: vec!["customer".to_string()],
+            ..Default::default()
+        })
+        .unwrap();
+
+    let (source, follow_up) = service
+        .postpone(&event.id, "2026-06-01", "2026-05-31", None)
+        .unwrap();
+
+    assert_eq!(source.status, ItemStatus::Someday);
+    assert_eq!(source.scheduled.as_deref(), Some("2026-05-31T10:00:00"));
+    assert_eq!(follow_up.item_type, ItemType::Event);
+    assert_eq!(follow_up.status, ItemStatus::Active);
+    assert_eq!(follow_up.scheduled.as_deref(), Some("2026-06-01"));
+    assert_eq!(follow_up.due, event.due);
+    assert_eq!(follow_up.description, event.description);
+    assert_eq!(follow_up.note, event.note);
+    assert_eq!(follow_up.tags, event.tags);
+    assert_eq!(follow_up.metadata["location"], "회의실 A");
+    assert_eq!(follow_up.metadata["participants"][0], "민수");
+    assert_eq!(follow_up.metadata["postponed_from"], event.id);
+}
+
+#[test]
+fn postponing_a_follow_up_builds_a_three_item_chain() {
+    let mut service = TodoService::in_memory();
+    let original = service
+        .propose_task(
+            "연쇄 연기",
+            ProposeTask {
+                scheduled: Some("2026-05-31".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let (first_source, first_follow_up) = service
+        .postpone(&original.id, "2026-06-01", "2026-05-31", None)
+        .unwrap();
+    let (second_source, second_follow_up) = service
+        .postpone(&first_follow_up.id, "2026-06-02", "2026-06-01", None)
+        .unwrap();
+
+    assert_eq!(first_source.status, ItemStatus::Someday);
+    assert_eq!(first_source.metadata["postponed_to"], first_follow_up.id);
+    assert_eq!(second_source.status, ItemStatus::Someday);
+    assert_eq!(second_source.scheduled.as_deref(), Some("2026-06-01"));
+    assert_eq!(second_source.metadata["postponed_from"], original.id);
+    assert_eq!(second_source.metadata["postponed_to"], second_follow_up.id);
+    assert_eq!(
+        second_follow_up.metadata["postponed_from"],
+        first_follow_up.id
+    );
+    assert_eq!(second_follow_up.scheduled.as_deref(), Some("2026-06-02"));
+}
+
+#[test]
+fn paused_task_can_be_postponed() {
+    let mut service = TodoService::in_memory();
+    let task = service
+        .propose_task(
+            "잠시 멈춘 일",
+            ProposeTask {
+                scheduled: Some("2026-05-31".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    service.pause(&task.id, None).unwrap();
+
+    let (source, follow_up) = service
+        .postpone(&task.id, "2026-06-01", "2026-05-31", None)
+        .unwrap();
+
+    assert_eq!(source.status, ItemStatus::Someday);
+    assert_eq!(follow_up.status, ItemStatus::Active);
+}
+
+#[test]
+fn postpone_rejects_invalid_or_non_future_dates() {
+    let mut service = TodoService::in_memory();
+    let task = service
+        .propose_task("날짜 검증", Default::default())
+        .unwrap();
+
+    for (target, today) in [("not-a-date", "2026-05-31"), ("2026-06-01", "not-a-date")] {
+        assert!(matches!(
+            service.postpone(&task.id, target, today, None),
+            Err(TodoError::Validation(_))
+        ));
+    }
+    for target in ["2026-05-31", "2026-05-30"] {
+        assert_eq!(
+            service
+                .postpone(&task.id, target, "2026-05-31", None)
+                .unwrap_err(),
+            TodoError::Validation("Postpone target date must be later than today".to_string())
+        );
+    }
+}
+
+#[test]
+fn postpone_rejects_terminal_sources() {
+    let mut service = TodoService::in_memory();
+    let completed = service.propose_task("완료", Default::default()).unwrap();
+    let completed = service.complete(&completed.id, None).unwrap();
+    let cancelled = service.propose_task("취소", Default::default()).unwrap();
+    let cancelled = service.cancel(&cancelled.id, None).unwrap();
+    let dropped = service.propose_task("중단", Default::default()).unwrap();
+    let dropped = service.drop(&dropped.id, None).unwrap();
+    let archived = service.propose_task("보관", Default::default()).unwrap();
+    let archived = service.archive(&archived.id, None).unwrap();
+    let postponed = service
+        .propose_task("이미 연기", Default::default())
+        .unwrap();
+    let (postponed, _) = service
+        .postpone(&postponed.id, "2026-06-01", "2026-05-31", None)
+        .unwrap();
+
+    for item in [completed, cancelled, dropped, archived, postponed] {
+        assert_eq!(
+            service
+                .postpone(&item.id, "2026-06-01", "2026-05-31", None)
+                .unwrap_err(),
+            TodoError::Policy(format!(
+                "Cannot postpone item in status {}",
+                item.status.as_str()
+            ))
+        );
+    }
+}
+
+#[test]
+fn postpone_rejects_unsupported_item_types() {
+    let mut service = TodoService::in_memory();
+    let area = service
+        .create_area(CreateArea {
+            title: "영역".to_string(),
+            review_cycle: None,
+            standard: None,
+            note: None,
+            tags: Vec::new(),
+        })
+        .unwrap();
+    let project = service
+        .propose_project(ProposeProject {
+            title: "프로젝트".to_string(),
+            definition_of_done: Some("완료".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+    let routine = service
+        .propose_routine(ProposeRoutine {
+            title: "루틴".to_string(),
+            recurrence_rule: Some("daily".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    for item in [area, project, routine] {
+        assert_eq!(
+            service
+                .postpone(&item.id, "2026-06-01", "2026-05-31", None)
+                .unwrap_err(),
+            TodoError::Policy("Only tasks and events can be postponed".to_string())
+        );
+    }
+}
