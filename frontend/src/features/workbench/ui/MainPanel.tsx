@@ -143,9 +143,11 @@ function DetailView({ controller }: MainPanelProps) {
   const item = controller.detailItem;
   const [draft, setDraft] = React.useState(() => detailDraftForItem(item));
   const [postponeDate, setPostponeDate] = React.useState("");
+  const [detailPostponePending, setDetailPostponePending] = React.useState(false);
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
     null,
   );
+  const detailPostponePromiseRef = useRef<Promise<void> | null>(null);
   const cancelLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
   const discardLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
 
@@ -194,14 +196,31 @@ function DetailView({ controller }: MainPanelProps) {
     }
   }
 
-  async function postponeDetail() {
+  function postponeDetail(): Promise<void> {
+    const pending = detailPostponePromiseRef.current;
+    if (pending) {
+      return pending;
+    }
     if (!postponeDateValid || transitionState.pending) {
-      return;
+      return Promise.resolve();
     }
-    if (hasDraftChanges) {
-      await saveDraft();
-    }
-    await controller.postponeWorkspaceItem(detailItem.id, postponeDate);
+
+    const sequence = (async () => {
+      if (hasDraftChanges) {
+        await saveDraft();
+      }
+      await controller.postponeWorkspaceItem(detailItem.id, postponeDate);
+    })();
+    detailPostponePromiseRef.current = sequence;
+    setDetailPostponePending(true);
+    const clearPending = () => {
+      if (detailPostponePromiseRef.current === sequence) {
+        detailPostponePromiseRef.current = null;
+        setDetailPostponePending(false);
+      }
+    };
+    void sequence.then(clearPending, clearPending);
+    return sequence;
   }
 
   function openLinkedItem(nextItem: WorkspaceItemModel) {
@@ -317,12 +336,16 @@ function DetailView({ controller }: MainPanelProps) {
               type="date"
               min={tomorrow}
               value={postponeDate}
-              disabled={transitionState.pending}
+              disabled={detailPostponePending || transitionState.pending}
               onChange={(event) => setPostponeDate(event.target.value)}
             />
             <button
               type="button"
-              disabled={!postponeDateValid || transitionState.pending}
+              disabled={
+                !postponeDateValid ||
+                detailPostponePending ||
+                transitionState.pending
+              }
               onClick={() => {
                 void postponeDetail().catch(() => undefined);
               }}

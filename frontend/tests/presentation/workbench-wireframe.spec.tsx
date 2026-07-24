@@ -2695,6 +2695,84 @@ describe("WorkbenchPageClient", () => {
     });
   });
 
+  it("coalesces repeated dirty detail postpone clicks while the draft save is pending", async () => {
+    const user = userEvent.setup();
+    const target = testAddDays(testToday(), 3);
+    const task = {
+      id: "task-delayed-dirty-postpone",
+      type: "task",
+      title: "Original title",
+      status: "active",
+    };
+    let resolvePatch!: (response: Response) => void;
+    const patchResponse = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === `/todo-engine/items/${task.id}` && init?.method === "PATCH") {
+        return patchResponse;
+      }
+      if (url === `/todo-engine/items/${task.id}/postpone`) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            source: { ...task, title: "Saved title", status: "someday" },
+            follow_up: {
+              ...task,
+              id: "task-delayed-dirty-postpone-follow-up",
+              title: "Saved title",
+              scheduled: target,
+            },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task" ? [task] : [],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(
+      await screen.findByRole("button", { name: `Open details for ${task.title}` }),
+    );
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Saved title");
+    const dateInput = screen.getByLabelText("Postpone date");
+    await user.type(dateInput, target);
+    const postponeButton = screen.getByRole("button", { name: "Postpone to…" });
+
+    fireEvent.click(postponeButton);
+    fireEvent.click(postponeButton);
+
+    expect(dateInput).toBeDisabled();
+    expect(postponeButton).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(0);
+
+    resolvePatch({
+      ok: true,
+      json: async () => ({ ...task, title: "Saved title" }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+      ).toHaveLength(1);
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
+      ).toHaveLength(1);
+    });
+  });
+
   it("does not postpone a task detail to today or a past date", async () => {
     const user = userEvent.setup();
     const today = testToday();
