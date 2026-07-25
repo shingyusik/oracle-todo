@@ -1,6 +1,12 @@
-use super::{TodoService, format_time, generated_by_routine, parse_day};
+use super::{ItemEventWrite, TodoService, format_time, generated_by_routine, parse_day};
 use crate::application::error::{TodoError, TodoResult};
 use crate::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
+
+struct MissedSourcePreparation<'a> {
+    source: TodoItem,
+    follow_up_id: Option<String>,
+    writes: Vec<ItemEventWrite<'a>>,
+}
 
 impl TodoService {
     pub fn pause(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
@@ -97,37 +103,15 @@ impl TodoService {
             ));
         }
 
-        let mut source = self.get(item_id)?;
-        if !matches!(source.item_type, ItemType::Task | ItemType::Event) {
-            return Err(TodoError::Policy(
-                "Only tasks and events can be postponed".to_string(),
-            ));
-        }
-        if !matches!(
-            source.status,
-            ItemStatus::Active | ItemStatus::Waiting | ItemStatus::Paused
-        ) {
-            return Err(TodoError::Policy(format!(
-                "Cannot postpone item in status {}",
-                source.status.as_str()
-            )));
-        }
+        let mut preparation =
+            self.prepare_missed_source(item_id, today, "postpone", reason, true)?;
+        let mut follow_up = preparation.source.clone();
+        follow_up.id = preparation
+            .follow_up_id
+            .take()
+            .expect("postpone preparation must create a follow-up id");
+        let now = preparation.source.updated_at;
 
-        let follow_up_id = self.next_id(match source.item_type {
-            ItemType::Task => "task",
-            ItemType::Event => "evt",
-            _ => unreachable!("postpone item type checked above"),
-        });
-        let generated_routine_id = generated_by_routine(&source)
-            .then(|| source.routine_id.clone())
-            .flatten();
-        let source_before = Some(serde_json::to_value(&source).map_err(|error| {
-            TodoError::Internal(format!("failed to snapshot item before postpone: {error}"))
-        })?);
-        let now = self.next_now();
-
-        let mut follow_up = source.clone();
-        follow_up.id = follow_up_id;
         follow_up.status = ItemStatus::Active;
         follow_up.scheduled = Some(target_date.to_string());
         follow_up.routine_id = None;
@@ -138,37 +122,85 @@ impl TodoService {
         follow_up.created_at = now;
         follow_up.updated_at = now;
         follow_up.metadata.remove("generated_by");
+        follow_up.metadata.remove("missed_to");
         follow_up.metadata.insert(
             "postponed_from".to_string(),
-            serde_json::Value::String(source.id.clone()),
+            serde_json::Value::String(preparation.source.id.clone()),
         );
 
-        source.status = ItemStatus::Missed;
-        source.archived_at = Some(now);
-        source.updated_at = now;
-        source.metadata.insert(
-            "postponed_to".to_string(),
-            serde_json::Value::String(follow_up.id.clone()),
-        );
-        let postponed_source = source.clone();
-
-        let mut writes = vec![
-            (Actor::User, "postpone", source_before, source, reason),
+        preparation.writes.insert(
+            1,
             (Actor::User, "postpone_follow_up", None, follow_up, reason),
-        ];
-
-        if generated_routine_id.is_some() {
-            writes.extend(self.prepare_postpone_routine_writes(
-                &postponed_source,
-                today,
-                reason,
-            )?);
-        }
-
-        let stored = self.store_items_and_events(writes)?;
+        );
+        let stored = self.store_items_and_events(preparation.writes)?;
         let source = stored[0].clone();
         let follow_up = stored[1].clone();
         Ok((source, follow_up))
+    }
+
+    pub fn miss(
+        &mut self,
+        item_id: &str,
+        today: &str,
+        reason: Option<&str>,
+    ) -> TodoResult<TodoItem> {
+        let today = parse_day(today)?;
+        let preparation = self.prepare_missed_source(item_id, today, "miss", reason, false)?;
+        Ok(self.store_items_and_events(preparation.writes)?.remove(0))
+    }
+
+    fn prepare_missed_source<'a>(
+        &mut self,
+        item_id: &str,
+        today: time::Date,
+        action: &'a str,
+        reason: Option<&'a str>,
+        create_follow_up: bool,
+    ) -> TodoResult<MissedSourcePreparation<'a>> {
+        let mut source = self.get(item_id)?;
+        let (unsupported_message, status_verb) = match action {
+            "miss" => ("Only tasks and events can be missed", "miss"),
+            "postpone" => ("Only tasks and events can be postponed", "postpone"),
+            _ => unreachable!("missed source preparation only supports miss and postpone"),
+        };
+        if !matches!(source.item_type, ItemType::Task | ItemType::Event) {
+            return Err(TodoError::Policy(unsupported_message.to_string()));
+        }
+        if source.status != ItemStatus::Active {
+            return Err(TodoError::Policy(format!(
+                "Cannot {status_verb} item in status {}",
+                source.status.as_str()
+            )));
+        }
+
+        let follow_up_id = create_follow_up.then(|| {
+            self.next_id(match source.item_type {
+                ItemType::Task => "task",
+                ItemType::Event => "evt",
+                _ => unreachable!("missed source item type checked above"),
+            })
+        });
+        let before = Some(serde_json::to_value(&source).map_err(|error| {
+            TodoError::Internal(format!("failed to snapshot item before {action}: {error}"))
+        })?);
+        let now = self.next_now();
+        source.status = ItemStatus::Missed;
+        source.archived_at = None;
+        source.updated_at = now;
+        if let Some(follow_up_id) = &follow_up_id {
+            source.metadata.insert(
+                "missed_to".to_string(),
+                serde_json::Value::String(follow_up_id.clone()),
+            );
+        }
+
+        let mut writes = vec![(Actor::User, action, before, source.clone(), reason)];
+        writes.extend(self.prepare_missed_routine_writes(&source, today, reason)?);
+        Ok(MissedSourcePreparation {
+            source,
+            follow_up_id,
+            writes,
+        })
     }
 
     pub fn complete(&mut self, item_id: &str, _reason: Option<&str>) -> TodoResult<TodoItem> {

@@ -268,11 +268,62 @@ fn completion_records_occurrence_history_before_replenishing() {
 }
 
 #[test]
+fn missing_generated_task_records_occurrence_and_restores_open_target() {
+    let mut service = TodoService::in_memory();
+    let routine = routine(&mut service, "single_open");
+    service.materialize_routines("2026-05-31").unwrap();
+    let generated = tasks(&mut service, &routine.id).remove(0);
+    let event_count = service.events().len();
+
+    let source = service
+        .miss(&generated.id, "2026-05-31", Some("수행하지 못함"))
+        .unwrap();
+
+    assert_eq!(source.status, ItemStatus::Missed);
+    assert!(source.archived_at.is_none());
+    assert_eq!(
+        service.get(&routine.id).unwrap().metadata["occurrences"]
+            [generated.occurrence_key.as_ref().unwrap()]["status"],
+        "missed"
+    );
+
+    let generated_tasks = tasks(&mut service, &routine.id);
+    assert_eq!(generated_tasks.len(), 2);
+    let replenished = generated_tasks
+        .iter()
+        .find(|task| task.status == ItemStatus::Active)
+        .unwrap();
+    assert_eq!(replenished.occurrence_key.as_deref(), Some("2026-06-01"));
+    assert_eq!(replenished.routine_id.as_deref(), Some(routine.id.as_str()));
+    assert_eq!(replenished.metadata["generated_by"], "routine");
+    assert_eq!(
+        generated_tasks
+            .iter()
+            .filter(|task| task.routine_id.is_none())
+            .count(),
+        0
+    );
+    assert_eq!(
+        service.events()[event_count..]
+            .iter()
+            .map(|event| event.action.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "miss",
+            "routine_occurrence_missed",
+            "materialize_routine_task",
+            "materialize_routine",
+        ]
+    );
+}
+
+#[test]
 fn postponing_generated_task_records_occurrence_and_restores_open_target() {
     let mut service = TodoService::in_memory();
     let routine = routine(&mut service, "single_open");
     service.materialize_routines("2026-05-31").unwrap();
     let generated = tasks(&mut service, &routine.id).remove(0);
+    let event_count = service.events().len();
 
     let (source, follow_up) = service
         .postpone(&generated.id, "2026-06-01", "2026-05-31", None)
@@ -298,6 +349,75 @@ fn postponing_generated_task_records_occurrence_and_restores_open_target() {
     assert_eq!(replenished.occurrence_key.as_deref(), Some("2026-06-01"));
     assert_eq!(replenished.routine_id.as_deref(), Some(routine.id.as_str()));
     assert_eq!(replenished.metadata["generated_by"], "routine");
+    assert_eq!(
+        service.events()[event_count..]
+            .iter()
+            .map(|event| event.action.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "postpone",
+            "postpone_follow_up",
+            "routine_occurrence_missed",
+            "materialize_routine_task",
+            "materialize_routine",
+        ]
+    );
+}
+
+#[test]
+fn failed_routine_replenishment_rolls_back_the_entire_miss() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("todo.sqlite");
+    let db_path = db_path.to_str().unwrap();
+    let conn = connect(db_path).unwrap();
+    init_schema(&conn).unwrap();
+    let mut service = TodoService::persistent(SqliteTodoRepository::new(conn));
+    let routine = routine(&mut service, "single_open");
+    service.materialize_routines("2026-05-31").unwrap();
+    let generated = tasks(&mut service, &routine.id).remove(0);
+
+    let failure_injector = connect(db_path).unwrap();
+    failure_injector
+        .execute_batch(
+            r#"
+            CREATE TRIGGER fail_miss_replenishment
+            BEFORE INSERT ON events
+            WHEN NEW.action = 'materialize_routine_task'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected miss replenish failure');
+            END;
+            "#,
+        )
+        .unwrap();
+    drop(failure_injector);
+
+    assert!(matches!(
+        service.miss(&generated.id, "2026-05-31", None),
+        Err(TodoError::Storage(message)) if message.contains("injected miss replenish failure")
+    ));
+    drop(service);
+
+    let mut repository = SqliteTodoRepository::new(connect(db_path).unwrap());
+    let persisted_source = repository.get_item(&generated.id).unwrap().unwrap();
+    let persisted_routine = repository.get_item(&routine.id).unwrap().unwrap();
+    let persisted_tasks = repository
+        .list_items(ListFilter {
+            item_type: Some(ItemType::Task),
+            include_archived: true,
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(persisted_source.status, ItemStatus::Active);
+    assert_eq!(persisted_tasks, vec![persisted_source]);
+    assert!(persisted_routine.metadata.get("occurrences").is_none());
+    assert!(
+        repository
+            .list_events_for_item(&generated.id)
+            .unwrap()
+            .iter()
+            .all(|event| event.action != "miss")
+    );
 }
 
 #[test]

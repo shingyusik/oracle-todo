@@ -177,7 +177,7 @@ impl TodoService {
         task
     }
 
-    pub(super) fn prepare_postpone_routine_writes<'a>(
+    pub(super) fn prepare_missed_routine_writes<'a>(
         &mut self,
         source: &TodoItem,
         today: Date,
@@ -190,7 +190,7 @@ impl TodoService {
         };
         let mut writes = vec![(
             Actor::User,
-            "routine_occurrence_someday",
+            "routine_occurrence_missed",
             occurrence_before,
             routine.clone(),
             reason,

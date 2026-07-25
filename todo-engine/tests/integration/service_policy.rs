@@ -5,6 +5,40 @@ use todo_engine::application::service::{
 use todo_engine::domain::{Actor, ItemStatus, ItemType, terminal_status};
 
 #[test]
+fn miss_task_records_missed_status_without_archiving() {
+    let mut service = TodoService::in_memory();
+    let task = service
+        .propose_task(
+            "놓친 작업",
+            ProposeTask {
+                scheduled: Some("2026-07-25".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let event_count = service.events().len();
+
+    let missed = service
+        .miss(&task.id, "2026-07-25", Some("마감 시간을 놓침"))
+        .unwrap();
+
+    assert_eq!(missed.status, ItemStatus::Missed);
+    assert!(missed.archived_at.is_none());
+    assert_eq!(missed.scheduled.as_deref(), Some("2026-07-25"));
+    assert_eq!(
+        service.events()[event_count..]
+            .iter()
+            .map(|event| event.action.as_str())
+            .collect::<Vec<_>>(),
+        vec!["miss"]
+    );
+    assert_eq!(
+        service.events()[event_count].reason.as_deref(),
+        Some("마감 시간을 놓침")
+    );
+}
+
+#[test]
 fn area_titles_resolve_in_service() {
     let mut service = TodoService::in_memory();
     let area = service
@@ -524,8 +558,8 @@ fn postpone_task_preserves_business_fields_and_emits_paired_audit_events() {
 
     assert_eq!(source.status, ItemStatus::Missed);
     assert_eq!(source.scheduled.as_deref(), Some("2026-05-31"));
-    assert!(source.archived_at.is_some());
-    assert_eq!(source.metadata["postponed_to"], follow_up.id);
+    assert!(source.archived_at.is_none());
+    assert_eq!(source.metadata["missed_to"], follow_up.id);
     assert_eq!(follow_up.item_type, ItemType::Task);
     assert_eq!(follow_up.status, ItemStatus::Active);
     assert_eq!(follow_up.title, task.title);
@@ -538,6 +572,12 @@ fn postpone_task_preserves_business_fields_and_emits_paired_audit_events() {
     assert_eq!(follow_up.parent_id, task.parent_id);
     assert_eq!(follow_up.due, task.due);
     assert_eq!(follow_up.scheduled.as_deref(), Some("2026-06-01"));
+    assert!(follow_up.routine_id.is_none());
+    assert!(follow_up.occurrence_key.is_none());
+    assert_ne!(
+        follow_up.metadata.get("generated_by"),
+        Some(&serde_json::json!("routine"))
+    );
     assert!(follow_up.completed_at.is_none());
     assert!(follow_up.archived_at.is_none());
     assert_eq!(follow_up.metadata["postponed_from"], task.id);
@@ -614,11 +654,11 @@ fn postponing_a_follow_up_builds_a_three_item_chain() {
         .unwrap();
 
     assert_eq!(first_source.status, ItemStatus::Missed);
-    assert_eq!(first_source.metadata["postponed_to"], first_follow_up.id);
+    assert_eq!(first_source.metadata["missed_to"], first_follow_up.id);
     assert_eq!(second_source.status, ItemStatus::Missed);
     assert_eq!(second_source.scheduled.as_deref(), Some("2026-06-01"));
     assert_eq!(second_source.metadata["postponed_from"], original.id);
-    assert_eq!(second_source.metadata["postponed_to"], second_follow_up.id);
+    assert_eq!(second_source.metadata["missed_to"], second_follow_up.id);
     assert_eq!(
         second_follow_up.metadata["postponed_from"],
         first_follow_up.id
@@ -627,9 +667,9 @@ fn postponing_a_follow_up_builds_a_three_item_chain() {
 }
 
 #[test]
-fn paused_task_can_be_postponed() {
+fn miss_and_postpone_reject_non_active_tasks() {
     let mut service = TodoService::in_memory();
-    let task = service
+    let waiting = service
         .propose_task(
             "잠시 멈춘 일",
             ProposeTask {
@@ -638,14 +678,30 @@ fn paused_task_can_be_postponed() {
             },
         )
         .unwrap();
-    service.pause(&task.id, None).unwrap();
-
-    let (source, follow_up) = service
-        .postpone(&task.id, "2026-06-01", "2026-05-31", None)
+    let waiting = service.pause(&waiting.id, None).unwrap();
+    let completed = service
+        .propose_task("완료한 일", Default::default())
         .unwrap();
+    let completed = service.complete(&completed.id, None).unwrap();
 
-    assert_eq!(source.status, ItemStatus::Missed);
-    assert_eq!(follow_up.status, ItemStatus::Active);
+    for item in [waiting, completed] {
+        assert_eq!(
+            service.miss(&item.id, "2026-05-31", None).unwrap_err(),
+            TodoError::Policy(format!(
+                "Cannot miss item in status {}",
+                item.status.as_str()
+            ))
+        );
+        assert_eq!(
+            service
+                .postpone(&item.id, "2026-06-01", "2026-05-31", None)
+                .unwrap_err(),
+            TodoError::Policy(format!(
+                "Cannot postpone item in status {}",
+                item.status.as_str()
+            ))
+        );
+    }
 }
 
 #[test]
@@ -703,7 +759,7 @@ fn postpone_rejects_terminal_sources() {
 }
 
 #[test]
-fn postpone_rejects_unsupported_item_types() {
+fn miss_and_postpone_reject_unsupported_item_types() {
     let mut service = TodoService::in_memory();
     let area = service
         .create_area(CreateArea {
@@ -730,6 +786,10 @@ fn postpone_rejects_unsupported_item_types() {
         .unwrap();
 
     for item in [area, project, routine] {
+        assert_eq!(
+            service.miss(&item.id, "2026-05-31", None).unwrap_err(),
+            TodoError::Policy("Only tasks and events can be missed".to_string())
+        );
         assert_eq!(
             service
                 .postpone(&item.id, "2026-06-01", "2026-05-31", None)
