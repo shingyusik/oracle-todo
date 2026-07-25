@@ -79,14 +79,15 @@ response is missing, malformed, or unavailable, and sends writes on a best-effor
 `POST /items/{id}/postpone`
 
 - Accepts an active task or event.
-- Requires a JSON object with `scheduled`; `reason` is optional. A missing `scheduled` value or
-  malformed JSON returns HTTP `400` with `code=validation_error`. The server does not derive a
-  date, so browser scheduling cannot shift at a UTC/local-calendar boundary.
-- `scheduled` must use `YYYY-MM-DD` and be later than the local current date;
-  today, a past date, or an invalid date returns HTTP `400`.
+- Requires a JSON object with browser- or automation-supplied `today` and `scheduled`; `reason`
+  is optional. A missing required value or malformed JSON returns HTTP `400` with
+  `code=validation_error`. The server does not derive either calendar date.
+- `today` and `scheduled` must use `YYYY-MM-DD`, and `scheduled` must be later than `today`.
+  An equal, earlier, or invalid date returns HTTP `400`.
 - Returns `{"source": TodoItem, "follow_up": TodoItem}`. The source has `status=missed` and
   retains its original `scheduled` value; the follow-up has `status=active` and the requested
-  date.
+  date. The source records `metadata.postponed_to=<follow_up.id>` and the follow-up records
+  `metadata.postponed_from=<source.id>`.
 - The source remains present in ordinary list results and is explicitly filterable through
   `GET /items?status=missed`; active-work views exclude it.
 - For a routine-generated task, the missed occurrence is recorded, the routine's configured
@@ -131,7 +132,8 @@ routine using stored targets, this acts only on `{id}`.
   `commitment_type?` (default `appointment`), `tags?`, `actor?` (default `agent`).
 - **`ReasonBody`** — `reason?`. Optional on the transition endpoints that accept it.
 - **`MissBody`** — `reason?`.
-- **`PostponeBody`** — `scheduled` (required ISO `YYYY-MM-DD`), `reason?`.
+- **`PostponeBody`** — `today` and `scheduled` (required ISO `YYYY-MM-DD` values, with
+  `scheduled > today`), `reason?`.
 - **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
   `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,
   `materialization_policy`, `future_occurrences`, `area`, `project_id`, `parent_id`, `routine_id`, `due`,

@@ -326,9 +326,8 @@ pub(super) async fn postpone_item(
     body: std::result::Result<Json<PostponeBody>, JsonRejection>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let Json(body) = body.map_err(validation_rejection)?;
-    let today = local_today_string();
     let (source, follow_up) = with_service(&state, |service| {
-        service.postpone(&id, &body.scheduled, &today, body.reason.as_deref())
+        service.postpone(&id, &body.scheduled, &body.today, body.reason.as_deref())
     })?;
     Ok(Json(json!({"source": source, "follow_up": follow_up})))
 }

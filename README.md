@@ -379,10 +379,12 @@ An active task or event can be marked missed or postponed. Both actions set the 
 `missed`, retain its original `scheduled` value, and keep it available through ordinary list
 results, `list --status missed`, and `GET /items?status=missed`; active-work views exclude it.
 `miss` returns the updated source without creating replacement work. `postpone` also creates an
-independent active follow-up at a requested `YYYY-MM-DD` later than the local current date and
-returns `{"source": TodoItem, "follow_up": TodoItem}`. The HTTP request must supply
-`scheduled`; only the CLI derives tomorrow from its local process calendar when `--scheduled`
-is omitted, and browser clients never use that fallback.
+independent active follow-up at a requested `YYYY-MM-DD` and returns
+`{"source": TodoItem, "follow_up": TodoItem}`. The source records
+`metadata.postponed_to=<follow-up id>`, and the follow-up records
+`metadata.postponed_from=<source id>`. HTTP clients must supply canonical `today` and
+`scheduled` dates, with `scheduled > today`; browser clients use their local calendar. Only the
+CLI derives tomorrow from its local process calendar when `--scheduled` is omitted.
 
 For a routine-generated task, either action records the missed occurrence and replenishes the
 routine's configured open-work target. A postponed follow-up is detached from the routine: it
@@ -484,7 +486,8 @@ Endpoints:
 - `POST /items/{id}/miss`: mark an active task or event missed. The JSON body accepts optional
   `reason` and the response is the updated source.
 - `POST /items/{id}/postpone`: mark an active task or event missed and create a follow-up. The
-  JSON body requires `scheduled` and accepts optional `reason`. Returns
+  JSON body requires canonical `today` and `scheduled` dates with `scheduled > today`, and
+  accepts optional `reason`. Returns
   `{"source": TodoItem, "follow_up": TodoItem}`.
 - `POST /items/{id}/resume`: resume item.
 - `POST /items/{id}/complete`: complete item.

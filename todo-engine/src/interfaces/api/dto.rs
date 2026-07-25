@@ -95,6 +95,7 @@ pub(super) struct MissBody {
 
 #[derive(Deserialize)]
 pub(super) struct PostponeBody {
+    pub today: String,
     pub scheduled: String,
     pub reason: Option<String>,
 }

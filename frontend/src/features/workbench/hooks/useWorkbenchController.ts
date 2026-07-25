@@ -1495,7 +1495,7 @@ function postPostponeItem(
   return fetch(`/todo-engine/items/${itemId}/postpone`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ scheduled }),
+    body: JSON.stringify({ today: todayDate(), scheduled }),
   }).then((response) => {
     if (!response.ok) {
       return throwApiError(response);

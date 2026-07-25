@@ -2,9 +2,7 @@ use crate::support::TestHome;
 use axum::body::Body;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use time::{Date, format_description::parse};
 use todo_engine::infrastructure::sqlite::init_schema;
-use todo_engine::infrastructure::system::local_today_string;
 use todo_engine::interfaces::api::router;
 use tower::ServiceExt;
 
@@ -46,16 +44,6 @@ async fn http_request(
     )
     .await
     .unwrap()
-}
-
-fn local_day() -> Date {
-    let format = parse("[year]-[month]-[day]").unwrap();
-    Date::parse(&local_today_string(), &format).unwrap()
-}
-
-fn format_day(day: Date) -> String {
-    let format = parse("[year]-[month]-[day]").unwrap();
-    day.format(&format).unwrap()
 }
 
 #[tokio::test]
@@ -807,7 +795,7 @@ async fn miss_returns_the_missed_source_and_keeps_it_filterable() {
 }
 
 #[tokio::test]
-async fn postpone_requires_an_explicit_scheduled_date() {
+async fn postpone_requires_explicit_today_and_scheduled_dates() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
     let response = json_request(
@@ -825,7 +813,7 @@ async fn postpone_requires_an_explicit_scheduled_date() {
         router(&db_path).unwrap(),
         "POST",
         format!("/items/{task_id}/postpone"),
-        json!({"reason":"오늘은 중단"}),
+        json!({"today":"2099-01-01", "reason":"오늘은 중단"}),
     )
     .await;
     assert_eq!(response.status(), 400);
@@ -837,6 +825,51 @@ async fn postpone_requires_an_explicit_scheduled_date() {
             .unwrap()
             .contains("missing field `scheduled`")
     );
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{task_id}/postpone"),
+        json!({"scheduled":"2099-01-02"}),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body = body_json(response).await;
+    assert_eq!(body["code"], "validation_error");
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("missing field `today`")
+    );
+}
+
+#[tokio::test]
+async fn postpone_validates_against_the_callers_calendar_today() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"브라우저 기준 내일 처리", "actor":"user"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    let task_id = task["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{task_id}/postpone"),
+        json!({"today":"2026-07-25", "scheduled":"2026-07-26"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["source"]["status"], "missed");
+    assert_eq!(body["follow_up"]["scheduled"], "2026-07-26");
 }
 
 #[tokio::test]
@@ -863,7 +896,11 @@ async fn postpone_event_accepts_an_explicit_future_date() {
         router(&db_path).unwrap(),
         "POST",
         format!("/items/{event_id}/postpone"),
-        json!({"scheduled":"2099-01-02", "reason":"일정 조정"}),
+        json!({
+            "today":"2099-01-01",
+            "scheduled":"2099-01-02",
+            "reason":"일정 조정"
+        }),
     )
     .await;
     assert_eq!(response.status(), 200);
@@ -898,7 +935,7 @@ async fn postpone_detaches_a_routine_generated_follow_up() {
         router(&db_path).unwrap(),
         "POST",
         format!("/items/{generated_id}/postpone"),
-        json!({"scheduled":"2099-01-02"}),
+        json!({"today":"2099-01-01", "scheduled":"2099-01-02"}),
     )
     .await;
     assert_eq!(response.status(), 200);
@@ -918,10 +955,7 @@ async fn postpone_rejects_today_past_dates_and_malformed_scheduling_input() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
 
-    for scheduled in [
-        format_day(local_day()),
-        format_day(local_day().previous_day().unwrap()),
-    ] {
+    for scheduled in ["2026-07-25", "2026-07-24"] {
         let response = json_request(
             router(&db_path).unwrap(),
             "POST",
@@ -935,7 +969,7 @@ async fn postpone_rejects_today_past_dates_and_malformed_scheduling_input() {
             router(&db_path).unwrap(),
             "POST",
             format!("/items/{task_id}/postpone"),
-            json!({"scheduled":scheduled}),
+            json!({"today":"2026-07-25", "scheduled":scheduled}),
         )
         .await;
         assert_eq!(response.status(), 400);
@@ -949,7 +983,7 @@ async fn postpone_rejects_today_past_dates_and_malformed_scheduling_input() {
         router(&db_path).unwrap(),
         "POST",
         "/items/task_missing/postpone",
-        Body::from(r#"{"scheduled":1}"#),
+        Body::from(r#"{"today":"2026-07-25","scheduled":1}"#),
     )
     .await;
     assert_eq!(response.status(), 400);

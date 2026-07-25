@@ -2623,7 +2623,10 @@ describe("WorkbenchPageClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/postpone"),
       expect.objectContaining({
-        body: JSON.stringify({ scheduled: "2026-07-26" }),
+        body: JSON.stringify({
+          today: "2026-07-25",
+          scheduled: "2026-07-26",
+        }),
       }),
     );
     expect(

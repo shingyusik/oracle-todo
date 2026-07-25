@@ -156,8 +156,8 @@ fn agenda_union_dedup() {
 /// sets that marker — it is not drivable from a test fixture. The OPEN_STATUSES
 /// allowlist is exclusion-by-construction (anything not in
 /// {Active} is excluded), so the reachable Completed/Paused
-/// exclusions prove the allowlist semantics; Waiting/Someday are excluded the
-/// same way without a producer. Someday is likewise unreachable via any mutation.
+/// exclusions prove the allowlist semantics. Waiting is excluded by the same
+/// allowlist even though this fixture has no direct producer for it.
 #[test]
 fn open_only() {
     let mut service = TodoService::in_memory();

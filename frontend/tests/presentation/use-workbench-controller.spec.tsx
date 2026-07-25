@@ -2886,7 +2886,10 @@ describe("useWorkbenchController", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({ scheduled: "2026-07-26" }),
+            body: JSON.stringify({
+              today: formatDate(new Date()),
+              scheduled: "2026-07-26",
+            }),
           }),
         );
         return Promise.resolve({
@@ -2955,7 +2958,10 @@ describe("useWorkbenchController", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({ scheduled: "2026-07-25" }),
+            body: JSON.stringify({
+              today: formatDate(new Date()),
+              scheduled: "2026-07-25",
+            }),
           }),
         );
         return Promise.resolve({
@@ -3075,7 +3081,10 @@ describe("useWorkbenchController", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({ scheduled: "2026-08-01" }),
+            body: JSON.stringify({
+              today: formatDate(new Date()),
+              scheduled: "2026-08-01",
+            }),
           }),
         );
         return Promise.resolve({
@@ -3108,7 +3117,12 @@ describe("useWorkbenchController", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/task-1/postpone",
-      expect.objectContaining({ body: JSON.stringify({ scheduled: "2026-08-01" }) }),
+      expect.objectContaining({
+        body: JSON.stringify({
+          today: formatDate(new Date()),
+          scheduled: "2026-08-01",
+        }),
+      }),
     );
   });
 

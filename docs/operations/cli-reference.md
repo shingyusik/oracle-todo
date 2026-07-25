@@ -95,7 +95,9 @@ Postpone an active task or event. Flags: `--scheduled <ISO_DATE>` and
 - An explicit date must use `YYYY-MM-DD` and be later than the local current date.
 - The source becomes `missed`, retains its original `scheduled` value, and remains available
   through ordinary list results and `list --status missed`; active-work views exclude it.
-- The new follow-up is `active` at the requested date.
+- The new follow-up is `active` at the requested date. The source records
+  `metadata.postponed_to=<follow-up id>` and the follow-up records
+  `metadata.postponed_from=<source id>`.
 - A routine-generated source records the missed occurrence and replenishes its routine's
   configured open-work target. The follow-up is detached from the routine: it has no
   `routine_id`, `occurrence_key`, or `metadata.generated_by`.

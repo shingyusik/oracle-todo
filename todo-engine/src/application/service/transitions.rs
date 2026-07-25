@@ -122,7 +122,7 @@ impl TodoService {
         follow_up.created_at = now;
         follow_up.updated_at = now;
         follow_up.metadata.remove("generated_by");
-        follow_up.metadata.remove("missed_to");
+        follow_up.metadata.remove("postponed_to");
         follow_up.metadata.insert(
             "postponed_from".to_string(),
             serde_json::Value::String(preparation.source.id.clone()),
@@ -189,7 +189,7 @@ impl TodoService {
         source.updated_at = now;
         if let Some(follow_up_id) = &follow_up_id {
             source.metadata.insert(
-                "missed_to".to_string(),
+                "postponed_to".to_string(),
                 serde_json::Value::String(follow_up_id.clone()),
             );
         }
