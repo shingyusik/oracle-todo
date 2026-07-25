@@ -1,6 +1,18 @@
 use crate::support::TestHome;
 use assert_cmd::Command;
 use predicates::str::contains;
+use time::{Date, format_description::parse};
+use todo_engine::infrastructure::system::local_today_string;
+
+fn local_day() -> Date {
+    let format = parse("[year]-[month]-[day]").unwrap();
+    Date::parse(&local_today_string(), &format).unwrap()
+}
+
+fn format_day(day: Date) -> String {
+    let format = parse("[year]-[month]-[day]").unwrap();
+    day.format(&format).unwrap()
+}
 
 #[test]
 fn init_creates_sqlite_database() {
@@ -778,10 +790,101 @@ fn postpone_prints_source_and_follow_up_json() {
         .clone();
     let postponed: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(postponed["source"]["id"], task_id);
-    assert_eq!(postponed["source"]["status"], "someday");
+    assert_eq!(postponed["source"]["status"], "missed");
     assert_eq!(postponed["source"]["scheduled"], "2099-01-01");
     assert_eq!(postponed["follow_up"]["status"], "active");
     assert_eq!(postponed["follow_up"]["scheduled"], "2099-01-02");
+}
+
+#[test]
+fn miss_prints_the_missed_source_json() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["--home", home.path().to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    let output = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "task",
+            "propose",
+            "놓친 일",
+            "--scheduled",
+            "2099-01-01",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let task: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let task_id = task["id"].as_str().unwrap();
+
+    let output = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "miss",
+            task_id,
+            "--reason",
+            "수행하지 못함",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let missed: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(missed["id"], task_id);
+    assert_eq!(missed["status"], "missed");
+    assert_eq!(missed["scheduled"], "2099-01-01");
+}
+
+#[test]
+fn postpone_without_scheduled_defaults_to_cli_local_tomorrow() {
+    let home = TestHome::new();
+
+    Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["--home", home.path().to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    let output = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "task",
+            "propose",
+            "내일 처리",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let task: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let task_id = task["id"].as_str().unwrap();
+    let tomorrow = format_day(local_day().next_day().unwrap());
+
+    let output = Command::cargo_bin("todo-engine")
+        .unwrap()
+        .args(["--home", home.path().to_str().unwrap(), "postpone", task_id])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let postponed: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(postponed["source"]["status"], "missed");
+    assert_eq!(postponed["follow_up"]["scheduled"], tomorrow);
 }
 
 #[test]

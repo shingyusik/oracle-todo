@@ -21,11 +21,13 @@ transitions:
 - `cancel` — cancel the item (terminal).
 - `drop` — intentionally abandon the item (terminal).
 - `complete` — finished work (terminal).
-- `someday` — deferred out of active flow (terminal for normal updates).
+- `miss` / `postpone` — record scheduled work as `missed` (terminal for normal updates);
+  postponement also creates an independent active follow-up.
 
-`archive`, `dropped`, and `cancelled` are additionally hidden-by-default in list views, so a
-"removed" item disappears from everyday views without losing its row or its events. Terminal
-transitions stamp `archived_at` and write an audit event like any other mutation.
+`archived`, `dropped`, and `cancelled` are additionally hidden-by-default in list views, so a
+"removed" item disappears from everyday views without losing its row or its events. `missed`
+remains queryable in ordinary list results while active-work views exclude it. Every terminal
+transition writes its audit event with the item mutation.
 
 ## Consequences
 

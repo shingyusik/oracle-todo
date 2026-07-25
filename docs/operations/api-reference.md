@@ -32,6 +32,7 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `GET` | `/views/period` | `view_period` | `PeriodQuery`: required `horizon`, `period` |
 | `PATCH` | `/items/:id` | `update_item` | `UpdateBody` |
 | `POST` | `/items/:id/pause` | `pause_item` | optional `ReasonBody` |
+| `POST` | `/items/:id/miss` | `miss_item` | `MissBody` |
 | `POST` | `/items/:id/postpone` | `postpone_item` | `PostponeBody` |
 | `POST` | `/items/:id/resume` | `resume_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/complete` | `complete_item` | — |
@@ -60,21 +61,37 @@ response is missing, malformed, or unavailable, and sends writes on a best-effor
 - Writes a `reopen` audit event.
 - Returns HTTP `400` with `code=policy_error` for another item type or source status.
 
-### Postpone a task or event
+### Mark a task or event missed
+
+`POST /items/{id}/miss`
+
+- Accepts an active task or event and a JSON object with optional `reason`.
+- Returns the source with `status=missed` and its original `scheduled` value.
+- The source remains present in ordinary list results and is explicitly filterable through
+  `GET /items?status=missed`; active-work views exclude it.
+- For a routine-generated task, the missed occurrence is recorded and the routine's configured
+  open-work target is replenished. No follow-up is created.
+- Another item type or source status returns HTTP `400` with `code=policy_error`; malformed or
+  missing JSON returns HTTP `400` with `code=validation_error`.
+
+### Mark a task or event missed and create a follow-up
 
 `POST /items/{id}/postpone`
 
-- Accepts an active, waiting, or paused task or event.
-- Requires a JSON object. `scheduled` and `reason` are optional; omitting `scheduled` selects
-  tomorrow in the local calendar. Malformed JSON returns HTTP `400`.
-- An explicit `scheduled` value must use `YYYY-MM-DD` and be later than the local current date;
+- Accepts an active task or event.
+- Requires a JSON object with `scheduled`; `reason` is optional. A missing `scheduled` value or
+  malformed JSON returns HTTP `400` with `code=validation_error`. The server does not derive a
+  date, so browser scheduling cannot shift at a UTC/local-calendar boundary.
+- `scheduled` must use `YYYY-MM-DD` and be later than the local current date;
   today, a past date, or an invalid date returns HTTP `400`.
-- Returns `{"source": TodoItem, "follow_up": TodoItem}`. The source has `status=someday` and
+- Returns `{"source": TodoItem, "follow_up": TodoItem}`. The source has `status=missed` and
   retains its original `scheduled` value; the follow-up has `status=active` and the requested
   date.
-- The source remains filterable through `GET /items?status=someday`.
-- For a routine-generated task, the source occurrence is recorded and the active follow-up is
-  detached: `routine_id` and `occurrence_key` are null and `metadata.generated_by` is absent.
+- The source remains present in ordinary list results and is explicitly filterable through
+  `GET /items?status=missed`; active-work views exclude it.
+- For a routine-generated task, the missed occurrence is recorded, the routine's configured
+  open-work target is replenished, and the active follow-up is detached: `routine_id` and
+  `occurrence_key` are null and `metadata.generated_by` is absent.
 
 ### Materialize one routine
 
@@ -113,7 +130,8 @@ routine using stored targets, this acts only on `{id}`.
   `due?`, `priority?`, `description?`, `note?`, `location?`, `participants?` (array),
   `commitment_type?` (default `appointment`), `tags?`, `actor?` (default `agent`).
 - **`ReasonBody`** — `reason?`. Optional on the transition endpoints that accept it.
-- **`PostponeBody`** — `scheduled?` (ISO `YYYY-MM-DD`, defaults to tomorrow), `reason?`.
+- **`MissBody`** — `reason?`.
+- **`PostponeBody`** — `scheduled` (required ISO `YYYY-MM-DD`), `reason?`.
 - **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
   `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,
   `materialization_policy`, `future_occurrences`, `area`, `project_id`, `parent_id`, `routine_id`, `due`,

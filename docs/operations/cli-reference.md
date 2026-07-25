@@ -66,30 +66,39 @@ Create an active event. `<scheduled>` is a positional date/time string. Flags: `
 
 These commands take a positional `<item_id>` and an optional `--reason`:
 
-`pause`, `postpone`, `resume`, `complete`, `archive`, `drop`, `cancel`.
+`pause`, `miss`, `postpone`, `resume`, `complete`, `archive`, `drop`, `cancel`.
 
 | Subcommand | Effect |
 | --- | --- |
 | `pause` | Pause an item. |
-| `postpone` | Move a task or event to `someday` and create an active follow-up. |
+| `miss` | Mark an active task or event as `missed`. |
+| `postpone` | Mark an active task or event as `missed` and create an active follow-up. |
 | `resume` | Resume a paused item. |
 | `complete` | Complete an item (terminal). |
 | `archive` | Archive an item (terminal). |
 | `drop` | Drop an item (terminal). |
 | `cancel` | Cancel an item (terminal). |
 
+### `miss <item_id>`
+
+Mark an active task or event as `missed`, retain its original `scheduled` value, and print the
+updated source item. A routine-generated source records the missed occurrence and replenishes
+its routine's configured open-work target. No follow-up is created.
+
 ### `postpone <item_id>`
 
-Postpone an active, waiting, or paused task or event. Flags: `--scheduled <ISO_DATE>` and
+Postpone an active task or event. Flags: `--scheduled <ISO_DATE>` and
 `--reason <TEXT>`.
 
-- `--scheduled` defaults to tomorrow in the local calendar.
+- If `--scheduled` is omitted, the CLI process derives tomorrow from its local calendar. This
+  convenience is CLI-only; HTTP and browser clients must supply a date.
 - An explicit date must use `YYYY-MM-DD` and be later than the local current date.
-- The source becomes `someday`, retains its original `scheduled` value, and remains available
-  through `list --status someday`.
+- The source becomes `missed`, retains its original `scheduled` value, and remains available
+  through ordinary list results and `list --status missed`; active-work views exclude it.
 - The new follow-up is `active` at the requested date.
-- A routine-generated source records its occurrence, while the follow-up is detached from the
-  routine: it has no `routine_id`, `occurrence_key`, or `metadata.generated_by`.
+- A routine-generated source records the missed occurrence and replenishes its routine's
+  configured open-work target. The follow-up is detached from the routine: it has no
+  `routine_id`, `occurrence_key`, or `metadata.generated_by`.
 - Output is `{"source": TodoItem, "follow_up": TodoItem}`.
 
 ### `update <item_id>`
@@ -112,7 +121,7 @@ Update mutable fields. Flags (all optional): `--title`, `--description`, `--note
 | `period --horizon <year\|month\|week> --period <date>` | Return the goal-tree period view as JSON. |
 
 `--status` accepts: `active`, `waiting`, `paused`, `completed`,
-`cancelled`, `dropped`, `archived`, `someday`, `rejected`. `--type` accepts: `area`,
+`cancelled`, `dropped`, `archived`, `missed`, `rejected`. `--type` accepts: `area`,
 `project`, `routine`, `task`, `event`, `review`, `archive_item`, `goal`. Invalid values are rejected
 with a helpful message and a validation exit code.
 

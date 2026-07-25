@@ -113,6 +113,9 @@ cargo run -p todo-engine -- event propose "치과 예약" "2026-06-12T10:30" \
 cargo run -p todo-engine -- pending
 cargo run -p todo-engine -- today
 
+# Mark a task or event as missed without creating replacement work.
+cargo run -p todo-engine -- miss <item_id>
+
 # Move a task or event out of the active flow and create a dated follow-up.
 cargo run -p todo-engine -- postpone <item_id> --scheduled 2026-06-13
 ```
@@ -367,20 +370,27 @@ Allowed status values:
 | `cancelled` | Cancelled. Terminal. |
 | `dropped` | Intentionally abandoned. Terminal. |
 | `archived` | Archived. Terminal. |
-| `someday` | Deferred out of active flow. Terminal for normal updates. |
+| `missed` | Scheduled work that was not completed. Terminal for normal updates. |
 | `rejected` | Proposal rejected. Terminal. |
 
 Completed tasks and events can be reopened through the dedicated `reopen` transition. Reopening changes the item to `active`, clears `completed_at`, and records a `reopen` audit event. Other completed item types remain terminal.
 
-Active, waiting, or paused tasks and events can be postponed. The source becomes `someday`,
-keeps its original `scheduled` value, and remains available through `list --status someday`
-or `GET /items?status=someday`. A new active follow-up carries the requested date, which must
-be later than the local current date and defaults to tomorrow. Postponing a routine-generated
-task records its occurrence and creates a detached follow-up without `routine_id` or
-`occurrence_key`; the routine replenishes its own generated work separately. CLI and HTTP
-responses use `{"source": TodoItem, "follow_up": TodoItem}`.
+An active task or event can be marked missed or postponed. Both actions set the source to
+`missed`, retain its original `scheduled` value, and keep it available through ordinary list
+results, `list --status missed`, and `GET /items?status=missed`; active-work views exclude it.
+`miss` returns the updated source without creating replacement work. `postpone` also creates an
+independent active follow-up at a requested `YYYY-MM-DD` later than the local current date and
+returns `{"source": TodoItem, "follow_up": TodoItem}`. The HTTP request must supply
+`scheduled`; only the CLI derives tomorrow from its local process calendar when `--scheduled`
+is omitted, and browser clients never use that fallback.
 
-Schema initialization normalizes legacy `proposed` and `approved` rows to `active`. The legacy provenance columns remain for compatibility and historical data.
+For a routine-generated task, either action records the missed occurrence and replenishes the
+routine's configured open-work target. A postponed follow-up is detached from the routine: it
+has no `routine_id`, `occurrence_key`, or `metadata.generated_by`.
+
+Schema initialization normalizes legacy `proposed` and `approved` rows to `active` and legacy
+`someday` rows to `missed`. The legacy provenance columns remain for compatibility and
+historical data.
 
 The Rust domain parses status strings through the `ItemStatus` enum. App paths reject unknown status values.
 
@@ -471,8 +481,10 @@ Endpoints:
 - `POST /goals/propose`: create an active goal.
 - `PATCH /items/{id}`: update mutable item fields through the shared service layer.
 - `POST /items/{id}/pause`: pause item.
-- `POST /items/{id}/postpone`: postpone a task or event. The JSON body accepts optional
-  `scheduled` and `reason`; an omitted date defaults to tomorrow. Returns
+- `POST /items/{id}/miss`: mark an active task or event missed. The JSON body accepts optional
+  `reason` and the response is the updated source.
+- `POST /items/{id}/postpone`: mark an active task or event missed and create a follow-up. The
+  JSON body requires `scheduled` and accepts optional `reason`. Returns
   `{"source": TodoItem, "follow_up": TodoItem}`.
 - `POST /items/{id}/resume`: resume item.
 - `POST /items/{id}/complete`: complete item.

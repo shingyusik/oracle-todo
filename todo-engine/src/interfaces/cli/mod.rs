@@ -73,6 +73,8 @@ enum Command {
     },
     /// Pause an item.
     Pause(ItemTransitionArgs),
+    /// Mark a task or event as missed.
+    Miss(ItemTransitionArgs),
     /// Postpone a task or event.
     Postpone(PostponeArgs),
     /// Resume a paused item.
@@ -402,6 +404,7 @@ pub fn run() -> Result<()> {
             command: EventCommand::Propose(args),
         } => create::event_propose(&home, args),
         Command::Pause(args) => lifecycle::pause(&home, args),
+        Command::Miss(args) => lifecycle::miss(&home, args),
         Command::Postpone(args) => lifecycle::postpone(&home, args),
         Command::Resume(args) => lifecycle::resume(&home, args),
         Command::Complete(args) => lifecycle::complete(&home, args),
@@ -466,6 +469,7 @@ fn command_label(command: &Command) -> &'static str {
             command: EventCommand::Propose(_),
         } => "event propose",
         Command::Pause(_) => "pause",
+        Command::Miss(_) => "miss",
         Command::Postpone(_) => "postpone",
         Command::Resume(_) => "resume",
         Command::Complete(_) => "complete",
@@ -574,7 +578,7 @@ fn parse_actor(value: &str) -> std::result::Result<Actor, String> {
 fn parse_status(value: &str) -> std::result::Result<ItemStatus, String> {
     ItemStatus::from_str(value).map_err(|_| {
         format!(
-            "invalid status '{value}'; expected one of: active, waiting, paused, completed, cancelled, dropped, archived, someday, rejected"
+            "invalid status '{value}'; expected one of: active, waiting, paused, completed, cancelled, dropped, archived, missed, rejected"
         )
     })
 }

@@ -14,6 +14,14 @@ pub(super) fn pause(home: &Path, args: ItemTransitionArgs) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn miss(home: &Path, args: ItemTransitionArgs) -> Result<()> {
+    let today = today_string();
+    let mut service = service(home)?;
+    let item = service.miss(&args.item_id, &today, args.reason.as_deref())?;
+    print_json(&item)?;
+    Ok(())
+}
+
 pub(super) fn postpone(home: &Path, args: PostponeArgs) -> Result<()> {
     let today = today_string();
     let scheduled = match args.scheduled {

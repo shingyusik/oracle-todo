@@ -4,10 +4,9 @@ use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path as AxumPath, Query, State};
 use serde_json::json;
-use time::{Date, format_description::parse};
 
 use super::dto::{
-    AgendaQuery, AreaBody, DateRangeQuery, EventProposeBody, GoalProposeBody, ItemsQuery,
+    AgendaQuery, AreaBody, DateRangeQuery, EventProposeBody, GoalProposeBody, ItemsQuery, MissBody,
     PeriodQuery, PostponeBody, ProjectProposeBody, ReasonBody, RoutineMaterializeBody,
     RoutineProposeBody, TaskProposeBody, UpdateBody,
 };
@@ -328,14 +327,23 @@ pub(super) async fn postpone_item(
 ) -> ApiResult<Json<serde_json::Value>> {
     let Json(body) = body.map_err(validation_rejection)?;
     let today = local_today_string();
-    let scheduled = match body.scheduled {
-        Some(scheduled) => scheduled,
-        None => next_day(&today)?,
-    };
     let (source, follow_up) = with_service(&state, |service| {
-        service.postpone(&id, &scheduled, &today, body.reason.as_deref())
+        service.postpone(&id, &body.scheduled, &today, body.reason.as_deref())
     })?;
     Ok(Json(json!({"source": source, "follow_up": follow_up})))
+}
+
+pub(super) async fn miss_item(
+    State(state): State<ApiState>,
+    AxumPath(id): AxumPath<String>,
+    body: std::result::Result<Json<MissBody>, JsonRejection>,
+) -> ApiResult<Json<TodoItem>> {
+    let Json(body) = body.map_err(validation_rejection)?;
+    let today = local_today_string();
+    let item = with_service(&state, |service| {
+        service.miss(&id, &today, body.reason.as_deref())
+    })?;
+    Ok(Json(item))
 }
 
 pub(super) async fn resume_item(
@@ -392,17 +400,4 @@ pub(super) async fn cancel_item(
     let reason = body.and_then(|Json(body)| body.reason);
     let item = with_service(&state, |service| service.cancel(&id, reason.as_deref()))?;
     Ok(Json(item))
-}
-
-fn next_day(today: &str) -> Result<String, TodoError> {
-    let format = parse("[year]-[month]-[day]")
-        .map_err(|error| TodoError::Internal(format!("failed to prepare date parser: {error}")))?;
-    let today = Date::parse(today, &format)
-        .map_err(|error| TodoError::Internal(format!("failed to parse local date: {error}")))?;
-    let tomorrow = today
-        .next_day()
-        .ok_or_else(|| TodoError::Internal("local date has no following day".to_string()))?;
-    tomorrow
-        .format(&format)
-        .map_err(|error| TodoError::Internal(format!("failed to format local date: {error}")))
 }

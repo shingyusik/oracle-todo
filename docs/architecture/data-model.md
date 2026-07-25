@@ -55,28 +55,29 @@ variants**, verified against `todo-engine/src/domain/status.rs`:
 | Phase | Statuses |
 | --- | --- |
 | Live work | `active`, `waiting`, `paused` |
-| Terminal | `completed`, `cancelled`, `dropped`, `archived`, `someday`, `rejected` |
+| Terminal | `completed`, `cancelled`, `dropped`, `archived`, `missed`, `rejected` |
 
 - `active` → current work or a maintained routine/project.
 - `waiting` → blocked/waiting; used for generated routine tasks when a routine is paused.
 - `paused` → temporarily stopped.
-- `completed` / `cancelled` / `dropped` / `archived` / `someday` / `rejected` → terminal.
+- `completed` / `cancelled` / `dropped` / `archived` / `missed` / `rejected` → terminal.
 
 **Terminal set** (`terminal_status()` returns `true`): `completed`, `cancelled`, `dropped`,
-`archived`, `someday`, `rejected`. A terminal item is the end of the line for normal updates;
+`archived`, `missed`, `rejected`. A terminal item is the end of the line for normal updates;
 v1 has no hard delete (see [decisions/adr-0004-no-hard-delete.md](decisions/adr-0004-no-hard-delete.md)).
 
 **Hidden-by-default set** (`hidden_by_default_status()` returns `true`): `archived`,
 `dropped`, `cancelled`. The list view (`apply_list_filter`) omits these unless
-`include_archived` is set or an explicit `status` filter is supplied.
+`include_archived` is set or an explicit `status` filter is supplied. `missed` remains in
+ordinary list results but is excluded from views whose working set is `active`.
 
 `ItemStatus::from_str` is **case-sensitive lowercase** (it trims surrounding whitespace).
 `"Active"` is rejected; `"  active  "` parses to `Active`. App paths reject unknown status
 values rather than silently coercing them.
 
-Schema initialization converts legacy `proposed` and `approved` rows to `active` before
-normal reads. It does not invent missing content such as project completion criteria or
-routine recurrence rules.
+Schema initialization converts legacy `proposed` and `approved` rows to `active` and legacy
+`someday` rows to `missed` before normal reads. It does not invent missing content such as
+project completion criteria or routine recurrence rules.
 
 ## Recurrence rules
 
@@ -109,8 +110,9 @@ factory, and the API service factory). It is **additive and idempotent** — ver
   for any column from the canonical set that an older database is missing (e.g. `note`,
   `materialization_policy`, `future_occurrences`, `occurrence_key`, `last_materialized_at`). Existing columns are
   left untouched.
-- Legacy rows with status `proposed` or `approved` are normalized to `active`; legacy
-  provenance columns remain in place for compatibility and history.
+- Legacy rows with status `proposed` or `approved` are normalized to `active`, and legacy rows
+  with status `someday` are normalized to `missed`; legacy provenance columns remain in place
+  for compatibility and history.
 - Indexes are created with `IF NOT EXISTS`, including a unique index on
   `(routine_id, occurrence_key)` (where both are non-null) that guards routine occurrence
   de-duplication, and the planning indexes `idx_items_parent_id` (`parent_id`),

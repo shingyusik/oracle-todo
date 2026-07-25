@@ -771,14 +771,50 @@ async fn operational_transition_routes_return_mutated_items() {
 }
 
 #[tokio::test]
-async fn postpone_defaults_to_tomorrow_and_keeps_source_filterable_as_someday() {
+async fn miss_returns_the_missed_source_and_keeps_it_filterable() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
     let response = json_request(
         router(&db_path).unwrap(),
         "POST",
         "/tasks/propose",
-        json!({"title":"내일 처리", "scheduled":"2026-07-01", "actor":"user"}),
+        json!({"title":"놓친 일", "scheduled":"2026-07-01", "actor":"user"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let task = body_json(response).await;
+    let task_id = task["id"].as_str().unwrap();
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        format!("/items/{task_id}/miss"),
+        json!({"reason":"수행하지 못함"}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["id"], task_id);
+    assert_eq!(body["status"], "missed");
+    assert_eq!(body["scheduled"], "2026-07-01");
+
+    let response = empty_request(router(&db_path).unwrap(), "GET", "/items?status=missed").await;
+    assert_eq!(response.status(), 200);
+    let missed = body_json(response).await;
+    assert_eq!(missed.as_array().unwrap().len(), 1);
+    assert_eq!(missed[0]["id"], task_id);
+    assert_eq!(missed[0]["scheduled"], "2026-07-01");
+}
+
+#[tokio::test]
+async fn postpone_requires_an_explicit_scheduled_date() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "POST",
+        "/tasks/propose",
+        json!({"title":"내일 처리", "actor":"user"}),
     )
     .await;
     assert_eq!(response.status(), 200);
@@ -792,23 +828,15 @@ async fn postpone_defaults_to_tomorrow_and_keeps_source_filterable_as_someday() 
         json!({"reason":"오늘은 중단"}),
     )
     .await;
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 400);
     let body = body_json(response).await;
-    assert_eq!(body["source"]["id"], task_id);
-    assert_eq!(body["source"]["status"], "someday");
-    assert_eq!(body["source"]["scheduled"], "2026-07-01");
-    assert_eq!(body["follow_up"]["status"], "active");
-    assert_eq!(
-        body["follow_up"]["scheduled"],
-        format_day(local_day().next_day().unwrap())
+    assert_eq!(body["code"], "validation_error");
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("missing field `scheduled`")
     );
-
-    let response = empty_request(router(&db_path).unwrap(), "GET", "/items?status=someday").await;
-    assert_eq!(response.status(), 200);
-    let someday = body_json(response).await;
-    assert_eq!(someday.as_array().unwrap().len(), 1);
-    assert_eq!(someday[0]["id"], task_id);
-    assert_eq!(someday[0]["scheduled"], "2026-07-01");
 }
 
 #[tokio::test]
@@ -841,7 +869,7 @@ async fn postpone_event_accepts_an_explicit_future_date() {
     assert_eq!(response.status(), 200);
     let body = body_json(response).await;
     assert_eq!(body["source"]["type"], "event");
-    assert_eq!(body["source"]["status"], "someday");
+    assert_eq!(body["source"]["status"], "missed");
     assert_eq!(body["source"]["scheduled"], "2098-12-31T10:00:00");
     assert_eq!(body["follow_up"]["type"], "event");
     assert_eq!(body["follow_up"]["status"], "active");
@@ -875,7 +903,7 @@ async fn postpone_detaches_a_routine_generated_follow_up() {
     .await;
     assert_eq!(response.status(), 200);
     let body = body_json(response).await;
-    assert_eq!(body["source"]["status"], "someday");
+    assert_eq!(body["source"]["status"], "missed");
     assert_eq!(body["source"]["scheduled"], original_schedule);
     assert_eq!(body["source"]["routine_id"], routine_id);
     assert_eq!(body["follow_up"]["status"], "active");
@@ -886,7 +914,7 @@ async fn postpone_detaches_a_routine_generated_follow_up() {
 }
 
 #[tokio::test]
-async fn postpone_rejects_today_past_dates_and_malformed_json() {
+async fn postpone_rejects_today_past_dates_and_malformed_scheduling_input() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
 

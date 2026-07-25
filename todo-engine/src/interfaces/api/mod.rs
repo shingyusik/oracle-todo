@@ -45,6 +45,7 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
         .route("/views/period", get(view_period))
         .route("/items/:id", patch(update_item))
         .route("/items/:id/pause", post(pause_item))
+        .route("/items/:id/miss", post(miss_item))
         .route("/items/:id/postpone", post(postpone_item))
         .route("/items/:id/resume", post(resume_item))
         .route("/items/:id/complete", post(complete_item))

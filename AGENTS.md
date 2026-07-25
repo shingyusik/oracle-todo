@@ -49,7 +49,7 @@ cargo fmt --check                                        # format gate
 cargo clippy --all-targets --all-features -- -D warnings # lint gate (warnings are errors)
 ```
 
-CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `goal`, `task`, `routine`, `event`, `pause`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`, `agenda`, `date-range`, `period`.
+CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `goal`, `task`, `routine`, `event`, `pause`, `miss`, `postpone`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`, `agenda`, `date-range`, `period`.
 
 ## Data Home & Configuration
 
