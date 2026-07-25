@@ -2812,6 +2812,127 @@ describe("useWorkbenchController", () => {
     expect(result.current.workspaceItems.allItems[0]?.status).toBe("completed");
   });
 
+  it("marks a Planner item missed without removing it from the loaded collection", async () => {
+    const source = {
+      id: "task-1",
+      type: "task",
+      title: "One",
+      status: "active",
+      scheduled: "2026-07-25",
+      tags: ["focus"],
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/miss") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({}),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...source, status: "missed" }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/todo-engine/items?type=task" ? [source] : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("planner");
+      result.current.selectTab("daily");
+    });
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    act(() => result.current.openDetailView(source));
+
+    await act(async () => {
+      await result.current.missWorkspaceItem(source.id);
+    });
+
+    expect(result.current.selection.leafTabId).toBe("daily");
+    expect(result.current.workspaceItems.items).toEqual([
+      expect.objectContaining({ id: source.id, status: "missed" }),
+    ]);
+    expect(result.current.workspaceItems.allItems).toEqual([
+      expect.objectContaining({ id: source.id, status: "missed" }),
+    ]);
+    expect(result.current.detailItem).toEqual(
+      expect.objectContaining({ id: source.id, status: "missed" }),
+    );
+  });
+
+  it("postpones with an explicit date and reconciles an existing follow-up in place", async () => {
+    const source = {
+      id: "task-1",
+      type: "task",
+      title: "One",
+      status: "active",
+      scheduled: "2026-07-25",
+    };
+    const staleFollowUp = {
+      id: "task-2",
+      type: "task",
+      title: "Stale follow-up",
+      status: "active",
+      scheduled: "2026-07-26",
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/items/task-1/postpone") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({ scheduled: "2026-07-26" }),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            source: { ...source, status: "missed" },
+            follow_up: { ...staleFollowUp, title: "Current follow-up" },
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items?type=task" ? [source, staleFollowUp] : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("planner");
+      result.current.selectTab("daily");
+    });
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    act(() => result.current.openDetailView(staleFollowUp));
+
+    await act(async () => {
+      await result.current.postponeWorkspaceItem(source.id, "2026-07-26");
+    });
+
+    expect(result.current.selection.leafTabId).toBe("daily");
+    expect(result.current.workspaceItems.items).toHaveLength(2);
+    expect(result.current.workspaceItems.items).toEqual([
+      expect.objectContaining({ id: source.id, status: "missed" }),
+      expect.objectContaining({ id: staleFollowUp.id, title: "Current follow-up" }),
+    ]);
+    expect(result.current.workspaceItems.allItems).toHaveLength(2);
+    expect(result.current.detailItem).toEqual(
+      expect.objectContaining({
+        id: staleFollowUp.id,
+        title: "Current follow-up",
+      }),
+    );
+  });
+
   it("postpones a workspace item and synchronizes the source and follow-up once", async () => {
     const source = {
       id: "task-1",
@@ -2834,13 +2955,13 @@ describe("useWorkbenchController", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({}),
+            body: JSON.stringify({ scheduled: "2026-07-25" }),
           }),
         );
         return Promise.resolve({
           ok: true,
           json: async () => ({
-            source: { ...source, status: "someday", tags: ["focus", "deferred"] },
+            source: { ...source, status: "missed", tags: ["focus", "deferred"] },
             follow_up: followUp,
           }),
         });
@@ -2862,7 +2983,7 @@ describe("useWorkbenchController", () => {
     act(() => result.current.openDetailView(source));
 
     await act(async () => {
-      await result.current.postponeWorkspaceItem("task-1");
+      await result.current.postponeWorkspaceItem("task-1", "2026-07-25");
     });
 
     expect(result.current.workspaceItems.items.map((item) => item.id)).toEqual([
@@ -2873,13 +2994,13 @@ describe("useWorkbenchController", () => {
       "task-1",
       "task-2",
     ]);
-    expect(result.current.workspaceItems.items[0]?.status).toBe("someday");
+    expect(result.current.workspaceItems.items[0]?.status).toBe("missed");
     expect(result.current.workspaceItems.tagOptions).toEqual([
       "deferred",
       "focus",
       "next",
     ]);
-    expect(result.current.detailItem?.status).toBe("someday");
+    expect(result.current.detailItem?.status).toBe("missed");
   });
 
   it("keeps a linked postponed task out of the current routines collection", async () => {
@@ -2908,7 +3029,7 @@ describe("useWorkbenchController", () => {
           return Promise.resolve({
             ok: true,
             json: async () => ({
-              source: { ...linkedTask, status: "someday" },
+              source: { ...linkedTask, status: "missed" },
               follow_up: followUp,
             }),
           });
@@ -2934,7 +3055,7 @@ describe("useWorkbenchController", () => {
     act(() => result.current.openDetailView(linkedTask));
 
     await act(async () => {
-      await result.current.postponeWorkspaceItem(linkedTask.id);
+      await result.current.postponeWorkspaceItem(linkedTask.id, "2026-07-25");
     });
 
     expect(result.current.workspaceItems.items.map((item) => item.id)).toEqual([
@@ -2945,7 +3066,7 @@ describe("useWorkbenchController", () => {
       linkedTask.id,
       followUp.id,
     ]);
-    expect(result.current.detailItem?.status).toBe("someday");
+    expect(result.current.detailItem?.status).toBe("missed");
   });
 
   it("posts an explicit date when postponing a workspace item", async () => {
@@ -2964,7 +3085,7 @@ describe("useWorkbenchController", () => {
               id: "task-1",
               type: "task",
               title: "One",
-              status: "someday",
+              status: "missed",
             },
             follow_up: {
               id: "task-2",
@@ -3013,7 +3134,7 @@ describe("useWorkbenchController", () => {
 
     await act(async () => {
       await expect(
-        result.current.postponeWorkspaceItem("task-1"),
+        result.current.postponeWorkspaceItem("task-1", "2026-07-25"),
       ).rejects.toThrow("scheduled must be in the future");
     });
 

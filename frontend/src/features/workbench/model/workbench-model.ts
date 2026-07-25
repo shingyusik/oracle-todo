@@ -325,7 +325,8 @@ export type WorkbenchController = {
     itemId: string,
     action: WorkspaceItemTransitionAction,
   ) => Promise<void>;
-  postponeWorkspaceItem: (itemId: string, scheduled?: string) => Promise<void>;
+  missWorkspaceItem: (itemId: string) => Promise<void>;
+  postponeWorkspaceItem: (itemId: string, scheduled: string) => Promise<void>;
   workspaceItemTransitionState: (itemId: string) => WorkspaceItemTransitionState;
   materializeRoutine: (
     itemId: string,

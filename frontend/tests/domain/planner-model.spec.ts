@@ -872,12 +872,12 @@ describe("planner model", () => {
     ).toEqual(["done"]);
   });
 
-  it("keeps active, completed, and waiting tasks in status groups while excluding terminal tasks", () => {
+  it("keeps missed tasks visible in their scheduled status group", () => {
     const statusItems = [
       item("active", { status: "active", scheduled: "2026-07-06" }),
       item("completed", { status: "completed", scheduled: "2026-07-06" }),
       item("waiting", { status: "waiting", scheduled: "2026-07-06" }),
-      item("someday", { status: "someday", scheduled: "2026-07-06" }),
+      item("missed", { status: "missed", scheduled: "2026-07-06" }),
       item("rejected", { status: "rejected", scheduled: "2026-07-06" }),
     ];
     const model = buildDailyPlannerModel(statusItems, relatedItems, {
@@ -908,18 +908,19 @@ describe("planner model", () => {
     ).toEqual([
       ["Active", ["active"]],
       ["Completed", ["completed"]],
+      ["missed", ["missed"]],
       ["Waiting", ["waiting"]],
     ]);
   });
 
-  it("keeps completed tasks and events visible while hiding other terminal items", () => {
+  it("keeps completed and missed tasks and events visible while hiding other terminal items", () => {
     const workItems = [
       item("task-active", { status: "active", scheduled: "2026-07-06" }),
       item("task-completed", { status: "completed", scheduled: "2026-07-06" }),
       item("task-archived", { status: "archived", scheduled: "2026-07-06" }),
       item("task-dropped", { status: "dropped", scheduled: "2026-07-06" }),
       item("task-cancelled", { status: "cancelled", scheduled: "2026-07-06" }),
-      item("task-someday", { status: "someday", scheduled: "2026-07-06" }),
+      item("task-missed", { status: "missed", scheduled: "2026-07-06" }),
       item("task-rejected", { status: "rejected", scheduled: "2026-07-06" }),
       item("event-completed", {
         title: "Z event completed",
@@ -951,9 +952,9 @@ describe("planner model", () => {
         horizon: "month",
         scheduled: "2026-07-01",
       }),
-      item("month-goal-someday", {
+      item("month-goal-missed", {
         type: "goal",
-        status: "someday",
+        status: "missed",
         horizon: "month",
         scheduled: "2026-07-01",
       }),
@@ -1004,11 +1005,13 @@ describe("planner model", () => {
     expect(visibleDailyIds).toEqual([
       "task-active",
       "task-completed",
+      "task-missed",
       "event-completed",
     ]);
     expect(visibleMonthlyIds).toEqual([
       "task-active",
       "task-completed",
+      "task-missed",
       "event-completed",
     ]);
     expect(weekly.monthGoals.map((item) => item.id)).toEqual(["month-goal-active"]);
@@ -1022,6 +1025,7 @@ describe("planner model", () => {
     expect(weekly.days[0].items.map((item) => item.id)).toEqual([
       "task-active",
       "task-completed",
+      "task-missed",
       "event-completed",
     ]);
     expect(visibleDailyIds).toContain("event-completed");

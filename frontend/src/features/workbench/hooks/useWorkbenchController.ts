@@ -425,12 +425,12 @@ function replaceWorkspaceItem(
   return items.map((item) => (item.id === updated.id ? updated : item));
 }
 
-function appendWorkspaceItem(
+function upsertWorkspaceItem(
   items: WorkspaceItemModel[],
   item: WorkspaceItemModel,
 ): WorkspaceItemModel[] {
   return items.some((current) => current.id === item.id)
-    ? items
+    ? replaceWorkspaceItem(items, item)
     : [...items, item];
 }
 
@@ -443,19 +443,35 @@ function itemMatchesCollection(item: WorkspaceItemModel, leafTabId: LeafTabId): 
   return (plannerItemTypes[leafTabId] ?? []).some((itemType) => itemType === item.type);
 }
 
-function applyPostponeToCollection(
+function applyMutationToCollection(
   items: WorkspaceItemModel[],
-  result: PostponeResult,
+  result: { source: WorkspaceItemModel; follow_up?: WorkspaceItemModel },
   leafTabId: LeafTabId,
 ): WorkspaceItemModel[] {
   const containsSource = items.some((item) => item.id === result.source.id);
-  const updated = containsSource
+  let updated = containsSource
     ? replaceWorkspaceItem(items, result.source)
     : items;
+  if (!result.follow_up) return updated;
 
-  return containsSource || itemMatchesCollection(result.follow_up, leafTabId)
-    ? appendWorkspaceItem(updated, result.follow_up)
-    : updated;
+  const containsFollowUp = updated.some((item) => item.id === result.follow_up?.id);
+  if (
+    containsFollowUp ||
+    containsSource ||
+    itemMatchesCollection(result.follow_up, leafTabId)
+  ) {
+    updated = upsertWorkspaceItem(updated, result.follow_up);
+  }
+  return updated;
+}
+
+function applyMutationToDetail(
+  item: WorkspaceItemModel | null,
+  result: { source: WorkspaceItemModel; follow_up?: WorkspaceItemModel },
+): WorkspaceItemModel | null {
+  if (item?.id === result.source.id) return result.source;
+  if (result.follow_up && item?.id === result.follow_up.id) return result.follow_up;
+  return item;
 }
 
 const emptyPlannerCreationAnalysis: PlannerCreationAnalysis = {
@@ -1259,31 +1275,82 @@ export function useWorkbenchController(): WorkbenchController {
       );
       return transition;
     },
+    missWorkspaceItem: (itemId) => {
+      const existing = itemTransitions.current.get(itemId);
+      if (existing) return existing;
+
+      const transition = (async () => {
+        const source = await postMissItem(itemId);
+        setDetailItem((current) => applyMutationToDetail(current, { source }));
+        setWorkspaceItems((current) => {
+          const allItems = upsertWorkspaceItem(current.allItems, source);
+          return {
+            ...current,
+            items: applyMutationToCollection(
+              current.items,
+              { source },
+              selectionStateRef.current.leafTabId,
+            ),
+            allItems,
+            relatedItems: buildRelatedItems(allItems),
+            tagOptions: mergeTagOptions(current.tagOptions, source.tags),
+          };
+        });
+      })();
+      itemTransitions.current.set(itemId, transition);
+      setItemTransitionStates((current) => ({
+        ...current,
+        [itemId]: { pending: true, error: null },
+      }));
+      const clearTransition = (error: string | null) => {
+        if (itemTransitions.current.get(itemId) === transition) {
+          itemTransitions.current.delete(itemId);
+          setItemTransitionStates((current) =>
+            error
+              ? { ...current, [itemId]: { pending: false, error } }
+              : Object.fromEntries(
+                  Object.entries(current).filter(([key]) => key !== itemId),
+                ),
+          );
+        }
+      };
+      void transition.then(
+        () => clearTransition(null),
+        (cause) => clearTransition(
+          cause instanceof TodoEngineApiError
+            ? cause.detail
+            : "Could not update item.",
+        ),
+      );
+      return transition;
+    },
     postponeWorkspaceItem: (itemId, scheduled) => {
       const existing = itemTransitions.current.get(itemId);
       if (existing) return existing;
 
       const transition = (async () => {
         const result = await postPostponeItem(itemId, scheduled);
-        setDetailItem((current) =>
-          current?.id === result.source.id ? result.source : current
-        );
-        setWorkspaceItems((current) => ({
-          ...current,
-          items: applyPostponeToCollection(
-            current.items,
-            result,
-            selectionStateRef.current.leafTabId,
-          ),
-          allItems: appendWorkspaceItem(
-            replaceWorkspaceItem(current.allItems, result.source),
+        setDetailItem((current) => applyMutationToDetail(current, result));
+        setWorkspaceItems((current) => {
+          const allItems = upsertWorkspaceItem(
+            upsertWorkspaceItem(current.allItems, result.source),
             result.follow_up,
-          ),
-          tagOptions: mergeTagOptions(
-            mergeTagOptions(current.tagOptions, result.source.tags),
-            result.follow_up.tags,
-          ),
-        }));
+          );
+          return {
+            ...current,
+            items: applyMutationToCollection(
+              current.items,
+              result,
+              selectionStateRef.current.leafTabId,
+            ),
+            allItems,
+            relatedItems: buildRelatedItems(allItems),
+            tagOptions: mergeTagOptions(
+              mergeTagOptions(current.tagOptions, result.source.tags),
+              result.follow_up.tags,
+            ),
+          };
+        });
       })();
       itemTransitions.current.set(itemId, transition);
       setItemTransitionStates((current) => ({
@@ -1423,12 +1490,26 @@ function postMaterializeRoutine(
 
 function postPostponeItem(
   itemId: string,
-  scheduled?: string,
+  scheduled: string,
 ): Promise<PostponeResult> {
   return fetch(`/todo-engine/items/${itemId}/postpone`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(scheduled ? { scheduled } : {}),
+    body: JSON.stringify({ scheduled }),
+  }).then((response) => {
+    if (!response.ok) {
+      return throwApiError(response);
+    }
+
+    return response.json();
+  });
+}
+
+function postMissItem(itemId: string): Promise<WorkspaceItemModel> {
+  return fetch(`/todo-engine/items/${itemId}/miss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
   }).then((response) => {
     if (!response.ok) {
       return throwApiError(response);

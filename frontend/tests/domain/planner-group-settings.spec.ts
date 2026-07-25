@@ -89,6 +89,7 @@ describe("planner group settings", () => {
       "active",
       "paused",
       "completed",
+      "missed",
       "waiting",
     ]);
     expect(candidates.filter(({ key }) => key === "active")).toHaveLength(1);

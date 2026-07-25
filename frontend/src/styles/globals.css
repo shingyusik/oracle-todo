@@ -1328,10 +1328,9 @@ button {
   opacity: 0.55;
 }
 
-.planner-postpone-button {
+.planner-miss-button {
   display: inline-grid;
-  width: 24px;
-  min-width: 24px;
+  min-width: 36px;
   height: 24px;
   flex: 0 0 auto;
   place-items: center;
@@ -1340,19 +1339,21 @@ button {
   background: var(--color-canvas-light);
   padding: 0;
   color: var(--color-shade-60);
+  font-size: 10px;
+  line-height: 1;
 }
 
-.planner-postpone-button:hover {
+.planner-miss-button:hover {
   border-color: var(--color-shade-40);
   color: var(--color-ink);
 }
 
-.planner-postpone-button:focus-visible {
+.planner-miss-button:focus-visible {
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
 }
 
-.planner-postpone-button:disabled {
+.planner-miss-button:disabled {
   cursor: wait;
   opacity: 0.55;
 }
@@ -1361,9 +1362,8 @@ button {
   gap: 4px;
 }
 
-.planner-item-row.is-compact .planner-postpone-button {
-  width: 20px;
-  min-width: 20px;
+.planner-item-row.is-compact .planner-miss-button {
+  min-width: 32px;
   height: 20px;
 }
 
@@ -2022,47 +2022,8 @@ button {
   color: var(--color-shade-50);
 }
 
-.detail-postpone {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  border-top: 1px solid var(--color-hairline-light);
-  padding-top: 16px;
-  color: var(--color-shade-70);
-  font-size: 14px;
-}
-
-.detail-postpone input,
-.detail-postpone button {
-  min-height: 36px;
-  border: 1px solid var(--color-hairline-light);
-  border-radius: var(--radius-xs);
-  background: var(--color-canvas-light);
-  padding: 8px 10px;
-  color: var(--color-ink);
-}
-
-.detail-postpone button {
-  border-color: var(--color-ink);
-  background: var(--color-ink);
-  color: var(--color-on-dark);
-}
-
-.detail-postpone input:focus-visible,
-.detail-postpone button:focus-visible {
-  outline: 2px solid var(--color-ink);
-  outline-offset: 2px;
-}
-
-.detail-postpone input:disabled,
-.detail-postpone button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.detail-postpone [role="alert"] {
-  grid-column: 2 / -1;
+.planner-miss-error {
+  margin: 12px 0 0;
   color: var(--color-danger-text);
   font-size: 12px;
 }
@@ -2266,14 +2227,9 @@ button {
   }
 
   .detail-header,
-  .detail-postpone,
   .detail-properties-list .field-label,
   .property-row {
     grid-template-columns: 1fr;
-  }
-
-  .detail-postpone [role="alert"] {
-    grid-column: 1;
   }
 
 }

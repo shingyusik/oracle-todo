@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import {
   ArrowDownUp,
   ArrowLeft,
-  CalendarClock,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -85,9 +84,9 @@ type ItemColumn = {
 };
 
 const reviewCycleOptions = ["daily", "weekly", "monthly", "quarterly"];
-const workItemStatusOptions = ["active", "paused", "completed"];
+const workItemStatusOptions = ["active", "paused", "completed", "missed"];
 const areaStatusOptions = ["active", "archived"];
-const taskStatusOptions = ["active", "completed"];
+const taskStatusOptions = ["active", "completed", "missed"];
 const materializationPolicyOptions = ["single_open", "per_occurrence"];
 const priorityOptions = Array.from({ length: 10 }, (_, index) => (index + 1).toString());
 
@@ -142,18 +141,14 @@ export function MainPanel({ controller }: MainPanelProps) {
 function DetailView({ controller }: MainPanelProps) {
   const item = controller.detailItem;
   const [draft, setDraft] = React.useState(() => detailDraftForItem(item));
-  const [postponeDate, setPostponeDate] = React.useState("");
-  const [detailPostponePending, setDetailPostponePending] = React.useState(false);
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
     null,
   );
-  const detailPostponePromiseRef = useRef<Promise<void> | null>(null);
   const cancelLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
   const discardLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
 
   React.useEffect(() => {
     setDraft(detailDraftForItem(item));
-    setPostponeDate("");
   }, [item]);
 
   React.useEffect(() => {
@@ -169,12 +164,6 @@ function DetailView({ controller }: MainPanelProps) {
   const detailItem = item;
   const hasDraftChanges = hasDetailChanges(detailItem, draft);
   const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
-  const postponeVisible =
-    (detailItem.type === "task" || detailItem.type === "event") &&
-    ["active", "waiting", "paused"].includes(detailItem.status);
-  const transitionState = controller.workspaceItemTransitionState(detailItem.id);
-  const tomorrow = addDays(formatDateForPlanner(new Date()), 1);
-  const postponeDateValid = postponeDate >= tomorrow;
 
   function setField(field: keyof DetailDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -194,33 +183,6 @@ function DetailView({ controller }: MainPanelProps) {
     if (transition) {
       await controller.transitionWorkspaceItem(detailItem.id, transition);
     }
-  }
-
-  function postponeDetail(): Promise<void> {
-    const pending = detailPostponePromiseRef.current;
-    if (pending) {
-      return pending;
-    }
-    if (!postponeDateValid || transitionState.pending) {
-      return Promise.resolve();
-    }
-
-    const sequence = (async () => {
-      if (hasDraftChanges) {
-        await saveDraft();
-      }
-      await controller.postponeWorkspaceItem(detailItem.id, postponeDate);
-    })();
-    detailPostponePromiseRef.current = sequence;
-    setDetailPostponePending(true);
-    const clearPending = () => {
-      if (detailPostponePromiseRef.current === sequence) {
-        detailPostponePromiseRef.current = null;
-        setDetailPostponePending(false);
-      }
-    };
-    void sequence.then(clearPending, clearPending);
-    return sequence;
   }
 
   function openLinkedItem(nextItem: WorkspaceItemModel) {
@@ -328,35 +290,6 @@ function DetailView({ controller }: MainPanelProps) {
             />
           </div>
         </div>
-        {postponeVisible ? (
-          <div className="detail-postpone">
-            <label htmlFor={`postpone-${detailItem.id}`}>Postpone date</label>
-            <input
-              id={`postpone-${detailItem.id}`}
-              type="date"
-              min={tomorrow}
-              value={postponeDate}
-              disabled={detailPostponePending || transitionState.pending}
-              onChange={(event) => setPostponeDate(event.target.value)}
-            />
-            <button
-              type="button"
-              disabled={
-                !postponeDateValid ||
-                detailPostponePending ||
-                transitionState.pending
-              }
-              onClick={() => {
-                void postponeDetail().catch(() => undefined);
-              }}
-            >
-              Postpone to…
-            </button>
-            {transitionState.error ? (
-              <span role="alert">{transitionState.error}</span>
-            ) : null}
-          </div>
-        ) : null}
         {groups.length > 0 ? (
           <section className="linked-items" aria-label="Linked items">
             <h2>Linked items</h2>
@@ -2420,7 +2353,7 @@ function filterOptionsForItems(
     areas: relationFilterOptions(items, relatedItems.areas, "area_id"),
     projects: relationFilterOptions(items, relatedItems.projects, "project_id"),
     routines: relationFilterOptions(items, relatedItems.routines, "routine_id"),
-    statuses: toFilterOptions(items.map((item) => item.status)),
+    statuses: toFilterOptions([...items.map((item) => item.status), "missed"]),
     priorities: priorityOptions.map((value) => ({ value, label: value })),
     horizons: ["week", "month", "year"].map((value) => ({ value, label: value })),
     parents: relationFilterOptions(items, relatedItems.goals, "parent_id"),
@@ -2629,6 +2562,7 @@ function applyPlannerTableSettings(
 function isTerminalPlannerItem(item: WorkspaceItemModel): boolean {
   return (
     item.status === "completed" ||
+    item.status === "missed" ||
     item.status === "archived" ||
     item.status === "dropped" ||
     item.status === "cancelled"
@@ -2748,7 +2682,7 @@ function PlannerItemRow({
       className={`planner-item-row${item.status === "completed" ? " is-completed" : ""}${compact ? " is-compact" : ""}`}
     >
       <PlannerCompletionCheckbox controller={controller} item={item} />
-      <PlannerPostponeButton controller={controller} item={item} />
+      <PlannerMissButton controller={controller} item={item} />
       <button
         className={compact ? "monthly-day-item" : "planner-item"}
         type="button"
@@ -2799,36 +2733,139 @@ function PlannerCompletionCheckbox({
   );
 }
 
-function PlannerPostponeButton({
+function PlannerMissButton({
   controller,
   item,
 }: {
   controller: WorkbenchController;
   item: WorkspaceItemModel;
 }) {
+  const [open, setOpen] = React.useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const markMissedRef = useRef<HTMLButtonElement>(null);
+  const postponeRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const visible =
     (item.type === "task" || item.type === "event") &&
     item.status === "active";
+  const transitionState = controller.workspaceItemTransitionState(item.id);
+
+  useEffect(() => {
+    if (open) markMissedRef.current?.focus();
+  }, [open]);
 
   if (!visible) return null;
 
-  const transitionState = controller.workspaceItemTransitionState(item.id);
+  function closeDialog() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  async function submit(action: "miss" | "postpone") {
+    if (transitionState.pending) return;
+    try {
+      if (action === "miss") {
+        await controller.missWorkspaceItem(item.id);
+      } else {
+        await controller.postponeWorkspaceItem(item.id, browserTomorrow());
+      }
+      setOpen(false);
+    } catch {
+      // The shared transition state renders the API error inside the dialog.
+    }
+  }
+
+  function handleDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (!transitionState.pending) closeDialog();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const controls = [
+      markMissedRef.current,
+      postponeRef.current,
+      cancelRef.current,
+    ].filter((control): control is HTMLButtonElement => control !== null);
+    if (controls.length === 0) return;
+    const currentIndex = controls.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.shiftKey && currentIndex === 0) {
+      event.preventDefault();
+      controls.at(-1)?.focus();
+    } else if (!event.shiftKey && currentIndex === controls.length - 1) {
+      event.preventDefault();
+      controls[0]?.focus();
+    }
+  }
 
   return (
-    <button
-      type="button"
-      className="planner-postpone-button"
-      aria-label={`Postpone ${item.title}`}
-      title={`Postpone ${item.title}`}
-      disabled={transitionState.pending}
-      onClick={() => {
-        if (transitionState.pending) return;
-        void controller.postponeWorkspaceItem(item.id).catch(() => undefined);
-      }}
-    >
-      <CalendarClock size={14} aria-hidden="true" />
-    </button>
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="planner-miss-button"
+        aria-label={`Miss ${item.title}`}
+        title={`Miss ${item.title}`}
+        disabled={transitionState.pending}
+        onClick={() => setOpen(true)}
+      >
+        Miss
+      </button>
+      {open
+        ? createPortal(
+            <div className="confirmation-backdrop planner-miss-backdrop">
+              <section
+                className="confirmation-dialog planner-miss-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Miss ${item.title}?`}
+                onKeyDown={handleDialogKeyDown}
+              >
+                <h2>Miss {item.title}?</h2>
+                <p>Mark this scheduled work as missed, or create a follow-up for tomorrow.</p>
+                {transitionState.error
+                  ? <p className="planner-miss-error" role="alert">{transitionState.error}</p>
+                  : null}
+                <div className="dialog-actions">
+                  <button
+                    ref={markMissedRef}
+                    type="button"
+                    disabled={transitionState.pending}
+                    onClick={() => void submit("miss")}
+                  >
+                    Mark missed
+                  </button>
+                  <button
+                    ref={postponeRef}
+                    type="button"
+                    disabled={transitionState.pending}
+                    onClick={() => void submit("postpone")}
+                  >
+                    Miss and postpone
+                  </button>
+                  <button
+                    ref={cancelRef}
+                    type="button"
+                    disabled={transitionState.pending}
+                    onClick={closeDialog}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
+}
+
+function browserTomorrow(): string {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return formatDateForPlanner(tomorrow);
 }
 
 type DetailDraft = {
