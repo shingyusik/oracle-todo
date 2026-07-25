@@ -84,9 +84,9 @@ type ItemColumn = {
 };
 
 const reviewCycleOptions = ["daily", "weekly", "monthly", "quarterly"];
-const workItemStatusOptions = ["active", "paused", "completed", "missed"];
+const workItemStatusOptions = ["active", "paused", "completed"];
 const areaStatusOptions = ["active", "archived"];
-const taskStatusOptions = ["active", "completed", "missed"];
+const taskStatusOptions = ["active", "completed"];
 const materializationPolicyOptions = ["single_open", "per_occurrence"];
 const priorityOptions = Array.from({ length: 10 }, (_, index) => (index + 1).toString());
 
@@ -2676,14 +2676,16 @@ function PlannerItemRow({
   compact?: boolean;
 }) {
   const transitionState = controller.workspaceItemTransitionState(item.id);
+  const titleRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div
       className={`planner-item-row${item.status === "completed" ? " is-completed" : ""}${compact ? " is-compact" : ""}`}
     >
       <PlannerCompletionCheckbox controller={controller} item={item} />
-      <PlannerMissButton controller={controller} item={item} />
+      <PlannerMissButton controller={controller} item={item} focusTargetRef={titleRef} />
       <button
+        ref={titleRef}
         className={compact ? "monthly-day-item" : "planner-item"}
         type="button"
         title={compact ? item.title : undefined}
@@ -2736,9 +2738,11 @@ function PlannerCompletionCheckbox({
 function PlannerMissButton({
   controller,
   item,
+  focusTargetRef,
 }: {
   controller: WorkbenchController;
   item: WorkspaceItemModel;
+  focusTargetRef: React.RefObject<HTMLButtonElement>;
 }) {
   const [open, setOpen] = React.useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -2769,6 +2773,7 @@ function PlannerMissButton({
       } else {
         await controller.postponeWorkspaceItem(item.id, browserTomorrow());
       }
+      focusTargetRef.current?.focus();
       setOpen(false);
     } catch {
       // The shared transition state renders the API error inside the dialog.
@@ -2820,10 +2825,14 @@ function PlannerMissButton({
                 role="dialog"
                 aria-modal="true"
                 aria-label={`Miss ${item.title}?`}
+                aria-busy={transitionState.pending}
                 onKeyDown={handleDialogKeyDown}
               >
                 <h2>Miss {item.title}?</h2>
                 <p>Mark this scheduled work as missed, or create a follow-up for tomorrow.</p>
+                {transitionState.pending
+                  ? <p className="planner-miss-progress" role="status">Updating missed work…</p>
+                  : null}
                 {transitionState.error
                   ? <p className="planner-miss-error" role="alert">{transitionState.error}</p>
                   : null}
@@ -5544,6 +5553,7 @@ function StatusSelect({
       className="inline-cell-control"
       aria-label={`Status for ${item.title}`}
       value={item.status}
+      disabled={item.status === "missed"}
       onClick={stopRowEvent}
       onKeyDown={stopRowEvent}
       onChange={(event) => {
@@ -5583,6 +5593,7 @@ function DetailStatusField({
         className="inline-cell-control"
         aria-label={`Status for ${item.title}`}
         value={value}
+        disabled={item.status === "missed"}
         onChange={(event) => onChange(event.target.value)}
       >
         {visibleStatuses.map((status) => (

@@ -2475,6 +2475,7 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Active task" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Miss Active task" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Active task" })).toHaveFocus();
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/task-active/miss",
@@ -2529,6 +2530,10 @@ describe("WorkbenchPageClient", () => {
     fireEvent.click(postpone);
 
     expect(postpone).toBeDisabled();
+    await waitFor(() => {
+      expect(dialog).toHaveAttribute("aria-busy", "true");
+      expect(within(dialog).getByRole("status")).toHaveTextContent("Updating missed work…");
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/postpone"),
       expect.objectContaining({
@@ -7003,7 +7008,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
-    expect(await statusOptions("One")).toEqual(["active", "completed", "missed"]);
+    expect(await statusOptions("One")).toEqual(["active", "completed"]);
     const inlinePriority = screen.getByLabelText("Priority for One");
     expect(inlinePriority.tagName).toBe("SELECT");
     expect(within(inlinePriority).getByRole("option", { name: "10" })).toBeInTheDocument();
@@ -7015,7 +7020,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "< Back" }));
 
     await user.click(screen.getByRole("button", { name: "Events" }));
-    expect(await statusOptions("Review")).toEqual(["active", "paused", "completed", "missed"]);
+    expect(await statusOptions("Review")).toEqual(["active", "paused", "completed"]);
   });
 
   it("renders the exact stored status without an alias", async () => {
@@ -7630,19 +7635,19 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
 
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await statusOptions("Project without DoD")).toEqual(["active", "paused", "completed", "missed"]);
+    expect(await statusOptions("Project without DoD")).toEqual(["active", "paused", "completed"]);
     expect(screen.getByLabelText("Status for Project without DoD")).toHaveValue("active");
-    expect(await statusOptions("Project with DoD")).toEqual(["active", "paused", "completed", "missed"]);
+    expect(await statusOptions("Project with DoD")).toEqual(["active", "paused", "completed"]);
 
     await user.click(screen.getByRole("button", { name: "Routines" }));
-    expect(await statusOptions("Routine without rule")).toEqual(["active", "paused", "completed", "missed"]);
+    expect(await statusOptions("Routine without rule")).toEqual(["active", "paused", "completed"]);
     expect(screen.getByLabelText("Status for Routine without rule")).toHaveValue("active");
-    expect(await statusOptions("Paused routine")).toEqual(["active", "paused", "completed", "missed"]);
+    expect(await statusOptions("Paused routine")).toEqual(["active", "paused", "completed"]);
     expect(screen.getByLabelText("Status for Paused routine")).toHaveValue("paused");
 
     await user.click(screen.getByRole("button", { name: "Events" }));
-    expect(await statusOptions("Event without scheduled")).toEqual(["active", "paused", "completed", "missed"]);
-    expect(await statusOptions("Scheduled event")).toEqual(["active", "paused", "completed", "missed"]);
+    expect(await statusOptions("Event without scheduled")).toEqual(["active", "paused", "completed"]);
+    expect(await statusOptions("Scheduled event")).toEqual(["active", "paused", "completed"]);
 
     await user.click(screen.getByRole("button", { name: "Areas" }));
     expect(await statusOptions("Area")).toEqual(["active", "archived"]);
@@ -7654,20 +7659,20 @@ describe("WorkbenchPageClient", () => {
       "Active goal",
       "Paused goal",
     ]) {
-      expect(await statusOptions(title)).toEqual(["active", "paused", "completed", "missed"]);
+      expect(await statusOptions(title)).toEqual(["active", "paused", "completed"]);
     }
     expect(screen.getByLabelText("Status for Additional active goal")).toHaveValue("active");
     expect(screen.getByLabelText("Status for Secondary active goal")).toHaveValue("active");
     expect(screen.getByLabelText("Status for Paused goal")).toHaveValue("paused");
-    expect(await statusOptions("Waiting goal")).toEqual(["waiting", "active", "paused", "completed", "missed"]);
+    expect(await statusOptions("Waiting goal")).toEqual(["waiting", "active", "paused", "completed"]);
     expect(screen.getByLabelText("Status for Waiting goal")).toHaveValue("waiting");
     await user.click(screen.getByRole("cell", { name: "Additional active goal" }));
-    expect(await statusOptions("Additional active goal")).toEqual(["active", "paused", "completed", "missed"]);
+    expect(await statusOptions("Additional active goal")).toEqual(["active", "paused", "completed"]);
     expect(screen.getByLabelText("Status for Additional active goal")).toHaveValue("active");
     await user.click(screen.getByRole("button", { name: "< Back" }));
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
-    expect(await statusOptions("Additional active task")).toEqual(["active", "completed", "missed"]);
+    expect(await statusOptions("Additional active task")).toEqual(["active", "completed"]);
     expect(screen.getByLabelText("Status for Additional active task")).toHaveValue("active");
   });
 
