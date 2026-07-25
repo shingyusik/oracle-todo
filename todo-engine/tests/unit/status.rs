@@ -8,7 +8,7 @@ const ALL_STATUS_STRINGS: [&str; 9] = [
     "cancelled",
     "dropped",
     "archived",
-    "someday",
+    "missed",
     "rejected",
 ];
 
@@ -19,7 +19,7 @@ fn terminal_status_matches_terminal_set() {
         ItemStatus::Cancelled,
         ItemStatus::Dropped,
         ItemStatus::Archived,
-        ItemStatus::Someday,
+        ItemStatus::Missed,
         ItemStatus::Rejected,
     ] {
         assert!(terminal_status(s), "{} should be terminal", s.as_str());
@@ -47,7 +47,7 @@ fn hidden_by_default_matches_hidden_set() {
         ItemStatus::Waiting,
         ItemStatus::Paused,
         ItemStatus::Completed,
-        ItemStatus::Someday,
+        ItemStatus::Missed,
         ItemStatus::Rejected,
     ] {
         assert!(
@@ -70,4 +70,5 @@ fn status_round_trips_every_variant() {
     ); // trims
     assert!("proposed".parse::<ItemStatus>().is_err());
     assert!("approved".parse::<ItemStatus>().is_err());
+    assert!("someday".parse::<ItemStatus>().is_err());
 }

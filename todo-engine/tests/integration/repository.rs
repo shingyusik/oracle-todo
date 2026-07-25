@@ -25,7 +25,7 @@ fn init_schema_creates_items_and_events_tables() {
 }
 
 #[test]
-fn init_schema_migrates_legacy_open_statuses() -> Result<(), Box<dyn std::error::Error>> {
+fn init_schema_migrates_legacy_statuses() -> Result<(), Box<dyn std::error::Error>> {
     let conn = connect(":memory:")?;
     init_schema(&conn)?;
     conn.execute_batch(
@@ -33,7 +33,8 @@ fn init_schema_migrates_legacy_open_statuses() -> Result<(), Box<dyn std::error:
         INSERT INTO items (id, type, title, status, proposed_by, created_at, updated_at)
         VALUES
             ('task_legacy_proposed', 'task', 'proposed', 'proposed', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'),
-            ('task_legacy_approved', 'task', 'approved', 'approved', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
+            ('task_legacy_approved', 'task', 'approved', 'approved', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'),
+            ('task_legacy_someday', 'task', 'someday', 'someday', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
         "#,
     )?;
 
@@ -42,7 +43,7 @@ fn init_schema_migrates_legacy_open_statuses() -> Result<(), Box<dyn std::error:
     let statuses: Vec<String> = statement
         .query_map([], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
-    assert_eq!(statuses, vec!["active", "active"]);
+    assert_eq!(statuses, vec!["active", "active", "missed"]);
 
     drop(statement);
     init_schema(&conn)?;
@@ -50,7 +51,7 @@ fn init_schema_migrates_legacy_open_statuses() -> Result<(), Box<dyn std::error:
     let statuses: Vec<String> = statement
         .query_map([], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
-    assert_eq!(statuses, vec!["active", "active"]);
+    assert_eq!(statuses, vec!["active", "active", "missed"]);
     Ok(())
 }
 
@@ -375,13 +376,27 @@ fn list_items_honors_core_filters_and_hides_archived_by_default() {
     active.area_id = Some("area_1".to_string());
     let mut archived = TodoItem::new_task("task_archived", "보관", Actor::Agent, now);
     archived.status = ItemStatus::Archived;
+    let mut missed = TodoItem::new_task("task_missed", "누락", Actor::Agent, now);
+    missed.status = ItemStatus::Missed;
     let area = TodoItem::new("area_1", ItemType::Area, "재정", Actor::User, now);
 
     repo.save_item(&area).unwrap();
     repo.save_item(&active).unwrap();
     repo.save_item(&archived).unwrap();
+    repo.save_item(&missed).unwrap();
 
-    assert_eq!(repo.list_items(ListFilter::default()).unwrap().len(), 2);
+    assert_eq!(repo.list_items(ListFilter::default()).unwrap().len(), 3);
+    assert_eq!(
+        repo.list_items(ListFilter {
+            status: Some(ItemStatus::Missed),
+            ..Default::default()
+        })
+        .unwrap()
+        .iter()
+        .map(|item| item.id.as_str())
+        .collect::<Vec<_>>(),
+        vec!["task_missed"]
+    );
     assert_eq!(
         repo.list_items(ListFilter {
             status: Some(ItemStatus::Active),

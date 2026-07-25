@@ -278,11 +278,11 @@ fn postponing_generated_task_records_occurrence_and_restores_open_target() {
         .postpone(&generated.id, "2026-06-01", "2026-05-31", None)
         .unwrap();
 
-    assert_eq!(source.status, ItemStatus::Someday);
+    assert_eq!(source.status, ItemStatus::Missed);
     assert_eq!(
         service.get(&routine.id).unwrap().metadata["occurrences"]
             [generated.occurrence_key.as_ref().unwrap()]["status"],
-        "someday"
+        "missed"
     );
     assert!(follow_up.routine_id.is_none());
     assert!(follow_up.occurrence_key.is_none());

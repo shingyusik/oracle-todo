@@ -143,7 +143,7 @@ impl TodoService {
             serde_json::Value::String(source.id.clone()),
         );
 
-        source.status = ItemStatus::Someday;
+        source.status = ItemStatus::Missed;
         source.archived_at = Some(now);
         source.updated_at = now;
         source.metadata.insert(

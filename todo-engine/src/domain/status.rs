@@ -11,7 +11,7 @@ pub enum ItemStatus {
     Cancelled,
     Dropped,
     Archived,
-    Someday,
+    Missed,
     Rejected,
 }
 
@@ -31,7 +31,7 @@ pub fn terminal_status(status: ItemStatus) -> bool {
             | ItemStatus::Cancelled
             | ItemStatus::Dropped
             | ItemStatus::Archived
-            | ItemStatus::Someday
+            | ItemStatus::Missed
             | ItemStatus::Rejected
     )
 }
@@ -53,7 +53,7 @@ impl ItemStatus {
             ItemStatus::Cancelled => "cancelled",
             ItemStatus::Dropped => "dropped",
             ItemStatus::Archived => "archived",
-            ItemStatus::Someday => "someday",
+            ItemStatus::Missed => "missed",
             ItemStatus::Rejected => "rejected",
         }
     }
@@ -71,7 +71,7 @@ impl FromStr for ItemStatus {
             "cancelled" => Ok(ItemStatus::Cancelled),
             "dropped" => Ok(ItemStatus::Dropped),
             "archived" => Ok(ItemStatus::Archived),
-            "someday" => Ok(ItemStatus::Someday),
+            "missed" => Ok(ItemStatus::Missed),
             "rejected" => Ok(ItemStatus::Rejected),
             _ => Err(format!("unknown status: {value}")),
         }

@@ -522,7 +522,7 @@ fn postpone_task_preserves_business_fields_and_emits_paired_audit_events() {
         .postpone(&task.id, "2026-06-01", "2026-05-31", Some("다음 날 처리"))
         .unwrap();
 
-    assert_eq!(source.status, ItemStatus::Someday);
+    assert_eq!(source.status, ItemStatus::Missed);
     assert_eq!(source.scheduled.as_deref(), Some("2026-05-31"));
     assert!(source.archived_at.is_some());
     assert_eq!(source.metadata["postponed_to"], follow_up.id);
@@ -579,7 +579,7 @@ fn postpone_event_keeps_event_fields_and_changes_only_its_schedule() {
         .postpone(&event.id, "2026-06-01", "2026-05-31", None)
         .unwrap();
 
-    assert_eq!(source.status, ItemStatus::Someday);
+    assert_eq!(source.status, ItemStatus::Missed);
     assert_eq!(source.scheduled.as_deref(), Some("2026-05-31T10:00:00"));
     assert_eq!(follow_up.item_type, ItemType::Event);
     assert_eq!(follow_up.status, ItemStatus::Active);
@@ -613,9 +613,9 @@ fn postponing_a_follow_up_builds_a_three_item_chain() {
         .postpone(&first_follow_up.id, "2026-06-02", "2026-06-01", None)
         .unwrap();
 
-    assert_eq!(first_source.status, ItemStatus::Someday);
+    assert_eq!(first_source.status, ItemStatus::Missed);
     assert_eq!(first_source.metadata["postponed_to"], first_follow_up.id);
-    assert_eq!(second_source.status, ItemStatus::Someday);
+    assert_eq!(second_source.status, ItemStatus::Missed);
     assert_eq!(second_source.scheduled.as_deref(), Some("2026-06-01"));
     assert_eq!(second_source.metadata["postponed_from"], original.id);
     assert_eq!(second_source.metadata["postponed_to"], second_follow_up.id);
@@ -644,7 +644,7 @@ fn paused_task_can_be_postponed() {
         .postpone(&task.id, "2026-06-01", "2026-05-31", None)
         .unwrap();
 
-    assert_eq!(source.status, ItemStatus::Someday);
+    assert_eq!(source.status, ItemStatus::Missed);
     assert_eq!(follow_up.status, ItemStatus::Active);
 }
 

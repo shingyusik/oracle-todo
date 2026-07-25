@@ -47,7 +47,8 @@ fn init_schema_adds_planning_indexes_on_existing_populated_home() {
         INSERT INTO items (id, type, title, status, proposed_by, created_at, updated_at)
         VALUES
             ('task_1', 'task', 'one', 'proposed', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'),
-            ('task_2', 'task', 'two', 'proposed', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
+            ('task_2', 'task', 'two', 'proposed', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z'),
+            ('task_legacy_someday', 'task', 'legacy someday', 'someday', 'agent', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z');
         "#,
     )
     .unwrap();
@@ -55,7 +56,7 @@ fn init_schema_adds_planning_indexes_on_existing_populated_home() {
     let rows_before: i64 = conn
         .query_row("SELECT COUNT(*) FROM items", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(rows_before, 2);
+    assert_eq!(rows_before, 3);
 
     // Current binary re-opens the existing populated data home.
     init_schema(&conn).unwrap();
@@ -71,7 +72,17 @@ fn init_schema_adds_planning_indexes_on_existing_populated_home() {
     let rows_after: i64 = conn
         .query_row("SELECT COUNT(*) FROM items", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(rows_after, 2, "existing rows must survive the re-migration");
+    assert_eq!(rows_after, 3, "existing rows must survive the re-migration");
+    assert_eq!(
+        conn.query_row(
+            "SELECT status FROM items WHERE id = 'task_legacy_someday'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+        "missed",
+        "legacy someday data must be normalized to missed"
+    );
 
     // No version bump: still at the additive baseline.
     assert_eq!(user_version(&conn).unwrap(), 1);

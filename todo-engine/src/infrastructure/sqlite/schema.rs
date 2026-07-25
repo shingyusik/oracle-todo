@@ -75,7 +75,12 @@ fn init_schema_inner(conn: &Connection) -> TodoResult<()> {
     ensure_item_columns(conn)?;
 
     conn.execute(
-        "UPDATE items SET status = 'active' WHERE status IN ('proposed', 'approved')",
+        "UPDATE items SET status = CASE
+            WHEN status IN ('proposed', 'approved') THEN 'active'
+            WHEN status = 'someday' THEN 'missed'
+            ELSE status
+        END
+        WHERE status IN ('proposed', 'approved', 'someday')",
         [],
     )
     .map_err(storage_error)?;
