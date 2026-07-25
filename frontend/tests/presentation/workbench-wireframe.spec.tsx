@@ -2475,7 +2475,8 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Active task" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Miss Active task" })).toBeNull();
-      expect(screen.getByRole("button", { name: "Active task" })).toHaveFocus();
+      expect(screen.getByRole("button", { name: "Filter Today" })).toHaveFocus();
+      expect(document.body).not.toHaveFocus();
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/todo-engine/items/task-active/miss",
@@ -2491,6 +2492,91 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Active task" })).toBeNull(),
     );
+  });
+
+  it("returns success focus to the Planner header after a status group remounts the missed row", async () => {
+    const user = userEvent.setup();
+    const task = {
+      id: "task-active",
+      type: "task",
+      title: "Active task",
+      status: "active",
+      scheduled: testToday(),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items/task-active/miss"
+              ? { ...task, status: "missed" }
+              : url === "/todo-engine/items?type=task"
+                ? [task]
+                : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(await screen.findByRole("button", { name: "Group Today" }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
+    await user.click(screen.getByRole("option", { name: "Status" }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Miss Active task" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Miss Active task?" })).getByRole("button", { name: "Mark missed" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "missed" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Filter Today" })).toHaveFocus();
+      expect(document.body).not.toHaveFocus();
+    });
+  });
+
+  it("returns success focus to the Planner header when the active filter removes the missed row", async () => {
+    const user = userEvent.setup();
+    const task = {
+      id: "task-active",
+      type: "task",
+      title: "Active task",
+      status: "active",
+      scheduled: testToday(),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items/task-active/miss"
+              ? { ...task, status: "missed" }
+              : url === "/todo-engine/items?type=task"
+                ? [task]
+                : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(await screen.findByRole("button", { name: "Filter Today" }));
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    await user.click(screen.getByRole("option", { name: "Status" }));
+    await user.click(screen.getByRole("button", { name: "Select Status filter values" }));
+    await user.click(screen.getByRole("checkbox", { name: "active" }));
+    await user.click(screen.getByRole("button", { name: "Miss Active task" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Miss Active task?" })).getByRole("button", { name: "Mark missed" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Active task" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Filter Today" })).toHaveFocus();
+      expect(document.body).not.toHaveFocus();
+    });
   });
 
   it("postpones to browser-local tomorrow and prevents duplicate dialog submission", async () => {

@@ -752,7 +752,7 @@ function MonthlyDayItems({
       {visibleEntries.map(({ groupKey, groupLabel, item }) => (
         <li key={`${groupKey}-${item.id}`}>
           {groupLabel ? <h4 className="monthly-day-group-heading">{groupLabel}</h4> : null}
-          <PlannerItemRow controller={controller} item={item} compact />
+          <PlannerItemRow controller={controller} item={item} tableId="monthly.calendar" compact />
         </li>
       ))}
       {hiddenCount > 0 ? (
@@ -784,7 +784,7 @@ function MonthlyDayItems({
                 {entries.map(({ groupKey, groupLabel, item }) => (
                   <li key={`${groupKey}-${item.id}`}>
                     {groupLabel ? <h4 className="monthly-day-group-heading">{groupLabel}</h4> : null}
-                    <PlannerItemRow controller={controller} item={item} compact />
+                    <PlannerItemRow controller={controller} item={item} tableId="monthly.calendar" compact />
                   </li>
                 ))}
               </ul>
@@ -902,7 +902,7 @@ function GoalGroupContent({
     groupUniverseItems,
   );
 
-  return <>{renderPlannerGroups(controller, groupedGoals, emptyText)}</>;
+  return <>{renderPlannerGroups(controller, tableId, groupedGoals, emptyText)}</>;
 }
 
 function WeeklyPlanner({
@@ -946,7 +946,7 @@ function WeeklyPlanner({
               editableDate: false,
             }}
           />
-          {renderPlannerGroups(controller, monthGoalGroups, "No goals found.")}
+          {renderPlannerGroups(controller, "weekly.month-goals", monthGoalGroups, "No goals found.")}
         </section>
         <section className="planner-section" aria-label="Weekly goals">
           <PlannerTableHeader
@@ -963,7 +963,7 @@ function WeeklyPlanner({
               editableDate: false,
             }}
           />
-          {renderPlannerGroups(controller, weekGoalGroups, "No goals found.")}
+          {renderPlannerGroups(controller, "weekly.week-goals", weekGoalGroups, "No goals found.")}
         </section>
       </div>
       <section className="planner-section" aria-label="Weekly weekday grid">
@@ -999,7 +999,7 @@ function WeeklyPlanner({
                 data-testid="weekly-day-card"
               >
                 <h3>{day.label}</h3>
-                {renderPlannerGroups(controller, dayGroups, "No scheduled items.")}
+                {renderPlannerGroups(controller, "weekly.day-grid", dayGroups, "No scheduled items.")}
               </section>
             );
           })}
@@ -1223,6 +1223,7 @@ function PlannerTableHeader({
             buttonRef={filterTriggerRef}
             ariaExpanded={openDropdown === "filter"}
             ariaControls={dropdownIds.filter}
+            missSuccessFocusTarget={tableId}
           >
             <Filter size={16} aria-hidden="true" />
           </PlannerDropdownButton>
@@ -1519,6 +1520,7 @@ function PlannerDropdownButton({
   buttonRef,
   ariaExpanded,
   ariaControls,
+  missSuccessFocusTarget,
 }: {
   active: boolean;
   ariaLabel: string;
@@ -1528,6 +1530,7 @@ function PlannerDropdownButton({
   buttonRef?: React.Ref<HTMLButtonElement>;
   ariaExpanded?: boolean;
   ariaControls?: string;
+  missSuccessFocusTarget?: string;
 }) {
   return (
     <button
@@ -1537,6 +1540,7 @@ function PlannerDropdownButton({
       aria-label={ariaLabel}
       title={title}
       data-active={active}
+      data-planner-miss-success-focus={missSuccessFocusTarget}
       aria-expanded={ariaExpanded}
       aria-controls={ariaControls}
       onClick={onClick}
@@ -2638,13 +2642,14 @@ function DailyPlannerSectionView({
         rawItems={rawItems}
         creationContext={creationContext}
       />
-      {renderPlannerGroups(controller, groups, "No items found.")}
+      {renderPlannerGroups(controller, tableId, groups, "No items found.")}
     </section>
   );
 }
 
 function renderPlannerGroups(
   controller: WorkbenchController,
+  tableId: PlannerTableId,
   groups: DailyPlannerSection["groups"],
   emptyMessage: string,
 ) {
@@ -2658,7 +2663,7 @@ function renderPlannerGroups(
       <ul className="planner-card-list">
         {group.items.map((item) => (
           <li key={item.id}>
-            <PlannerItemRow controller={controller} item={item} />
+            <PlannerItemRow controller={controller} item={item} tableId={tableId} />
           </li>
         ))}
       </ul>
@@ -2669,23 +2674,23 @@ function renderPlannerGroups(
 function PlannerItemRow({
   controller,
   item,
+  tableId,
   compact = false,
 }: {
   controller: WorkbenchController;
   item: WorkspaceItemModel;
+  tableId: PlannerTableId;
   compact?: boolean;
 }) {
   const transitionState = controller.workspaceItemTransitionState(item.id);
-  const titleRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div
       className={`planner-item-row${item.status === "completed" ? " is-completed" : ""}${compact ? " is-compact" : ""}`}
     >
       <PlannerCompletionCheckbox controller={controller} item={item} />
-      <PlannerMissButton controller={controller} item={item} focusTargetRef={titleRef} />
+      <PlannerMissButton controller={controller} item={item} tableId={tableId} />
       <button
-        ref={titleRef}
         className={compact ? "monthly-day-item" : "planner-item"}
         type="button"
         title={compact ? item.title : undefined}
@@ -2738,11 +2743,11 @@ function PlannerCompletionCheckbox({
 function PlannerMissButton({
   controller,
   item,
-  focusTargetRef,
+  tableId,
 }: {
   controller: WorkbenchController;
   item: WorkspaceItemModel;
-  focusTargetRef: React.RefObject<HTMLButtonElement>;
+  tableId: PlannerTableId;
 }) {
   const [open, setOpen] = React.useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -2773,8 +2778,14 @@ function PlannerMissButton({
       } else {
         await controller.postponeWorkspaceItem(item.id, browserTomorrow());
       }
-      focusTargetRef.current?.focus();
       setOpen(false);
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLButtonElement>(
+            `[data-planner-miss-success-focus="${tableId}"]`,
+          )
+          ?.focus();
+      });
     } catch {
       // The shared transition state renders the API error inside the dialog.
     }
