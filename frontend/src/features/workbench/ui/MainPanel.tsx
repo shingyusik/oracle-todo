@@ -518,8 +518,8 @@ function MonthlyPeriodPlanner({
           tableId="monthly.period-goals"
           groupUniverseItems={periodGoalItems}
           ariaLabel="Month goal carousel"
-          previousLabel="Previous month"
-          nextLabel="Next month"
+          previousLabel="Previous month goal period"
+          nextLabel="Next month goal period"
           cards={model.carousel}
         />
       </section>
@@ -1078,7 +1078,10 @@ function PlannerControlToolbar({
   controller: WorkbenchController;
 }) {
   const nowDisabled = plannerPeriodMatchesToday(controller);
-  const showPeriodNavigation = controller.panel.id === "weekly" || controller.panel.id === "daily";
+  const showPeriodNavigation =
+    controller.panel.id === "monthly" ||
+    controller.panel.id === "weekly" ||
+    controller.panel.id === "daily";
 
   return (
     <div className="planner-view-controls">
@@ -1361,14 +1364,19 @@ function PlannerTableHeader({
 }
 
 function PlannerPeriodNavigation({ controller }: { controller: WorkbenchController }) {
-  if (controller.panel.id !== "weekly" && controller.panel.id !== "daily") {
+  const isMonthly = controller.panel.id === "monthly";
+  if (!isMonthly && controller.panel.id !== "weekly" && controller.panel.id !== "daily") {
     return null;
   }
 
   const isWeekly = controller.panel.id === "weekly";
-  const previousLabel = isWeekly ? "Previous week" : "Previous day";
-  const nextLabel = isWeekly ? "Next week" : "Next day";
-  const dialogLabel = isWeekly ? "Choose Weekly date" : "Choose Daily date";
+  const previousLabel = isMonthly ? "Previous month" : isWeekly ? "Previous week" : "Previous day";
+  const nextLabel = isMonthly ? "Next month" : isWeekly ? "Next week" : "Next day";
+  const dialogLabel = isMonthly
+    ? "Choose Monthly date"
+    : isWeekly
+      ? "Choose Weekly date"
+      : "Choose Daily date";
 
   return (
     <div className="planner-period-navigation">
@@ -1380,7 +1388,11 @@ function PlannerPeriodNavigation({ controller }: { controller: WorkbenchControll
       >
         <ChevronLeft size={16} aria-hidden="true" />
       </button>
-      <PlannerDatePicker controller={controller} dialogLabel={dialogLabel} />
+      {isMonthly ? (
+        <PlannerMonthPicker controller={controller} dialogLabel={dialogLabel} />
+      ) : (
+        <PlannerDatePicker controller={controller} dialogLabel={dialogLabel} />
+      )}
       <button
         className="items-toolbar-button"
         type="button"
@@ -1398,6 +1410,142 @@ function PlannerPeriodNavigation({ controller }: { controller: WorkbenchControll
       >
         Now
       </button>
+    </div>
+  );
+}
+
+function PlannerMonthPicker({
+  controller,
+  dialogLabel,
+}: {
+  controller: WorkbenchController;
+  dialogLabel: string;
+}) {
+  const selected = monthStart(controller.planner.date);
+  const [year, month] = selected.slice(0, 7).split("-");
+  const controlRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties | null>(null);
+  const shouldRestoreFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function dismissOnOutsidePointer(event: MouseEvent) {
+      if (!(event.target instanceof Node)) return;
+      if (controlRef.current?.contains(event.target) || popoverRef.current?.contains(event.target)) {
+        return;
+      }
+      close(true);
+    }
+
+    document.addEventListener("mousedown", dismissOnOutsidePointer);
+    return () => document.removeEventListener("mousedown", dismissOnOutsidePointer);
+  }, [isOpen]);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return;
+
+    function updatePopoverPosition() {
+      const trigger = triggerRef.current;
+      const popover = popoverRef.current;
+      if (!trigger || !popover) return;
+      setPopoverStyle(goalPeriodPopoverStyle(trigger, popover));
+    }
+
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [isOpen, selected]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setPopoverStyle(null);
+      if (shouldRestoreFocusRef.current) {
+        shouldRestoreFocusRef.current = false;
+        triggerRef.current?.focus();
+      }
+      return;
+    }
+
+    popoverRef.current?.querySelector<HTMLElement>("select")?.focus();
+  }, [isOpen, selected]);
+
+  function close(restoreFocus: boolean) {
+    shouldRestoreFocusRef.current = restoreFocus;
+    setIsOpen(false);
+  }
+
+  function commit(nextYear: string, nextMonth: string) {
+    controller.selectPlannerPeriodDate(`${nextYear}-${nextMonth}-01`);
+  }
+
+  return (
+    <div ref={controlRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="planner-period-date-trigger"
+        aria-label={dialogLabel}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        onClick={() => (isOpen ? close(false) : setIsOpen(true))}
+      >
+        <CalendarDays size={16} aria-hidden="true" />
+        <span>{monthLabel(selected)}</span>
+      </button>
+
+      {isOpen
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="planner-period-popover"
+              style={popoverStyle ?? undefined}
+              role="dialog"
+              aria-label={dialogLabel}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  close(true);
+                }
+              }}
+            >
+              <div className="planner-month-picker-fields">
+                <label className="field-label">
+                  Year
+                  <select value={year} onChange={(event) => commit(event.target.value, month)}>
+                    {goalYearOptions(Number(year)).map((option) => (
+                      <option value={option} key={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field-label">
+                  Month
+                  <select value={month} onChange={(event) => commit(year, event.target.value)}>
+                    {Array.from({ length: 12 }, (_, index) => {
+                      const value = String(index + 1).padStart(2, "0");
+                      return (
+                        <option value={value} key={value}>
+                          {value}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

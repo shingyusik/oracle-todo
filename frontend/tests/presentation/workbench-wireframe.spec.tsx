@@ -3174,7 +3174,7 @@ describe("WorkbenchPageClient", () => {
     expect(groupTrigger).toHaveFocus();
   });
 
-  it("shows planner date triggers only for weekly and daily views", async () => {
+  it("shows planner period controls for monthly, weekly, and daily views", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -3199,10 +3199,23 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
 
+    await user.click(screen.getByRole("button", { name: "Previous month" }));
+    expect(screen.getByRole("button", { name: "Choose Monthly date" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Now" }));
+    await user.click(screen.getByRole("button", { name: "Choose Monthly date" }));
+    await user.selectOptions(
+      screen.getByLabelText("Year"),
+      String(new Date().getFullYear() + 1),
+    );
+    await user.selectOptions(screen.getByLabelText("Month"), "06");
+    expect(screen.getByRole("button", { name: "Choose Monthly date" })).toHaveTextContent(
+      `June ${new Date().getFullYear() + 1}`,
+    );
+
     expect(screen.queryByRole("button", { name: "Choose Weekly date" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Choose Daily date" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Previous week" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Previous day" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Previous month" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next month" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Weekly" }));
 
