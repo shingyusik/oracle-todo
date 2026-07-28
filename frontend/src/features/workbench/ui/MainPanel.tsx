@@ -518,8 +518,8 @@ function MonthlyPeriodPlanner({
           tableId="monthly.period-goals"
           groupUniverseItems={periodGoalItems}
           ariaLabel="Month goal carousel"
-          previousLabel="Previous month goal period"
-          nextLabel="Next month goal period"
+          previousLabel="Previous month"
+          nextLabel="Next month"
           cards={model.carousel}
         />
       </section>
@@ -1379,7 +1379,7 @@ function PlannerPeriodNavigation({ controller }: { controller: WorkbenchControll
       : "Choose Daily date";
 
   return (
-    <div className="planner-period-navigation">
+    <div className="planner-period-navigation" role="group" aria-label="Planner period navigation">
       <button
         className="items-toolbar-button"
         type="button"
@@ -1475,7 +1475,7 @@ function PlannerMonthPicker({
     }
 
     popoverRef.current?.querySelector<HTMLElement>("select")?.focus();
-  }, [isOpen, selected]);
+  }, [isOpen]);
 
   function close(restoreFocus: boolean) {
     shouldRestoreFocusRef.current = restoreFocus;

@@ -3199,23 +3199,31 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Monthly" }));
 
-    await user.click(screen.getByRole("button", { name: "Previous month" }));
+    const monthlyNavigation = within(
+      screen.getByRole("group", { name: "Planner period navigation" }),
+    );
+    await user.click(monthlyNavigation.getByRole("button", { name: "Previous month" }));
     expect(screen.getByRole("button", { name: "Choose Monthly date" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Now" }));
+    await user.click(monthlyNavigation.getByRole("button", { name: "Now" }));
     await user.click(screen.getByRole("button", { name: "Choose Monthly date" }));
+    const monthlyPicker = screen.getByRole("dialog", { name: "Choose Monthly date" });
+    const yearSelect = within(monthlyPicker).getByLabelText("Year");
+    await waitFor(() => expect(yearSelect).toHaveFocus());
     await user.selectOptions(
-      screen.getByLabelText("Year"),
+      yearSelect,
       String(new Date().getFullYear() + 1),
     );
-    await user.selectOptions(screen.getByLabelText("Month"), "06");
+    const monthSelect = within(monthlyPicker).getByLabelText("Month");
+    await user.selectOptions(monthSelect, "06");
+    expect(monthSelect).toHaveFocus();
     expect(screen.getByRole("button", { name: "Choose Monthly date" })).toHaveTextContent(
       `June ${new Date().getFullYear() + 1}`,
     );
 
     expect(screen.queryByRole("button", { name: "Choose Weekly date" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Choose Daily date" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Previous month" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next month" })).toBeInTheDocument();
+    expect(monthlyNavigation.getByRole("button", { name: "Previous month" })).toBeInTheDocument();
+    expect(monthlyNavigation.getByRole("button", { name: "Next month" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Weekly" }));
 
@@ -3230,6 +3238,66 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Previous day" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next day" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Choose Weekly date" })).toBeNull();
+  });
+
+  it("dismisses the monthly planner picker with Escape and restores trigger focus", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+
+    const monthlyTrigger = screen.getByRole("button", { name: "Choose Monthly date" });
+    await user.click(monthlyTrigger);
+    expect(screen.getByRole("dialog", { name: "Choose Monthly date" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose Monthly date" })).toBeNull(),
+    );
+    expect(monthlyTrigger).toHaveFocus();
+  });
+
+  it("dismisses the monthly planner picker on outside pointer and restores trigger focus", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+
+    const monthlyTrigger = screen.getByRole("button", { name: "Choose Monthly date" });
+    await user.click(monthlyTrigger);
+    expect(screen.getByRole("dialog", { name: "Choose Monthly date" })).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose Monthly date" })).toBeNull(),
+    );
+    expect(monthlyTrigger).toHaveFocus();
   });
 
   it("keeps the weekly title pill and date navigator in the same leading toolbar group", async () => {
@@ -4061,9 +4129,12 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("region", { name: "W1 goals" })).toHaveTextContent("First Week Goal");
     expect(screen.getByRole("region", { name: "W2 goals" })).toHaveTextContent("Second Week Goal");
     expect(screen.queryByText("Done Week Goal")).toBeNull();
-    expect(screen.getByRole("button", { name: "Previous month" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next month" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Now" })).toBeInTheDocument();
+    const monthlyNavigation = within(
+      screen.getByRole("group", { name: "Planner period navigation" }),
+    );
+    expect(monthlyNavigation.getByRole("button", { name: "Previous month" })).toBeInTheDocument();
+    expect(monthlyNavigation.getByRole("button", { name: "Next month" })).toBeInTheDocument();
+    expect(monthlyNavigation.getByRole("button", { name: "Now" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Group Week Goals" }));
     await user.click(screen.getByRole("button", { name: "Choose group property" }));
@@ -4111,8 +4182,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(within(filterDialog).getByRole("checkbox", { name: "Current parent" }));
     await user.click(screen.getByRole("button", { name: "Filter Month Goals" }));
 
-    await user.click(screen.getByRole("button", { name: "Next month" }));
-    await user.click(screen.getByRole("button", { name: "Next month" }));
+    const monthlyNavigation = within(
+      screen.getByRole("group", { name: "Planner period navigation" }),
+    );
+    await user.click(monthlyNavigation.getByRole("button", { name: "Next month" }));
+    await user.click(monthlyNavigation.getByRole("button", { name: "Next month" }));
 
     const selectedCard = screen
       .getByRole("region", { name: "Month goal carousel" })
@@ -4230,7 +4304,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Monthly" }));
 
     expect(await screen.findByText("Current Month")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Next month" }));
+    await user.click(
+      within(screen.getByRole("group", { name: "Planner period navigation" })).getByRole("button", {
+        name: "Next month",
+      }),
+    );
     expect(await screen.findByText("Next Month")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Now" }));
     expect(await screen.findByText("Current Month")).toBeInTheDocument();
