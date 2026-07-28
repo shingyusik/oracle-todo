@@ -1239,6 +1239,26 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(monthFilter).toHaveFocus());
   });
 
+  it("renders Planner filter menus in a viewport portal", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    await screen.findByLabelText("Weekly planner");
+
+    await user.click(screen.getByRole("button", { name: "Filter Month Goals" }));
+    const dialog = screen.getByRole("dialog", { name: "Filter Month Goals" });
+
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog).toHaveStyle({ position: "fixed" });
+  });
+
   it("groups every Monthly calendar cell without changing goals and exposes scoped Add buttons", async () => {
     const user = userEvent.setup();
     const monthStart = testMonthStart(testToday());

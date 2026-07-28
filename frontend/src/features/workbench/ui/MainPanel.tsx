@@ -1268,62 +1268,84 @@ function PlannerTableHeader({
             <Plus size={16} aria-hidden="true" />
           </button>
           {openDropdown === "filter" ? (
-            <div ref={filterPanelRef}>
-              <PlannerControlDropdown id={dropdownIds.filter} title={`Filter ${title}`}>
-                <PlannerFilterRulePanel
-                  controller={controller}
-                  tableId={tableId}
-                  filterOptions={filterOptions}
-                  rules={visibleFilterRules}
-                />
-              </PlannerControlDropdown>
-            </div>
+            <PlannerControlMenuPortal triggerRef={filterTriggerRef} panelRef={filterPanelRef}>
+              {({ popoverRef, style }) => (
+                <PlannerControlDropdown
+                  id={dropdownIds.filter}
+                  title={`Filter ${title}`}
+                  dropdownRef={popoverRef}
+                  style={style}
+                >
+                  <PlannerFilterRulePanel
+                    controller={controller}
+                    tableId={tableId}
+                    filterOptions={filterOptions}
+                    rules={visibleFilterRules}
+                  />
+                </PlannerControlDropdown>
+              )}
+            </PlannerControlMenuPortal>
           ) : null}
           {openDropdown === "sort" ? (
-            <div ref={sortPanelRef}>
-              <PlannerControlDropdown id={dropdownIds.sort} title={`Sort ${title}`}>
-                <PlannerSortPanel
-                  controller={controller}
-                  tableId={tableId}
-                  filterOptions={filterOptions}
-                />
-              </PlannerControlDropdown>
-            </div>
+            <PlannerControlMenuPortal triggerRef={sortTriggerRef} panelRef={sortPanelRef}>
+              {({ popoverRef, style }) => (
+                <PlannerControlDropdown
+                  id={dropdownIds.sort}
+                  title={`Sort ${title}`}
+                  dropdownRef={popoverRef}
+                  style={style}
+                >
+                  <PlannerSortPanel
+                    controller={controller}
+                    tableId={tableId}
+                    filterOptions={filterOptions}
+                  />
+                </PlannerControlDropdown>
+              )}
+            </PlannerControlMenuPortal>
           ) : null}
           {openDropdown === "group" ? (
-            <div ref={groupPanelRef}>
-              <PlannerControlDropdown id={dropdownIds.group} title={`Group ${title}`} compact>
-                <PlannerGroupPanel
-                  settings={{ ...settings.groupSettings, groupBy }}
-                  candidates={plannerTableGroupCandidates(
-                    tableId,
-                    settings.groupSettings,
-                    groupUniverseItems,
-                    controller.workspaceItems.relatedItems,
-                  )}
-                  groupOptions={plannerGroupOptionsForTable(tableId)}
-                  onGroupByChange={(value) => updateGroupSettings((current) => ({ ...current, groupBy: value }))}
-                  onSortChange={(value) => updateGroupSettings((current) => ({ ...current, sort: value }))}
-                  onHideEmptyChange={(value) => updateGroupSettings((current) => ({ ...current, hideEmpty: value }))}
-                  onVisibilityToggle={(key) => updateGroupSettings((current) => ({
-                    ...current,
-                    hiddenGroupKeys: current.hiddenGroupKeys.includes(key)
-                      ? current.hiddenGroupKeys.filter((candidate) => candidate !== key)
-                      : [...current.hiddenGroupKeys, key],
-                  }))}
-                  onAllVisibilityChange={(keys, visible) => updateGroupSettings((current) => ({
-                    ...current,
-                    hiddenGroupKeys: visible ? [] : keys,
-                  }))}
-                  onManualOrderChange={(keys) => updateGroupSettings((current) => ({ ...current, manualOrder: keys }))}
-                  onRemove={() => updateGroupSettings((current) => ({ ...current, groupBy: "none" }))}
-                  onRequestOuterClose={() => {
-                    setOpenDropdown(null);
-                    groupTriggerRef.current?.focus();
-                  }}
-                />
-              </PlannerControlDropdown>
-            </div>
+            <PlannerControlMenuPortal triggerRef={groupTriggerRef} panelRef={groupPanelRef}>
+              {({ popoverRef, style }) => (
+                <PlannerControlDropdown
+                  id={dropdownIds.group}
+                  title={`Group ${title}`}
+                  compact
+                  dropdownRef={popoverRef}
+                  style={style}
+                >
+                  <PlannerGroupPanel
+                    settings={{ ...settings.groupSettings, groupBy }}
+                    candidates={plannerTableGroupCandidates(
+                      tableId,
+                      settings.groupSettings,
+                      groupUniverseItems,
+                      controller.workspaceItems.relatedItems,
+                    )}
+                    groupOptions={plannerGroupOptionsForTable(tableId)}
+                    onGroupByChange={(value) => updateGroupSettings((current) => ({ ...current, groupBy: value }))}
+                    onSortChange={(value) => updateGroupSettings((current) => ({ ...current, sort: value }))}
+                    onHideEmptyChange={(value) => updateGroupSettings((current) => ({ ...current, hideEmpty: value }))}
+                    onVisibilityToggle={(key) => updateGroupSettings((current) => ({
+                      ...current,
+                      hiddenGroupKeys: current.hiddenGroupKeys.includes(key)
+                        ? current.hiddenGroupKeys.filter((candidate) => candidate !== key)
+                        : [...current.hiddenGroupKeys, key],
+                    }))}
+                    onAllVisibilityChange={(keys, visible) => updateGroupSettings((current) => ({
+                      ...current,
+                      hiddenGroupKeys: visible ? [] : keys,
+                    }))}
+                    onManualOrderChange={(keys) => updateGroupSettings((current) => ({ ...current, manualOrder: keys }))}
+                    onRemove={() => updateGroupSettings((current) => ({ ...current, groupBy: "none" }))}
+                    onRequestOuterClose={() => {
+                      setOpenDropdown(null);
+                      groupTriggerRef.current?.focus();
+                    }}
+                  />
+                </PlannerControlDropdown>
+              )}
+            </PlannerControlMenuPortal>
           ) : null}
         </div>
       </div>
@@ -1552,23 +1574,78 @@ function PlannerDropdownButton({
   );
 }
 
+function PlannerControlMenuPortal({
+  triggerRef,
+  panelRef,
+  children,
+}: {
+  triggerRef: React.RefObject<HTMLButtonElement>;
+  panelRef: React.Ref<HTMLDivElement>;
+  children: (props: {
+    popoverRef: React.Ref<HTMLDivElement>;
+    style: React.CSSProperties | undefined;
+  }) => React.ReactNode;
+}) {
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [style, setStyle] = React.useState<React.CSSProperties>();
+
+  React.useLayoutEffect(() => {
+    function update() {
+      const trigger = triggerRef.current;
+      const popover = popoverRef.current;
+      if (!trigger || !popover) {
+        return;
+      }
+
+      setStyle(plannerControlDropdownStyle(trigger, popover));
+    }
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [triggerRef]);
+
+  function setPopoverRef(element: HTMLDivElement | null) {
+    popoverRef.current = element;
+    if (typeof panelRef === "function") {
+      panelRef(element);
+      return;
+    }
+    if (panelRef) {
+      (panelRef as React.MutableRefObject<HTMLDivElement | null>).current = element;
+    }
+  }
+
+  return createPortal(children({ popoverRef: setPopoverRef, style }), document.body);
+}
+
 function PlannerControlDropdown({
   id,
   title,
   compact = false,
+  dropdownRef,
+  style,
   children,
 }: {
   id?: string;
   title: string;
   compact?: boolean;
+  dropdownRef?: React.Ref<HTMLDivElement>;
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
   return (
     <div
+      ref={dropdownRef}
       id={id}
       className={`planner-control-dropdown${
         compact ? " planner-control-dropdown-compact" : ""
       }`}
+      style={style}
       role="dialog"
       aria-label={title}
     >
@@ -6135,6 +6212,19 @@ function goalPeriodPopoverStyle(
     width: `${Math.round(width)}px`,
     maxHeight: `${Math.max(0, Math.round(availableHeight))}px`,
     overflowY: "auto",
+  };
+}
+
+function plannerControlDropdownStyle(
+  trigger: HTMLElement,
+  popover: HTMLElement,
+): React.CSSProperties {
+  const style = goalPeriodPopoverStyle(trigger, popover);
+
+  return {
+    ...style,
+    minWidth: style.width,
+    maxWidth: style.width,
   };
 }
 
