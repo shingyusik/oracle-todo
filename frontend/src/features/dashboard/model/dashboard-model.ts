@@ -2,20 +2,6 @@ import type { WorkspaceItemModel } from "@/features/workbench/model/workbench-mo
 
 export type ProjectAttention = "normal" | "attention" | "risk";
 
-export type PlannerDay = {
-  date: string;
-  scheduled: number;
-  due: number;
-};
-
-export type PlannerSummary = {
-  todayDate: string;
-  today: number;
-  thisWeek: number;
-  overdue: number;
-  days: PlannerDay[];
-};
-
 export type DashboardDateRange = { start: string; end: string };
 
 export type TodayOutcomes = {
@@ -54,75 +40,27 @@ export type DashboardProjectRow = DashboardHeatmapRow & {
   attention: ProjectAttention;
 };
 
-type DashboardAreaRow = DashboardHeatmapRow & {
-  active: number;
-  paused: number;
-  completed: number;
-};
-
-type DashboardProjectCompatibilityRow = DashboardProjectRow & {
-  completed: number;
-  remaining: number;
-};
-
-type LegacyDashboardAreaRow = {
-  id: string;
-  title: string;
-  active: number;
-  paused: number;
-  completed: number;
-};
-
-type LegacyDashboardProjectRow = {
-  id: string;
-  title: string;
-  completed: number;
-  remaining: number;
-  progress: number | null;
-  attention: ProjectAttention;
-};
-
 export type DashboardSnapshot = {
-  summary: {
-    activeAreas: number;
-    activeProjects: number;
-    activeTasks: number;
-    activeEvents: number;
-    activeRoutines: number;
-    attentionProjects: number;
-  };
-  areas: Array<DashboardAreaRow | LegacyDashboardAreaRow>;
-  projects: Array<DashboardProjectCompatibilityRow | LegacyDashboardProjectRow>;
-  planner: PlannerSummary;
+  areas: DashboardHeatmapRow[];
+  projects: DashboardProjectRow[];
   todayOutcomes: TodayOutcomes;
   completionHistory: CompletionHistory;
 };
 
-type BuiltDashboardSnapshot = DashboardSnapshot & {
-  areas: DashboardAreaRow[];
-  projects: DashboardProjectCompatibilityRow[];
-};
-
-const dashboardWorkTypes = new Set(["task", "event", "routine"]);
 const dashboardExecutionTypes = new Set(["task", "event"]);
-const plannerWorkTypes = new Set(["task", "event"]);
 const incompleteStatuses = new Set(["active", "waiting", "paused"]);
 
 export function buildDashboardSnapshot(
   items: WorkspaceItemModel[],
   today: string,
   completionRange: DashboardDateRange = completionRangeEndingOn(today, 14),
-): BuiltDashboardSnapshot {
-  const work = items.filter(isDashboardWorkItem);
+): DashboardSnapshot {
   const executionWork = items.filter((item) => dashboardExecutionTypes.has(item.type));
-  const week = weekDates(today);
   const projects = buildProjectStats(items, executionWork, today);
 
   return {
-    summary: buildSummary(items, work, projects),
     areas: buildAreaStats(items, executionWork),
     projects,
-    planner: buildPlannerStats(work, today, week),
     todayOutcomes: buildTodayOutcomes(executionWork, today),
     completionHistory: buildCompletionHistory(executionWork, completionRange),
   };
@@ -145,25 +83,10 @@ export function dashboardToday(date: Date = new Date()): string {
   return formatDateOnly(date);
 }
 
-function buildSummary(
-  items: WorkspaceItemModel[],
-  work: WorkspaceItemModel[],
-  projects: DashboardSnapshot["projects"],
-): DashboardSnapshot["summary"] {
-  return {
-    activeAreas: items.filter((item) => item.type === "area" && item.status === "active").length,
-    activeProjects: items.filter((item) => item.type === "project" && item.status === "active").length,
-    activeTasks: work.filter((item) => item.type === "task" && item.status === "active").length,
-    activeEvents: work.filter((item) => item.type === "event" && item.status === "active").length,
-    activeRoutines: work.filter((item) => item.type === "routine" && item.status === "active").length,
-    attentionProjects: projects.filter((project) => project.attention !== "normal").length,
-  };
-}
-
 function buildAreaStats(
   items: WorkspaceItemModel[],
   work: WorkspaceItemModel[],
-): DashboardAreaRow[] {
+): DashboardHeatmapRow[] {
   return items
     .filter((item) => item.type === "area" && isActiveOrPaused(item))
     .map((area) => {
@@ -173,9 +96,6 @@ function buildAreaStats(
         id: area.id,
         title: area.title,
         ...status,
-        active: countStatus(linked, "active"),
-        paused: status.values.paused,
-        completed: status.values.completed,
       };
     });
 }
@@ -184,56 +104,23 @@ function buildProjectStats(
   items: WorkspaceItemModel[],
   work: WorkspaceItemModel[],
   today: string,
-): DashboardProjectCompatibilityRow[] {
+): DashboardProjectRow[] {
   return items
     .filter((item) => item.type === "project" && isActiveOrPaused(item))
     .map((project) => {
       const linked = work.filter((item) => item.project_id === project.id);
       const status = statusValues(linked);
-      const completed = status.values.completed;
       return {
         id: project.id,
         title: project.title,
         ...status,
-        completed,
-        remaining: status.total - completed,
-        progress: status.total === 0 ? null : completed / status.total,
+        progress:
+          status.total === 0
+            ? null
+            : status.values.completed / status.total,
         attention: projectAttention(project, today),
       };
     });
-}
-
-function buildPlannerStats(
-  work: WorkspaceItemModel[],
-  today: string,
-  week: string[],
-): PlannerSummary {
-  const plannerWork = work.filter(
-    (item) => plannerWorkTypes.has(item.type) && (item.status === "active" || item.status === "paused"),
-  );
-  const weekDatesSet = new Set(week);
-  const byDate = (date: string | null | undefined) => dateOnly(date);
-
-  return {
-    todayDate: today,
-    today: countUnique(plannerWork, (item) => byDate(item.scheduled) === today || byDate(item.due) === today),
-    thisWeek: countUnique(plannerWork, (item) => {
-      const scheduled = byDate(item.scheduled);
-      const due = byDate(item.due);
-      return (scheduled !== null && weekDatesSet.has(scheduled))
-        || (due !== null && weekDatesSet.has(due));
-    }),
-    overdue: countUnique(plannerWork, (item) => {
-      const scheduled = byDate(item.scheduled);
-      const due = byDate(item.due);
-      return (scheduled !== null && scheduled < today) || (due !== null && due < today);
-    }),
-    days: week.map((date) => ({
-      date,
-      scheduled: plannerWork.filter((item) => byDate(item.scheduled) === date).length,
-      due: plannerWork.filter((item) => byDate(item.due) === date).length,
-    })),
-  };
 }
 
 function buildTodayOutcomes(
@@ -269,10 +156,6 @@ function buildCompletionHistory(
       completed: counts.get(date) ?? 0,
     })),
   };
-}
-
-function isDashboardWorkItem(item: WorkspaceItemModel): boolean {
-  return dashboardWorkTypes.has(item.type);
 }
 
 function isActiveOrPaused(item: WorkspaceItemModel): boolean {
@@ -326,13 +209,6 @@ function percent(value: number, total: number): number {
   return total === 0 ? 0 : Math.round((value / total) * 100);
 }
 
-function countUnique(
-  items: WorkspaceItemModel[],
-  predicate: (item: WorkspaceItemModel) => boolean,
-): number {
-  return new Set(items.filter(predicate).map((item) => item.id)).size;
-}
-
 function projectAttention(project: WorkspaceItemModel, today: string): ProjectAttention {
   if (project.status !== "active") return "normal";
 
@@ -348,19 +224,6 @@ function projectAttention(project: WorkspaceItemModel, today: string): ProjectAt
     return "attention";
   }
   return "normal";
-}
-
-function weekDates(today: string): string[] {
-  const current = dateFromDateOnly(today);
-  if (current === null) return [];
-
-  const mondayOffset = (current.getDay() + 6) % 7;
-  current.setDate(current.getDate() - mondayOffset);
-  return Array.from({ length: 7 }, () => {
-    const date = formatDateOnly(current);
-    current.setDate(current.getDate() + 1);
-    return date;
-  });
 }
 
 function addDays(date: string, days: number): string {

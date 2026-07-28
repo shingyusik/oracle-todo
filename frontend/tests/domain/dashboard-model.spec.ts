@@ -28,22 +28,6 @@ function localDateOf(value: string): string {
 }
 
 describe("dashboard model", () => {
-  it("counts active Tasks, Events, and Routines separately", () => {
-    const snapshot = buildDashboardSnapshot([
-      { id: "task-active", type: "task", title: "Write", status: "active" },
-      { id: "task-paused", type: "task", title: "Wait", status: "paused" },
-      { id: "event-active", type: "event", title: "Meet", status: "active" },
-      { id: "routine-active", type: "routine", title: "Review", status: "active" },
-      { id: "routine-done", type: "routine", title: "Old review", status: "completed" },
-    ], today);
-
-    expect(snapshot.summary).toMatchObject({
-      activeTasks: 1,
-      activeEvents: 1,
-      activeRoutines: 1,
-    });
-  });
-
   it("builds Area heatmap rows from direct Task and Event work only", () => {
     const snapshot = buildDashboardSnapshot([
       { id: "area", type: "area", title: "Health", status: "active" },
@@ -97,15 +81,6 @@ describe("dashboard model", () => {
     expect(snapshot.projects[0]?.attention).toBe("risk");
   });
 
-  it("deduplicates a same-day scheduled and due item in Planner summaries", () => {
-    const snapshot = buildDashboardSnapshot([
-      { id: "task", type: "task", title: "Ship", status: "active", scheduled: today, due: today },
-    ], today);
-
-    expect(snapshot.planner).toMatchObject({ todayDate: today, today: 1, thisWeek: 1, overdue: 0 });
-    expect(snapshot.planner.days.find((day) => day.date === today)).toMatchObject({ scheduled: 1, due: 1 });
-  });
-
   it.each([
     ["2026-07-16", "attention"],
     ["2026-07-09", "risk"],
@@ -115,15 +90,6 @@ describe("dashboard model", () => {
     ], today);
 
     expect(snapshot.projects[0]?.attention).toBe(expected);
-  });
-
-  it("includes an item in separate weekly series on its distinct scheduled and due days", () => {
-    const snapshot = buildDashboardSnapshot([
-      { id: "task", type: "task", title: "Plan", status: "active", scheduled: "2026-07-21", due: "2026-07-25" },
-    ], today);
-
-    expect(snapshot.planner.days.find((day) => day.date === "2026-07-21")?.scheduled).toBe(1);
-    expect(snapshot.planner.days.find((day) => day.date === "2026-07-25")?.due).toBe(1);
   });
 
   it("partitions today's Task and Event work without counting Routine definitions", () => {
