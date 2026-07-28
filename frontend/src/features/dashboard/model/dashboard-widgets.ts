@@ -77,22 +77,13 @@ export type DashboardCompositeStat = {
 
 export type DashboardStatModel = DashboardLinkedStat | DashboardCompositeStat;
 
-type PanelCompatibilityPoint = {
-  value: number;
-  placeholder?: boolean;
-};
-
-type DashboardWidgetChartSpec = DashboardChartSpec & {
-  series: Array<{ points: PanelCompatibilityPoint[] }>;
-};
-
 export type DashboardWidgetModel = {
   id: string;
   title: string;
   description: string;
   emptyMessage: string;
   destination?: DashboardDestination;
-  chart?: DashboardWidgetChartSpec;
+  chart?: DashboardChartSpec;
   stats?: DashboardStatModel[];
 };
 
@@ -149,15 +140,12 @@ export const dashboardWidgets: DashboardWidget[] = [
         description:
           "Completed, incomplete, and missed Tasks and Events scheduled or due today.",
         emptyMessage: "No Tasks or Events are scheduled or due today.",
-        chart: withPanelCompatibility(
-          {
-            kind: "donut",
-            ariaLabel: "Today's work",
-            total: outcomes.total,
-            segments,
-          },
+        chart: {
+          kind: "donut",
+          ariaLabel: "Today's work",
+          total: outcomes.total,
           segments,
-        ),
+        },
       };
     },
   },
@@ -175,14 +163,11 @@ export const dashboardWidgets: DashboardWidget[] = [
         title: "Completion history",
         description: "Completed Tasks and Events by browser-local calendar date.",
         emptyMessage: "No Tasks or Events were completed in this range.",
-        chart: withPanelCompatibility(
-          {
-            kind: "line",
-            ariaLabel: "Completion history",
-            points,
-          },
+        chart: {
+          kind: "line",
+          ariaLabel: "Completion history",
           points,
-        ),
+        },
       };
     },
   },
@@ -200,15 +185,12 @@ export const dashboardWidgets: DashboardWidget[] = [
         emptyMessage:
           "Create an active or paused Area to view status distribution.",
         destination: { kind: "areas" },
-        chart: withPanelCompatibility(
-          {
-            kind: "heatmap",
-            ariaLabel: "Area status",
-            columns: [...heatmapColumns],
-            rows,
-          },
-          heatmapCompatibilityPoints(rows),
-        ),
+        chart: {
+          kind: "heatmap",
+          ariaLabel: "Area status",
+          columns: [...heatmapColumns],
+          rows,
+        },
       };
     },
   },
@@ -236,15 +218,12 @@ export const dashboardWidgets: DashboardWidget[] = [
         emptyMessage:
           "Create an active or paused Project to view status distribution.",
         destination: { kind: "projects" },
-        chart: withPanelCompatibility(
-          {
-            kind: "heatmap",
-            ariaLabel: "Project status",
-            columns: [...heatmapColumns],
-            rows,
-          },
-          heatmapCompatibilityPoints(rows),
-        ),
+        chart: {
+          kind: "heatmap",
+          ariaLabel: "Project status",
+          columns: [...heatmapColumns],
+          rows,
+        },
       };
     },
   },
@@ -287,29 +266,6 @@ function heatmapRows(
         `${row.title}: ${row.values[column.id]} ${column.label.toLowerCase()}`,
     })),
   }));
-}
-
-function heatmapCompatibilityPoints(
-  rows: HeatmapChartSpec["rows"],
-): PanelCompatibilityPoint[] {
-  return rows.flatMap((row) =>
-    row.cells.map((cell, index) => ({
-      value: cell.value,
-      ...(index === 0 && row.cells.every((candidate) => candidate.value === 0)
-        ? { placeholder: true }
-        : {}),
-    })),
-  );
-}
-
-function withPanelCompatibility<T extends DashboardChartSpec>(
-  chart: T,
-  points: PanelCompatibilityPoint[],
-): T & { series: Array<{ points: PanelCompatibilityPoint[] }> } {
-  return Object.defineProperty(chart, "series", {
-    value: [{ points }],
-    enumerable: false,
-  }) as T & { series: Array<{ points: PanelCompatibilityPoint[] }> };
 }
 
 function percent(value: number, total: number): number {

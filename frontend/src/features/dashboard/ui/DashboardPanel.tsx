@@ -2,16 +2,21 @@ import React from "react";
 
 import {
   buildDashboardSnapshot,
+  completionRangeEndingOn,
   dashboardToday,
+  isValidDashboardDateRange,
+  type DashboardDateRange,
 } from "@/features/dashboard/model/dashboard-model";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import {
   dashboardWidgets,
+  type DashboardChartSpec,
   type DashboardLinkedStat,
   type DashboardStatModel,
   type DashboardWidgetModel,
 } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
+import { CompletionRangeControls } from "@/features/dashboard/ui/CompletionRangeControls";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 
 type DashboardPanelProps = {
@@ -21,10 +26,37 @@ type DashboardPanelProps = {
 type DashboardWidgetProps = {
   model: DashboardWidgetModel;
   onNavigate: (destination: DashboardDestination) => void;
+  headerControls?: React.ReactNode;
 };
 
 export function DashboardPanel({ controller }: DashboardPanelProps) {
   const { workspaceItems } = controller;
+  const today = dashboardToday();
+  const [selectedPreset, setSelectedPreset] =
+    React.useState<7 | 14 | 30 | "custom">(14);
+  const [appliedRange, setAppliedRange] = React.useState<DashboardDateRange>(
+    () => completionRangeEndingOn(today, 14),
+  );
+  const [draftRange, setDraftRange] = React.useState(appliedRange);
+  const [rangeError, setRangeError] = React.useState<string | null>(null);
+
+  const applyPreset = (preset: 7 | 14 | 30) => {
+    const next = completionRangeEndingOn(today, preset);
+    setSelectedPreset(preset);
+    setAppliedRange(next);
+    setDraftRange(next);
+    setRangeError(null);
+  };
+
+  const applyCustom = () => {
+    if (!isValidDashboardDateRange(draftRange)) {
+      setRangeError("Start date must be on or before end date.");
+      return;
+    }
+    setSelectedPreset("custom");
+    setAppliedRange(draftRange);
+    setRangeError(null);
+  };
 
   if (workspaceItems.status === "idle" || workspaceItems.status === "loading") {
     return <DashboardLoading />;
@@ -57,7 +89,8 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
 
   const snapshot = buildDashboardSnapshot(
     workspaceItems.allItems,
-    dashboardToday(),
+    today,
+    appliedRange,
   );
 
   return (
@@ -66,13 +99,34 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
         <p className="dashboard-panel-kicker">Analytics</p>
         <h1>Dashboard</h1>
       </header>
-      {dashboardWidgets.map((widget) => (
-        <DashboardWidget
-          key={widget.id}
-          model={widget.build(snapshot)}
-          onNavigate={controller.navigateDashboard}
-        />
-      ))}
+      {dashboardWidgets.map((widget) => {
+        const model = widget.build(snapshot);
+        return (
+          <DashboardWidget
+            key={widget.id}
+            model={model}
+            onNavigate={controller.navigateDashboard}
+            headerControls={
+              model.id === "completion-history" ? (
+                <CompletionRangeControls
+                  today={today}
+                  appliedRange={appliedRange}
+                  draftRange={draftRange}
+                  selectedPreset={selectedPreset}
+                  error={rangeError}
+                  onPresetSelect={applyPreset}
+                  onDraftChange={(field, value) =>
+                    setDraftRange((current) => ({
+                      ...current,
+                      [field]: value,
+                    }))}
+                  onCustomApply={applyCustom}
+                />
+              ) : undefined
+            }
+          />
+        );
+      })}
     </section>
   );
 }
@@ -101,10 +155,13 @@ function DashboardLoading() {
   );
 }
 
-function DashboardWidget({ model, onNavigate }: DashboardWidgetProps) {
-  const chartHasData = model.chart?.series.some((series) =>
-    series.points.some((point) => point.value > 0 || point.placeholder),
-  );
+function DashboardWidget({
+  model,
+  onNavigate,
+  headerControls,
+}: DashboardWidgetProps) {
+  const chartHasData = model.chart && shouldRenderChart(model.chart);
+  const chartIsEmpty = model.chart && isEmptyChart(model.chart);
   const widgetDestination = model.destination;
 
   return (
@@ -113,19 +170,22 @@ function DashboardWidget({ model, onNavigate }: DashboardWidgetProps) {
       aria-label={model.title}
     >
       <header className="dashboard-widget-header">
-        <h2>
-          {widgetDestination ? (
-            <button
-              type="button"
-              onClick={() => onNavigate(widgetDestination)}
-            >
-              {model.title}
-            </button>
-          ) : (
-            model.title
-          )}
-        </h2>
-        <p>{model.description}</p>
+        <div className="dashboard-widget-heading">
+          <h2>
+            {widgetDestination ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(widgetDestination)}
+              >
+                {model.title}
+              </button>
+            ) : (
+              model.title
+            )}
+          </h2>
+          <p>{model.description}</p>
+        </div>
+        {headerControls}
       </header>
       {model.stats ? (
         <div className="dashboard-stat-grid">
@@ -141,11 +201,33 @@ function DashboardWidget({ model, onNavigate }: DashboardWidgetProps) {
       {model.chart && chartHasData ? (
         <DashboardChart chart={model.chart} onNavigate={onNavigate} />
       ) : null}
-      {model.chart && !chartHasData ? (
+      {model.chart && chartIsEmpty ? (
         <p className="dashboard-widget-empty">{model.emptyMessage}</p>
       ) : null}
     </section>
   );
+}
+
+function shouldRenderChart(chart: DashboardChartSpec): boolean {
+  switch (chart.kind) {
+    case "donut":
+      return chart.total > 0;
+    case "line":
+      return true;
+    case "heatmap":
+      return chart.rows.length > 0;
+  }
+}
+
+function isEmptyChart(chart: DashboardChartSpec): boolean {
+  switch (chart.kind) {
+    case "donut":
+      return chart.total === 0;
+    case "line":
+      return chart.points.every((point) => point.value === 0);
+    case "heatmap":
+      return chart.rows.length === 0;
+  }
 }
 
 function DashboardStat({
