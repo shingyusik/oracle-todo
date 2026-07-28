@@ -1720,7 +1720,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("focus")).not.toBeInTheDocument();
   });
 
-  it("closes planner creation when Escape is pressed on the tag trigger", async () => {
+  it("closes planner creation when Escape is pressed in the open tag search", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -1733,6 +1733,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
+    expect(screen.getByRole("textbox", { name: "Tags" })).toHaveFocus();
     await user.keyboard("{Escape}");
 
     expect(screen.queryByRole("dialog", { name: "Create Daily item" })).toBeNull();
