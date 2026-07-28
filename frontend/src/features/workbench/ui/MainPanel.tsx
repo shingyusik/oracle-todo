@@ -5515,6 +5515,9 @@ function TagsInput({
             placeholder="Search for an option..."
             value={draft}
             onKeyDown={(event) => {
+              if (event.key === "Escape" && propagateEscape) {
+                return;
+              }
               stopRowEvent(event);
               if (event.key === "Escape") {
                 event.preventDefault();
