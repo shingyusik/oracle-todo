@@ -44,15 +44,49 @@ describe("dashboard model", () => {
     });
   });
 
-  it("counts only direct Area work by status", () => {
+  it("builds Area heatmap rows from direct Task and Event work only", () => {
     const snapshot = buildDashboardSnapshot([
       { id: "area", type: "area", title: "Health", status: "active" },
-      { id: "task", type: "task", title: "Run", status: "active", area_id: "area" },
-      { id: "project", type: "project", title: "Plan", status: "active", area_id: "area" },
-      { id: "nested", type: "task", title: "Nested", status: "completed", project_id: "project" },
+      { id: "active", type: "task", title: "Run", status: "active", area_id: "area" },
+      { id: "waiting", type: "event", title: "Book", status: "waiting", area_id: "area" },
+      { id: "paused", type: "task", title: "Rest", status: "paused", area_id: "area" },
+      { id: "done", type: "event", title: "Check", status: "completed", area_id: "area" },
+      { id: "missed", type: "task", title: "Skip", status: "missed", area_id: "area" },
+      { id: "routine", type: "routine", title: "Template", status: "active", area_id: "area" },
+      { id: "cancelled", type: "task", title: "Ignore", status: "cancelled", area_id: "area" },
     ], today);
 
-    expect(snapshot.areas[0]).toMatchObject({ active: 1, completed: 0, paused: 0 });
+    expect(snapshot.areas[0]).toMatchObject({
+      values: { completed: 1, incomplete: 2, paused: 1, missed: 1 },
+      percentages: { completed: 20, incomplete: 40, paused: 20, missed: 20 },
+      total: 5,
+    });
+  });
+
+  it("keeps Missed work in Project progress denominator", () => {
+    const snapshot = buildDashboardSnapshot([
+      { id: "project", type: "project", title: "Release", status: "active" },
+      { id: "done", type: "task", title: "Done", status: "completed", project_id: "project" },
+      { id: "missed", type: "event", title: "Miss", status: "missed", project_id: "project" },
+      { id: "waiting", type: "task", title: "Wait", status: "waiting", project_id: "project" },
+    ], today);
+
+    expect(snapshot.projects[0]).toMatchObject({
+      values: { completed: 1, incomplete: 1, paused: 0, missed: 1 },
+      progress: 1 / 3,
+    });
+  });
+
+  it("uses zero intensities and unavailable progress for containers without work", () => {
+    const snapshot = buildDashboardSnapshot([
+      { id: "area", type: "area", title: "Health", status: "paused" },
+      { id: "project", type: "project", title: "Release", status: "active" },
+    ], today);
+
+    expect(snapshot.areas[0]?.percentages).toEqual({
+      completed: 0, incomplete: 0, paused: 0, missed: 0,
+    });
+    expect(snapshot.projects[0]?.progress).toBeNull();
   });
 
   it("gives Risk precedence over Attention", () => {

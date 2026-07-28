@@ -33,6 +33,55 @@ export type CompletionHistory = {
   days: CompletionDay[];
 };
 
+export type DashboardStatusKey =
+  | "completed"
+  | "incomplete"
+  | "paused"
+  | "missed";
+
+export type DashboardStatusValues = Record<DashboardStatusKey, number>;
+
+export type DashboardHeatmapRow = {
+  id: string;
+  title: string;
+  values: DashboardStatusValues;
+  percentages: DashboardStatusValues;
+  total: number;
+};
+
+export type DashboardProjectRow = DashboardHeatmapRow & {
+  progress: number | null;
+  attention: ProjectAttention;
+};
+
+type DashboardAreaRow = DashboardHeatmapRow & {
+  active: number;
+  paused: number;
+  completed: number;
+};
+
+type DashboardProjectCompatibilityRow = DashboardProjectRow & {
+  completed: number;
+  remaining: number;
+};
+
+type LegacyDashboardAreaRow = {
+  id: string;
+  title: string;
+  active: number;
+  paused: number;
+  completed: number;
+};
+
+type LegacyDashboardProjectRow = {
+  id: string;
+  title: string;
+  completed: number;
+  remaining: number;
+  progress: number | null;
+  attention: ProjectAttention;
+};
+
 export type DashboardSnapshot = {
   summary: {
     activeAreas: number;
@@ -42,45 +91,36 @@ export type DashboardSnapshot = {
     activeRoutines: number;
     attentionProjects: number;
   };
-  areas: Array<{
-    id: string;
-    title: string;
-    active: number;
-    paused: number;
-    completed: number;
-  }>;
-  projects: Array<{
-    id: string;
-    title: string;
-    completed: number;
-    remaining: number;
-    progress: number | null;
-    attention: ProjectAttention;
-  }>;
+  areas: Array<DashboardAreaRow | LegacyDashboardAreaRow>;
+  projects: Array<DashboardProjectCompatibilityRow | LegacyDashboardProjectRow>;
   planner: PlannerSummary;
   todayOutcomes: TodayOutcomes;
   completionHistory: CompletionHistory;
 };
 
+type BuiltDashboardSnapshot = DashboardSnapshot & {
+  areas: DashboardAreaRow[];
+  projects: DashboardProjectCompatibilityRow[];
+};
+
 const dashboardWorkTypes = new Set(["task", "event", "routine"]);
 const dashboardExecutionTypes = new Set(["task", "event"]);
 const plannerWorkTypes = new Set(["task", "event"]);
-const trackedWorkStatuses = new Set(["active", "paused", "completed"]);
 const incompleteStatuses = new Set(["active", "waiting", "paused"]);
 
 export function buildDashboardSnapshot(
   items: WorkspaceItemModel[],
   today: string,
   completionRange: DashboardDateRange = completionRangeEndingOn(today, 14),
-): DashboardSnapshot {
+): BuiltDashboardSnapshot {
   const work = items.filter(isDashboardWorkItem);
   const executionWork = items.filter((item) => dashboardExecutionTypes.has(item.type));
   const week = weekDates(today);
-  const projects = buildProjectStats(items, work, today);
+  const projects = buildProjectStats(items, executionWork, today);
 
   return {
     summary: buildSummary(items, work, projects),
-    areas: buildAreaStats(items, work),
+    areas: buildAreaStats(items, executionWork),
     projects,
     planner: buildPlannerStats(work, today, week),
     todayOutcomes: buildTodayOutcomes(executionWork, today),
@@ -123,19 +163,19 @@ function buildSummary(
 function buildAreaStats(
   items: WorkspaceItemModel[],
   work: WorkspaceItemModel[],
-): DashboardSnapshot["areas"] {
+): DashboardAreaRow[] {
   return items
-    .filter((item) => item.type === "area")
+    .filter((item) => item.type === "area" && isActiveOrPaused(item))
     .map((area) => {
-      const linked = work.filter(
-        (item) => item.area_id === area.id && trackedWorkStatuses.has(item.status),
-      );
+      const linked = work.filter((item) => item.area_id === area.id);
+      const status = statusValues(linked);
       return {
         id: area.id,
         title: area.title,
+        ...status,
         active: countStatus(linked, "active"),
-        paused: countStatus(linked, "paused"),
-        completed: countStatus(linked, "completed"),
+        paused: status.values.paused,
+        completed: status.values.completed,
       };
     });
 }
@@ -144,21 +184,20 @@ function buildProjectStats(
   items: WorkspaceItemModel[],
   work: WorkspaceItemModel[],
   today: string,
-): DashboardSnapshot["projects"] {
+): DashboardProjectCompatibilityRow[] {
   return items
-    .filter((item) => item.type === "project")
+    .filter((item) => item.type === "project" && isActiveOrPaused(item))
     .map((project) => {
-      const linked = work.filter(
-        (item) => item.project_id === project.id && trackedWorkStatuses.has(item.status),
-      );
-      const completed = countStatus(linked, "completed");
-      const remaining = linked.length - completed;
+      const linked = work.filter((item) => item.project_id === project.id);
+      const status = statusValues(linked);
+      const completed = status.values.completed;
       return {
         id: project.id,
         title: project.title,
+        ...status,
         completed,
-        remaining,
-        progress: linked.length === 0 ? null : completed / linked.length,
+        remaining: status.total - completed,
+        progress: status.total === 0 ? null : completed / status.total,
         attention: projectAttention(project, today),
       };
     });
@@ -236,8 +275,55 @@ function isDashboardWorkItem(item: WorkspaceItemModel): boolean {
   return dashboardWorkTypes.has(item.type);
 }
 
+function isActiveOrPaused(item: WorkspaceItemModel): boolean {
+  return item.status === "active" || item.status === "paused";
+}
+
+function statusKey(status: string): DashboardStatusKey | null {
+  switch (status) {
+    case "completed": return "completed";
+    case "active":
+    case "waiting": return "incomplete";
+    case "paused": return "paused";
+    case "missed": return "missed";
+    default: return null;
+  }
+}
+
+function statusValues(items: WorkspaceItemModel[]): {
+  values: DashboardStatusValues;
+  percentages: DashboardStatusValues;
+  total: number;
+} {
+  const values: DashboardStatusValues = {
+    completed: 0,
+    incomplete: 0,
+    paused: 0,
+    missed: 0,
+  };
+  for (const item of items) {
+    const key = statusKey(item.status);
+    if (key !== null) values[key] += 1;
+  }
+  const total = Object.values(values).reduce((sum, value) => sum + value, 0);
+  return {
+    values,
+    percentages: {
+      completed: percent(values.completed, total),
+      incomplete: percent(values.incomplete, total),
+      paused: percent(values.paused, total),
+      missed: percent(values.missed, total),
+    },
+    total,
+  };
+}
+
 function countStatus(items: WorkspaceItemModel[], status: string): number {
   return items.filter((item) => item.status === status).length;
+}
+
+function percent(value: number, total: number): number {
+  return total === 0 ? 0 : Math.round((value / total) * 100);
 }
 
 function countUnique(
