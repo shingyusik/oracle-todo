@@ -2176,13 +2176,16 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Area")).toHaveValue("area-1");
     expect(screen.getByLabelText("Project")).toHaveValue("project-1");
     expect(screen.getByLabelText("Priority")).toHaveValue("4");
-    expect(screen.getByLabelText("Tags")).toHaveValue("focus");
+    expect(screen.getByRole("button", { name: "Remove focus tag" })).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Type"), "event");
     await user.selectOptions(screen.getByLabelText("Area"), "area-2");
     await user.selectOptions(screen.getByLabelText("Project"), "project-2");
     await user.selectOptions(screen.getByLabelText("Priority"), "8");
-    await user.clear(screen.getByLabelText("Tags"));
-    await user.type(screen.getByLabelText("Tags"), "user, edited");
+    await user.click(screen.getByRole("button", { name: "Remove focus tag" }));
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    const tagSearch = screen.getByRole("textbox", { name: "Tags" });
+    await user.type(tagSearch, "user{Enter}");
+    await user.type(tagSearch, "edited{Enter}");
     await user.type(screen.getByLabelText("Title"), "Filtered event");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
