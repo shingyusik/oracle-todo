@@ -1658,27 +1658,28 @@ button {
 }
 
 .detail-view {
-  width: min(100%, 920px);
-  margin: 0 auto;
-}
-
-.detail-shell {
   display: grid;
-  gap: 18px;
-  border: 1px solid var(--color-hairline-light);
-  border-radius: var(--radius-md);
-  background: var(--color-canvas-light);
-  padding: 18px;
-  box-shadow: 0 1px 0 rgb(0 0 0 / 4%);
+  width: 100%;
+  gap: 28px;
 }
 
 .detail-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 16px;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
   align-items: start;
-  border-bottom: 1px solid var(--color-hairline-light);
-  padding-bottom: 16px;
+  padding: 2px 0;
+}
+
+.detail-layout {
+  display: grid;
+  width: min(100%, 680px);
+  margin: 0 auto;
+  gap: 28px;
+}
+
+.detail-editor {
+  display: grid;
 }
 
 .detail-back {
@@ -1701,7 +1702,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .detail-kicker span {
@@ -1717,14 +1718,14 @@ button {
 .detail-heading h1 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 24px;
-  line-height: 1.15;
+  font-size: 34px;
+  line-height: 1.2;
   letter-spacing: 0;
 }
 
 .detail-properties {
   display: grid;
-  gap: 12px;
+  gap: 4px;
 }
 
 .detail-properties h2 {
@@ -1738,13 +1739,12 @@ button {
 
 .detail-properties-list {
   display: grid;
-  gap: 8px;
+  gap: 2px;
 }
 
 .linked-items {
   display: grid;
   gap: 12px;
-  margin-top: 28px;
 }
 
 .linked-items h2 {
@@ -1806,12 +1806,13 @@ button {
 
 .detail-properties-list .field-label {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-columns: 150px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   margin-bottom: 0;
-  border-bottom: 1px solid var(--color-hairline-light);
-  padding: 8px 0;
+  border-bottom: 0;
+  padding: 5px 0;
+  color: var(--color-shade-50);
 }
 
 .detail-properties-list .field-label-wide {
@@ -1821,16 +1822,54 @@ button {
 .property-row {
   display: grid;
   min-height: 36px;
-  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-columns: 150px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
-  border-bottom: 1px solid var(--color-hairline-light);
-  padding: 8px 0;
+  border-bottom: 0;
+  padding: 5px 0;
   font-size: 14px;
 }
 
 .property-row span:first-child {
-  color: var(--color-shade-60);
+  color: var(--color-shade-50);
+}
+
+.detail-properties-list .field-label > input,
+.detail-properties-list .field-label > select,
+.detail-properties-list .field-label > textarea,
+.detail-properties-list .inline-cell-control,
+.detail-properties-list .tag-input {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.detail-properties-list .field-label > input,
+.detail-properties-list .field-label > select,
+.detail-properties-list .field-label > textarea,
+.detail-properties-list .inline-cell-control {
+  padding: 6px 0;
+}
+
+.detail-properties-list .tag-input {
+  padding: 2px 0;
+}
+
+.detail-properties-list .field-label > input:hover,
+.detail-properties-list .field-label > select:hover,
+.detail-properties-list .field-label > textarea:hover,
+.detail-properties-list .inline-cell-control:hover,
+.detail-properties-list .tag-input:hover {
+  background: var(--color-canvas-light);
+}
+
+.detail-properties-list .field-label > input:focus,
+.detail-properties-list .field-label > select:focus,
+.detail-properties-list .field-label > textarea:focus,
+.detail-properties-list .inline-cell-control:focus,
+.detail-properties-list .tag-input:focus-within {
+  border-color: var(--color-shade-30);
+  background: var(--color-canvas-light);
 }
 
 .materialize-fields {
@@ -1892,17 +1931,17 @@ button {
 
 .recurrence-row {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-columns: 150px minmax(0, 1fr);
   gap: 12px;
   align-items: end;
-  border-bottom: 1px solid var(--color-hairline-light);
-  padding: 8px 0;
+  border-bottom: 0;
+  padding: 5px 0;
 }
 
 .recurrence-row-label {
   align-self: center;
   font-size: 14px;
-  color: var(--color-shade-70);
+  color: var(--color-shade-50);
 }
 
 .recurrence-fields {
@@ -1999,7 +2038,7 @@ button {
 }
 
 .field-label-wide textarea {
-  min-height: 280px;
+  min-height: 220px;
   resize: vertical;
 }
 
@@ -2224,19 +2263,28 @@ button {
     gap: 6px;
   }
 
-  .detail-shell {
-    border-right: 0;
-    border-left: 0;
-    border-radius: 0;
-    padding: 14px;
+  .main-panel {
+    padding: 20px;
   }
 
-  .detail-header,
   .detail-properties-list .field-label,
   .property-row {
     grid-template-columns: 1fr;
   }
 
+  .detail-header {
+    gap: 10px;
+    padding-bottom: 16px;
+  }
+
+  .detail-heading h1 {
+    font-size: 20px;
+  }
+
+  .detail-layout {
+    width: 100%;
+    gap: 24px;
+  }
 }
 
 .planner-group-settings-panel {

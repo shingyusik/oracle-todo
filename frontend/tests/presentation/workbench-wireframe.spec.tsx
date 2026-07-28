@@ -7294,6 +7294,34 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
   });
 
+  it("keeps detail navigation and saving in the page header outside the editor", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "task-1", type: "task", title: "One", status: "active" },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "One" }));
+
+    const header = screen.getByRole("button", { name: "< Back" }).closest(".detail-header");
+    const editor = screen.getByRole("region", { name: "Edit properties" });
+
+    expect(header).toContainElement(screen.getByRole("button", { name: "Save" }));
+    expect(header).not.toContainElement(editor);
+    expect(editor.closest(".detail-layout")).not.toBeNull();
+  });
+
   it("keeps checkbox keyboard selection from opening details", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(

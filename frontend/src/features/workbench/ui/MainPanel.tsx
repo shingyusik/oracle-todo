@@ -233,63 +233,65 @@ function DetailView({ controller }: MainPanelProps) {
 
   return (
     <section className="detail-view" aria-label={`${item.title} details`}>
-      <div className="detail-shell">
-        <header className="detail-header">
+      <header className="detail-header">
+        <button
+          type="button"
+          className="detail-back"
+          aria-label="< Back"
+          onClick={controller.closeDetailView}
+        >
+          <ArrowLeft size={16} aria-hidden="true" />
+        </button>
+        <div className="detail-actions">
           <button
             type="button"
-            className="detail-back"
-            aria-label="< Back"
-            onClick={controller.closeDetailView}
+            aria-label="Save"
+            disabled={!hasDraftChanges}
+            onClick={() => void saveDraft()}
           >
-            <ArrowLeft size={16} aria-hidden="true" />
+            <Save size={16} aria-hidden="true" />
           </button>
-          <div className="detail-heading">
-            <div className="detail-kicker">
-              <span>{item.type}</span>
-              <span>{item.status}</span>
-            </div>
-            <h1>{item.title}</h1>
-          </div>
-          <div className="detail-actions">
-            <button
-              type="button"
-              aria-label="Save"
-              disabled={!hasDraftChanges}
-              onClick={() => void saveDraft()}
-            >
-              <Save size={16} aria-hidden="true" />
-            </button>
-          </div>
-        </header>
-        <div className="detail-properties">
-          <h2>Properties</h2>
-          <div className="detail-properties-list">
-            <label className="field-label">
-              Title
-              <input
-                value={draft.title}
-                onChange={(event) => setField("title", event.target.value)}
-              />
-            </label>
-            <DetailStatusField
-              item={item}
-              value={draft.status}
-              onChange={(value) => setField("status", value)}
-            />
-            <DetailTagsField
-              value={draft.tags}
-              tagOptions={controller.workspaceItems.tagOptions}
-              onChange={(value) => setField("tags", value)}
-            />
-            <DetailTypeFields
-              item={item}
-              draft={draft}
-              setField={setField}
-              workspaceItems={controller.workspaceItems}
-              controller={controller}
-            />
-          </div>
         </div>
+      </header>
+      <div className="detail-layout">
+        <div className="detail-heading">
+          <div className="detail-kicker">
+            <span>{item.type}</span>
+            <span>{item.status}</span>
+          </div>
+          <h1>{item.title}</h1>
+        </div>
+        <section className="detail-editor" aria-label="Edit properties">
+          <div className="detail-properties">
+            <h2 className="sr-only">Properties</h2>
+            <div className="detail-properties-list">
+              <label className="field-label">
+                Title
+                <input
+                  value={draft.title}
+                  onChange={(event) => setField("title", event.target.value)}
+                />
+              </label>
+              <DetailStatusField
+                item={item}
+                value={draft.status}
+                onChange={(value) => setField("status", value)}
+              />
+              <DetailTagsField
+                value={draft.tags}
+                tagOptions={controller.workspaceItems.tagOptions}
+                onChange={(value) => setField("tags", value)}
+              />
+              <DetailTypeFields
+                item={item}
+                draft={draft}
+                setField={setField}
+                workspaceItems={controller.workspaceItems}
+                controller={controller}
+              />
+            </div>
+          </div>
+        </section>
         {groups.length > 0 ? (
           <section className="linked-items" aria-label="Linked items">
             <h2>Linked items</h2>
