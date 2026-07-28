@@ -1,8 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDashboardSnapshot } from "@/features/dashboard/model/dashboard-model";
+import {
+  buildDashboardSnapshot,
+  completionRangeEndingOn,
+  isValidDashboardDateRange,
+} from "@/features/dashboard/model/dashboard-model";
 
 const today = "2026-07-23";
+
+function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00`);
+  value.setDate(value.getDate() + days);
+  return [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function localDateOf(value: string): string {
+  const date = new Date(value);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
 
 describe("dashboard model", () => {
   it("counts active Tasks, Events, and Routines separately", () => {
@@ -67,5 +90,61 @@ describe("dashboard model", () => {
 
     expect(snapshot.planner.days.find((day) => day.date === "2026-07-21")?.scheduled).toBe(1);
     expect(snapshot.planner.days.find((day) => day.date === "2026-07-25")?.due).toBe(1);
+  });
+
+  it("partitions today's Task and Event work without counting Routine definitions", () => {
+    const snapshot = buildDashboardSnapshot([
+      { id: "task-done", type: "task", title: "Done", status: "completed", scheduled: today },
+      { id: "event-open", type: "event", title: "Meet", status: "active", due: today },
+      { id: "task-paused", type: "task", title: "Wait", status: "paused", scheduled: today, due: today },
+      { id: "task-missed", type: "task", title: "Miss", status: "missed", scheduled: today },
+      { id: "routine", type: "routine", title: "Template", status: "active", scheduled: today },
+      { id: "generated", type: "task", title: "Generated", status: "waiting", routine_id: "routine", scheduled: today },
+      { id: "cancelled", type: "event", title: "No longer", status: "cancelled", scheduled: today },
+    ], today);
+
+    expect(snapshot.todayOutcomes).toEqual({
+      date: today,
+      completed: 1,
+      incomplete: 3,
+      missed: 1,
+      total: 5,
+    });
+  });
+
+  it("builds a continuous inclusive completion history in browser-local dates", () => {
+    const completedAt = "2026-07-22T23:30:00-07:00";
+    const completionDate = localDateOf(completedAt);
+    const range = { start: addDays(completionDate, -1), end: addDays(completionDate, 1) };
+    const snapshot = buildDashboardSnapshot([
+      { id: "task", type: "task", title: "Done", status: "completed", completed_at: completedAt },
+      { id: "routine", type: "routine", title: "Template", status: "completed", completed_at: completedAt },
+    ], today, range);
+
+    expect(snapshot.completionHistory.days).toEqual([
+      { date: range.start, completed: 0 },
+      { date: completionDate, completed: 1 },
+      { date: range.end, completed: 0 },
+    ]);
+  });
+
+  it("creates exact 7, 14, and 30 day inclusive presets", () => {
+    expect(completionRangeEndingOn(today, 7)).toEqual({
+      start: addDays(today, -6),
+      end: today,
+    });
+    expect(completionRangeEndingOn(today, 14)).toEqual({
+      start: addDays(today, -13),
+      end: today,
+    });
+    expect(completionRangeEndingOn(today, 30)).toEqual({
+      start: addDays(today, -29),
+      end: today,
+    });
+  });
+
+  it("rejects reversed and invalid custom ranges", () => {
+    expect(isValidDashboardDateRange({ start: "2026-07-29", end: "2026-07-28" })).toBe(false);
+    expect(isValidDashboardDateRange({ start: "not-a-date", end: "2026-07-28" })).toBe(false);
   });
 });

@@ -28,6 +28,17 @@ const sampleDashboardSnapshot: DashboardSnapshot = {
     overdue: 0,
     days: [{ date: "2026-07-21", scheduled: 1, due: 0 }],
   },
+  todayOutcomes: {
+    date: "2026-07-23",
+    completed: 1,
+    incomplete: 1,
+    missed: 0,
+    total: 2,
+  },
+  completionHistory: {
+    range: { start: "2026-07-10", end: "2026-07-23" },
+    days: [{ date: "2026-07-23", completed: 1 }],
+  },
 };
 
 describe("dashboard widget registry", () => {

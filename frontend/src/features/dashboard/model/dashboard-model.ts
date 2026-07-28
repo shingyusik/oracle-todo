@@ -16,6 +16,23 @@ export type PlannerSummary = {
   days: PlannerDay[];
 };
 
+export type DashboardDateRange = { start: string; end: string };
+
+export type TodayOutcomes = {
+  date: string;
+  completed: number;
+  incomplete: number;
+  missed: number;
+  total: number;
+};
+
+export type CompletionDay = { date: string; completed: number };
+
+export type CompletionHistory = {
+  range: DashboardDateRange;
+  days: CompletionDay[];
+};
+
 export type DashboardSnapshot = {
   summary: {
     activeAreas: number;
@@ -41,17 +58,23 @@ export type DashboardSnapshot = {
     attention: ProjectAttention;
   }>;
   planner: PlannerSummary;
+  todayOutcomes: TodayOutcomes;
+  completionHistory: CompletionHistory;
 };
 
 const dashboardWorkTypes = new Set(["task", "event", "routine"]);
+const dashboardExecutionTypes = new Set(["task", "event"]);
 const plannerWorkTypes = new Set(["task", "event"]);
 const trackedWorkStatuses = new Set(["active", "paused", "completed"]);
+const incompleteStatuses = new Set(["active", "waiting", "paused"]);
 
 export function buildDashboardSnapshot(
   items: WorkspaceItemModel[],
   today: string,
+  completionRange: DashboardDateRange = completionRangeEndingOn(today, 14),
 ): DashboardSnapshot {
   const work = items.filter(isDashboardWorkItem);
+  const executionWork = items.filter((item) => dashboardExecutionTypes.has(item.type));
   const week = weekDates(today);
   const projects = buildProjectStats(items, work, today);
 
@@ -60,7 +83,22 @@ export function buildDashboardSnapshot(
     areas: buildAreaStats(items, work),
     projects,
     planner: buildPlannerStats(work, today, week),
+    todayOutcomes: buildTodayOutcomes(executionWork, today),
+    completionHistory: buildCompletionHistory(executionWork, completionRange),
   };
+}
+
+export function completionRangeEndingOn(
+  today: string,
+  dayCount: 7 | 14 | 30,
+): DashboardDateRange {
+  return { start: addDays(today, 1 - dayCount), end: today };
+}
+
+export function isValidDashboardDateRange(range: DashboardDateRange): boolean {
+  return dateFromDateOnly(range.start) !== null
+    && dateFromDateOnly(range.end) !== null
+    && range.start <= range.end;
 }
 
 export function dashboardToday(date: Date = new Date()): string {
@@ -159,6 +197,41 @@ function buildPlannerStats(
   };
 }
 
+function buildTodayOutcomes(
+  work: WorkspaceItemModel[],
+  today: string,
+): TodayOutcomes {
+  const todayWork = work.filter((item) =>
+    localCalendarDate(item.scheduled) === today
+    || localCalendarDate(item.due) === today,
+  );
+  const completed = countStatus(todayWork, "completed");
+  const incomplete = todayWork.filter((item) => incompleteStatuses.has(item.status)).length;
+  const missed = countStatus(todayWork, "missed");
+  return { date: today, completed, incomplete, missed, total: completed + incomplete + missed };
+}
+
+function buildCompletionHistory(
+  work: WorkspaceItemModel[],
+  range: DashboardDateRange,
+): CompletionHistory {
+  const counts = new Map<string, number>();
+  for (const item of work) {
+    if (item.status !== "completed") continue;
+    const date = localCalendarDate(item.completed_at);
+    if (date !== null && date >= range.start && date <= range.end) {
+      counts.set(date, (counts.get(date) ?? 0) + 1);
+    }
+  }
+  return {
+    range,
+    days: dateRange(range).map((date) => ({
+      date,
+      completed: counts.get(date) ?? 0,
+    })),
+  };
+}
+
 function isDashboardWorkItem(item: WorkspaceItemModel): boolean {
   return dashboardWorkTypes.has(item.type);
 }
@@ -224,6 +297,29 @@ function dateOnly(value: string | null | undefined): string | null {
   if (!value) return null;
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
   return match && dateFromDateOnly(match[1]) !== null ? match[1] : null;
+}
+
+function localCalendarDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return dateFromDateOnly(value) === null ? null : value;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : formatDateOnly(parsed);
+}
+
+function dateRange(range: DashboardDateRange): string[] {
+  if (!isValidDashboardDateRange(range)) return [];
+
+  const current = dateFromDateOnly(range.start);
+  if (current === null) return [];
+
+  const dates: string[] = [];
+  while (formatDateOnly(current) <= range.end) {
+    dates.push(formatDateOnly(current));
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
 }
 
 function dateFromDateOnly(value: string): Date | null {
