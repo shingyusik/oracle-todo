@@ -1427,6 +1427,11 @@ button {
   width: 100%;
 }
 
+.confirmation-dialog .tag-combobox,
+.confirmation-dialog .tag-input {
+  min-width: 0;
+}
+
 .tag-input {
   display: flex;
   min-height: 36px;

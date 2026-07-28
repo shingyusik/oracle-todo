@@ -4855,7 +4855,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
   const [priority, setPriority] = React.useState(
     creationPrefills.priority?.toString() ?? "",
   );
-  const [tags, setTags] = React.useState(formatTags(creationPrefills.tags));
+  const [tags, setTags] = React.useState<string[]>(creationPrefills.tags ?? []);
   const [submitError, setSubmitError] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -4950,10 +4950,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
               area_id: areaId || undefined,
               project_id: projectId || undefined,
               priority: priority ? Number(priority) : undefined,
-              tags:
-                tags.trim() !== "" || (creationPrefills.tags?.length ?? 0) > 0
-                  ? parseTagInput(tags)
-                  : undefined,
+              tags: tags.length > 0 ? tags : undefined,
             }
           : {}),
         definition_of_done: isProject ? trimmedDefinitionOfDone : undefined,
@@ -5053,14 +5050,12 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
                 </label>
               </>
             ) : null}
-            <label className="field-label">
-              Tags
-              <input
-                value={tags}
-                onChange={(event) => setTags(event.target.value)}
-                placeholder="Comma-separated tags"
-              />
-            </label>
+            <TagsInput
+              label="Tags"
+              value={tags}
+              tagOptions={controller.workspaceItems.tagOptions}
+              onCommit={setTags}
+            />
           </>
         ) : null}
         {isProject ? (

@@ -1650,6 +1650,33 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByText("Daily event")).toBeInTheDocument();
   });
 
+  it("uses chip tags when creating a planner item", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task"
+              ? [{ id: "task-1", type: "task", title: "Focus task", status: "active" }]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    await user.type(screen.getByRole("textbox", { name: "Tags" }), "focus{Enter}");
+    expect(screen.getByText("focus")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove focus tag" }));
+    expect(screen.queryByText("focus")).not.toBeInTheDocument();
+  });
+
   it("renders daily planner sections with filter, group, and sort controls", async () => {
     const user = userEvent.setup();
     const today = testToday();
