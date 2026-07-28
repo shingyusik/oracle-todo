@@ -18,11 +18,13 @@ export function DashboardDonutChart({
   chart,
   onNavigate,
 }: DashboardDonutChartProps) {
-  const completedEnd = chart.segments[0]?.percentage ?? 0;
+  const percentage = (id: DonutChartSpec["segments"][number]["id"]) =>
+    chart.segments.find((segment) => segment.id === id)?.percentage ?? 0;
+  const completedEnd = percentage("completed");
   const incompleteEnd =
-    completedEnd + (chart.segments[1]?.percentage ?? 0);
+    completedEnd + percentage("incomplete");
   const missedEnd =
-    incompleteEnd + (chart.segments[2]?.percentage ?? 0);
+    incompleteEnd + percentage("missed");
   const style: DonutStyle = {
     "--dashboard-donut-completed-end": `${completedEnd}%`,
     "--dashboard-donut-incomplete-end": `${incompleteEnd}%`,

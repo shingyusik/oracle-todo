@@ -27,70 +27,79 @@ export function DashboardHeatmap({
       aria-label={chart.ariaLabel}
     >
       <div className="dashboard-heatmap-scroll">
-        <div className="dashboard-heatmap-grid" role="table">
-          <div className="dashboard-heatmap-header" role="row">
-            <span role="columnheader">Name</span>
-            {chart.columns.map((column) => (
-              <span key={column.id} role="columnheader">
-                {column.label}
-              </span>
-            ))}
-            {hasProgress ? <span role="columnheader">Progress</span> : null}
-          </div>
-          {chart.rows.map((row) => {
-            const attentionLabel = projectAttentionLabel(row.attention);
-            const rowLabel = attentionLabel
-              ? `${row.label} · ${attentionLabel}`
-              : row.label;
+        <table className="dashboard-heatmap-grid">
+          <thead>
+            <tr className="dashboard-heatmap-header">
+              <th scope="col">Name</th>
+              {chart.columns.map((column) => (
+                <th key={column.id} scope="col">
+                  {column.label}
+                </th>
+              ))}
+              {hasProgress ? <th scope="col">Progress</th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {chart.rows.map((row) => {
+              const attentionLabel = projectAttentionLabel(row.attention);
+              const rowLabel = attentionLabel
+                ? `${row.label} · ${attentionLabel}`
+                : row.label;
 
-            return (
-              <div className="dashboard-heatmap-row" role="row" key={row.id}>
-                <button
-                  type="button"
-                  className="dashboard-heatmap-row-label"
-                  aria-label={rowLabel}
-                  onClick={() => onNavigate(row.destination)}
-                >
-                  <span>{row.label}</span>
-                  {attentionLabel ? (
-                    <span className="dashboard-project-attention">
-                      {attentionLabel}
-                    </span>
-                  ) : null}
-                </button>
-                {row.cells.map((cell) => {
-                  const column = chart.columns.find(
-                    (candidate) => candidate.id === cell.columnId,
-                  );
-                  const style: HeatmapCellStyle = {
-                    "--dashboard-heatmap-intensity":
-                      cell.intensityPercent / 100,
-                  };
-
-                  return (
+              return (
+                <tr className="dashboard-heatmap-row" key={row.id}>
+                  <th scope="row">
                     <button
-                      key={cell.id}
                       type="button"
-                      className={`dashboard-heatmap-cell tone-${column?.tone ?? "primary"}`}
-                      style={style}
-                      aria-label={cell.ariaLabel}
+                      className="dashboard-heatmap-row-label"
+                      aria-label={rowLabel}
                       onClick={() => onNavigate(row.destination)}
                     >
-                      <span className="dashboard-chart-value">
-                        {cell.value}
-                      </span>
+                      <span>{row.label}</span>
+                      {attentionLabel ? (
+                        <span className="dashboard-project-attention">
+                          {attentionLabel}
+                        </span>
+                      ) : null}
                     </button>
-                  );
-                })}
-                {hasProgress ? (
-                  <span className="dashboard-heatmap-progress">
-                    {row.progressLabel ?? ""}
-                  </span>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
+                  </th>
+                  {row.cells.map((cell) => {
+                    const column = chart.columns.find(
+                      (candidate) => candidate.id === cell.columnId,
+                    );
+                    const style: HeatmapCellStyle = {
+                      "--dashboard-heatmap-intensity":
+                        cell.intensityPercent / 100,
+                    };
+
+                    return (
+                      <td key={cell.id}>
+                        <button
+                          type="button"
+                          className={`dashboard-heatmap-cell tone-${column?.tone ?? "primary"}`}
+                          style={style}
+                          aria-label={cell.ariaLabel}
+                          onClick={() => onNavigate(row.destination)}
+                        >
+                          <span className="dashboard-chart-value">
+                            {cell.value}
+                          </span>
+                        </button>
+                      </td>
+                    );
+                  })}
+                  {hasProgress ? (
+                    <td>
+                      <span className="dashboard-heatmap-progress">
+                        {row.progressLabel ?? ""}
+                      </span>
+                    </td>
+                  ) : null}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

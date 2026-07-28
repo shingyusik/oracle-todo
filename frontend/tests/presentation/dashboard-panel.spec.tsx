@@ -98,27 +98,57 @@ describe("DashboardPanel", () => {
     expect(screen.queryByRole("region", { name: "Area work status" })).toBeNull();
   });
 
-  it("renders donut segments as native buttons and forwards their destination", async () => {
+  it("maps reordered donut segments to ID-based CSS boundaries and navigation", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     const chart: DashboardChartSpec = {
       kind: "donut",
       ariaLabel: "Today's work",
-      total: 2,
-      segments: [{
-        id: "completed",
-        label: "Completed",
-        value: 2,
-        percentage: 100,
-        tone: "success",
-        ariaLabel: "Completed: 2 (100%)",
-        destination: { kind: "daily", date: "2026-07-28" },
-      }],
+      total: 4,
+      segments: [
+        {
+          id: "incomplete",
+          label: "Incomplete",
+          value: 1,
+          percentage: 25,
+          tone: "primary",
+          ariaLabel: "Incomplete: 1 (25%)",
+          destination: { kind: "daily", date: "2026-07-28" },
+        },
+        {
+          id: "missed",
+          label: "Miss",
+          value: 1,
+          percentage: 25,
+          tone: "warning",
+          ariaLabel: "Miss: 1 (25%)",
+          destination: { kind: "daily", date: "2026-07-28" },
+        },
+        {
+          id: "completed",
+          label: "Completed",
+          value: 2,
+          percentage: 50,
+          tone: "success",
+          ariaLabel: "Completed: 2 (50%)",
+          destination: { kind: "daily", date: "2026-07-28" },
+        },
+      ],
     };
 
-    render(<DashboardChart chart={chart} onNavigate={onNavigate} />);
+    const { container } = render(
+      <DashboardChart chart={chart} onNavigate={onNavigate} />,
+    );
 
-    const completed = screen.getByRole("button", { name: "Completed: 2 (100%)" });
+    const ring = container.querySelector<HTMLElement>(".dashboard-donut-ring");
+    expect(ring?.style.getPropertyValue("--dashboard-donut-completed-end"))
+      .toBe("50%");
+    expect(ring?.style.getPropertyValue("--dashboard-donut-incomplete-end"))
+      .toBe("75%");
+    expect(ring?.style.getPropertyValue("--dashboard-donut-missed-end"))
+      .toBe("100%");
+
+    const completed = screen.getByRole("button", { name: "Completed: 2 (50%)" });
     expect(completed).toHaveTextContent("2");
     await user.click(completed);
     expect(onNavigate).toHaveBeenCalledWith({
@@ -192,6 +222,19 @@ describe("DashboardPanel", () => {
     };
 
     render(<DashboardChart chart={chart} onNavigate={onNavigate} />);
+
+    const table = screen.getByRole("table");
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]).getAllByRole("columnheader")).toHaveLength(3);
+    expect(
+      within(rows[1]).getByRole("rowheader"),
+    ).toContainElement(screen.getByRole("button", { name: "Health" }));
+    expect(within(rows[1]).getAllByRole("cell")).toHaveLength(2);
+    expect(
+      within(rows[2]).getByRole("rowheader"),
+    ).toContainElement(screen.getByRole("button", { name: "Release · Risk" }));
+    expect(within(rows[2]).getAllByRole("cell")).toHaveLength(2);
 
     const areaCell = screen.getByRole("button", { name: "Health: 1 completed" });
     expect(areaCell).toHaveTextContent("1");
