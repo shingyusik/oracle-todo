@@ -1652,6 +1652,50 @@ describe("WorkbenchPageClient", () => {
 
   it("uses chip tags when creating a planner item", async () => {
     const user = userEvent.setup();
+    const taskBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url === "/todo-engine/tasks/propose") {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          taskBodies.push(body);
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ id: "task-new", type: "task", status: "active", ...body }),
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task"
+              ? [{ id: "task-1", type: "task", title: "Focus task", status: "active" }]
+              : [],
+        });
+      }),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    await user.type(screen.getByRole("textbox", { name: "Tags" }), "focus{Enter}");
+    expect(screen.getByText("focus")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Title"), "Tagged task");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(taskBodies).toEqual([{
+      title: "Tagged task",
+      scheduled: testToday(),
+      tags: ["focus"],
+      actor: "user",
+    }]);
+  });
+
+  it("removes a chip tag while creating a planner item", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>
@@ -1672,9 +1716,26 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
     await user.type(screen.getByRole("textbox", { name: "Tags" }), "focus{Enter}");
-    expect(screen.getByText("focus")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remove focus tag" }));
     expect(screen.queryByText("focus")).not.toBeInTheDocument();
+  });
+
+  it("closes planner creation when Escape is pressed on the tag trigger", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Create Daily item" })).toBeNull();
   });
 
   it("renders daily planner sections with filter, group, and sort controls", async () => {

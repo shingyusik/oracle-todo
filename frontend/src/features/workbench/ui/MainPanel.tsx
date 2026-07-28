@@ -5055,6 +5055,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
               value={tags}
               tagOptions={controller.workspaceItems.tagOptions}
               onCommit={setTags}
+              propagateEscape
             />
           </>
         ) : null}
@@ -5409,11 +5410,13 @@ function TagsInput({
   value,
   tagOptions,
   onCommit,
+  propagateEscape = false,
 }: {
   label: string;
   value: string[] | null | undefined;
   tagOptions: string[];
   onCommit: (value: string[]) => void;
+  propagateEscape?: boolean;
 }) {
   const currentTags = React.useMemo(() => parseTagInput(formatTags(value)), [value]);
   const availableTags = React.useMemo(
@@ -5478,6 +5481,9 @@ function TagsInput({
           setOpen(true);
         }}
         onKeyDown={(event) => {
+          if (event.key === "Escape" && propagateEscape) {
+            return;
+          }
           stopRowEvent(event);
           if (event.key === "Enter" || event.key === " " || event.key === "Space") {
             event.preventDefault();
