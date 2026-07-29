@@ -27,6 +27,8 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `GET` | `/items/archive` | `archive_items` | — |
 | `GET` | `/settings/planner` | `get_planner` | — (returns the saved JSON document or `null`) |
 | `PUT` | `/settings/planner` | `put_planner` | `{ "value": { ... } }` |
+| `GET` | `/settings/workspace-views` | `get_workspace_views` | — (returns the saved JSON document or `null`) |
+| `PUT` | `/settings/workspace-views` | `put_workspace_views` | `{ "value": { ... } }` |
 | `GET` | `/views/agenda` | `view_agenda` | `AgendaQuery`: required `date` |
 | `GET` | `/views/date-range` | `view_date_range` | `DateRangeQuery`: required `from`, `to` |
 | `GET` | `/views/period` | `view_period` | `PeriodQuery`: required `horizon`, `period` |
@@ -41,16 +43,27 @@ Run the local server with `cargo run -p todo-engine -- api`; it binds to
 | `POST` | `/items/:id/drop` | `drop_item` | optional `ReasonBody` |
 | `POST` | `/items/:id/cancel` | `cancel_item` | optional `ReasonBody` |
 
-### Planner settings
+### Saved table-view settings
 
 `GET /settings/planner` returns the `planner.v1` preference document stored in
 `workspace_preferences`, or JSON `null` when it has not been saved. `PUT /settings/planner`
 accepts `{ "value": { ... } }`, requires `value` to be a JSON object, and returns the saved
-object. A non-object `value` returns HTTP `400`; storage failures return HTTP `500`.
+object.
 
-The preference is workspace-wide: it is persisted in the local workspace's `todo.sqlite`,
-which has no user or profile identity. The Planner frontend keeps in-memory defaults if the
-response is missing, malformed, or unavailable, and sends writes on a best-effort basis.
+`GET /settings/workspace-views` and `PUT /settings/workspace-views` provide the same
+contract for the independent `workspace-views.v1` document. That document contains saved
+views for Workspace tables and detail linked-list scopes. Saving either key leaves the
+other key unchanged.
+
+Both preferences are workspace-wide: they are persisted in the local workspace's
+`todo.sqlite`, which has no user or profile identity. For either PUT endpoint, a missing,
+scalar, array, or otherwise non-object `value` returns HTTP `400`; storage failures return
+HTTP `500`.
+
+The frontend keeps in-memory defaults when a saved document is missing, malformed, or
+unavailable and sends writes on a best-effort basis. For a valid Workspace document, a
+malformed individual scope falls back to its default view without discarding valid sibling
+scopes.
 
 ### Reopen a completed task or event
 
