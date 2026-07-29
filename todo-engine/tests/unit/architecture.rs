@@ -33,3 +33,29 @@ fn domain_has_no_outward_dependencies() {
         "expected to scan domain modules, found {checked}"
     );
 }
+
+/// Raven delegates ToDo commands through the public adapter instead of coupling
+/// itself to CLI parsing details such as `Cli` or `Command`.
+#[test]
+fn raven_cli_does_not_import_private_todo_cli_types() {
+    let forbidden = [
+        "todo_engine::interfaces::cli::Cli",
+        "todo_engine::interfaces::cli::Command",
+    ];
+    let raven_cli = Path::new(env!("CARGO_MANIFEST_DIR")).join("../raven-cli/src");
+
+    for entry in fs::read_dir(&raven_cli).expect("read raven-cli/src") {
+        let path = entry.expect("read raven-cli source entry").path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read raven-cli source");
+        for needle in forbidden {
+            assert!(
+                !source.contains(needle),
+                "{} must delegate through a public ToDo CLI adapter, not `{needle}`",
+                path.display()
+            );
+        }
+    }
+}

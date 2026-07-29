@@ -29,6 +29,15 @@ fn init_creates_sqlite_database() {
 }
 
 #[test]
+fn run_at_executes_today_against_the_explicit_home() {
+    let home = tempfile::tempdir().unwrap();
+
+    todo_engine::interfaces::cli::run_at(home.path(), ["todo-engine", "init"]).unwrap();
+
+    assert!(home.path().join("todo.sqlite").exists());
+}
+
+#[test]
 fn init_uses_todo_engine_home_environment() {
     let home = TestHome::new();
 

@@ -365,9 +365,30 @@ struct PeriodArgs {
 
 pub fn run() -> Result<()> {
     load_dotenv()?;
-    let cli = Cli::parse();
-    let command_name = command_label(&cli.command);
+    run_from(std::env::args_os())
+}
+
+pub fn run_from<I, T>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let cli = Cli::parse_from(args);
     let home = todo_home(cli.home)?;
+    execute(home, cli.command)
+}
+
+pub fn run_at<I, T>(home: &Path, args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let cli = Cli::parse_from(args);
+    execute(home.to_path_buf(), cli.command)
+}
+
+fn execute(home: PathBuf, command: Command) -> Result<()> {
+    let command_name = command_label(&command);
     init_tracing(&home);
     tracing::debug!(event = "home_resolved", home = %home.display());
     tracing::info!(
@@ -377,7 +398,7 @@ pub fn run() -> Result<()> {
     );
     let started_at = Instant::now();
 
-    let result = match cli.command {
+    let result = match command {
         Command::Init => init(&home),
         Command::Health => health(&home),
         Command::Api(args) => api(&home, args),
