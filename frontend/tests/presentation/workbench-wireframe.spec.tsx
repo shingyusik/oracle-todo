@@ -1576,6 +1576,52 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("checkbox", { name: "Select Active task" })).toBeChecked();
   });
 
+  it("keeps Workspace rows visible while new select, relation, text, and date filters have no value", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      {
+        id: "task-one",
+        type: "task",
+        title: "One",
+        status: "active",
+        updated_at: "2026-07-01T09:00:00Z",
+      },
+      {
+        id: "task-two",
+        type: "task",
+        title: "Two",
+        status: "completed",
+        updated_at: "2026-07-01T08:00:00Z",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Filter Tasks" }));
+    const filter = screen.getByRole("dialog", { name: "Filter Tasks" });
+    await user.click(within(filter).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filter).getByRole("option", { name: "Status" }));
+
+    for (const field of ["status", "area", "title", "scheduled"]) {
+      await user.selectOptions(within(filter).getByLabelText("Filter field"), field);
+      expect(screen.getByRole("button", { name: "Open details for One" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Open details for Two" })).toBeVisible();
+      expect(screen.queryByText("1 rules")).toBeNull();
+    }
+  });
+
   it("sorts Workspace rows by descending title", async () => {
     const user = userEvent.setup();
     const tasks = [
@@ -6146,6 +6192,34 @@ describe("WorkbenchPageClient", () => {
     const areaSelect = screen.getByLabelText("Area for Checkup");
     expect(areaSelect).toHaveValue("area-1");
     expect(within(areaSelect).getByRole("option", { name: "Health" })).toHaveValue("area-1");
+  });
+
+  it("omits Add from detail linked lists without leaving latent creation state", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => linkedAreaItemsResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+
+    const linkedItems = screen.getByRole("region", { name: "Linked items" });
+    expect(within(linkedItems).queryByRole("button", { name: "Add to Projects" })).toBeNull();
+    expect(within(linkedItems).queryByRole("button", { name: "Add to Tasks" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+
+    expect(screen.queryByRole("dialog", { name: /^Create / })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add to Areas" })).toBeVisible();
   });
 
   it("caps each linked-item type at five direct children with accessible More and Less actions", async () => {

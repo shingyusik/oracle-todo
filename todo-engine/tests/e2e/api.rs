@@ -148,6 +148,21 @@ async fn workspace_view_settings_round_trip_through_sqlite() {
 }
 
 #[tokio::test]
+async fn workspace_view_settings_require_an_object_value() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PUT",
+        "/settings/workspace-views",
+        json!({"value": ["not", "an", "object"]}),
+    )
+    .await;
+
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
 async fn task_propose_and_items_use_same_service_path() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");

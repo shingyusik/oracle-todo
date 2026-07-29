@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildTableViewTabsState,
@@ -53,6 +53,33 @@ describe("table view tabs", () => {
       activeTabId: "scope-table",
       draftSettings: { order: ["default"] },
     });
+  });
+
+  it("delegates malformed tab settings to the adapter and clones normalized state", () => {
+    const normalized = { order: ["adapter-default"] };
+    const normalizeSettings = vi.fn(() => normalized);
+    const cloneSettings = vi.fn((settings: Settings) => ({
+      order: [...settings.order],
+    }));
+    const malformedSettingsAdapter: TableViewSettingsAdapter<"scope", Settings> = {
+      defaultSettings: () => ({ order: ["unused"] }),
+      normalizeSettings,
+      cloneSettings,
+    };
+
+    const state = buildTableViewTabsState("scope", {
+      tabs: [{ id: "one", name: "Table", settings: "malformed" }],
+    }, malformedSettingsAdapter);
+
+    expect(normalizeSettings).toHaveBeenCalledOnce();
+    expect(normalizeSettings).toHaveBeenCalledWith("scope", "malformed");
+    expect(cloneSettings).toHaveBeenCalledTimes(3);
+    expect(state.tabs[0]?.settings).toEqual({ order: ["adapter-default"] });
+    expect(state.draftSettings).toEqual({ order: ["adapter-default"] });
+
+    normalized.order.push("mutated");
+    state.draftSettings.order.push("draft-only");
+    expect(state.tabs[0]?.settings).toEqual({ order: ["adapter-default"] });
   });
 
   it("selects, updates, saves, and compares the active draft", () => {

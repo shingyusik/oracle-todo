@@ -27,6 +27,7 @@ import {
   buildYearlyPeriodGoalCardsModel,
   clonePlannerTableSettings,
   type DailyPlannerSection,
+  effectivePlannerFilterRules,
   filterPlannerItemsByRules,
   groupPlannerItems,
   type MonthlyPlannerWeekModel,
@@ -63,7 +64,6 @@ import {
 } from "@/features/workbench/model/workspace-table-views";
 import { PlannerTableTabs } from "@/features/workbench/ui/PlannerTableTabs";
 import {
-  effectiveTableViewFilterRules,
   type PlannerFilterOptionSet,
   type PlannerFilterOptions,
   TableViewActivePills,
@@ -422,7 +422,6 @@ function LinkedItemTable({
       rules[0]?.field === "updated" &&
       rules[0]?.direction === "desc",
     update: (updater) => controller.updateWorkspaceTableSettings(scope, updater),
-    add: controller.openCreationDialog,
   };
   const viewVersion = JSON.stringify({
     activeTabId: tabs.activeTabId,
@@ -1289,11 +1288,10 @@ function PlannerTableHeader({
     groupUniverseItems,
     controller.workspaceItems.relatedItems,
   );
-  const effectiveFilterRules = effectiveTableViewFilterRules({
-    settings,
+  const effectiveFilterRules = effectivePlannerFilterRules(
+    settings.filterRules,
     filterFields,
-    filterOptions,
-  });
+  );
   const controlsAdapter: TableViewControlsAdapter = {
     scopeId: tableId,
     title,
@@ -1744,15 +1742,13 @@ const workPlannerGroupOptions: { value: PlannerGroupBy; label: string }[] = [
 function effectivePlannerTableFilterRules(
   controller: WorkbenchController,
   tableId: PlannerTableId,
-  filterOptions: PlannerFilterOptions,
 ): PlannerFilterRule[] {
   const settings = controller.plannerTableSettings(tableId);
 
-  return effectiveTableViewFilterRules({
-    settings,
-    filterFields: plannerFilterFieldsForTable(tableId),
-    filterOptions,
-  });
+  return effectivePlannerFilterRules(
+    settings.filterRules,
+    plannerFilterFieldsForTable(tableId),
+  );
 }
 
 function plannerFilterOptionsForItems(
@@ -1772,11 +1768,10 @@ function applyPlannerTableSettings(
   tableUniverseItems: WorkspaceItemModel[] = rawItems,
 ): DailyPlannerSection["groups"] {
   const settings = controller.plannerTableSettings(tableId);
-  const filterOptions = plannerFilterOptionsForItems(tableUniverseItems, relatedItems);
   const filtered = filterPlannerItemsByRules(
     rawItems,
     relatedItems,
-    effectivePlannerTableFilterRules(controller, tableId, filterOptions),
+    effectivePlannerTableFilterRules(controller, tableId),
     settings.filterMode,
     date,
   );

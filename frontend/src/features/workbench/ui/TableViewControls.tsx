@@ -13,17 +13,18 @@ import type {
   PlannerGroupCandidate,
   PlannerGroupSettings,
 } from "@/features/workbench/model/planner-group-settings";
-import type {
-  PlannerFilterField,
-  PlannerFilterMode,
-  PlannerFilterOperator,
-  PlannerFilterRule,
-  PlannerFilterType,
-  PlannerFilterValue,
-  PlannerGroupBy,
-  PlannerSortBy,
-  PlannerSortRule,
-  PlannerTableSettings,
+import {
+  effectivePlannerFilterRules,
+  type PlannerFilterField,
+  type PlannerFilterMode,
+  type PlannerFilterOperator,
+  type PlannerFilterRule,
+  type PlannerFilterType,
+  type PlannerFilterValue,
+  type PlannerGroupBy,
+  type PlannerSortBy,
+  type PlannerSortRule,
+  type PlannerTableSettings,
 } from "@/features/workbench/model/planner-model";
 import { PlannerGroupPanel } from "@/features/workbench/ui/PlannerGroupPanel";
 
@@ -69,7 +70,7 @@ export type TableViewControlsAdapter = {
   update(
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
   ): void;
-  add(): void;
+  add?: () => void;
 };
 
 type TableViewDropdownKind = "filter" | "sort" | "group";
@@ -92,7 +93,10 @@ export function TableViewControls({
 }): React.ReactElement {
   const [openDropdown, setOpenDropdown] = React.useState<TableViewDropdownKind | null>(null);
   const visibleFilterRules = visibleTableViewFilterRules(adapter);
-  const effectiveFilterRules = effectiveTableViewFilterRules(adapter);
+  const effectiveFilterRules = effectivePlannerFilterRules(
+    adapter.settings.filterRules,
+    adapter.filterFields,
+  );
   const activeFilterCount = effectiveFilterRules.length;
   const groupBy = effectiveTableViewGroupValue(
     adapter.groupOptions,
@@ -222,14 +226,16 @@ export function TableViewControls({
         >
           <Group size={16} aria-hidden="true" />
         </TableViewDropdownButton>
-        <button
-          className="items-toolbar-button"
-          type="button"
-          aria-label={`Add to ${adapter.title}`}
-          onClick={adapter.add}
-        >
-          <Plus size={16} aria-hidden="true" />
-        </button>
+        {adapter.add ? (
+          <button
+            className="items-toolbar-button"
+            type="button"
+            aria-label={`Add to ${adapter.title}`}
+            onClick={adapter.add}
+          >
+            <Plus size={16} aria-hidden="true" />
+          </button>
+        ) : null}
         {openDropdown === "filter" ? (
           <TableViewControlMenuPortal
             triggerRef={filterTriggerRef}
@@ -323,7 +329,10 @@ export function TableViewActivePills({
 }: {
   adapter: TableViewControlsAdapter;
 }): React.ReactElement | null {
-  const filterCount = effectiveTableViewFilterRules(adapter).length;
+  const filterCount = effectivePlannerFilterRules(
+    adapter.settings.filterRules,
+    adapter.filterFields,
+  ).length;
   const groupBy = effectiveTableViewGroupValue(
     adapter.groupOptions,
     adapter.settings.groupSettings.groupBy,
@@ -339,30 +348,6 @@ export function TableViewActivePills({
       ariaLabel={adapter.activeControlsAriaLabel}
     />
   );
-}
-
-export function effectiveTableViewFilterRules(
-  adapter: Pick<
-    TableViewControlsAdapter,
-    "settings" | "filterFields" | "filterOptions"
-  >,
-): PlannerFilterRule[] {
-  const fields = tableViewFilterFieldConfigs(
-    adapter.filterOptions,
-    adapter.filterFields,
-  );
-
-  return adapter.settings.filterRules.flatMap((rule) => {
-    const field = fields.find((option) => option.field === rule.field);
-    if (!field) return [];
-    if (rule.operator === "is_empty" || rule.operator === "is_not_empty") return [rule];
-    if (field.type === "select" || field.type === "multiSelect" || field.type === "relation") {
-      const values = (Array.isArray(rule.value) ? rule.value : [String(rule.value ?? "")])
-        .filter(Boolean);
-      return values.length > 0 ? [rule] : [];
-    }
-    return rule.value == null || rule.value === "" ? [] : [rule];
-  });
 }
 
 function visibleTableViewFilterRules(

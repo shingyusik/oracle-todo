@@ -777,6 +777,22 @@ export function matchesPlannerFilterRules(
   return mode === "and" ? results.every(Boolean) : results.some(Boolean);
 }
 
+export function effectivePlannerFilterRules(
+  rules: readonly PlannerFilterRule[],
+  allowedFields: readonly PlannerFilterField[],
+): PlannerFilterRule[] {
+  return rules.filter((rule) => {
+    if (!allowedFields.includes(rule.field)) return false;
+    if (rule.operator === "is_empty" || rule.operator === "is_not_empty") {
+      return true;
+    }
+    if (Array.isArray(rule.value)) {
+      return rule.value.some(Boolean);
+    }
+    return rule.value != null && rule.value !== "";
+  });
+}
+
 export function filterPlannerItemsByRules(
   items: WorkspaceItemModel[],
   relatedItems: WorkspaceItemsModel["relatedItems"],
@@ -1176,19 +1192,19 @@ export function isoWeekStart(date: string): string {
   const value = new Date(`${date}T00:00:00`);
   const day = value.getDay();
   value.setDate(value.getDate() + (day === 0 ? -6 : 1 - day));
-  return formatLocalDate(value);
+  return localCalendarDate(value);
 }
 
 export function addYears(date: string, years: number): string {
   const value = new Date(`${date}T00:00:00`);
   value.setFullYear(value.getFullYear() + years);
-  return formatLocalDate(value);
+  return localCalendarDate(value);
 }
 
 export function addMonths(date: string, months: number): string {
   const value = new Date(`${date}T00:00:00`);
   value.setMonth(value.getMonth() + months);
-  return formatLocalDate(value);
+  return localCalendarDate(value);
 }
 
 function addDays(date: string, days: number): string {
@@ -1197,7 +1213,9 @@ function addDays(date: string, days: number): string {
   return value.toISOString().slice(0, 10);
 }
 
-function formatLocalDate(date: Date): string {
+export function localCalendarDate(
+  date: Pick<Date, "getFullYear" | "getMonth" | "getDate">,
+): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");

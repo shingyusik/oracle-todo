@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
@@ -207,6 +207,67 @@ describe("workspace table views", () => {
       { key: "area-1", label: "Work", items: [tasks[0], tasks[1], tasks[4]] },
       { key: "area-2", label: "Home", items: [tasks[2], tasks[3]] },
     ]);
+  });
+
+  it("keeps workspace rows while select, relation, text, and date rules have no value", () => {
+    const incompleteRules: PlannerTableSettings["filterRules"] = [
+      { id: "select", field: "status", type: "select", operator: "is", value: [] },
+      { id: "relation", field: "area", type: "relation", operator: "is", value: [] },
+      { id: "text", field: "title", type: "text", operator: "contains", value: "" },
+      { id: "date", field: "scheduled", type: "date", operator: "is", value: "" },
+    ];
+
+    for (const rule of incompleteRules) {
+      const groups = deriveWorkspaceViewGroups(
+        "detail.area.task",
+        tasks,
+        settings({ filterRules: [rule] }),
+        relatedItems,
+      );
+
+      expect(groups.flatMap((group) => group.items).map((item) => item.id)).toEqual(
+        tasks.map((item) => item.id),
+      );
+    }
+  });
+
+  it("uses the injected local calendar date for relative-to-today rules", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-07-29T15:30:00.000Z");
+    const localNow = {
+      getFullYear: () => 2026,
+      getMonth: () => 6,
+      getDate: () => 30,
+      toISOString: () => "2026-07-29T15:30:00.000Z",
+    } as Date;
+
+    try {
+      const groups = deriveWorkspaceViewGroups(
+        "workspace.task",
+        [
+          task("utc-day", { scheduled: "2026-07-29" }),
+          task("local-day", { scheduled: "2026-07-30" }),
+        ],
+        settings({
+          filterRules: [{
+            id: "today",
+            field: "scheduled",
+            type: "date",
+            operator: "is_relative_to_today",
+            value: { amount: "0", unit: "day" },
+          }],
+        }),
+        relatedItems,
+        localNow,
+      );
+
+      expect(localNow.toISOString().slice(0, 10)).toBe("2026-07-29");
+      expect(groups.flatMap((group) => group.items).map((item) => item.id)).toEqual([
+        "local-day",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("caps rendered rows globally and changes overflow after filtering", () => {

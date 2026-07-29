@@ -6,8 +6,10 @@ import {
 } from "@/features/workbench/model/planner-group-settings";
 import {
   clonePlannerTableSettings,
+  effectivePlannerFilterRules,
   filterPlannerItemsByRules,
   groupPlannerItems,
+  localCalendarDate,
   normalizePlannerFilterRule,
   normalizePlannerSortRule,
   sortPlannerItems,
@@ -214,14 +216,18 @@ export function deriveWorkspaceViewGroups(
   items: WorkspaceItemModel[],
   settings: PlannerTableSettings,
   relatedItems: WorkspaceItemsModel["relatedItems"],
+  now: Date = new Date(),
 ): WorkspaceViewGroup[] {
   const normalized = normalizeWorkspaceTableSettings(scope, settings);
   const filtered = filterPlannerItemsByRules(
     items,
     relatedItems,
-    normalized.filterRules,
+    effectivePlannerFilterRules(
+      normalized.filterRules,
+      workspaceFilterFieldsForScope(scope),
+    ),
     normalized.filterMode,
-    new Date().toISOString().slice(0, 10),
+    localCalendarDate(now),
   );
   const sorted = sortPlannerItems(filtered, normalized.sortRules);
   const candidates = buildPlannerGroupCandidates({
