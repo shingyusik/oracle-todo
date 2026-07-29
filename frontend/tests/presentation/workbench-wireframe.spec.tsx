@@ -74,6 +74,33 @@ function plannerViewActions(name: string): HTMLElement {
   return screen.getByRole("group", { name: `${name} view actions` });
 }
 
+async function openWorkspaceTasks(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: "ToDo" }));
+  await user.click(screen.getByRole("button", { name: "Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Tasks" }));
+  await screen.findByRole("table", { name: "Tasks items" });
+}
+
+async function addWorkspaceStatusFilter(
+  user: ReturnType<typeof userEvent.setup>,
+  status: string,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: "Filter Tasks" }));
+  const dialog = screen.getByRole("dialog", { name: "Filter Tasks" });
+  await user.click(within(dialog).getByRole("button", { name: "Add filter rule" }));
+  await user.click(within(dialog).getByRole("option", { name: "Status" }));
+  await user.click(
+    within(dialog).getByRole("button", { name: "Select Status filter values" }),
+  );
+  await user.click(within(dialog).getByRole("checkbox", { name: status }));
+}
+
+function workspaceTaskRows(): HTMLElement[] {
+  return screen.getAllByRole("button", { name: /^Open details for / });
+}
+
 async function savePlannerView(
   user: ReturnType<typeof userEvent.setup>,
   tablistName: string,
@@ -1179,6 +1206,252 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("cell", { name: "active" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "weekly" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Morning review" })).toBeInTheDocument();
+  });
+
+  it("exposes shared view controls and saved tabs on every Workspace table", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    for (const title of ["Areas", "Projects", "Goals", "Routines", "Tasks", "Events"]) {
+      await user.click(screen.getByRole("button", { name: title }));
+      const controls = await screen.findByRole("group", { name: `${title} controls` });
+
+      expect(within(controls).getByRole("button", { name: `Filter ${title}` })).toBeVisible();
+      expect(within(controls).getByRole("button", { name: `Sort ${title}` })).toBeVisible();
+      expect(within(controls).getByRole("button", { name: `Group ${title}` })).toBeVisible();
+      expect(within(controls).getByRole("button", { name: `Add to ${title}` })).toBeVisible();
+      expect(screen.getByRole("tablist", { name: `${title} views` })).toBeVisible();
+      expect(screen.getByText(`No ${title.toLowerCase()} found.`)).toBeVisible();
+    }
+
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    expect(screen.getByRole("button", { name: "Filter Tasks" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Sort Tasks" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Group Tasks" })).toBeVisible();
+    expect(screen.getByRole("tablist", { name: "Tasks views" })).toBeVisible();
+  });
+
+  it("filters Workspace rows and selects only the derived visible rows", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      {
+        id: "task-active",
+        type: "task",
+        title: "Active task",
+        status: "active",
+        updated_at: "2026-07-01T09:00:00Z",
+      },
+      {
+        id: "task-completed",
+        type: "task",
+        title: "Completed task",
+        status: "completed",
+        updated_at: "2026-07-01T08:00:00Z",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await addWorkspaceStatusFilter(user, "active");
+
+    expect(screen.getByRole("button", { name: "Open details for Active task" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Open details for Completed task" })).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible items" }));
+    expect(screen.getByRole("checkbox", { name: "Select Active task" })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Filter Tasks" }));
+    await user.click(screen.getByRole("button", { name: "Delete filter" }));
+    expect(
+      await screen.findByRole("checkbox", { name: "Select Completed task" }),
+    ).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Active task" })).toBeChecked();
+  });
+
+  it("sorts Workspace rows by descending title", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      {
+        id: "task-alpha",
+        type: "task",
+        title: "Alpha task",
+        status: "active",
+        updated_at: "2026-07-01T09:00:00Z",
+      },
+      {
+        id: "task-zulu",
+        type: "task",
+        title: "Zulu task",
+        status: "active",
+        updated_at: "2026-07-01T08:00:00Z",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    expect(
+      screen.getByRole("table", { name: "Tasks items" }).querySelectorAll("tbody"),
+    ).toHaveLength(1);
+    expect(workspaceTaskRows().map((row) => row.getAttribute("aria-label"))).toEqual([
+      "Open details for Alpha task",
+      "Open details for Zulu task",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Sort Tasks" }));
+    const dialog = screen.getByRole("dialog", { name: "Sort Tasks" });
+    await user.selectOptions(within(dialog).getByLabelText("Sort field"), "title");
+    await user.selectOptions(within(dialog).getByLabelText("Sort direction"), "desc");
+
+    expect(workspaceTaskRows().map((row) => row.getAttribute("aria-label"))).toEqual([
+      "Open details for Zulu task",
+      "Open details for Alpha task",
+    ]);
+  });
+
+  it("renders stable Workspace row groups without flattening table bodies", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      { id: "task-active", type: "task", title: "Active task", status: "active" },
+      {
+        id: "task-completed",
+        type: "task",
+        title: "Completed task",
+        status: "completed",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Group Tasks" }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
+    await user.click(screen.getByRole("option", { name: "Status" }));
+
+    const table = screen.getByRole("table", { name: "Tasks items" });
+    const activeGroup = within(table).getByRole("rowgroup", { name: "Active group" });
+    const completedGroup = within(table).getByRole("rowgroup", {
+      name: "Completed group",
+    });
+    expect(within(activeGroup).getByText("Active")).toBeVisible();
+    expect(within(activeGroup).getByRole("button", {
+      name: "Open details for Active task",
+    })).toBeVisible();
+    expect(within(completedGroup).getByText("Completed")).toBeVisible();
+    expect(within(completedGroup).getByRole("button", {
+      name: "Open details for Completed task",
+    })).toBeVisible();
+  });
+
+  it("keeps settings in a second Workspace saved tab independent", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      { id: "task-active", type: "task", title: "Active task", status: "active" },
+      {
+        id: "task-completed",
+        type: "task",
+        title: "Completed task",
+        status: "completed",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    const tabs = screen.getByRole("tablist", { name: "Tasks views" });
+    await user.click(within(tabs).getByRole("button", { name: "Add Tasks view" }));
+    await user.keyboard("{Enter}");
+    await addWorkspaceStatusFilter(user, "active");
+    await user.click(within(tabs).getByRole("button", {
+      name: "Open 새 보기 view menu",
+    }));
+    await user.click(within(plannerViewActions("새 보기")).getByRole("button", {
+      name: "Save current settings",
+    }));
+
+    expect(screen.queryByRole("button", { name: "Open details for Completed task" })).toBeNull();
+    await user.click(within(tabs).getByRole("tab", { name: "Table" }));
+    expect(
+      await screen.findByRole("button", { name: "Open details for Completed task" }),
+    ).toBeVisible();
+    await user.click(within(tabs).getByRole("tab", { name: "새 보기" }));
+    expect(screen.queryByRole("button", { name: "Open details for Completed task" })).toBeNull();
+  });
+
+  it("distinguishes an empty Workspace view from an empty Workspace panel", async () => {
+    const user = userEvent.setup();
+    const task = { id: "task-active", type: "task", title: "Active task", status: "active" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? [task]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await addWorkspaceStatusFilter(user, "missed");
+
+    expect(screen.getByText("No items match this view.")).toBeVisible();
+    expect(screen.queryByText("No tasks found.")).toBeNull();
   });
 
   it("renders weekly planner goals and seven day cards", async () => {
@@ -5239,7 +5512,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Tasks" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Tasks" }));
 
     expect(
       screen.getByRole("dialog", { name: "Create Tasks item" }),
@@ -5270,7 +5543,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    const addButton = screen.getByRole("button", { name: "Add item" });
+    const addButton = screen.getByRole("button", { name: "Add to Goals" });
     await user.click(addButton);
 
     const dialog = screen.getByRole("dialog", { name: "Create Goals item" });
@@ -5345,7 +5618,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Goals" }));
 
     const trigger = screen.getByRole("button", { name: "Period" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -5452,7 +5725,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Goals" }));
     await user.type(screen.getByLabelText("Title"), "Career");
     const trigger = screen.getByRole("button", { name: "Period" });
     await user.click(trigger);
@@ -5489,7 +5762,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Events" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Events" }));
 
     expect(screen.getByLabelText("Scheduled")).toBeRequired();
   });
@@ -5928,7 +6201,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Projects" }));
     await user.type(screen.getByLabelText("Title"), "Project title");
 
     expect(screen.getByLabelText("Definition of Done")).toBeInTheDocument();
@@ -5979,7 +6252,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Routines" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Routines" }));
     await user.type(screen.getByLabelText("Title"), "Daily review");
 
     expect(screen.getByLabelText("Recurrence Rule Preview")).toHaveTextContent(

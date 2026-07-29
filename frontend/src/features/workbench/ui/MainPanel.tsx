@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 
-import type { LeafTabId } from "@/domain/workbench/navigation";
+import type { LeafTabId, WorkspaceChildTabId } from "@/domain/workbench/navigation";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
 import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
@@ -52,6 +52,12 @@ import {
   type WorkspaceItemPatch,
   type WorkspaceItemTransitionAction,
 } from "@/features/workbench/model/workbench-model";
+import {
+  deriveWorkspaceViewGroups,
+  workspaceFilterFieldsForScope,
+  workspaceScopeForPanel,
+  workspaceSortFieldsForScope,
+} from "@/features/workbench/model/workspace-table-views";
 import { PlannerTableTabs } from "@/features/workbench/ui/PlannerTableTabs";
 import {
   effectiveTableViewFilterRules,
@@ -61,6 +67,8 @@ import {
   TableViewControls,
   type TableViewControlsAdapter,
 } from "@/features/workbench/ui/TableViewControls";
+import { TableViewTabs } from "@/features/workbench/ui/TableViewTabs";
+import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
 
 type MainPanelProps = {
   controller: WorkbenchController;
@@ -3720,20 +3728,84 @@ function DetailRelationField({
 }
 
 function WorkspaceItemsTable({ controller }: MainPanelProps) {
+  if (!isWorkspacePanel(controller.panel.id)) {
+    return null;
+  }
+
+  return <WorkspaceItemsTableContent controller={controller} />;
+}
+
+function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
   const { panel, workspaceItems } = controller;
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const archiveButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
+  const scope = workspaceScopeForPanel(panel.id as WorkspaceChildTabId);
+  const settings = controller.workspaceTableSettings(scope);
+  const groups = React.useMemo(
+    () => deriveWorkspaceViewGroups(
+      scope,
+      workspaceItems.items,
+      settings,
+      workspaceItems.relatedItems,
+    ),
+    [scope, settings, workspaceItems.items, workspaceItems.relatedItems],
+  );
+  const visibleItems = React.useMemo(
+    () => uniqueWorkspaceItems(groups.flatMap((group) => group.items)),
+    [groups],
+  );
+  const columns = columnsForPanel(panel.id);
+  const filterOptions: PlannerFilterOptions = {
+    ...plannerFilterOptionsForItems(
+      workspaceItems.items,
+      workspaceItems.relatedItems,
+    ),
+    storedRelationLabels: {
+      area: workspaceItems.relatedItems.areas,
+      project: workspaceItems.relatedItems.projects,
+      routine: workspaceItems.relatedItems.routines,
+      parent: workspaceItems.relatedItems.goals,
+    },
+  };
+  const groupOptions = workspaceGroupOptionsForPanel(panel.id as WorkspaceChildTabId);
+  const controlsAdapter: TableViewControlsAdapter = {
+    scopeId: scope,
+    title: panel.title,
+    settings,
+    filterFields: workspaceFilterFieldsForScope(scope),
+    sortFields: workspaceSortFieldsForScope(scope),
+    groupOptions,
+    candidates: buildPlannerGroupCandidates({
+      view: "daily",
+      groupBy: settings.groupSettings.groupBy,
+      items: workspaceItems.items,
+      relatedItems: workspaceItems.relatedItems,
+    }),
+    filterOptions,
+    activeControlsAriaLabel: "Active Workspace controls",
+    dropdownIdPrefix: "workspace",
+    isDefaultSort: (rules) =>
+      rules.length === 1 &&
+      rules[0]?.field === "updated" &&
+      rules[0]?.direction === "desc",
+    update: (updater) => controller.updateWorkspaceTableSettings(scope, updater),
+    add: controller.openCreationDialog,
+  };
 
-  const visibleSelectionCount = workspaceItems.items.reduce(
+  const visibleSelectionCount = visibleItems.reduce(
     (count, item) => count + Number(controller.selectedItemIds.includes(item.id)),
     0,
   );
   const allVisibleSelected =
-    workspaceItems.items.length > 0 &&
-    visibleSelectionCount === workspaceItems.items.length;
+    visibleItems.length > 0 &&
+    visibleSelectionCount === visibleItems.length;
   const partiallySelected =
-    visibleSelectionCount > 0 && visibleSelectionCount < workspaceItems.items.length;
+    visibleSelectionCount > 0 && visibleSelectionCount < visibleItems.length;
+
+  useEffect(() => {
+    controller.setVisibleWorkspaceItemIds(visibleItems.map(({ id }) => id));
+  }, [controller.setVisibleWorkspaceItemIds, visibleItems]);
 
   useEffect(() => {
     if (selectAllCheckboxRef.current) {
@@ -3797,80 +3869,91 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
 
   return (
     <section className="items-section">
-      <div className="items-toolbar">
-        <button
-          className="items-toolbar-button"
-          type="button"
-          aria-label="Add item"
-          onClick={controller.openCreationDialog}
-        >
-          <Plus size={16} aria-hidden="true" />
-        </button>
-        <button
-          className="items-toolbar-button"
-          type="button"
-          aria-label="Archive selected items"
-          disabled={controller.selectedItemIds.length === 0}
-          onClick={controller.requestArchiveSelected}
-        >
-          <Trash2 size={16} aria-hidden="true" />
-        </button>
-      </div>
-      {workspaceItems.items.length === 0 ? (
-        <p className="items-message">No {panel.title.toLowerCase()} found.</p>
-      ) : (
-        <table className="items-table" aria-label={`${panel.title} items`}>
-          <thead>
-            <tr>
-              <th scope="col" className="selection-column">
-                <input
-                  ref={selectAllCheckboxRef}
-                  type="checkbox"
-                  aria-label="Select all visible items"
-                  checked={allVisibleSelected}
-                  onChange={controller.toggleVisibleSelection}
-                />
+      <header className="workspace-table-header">
+        <div className="workspace-table-header-row">
+          <TableViewControls adapter={controlsAdapter} />
+          <button
+            className="items-toolbar-button"
+            type="button"
+            aria-label="Archive selected items"
+            disabled={controller.selectedItemIds.length === 0}
+            onClick={controller.requestArchiveSelected}
+          >
+            <Trash2 size={16} aria-hidden="true" />
+          </button>
+        </div>
+        <TableViewTabs
+          scopeId={scope}
+          title={panel.title}
+          controller={{
+            tabs: controller.workspaceTableTabs(scope),
+            isDirty: controller.workspaceTableIsDirty(scope),
+            select: (tabId) => controller.selectWorkspaceTableTab(scope, tabId),
+            save: () => controller.saveWorkspaceTableTab(scope),
+            create: (name) => controller.createWorkspaceTableTab(scope, name),
+            rename: (tabId, name) =>
+              controller.renameWorkspaceTableTab(scope, tabId, name),
+            requestDelete: (tabId) =>
+              controller.requestDeleteWorkspaceTableTab(scope, tabId),
+          }}
+        />
+        <TableViewActivePills adapter={controlsAdapter} />
+      </header>
+      <table className="items-table" aria-label={`${panel.title} items`}>
+        <thead>
+          <tr>
+            <th scope="col" className="selection-column">
+              <input
+                ref={selectAllCheckboxRef}
+                type="checkbox"
+                aria-label="Select all visible items"
+                checked={allVisibleSelected}
+                onChange={controller.toggleVisibleSelection}
+              />
+            </th>
+            {columns.map((column) => (
+              <th scope="col" key={column.label}>
+                {column.label}
               </th>
-              {columnsForPanel(panel.id).map((column) => (
-                <th scope="col" key={column.label}>
-                  {column.label}
-                </th>
+            ))}
+          </tr>
+        </thead>
+        <WorkspaceGroupedRows
+          groups={groups}
+          emptyMessage={workspaceItems.items.length > 0
+            ? "No items match this view."
+            : `No ${panel.title.toLowerCase()} found.`}
+          renderRow={(item) => (
+            <tr
+              key={item.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open details for ${item.title}`}
+              onClick={() => controller.openDetailView(item)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+                  event.preventDefault();
+                  controller.openDetailView(item);
+                }
+              }}
+            >
+              <td className="selection-column">
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${item.title}`}
+                  checked={controller.selectedItemIds.includes(item.id)}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => controller.toggleItemSelection(item.id)}
+                />
+              </td>
+              {columns.map((column) => (
+                <td key={column.label}>{column.value(item, workspaceItems, controller)}</td>
               ))}
             </tr>
-          </thead>
-          <tbody>
-            {workspaceItems.items.map((item) => (
-              <tr
-                key={item.id}
-                role="button"
-                tabIndex={0}
-                aria-label={`Open details for ${item.title}`}
-                onClick={() => controller.openDetailView(item)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-                    event.preventDefault();
-                    controller.openDetailView(item);
-                  }
-                }}
-              >
-                <td className="selection-column">
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${item.title}`}
-                    checked={controller.selectedItemIds.includes(item.id)}
-                    onKeyDown={(event) => event.stopPropagation()}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={() => controller.toggleItemSelection(item.id)}
-                  />
-                </td>
-                {columnsForPanel(panel.id).map((column) => (
-                  <td key={column.label}>{column.value(item, workspaceItems, controller)}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+          )}
+        />
+      </table>
       {controller.archiveConfirmationOpen ? (
         <div className="confirmation-backdrop">
           <section
@@ -3911,6 +3994,61 @@ function WorkspaceItemsTable({ controller }: MainPanelProps) {
       ) : null}
     </section>
   );
+}
+
+function isWorkspacePanel(panelId: LeafTabId): panelId is WorkspaceChildTabId {
+  return (
+    panelId === "areas" ||
+    panelId === "projects" ||
+    panelId === "goals" ||
+    panelId === "routines" ||
+    panelId === "tasks" ||
+    panelId === "events"
+  );
+}
+
+function uniqueWorkspaceItems(items: WorkspaceItemModel[]): WorkspaceItemModel[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function workspaceGroupOptionsForPanel(
+  panelId: WorkspaceChildTabId,
+): { value: PlannerGroupBy; label: string }[] {
+  const common = {
+    none: { value: "none" as const, label: "None" },
+    area: { value: "area" as const, label: "Area" },
+    project: { value: "project" as const, label: "Project" },
+    routine: { value: "routine" as const, label: "Routine" },
+    tag: { value: "tag" as const, label: "Tag" },
+    status: { value: "status" as const, label: "Status" },
+  };
+  const options: Record<WorkspaceChildTabId, { value: PlannerGroupBy; label: string }[]> = {
+    areas: [common.none, common.tag, common.status],
+    projects: [common.none, common.area, common.tag, common.status],
+    goals: [common.none, common.tag, common.status],
+    routines: [
+      common.none,
+      common.area,
+      common.project,
+      common.tag,
+      common.status,
+    ],
+    tasks: [
+      common.none,
+      common.area,
+      common.project,
+      common.routine,
+      common.tag,
+      common.status,
+    ],
+    events: [common.none, common.area, common.project, common.tag, common.status],
+  };
+  return options[panelId];
 }
 
 function CreationDialog({ controller }: { controller: WorkbenchController }) {

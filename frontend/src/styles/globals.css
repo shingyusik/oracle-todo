@@ -212,6 +212,20 @@ button {
   margin-bottom: 12px;
 }
 
+.workspace-table-header {
+  position: relative;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+
+.workspace-table-header-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .items-toolbar-button {
   display: inline-flex;
   align-items: center;
@@ -1636,6 +1650,30 @@ button {
 
 .items-table tbody tr {
   cursor: pointer;
+}
+
+.items-table .workspace-group-heading,
+.items-table .workspace-table-empty-row {
+  cursor: default;
+}
+
+.items-table .workspace-group-heading th {
+  border-bottom: 1px solid var(--color-hairline-light);
+  background: var(--color-canvas-cream);
+  padding: 9px 14px;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  text-transform: none;
+}
+
+.items-table td.workspace-table-empty-cell {
+  width: auto;
+  max-width: none;
+  overflow: visible;
+  text-align: left;
+  white-space: normal;
 }
 
 .items-table tbody tr[role="button"]:focus-visible {
