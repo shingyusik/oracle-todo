@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DashboardChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
+import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 type TestItem = {
@@ -176,6 +178,20 @@ function statusCardItems(): TestItem[] {
 
 function setupUser() {
   return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+}
+
+function dashboardPanelController(items: TestItem[]): WorkbenchController {
+  return {
+    workspaceItems: {
+      status: "loaded",
+      items,
+      allItems: items,
+      tagOptions: [],
+      relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
+    },
+    navigateDashboard: vi.fn(),
+    reloadDashboard: vi.fn(),
+  } as unknown as WorkbenchController;
 }
 
 describe("DashboardPanel", () => {
@@ -542,6 +558,55 @@ describe("DashboardPanel", () => {
     expect(within(project).getByRole("button", {
       name: "Project status 전체 보기",
     })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("resets only an expanded Area preview after its rows shrink to zero and grow again", async () => {
+    const user = setupUser();
+    const items = statusCardItems();
+    const { rerender } = render(
+      <DashboardPanel controller={dashboardPanelController(items)} />,
+    );
+    const area = screen.getByRole("region", { name: "Area status" });
+    const project = screen.getByRole("region", { name: "Project status" });
+
+    await user.click(within(area).getByRole("button", {
+      name: "Area status 전체 보기",
+    }));
+    await user.click(within(project).getByRole("button", {
+      name: "Project status 전체 보기",
+    }));
+
+    rerender(
+      <DashboardPanel
+        controller={dashboardPanelController(
+          items.filter((item) => item.type !== "area"),
+        )}
+      />,
+    );
+
+    expect(
+      within(screen.getByRole("region", { name: "Area status" })).queryByRole(
+        "table",
+      ),
+    ).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Project status" }))
+      .getByRole("button", { name: "Project status 접기" }))
+      .toHaveAttribute("aria-expanded", "true");
+
+    rerender(
+      <DashboardPanel controller={dashboardPanelController(items)} />,
+    );
+
+    expect(
+      within(screen.getByRole("region", { name: "Area status" }))
+        .getAllByRole("row"),
+    ).toHaveLength(6);
+    expect(within(screen.getByRole("region", { name: "Area status" }))
+      .getByRole("button", { name: "Area status 전체 보기" }))
+      .toHaveAttribute("aria-expanded", "false");
+    expect(within(screen.getByRole("region", { name: "Project status" }))
+      .getByRole("button", { name: "Project status 접기" }))
+      .toHaveAttribute("aria-expanded", "true");
   });
 
   it("retries a failed all-items request", async () => {

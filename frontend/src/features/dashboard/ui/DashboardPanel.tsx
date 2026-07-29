@@ -76,6 +76,49 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
     setRangeError(null);
   };
 
+  const snapshot = workspaceItems.status === "loaded"
+    ? buildDashboardSnapshot(
+      workspaceItems.allItems,
+      today,
+      appliedRange,
+    )
+    : null;
+  const models = snapshot === null
+    ? []
+    : dashboardWidgets.map((widget) => widget.build(snapshot));
+  const primaryModels = models.filter(
+    (model) => !isDashboardStatusWidget(model),
+  );
+  const statusModels = models.filter(isDashboardStatusWidget);
+  const areaStatusRowCount = dashboardStatusRowCount(
+    statusModels,
+    "area-status",
+  );
+  const projectStatusRowCount = dashboardStatusRowCount(
+    statusModels,
+    "project-status",
+  );
+
+  React.useEffect(() => {
+    if (workspaceItems.status !== "loaded") return;
+
+    setExpandedStatus((current) => {
+      const collapseArea = areaStatusRowCount !== null
+        && areaStatusRowCount <= DASHBOARD_STATUS_PREVIEW_LIMIT
+        && current["area-status"];
+      const collapseProject = projectStatusRowCount !== null
+        && projectStatusRowCount <= DASHBOARD_STATUS_PREVIEW_LIMIT
+        && current["project-status"];
+      if (!collapseArea && !collapseProject) return current;
+
+      return {
+        ...current,
+        "area-status": collapseArea ? false : current["area-status"],
+        "project-status": collapseProject ? false : current["project-status"],
+      };
+    });
+  }, [areaStatusRowCount, projectStatusRowCount, workspaceItems.status]);
+
   if (workspaceItems.status === "idle" || workspaceItems.status === "loading") {
     return <DashboardLoading />;
   }
@@ -93,17 +136,6 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
       </section>
     );
   }
-
-  const snapshot = buildDashboardSnapshot(
-    workspaceItems.allItems,
-    today,
-    appliedRange,
-  );
-  const models = dashboardWidgets.map((widget) => widget.build(snapshot));
-  const primaryModels = models.filter(
-    (model) => !isDashboardStatusWidget(model),
-  );
-  const statusModels = models.filter(isDashboardStatusWidget);
 
   return (
     <section className="dashboard-panel" aria-label="Dashboard analytics">
@@ -164,6 +196,14 @@ function isDashboardStatusWidget(
   model: DashboardWidgetModel,
 ): model is DashboardStatusWidgetModel {
   return model.id === "area-status" || model.id === "project-status";
+}
+
+function dashboardStatusRowCount(
+  models: DashboardStatusWidgetModel[],
+  id: DashboardStatusWidgetId,
+): number | null {
+  const chart = models.find((model) => model.id === id)?.chart;
+  return chart?.kind === "heatmap" ? chart.rows.length : null;
 }
 
 function DashboardLoading() {
