@@ -20,6 +20,8 @@ import type {
   PlannerTableTabsState,
   PlannerTabsState,
 } from "@/features/workbench/model/planner-tabs";
+import type { TableViewTabsState } from "@/features/workbench/model/table-view-tabs";
+import type { WorkspaceTableScopeId } from "@/features/workbench/model/workspace-table-views";
 
 export type WorkbenchPanelModel = {
   id: LeafTabId;
@@ -97,6 +99,22 @@ export type PlannerTabConfirmation =
   | { kind: "select"; tableId: PlannerTableId; targetTabId: string }
   | { kind: "delete"; tableId: PlannerTableId; targetTabId: string }
   | { kind: "navigate"; targetSelection: WorkbenchSelection };
+
+export type TableViewTarget =
+  | { surface: "planner"; scope: PlannerTableId }
+  | { surface: "workspace"; scope: WorkspaceTableScopeId };
+
+export type TableViewTabConfirmation =
+  | {
+      kind: "select" | "delete";
+      target: TableViewTarget;
+      targetTabId: string;
+    }
+  | {
+      kind: "navigate";
+      dirtyTargets: TableViewTarget[];
+      targetSelection: WorkbenchSelection;
+    };
 
 export type CreateWorkspaceItemForm = {
   title: string;
@@ -279,6 +297,8 @@ export type WorkbenchController = {
   selectedItemIds: string[];
   archiveConfirmationOpen: boolean;
   creationDialogOpen: boolean;
+  tableViewTabConfirmation: TableViewTabConfirmation | null;
+  /** Compatibility surface until the Planner dialog adopts shared confirmations. */
   plannerTabConfirmation: PlannerTabConfirmation | null;
   plannerCreationContext: PlannerCreationContext | null;
   plannerCreationAnalysis: PlannerCreationAnalysis;
@@ -291,6 +311,7 @@ export type WorkbenchController = {
   selectPlannerPeriodDate: (date: string) => void;
   resetPlannerPeriodToToday: () => void;
   toggleItemSelection: (itemId: string) => void;
+  setVisibleWorkspaceItemIds: (itemIds: string[]) => void;
   toggleVisibleSelection: () => void;
   requestArchiveSelected: () => void;
   cancelArchiveSelected: () => void;
@@ -320,6 +341,38 @@ export type WorkbenchController = {
     tableId: PlannerTableId,
     tabId: string,
   ) => void;
+  workspaceTableTabs: (
+    scope: WorkspaceTableScopeId,
+  ) => TableViewTabsState<PlannerTableSettings>;
+  workspaceTableSettings: (
+    scope: WorkspaceTableScopeId,
+  ) => PlannerTableSettings;
+  workspaceTableIsDirty: (scope: WorkspaceTableScopeId) => boolean;
+  updateWorkspaceTableSettings: (
+    scope: WorkspaceTableScopeId,
+    updater: (settings: PlannerTableSettings) => PlannerTableSettings,
+  ) => void;
+  selectWorkspaceTableTab: (
+    scope: WorkspaceTableScopeId,
+    tabId: string,
+  ) => void;
+  saveWorkspaceTableTab: (scope: WorkspaceTableScopeId) => void;
+  createWorkspaceTableTab: (
+    scope: WorkspaceTableScopeId,
+    name: string,
+  ) => boolean;
+  renameWorkspaceTableTab: (
+    scope: WorkspaceTableScopeId,
+    tabId: string,
+    name: string,
+  ) => boolean;
+  requestDeleteWorkspaceTableTab: (
+    scope: WorkspaceTableScopeId,
+    tabId: string,
+  ) => void;
+  confirmTableViewTabAction: () => void;
+  cancelTableViewTabAction: () => void;
+  /** Compatibility aliases until the Planner dialog adopts shared commands. */
   confirmPlannerTabAction: () => void;
   cancelPlannerTabAction: () => void;
   transitionWorkspaceItem: (
