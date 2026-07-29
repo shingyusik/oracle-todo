@@ -13,7 +13,7 @@
 - Count only `task` and `event` items in every outcome, heatmap, and progress metric.
 - Count a Routine-generated Task once as an ordinary Task; never count the Routine definition.
 - Use the browser-local calendar for today and `completed_at` grouping.
-- Default completion history to the inclusive latest 14 days and support 7-day, 14-day, 30-day, and custom inclusive ranges.
+- Default completion history to the inclusive latest 14 days and support 7-day, 14-day, 30-day, and custom inclusive ranges of at most 366 calendar days.
 - Keep Dashboard range selection component-local and do not add persistence, a backend analytics API, or a database change.
 - Preserve existing Project attention rules and existing Dashboard navigation destinations.
 - Do not add a chart library.
@@ -158,6 +158,17 @@ it("rejects reversed and invalid custom ranges", () => {
   expect(isValidDashboardDateRange({ start: "2026-07-29", end: "2026-07-28" })).toBe(false);
   expect(isValidDashboardDateRange({ start: "not-a-date", end: "2026-07-28" })).toBe(false);
 });
+
+it("accepts 366 inclusive days and rejects 367", () => {
+  expect(isValidDashboardDateRange({
+    start: "2025-07-29",
+    end: "2026-07-29",
+  })).toBe(true);
+  expect(isValidDashboardDateRange({
+    start: "2025-07-28",
+    end: "2026-07-29",
+  })).toBe(false);
+});
 ```
 
 - [ ] **Step 3: Run the focused model tests and verify failure**
@@ -213,9 +224,21 @@ export function completionRangeEndingOn(
 }
 
 export function isValidDashboardDateRange(range: DashboardDateRange): boolean {
-  return dateFromDateOnly(range.start) !== null
-    && dateFromDateOnly(range.end) !== null
-    && range.start <= range.end;
+  return dashboardDateRangeError(range) === null;
+}
+
+export function dashboardDateRangeError(
+  range: DashboardDateRange,
+): "invalid" | "too-long" | null {
+  if (
+    dateFromDateOnly(range.start) === null
+    || dateFromDateOnly(range.end) === null
+    || range.start > range.end
+  ) {
+    return "invalid";
+  }
+  const elapsedDays = daysBetween(range.start, range.end);
+  return elapsedDays !== null && elapsedDays >= 366 ? "too-long" : null;
 }
 ```
 
@@ -748,8 +771,9 @@ type CompletionRangeControlsProps = {
 - [ ] **Step 1: Write failing preset and custom-range presentation tests**
 
 Use fake time and a loaded controller. Assert the 14-day button starts pressed,
-7/30 rebuild the line labels, custom controls reject a reversed range, and a
-valid range applies:
+7/30 rebuild the line labels, custom controls reject a reversed range, an exact
+366-day inclusive range applies, and a 367-day range reports `Completion range
+must be 366 days or fewer.` without replacing the last applied chart:
 
 ```tsx
 expect(screen.getByRole("button", { name: "14 days" })).toHaveAttribute("aria-pressed", "true");
@@ -775,7 +799,8 @@ Apply.
 Cover:
 
 - four skeleton cards;
-- global empty response;
+- all four widget-specific empty states, range controls, and the default
+  continuous 14-day zero line for a globally empty response;
 - populated donut total and all three segment values;
 - donut segment navigation to today's Daily Planner;
 - line zero-range explanatory text;
@@ -829,8 +854,13 @@ const applyPreset = (preset: 7 | 14 | 30) => {
 };
 
 const applyCustom = () => {
-  if (!isValidDashboardDateRange(draftRange)) {
-    setRangeError("Start date must be on or before end date.");
+  const validationError = dashboardDateRangeError(draftRange);
+  if (validationError !== null) {
+    setRangeError(
+      validationError === "too-long"
+        ? "Completion range must be 366 days or fewer."
+        : "Start date must be on or before end date.",
+    );
     return;
   }
   setSelectedPreset("custom");

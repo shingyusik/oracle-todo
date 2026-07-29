@@ -82,9 +82,10 @@ controls offer:
 - a custom inclusive start and end date.
 
 Preset and custom ranges are component-local state and are not persisted. A
-custom start date after the end date is rejected inline, leaving the last
-valid range and chart unchanged. Days without completions remain present as
-zero values so the line represents a continuous calendar range.
+custom range is inclusive and may contain at most 366 calendar days. A start
+date after the end date or a longer valid range is rejected inline, leaving
+the last valid range and chart unchanged. Days without completions remain
+present as zero values so the line represents a continuous calendar range.
 
 Each point exposes its date and completion count through visible hover/focus
 feedback and an accessible name. Completion points are informational because
@@ -188,7 +189,8 @@ Domain-model tests cover:
 - completed, incomplete, Miss, and excluded terminal classifications;
 - browser-local `completed_at` day grouping;
 - 7-, 14-, 30-day and custom inclusive ranges;
-- continuous zero days and invalid custom ranges;
+- continuous zero days, invalid custom ranges, and the inclusive 366-day
+  maximum;
 - direct Area and Project relationship selection;
 - per-row heatmap intensity;
 - Miss inclusion in Project progress; and

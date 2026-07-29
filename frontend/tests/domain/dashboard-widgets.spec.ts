@@ -4,205 +4,266 @@ import type { DashboardSnapshot } from "@/features/dashboard/model/dashboard-mod
 import { dashboardWidgets } from "@/features/dashboard/model/dashboard-widgets";
 
 const sampleDashboardSnapshot: DashboardSnapshot = {
-  summary: {
-    activeAreas: 1,
-    activeProjects: 1,
-    activeTasks: 2,
-    activeEvents: 1,
-    activeRoutines: 1,
-    attentionProjects: 0,
-  },
-  areas: [],
+  areas: [{
+    id: "area-health",
+    title: "Health",
+    values: { completed: 2, incomplete: 1, paused: 1, missed: 0 },
+    percentages: { completed: 50, incomplete: 25, paused: 25, missed: 0 },
+    total: 4,
+  }],
   projects: [{
     id: "project-release",
     title: "Release",
-    completed: 9,
-    remaining: 2,
+    values: { completed: 9, incomplete: 1, paused: 0, missed: 1 },
+    percentages: { completed: 82, incomplete: 9, paused: 0, missed: 9 },
+    total: 11,
     progress: 9 / 11,
-    attention: "normal",
+    attention: "risk",
   }],
-  planner: {
-    todayDate: "2026-07-23",
-    today: 1,
-    thisWeek: 1,
-    overdue: 0,
-    days: [{ date: "2026-07-21", scheduled: 1, due: 0 }],
+  todayOutcomes: {
+    date: "2026-07-23",
+    completed: 1,
+    incomplete: 2,
+    missed: 1,
+    total: 4,
+  },
+  completionHistory: {
+    range: { start: "2026-07-22", end: "2026-07-23" },
+    days: [
+      { date: "2026-07-22", completed: 0 },
+      { date: "2026-07-23", completed: 2 },
+    ],
   },
 };
 
+function widget(id: string) {
+  return dashboardWidgets.find((candidate) => candidate.id === id)?.build(
+    sampleDashboardSnapshot,
+  );
+}
+
 describe("dashboard widget registry", () => {
-  it("registers the summary, Area, Project, and Planner widgets with unique IDs", () => {
-    expect(dashboardWidgets.map((widget) => widget.id)).toEqual([
-      "summary", "area-status", "project-progress", "planner-week",
+  it("registers the four daily-outcome widgets in reading order", () => {
+    expect(dashboardWidgets.map((candidate) => candidate.id)).toEqual([
+      "today-outcomes",
+      "completion-history",
+      "area-status",
+      "project-status",
     ]);
-    expect(new Set(dashboardWidgets.map((widget) => widget.id)).size).toBe(dashboardWidgets.length);
+    expect(dashboardWidgets.map((candidate) => candidate.id)).not.toEqual(
+      expect.arrayContaining(["summary", "planner-week"]),
+    );
+    expect(new Set(dashboardWidgets.map((candidate) => candidate.id)).size)
+      .toBe(dashboardWidgets.length);
   });
 
-  it("combines active work into one summary card with direct Workspace links", () => {
-    const widget = dashboardWidgets.find(({ id }) => id === "summary");
-    const model = widget?.build({
-      ...sampleDashboardSnapshot,
-      summary: {
-        ...sampleDashboardSnapshot.summary,
-        activeTasks: 3,
-        activeEvents: 2,
-        activeRoutines: 1,
-      },
-    });
-
-    expect(model?.stats).toHaveLength(4);
-    expect(model?.stats).toEqual([
-      {
-        kind: "linked",
-        label: "Active Areas",
-        value: 1,
-        destination: { kind: "areas" },
-      },
-      {
-        kind: "linked",
-        label: "Active Projects",
-        value: 1,
-        destination: { kind: "projects" },
-      },
-      {
-        kind: "composite",
-        label: "Active Work",
-        value: 6,
-        items: [
-          { kind: "linked", label: "Tasks", value: 3, destination: { kind: "tasks" } },
-          { kind: "linked", label: "Events", value: 2, destination: { kind: "events" } },
-          { kind: "linked", label: "Routines", value: 1, destination: { kind: "routines" } },
+  it("builds today's donut with totals, percentages, and Daily destinations", () => {
+    expect(widget("today-outcomes")).toMatchObject({
+      id: "today-outcomes",
+      title: "Today's work",
+      emptyMessage: "No Tasks or Events are scheduled or due today.",
+      chart: {
+        kind: "donut",
+        ariaLabel: "Today's work",
+        total: 4,
+        segments: [
+          {
+            id: "completed",
+            label: "Completed",
+            value: 1,
+            percentage: 25,
+            tone: "success",
+            ariaLabel: "Completed: 1 (25%)",
+            destination: { kind: "daily", date: "2026-07-23" },
+          },
+          {
+            id: "incomplete",
+            label: "Incomplete",
+            value: 2,
+            percentage: 50,
+            tone: "primary",
+            ariaLabel: "Incomplete: 2 (50%)",
+            destination: { kind: "daily", date: "2026-07-23" },
+          },
+          {
+            id: "missed",
+            label: "Miss",
+            value: 1,
+            percentage: 25,
+            tone: "warning",
+            ariaLabel: "Miss: 1 (25%)",
+            destination: { kind: "daily", date: "2026-07-23" },
+          },
         ],
       },
-      {
-        kind: "linked",
-        label: "Attention Projects",
-        value: 0,
-        destination: { kind: "projects" },
+    });
+  });
+
+  it("preserves raw equal-third donut ratios while rounding visible labels", () => {
+    const todayWidget = dashboardWidgets.find(
+      (candidate) => candidate.id === "today-outcomes",
+    );
+    const chart = todayWidget?.build({
+      ...sampleDashboardSnapshot,
+      todayOutcomes: {
+        date: "2026-07-23",
+        completed: 1,
+        incomplete: 1,
+        missed: 1,
+        total: 3,
       },
+    }).chart;
+
+    expect(chart?.kind).toBe("donut");
+    if (chart?.kind !== "donut") return;
+
+    expect(chart.segments[0]?.percentage).toBeCloseTo(33.3333333333, 10);
+    expect(chart.segments[1]?.percentage).toBeCloseTo(33.3333333333, 10);
+    expect(chart.segments[2]?.percentage).toBeCloseTo(33.3333333333, 10);
+    expect(chart.segments.map((segment) => segment.ariaLabel)).toEqual([
+      "Completed: 1 (33%)",
+      "Incomplete: 1 (33%)",
+      "Miss: 1 (33%)",
     ]);
   });
 
-  it("emits an accessible chart specification and typed destination for every data point", () => {
-    const widget = dashboardWidgets.find(({ id }) => id === "planner-week");
-    const model = widget?.build(sampleDashboardSnapshot);
+  it("maps every completion date to one informational line point", () => {
+    expect(widget("completion-history")).toMatchObject({
+      id: "completion-history",
+      title: "Completion history",
+      emptyMessage: "No Tasks or Events were completed in this range.",
+      chart: {
+        kind: "line",
+        ariaLabel: "Completion history",
+        points: [
+          {
+            id: "2026-07-22",
+            label: "2026-07-22",
+            value: 0,
+            ariaLabel: "2026-07-22: 0 completed",
+          },
+          {
+            id: "2026-07-23",
+            label: "2026-07-23",
+            value: 2,
+            ariaLabel: "2026-07-23: 2 completed",
+          },
+        ],
+      },
+    });
+    expect(widget("completion-history")?.chart).not.toHaveProperty(
+      "points.0.destination",
+    );
+  });
 
-    expect(model?.chart?.series).toHaveLength(2);
-    expect(model?.chart?.series[0]?.points[0]).toEqual({
-      id: "2026-07-21-scheduled",
-      label: "2026-07-21",
-      value: 1,
-      displayValue: "1",
-      ariaLabel: "2026-07-21: 1 scheduled",
-      sizePercent: 100,
-      destination: {
-        kind: "daily",
-        date: "2026-07-21",
+  it("builds exact Area heatmap values and row-relative intensities", () => {
+    expect(widget("area-status")).toMatchObject({
+      id: "area-status",
+      title: "Area status",
+      emptyMessage: "Create an active or paused Area to view status distribution.",
+      chart: {
+        kind: "heatmap",
+        ariaLabel: "Area status",
+        columns: [
+          { id: "completed", label: "Completed", tone: "success" },
+          { id: "incomplete", label: "Incomplete", tone: "primary" },
+          { id: "paused", label: "Paused", tone: "secondary" },
+          { id: "missed", label: "Miss", tone: "warning" },
+        ],
+        rows: [{
+          id: "area-health",
+          label: "Health",
+          destination: { kind: "area-detail", itemId: "area-health" },
+          cells: [
+            {
+              id: "area-health-completed",
+              columnId: "completed",
+              value: 2,
+              intensityPercent: 50,
+              ariaLabel: "Health: 2 completed",
+            },
+            {
+              id: "area-health-incomplete",
+              columnId: "incomplete",
+              value: 1,
+              intensityPercent: 25,
+              ariaLabel: "Health: 1 incomplete",
+            },
+            {
+              id: "area-health-paused",
+              columnId: "paused",
+              value: 1,
+              intensityPercent: 25,
+              ariaLabel: "Health: 1 paused",
+            },
+            {
+              id: "area-health-missed",
+              columnId: "missed",
+              value: 0,
+              intensityPercent: 0,
+              ariaLabel: "Health: 0 miss",
+            },
+          ],
+        }],
       },
     });
   });
 
-  it("builds Project completion presentation from snapshot progress", () => {
-    const widget = dashboardWidgets.find(({ id }) => id === "project-progress");
-    const model = widget?.build(sampleDashboardSnapshot);
-
-    expect(model?.chart?.series[0]?.points[0]).toEqual({
-      id: "project-release-completed",
-      label: "Release",
-      value: 9,
-      displayValue: "9",
-      ariaLabel: "Release: 82% complete (9 completed)",
-      sizePercent: 82,
-      destination: {
-        kind: "project-detail",
-        itemId: "project-release",
-      },
-    });
-    expect(model?.chart?.series[1]?.points[0]).toEqual(expect.objectContaining({
-      displayValue: "2",
-      ariaLabel: "Release: 2 remaining",
-      sizePercent: 18,
-    }));
-  });
-
-  it("exposes distinct Project risk and attention states without relying on color", () => {
-    const widget = dashboardWidgets.find(({ id }) => id === "project-progress");
-    const model = widget?.build({
+  it("exposes Project progress and Risk or Attention without relying on color", () => {
+    const projectWidget = dashboardWidgets.find(
+      (candidate) => candidate.id === "project-status",
+    );
+    const model = projectWidget?.build({
       ...sampleDashboardSnapshot,
       projects: [
+        sampleDashboardSnapshot.projects[0],
         {
-          id: "project-risk",
-          title: "Risky release",
-          completed: 1,
-          remaining: 1,
-          progress: 0.5,
-          attention: "risk",
-        },
-        {
-          id: "project-attention",
-          title: "Watch release",
-          completed: 1,
-          remaining: 1,
+          id: "project-watch",
+          title: "Watch",
+          values: { completed: 1, incomplete: 1, paused: 0, missed: 0 },
+          percentages: { completed: 50, incomplete: 50, paused: 0, missed: 0 },
+          total: 2,
           progress: 0.5,
           attention: "attention",
+        },
+        {
+          id: "project-empty",
+          title: "Unplanned",
+          values: { completed: 0, incomplete: 0, paused: 0, missed: 0 },
+          percentages: { completed: 0, incomplete: 0, paused: 0, missed: 0 },
+          total: 0,
+          progress: null,
+          attention: "normal",
         },
       ],
     });
 
-    expect(model?.chart?.series[0]?.points[0]).toEqual(expect.objectContaining({
-      label: "Risky release · Risk",
-      ariaLabel: expect.stringContaining("Risk"),
-      tone: "warning",
-    }));
-    expect(model?.chart?.series[0]?.points[1]).toEqual(expect.objectContaining({
-      label: "Watch release · Attention",
-      ariaLabel: expect.stringContaining("Attention"),
-    }));
-  });
-
-  it("presents unavailable progress as a dash for a Project without linked work", () => {
-    const widget = dashboardWidgets.find(({ id }) => id === "project-progress");
-    const model = widget?.build({
-      ...sampleDashboardSnapshot,
-      projects: [{
-        id: "project-empty",
-        title: "Unplanned",
-        completed: 0,
-        remaining: 0,
-        progress: null,
-        attention: "normal",
-      }],
+    expect(model).toMatchObject({
+      id: "project-status",
+      title: "Project status",
+      emptyMessage: "Create an active or paused Project to view status distribution.",
+      chart: {
+        kind: "heatmap",
+        ariaLabel: "Project status",
+        rows: [
+          {
+            label: "Release",
+            progressLabel: "Progress 82% · Risk",
+            attention: "risk",
+            destination: { kind: "project-detail", itemId: "project-release" },
+          },
+          {
+            label: "Watch",
+            progressLabel: "Progress 50% · Attention",
+            attention: "attention",
+          },
+          {
+            label: "Unplanned",
+            progressLabel: "Progress —",
+            attention: "normal",
+          },
+        ],
+      },
     });
-
-    expect(model?.chart?.series[0]?.points[0]).toEqual(expect.objectContaining({
-      label: "Unplanned · Progress —",
-      value: 0,
-      displayValue: "—",
-      sizePercent: 0,
-      placeholder: true,
-      ariaLabel: expect.stringContaining("progress unavailable (—)"),
-    }));
-    expect(model?.chart?.series[1]?.points[0]).toEqual(expect.objectContaining({
-      value: 0,
-      displayValue: "0",
-      sizePercent: 0,
-    }));
-  });
-
-  it("keeps Today and Overdue navigation on the selected dashboard date", () => {
-    const widget = dashboardWidgets.find(({ id }) => id === "planner-week");
-    const model = widget?.build(sampleDashboardSnapshot);
-
-    expect(model?.destination).toEqual({ kind: "weekly", weekStart: "2026-07-21" });
-    expect(model?.stats).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        label: "Today",
-        destination: { kind: "daily", date: "2026-07-23" },
-      }),
-      expect.objectContaining({
-        label: "Overdue",
-        destination: { kind: "daily-overdue", date: "2026-07-23" },
-      }),
-    ]));
   });
 });

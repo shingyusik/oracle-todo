@@ -50,6 +50,7 @@ export type WorkspaceItemModel = {
   scheduled?: string | null;
   priority?: number | null;
   created_at?: string | null;
+  completed_at?: string | null;
   last_materialized_at?: string | null;
   updated_at?: string | null;
   metadata_?: {

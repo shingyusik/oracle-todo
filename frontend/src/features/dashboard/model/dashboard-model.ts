@@ -2,102 +2,114 @@ import type { WorkspaceItemModel } from "@/features/workbench/model/workbench-mo
 
 export type ProjectAttention = "normal" | "attention" | "risk";
 
-export type PlannerDay = {
+export type DashboardDateRange = { start: string; end: string };
+export type DashboardDateRangeError = "invalid" | "too-long";
+
+export type TodayOutcomes = {
   date: string;
-  scheduled: number;
-  due: number;
+  completed: number;
+  incomplete: number;
+  missed: number;
+  total: number;
 };
 
-export type PlannerSummary = {
-  todayDate: string;
-  today: number;
-  thisWeek: number;
-  overdue: number;
-  days: PlannerDay[];
+export type CompletionDay = { date: string; completed: number };
+
+export type CompletionHistory = {
+  range: DashboardDateRange;
+  days: CompletionDay[];
+};
+
+export type DashboardStatusKey =
+  | "completed"
+  | "incomplete"
+  | "paused"
+  | "missed";
+
+export type DashboardStatusValues = Record<DashboardStatusKey, number>;
+
+export type DashboardHeatmapRow = {
+  id: string;
+  title: string;
+  values: DashboardStatusValues;
+  percentages: DashboardStatusValues;
+  total: number;
+};
+
+export type DashboardProjectRow = DashboardHeatmapRow & {
+  progress: number | null;
+  attention: ProjectAttention;
 };
 
 export type DashboardSnapshot = {
-  summary: {
-    activeAreas: number;
-    activeProjects: number;
-    activeTasks: number;
-    activeEvents: number;
-    activeRoutines: number;
-    attentionProjects: number;
-  };
-  areas: Array<{
-    id: string;
-    title: string;
-    active: number;
-    paused: number;
-    completed: number;
-  }>;
-  projects: Array<{
-    id: string;
-    title: string;
-    completed: number;
-    remaining: number;
-    progress: number | null;
-    attention: ProjectAttention;
-  }>;
-  planner: PlannerSummary;
+  areas: DashboardHeatmapRow[];
+  projects: DashboardProjectRow[];
+  todayOutcomes: TodayOutcomes;
+  completionHistory: CompletionHistory;
 };
 
-const dashboardWorkTypes = new Set(["task", "event", "routine"]);
-const plannerWorkTypes = new Set(["task", "event"]);
-const trackedWorkStatuses = new Set(["active", "paused", "completed"]);
+const dashboardExecutionTypes = new Set(["task", "event"]);
+const incompleteStatuses = new Set(["active", "waiting", "paused"]);
 
 export function buildDashboardSnapshot(
   items: WorkspaceItemModel[],
   today: string,
+  completionRange: DashboardDateRange = completionRangeEndingOn(today, 14),
 ): DashboardSnapshot {
-  const work = items.filter(isDashboardWorkItem);
-  const week = weekDates(today);
-  const projects = buildProjectStats(items, work, today);
+  const executionWork = items.filter((item) => dashboardExecutionTypes.has(item.type));
+  const projects = buildProjectStats(items, executionWork, today);
 
   return {
-    summary: buildSummary(items, work, projects),
-    areas: buildAreaStats(items, work),
+    areas: buildAreaStats(items, executionWork),
     projects,
-    planner: buildPlannerStats(work, today, week),
+    todayOutcomes: buildTodayOutcomes(executionWork, today),
+    completionHistory: buildCompletionHistory(executionWork, completionRange),
   };
+}
+
+export function completionRangeEndingOn(
+  today: string,
+  dayCount: 7 | 14 | 30,
+): DashboardDateRange {
+  return { start: addDays(today, 1 - dayCount), end: today };
+}
+
+export function isValidDashboardDateRange(range: DashboardDateRange): boolean {
+  return dashboardDateRangeError(range) === null;
+}
+
+export function dashboardDateRangeError(
+  range: DashboardDateRange,
+): DashboardDateRangeError | null {
+  if (
+    dateFromDateOnly(range.start) === null
+    || dateFromDateOnly(range.end) === null
+    || range.start > range.end
+  ) {
+    return "invalid";
+  }
+
+  const elapsedDays = daysBetween(range.start, range.end);
+  return elapsedDays !== null && elapsedDays >= 366 ? "too-long" : null;
 }
 
 export function dashboardToday(date: Date = new Date()): string {
   return formatDateOnly(date);
 }
 
-function buildSummary(
-  items: WorkspaceItemModel[],
-  work: WorkspaceItemModel[],
-  projects: DashboardSnapshot["projects"],
-): DashboardSnapshot["summary"] {
-  return {
-    activeAreas: items.filter((item) => item.type === "area" && item.status === "active").length,
-    activeProjects: items.filter((item) => item.type === "project" && item.status === "active").length,
-    activeTasks: work.filter((item) => item.type === "task" && item.status === "active").length,
-    activeEvents: work.filter((item) => item.type === "event" && item.status === "active").length,
-    activeRoutines: work.filter((item) => item.type === "routine" && item.status === "active").length,
-    attentionProjects: projects.filter((project) => project.attention !== "normal").length,
-  };
-}
-
 function buildAreaStats(
   items: WorkspaceItemModel[],
   work: WorkspaceItemModel[],
-): DashboardSnapshot["areas"] {
+): DashboardHeatmapRow[] {
   return items
-    .filter((item) => item.type === "area")
+    .filter((item) => item.type === "area" && isActiveOrPaused(item))
     .map((area) => {
-      const linked = work.filter(
-        (item) => item.area_id === area.id && trackedWorkStatuses.has(item.status),
-      );
+      const linked = work.filter((item) => item.area_id === area.id);
+      const status = statusValues(linked);
       return {
         id: area.id,
         title: area.title,
-        active: countStatus(linked, "active"),
-        paused: countStatus(linked, "paused"),
-        completed: countStatus(linked, "completed"),
+        ...status,
       };
     });
 }
@@ -106,72 +118,109 @@ function buildProjectStats(
   items: WorkspaceItemModel[],
   work: WorkspaceItemModel[],
   today: string,
-): DashboardSnapshot["projects"] {
+): DashboardProjectRow[] {
   return items
-    .filter((item) => item.type === "project")
+    .filter((item) => item.type === "project" && isActiveOrPaused(item))
     .map((project) => {
-      const linked = work.filter(
-        (item) => item.project_id === project.id && trackedWorkStatuses.has(item.status),
-      );
-      const completed = countStatus(linked, "completed");
-      const remaining = linked.length - completed;
+      const linked = work.filter((item) => item.project_id === project.id);
+      const status = statusValues(linked);
       return {
         id: project.id,
         title: project.title,
-        completed,
-        remaining,
-        progress: linked.length === 0 ? null : completed / linked.length,
+        ...status,
+        progress:
+          status.total === 0
+            ? null
+            : status.values.completed / status.total,
         attention: projectAttention(project, today),
       };
     });
 }
 
-function buildPlannerStats(
+function buildTodayOutcomes(
   work: WorkspaceItemModel[],
   today: string,
-  week: string[],
-): PlannerSummary {
-  const plannerWork = work.filter(
-    (item) => plannerWorkTypes.has(item.type) && (item.status === "active" || item.status === "paused"),
+): TodayOutcomes {
+  const todayWork = work.filter((item) =>
+    localCalendarDate(item.scheduled) === today
+    || localCalendarDate(item.due) === today,
   );
-  const weekDatesSet = new Set(week);
-  const byDate = (date: string | null | undefined) => dateOnly(date);
+  const completed = countStatus(todayWork, "completed");
+  const incomplete = todayWork.filter((item) => incompleteStatuses.has(item.status)).length;
+  const missed = countStatus(todayWork, "missed");
+  return { date: today, completed, incomplete, missed, total: completed + incomplete + missed };
+}
 
+function buildCompletionHistory(
+  work: WorkspaceItemModel[],
+  range: DashboardDateRange,
+): CompletionHistory {
+  const counts = new Map<string, number>();
+  for (const item of work) {
+    if (item.status !== "completed") continue;
+    const date = localCalendarDate(item.completed_at);
+    if (date !== null && date >= range.start && date <= range.end) {
+      counts.set(date, (counts.get(date) ?? 0) + 1);
+    }
+  }
   return {
-    todayDate: today,
-    today: countUnique(plannerWork, (item) => byDate(item.scheduled) === today || byDate(item.due) === today),
-    thisWeek: countUnique(plannerWork, (item) => {
-      const scheduled = byDate(item.scheduled);
-      const due = byDate(item.due);
-      return (scheduled !== null && weekDatesSet.has(scheduled))
-        || (due !== null && weekDatesSet.has(due));
-    }),
-    overdue: countUnique(plannerWork, (item) => {
-      const scheduled = byDate(item.scheduled);
-      const due = byDate(item.due);
-      return (scheduled !== null && scheduled < today) || (due !== null && due < today);
-    }),
-    days: week.map((date) => ({
+    range,
+    days: dateRange(range).map((date) => ({
       date,
-      scheduled: plannerWork.filter((item) => byDate(item.scheduled) === date).length,
-      due: plannerWork.filter((item) => byDate(item.due) === date).length,
+      completed: counts.get(date) ?? 0,
     })),
   };
 }
 
-function isDashboardWorkItem(item: WorkspaceItemModel): boolean {
-  return dashboardWorkTypes.has(item.type);
+function isActiveOrPaused(item: WorkspaceItemModel): boolean {
+  return item.status === "active" || item.status === "paused";
+}
+
+function statusKey(status: string): DashboardStatusKey | null {
+  switch (status) {
+    case "completed": return "completed";
+    case "active":
+    case "waiting": return "incomplete";
+    case "paused": return "paused";
+    case "missed": return "missed";
+    default: return null;
+  }
+}
+
+function statusValues(items: WorkspaceItemModel[]): {
+  values: DashboardStatusValues;
+  percentages: DashboardStatusValues;
+  total: number;
+} {
+  const values: DashboardStatusValues = {
+    completed: 0,
+    incomplete: 0,
+    paused: 0,
+    missed: 0,
+  };
+  for (const item of items) {
+    const key = statusKey(item.status);
+    if (key !== null) values[key] += 1;
+  }
+  const total = Object.values(values).reduce((sum, value) => sum + value, 0);
+  return {
+    values,
+    percentages: {
+      completed: percent(values.completed, total),
+      incomplete: percent(values.incomplete, total),
+      paused: percent(values.paused, total),
+      missed: percent(values.missed, total),
+    },
+    total,
+  };
 }
 
 function countStatus(items: WorkspaceItemModel[], status: string): number {
   return items.filter((item) => item.status === status).length;
 }
 
-function countUnique(
-  items: WorkspaceItemModel[],
-  predicate: (item: WorkspaceItemModel) => boolean,
-): number {
-  return new Set(items.filter(predicate).map((item) => item.id)).size;
+function percent(value: number, total: number): number {
+  return total === 0 ? 0 : (value / total) * 100;
 }
 
 function projectAttention(project: WorkspaceItemModel, today: string): ProjectAttention {
@@ -189,19 +238,6 @@ function projectAttention(project: WorkspaceItemModel, today: string): ProjectAt
     return "attention";
   }
   return "normal";
-}
-
-function weekDates(today: string): string[] {
-  const current = dateFromDateOnly(today);
-  if (current === null) return [];
-
-  const mondayOffset = (current.getDay() + 6) % 7;
-  current.setDate(current.getDate() - mondayOffset);
-  return Array.from({ length: 7 }, () => {
-    const date = formatDateOnly(current);
-    current.setDate(current.getDate() + 1);
-    return date;
-  });
 }
 
 function addDays(date: string, days: number): string {
@@ -224,6 +260,29 @@ function dateOnly(value: string | null | undefined): string | null {
   if (!value) return null;
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
   return match && dateFromDateOnly(match[1]) !== null ? match[1] : null;
+}
+
+function localCalendarDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return dateFromDateOnly(value) === null ? null : value;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : formatDateOnly(parsed);
+}
+
+function dateRange(range: DashboardDateRange): string[] {
+  if (!isValidDashboardDateRange(range)) return [];
+
+  const current = dateFromDateOnly(range.start);
+  if (current === null) return [];
+
+  const dates: string[] = [];
+  while (formatDateOnly(current) <= range.end) {
+    dates.push(formatDateOnly(current));
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
 }
 
 function dateFromDateOnly(value: string): Date | null {

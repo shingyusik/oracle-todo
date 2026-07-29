@@ -1,30 +1,65 @@
+import type {
+  DashboardHeatmapRow,
+  DashboardSnapshot,
+  DashboardStatusKey,
+  ProjectAttention,
+} from "@/features/dashboard/model/dashboard-model";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
-import type { DashboardSnapshot } from "@/features/dashboard/model/dashboard-model";
 
-export type DashboardPoint = {
-  id: string;
-  label: string;
-  value: number;
-  displayValue: string;
+export type DonutChartSpec = {
+  kind: "donut";
   ariaLabel: string;
-  sizePercent: number;
-  tone?: DashboardTone;
-  placeholder?: boolean;
-  destination: DashboardDestination;
-};
-
-type DashboardTone = "primary" | "secondary" | "warning";
-
-export type DashboardChartSpec = {
-  kind: "stacked-bar" | "grouped-bar";
-  ariaLabel: string;
-  series: Array<{
-    id: string;
+  total: number;
+  segments: Array<{
+    id: "completed" | "incomplete" | "missed";
     label: string;
-    tone: DashboardTone;
-    points: DashboardPoint[];
+    value: number;
+    percentage: number;
+    tone: "success" | "primary" | "warning";
+    ariaLabel: string;
+    destination: DashboardDestination;
   }>;
 };
+
+export type LineChartSpec = {
+  kind: "line";
+  ariaLabel: string;
+  points: Array<{
+    id: string;
+    label: string;
+    value: number;
+    ariaLabel: string;
+  }>;
+};
+
+export type HeatmapChartSpec = {
+  kind: "heatmap";
+  ariaLabel: string;
+  columns: Array<{
+    id: DashboardStatusKey;
+    label: string;
+    tone: "success" | "primary" | "secondary" | "warning";
+  }>;
+  rows: Array<{
+    id: string;
+    label: string;
+    progressLabel?: string;
+    attention?: ProjectAttention;
+    destination: DashboardDestination;
+    cells: Array<{
+      id: string;
+      columnId: DashboardStatusKey;
+      value: number;
+      intensityPercent: number;
+      ariaLabel: string;
+    }>;
+  }>;
+};
+
+export type DashboardChartSpec =
+  | DonutChartSpec
+  | LineChartSpec
+  | HeatmapChartSpec;
 
 export type DashboardLinkedStat = {
   kind: "linked";
@@ -53,279 +88,196 @@ export type DashboardWidgetModel = {
 };
 
 export type DashboardWidget = {
-  id: "summary" | "area-status" | "project-progress" | "planner-week";
+  id:
+    | "today-outcomes"
+    | "completion-history"
+    | "area-status"
+    | "project-status";
   build: (snapshot: DashboardSnapshot) => DashboardWidgetModel;
 };
 
+const heatmapColumns = [
+  { id: "completed", label: "Completed", tone: "success" },
+  { id: "incomplete", label: "Incomplete", tone: "primary" },
+  { id: "paused", label: "Paused", tone: "secondary" },
+  { id: "missed", label: "Miss", tone: "warning" },
+] as const;
+
 export const dashboardWidgets: DashboardWidget[] = [
   {
-    id: "summary",
-    build: (snapshot) => ({
-      id: "summary",
-      title: "Workspace summary",
-      description: "Active Areas, Projects, and work requiring attention.",
-      emptyMessage: "Create an Area, Project, or work item to populate analytics.",
-      stats: [
-        {
-          kind: "linked",
-          label: "Active Areas",
-          value: snapshot.summary.activeAreas,
-          destination: { kind: "areas" },
+    id: "today-outcomes",
+    build: (snapshot) => {
+      const outcomes = snapshot.todayOutcomes;
+      const segments: DonutChartSpec["segments"] = [
+        donutSegment(
+          "completed",
+          "Completed",
+          "success",
+          outcomes.completed,
+          outcomes.total,
+          outcomes.date,
+        ),
+        donutSegment(
+          "incomplete",
+          "Incomplete",
+          "primary",
+          outcomes.incomplete,
+          outcomes.total,
+          outcomes.date,
+        ),
+        donutSegment(
+          "missed",
+          "Miss",
+          "warning",
+          outcomes.missed,
+          outcomes.total,
+          outcomes.date,
+        ),
+      ];
+      return {
+        id: "today-outcomes",
+        title: "Today's work",
+        description:
+          "Completed, incomplete, and missed Tasks and Events scheduled or due today.",
+        emptyMessage: "No Tasks or Events are scheduled or due today.",
+        chart: {
+          kind: "donut",
+          ariaLabel: "Today's work",
+          total: outcomes.total,
+          segments,
         },
-        {
-          kind: "linked",
-          label: "Active Projects",
-          value: snapshot.summary.activeProjects,
-          destination: { kind: "projects" },
+      };
+    },
+  },
+  {
+    id: "completion-history",
+    build: (snapshot) => {
+      const points = snapshot.completionHistory.days.map((day) => ({
+        id: day.date,
+        label: day.date,
+        value: day.completed,
+        ariaLabel: `${day.date}: ${day.completed} completed`,
+      }));
+      return {
+        id: "completion-history",
+        title: "Completion history",
+        description: "Completed Tasks and Events by browser-local calendar date.",
+        emptyMessage: "No Tasks or Events were completed in this range.",
+        chart: {
+          kind: "line",
+          ariaLabel: "Completion history",
+          points,
         },
-        {
-          kind: "composite",
-          label: "Active Work",
-          value:
-            snapshot.summary.activeTasks
-            + snapshot.summary.activeEvents
-            + snapshot.summary.activeRoutines,
-          items: [
-            {
-              kind: "linked",
-              label: "Tasks",
-              value: snapshot.summary.activeTasks,
-              destination: { kind: "tasks" },
-            },
-            {
-              kind: "linked",
-              label: "Events",
-              value: snapshot.summary.activeEvents,
-              destination: { kind: "events" },
-            },
-            {
-              kind: "linked",
-              label: "Routines",
-              value: snapshot.summary.activeRoutines,
-              destination: { kind: "routines" },
-            },
-          ],
-        },
-        {
-          kind: "linked",
-          label: "Attention Projects",
-          value: snapshot.summary.attentionProjects,
-          destination: { kind: "projects" },
-        },
-      ],
-    }),
+      };
+    },
   },
   {
     id: "area-status",
-    build: (snapshot) => ({
-      id: "area-status",
-      title: "Area work status",
-      description: "Direct work grouped by Area and status.",
-      emptyMessage: "Create an Area with work to view status analytics.",
-      destination: { kind: "areas" },
-      chart: {
-        kind: "stacked-bar",
-        ariaLabel: "Area work status",
-        series: [
-          areaSeries("active", "Active", "primary", snapshot),
-          areaSeries("paused", "Paused", "secondary", snapshot),
-          areaSeries("completed", "Completed", "warning", snapshot),
-        ],
-      },
-    }),
+    build: (snapshot) => {
+      const rows = heatmapRows(
+        snapshot.areas,
+        (area) => ({ kind: "area-detail", itemId: area.id }),
+      );
+      return {
+        id: "area-status",
+        title: "Area status",
+        description: "Task and Event status distribution by Area.",
+        emptyMessage:
+          "Create an active or paused Area to view status distribution.",
+        destination: { kind: "areas" },
+        chart: {
+          kind: "heatmap",
+          ariaLabel: "Area status",
+          columns: [...heatmapColumns],
+          rows,
+        },
+      };
+    },
   },
   {
-    id: "project-progress",
-    build: (snapshot) => ({
-      id: "project-progress",
-      title: "Project progress",
-      description: "Completed and remaining work for each Project.",
-      emptyMessage: "Create a Project with work to view progress analytics.",
-      destination: { kind: "projects" },
-      chart: {
-        kind: "stacked-bar",
-        ariaLabel: "Project progress",
-        series: [
-          projectSeries("completed", "Completed", "primary", snapshot),
-          projectSeries("remaining", "Remaining", "secondary", snapshot),
-        ],
-      },
-    }),
-  },
-  {
-    id: "planner-week",
-    build: (snapshot) => ({
-      id: "planner-week",
-      title: "Planner weekly schedule",
-      description: "Scheduled and due work across the current week.",
-      emptyMessage: "Schedule or add due dates to work items to populate the Planner.",
-      destination: { kind: "weekly", weekStart: weekStart(snapshot) },
-      chart: {
-        kind: "grouped-bar",
-        ariaLabel: "Planner weekly schedule",
-        series: [
-          plannerSeries("scheduled", "Scheduled", "primary", snapshot),
-          plannerSeries("due", "Due", "secondary", snapshot),
-        ],
-      },
-      stats: [
-        {
-          kind: "linked",
-          label: "Today",
-          value: snapshot.planner.today,
-          destination: { kind: "daily", date: snapshot.planner.todayDate },
+    id: "project-status",
+    build: (snapshot) => {
+      const rows: HeatmapChartSpec["rows"] = heatmapRows(
+        snapshot.projects,
+        (project) => ({ kind: "project-detail", itemId: project.id }),
+      ).map((row, index) => {
+        const project = snapshot.projects[index];
+        const progressLabel =
+          project.progress === null
+            ? "Progress —"
+            : `Progress ${Math.round(project.progress * 100)}%`;
+        const attentionLabel =
+          project.attention === "risk"
+            ? "Risk"
+            : project.attention === "attention"
+              ? "Attention"
+              : null;
+        return {
+          ...row,
+          progressLabel: attentionLabel
+            ? `${progressLabel} · ${attentionLabel}`
+            : progressLabel,
+          attention: project.attention,
+        };
+      });
+      return {
+        id: "project-status",
+        title: "Project status",
+        description: "Task and Event status distribution and progress by Project.",
+        emptyMessage:
+          "Create an active or paused Project to view status distribution.",
+        destination: { kind: "projects" },
+        chart: {
+          kind: "heatmap",
+          ariaLabel: "Project status",
+          columns: [...heatmapColumns],
+          rows,
         },
-        {
-          kind: "linked",
-          label: "This Week",
-          value: snapshot.planner.thisWeek,
-          destination: { kind: "weekly", weekStart: weekStart(snapshot) },
-        },
-        {
-          kind: "linked",
-          label: "Overdue",
-          value: snapshot.planner.overdue,
-          destination: { kind: "daily-overdue", date: snapshot.planner.todayDate },
-        },
-      ],
-    }),
+      };
+    },
   },
 ];
 
-function areaSeries(
-  key: "active" | "paused" | "completed",
+function donutSegment(
+  id: DonutChartSpec["segments"][number]["id"],
   label: string,
-  tone: DashboardChartSpec["series"][number]["tone"],
-  snapshot: DashboardSnapshot,
-): DashboardChartSpec["series"][number] {
+  tone: DonutChartSpec["segments"][number]["tone"],
+  value: number,
+  total: number,
+  date: string,
+): DonutChartSpec["segments"][number] {
+  const percentage = percent(value, total);
+  const displayPercentage = Math.round(percentage);
   return {
-    id: key,
+    id,
     label,
+    value,
+    percentage,
     tone,
-    points: snapshot.areas.map((area) => ({
-      id: `${area.id}-${key}`,
-      label: area.title,
-      value: area[key],
-      displayValue: String(area[key]),
-      ariaLabel: `${area.title}: ${area[key]} ${label.toLowerCase()}`,
-      sizePercent: percent(
-        area[key],
-        area.active + area.paused + area.completed,
-      ),
-      destination: { kind: "area-detail", itemId: area.id },
-    })),
+    ariaLabel: `${label}: ${value} (${displayPercentage}%)`,
+    destination: { kind: "daily", date },
   };
 }
 
-function projectSeries(
-  key: "completed" | "remaining",
-  label: string,
-  tone: DashboardChartSpec["series"][number]["tone"],
-  snapshot: DashboardSnapshot,
-): DashboardChartSpec["series"][number] {
-  return {
-    id: key,
-    label,
-    tone,
-    points: snapshot.projects.map((project) => ({
-      id: `${project.id}-${key}`,
-      label: projectPointLabel(project),
-      value: project[key],
-      displayValue:
-        project.progress === null && key === "completed"
-          ? "—"
-          : String(project[key]),
-      ariaLabel: projectPointAriaLabel(project, key),
-      sizePercent: projectPointSize(project.progress, key),
-      ...(project.attention === "risk" ? { tone: "warning" as const } : {}),
-      ...(project.progress === null && key === "completed"
-        ? { placeholder: true }
-        : {}),
-      destination: { kind: "project-detail", itemId: project.id },
+function heatmapRows(
+  sourceRows: DashboardHeatmapRow[],
+  destination: (row: DashboardHeatmapRow) => DashboardDestination,
+): HeatmapChartSpec["rows"] {
+  return sourceRows.map((row) => ({
+    id: row.id,
+    label: row.title,
+    destination: destination(row),
+    cells: heatmapColumns.map((column) => ({
+      id: `${row.id}-${column.id}`,
+      columnId: column.id,
+      value: row.values[column.id],
+      intensityPercent: row.percentages[column.id],
+      ariaLabel:
+        `${row.title}: ${row.values[column.id]} ${column.label.toLowerCase()}`,
     })),
-  };
-}
-
-function plannerSeries(
-  key: "scheduled" | "due",
-  label: string,
-  tone: DashboardChartSpec["series"][number]["tone"],
-  snapshot: DashboardSnapshot,
-): DashboardChartSpec["series"][number] {
-  const maximum = Math.max(
-    1,
-    ...snapshot.planner.days.flatMap((day) => [day.scheduled, day.due]),
-  );
-
-  return {
-    id: key,
-    label,
-    tone,
-    points: snapshot.planner.days.map((day) => ({
-      id: `${day.date}-${key}`,
-      label: day.date,
-      value: day[key],
-      displayValue: String(day[key]),
-      ariaLabel: `${day.date}: ${day[key]} ${label.toLowerCase()}`,
-      sizePercent: percent(day[key], maximum),
-      destination: { kind: "daily", date: day.date },
-    })),
-  };
-}
-
-function projectPointAriaLabel(
-  project: DashboardSnapshot["projects"][number],
-  key: "completed" | "remaining",
-): string {
-  const state =
-    project.attention === "normal"
-      ? ""
-      : `${attentionLabel(project.attention)}; `;
-
-  if (project.progress === null) {
-    return `${project.title}: ${state}progress unavailable (—); ${project[key]} ${key}`;
-  }
-
-  if (key === "remaining") {
-    return `${project.title}: ${state}${project.remaining} remaining`;
-  }
-
-  return `${project.title}: ${state}${Math.round(project.progress * 100)}% complete (${project.completed} completed)`;
-}
-
-function projectPointLabel(
-  project: DashboardSnapshot["projects"][number],
-): string {
-  const parts = [project.title];
-  if (project.attention !== "normal") {
-    parts.push(attentionLabel(project.attention));
-  }
-  if (project.progress === null) {
-    parts.push("Progress —");
-  }
-  return parts.join(" · ");
-}
-
-function attentionLabel(attention: Exclude<DashboardSnapshot["projects"][number]["attention"], "normal">): string {
-  return attention === "risk" ? "Risk" : "Attention";
-}
-
-function projectPointSize(
-  progress: number | null,
-  key: "completed" | "remaining",
-): number {
-  if (progress === null) {
-    return 0;
-  }
-
-  const completedPercent = Math.round(progress * 100);
-  return key === "completed" ? completedPercent : 100 - completedPercent;
+  }));
 }
 
 function percent(value: number, total: number): number {
-  return total === 0 ? 0 : Math.round((value / total) * 100);
-}
-
-function weekStart(snapshot: DashboardSnapshot): string {
-  return snapshot.planner.days[0]?.date ?? "";
+  return total === 0 ? 0 : (value / total) * 100;
 }
