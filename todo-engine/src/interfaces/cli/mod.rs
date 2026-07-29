@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
+use rusqlite::{Connection, OpenFlags};
 use std::str::FromStr;
 
 use crate::application::error::TodoError;
@@ -383,8 +384,44 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    let cli = Cli::parse_from(args);
+    let cli = Cli::try_parse_from(args).map_err(anyhow::Error::new)?;
     execute(home.to_path_buf(), cli.command)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoHealth {
+    Healthy { user_version: i64 },
+    NotInitialized,
+    Unavailable,
+}
+
+const TODO_SCHEMA_VERSION: i64 = 1;
+
+pub fn health_at(home: &Path) -> TodoHealth {
+    let path = db_path(home);
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => return TodoHealth::Unavailable,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return TodoHealth::NotInitialized;
+        }
+        Err(_) => return TodoHealth::Unavailable,
+    }
+
+    let Some(path) = path.to_str() else {
+        return TodoHealth::Unavailable;
+    };
+    let Ok(connection) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+        return TodoHealth::Unavailable;
+    };
+
+    match user_version(&connection) {
+        Ok(0) => TodoHealth::NotInitialized,
+        Ok(user_version) if user_version == TODO_SCHEMA_VERSION => {
+            TodoHealth::Healthy { user_version }
+        }
+        Ok(_) | Err(_) => TodoHealth::Unavailable,
+    }
 }
 
 fn execute(home: PathBuf, command: Command) -> Result<()> {

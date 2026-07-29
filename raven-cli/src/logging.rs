@@ -21,6 +21,7 @@ pub fn init(paths: &RavenPaths) {
         paths.log_file(),
         log_max_bytes_from_env(),
         log_max_files_from_env(),
+        warning_enabled(console_level),
     );
 
     let console_layer = tracing_subscriber::fmt::layer()
@@ -45,6 +46,13 @@ fn raven_targets(level: LevelFilter) -> Targets {
         .with_target("raven_cli", level)
 }
 
+fn warning_enabled(level: LevelFilter) -> bool {
+    matches!(
+        level,
+        LevelFilter::WARN | LevelFilter::INFO | LevelFilter::DEBUG | LevelFilter::TRACE
+    )
+}
+
 #[derive(Debug, Clone)]
 struct RotatingJsonlMakeWriter {
     state: Arc<Mutex<RotatingJsonlState>>,
@@ -55,6 +63,7 @@ struct RotatingJsonlState {
     path: PathBuf,
     max_bytes: u64,
     max_files: usize,
+    warning_enabled: bool,
 }
 
 #[derive(Debug)]
@@ -64,12 +73,13 @@ struct RotatingJsonlWriter {
 }
 
 impl RotatingJsonlMakeWriter {
-    fn new(path: PathBuf, max_bytes: u64, max_files: usize) -> Self {
+    fn new(path: PathBuf, max_bytes: u64, max_files: usize, warning_enabled: bool) -> Self {
         Self {
             state: Arc::new(Mutex::new(RotatingJsonlState {
                 path,
                 max_bytes,
                 max_files,
+                warning_enabled,
             })),
         }
     }
@@ -105,8 +115,8 @@ impl Drop for RotatingJsonlWriter {
         let Ok(state) = self.state.lock() else {
             return;
         };
-        if let Err(error) = state.write_event(&self.buffer) {
-            eprintln!("WARN raven_cli::logging: failed to write Raven log file error=\"{error}\"");
+        if state.write_event(&self.buffer).is_err() && state.warning_enabled {
+            eprintln!("WARN raven_cli::logging: Raven file logging unavailable");
         }
     }
 }

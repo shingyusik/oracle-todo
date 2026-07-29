@@ -2,6 +2,7 @@ pub mod init;
 pub mod todo;
 
 use anyhow::Result;
+use todo_engine::interfaces::cli::TodoHealth;
 
 use crate::cli::Command;
 use crate::config::RavenPaths;
@@ -15,19 +16,21 @@ pub fn execute(paths: &RavenPaths, command: Command) -> Result<()> {
 }
 
 fn health_check(paths: &RavenPaths) -> Result<()> {
-    todo::run(paths, ["health"])?;
-    println!(
-        "ledger={} health={}",
-        database_status(paths.ledger_db().exists()),
-        database_status(paths.health_db().exists())
-    );
-    Ok(())
-}
-
-fn database_status(initialized: bool) -> &'static str {
-    if initialized {
-        "available"
-    } else {
-        "not_initialized"
+    match todo_engine::interfaces::cli::health_at(paths.home()) {
+        TodoHealth::Healthy { user_version } => {
+            println!(
+                "todo=ok user_version={user_version} \
+                 ledger=not_initialized health=not_initialized"
+            );
+            Ok(())
+        }
+        TodoHealth::NotInitialized => {
+            println!("todo=not_initialized ledger=not_initialized health=not_initialized");
+            anyhow::bail!("ToDo database is not initialized")
+        }
+        TodoHealth::Unavailable => {
+            println!("todo=unavailable ledger=not_initialized health=not_initialized");
+            anyhow::bail!("ToDo database is unavailable")
+        }
     }
 }

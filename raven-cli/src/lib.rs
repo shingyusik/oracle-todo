@@ -47,6 +47,14 @@ where
             exit_code = 0_i32,
             "command completed"
         ),
+        Err(error) if exit_code(error) == 0 => tracing::info!(
+            event = "command_completed",
+            command,
+            engine,
+            duration_ms,
+            exit_code = 0_i32,
+            "command completed"
+        ),
         Err(error) => tracing::error!(
             event = "command_failed",
             command,
@@ -61,6 +69,9 @@ where
 }
 
 pub fn exit_code(error: &anyhow::Error) -> i32 {
+    if let Some(error) = error.downcast_ref::<clap::Error>() {
+        return error.exit_code();
+    }
     todo_engine::application::error::TodoError::cli_exit_code_from_error(error).unwrap_or(1)
 }
 

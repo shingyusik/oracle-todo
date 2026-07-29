@@ -791,6 +791,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dotenvy",
+ "serde_json",
  "tempfile",
  "todo-engine",
  "tracing",
