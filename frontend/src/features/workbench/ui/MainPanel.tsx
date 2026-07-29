@@ -3728,11 +3728,17 @@ function DetailRelationField({
 }
 
 function WorkspaceItemsTable({ controller }: MainPanelProps) {
-  if (!isWorkspacePanel(controller.panel.id)) {
+  const panelId = controller.panel.id;
+  if (!isWorkspacePanel(panelId)) {
     return null;
   }
 
-  return <WorkspaceItemsTableContent controller={controller} />;
+  return (
+    <WorkspaceItemsTableContent
+      key={workspaceScopeForPanel(panelId)}
+      controller={controller}
+    />
+  );
 }
 
 function WorkspaceItemsTableContent({ controller }: MainPanelProps) {

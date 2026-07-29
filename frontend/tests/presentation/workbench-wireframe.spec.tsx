@@ -1,11 +1,25 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
 import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
+import type {
+  WorkbenchController,
+  WorkspaceItemsModel,
+} from "@/features/workbench/model/workbench-model";
+import { MainPanel } from "@/features/workbench/ui/MainPanel";
 import { TableViewControls } from "@/features/workbench/ui/TableViewControls";
 import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
@@ -99,6 +113,62 @@ async function addWorkspaceStatusFilter(
 
 function workspaceTaskRows(): HTMLElement[] {
   return screen.getAllByRole("button", { name: /^Open details for / });
+}
+
+function workspacePanelController(
+  controller: WorkbenchController,
+  panelId: "tasks" | "events",
+  title: "Tasks" | "Events",
+  workspaceItems: WorkspaceItemsModel,
+): WorkbenchController {
+  return {
+    ...controller,
+    selection: {
+      ...controller.selection,
+      mainTabId: "todo",
+      leafTabId: panelId,
+      workspaceExpanded: true,
+    },
+    panel: { id: panelId, title },
+    workspaceItems,
+  };
+}
+
+async function renderWorkspacePanelHarness() {
+  const hook = renderHook(() => useWorkbenchController());
+  await waitFor(() => expect(hook.result.current.workspaceItems.status).toBe("loaded"));
+  const loadedItems: WorkspaceItemsModel = {
+    ...hook.result.current.workspaceItems,
+    status: "loaded",
+    items: [],
+    allItems: [],
+  };
+  const view = render(
+    <MainPanel
+      controller={workspacePanelController(
+        hook.result.current,
+        "tasks",
+        "Tasks",
+        loadedItems,
+      )}
+    />,
+  );
+
+  return {
+    result: hook.result,
+    switchPanel(panelId: "tasks" | "events", title: "Tasks" | "Events") {
+      view.rerender(
+        <MainPanel
+          controller={workspacePanelController(
+            hook.result.current,
+            panelId,
+            title,
+            loadedItems,
+          )}
+        />,
+      );
+    },
+  };
 }
 
 async function savePlannerView(
@@ -1236,6 +1306,70 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Sort Tasks" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Group Tasks" })).toBeVisible();
     expect(screen.getByRole("tablist", { name: "Tasks views" })).toBeVisible();
+  });
+
+  it("discards an Add-view editor when switching Workspace scopes", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    const { result, switchPanel } = await renderWorkspacePanelHarness();
+    const taskTabs = screen.getByRole("tablist", { name: "Tasks views" });
+    await user.click(within(taskTabs).getByRole("button", { name: "Add Tasks view" }));
+    const editor = screen.getByRole("textbox", { name: "View name" });
+    await user.clear(editor);
+    await user.type(editor, "Leaked event view");
+
+    switchPanel("events", "Events");
+    const staleEditor = screen.queryByRole("textbox", { name: "View name" });
+    if (staleEditor) {
+      staleEditor.focus();
+      await user.keyboard("{Enter}");
+    }
+
+    expect(screen.queryByRole("textbox", { name: "View name" })).toBeNull();
+    expect(
+      result.current.workspaceTableTabs("workspace.event").tabs.map(({ name }) => name),
+    ).toEqual(["Table"]);
+    expect(
+      result.current.workspaceTableTabs("workspace.task").tabs.map(({ name }) => name),
+    ).toEqual(["Table"]);
+  });
+
+  it("closes an open filter without leaking transient state across Workspace scopes", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    const { switchPanel } = await renderWorkspacePanelHarness();
+    await user.click(screen.getByRole("button", { name: "Filter Tasks" }));
+    expect(screen.getByRole("dialog", { name: "Filter Tasks" })).toBeVisible();
+
+    switchPanel("events", "Events");
+    const eventTabs = screen.getByRole("tablist", { name: "Events views" });
+    expect(screen.queryByRole("dialog", { name: "Filter Tasks" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Filter Events" })).toBeNull();
+    expect(within(eventTabs).getByRole("tab", { name: "Table" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Filter Events" })).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+
+    switchPanel("tasks", "Tasks");
+    const taskTabs = screen.getByRole("tablist", { name: "Tasks views" });
+    expect(within(taskTabs).getByRole("tab", { name: "Table" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Filter Tasks" })).toHaveAttribute(
+      "data-active",
+      "false",
+    );
   });
 
   it("filters Workspace rows and selects only the derived visible rows", async () => {
