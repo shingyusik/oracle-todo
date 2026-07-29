@@ -395,11 +395,14 @@ pub enum TodoHealth {
     Unavailable,
 }
 
-const TODO_SCHEMA_VERSION: i64 = 1;
+pub const TODO_SCHEMA_VERSION: i64 = 1;
 
 pub fn health_at(home: &Path) -> TodoHealth {
-    let path = db_path(home);
-    match std::fs::metadata(&path) {
+    health_db_at(&db_path(home))
+}
+
+pub fn health_db_at(path: &Path) -> TodoHealth {
+    match std::fs::metadata(path) {
         Ok(metadata) if metadata.is_file() => {}
         Ok(_) => return TodoHealth::Unavailable,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

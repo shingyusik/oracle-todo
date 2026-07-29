@@ -72,6 +72,9 @@ pub fn exit_code(error: &anyhow::Error) -> i32 {
     if let Some(error) = error.downcast_ref::<clap::Error>() {
         return error.exit_code();
     }
+    if let Some(error) = error.downcast_ref::<commands::import::ImportTodoError>() {
+        return error.cli_exit_code();
+    }
     todo_engine::application::error::TodoError::cli_exit_code_from_error(error).unwrap_or(1)
 }
 

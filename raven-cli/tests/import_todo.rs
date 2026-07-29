@@ -99,6 +99,77 @@ fn import_failure_removes_only_the_new_destination_and_preserves_source() {
 }
 
 #[test]
+fn import_rejects_unknown_schema_version_and_cleans_up_without_modifying_source() {
+    let source = seeded_todo_home();
+    let source_path = source.path().join("todo.sqlite");
+    let source_connection =
+        todo_engine::infrastructure::sqlite::connect(source_path.to_str().unwrap()).unwrap();
+    source_connection
+        .execute_batch("PRAGMA user_version = 999;")
+        .unwrap();
+    drop(source_connection);
+    let source_before = std::fs::read(&source_path).unwrap();
+    let destination = tempfile::tempdir().unwrap();
+
+    let error = import_todo(source.path(), &RavenPaths::from_home(destination.path())).unwrap_err();
+
+    assert!(matches!(
+        error,
+        ImportTodoError::UnsupportedSchemaVersion(999)
+    ));
+    assert!(!destination.path().join("todo.sqlite").exists());
+    assert_eq!(std::fs::read(&source_path).unwrap(), source_before);
+    let source_connection =
+        todo_engine::infrastructure::sqlite::connect(source_path.to_str().unwrap()).unwrap();
+    let source_version: i64 = source_connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(source_version, 999);
+    assert_eq!(std::fs::read_dir(destination.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn import_copies_committed_live_wal_data_without_changing_durable_source_data() {
+    let source = seeded_todo_home();
+    let source_path = source.path().join("todo.sqlite");
+    let source_wal_path = source.path().join("todo.sqlite-wal");
+    let source_connection =
+        todo_engine::infrastructure::sqlite::connect(source_path.to_str().unwrap()).unwrap();
+    let journal_mode: String = source_connection
+        .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(journal_mode, "wal");
+    source_connection
+        .execute_batch(
+            "PRAGMA wal_autocheckpoint = 0;
+             CREATE TABLE wal_probe (value TEXT NOT NULL);
+             INSERT INTO wal_probe VALUES ('committed-in-wal');",
+        )
+        .unwrap();
+    let source_main_before = std::fs::read(&source_path).unwrap();
+    let source_wal_before = std::fs::read(&source_wal_path).unwrap();
+    assert!(!source_wal_before.is_empty());
+    let destination = tempfile::tempdir().unwrap();
+
+    let report = import_todo(source.path(), &RavenPaths::from_home(destination.path())).unwrap();
+
+    let imported =
+        todo_engine::infrastructure::sqlite::connect(report.destination.to_str().unwrap()).unwrap();
+    let imported_value: String = imported
+        .query_row("SELECT value FROM wal_probe", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(imported_value, "committed-in-wal");
+    let source_value: String = source_connection
+        .query_row("SELECT value FROM wal_probe", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(source_value, "committed-in-wal");
+    assert_eq!(std::fs::read(source_path).unwrap(), source_main_before);
+    assert_eq!(std::fs::read(source_wal_path).unwrap(), source_wal_before);
+    // SQLite may update `todo.sqlite-shm` reader/WAL-index state for a
+    // read-only connection; it is intentionally not treated as durable data.
+}
+
+#[test]
 fn raven_import_todo_uses_an_explicit_source_home_and_safe_log_labels() {
     let source = seeded_todo_home();
     let destination = tempfile::tempdir().unwrap();
@@ -143,4 +214,44 @@ fn raven_import_todo_defaults_to_the_legacy_home_under_home() {
 
     assert!(output.status.success());
     assert!(destination.path().join("todo.sqlite").exists());
+}
+
+#[test]
+fn raven_import_todo_conflict_exits_two_and_logs_without_paths() {
+    let source = seeded_todo_home();
+    let destination = tempfile::tempdir().unwrap();
+    let destination_path = destination.path().join("todo.sqlite");
+    let existing = b"existing Raven data";
+    std::fs::write(&destination_path, existing).unwrap();
+
+    let output = raven(destination.path())
+        .env("RAVEN_CONSOLE_LOG", "off")
+        .args([
+            "import",
+            "todo",
+            "--source-home",
+            source.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(std::fs::read(&destination_path).unwrap(), existing);
+    let events: Vec<serde_json::Value> =
+        std::fs::read_to_string(destination.path().join("logs/raven.log.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+    let failed: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|record| record["fields"]["event"] == "command_failed")
+        .collect();
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["fields"]["command"], "import");
+    assert_eq!(failed[0]["fields"]["engine"], "todo");
+    assert_eq!(failed[0]["fields"]["exit_code"], 2);
+    let log = serde_json::to_string(&events).unwrap();
+    assert!(!log.contains(source.path().to_str().unwrap()));
+    assert!(!log.contains(destination.path().to_str().unwrap()));
 }
