@@ -65,6 +65,7 @@ import {
 } from "@/features/workbench/model/workbench-model";
 import { PlannerGroupPanel } from "@/features/workbench/ui/PlannerGroupPanel";
 import { PlannerTableTabs } from "@/features/workbench/ui/PlannerTableTabs";
+import { MarkdownNoteEditor } from "@/features/workbench/ui/MarkdownNoteEditor";
 
 type MainPanelProps = {
   controller: WorkbenchController;
@@ -318,6 +319,12 @@ function DetailView({ controller }: MainPanelProps) {
             ))}
           </section>
         ) : null}
+        <section className="detail-note" aria-label="Markdown note editor">
+          <MarkdownNoteEditor
+            value={draft.note}
+            onChange={(value) => setField("note", value)}
+          />
+        </section>
       </div>
       {pendingLinkedItem ? (
         <div className="confirmation-backdrop">
@@ -3123,7 +3130,6 @@ type DetailDraft = {
   project_id: string;
   routine_id: string;
   parent_id: string;
-  description: string;
   note: string;
   outcome: string;
   horizon: string;
@@ -3155,7 +3161,6 @@ function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
     project_id: item?.project_id ?? "",
     routine_id: item?.routine_id ?? "",
     parent_id: item?.parent_id ?? "",
-    description: itemDescription(item) ?? "",
     note: item?.note ?? "",
     outcome: item?.outcome ?? "",
     horizon: item?.horizon ?? "month",
@@ -3185,7 +3190,6 @@ function detailPatchForItem(
 
   addStringPatch(patch, "title", draft.title, item.title);
   addStringPatch(patch, "note", draft.note, item.note);
-  addStringPatch(patch, "description", draft.description, itemDescription(item));
   const draftTags = parseTagInput(draft.tags);
   if (!sameTags(draftTags, item.tags)) {
     patch.tags = draftTags;
@@ -3422,11 +3426,6 @@ function DetailTypeFields({
           onChange={(value) => setField("definition_of_done", value)}
         />
         <DetailTimestamps item={item} />
-        <DetailTextAreaField
-          label="Note"
-          value={draft.note}
-          onChange={(value) => setField("note", value)}
-        />
       </>
     );
   }
@@ -3472,16 +3471,6 @@ function DetailTypeFields({
           onChange={(value) => setField("priority", value)}
         />
         <DetailTimestamps item={item} />
-        <DetailTextAreaField
-          label="Description"
-          value={draft.description}
-          onChange={(value) => setField("description", value)}
-        />
-        <DetailTextAreaField
-          label="Note"
-          value={draft.note}
-          onChange={(value) => setField("note", value)}
-        />
       </>
     );
   }
@@ -3525,16 +3514,6 @@ function DetailTypeFields({
           onChange={(value) => setField("priority", value)}
         />
         <DetailTimestamps item={item} />
-        <DetailTextAreaField
-          label="Description"
-          value={draft.description}
-          onChange={(value) => setField("description", value)}
-        />
-        <DetailTextAreaField
-          label="Note"
-          value={draft.note}
-          onChange={(value) => setField("note", value)}
-        />
       </>
     );
   }
@@ -3589,16 +3568,6 @@ function DetailTypeFields({
           onChange={(value) => setField("commitment_type", value)}
         />
         <DetailTimestamps item={item} />
-        <DetailTextAreaField
-          label="Description"
-          value={draft.description}
-          onChange={(value) => setField("description", value)}
-        />
-        <DetailTextAreaField
-          label="Note"
-          value={draft.note}
-          onChange={(value) => setField("note", value)}
-        />
       </>
     );
   }
@@ -3625,11 +3594,6 @@ function DetailTypeFields({
           onChange={(value) => setField("standard", value)}
         />
         <DetailTimestamps item={item} />
-        <DetailTextAreaField
-          label="Note"
-          value={draft.note}
-          onChange={(value) => setField("note", value)}
-        />
       </>
     );
   }
@@ -3657,11 +3621,6 @@ function DetailTypeFields({
           onChange={(parent_id) => setField("parent_id", parent_id)}
         />
         <DetailTimestamps item={item} />
-        <DetailTextAreaField
-          label="Note"
-          value={draft.note}
-          onChange={(value) => setField("note", value)}
-        />
       </>
     );
   }
@@ -3851,22 +3810,6 @@ function DetailTagsField({
         onCommit={(tags) => onChange(formatTags(tags))}
       />
     </div>
-  );
-}
-
-function DetailTextAreaField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <DetailInlineField label={label} className="field-label-wide">
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} />
-    </DetailInlineField>
   );
 }
 
