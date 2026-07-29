@@ -36,3 +36,14 @@ fn raven_home_env_precedes_default_home() {
 
     assert_eq!(paths.home(), Path::new("/tmp/from-env"));
 }
+
+#[test]
+fn explicit_home_precedes_raven_home() {
+    let paths = RavenPaths::resolve_with_default(
+        Some(PathBuf::from("/tmp/from-explicit")),
+        Some(PathBuf::from("/tmp/from-env")),
+    )
+    .unwrap();
+
+    assert_eq!(paths.home(), Path::new("/tmp/from-explicit"));
+}
