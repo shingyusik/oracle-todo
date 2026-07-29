@@ -1,4 +1,17 @@
 import {
+  buildTableViewTabsState,
+  createTableViewTab,
+  deleteTableViewTab,
+  discardTableViewTabDraft,
+  renameTableViewTab,
+  resetTableViewTabsToFirst,
+  saveTableViewTabDraft,
+  selectTableViewTab,
+  tableViewTabIsDirty,
+  updateTableViewTabDraft,
+  type TableViewSettingsAdapter,
+} from "@/features/workbench/model/table-view-tabs";
+import {
   clonePlannerTableSettings,
   defaultPlannerTableSettings,
   normalizePlannerTableSettings,
@@ -32,61 +45,44 @@ export function buildPlannerTabsState(
 ): PlannerTabsState {
   const tabsMap = isRecord(storedTabs) ? storedTabs : undefined;
   const settingsMap = isRecord(storedTableSettings) ? storedTableSettings : undefined;
+  const adapter = plannerTableViewSettingsAdapter(legacy);
 
   return Object.fromEntries(plannerTableIds.map((tableId) => {
     if (storedTabs !== undefined) {
-      return [tableId, buildTableTabsState(tableId, tabsMap?.[tableId], legacy)];
+      return [tableId, buildTableViewTabsState(tableId, tabsMap?.[tableId], adapter)];
     }
 
     const settings = storedTableSettings !== undefined
       ? normalizePlannerTableSettings(tableId, settingsMap?.[tableId] ?? {}, legacy)
       : normalizePlannerTableSettings(tableId, undefined, legacy);
-    return [tableId, stateFromTabs(tableId, [{
-      id: defaultTabId(tableId),
-      name: "Table",
-      settings,
-    }])];
+    return [tableId, buildTableViewTabsState(tableId, {
+      tabs: [{ id: defaultTabId(tableId), name: "Table", settings }],
+    }, adapter)];
   })) as PlannerTabsState;
 }
 
 export function plannerTabIsDirty(state: PlannerTableTabsState): boolean {
-  const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId);
-  return activeTab !== undefined && JSON.stringify(clonePlannerTableSettings(activeTab.settings)) !==
-    JSON.stringify(clonePlannerTableSettings(state.draftSettings));
+  return tableViewTabIsDirty(state, clonePlannerTableSettings);
 }
 
 export function selectPlannerTab(
   state: PlannerTableTabsState,
   tabId: string,
 ): PlannerTableTabsState {
-  const tab = state.tabs.find((candidate) => candidate.id === tabId);
-  if (!tab || tab.id === state.activeTabId) return state;
-  return {
-    ...state,
-    activeTabId: tab.id,
-    draftSettings: clonePlannerTableSettings(tab.settings),
-  };
+  return selectTableViewTab(state, tabId, clonePlannerTableSettings);
 }
 
 export function updatePlannerTabDraft(
   state: PlannerTableTabsState,
   settings: PlannerTableSettings,
 ): PlannerTableTabsState {
-  return { ...state, draftSettings: clonePlannerTableSettings(settings) };
+  return updateTableViewTabDraft(state, settings, clonePlannerTableSettings);
 }
 
 export function savePlannerTabDraft(
   state: PlannerTableTabsState,
 ): PlannerTableTabsState {
-  if (!state.tabs.some((tab) => tab.id === state.activeTabId)) return state;
-  const draftSettings = clonePlannerTableSettings(state.draftSettings);
-  return {
-    ...state,
-    tabs: state.tabs.map((tab) => tab.id === state.activeTabId
-      ? { ...tab, settings: clonePlannerTableSettings(draftSettings) }
-      : tab),
-    draftSettings,
-  };
+  return saveTableViewTabDraft(state, clonePlannerTableSettings);
 }
 
 export function createPlannerTab(
@@ -94,16 +90,7 @@ export function createPlannerTab(
   id: string,
   requestedName: string,
 ): PlannerTableTabsState | null {
-  if (id.trim().length === 0 || state.tabs.some((tab) => tab.id === id)) return null;
-  const name = uniqueName(requestedName, state.tabs.map((tab) => tab.name));
-  if (!name) return null;
-
-  const draftSettings = clonePlannerTableSettings(state.draftSettings);
-  return {
-    tabs: [...state.tabs, { id, name, settings: clonePlannerTableSettings(draftSettings) }],
-    activeTabId: id,
-    draftSettings,
-  };
+  return createTableViewTab(state, id, requestedName, clonePlannerTableSettings);
 }
 
 export function renamePlannerTab(
@@ -111,139 +98,40 @@ export function renamePlannerTab(
   tabId: string,
   requestedName: string,
 ): PlannerTableTabsState | null {
-  const index = state.tabs.findIndex((tab) => tab.id === tabId);
-  if (index < 0) return null;
-  const name = uniqueName(
-    requestedName,
-    state.tabs.filter((tab) => tab.id !== tabId).map((tab) => tab.name),
-  );
-  if (!name) return null;
-
-  return {
-    ...state,
-    tabs: state.tabs.map((tab, tabIndex) => tabIndex === index ? { ...tab, name } : tab),
-  };
+  return renameTableViewTab(state, tabId, requestedName);
 }
 
 export function deletePlannerTab(
   state: PlannerTableTabsState,
   tabId: string,
 ): PlannerTableTabsState | null {
-  const index = state.tabs.findIndex((tab) => tab.id === tabId);
-  if (state.tabs.length <= 1 || index < 0) return null;
-
-  const tabs = state.tabs.filter((tab) => tab.id !== tabId);
-  if (tabId !== state.activeTabId) return { ...state, tabs };
-
-  const nextActiveTab = tabs[index] ?? tabs[index - 1];
-  return {
-    tabs,
-    activeTabId: nextActiveTab.id,
-    draftSettings: clonePlannerTableSettings(nextActiveTab.settings),
-  };
+  return deleteTableViewTab(state, tabId, clonePlannerTableSettings);
 }
 
 export function discardPlannerTabDraft(
   state: PlannerTableTabsState,
 ): PlannerTableTabsState {
-  const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId);
-  return activeTab
-    ? { ...state, draftSettings: clonePlannerTableSettings(activeTab.settings) }
-    : state;
+  return discardTableViewTabDraft(state, clonePlannerTableSettings);
 }
 
 export function resetPlannerTabsToFirst(
   state: PlannerTableTabsState,
 ): PlannerTableTabsState {
-  const firstTab = state.tabs[0];
-  return firstTab
-    ? {
-      ...state,
-      activeTabId: firstTab.id,
-      draftSettings: clonePlannerTableSettings(firstTab.settings),
-    }
-    : state;
+  return resetTableViewTabsToFirst(state, clonePlannerTableSettings);
 }
 
-function buildTableTabsState(
-  tableId: PlannerTableId,
-  candidate: unknown,
+function plannerTableViewSettingsAdapter(
   legacy: LegacyPlannerControls,
-): PlannerTableTabsState {
-  if (!isRecord(candidate) || !Array.isArray(candidate.tabs)) {
-    return stateFromTabs(tableId, [defaultTab(tableId)]);
-  }
-
-  const tabs = normalizeTabs(tableId, candidate.tabs, legacy);
-  return stateFromTabs(tableId, tabs.length > 0 ? tabs : [defaultTab(tableId)]);
-}
-
-function normalizeTabs(
-  tableId: PlannerTableId,
-  candidates: unknown[],
-  legacy: LegacyPlannerControls,
-): PlannerTableTab[] {
-  const ids = new Set<string>();
-  const names: string[] = [];
-  const tabs: PlannerTableTab[] = [];
-
-  for (const candidate of candidates) {
-    if (!isRecord(candidate) || typeof candidate.id !== "string" || candidate.id.trim().length === 0 ||
-      typeof candidate.name !== "string") continue;
-    const name = uniqueName(candidate.name, names);
-    if (!name) continue;
-
-    const id = uniqueId(candidate.id, ids);
-    const settings = normalizePlannerTableSettings(tableId, candidate.settings ?? {}, legacy);
-    ids.add(id);
-    names.push(name);
-    tabs.push({ id, name, settings: clonePlannerTableSettings(settings) });
-  }
-
-  return tabs;
-}
-
-function stateFromTabs(
-  tableId: PlannerTableId,
-  tabs: PlannerTableTab[],
-): PlannerTableTabsState {
-  const firstTab = tabs[0] ?? defaultTab(tableId);
-  const storedTabs = tabs.length > 0 ? tabs : [firstTab];
+): TableViewSettingsAdapter<PlannerTableId, PlannerTableSettings> {
   return {
-    tabs: storedTabs.map((tab) => ({ ...tab, settings: clonePlannerTableSettings(tab.settings) })),
-    activeTabId: firstTab.id,
-    draftSettings: clonePlannerTableSettings(firstTab.settings),
-  };
-}
-
-function defaultTab(tableId: PlannerTableId): PlannerTableTab {
-  return {
-    id: defaultTabId(tableId),
-    name: "Table",
-    settings: defaultPlannerTableSettings(tableId),
+    defaultSettings: defaultPlannerTableSettings,
+    normalizeSettings: (tableId, candidate) => normalizePlannerTableSettings(tableId, candidate, legacy),
+    cloneSettings: clonePlannerTableSettings,
   };
 }
 
 function defaultTabId(tableId: PlannerTableId): string {
   return `${tableId}-table`;
-}
-
-function uniqueId(candidate: string, usedIds: ReadonlySet<string>): string {
-  if (!usedIds.has(candidate)) return candidate;
-  let suffix = 2;
-  while (usedIds.has(`${candidate}-${suffix}`)) suffix += 1;
-  return `${candidate}-${suffix}`;
-}
-
-function uniqueName(requestedName: string, existingNames: readonly string[]): string | null {
-  const baseName = requestedName.trim();
-  if (baseName.length === 0) return null;
-  const usedNames = new Set(existingNames.map((name) => name.toLowerCase()));
-  if (!usedNames.has(baseName.toLowerCase())) return baseName;
-
-  let suffix = 2;
-  while (usedNames.has(`${baseName} ${suffix}`.toLowerCase())) suffix += 1;
-  return `${baseName} ${suffix}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
