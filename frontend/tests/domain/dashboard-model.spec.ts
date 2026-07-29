@@ -98,6 +98,44 @@ describe("dashboard model", () => {
     expect(snapshot.projects[0]?.progress).toBeNull();
   });
 
+  it("orders Area rows by Miss, incomplete, then localized name", () => {
+    const snapshot = buildDashboardSnapshot([
+      { id: "area-name-z", type: "area", title: "Zulu", status: "active" },
+      { id: "area-name-a", type: "area", title: "Alpha", status: "active" },
+      { id: "area-incomplete", type: "area", title: "Incomplete", status: "active" },
+      { id: "area-miss", type: "area", title: "Miss", status: "active" },
+      { id: "miss", type: "task", title: "Miss", status: "missed", area_id: "area-miss" },
+      { id: "open-1", type: "task", title: "Open 1", status: "active", area_id: "area-incomplete" },
+      { id: "open-2", type: "event", title: "Open 2", status: "waiting", area_id: "area-incomplete" },
+    ], today);
+
+    expect(snapshot.areas.map((row) => row.title)).toEqual([
+      "Miss",
+      "Incomplete",
+      "Alpha",
+      "Zulu",
+    ]);
+  });
+
+  it("orders Project rows by Miss, incomplete, then localized name", () => {
+    const snapshot = buildDashboardSnapshot([
+      { id: "project-name-z", type: "project", title: "Zulu", status: "active" },
+      { id: "project-name-a", type: "project", title: "Alpha", status: "active" },
+      { id: "project-incomplete", type: "project", title: "Incomplete", status: "active" },
+      { id: "project-miss", type: "project", title: "Miss", status: "active" },
+      { id: "miss", type: "event", title: "Miss", status: "missed", project_id: "project-miss" },
+      { id: "open-1", type: "task", title: "Open 1", status: "active", project_id: "project-incomplete" },
+      { id: "open-2", type: "event", title: "Open 2", status: "waiting", project_id: "project-incomplete" },
+    ], today);
+
+    expect(snapshot.projects.map((row) => row.title)).toEqual([
+      "Miss",
+      "Incomplete",
+      "Alpha",
+      "Zulu",
+    ]);
+  });
+
   it("gives Risk precedence over Attention", () => {
     const snapshot = buildDashboardSnapshot([
       { id: "project", type: "project", title: "Release", status: "active", due: "2026-07-20", updated_at: "2026-07-16T00:00:00Z" },
