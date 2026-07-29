@@ -1689,6 +1689,119 @@ button {
   display: grid;
 }
 
+.detail-note {
+  display: grid;
+  min-width: 0;
+}
+
+.markdown-note-surface,
+.markdown-note-input {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-ink);
+}
+
+.markdown-note-surface {
+  min-height: 180px;
+  padding: 18px 0;
+  cursor: text;
+}
+
+.markdown-note-surface:hover {
+  background: var(--color-canvas-light);
+}
+
+.markdown-note-surface:focus-visible,
+.markdown-note-input:focus {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.markdown-note-input {
+  min-height: 260px;
+  padding: 18px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.65;
+}
+
+.markdown-note-placeholder {
+  margin: 0;
+  color: var(--color-shade-50);
+}
+
+.markdown-note-surface > :first-child {
+  margin-top: 0;
+}
+
+.markdown-note-surface > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-note-surface h1,
+.markdown-note-surface h2,
+.markdown-note-surface h3 {
+  margin: 1.4em 0 0.6em;
+  line-height: 1.25;
+}
+
+.markdown-note-surface p,
+.markdown-note-surface ul,
+.markdown-note-surface ol,
+.markdown-note-surface blockquote,
+.markdown-note-surface pre,
+.markdown-note-surface table {
+  margin: 0 0 1em;
+}
+
+.markdown-note-surface blockquote {
+  margin-left: 0;
+  border-left: 3px solid var(--color-shade-30);
+  padding-left: 14px;
+  color: var(--color-shade-70);
+}
+
+.markdown-note-surface code {
+  border-radius: 3px;
+  background: var(--color-canvas-light);
+  padding: 0.12em 0.3em;
+  font-family: var(--font-mono);
+}
+
+.markdown-note-surface pre {
+  overflow-x: auto;
+  padding: 14px;
+  background: var(--color-canvas-light);
+}
+
+.markdown-note-surface pre code {
+  padding: 0;
+}
+
+.markdown-note-surface table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-note-surface th,
+.markdown-note-surface td {
+  border: 1px solid var(--color-hairline-light);
+  padding: 7px 10px;
+}
+
+.markdown-note-surface a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-note-surface .task-list-item {
+  list-style: none;
+}
+
 .detail-back {
   display: inline-grid;
   width: 34px;
@@ -2291,6 +2404,14 @@ button {
   .detail-layout {
     width: 100%;
     gap: 24px;
+  }
+
+  .markdown-note-surface {
+    min-height: 140px;
+  }
+
+  .markdown-note-input {
+    min-height: 220px;
   }
 }
 
