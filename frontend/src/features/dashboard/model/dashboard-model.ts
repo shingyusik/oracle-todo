@@ -111,7 +111,8 @@ function buildAreaStats(
         title: area.title,
         ...status,
       };
-    });
+    })
+    .sort(compareDashboardStatusRows);
 }
 
 function buildProjectStats(
@@ -134,7 +135,8 @@ function buildProjectStats(
             : status.values.completed / status.total,
         attention: projectAttention(project, today),
       };
-    });
+    })
+    .sort(compareDashboardStatusRows);
 }
 
 function buildTodayOutcomes(
@@ -213,6 +215,17 @@ function statusValues(items: WorkspaceItemModel[]): {
     },
     total,
   };
+}
+
+function compareDashboardStatusRows(
+  left: DashboardHeatmapRow,
+  right: DashboardHeatmapRow,
+): number {
+  return (
+    right.values.missed - left.values.missed
+    || right.values.incomplete - left.values.incomplete
+    || left.title.localeCompare(right.title)
+  );
 }
 
 function countStatus(items: WorkspaceItemModel[], status: string): number {

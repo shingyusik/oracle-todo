@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DashboardChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
+import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 type TestItem = {
@@ -143,8 +145,53 @@ function populatedItems(): TestItem[] {
   ];
 }
 
+function statusCardItems(): TestItem[] {
+  return Array.from({ length: 6 }, (_, index) => {
+    const number = index + 1;
+    const areaId = `area-${number}`;
+    const projectId = `project-${number}`;
+
+    return [
+      {
+        id: areaId,
+        type: "area",
+        title: `Area ${number}`,
+        status: "active",
+      },
+      {
+        id: projectId,
+        type: "project",
+        title: `Project ${number}`,
+        status: "active",
+      },
+      {
+        id: `task-${number}`,
+        type: "task",
+        title: `Work ${number}`,
+        status: "active",
+        area_id: areaId,
+        project_id: projectId,
+      },
+    ];
+  }).flat();
+}
+
 function setupUser() {
   return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+}
+
+function dashboardPanelController(items: TestItem[]): WorkbenchController {
+  return {
+    workspaceItems: {
+      status: "loaded",
+      items,
+      allItems: items,
+      tagOptions: [],
+      relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
+    },
+    navigateDashboard: vi.fn(),
+    reloadDashboard: vi.fn(),
+  } as unknown as WorkbenchController;
 }
 
 describe("DashboardPanel", () => {
@@ -485,6 +532,83 @@ describe("DashboardPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("groups Area and Project status previews and expands each card independently", async () => {
+    const user = setupUser();
+    await renderLoadedDashboard(statusCardItems());
+
+    const statusGrid = document.querySelector(".dashboard-status-grid");
+    const area = screen.getByRole("region", { name: "Area status" });
+    const project = screen.getByRole("region", { name: "Project status" });
+
+    expect(statusGrid).toContainElement(area);
+    expect(statusGrid).toContainElement(project);
+    expect(area).not.toBe(project);
+    expect(within(area).getAllByRole("row")).toHaveLength(6);
+    expect(within(project).getAllByRole("row")).toHaveLength(6);
+
+    await user.click(within(area).getByRole("button", {
+      name: "Area status 전체 보기",
+    }));
+
+    expect(within(area).getAllByRole("row")).toHaveLength(7);
+    expect(within(project).getAllByRole("row")).toHaveLength(6);
+    expect(within(area).getByRole("button", {
+      name: "Area status 접기",
+    })).toHaveAttribute("aria-expanded", "true");
+    expect(within(project).getByRole("button", {
+      name: "Project status 전체 보기",
+    })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("resets only an expanded Area preview after its rows shrink to zero and grow again", async () => {
+    const user = setupUser();
+    const items = statusCardItems();
+    const { rerender } = render(
+      <DashboardPanel controller={dashboardPanelController(items)} />,
+    );
+    const area = screen.getByRole("region", { name: "Area status" });
+    const project = screen.getByRole("region", { name: "Project status" });
+
+    await user.click(within(area).getByRole("button", {
+      name: "Area status 전체 보기",
+    }));
+    await user.click(within(project).getByRole("button", {
+      name: "Project status 전체 보기",
+    }));
+
+    rerender(
+      <DashboardPanel
+        controller={dashboardPanelController(
+          items.filter((item) => item.type !== "area"),
+        )}
+      />,
+    );
+
+    expect(
+      within(screen.getByRole("region", { name: "Area status" })).queryByRole(
+        "table",
+      ),
+    ).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Project status" }))
+      .getByRole("button", { name: "Project status 접기" }))
+      .toHaveAttribute("aria-expanded", "true");
+
+    rerender(
+      <DashboardPanel controller={dashboardPanelController(items)} />,
+    );
+
+    expect(
+      within(screen.getByRole("region", { name: "Area status" }))
+        .getAllByRole("row"),
+    ).toHaveLength(6);
+    expect(within(screen.getByRole("region", { name: "Area status" }))
+      .getByRole("button", { name: "Area status 전체 보기" }))
+      .toHaveAttribute("aria-expanded", "false");
+    expect(within(screen.getByRole("region", { name: "Project status" }))
+      .getByRole("button", { name: "Project status 접기" }))
+      .toHaveAttribute("aria-expanded", "true");
+  });
+
   it("retries a failed all-items request", async () => {
     const user = setupUser();
     let dashboardAttempts = 0;
@@ -728,4 +852,130 @@ describe("DashboardPanel", () => {
     ]);
     expect(screen.getByText("Progress 50%")).toBeInTheDocument();
   });
+
+  it("limits controlled heatmap previews and requests expansion", async () => {
+    const user = setupUser();
+    const onExpandedChange = vi.fn();
+    const chart: DashboardChartSpec = {
+      kind: "heatmap",
+      ariaLabel: "Area status",
+      columns: [{ id: "completed", label: "Completed", tone: "success" }],
+      rows: heatmapRows(6),
+    };
+
+    render(
+      <DashboardChart
+        chart={chart}
+        onNavigate={vi.fn()}
+        heatmapVisibility={{
+          limit: 5,
+          expanded: false,
+          onExpandedChange,
+        }}
+      />,
+    );
+
+    expect(within(screen.getByRole("table")).getAllByRole("row"))
+      .toHaveLength(6);
+    const toggle = screen.getByRole("button", {
+      name: "Area status 전체 보기",
+    });
+    expect(toggle).toHaveTextContent("전체 보기 (총 6개)");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(onExpandedChange).toHaveBeenCalledWith(true);
+  });
+
+  it("omits the controlled heatmap toggle when every row is visible", () => {
+    const chart: DashboardChartSpec = {
+      kind: "heatmap",
+      ariaLabel: "Area status",
+      columns: [{ id: "completed", label: "Completed", tone: "success" }],
+      rows: heatmapRows(5),
+    };
+
+    render(
+      <DashboardChart
+        chart={chart}
+        onNavigate={vi.fn()}
+        heatmapVisibility={{
+          limit: 5,
+          expanded: false,
+          onExpandedChange: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Area status 전체 보기" }),
+    ).toBeNull();
+  });
+
+  it("requests one collapse when an expanded controlled heatmap shrinks to its preview limit", () => {
+    const onExpandedChange = vi.fn();
+    const chart: DashboardChartSpec = {
+      kind: "heatmap",
+      ariaLabel: "Area status",
+      columns: [{ id: "completed", label: "Completed", tone: "success" }],
+      rows: heatmapRows(6),
+    };
+    const { rerender } = render(
+      <DashboardChart
+        chart={chart}
+        onNavigate={vi.fn()}
+        heatmapVisibility={{
+          limit: 5,
+          expanded: true,
+          onExpandedChange,
+        }}
+      />,
+    );
+
+    rerender(
+      <DashboardChart
+        chart={{ ...chart, rows: heatmapRows(5) }}
+        onNavigate={vi.fn()}
+        heatmapVisibility={{
+          limit: 5,
+          expanded: true,
+          onExpandedChange,
+        }}
+      />,
+    );
+
+    expect(onExpandedChange).toHaveBeenCalledTimes(1);
+    expect(onExpandedChange).toHaveBeenCalledWith(false);
+
+    rerender(
+      <DashboardChart
+        chart={{ ...chart, rows: heatmapRows(5) }}
+        onNavigate={vi.fn()}
+        heatmapVisibility={{
+          limit: 5,
+          expanded: false,
+          onExpandedChange,
+        }}
+      />,
+    );
+
+    expect(onExpandedChange).toHaveBeenCalledTimes(1);
+  });
 });
+
+function heatmapRows(count: number): Extract<
+  DashboardChartSpec,
+  { kind: "heatmap" }
+>["rows"] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `area-${index + 1}`,
+    label: `Area ${index + 1}`,
+    destination: { kind: "area-detail", itemId: `area-${index + 1}` },
+    cells: [{
+      id: `area-${index + 1}-completed`,
+      columnId: "completed",
+      value: index,
+      intensityPercent: 0,
+      ariaLabel: `Area ${index + 1}: ${index} completed`,
+    }],
+  }));
+}

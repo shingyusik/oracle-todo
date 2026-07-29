@@ -17,16 +17,26 @@ import {
 } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { CompletionRangeControls } from "@/features/dashboard/ui/CompletionRangeControls";
+import type { DashboardHeatmapVisibility } from "@/features/dashboard/ui/DashboardHeatmap";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
+
+const DASHBOARD_STATUS_PREVIEW_LIMIT = 5;
 
 type DashboardPanelProps = {
   controller: WorkbenchController;
+};
+
+type DashboardStatusWidgetId = "area-status" | "project-status";
+
+type DashboardStatusWidgetModel = DashboardWidgetModel & {
+  id: DashboardStatusWidgetId;
 };
 
 type DashboardWidgetProps = {
   model: DashboardWidgetModel;
   onNavigate: (destination: DashboardDestination) => void;
   headerControls?: React.ReactNode;
+  heatmapVisibility?: DashboardHeatmapVisibility;
 };
 
 export function DashboardPanel({ controller }: DashboardPanelProps) {
@@ -39,6 +49,9 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
   );
   const [draftRange, setDraftRange] = React.useState(appliedRange);
   const [rangeError, setRangeError] = React.useState<string | null>(null);
+  const [expandedStatus, setExpandedStatus] = React.useState<
+    Record<DashboardStatusWidgetId, boolean>
+  >({ "area-status": false, "project-status": false });
 
   const applyPreset = (preset: 7 | 14 | 30) => {
     const next = completionRangeEndingOn(today, preset);
@@ -63,6 +76,49 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
     setRangeError(null);
   };
 
+  const snapshot = workspaceItems.status === "loaded"
+    ? buildDashboardSnapshot(
+      workspaceItems.allItems,
+      today,
+      appliedRange,
+    )
+    : null;
+  const models = snapshot === null
+    ? []
+    : dashboardWidgets.map((widget) => widget.build(snapshot));
+  const primaryModels = models.filter(
+    (model) => !isDashboardStatusWidget(model),
+  );
+  const statusModels = models.filter(isDashboardStatusWidget);
+  const areaStatusRowCount = dashboardStatusRowCount(
+    statusModels,
+    "area-status",
+  );
+  const projectStatusRowCount = dashboardStatusRowCount(
+    statusModels,
+    "project-status",
+  );
+
+  React.useEffect(() => {
+    if (workspaceItems.status !== "loaded") return;
+
+    setExpandedStatus((current) => {
+      const collapseArea = areaStatusRowCount !== null
+        && areaStatusRowCount <= DASHBOARD_STATUS_PREVIEW_LIMIT
+        && current["area-status"];
+      const collapseProject = projectStatusRowCount !== null
+        && projectStatusRowCount <= DASHBOARD_STATUS_PREVIEW_LIMIT
+        && current["project-status"];
+      if (!collapseArea && !collapseProject) return current;
+
+      return {
+        ...current,
+        "area-status": collapseArea ? false : current["area-status"],
+        "project-status": collapseProject ? false : current["project-status"],
+      };
+    });
+  }, [areaStatusRowCount, projectStatusRowCount, workspaceItems.status]);
+
   if (workspaceItems.status === "idle" || workspaceItems.status === "loading") {
     return <DashboardLoading />;
   }
@@ -81,23 +137,16 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
     );
   }
 
-  const snapshot = buildDashboardSnapshot(
-    workspaceItems.allItems,
-    today,
-    appliedRange,
-  );
-
   return (
     <section className="dashboard-panel" aria-label="Dashboard analytics">
       <header className="dashboard-panel-header">
         <p className="dashboard-panel-kicker">Analytics</p>
         <h1>Dashboard</h1>
       </header>
-      {dashboardWidgets.map((widget) => {
-        const model = widget.build(snapshot);
+      {primaryModels.map((model) => {
         return (
           <DashboardWidget
-            key={widget.id}
+            key={model.id}
             model={model}
             onNavigate={controller.navigateDashboard}
             headerControls={
@@ -121,8 +170,40 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
           />
         );
       })}
+      <div className="dashboard-status-grid">
+        {statusModels.map((model) => (
+          <DashboardWidget
+            key={model.id}
+            model={model}
+            onNavigate={controller.navigateDashboard}
+            heatmapVisibility={{
+              limit: DASHBOARD_STATUS_PREVIEW_LIMIT,
+              expanded: expandedStatus[model.id],
+              onExpandedChange: (expanded) =>
+                setExpandedStatus((current) => ({
+                  ...current,
+                  [model.id]: expanded,
+                })),
+            }}
+          />
+        ))}
+      </div>
     </section>
   );
+}
+
+function isDashboardStatusWidget(
+  model: DashboardWidgetModel,
+): model is DashboardStatusWidgetModel {
+  return model.id === "area-status" || model.id === "project-status";
+}
+
+function dashboardStatusRowCount(
+  models: DashboardStatusWidgetModel[],
+  id: DashboardStatusWidgetId,
+): number | null {
+  const chart = models.find((model) => model.id === id)?.chart;
+  return chart?.kind === "heatmap" ? chart.rows.length : null;
 }
 
 function DashboardLoading() {
@@ -133,18 +214,42 @@ function DashboardLoading() {
       aria-label="Loading Dashboard analytics"
     >
       <span className="sr-only">Loading Dashboard analytics.</span>
-      {dashboardWidgets.map((widget) => (
-        <div
-          className={`dashboard-skeleton-card dashboard-skeleton-${widget.id}`}
-          data-testid="dashboard-skeleton-card"
-          aria-hidden="true"
-          key={widget.id}
-        >
-          <span />
-          <span />
-          <span />
-        </div>
-      ))}
+      {dashboardWidgets
+        .filter(
+          (widget) =>
+            widget.id !== "area-status" && widget.id !== "project-status",
+        )
+        .map((widget) => (
+          <div
+            className={`dashboard-skeleton-card dashboard-skeleton-${widget.id}`}
+            data-testid="dashboard-skeleton-card"
+            aria-hidden="true"
+            key={widget.id}
+          >
+            <span />
+            <span />
+            <span />
+          </div>
+        ))}
+      <div className="dashboard-status-skeleton-grid">
+        {dashboardWidgets
+          .filter(
+            (widget) =>
+              widget.id === "area-status" || widget.id === "project-status",
+          )
+          .map((widget) => (
+            <div
+              className={`dashboard-skeleton-card dashboard-skeleton-${widget.id}`}
+              data-testid="dashboard-skeleton-card"
+              aria-hidden="true"
+              key={widget.id}
+            >
+              <span />
+              <span />
+              <span />
+            </div>
+          ))}
+      </div>
     </section>
   );
 }
@@ -153,6 +258,7 @@ function DashboardWidget({
   model,
   onNavigate,
   headerControls,
+  heatmapVisibility,
 }: DashboardWidgetProps) {
   const chartHasData = model.chart && shouldRenderChart(model.chart);
   const chartIsEmpty = model.chart && isEmptyChart(model.chart);
@@ -193,7 +299,11 @@ function DashboardWidget({
         </div>
       ) : null}
       {model.chart && chartHasData ? (
-        <DashboardChart chart={model.chart} onNavigate={onNavigate} />
+        <DashboardChart
+          chart={model.chart}
+          onNavigate={onNavigate}
+          heatmapVisibility={heatmapVisibility}
+        />
       ) : null}
       {model.chart && chartIsEmpty ? (
         <p className="dashboard-widget-empty">{model.emptyMessage}</p>

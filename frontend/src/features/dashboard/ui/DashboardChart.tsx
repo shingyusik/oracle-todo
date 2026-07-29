@@ -3,12 +3,16 @@ import React from "react";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import type { DashboardChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardDonutChart } from "@/features/dashboard/ui/DashboardDonutChart";
-import { DashboardHeatmap } from "@/features/dashboard/ui/DashboardHeatmap";
+import {
+  DashboardHeatmap,
+  type DashboardHeatmapVisibility,
+} from "@/features/dashboard/ui/DashboardHeatmap";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
 
 type DashboardChartProps = {
   chart: DashboardChartSpec;
   onNavigate: (destination: DashboardDestination) => void;
+  heatmapVisibility?: DashboardHeatmapVisibility;
 };
 
 export function DashboardChart(props: DashboardChartProps) {
@@ -27,6 +31,7 @@ export function DashboardChart(props: DashboardChartProps) {
         <DashboardHeatmap
           chart={props.chart}
           onNavigate={props.onNavigate}
+          visibility={props.heatmapVisibility}
         />
       );
   }
