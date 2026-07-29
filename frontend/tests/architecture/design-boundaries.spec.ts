@@ -211,6 +211,24 @@ describe("design system boundaries", () => {
     );
   });
 
+  it("keeps the Dashboard donut fluid inside the four-column desktop card", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toContain(
+      ".dashboard-widget-today-outcomes {\n  grid-column: span 4;\n}",
+    );
+    expect(source).toContain(
+      ".dashboard-widget-completion-history {\n  grid-column: span 8;\n}",
+    );
+    expect(source).toMatch(
+      /\.dashboard-chart-donut\s*\{[^}]*width:\s*100%;/s,
+    );
+    expect(source).toMatch(
+      /\.dashboard-donut-ring\s*\{[^}]*width:\s*min\(180px,\s*100%\);/s,
+    );
+    expect(source).toContain("@media (max-width: 767px)");
+  });
+
   it("keeps planner period cards motion-safe and dependency-free", async () => {
     const css = await readSource("src/styles/globals.css");
 

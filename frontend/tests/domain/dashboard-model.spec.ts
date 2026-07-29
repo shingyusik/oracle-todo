@@ -47,6 +47,31 @@ describe("dashboard model", () => {
     });
   });
 
+  it("preserves a non-zero intensity for one item in a 201-item heatmap row", () => {
+    const snapshot = buildDashboardSnapshot([
+      { id: "area", type: "area", title: "Health", status: "active" },
+      {
+        id: "completed",
+        type: "task",
+        title: "Complete",
+        status: "completed",
+        area_id: "area",
+      },
+      ...Array.from({ length: 200 }, (_, index) => ({
+        id: `missed-${index}`,
+        type: "task",
+        title: `Missed ${index}`,
+        status: "missed",
+        area_id: "area",
+      })),
+    ], today);
+
+    expect(snapshot.areas[0]?.percentages.completed)
+      .toBeCloseTo(0.4975124378, 10);
+    expect(snapshot.areas[0]?.percentages.missed)
+      .toBeCloseTo(99.5024875622, 10);
+  });
+
   it("keeps Missed work in Project progress denominator", () => {
     const snapshot = buildDashboardSnapshot([
       { id: "project", type: "project", title: "Release", status: "active" },
@@ -75,7 +100,7 @@ describe("dashboard model", () => {
 
   it("gives Risk precedence over Attention", () => {
     const snapshot = buildDashboardSnapshot([
-      { id: "project", type: "project", title: "Release", status: "active", due: "2026-07-20", updated_at: "2026-07-17T00:00:00Z" },
+      { id: "project", type: "project", title: "Release", status: "active", due: "2026-07-20", updated_at: "2026-07-16T00:00:00Z" },
     ], today);
 
     expect(snapshot.projects[0]?.attention).toBe("risk");
@@ -146,5 +171,22 @@ describe("dashboard model", () => {
   it("rejects reversed and invalid custom ranges", () => {
     expect(isValidDashboardDateRange({ start: "2026-07-29", end: "2026-07-28" })).toBe(false);
     expect(isValidDashboardDateRange({ start: "not-a-date", end: "2026-07-28" })).toBe(false);
+  });
+
+  it("accepts an exact 366-day inclusive completion range", () => {
+    const range = { start: "2025-07-29", end: "2026-07-29" };
+
+    expect(isValidDashboardDateRange(range)).toBe(true);
+    const days = buildDashboardSnapshot([], today, range).completionHistory.days;
+    expect(days).toHaveLength(366);
+    expect(days[0]?.date).toBe("2025-07-29");
+    expect(days.at(-1)?.date).toBe("2026-07-29");
+  });
+
+  it("rejects a 367-day inclusive completion range", () => {
+    expect(isValidDashboardDateRange({
+      start: "2025-07-28",
+      end: "2026-07-29",
+    })).toBe(false);
   });
 });

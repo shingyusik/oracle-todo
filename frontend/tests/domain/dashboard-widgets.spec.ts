@@ -99,6 +99,34 @@ describe("dashboard widget registry", () => {
     });
   });
 
+  it("preserves raw equal-third donut ratios while rounding visible labels", () => {
+    const todayWidget = dashboardWidgets.find(
+      (candidate) => candidate.id === "today-outcomes",
+    );
+    const chart = todayWidget?.build({
+      ...sampleDashboardSnapshot,
+      todayOutcomes: {
+        date: "2026-07-23",
+        completed: 1,
+        incomplete: 1,
+        missed: 1,
+        total: 3,
+      },
+    }).chart;
+
+    expect(chart?.kind).toBe("donut");
+    if (chart?.kind !== "donut") return;
+
+    expect(chart.segments[0]?.percentage).toBeCloseTo(33.3333333333, 10);
+    expect(chart.segments[1]?.percentage).toBeCloseTo(33.3333333333, 10);
+    expect(chart.segments[2]?.percentage).toBeCloseTo(33.3333333333, 10);
+    expect(chart.segments.map((segment) => segment.ariaLabel)).toEqual([
+      "Completed: 1 (33%)",
+      "Incomplete: 1 (33%)",
+      "Miss: 1 (33%)",
+    ]);
+  });
+
   it("maps every completion date to one informational line point", () => {
     expect(widget("completion-history")).toMatchObject({
       id: "completion-history",
@@ -220,13 +248,13 @@ describe("dashboard widget registry", () => {
         rows: [
           {
             label: "Release",
-            progressLabel: "Progress 82%",
+            progressLabel: "Progress 82% · Risk",
             attention: "risk",
             destination: { kind: "project-detail", itemId: "project-release" },
           },
           {
             label: "Watch",
-            progressLabel: "Progress 50%",
+            progressLabel: "Progress 50% · Attention",
             attention: "attention",
           },
           {

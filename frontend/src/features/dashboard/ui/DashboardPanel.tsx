@@ -3,8 +3,8 @@ import React from "react";
 import {
   buildDashboardSnapshot,
   completionRangeEndingOn,
+  dashboardDateRangeError,
   dashboardToday,
-  isValidDashboardDateRange,
   type DashboardDateRange,
 } from "@/features/dashboard/model/dashboard-model";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
@@ -49,8 +49,13 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
   };
 
   const applyCustom = () => {
-    if (!isValidDashboardDateRange(draftRange)) {
-      setRangeError("Start date must be on or before end date.");
+    const validationError = dashboardDateRangeError(draftRange);
+    if (validationError !== null) {
+      setRangeError(
+        validationError === "too-long"
+          ? "Completion range must be 366 days or fewer."
+          : "Start date must be on or before end date.",
+      );
       return;
     }
     setSelectedPreset("custom");
@@ -71,17 +76,6 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
           <button type="button" onClick={controller.reloadDashboard}>
             Retry Dashboard
           </button>
-        </div>
-      </section>
-    );
-  }
-
-  if (workspaceItems.allItems.length === 0) {
-    return (
-      <section className="dashboard-state" aria-label="Dashboard analytics">
-        <div className="dashboard-empty">
-          <h1>Dashboard</h1>
-          <p>Create an Area, Project, or work item to populate analytics.</p>
         </div>
       </section>
     );

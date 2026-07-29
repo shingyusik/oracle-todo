@@ -30,6 +30,7 @@ export function DashboardLineChart({ chart }: DashboardLineChartProps) {
         <svg
           className="dashboard-line-svg"
           viewBox="0 0 100 100"
+          preserveAspectRatio="none"
           aria-hidden="true"
         >
           <polyline

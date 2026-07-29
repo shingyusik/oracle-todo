@@ -23,8 +23,7 @@ export function DashboardDonutChart({
   const completedEnd = percentage("completed");
   const incompleteEnd =
     completedEnd + percentage("incomplete");
-  const missedEnd =
-    incompleteEnd + percentage("missed");
+  const missedEnd = chart.total === 0 ? 0 : 100;
   const style: DonutStyle = {
     "--dashboard-donut-completed-end": `${completedEnd}%`,
     "--dashboard-donut-incomplete-end": `${incompleteEnd}%`,
@@ -35,7 +34,7 @@ export function DashboardDonutChart({
     <div
       className="dashboard-chart dashboard-chart-donut"
       role="group"
-      aria-label={chart.ariaLabel}
+      aria-label={`${chart.ariaLabel}, total ${chart.total}`}
     >
       <div className="dashboard-donut-ring" style={style} aria-hidden="true">
         <span className="dashboard-donut-total">{chart.total}</span>
@@ -55,7 +54,7 @@ export function DashboardDonutChart({
             </span>
             <span className="dashboard-chart-value">{segment.value}</span>
             <span className="dashboard-donut-segment-percentage">
-              {segment.percentage}%
+              {Math.round(segment.percentage)}%
             </span>
           </button>
         ))}

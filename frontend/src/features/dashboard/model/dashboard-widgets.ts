@@ -202,12 +202,21 @@ export const dashboardWidgets: DashboardWidget[] = [
         (project) => ({ kind: "project-detail", itemId: project.id }),
       ).map((row, index) => {
         const project = snapshot.projects[index];
+        const progressLabel =
+          project.progress === null
+            ? "Progress —"
+            : `Progress ${Math.round(project.progress * 100)}%`;
+        const attentionLabel =
+          project.attention === "risk"
+            ? "Risk"
+            : project.attention === "attention"
+              ? "Attention"
+              : null;
         return {
           ...row,
-          progressLabel:
-            project.progress === null
-              ? "Progress —"
-              : `Progress ${Math.round(project.progress * 100)}%`,
+          progressLabel: attentionLabel
+            ? `${progressLabel} · ${attentionLabel}`
+            : progressLabel,
           attention: project.attention,
         };
       });
@@ -238,13 +247,14 @@ function donutSegment(
   date: string,
 ): DonutChartSpec["segments"][number] {
   const percentage = percent(value, total);
+  const displayPercentage = Math.round(percentage);
   return {
     id,
     label,
     value,
     percentage,
     tone,
-    ariaLabel: `${label}: ${value} (${percentage}%)`,
+    ariaLabel: `${label}: ${value} (${displayPercentage}%)`,
     destination: { kind: "daily", date },
   };
 }
@@ -269,5 +279,5 @@ function heatmapRows(
 }
 
 function percent(value: number, total: number): number {
-  return total === 0 ? 0 : Math.round((value / total) * 100);
+  return total === 0 ? 0 : (value / total) * 100;
 }

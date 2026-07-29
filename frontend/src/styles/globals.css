@@ -2654,6 +2654,7 @@ button {
 
 .dashboard-chart-donut {
   display: grid;
+  width: 100%;
   justify-items: center;
 }
 
@@ -2663,7 +2664,7 @@ button {
   --dashboard-donut-warning: var(--color-chart-warning);
   position: relative;
   display: grid;
-  width: min(180px, 62vw);
+  width: min(180px, 100%);
   aspect-ratio: 1;
   place-items: center;
   border-radius: var(--radius-pill);

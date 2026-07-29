@@ -175,25 +175,53 @@ describe("DashboardPanel", () => {
     ).toHaveLength(4);
   });
 
-  it("renders a creation hint for a loaded empty Dashboard", async () => {
-    installLoadedDashboard([]);
+  it("renders all widget-specific empty states and the default zero line", async () => {
+    await renderLoadedDashboard([]);
 
-    render(<WorkbenchPageClient />);
-
+    for (const name of [
+      "Today's work",
+      "Completion history",
+      "Area status",
+      "Project status",
+    ]) {
+      expect(screen.getByRole("region", { name })).toBeInTheDocument();
+    }
     expect(
-      await screen.findByText(
-        "Create an Area, Project, or work item to populate analytics.",
+      screen.getByText("No Tasks or Events are scheduled or due today."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("No Tasks or Events were completed in this range."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Create an active or paused Area to view status distribution.",
       ),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("region", { name: "Today's work" }),
-    ).toBeNull();
+      screen.getByText(
+        "Create an active or paused Project to view status distribution.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("group", { name: "Completion history" })
+        .querySelectorAll(".dashboard-line-point"),
+    ).toHaveLength(14);
+    expect(
+      screen.getByRole("form", {
+        name: "Completion range 2026-07-16 to 2026-07-29",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("renders Task/Event donut counts and excludes Routine definitions", async () => {
     await renderLoadedDashboard(populatedItems());
 
     const widget = screen.getByRole("region", { name: "Today's work" });
+    expect(
+      within(widget).getByRole("group", {
+        name: "Today's work, total 4",
+      }),
+    ).toBeInTheDocument();
     expect(
       within(widget).getByText("4", { selector: ".dashboard-donut-total" }),
     ).toBeInTheDocument();
@@ -360,6 +388,63 @@ describe("DashboardPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("applies an exact 366-day inclusive completion range", async () => {
+    const user = setupUser();
+    await renderLoadedDashboard([]);
+
+    await user.click(screen.getByRole("button", { name: "Custom range" }));
+    await user.clear(screen.getByLabelText("Completion start date"));
+    await user.type(
+      screen.getByLabelText("Completion start date"),
+      "2025-07-29",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Apply completion range" }),
+    );
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Custom range" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getAllByRole("img", { name: /completed$/ }),
+    ).toHaveLength(366);
+  });
+
+  it("rejects a 367-day range without replacing the last valid line", async () => {
+    const user = setupUser();
+    await renderLoadedDashboard([]);
+    await user.click(screen.getByRole("button", { name: "30 days" }));
+    const lastValidPointCount = screen.getAllByRole("img", {
+      name: /completed$/,
+    }).length;
+
+    await user.click(screen.getByRole("button", { name: "Custom range" }));
+    await user.clear(screen.getByLabelText("Completion start date"));
+    await user.type(
+      screen.getByLabelText("Completion start date"),
+      "2025-07-28",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Apply completion range" }),
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Completion range must be 366 days or fewer.",
+    );
+    expect(
+      screen.getAllByRole("img", { name: /completed$/ }),
+    ).toHaveLength(lastValidPointCount);
+    expect(
+      screen.getByRole("button", { name: "30 days" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("form", {
+        name: "Completion range 2026-06-30 to 2026-07-29",
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("renders Area heatmap names and opens Area detail from a cell", async () => {
     const user = setupUser();
     await renderLoadedDashboard(populatedItems());
@@ -379,13 +464,14 @@ describe("DashboardPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders Project Risk and unavailable progress and opens detail from a cell", async () => {
+  it("renders Project Risk in its name and progress and opens detail from a cell", async () => {
     const user = setupUser();
     await renderLoadedDashboard(populatedItems());
 
     expect(
       screen.getByRole("button", { name: "Release · Risk" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("Progress 25% · Risk")).toBeInTheDocument();
     expect(screen.getByText("Progress —")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Release: 1 miss" }),
@@ -422,9 +508,10 @@ describe("DashboardPanel", () => {
     await user.click(screen.getByRole("button", { name: "Retry Dashboard" }));
 
     expect(
-      await screen.findByText(
-        "Create an Area, Project, or work item to populate analytics.",
-      ),
+      await screen.findByRole("region", { name: "Today's work" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("No Tasks or Events are scheduled or due today."),
     ).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items"),
@@ -490,6 +577,62 @@ describe("DashboardPanel", () => {
     });
   });
 
+  it("uses raw equal-third donut geometry and closes the final boundary", () => {
+    const chart: DashboardChartSpec = {
+      kind: "donut",
+      ariaLabel: "Today's work",
+      total: 3,
+      segments: [
+        {
+          id: "completed",
+          label: "Completed",
+          value: 1,
+          percentage: 100 / 3,
+          tone: "success",
+          ariaLabel: "Completed: 1 (33%)",
+          destination: { kind: "daily", date: "2026-07-28" },
+        },
+        {
+          id: "incomplete",
+          label: "Incomplete",
+          value: 1,
+          percentage: 100 / 3,
+          tone: "primary",
+          ariaLabel: "Incomplete: 1 (33%)",
+          destination: { kind: "daily", date: "2026-07-28" },
+        },
+        {
+          id: "missed",
+          label: "Miss",
+          value: 1,
+          percentage: 100 / 3,
+          tone: "warning",
+          ariaLabel: "Miss: 1 (33%)",
+          destination: { kind: "daily", date: "2026-07-28" },
+        },
+      ],
+    };
+
+    const { container } = render(
+      <DashboardChart chart={chart} onNavigate={vi.fn()} />,
+    );
+
+    const ring = container.querySelector<HTMLElement>(".dashboard-donut-ring");
+    expect(ring?.style.getPropertyValue("--dashboard-donut-completed-end"))
+      .toBe(`${100 / 3}%`);
+    expect(ring?.style.getPropertyValue("--dashboard-donut-incomplete-end"))
+      .toBe(`${200 / 3}%`);
+    expect(ring?.style.getPropertyValue("--dashboard-donut-missed-end"))
+      .toBe("100%");
+    for (const name of [
+      "Completed: 1 (33%)",
+      "Incomplete: 1 (33%)",
+      "Miss: 1 (33%)",
+    ]) {
+      expect(screen.getByRole("button", { name })).toHaveTextContent("33%");
+    }
+  });
+
   it("renders informational line points as focusable images without navigation", () => {
     const onNavigate = vi.fn();
     const chart: DashboardChartSpec = {
@@ -503,11 +646,15 @@ describe("DashboardPanel", () => {
       }],
     };
 
-    render(<DashboardChart chart={chart} onNavigate={onNavigate} />);
+    const { container } = render(
+      <DashboardChart chart={chart} onNavigate={onNavigate} />,
+    );
 
     expect(
       screen.getByRole("img", { name: "2026-07-28: 2 completed" }),
     ).toHaveAttribute("tabindex", "0");
+    expect(container.querySelector(".dashboard-line-svg"))
+      .toHaveAttribute("preserveAspectRatio", "none");
     expect(screen.getByText("2026-07-28: 2 completed")).toBeInTheDocument();
     expect(onNavigate).not.toHaveBeenCalled();
   });

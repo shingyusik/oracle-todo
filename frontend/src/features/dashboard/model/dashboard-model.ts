@@ -3,6 +3,7 @@ import type { WorkspaceItemModel } from "@/features/workbench/model/workbench-mo
 export type ProjectAttention = "normal" | "attention" | "risk";
 
 export type DashboardDateRange = { start: string; end: string };
+export type DashboardDateRangeError = "invalid" | "too-long";
 
 export type TodayOutcomes = {
   date: string;
@@ -74,9 +75,22 @@ export function completionRangeEndingOn(
 }
 
 export function isValidDashboardDateRange(range: DashboardDateRange): boolean {
-  return dateFromDateOnly(range.start) !== null
-    && dateFromDateOnly(range.end) !== null
-    && range.start <= range.end;
+  return dashboardDateRangeError(range) === null;
+}
+
+export function dashboardDateRangeError(
+  range: DashboardDateRange,
+): DashboardDateRangeError | null {
+  if (
+    dateFromDateOnly(range.start) === null
+    || dateFromDateOnly(range.end) === null
+    || range.start > range.end
+  ) {
+    return "invalid";
+  }
+
+  const elapsedDays = daysBetween(range.start, range.end);
+  return elapsedDays !== null && elapsedDays >= 366 ? "too-long" : null;
 }
 
 export function dashboardToday(date: Date = new Date()): string {
@@ -206,7 +220,7 @@ function countStatus(items: WorkspaceItemModel[], status: string): number {
 }
 
 function percent(value: number, total: number): number {
-  return total === 0 ? 0 : Math.round((value / total) * 100);
+  return total === 0 ? 0 : (value / total) * 100;
 }
 
 function projectAttention(project: WorkspaceItemModel, today: string): ProjectAttention {
