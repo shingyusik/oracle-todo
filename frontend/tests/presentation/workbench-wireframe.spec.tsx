@@ -441,6 +441,62 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("tablist", { name: "Unscheduled views" })).toBeInTheDocument();
   });
 
+  it("preserves the Daily Today table view controls and tab interactions", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const todayControls = screen.getByRole("group", { name: "Today controls" });
+    expect(within(todayControls).getByRole("button", { name: "Filter Today" })).toBeInTheDocument();
+    expect(within(todayControls).getByRole("button", { name: "Sort Today" })).toBeInTheDocument();
+    expect(within(todayControls).getByRole("button", { name: "Group Today" })).toBeInTheDocument();
+    expect(within(todayControls).getByRole("button", { name: "Add to Today" })).toBeInTheDocument();
+
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    const tableTab = within(todayTabs).getByRole("tab", { name: "Table" });
+    expect(tableTab).toHaveAttribute("aria-selected", "true");
+    await user.click(within(todayTabs).getByRole("button", { name: "Add Today view" }));
+    await user.keyboard("{Enter}");
+
+    const savedTab = within(todayTabs).getByRole("tab", { name: "새 보기" });
+    expect(savedTab).toHaveAttribute("aria-selected", "true");
+    savedTab.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(tableTab).toHaveFocus();
+    expect(savedTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Enter}");
+    expect(tableTab).toHaveAttribute("aria-selected", "true");
+
+    const filterTrigger = within(todayControls).getByRole("button", { name: "Filter Today" });
+    await user.click(filterTrigger);
+    const filterDialog = screen.getByRole("dialog", { name: "Filter Today" });
+    expect(document.body).toContainElement(filterDialog);
+    expect(todayControls).not.toContainElement(filterDialog);
+    await user.click(within(filterDialog).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filterDialog).getByRole("option", { name: "Title" }));
+    await user.type(within(filterDialog).getByLabelText("Filter value"), "keep");
+    expect(screen.getByLabelText("Active planner controls")).toHaveTextContent("1 rules");
+
+    fireEvent.mouseDown(todayTabs);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Filter Today" })).toBeNull());
+    await waitFor(() => expect(filterTrigger).toHaveFocus());
+
+    await user.click(within(todayTabs).getByRole("button", {
+      name: "Open Table view menu",
+    }));
+    await user.click(within(plannerViewActions("Table")).getByRole("button", {
+      name: "Save current settings",
+    }));
+    expect(within(todayTabs).getByRole("tab", { name: "Table" })).not.toHaveTextContent("•");
+  });
+
   it("manages named tabs below each Planner table title", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -869,7 +925,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(weeklyButton);
 
     const firstDialog = screen.getByRole("dialog", {
-      name: "Discard unsaved Planner changes?",
+      name: "Discard unsaved view changes?",
     });
     expect(firstDialog).toHaveTextContent(
       "Your unsaved filter, sort, and group changes will be lost.",
@@ -880,14 +936,14 @@ describe("WorkbenchPageClient", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", {
-      name: "Discard unsaved Planner changes?",
+      name: "Discard unsaved view changes?",
     })).toBeNull();
     expect(activeDirtyTab).toHaveAttribute("aria-selected", "true");
     expect(dailyButton).toHaveAttribute("data-active", "true");
 
     await user.click(weeklyButton);
     await user.click(within(
-      screen.getByRole("dialog", { name: "Discard unsaved Planner changes?" }),
+      screen.getByRole("dialog", { name: "Discard unsaved view changes?" }),
     ).getByRole("button", { name: "Discard changes" }));
     expect(weeklyButton).toHaveAttribute("data-active", "true");
     expect(screen.queryByRole("tablist", { name: "Today views" })).toBeNull();

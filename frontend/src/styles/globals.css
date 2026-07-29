@@ -268,6 +268,7 @@ button {
 }
 
 .planner-view-pill,
+.table-view-active-pill,
 .planner-active-pill {
   display: inline-flex;
   min-height: 28px;
@@ -344,6 +345,7 @@ button {
   color: var(--color-blue-strong, #2383e2);
 }
 
+.table-view-active-pills,
 .planner-active-control-row {
   display: flex;
   flex-wrap: wrap;
@@ -1068,12 +1070,18 @@ button {
   border-bottom: 0;
 }
 
+.planner-panel .planner-table-header-row > .table-view-controls,
 .planner-panel .planner-table-header-row > .planner-view-actions {
   position: relative;
   flex: 0 0 auto;
   margin-left: auto;
 }
 
+.table-view-controls {
+  position: relative;
+}
+
+.table-view-tabs,
 .planner-table-tabs {
   display: flex;
   min-width: 0;
@@ -1084,6 +1092,8 @@ button {
   padding: 4px 0;
 }
 
+.table-view-tab-item,
+.table-view-tab-add,
 .planner-table-tab-item,
 .planner-table-tab-add {
   position: relative;
@@ -1092,6 +1102,7 @@ button {
   align-items: center;
 }
 
+.table-view-tab,
 .planner-table-tab {
   display: inline-flex;
   min-height: 28px;
@@ -1105,16 +1116,20 @@ button {
   white-space: nowrap;
 }
 
+.table-view-tab[aria-selected="true"],
 .planner-table-tab[aria-selected="true"] {
   background: var(--color-canvas-cream);
   color: var(--color-ink);
   font-weight: 700;
 }
 
+.table-view-tab-dirty,
 .planner-table-tab-dirty {
   color: var(--color-blue-strong, #2383e2);
 }
 
+.table-view-tabs .table-view-tab-menu-trigger,
+.table-view-tabs .table-view-tab-add-trigger,
 .planner-table-tabs .planner-table-tab-menu-trigger,
 .planner-table-tabs .planner-table-tab-add-trigger {
   display: inline-grid;
@@ -1127,6 +1142,7 @@ button {
   color: var(--color-shade-60);
 }
 
+.table-view-tab-overlay,
 .planner-table-tab-overlay {
   position: fixed;
   z-index: 30;
@@ -1135,6 +1151,7 @@ button {
   width: min(220px, calc(100vw - 16px));
 }
 
+.table-view-tab-overlay .table-view-tab-menu,
 .planner-table-tab-overlay .planner-table-tab-menu {
   display: grid;
   min-width: 190px;
@@ -1145,6 +1162,7 @@ button {
   box-shadow: 0 10px 24px rgb(0 0 0 / 12%);
 }
 
+.table-view-tab-overlay .table-view-tab-menu > button,
 .planner-table-tab-overlay .planner-table-tab-menu > button {
   border: 0;
   border-radius: var(--radius-xs);
@@ -1154,11 +1172,14 @@ button {
   text-align: left;
 }
 
+.table-view-tab-overlay .table-view-tab-menu > button:hover:not(:disabled),
+.table-view-tab-overlay .table-view-tab-menu > button:focus-visible,
 .planner-table-tab-overlay .planner-table-tab-menu > button:hover:not(:disabled),
 .planner-table-tab-overlay .planner-table-tab-menu > button:focus-visible {
   background: var(--color-canvas-cream);
 }
 
+.table-view-tab-overlay .table-view-tab-name-editor,
 .planner-table-tab-overlay .planner-table-tab-name-editor {
   width: 100%;
   border: 1px solid var(--color-shade-30);
@@ -1168,6 +1189,7 @@ button {
   box-shadow: 0 10px 24px rgb(0 0 0 / 12%);
 }
 
+.table-view-tab-overlay .table-view-tab-name-editor label,
 .planner-table-tab-overlay .planner-table-tab-name-editor label {
   display: grid;
   gap: 4px;
@@ -1175,6 +1197,7 @@ button {
   font-size: 12px;
 }
 
+.table-view-tab-overlay .table-view-tab-name-editor input,
 .planner-table-tab-overlay .planner-table-tab-name-editor input {
   width: 100%;
   min-height: 32px;
@@ -1183,12 +1206,14 @@ button {
   padding: 6px 8px;
 }
 
+.table-view-tab-overlay .table-view-tab-name-error,
 .planner-table-tab-overlay .planner-table-tab-name-error {
   margin: 6px 0 0;
   color: var(--color-red, #c9362b);
   font-size: 12px;
 }
 
+.table-view-tab-overlay .table-view-tab-name-actions,
 .planner-table-tab-overlay .planner-table-tab-name-actions {
   display: flex;
   justify-content: flex-end;
@@ -1196,6 +1221,7 @@ button {
   margin-top: 8px;
 }
 
+.table-view-tab-confirmation-backdrop,
 .planner-tab-confirmation-backdrop {
   z-index: 50;
 }
@@ -1230,10 +1256,12 @@ button {
   }
 
   .planner-panel .planner-table-header-row > h2,
+  .planner-panel .planner-table-header-row > .table-view-controls,
   .planner-panel .planner-table-header-row > .planner-view-actions {
     width: 100%;
   }
 
+  .planner-panel .planner-table-header-row > .table-view-controls,
   .planner-panel .planner-table-header-row > .planner-view-actions {
     margin-left: 0;
   }
