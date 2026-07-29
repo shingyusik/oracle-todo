@@ -7259,8 +7259,10 @@ describe("WorkbenchPageClient", () => {
     expect(within(properties as HTMLElement).getByText("2026-06-21")).toBeInTheDocument();
     expect(screen.queryByLabelText("Last Materialized")).toBeNull();
     expectPropertyImmediatelyBeforeProperty("Updated", "Last Materialized");
-    expectPropertyImmediatelyBeforeField("Last Materialized", "Description");
-    expectFieldBefore("Description", "Note");
+    expect(screen.getByText("After coffee")).toBeInTheDocument();
+    const layout = screen.getByRole("heading", { name: "Stretch" }).closest(".detail-layout");
+    const note = screen.getByRole("button", { name: "Edit Markdown note" }).closest(".detail-note");
+    expect(layout?.lastElementChild).toBe(note);
   });
 
   it("omits unchanged event participants from the detail PATCH body", async () => {
@@ -7319,7 +7321,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Events" }));
 
     await user.click(await screen.findByRole("cell", { name: "Review" }));
-    expectFieldBefore("Description", "Note");
+    expectFieldBeforeProperty("Commitment Type", "Created");
+    expectPropertyImmediatelyBeforeProperty("Created", "Updated");
+    const layout = screen.getByRole("heading", { name: "Review" }).closest(".detail-layout");
+    const note = screen.getByRole("button", { name: "Edit Markdown note" }).closest(".detail-note");
+    expect(layout?.lastElementChild).toBe(note);
     await user.clear(screen.getByLabelText("Location"));
     await user.type(screen.getByLabelText("Location"), "Office");
     await user.selectOptions(screen.getByLabelText("Priority"), "2");
