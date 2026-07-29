@@ -1714,6 +1714,36 @@ describe("WorkbenchPageClient", () => {
     }]);
   });
 
+  it("labels and portals the creation tag picker outside the dialog", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task"
+              ? [{ id: "task-1", type: "task", title: "Focus task", status: "active" }]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Create Daily item" });
+    expect(within(dialog).getByText("Tags")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Tags" }));
+    const dropdown = screen.getByRole("listbox", { name: "Tags options" }).parentElement;
+    expect(dropdown).not.toBeNull();
+    expect(dialog.contains(dropdown)).toBe(false);
+  });
+
   it("removes a chip tag while creating a planner item", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
