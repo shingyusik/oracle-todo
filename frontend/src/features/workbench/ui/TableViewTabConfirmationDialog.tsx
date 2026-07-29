@@ -1,17 +1,38 @@
 import React, { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
-import type {
-  TableViewTarget,
-  WorkbenchController,
-} from "@/features/workbench/model/workbench-model";
+export type TableViewConfirmationTarget = {
+  scope: string;
+};
 
-export function TableViewTabConfirmationDialog({
-  controller,
+export type TableViewTabConfirmation<TTarget extends TableViewConfirmationTarget> =
+  | {
+      kind: "select" | "delete";
+      target: TTarget;
+      targetTabId: string;
+    }
+  | {
+      kind: "navigate";
+    };
+
+export type TableViewTabConfirmationDialogAdapter<
+  TTarget extends TableViewConfirmationTarget,
+> = {
+  confirmation: TableViewTabConfirmation<TTarget> | null;
+  confirm(): void;
+  cancel(): void;
+  isDirty(target: TTarget): boolean;
+  activeTabId(target: TTarget): string;
+};
+
+export function TableViewTabConfirmationDialog<
+  TTarget extends TableViewConfirmationTarget,
+>({
+  adapter,
 }: {
-  controller: WorkbenchController;
+  adapter: TableViewTabConfirmationDialogAdapter<TTarget>;
 }): React.JSX.Element | null {
-  const confirmation = controller.tableViewTabConfirmation;
+  const confirmation = adapter.confirmation;
   const cancelRef = useRef<HTMLButtonElement>(null);
   const actionRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -31,8 +52,8 @@ export function TableViewTabConfirmationDialog({
     : "Discard unsaved view changes?";
   const discardsDirtySettings =
     activeConfirmation.kind === "delete" &&
-    tableViewTargetIsDirty(controller, activeConfirmation.target) &&
-    activeTableViewTabId(controller, activeConfirmation.target) ===
+    adapter.isDirty(activeConfirmation.target) &&
+    adapter.activeTabId(activeConfirmation.target) ===
       activeConfirmation.targetTabId;
 
   function focusActiveTab() {
@@ -46,7 +67,7 @@ export function TableViewTabConfirmationDialog({
 
   function cancel() {
     const returnTarget = returnFocusRef.current;
-    controller.cancelTableViewTabAction();
+    adapter.cancel();
     requestAnimationFrame(() => {
       if (returnTarget?.isConnected) {
         returnTarget.focus();
@@ -59,7 +80,7 @@ export function TableViewTabConfirmationDialog({
   function confirm() {
     const returnTarget = returnFocusRef.current;
     const returnToNavigation = activeConfirmation.kind === "navigate";
-    controller.confirmTableViewTabAction();
+    adapter.confirm();
     requestAnimationFrame(() => {
       if (returnToNavigation && returnTarget?.isConnected) {
         returnTarget.focus();
@@ -115,22 +136,4 @@ export function TableViewTabConfirmationDialog({
     </div>,
     document.body,
   );
-}
-
-function tableViewTargetIsDirty(
-  controller: WorkbenchController,
-  target: TableViewTarget,
-): boolean {
-  return target.surface === "planner"
-    ? controller.plannerTableIsDirty(target.scope)
-    : controller.workspaceTableIsDirty(target.scope);
-}
-
-function activeTableViewTabId(
-  controller: WorkbenchController,
-  target: TableViewTarget,
-): string {
-  return target.surface === "planner"
-    ? controller.plannerTableTabs(target.scope).activeTabId
-    : controller.workspaceTableTabs(target.scope).activeTabId;
 }

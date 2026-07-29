@@ -63,6 +63,9 @@ export type TableViewControlsAdapter = {
   candidates: PlannerGroupCandidate[];
   filterOptions: PlannerFilterOptions;
   activeControlsAriaLabel?: string;
+  dropdownIdPrefix: string;
+  isDefaultSort(rules: PlannerSortRule[]): boolean;
+  missSuccessFocusTarget?: string;
   update(
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
   ): void;
@@ -102,14 +105,10 @@ export function TableViewControls({
   const sortPanelRef = useRef<HTMLDivElement>(null);
   const groupPanelRef = useRef<HTMLDivElement>(null);
   const safeScopeId = adapter.scopeId.replaceAll(".", "-");
-  const dropdownPrefix =
-    adapter.scopeId.startsWith("workspace.") || adapter.scopeId.startsWith("detail.")
-      ? "table-view"
-      : "planner";
   const dropdownIds: Record<TableViewDropdownKind, string> = {
-    filter: `${dropdownPrefix}-filter-dropdown-${safeScopeId}`,
-    sort: `${dropdownPrefix}-sort-dropdown-${safeScopeId}`,
-    group: `${dropdownPrefix}-group-dropdown-${safeScopeId}`,
+    filter: `${adapter.dropdownIdPrefix}-filter-dropdown-${safeScopeId}`,
+    sort: `${adapter.dropdownIdPrefix}-sort-dropdown-${safeScopeId}`,
+    group: `${adapter.dropdownIdPrefix}-group-dropdown-${safeScopeId}`,
   };
   const triggerRefs: Record<
     TableViewDropdownKind,
@@ -127,10 +126,7 @@ export function TableViewControls({
     sort: sortPanelRef,
     group: groupPanelRef,
   };
-  const showSort = !isDefaultTableViewSort(
-    adapter.scopeId,
-    adapter.settings.sortRules,
-  );
+  const showSort = !adapter.isDefaultSort(adapter.settings.sortRules);
 
   useEffect(() => {
     if (!openDropdown) return;
@@ -200,7 +196,7 @@ export function TableViewControls({
           buttonRef={filterTriggerRef}
           ariaExpanded={openDropdown === "filter"}
           ariaControls={dropdownIds.filter}
-          missSuccessFocusTarget={adapter.scopeId}
+          missSuccessFocusTarget={adapter.missSuccessFocusTarget}
         >
           <Filter size={16} aria-hidden="true" />
         </TableViewDropdownButton>
@@ -332,10 +328,7 @@ export function TableViewActivePills({
     adapter.groupOptions,
     adapter.settings.groupSettings.groupBy,
   );
-  const showSort = !isDefaultTableViewSort(
-    adapter.scopeId,
-    adapter.settings.sortRules,
-  );
+  const showSort = !adapter.isDefaultSort(adapter.settings.sortRules);
 
   return (
     <TableViewActiveControlPills
@@ -1283,20 +1276,6 @@ function effectiveTableViewGroupValue(
   value: PlannerGroupBy,
 ): PlannerGroupBy {
   return groupOptions.some((option) => option.value === value) ? value : "none";
-}
-
-function isDefaultTableViewSort(
-  scopeId: string,
-  rules: PlannerSortRule[],
-): boolean {
-  const defaultRule = scopeId.startsWith("workspace.") || scopeId.startsWith("detail.")
-    ? { field: "updated", direction: "desc" }
-    : scopeId.startsWith("daily.")
-      ? { field: "priority", direction: "asc" }
-      : { field: "scheduled", direction: "asc" };
-  return rules.length === 1 &&
-    rules[0]?.field === defaultRule.field &&
-    rules[0]?.direction === defaultRule.direction;
 }
 
 function tableViewControlLabel(value: string): string {

@@ -5,6 +5,9 @@ import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
+import { TableViewControls } from "@/features/workbench/ui/TableViewControls";
+import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 beforeEach(() => {
@@ -285,6 +288,87 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByText("CONTROL. ANALYZE. OPTIMIZE."),
     ).toBeInTheDocument();
+  });
+
+  it("uses supplied table-control policy without interpreting the scope name", async () => {
+    const user = userEvent.setup();
+    const adapter = {
+      scopeId: "unconventional.scope",
+      title: "Unconventional",
+      settings: {
+        filterMode: "and" as const,
+        filterRules: [],
+        sortRules: [{ id: "custom-sort", field: "updated" as const, direction: "desc" as const }],
+        groupSettings: defaultPlannerGroupSettings(),
+      },
+      filterFields: ["title"] as const,
+      sortFields: ["updated"] as const,
+      groupOptions: [{ value: "none" as const, label: "None" }],
+      candidates: [],
+      filterOptions: {
+        tags: [],
+        daily: {
+          tags: [],
+          areas: [],
+          projects: [],
+          routines: [],
+          statuses: [],
+          priorities: [],
+          horizons: [],
+          parents: [],
+          materializationPolicies: [],
+          participants: [],
+        },
+      },
+      dropdownIdPrefix: "supplied-policy",
+      isDefaultSort: () => true,
+      update: () => undefined,
+      add: () => undefined,
+    };
+    const { rerender } = render(<TableViewControls adapter={adapter} />);
+
+    const sortTrigger = screen.getByRole("button", { name: "Sort Unconventional" });
+    const filterTrigger = screen.getByRole("button", { name: "Filter Unconventional" });
+    expect(sortTrigger).toHaveAttribute("data-active", "false");
+    expect(filterTrigger).not.toHaveAttribute("data-planner-miss-success-focus");
+
+    rerender(
+      <TableViewControls
+        adapter={{ ...adapter, missSuccessFocusTarget: "supplied-focus-target" }}
+      />,
+    );
+    expect(filterTrigger).toHaveAttribute(
+      "data-planner-miss-success-focus",
+      "supplied-focus-target",
+    );
+
+    await user.click(filterTrigger);
+    expect(screen.getByRole("dialog", { name: "Filter Unconventional" })).toHaveAttribute(
+      "id",
+      "supplied-policy-filter-dropdown-unconventional-scope",
+    );
+  });
+
+  it("uses supplied confirmation lookups without interpreting the target surface", () => {
+    const target = { surface: "unconventional", scope: "unconventional.scope" };
+    const confirmation = {
+      kind: "delete" as const,
+      target,
+      targetTabId: "active-view",
+    };
+    const adapter = {
+      confirmation,
+      cancel: () => undefined,
+      confirm: () => undefined,
+      isDirty: () => true,
+      activeTabId: () => "active-view",
+    };
+
+    render(<TableViewTabConfirmationDialog adapter={adapter} />);
+
+    expect(screen.getByRole("dialog", { name: "Delete this view?" })).toHaveTextContent(
+      "Its unsaved filter, sort, and group changes will also be discarded.",
+    );
   });
 
   it("does not render static overview cards", () => {

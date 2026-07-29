@@ -1151,6 +1151,14 @@ function PlannerTableHeader({
     candidates,
     filterOptions,
     activeControlsAriaLabel: "Active planner controls",
+    dropdownIdPrefix: "planner",
+    isDefaultSort: (rules) => {
+      const defaultField = tableId.startsWith("daily.") ? "priority" : "scheduled";
+      return rules.length === 1 &&
+        rules[0]?.field === defaultField &&
+        rules[0]?.direction === "asc";
+    },
+    missSuccessFocusTarget: tableId,
     update: (updater) => controller.updatePlannerTableSettings(tableId, updater),
     add: () => controller.openPlannerCreationDialog({
       ...creationContext,
