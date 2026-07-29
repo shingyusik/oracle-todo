@@ -59,4 +59,15 @@ describe("MarkdownNoteEditor", () => {
 
     expect(screen.getByRole("textbox", { name: "Markdown note" })).toHaveFocus();
   });
+
+  it("keeps a keyboard-activated link in rendered mode", async () => {
+    const user = userEvent.setup();
+    render(<MarkdownNoteEditor value="[docs](https://example.com)" onChange={vi.fn()} />);
+
+    screen.getByRole("link", { name: "docs" }).focus();
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByRole("link", { name: "docs" })).toHaveFocus();
+    expect(screen.queryByRole("textbox", { name: "Markdown note" })).not.toBeInTheDocument();
+  });
 });

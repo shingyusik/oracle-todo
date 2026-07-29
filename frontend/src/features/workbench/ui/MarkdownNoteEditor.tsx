@@ -35,6 +35,10 @@ export function MarkdownNoteEditor({ value, onChange }: MarkdownNoteEditorProps)
       aria-label="Edit Markdown note"
       onClick={beginEditing}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) {
+          return;
+        }
+
         if (event.key === "Enter" || event.key === " " || event.key === "Space") {
           event.preventDefault();
           beginEditing();
