@@ -1694,6 +1694,10 @@ button {
   min-width: 0;
 }
 
+.markdown-note-rendered {
+  position: relative;
+}
+
 .markdown-note-surface,
 .markdown-note-input {
   width: 100%;
@@ -1705,7 +1709,7 @@ button {
 
 .markdown-note-surface {
   min-height: 180px;
-  padding: 18px 0;
+  padding: 18px 44px 18px 0;
   cursor: text;
 }
 
@@ -1713,10 +1717,30 @@ button {
   background: var(--color-canvas-light);
 }
 
-.markdown-note-surface:focus-visible,
+.markdown-note-edit-button:focus-visible,
 .markdown-note-input:focus {
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
+}
+
+.markdown-note-edit-button {
+  position: absolute;
+  top: 10px;
+  right: 0;
+  display: inline-grid;
+  width: 32px;
+  min-height: 32px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-shade-50);
+}
+
+.markdown-note-edit-button:hover {
+  border-color: var(--color-hairline-light);
+  background: var(--color-canvas-light);
+  color: var(--color-ink);
 }
 
 .markdown-note-input {
@@ -1784,6 +1808,12 @@ button {
   display: block;
   overflow-x: auto;
   border-collapse: collapse;
+}
+
+.markdown-note-surface hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--color-hairline-light);
 }
 
 .markdown-note-surface th,

@@ -16,14 +16,16 @@ describe("MarkdownNoteEditor", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Plan" })).toBeInTheDocument();
+    const heading = screen.getByRole("heading", { name: "Plan" });
+    const link = screen.getByRole("link", { name: "docs" });
+
+    expect(heading).toBeInTheDocument();
     expect(screen.getByRole("checkbox")).toBeChecked();
     expect(screen.getByText("old").tagName).toBe("DEL");
-    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute("target", "_blank");
-    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute(
-      "rel",
-      "noreferrer noopener",
-    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer noopener");
+    expect(heading.closest("button, [role='button']")).toBeNull();
+    expect(link.closest("button, [role='button']")).toBeNull();
     expect(document.querySelector("script")).toBeNull();
   });
 
@@ -34,12 +36,21 @@ describe("MarkdownNoteEditor", () => {
     expect(screen.getByRole("button", { name: "Edit Markdown note" })).toBeInTheDocument();
   });
 
-  it("enters edit mode by click, updates the draft, and renders again on blur", async () => {
+  it("enters edit mode by clicking the rendered surface, updates the draft, and renders again on blur", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<MarkdownNoteEditor value="**Draft**" onChange={onChange} />);
+    const { container } = render(
+      <MarkdownNoteEditor value="**Draft**" onChange={onChange} />,
+    );
 
-    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
+    const surface = container.querySelector(".markdown-note-surface");
+    expect(surface).not.toBeNull();
+    if (!surface) {
+      throw new Error("Missing rendered Markdown note surface");
+    }
+    expect(surface).not.toHaveAttribute("role");
+    expect(surface).not.toHaveAttribute("tabindex");
+    await user.click(surface);
     const input = screen.getByRole("textbox", { name: "Markdown note" });
     expect(input).toHaveFocus();
 
@@ -50,15 +61,30 @@ describe("MarkdownNoteEditor", () => {
     expect(screen.getByRole("button", { name: "Edit Markdown note" })).toBeInTheDocument();
   });
 
-  it.each(["{Enter}", "{Space}"])("enters edit mode with %s", async (key) => {
+  it("enters edit mode through the dedicated edit control by pointer", async () => {
     const user = userEvent.setup();
     render(<MarkdownNoteEditor value="Draft" onChange={vi.fn()} />);
 
-    screen.getByRole("button", { name: "Edit Markdown note" }).focus();
-    await user.keyboard(key);
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
 
     expect(screen.getByRole("textbox", { name: "Markdown note" })).toHaveFocus();
   });
+
+  it.each([
+    ["Enter", "{Enter}"],
+    ["Space", " "],
+  ])(
+    "enters edit mode through the dedicated edit control with %s",
+    async (_keyName, key) => {
+      const user = userEvent.setup();
+      render(<MarkdownNoteEditor value="Draft" onChange={vi.fn()} />);
+
+      screen.getByRole("button", { name: "Edit Markdown note" }).focus();
+      await user.keyboard(key);
+
+      expect(screen.getByRole("textbox", { name: "Markdown note" })).toHaveFocus();
+    },
+  );
 
   it("keeps a keyboard-activated link in rendered mode", async () => {
     const user = userEvent.setup();

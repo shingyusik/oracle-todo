@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Pencil } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -28,48 +29,42 @@ export function MarkdownNoteEditor({ value, onChange }: MarkdownNoteEditorProps)
   }
 
   return (
-    <div
-      className="markdown-note-surface"
-      role="button"
-      tabIndex={0}
-      aria-label="Edit Markdown note"
-      onClick={beginEditing}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) {
-          return;
-        }
-
-        if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-          event.preventDefault();
-          beginEditing();
-        }
-      }}
-    >
-      {value ? (
-        <ReactMarkdown
-          skipHtml
-          remarkPlugins={[remarkGfm]}
-          components={{
-            a({ node: _node, onClick, ...props }) {
-              return (
-                <a
-                  {...props}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onClick?.(event);
-                  }}
-                />
-              );
-            },
-          }}
-        >
-          {value}
-        </ReactMarkdown>
-      ) : (
-        <p className="markdown-note-placeholder">Write a note with Markdown…</p>
-      )}
+    <div className="markdown-note-rendered">
+      <div className="markdown-note-surface" onClick={beginEditing}>
+        {value ? (
+          <ReactMarkdown
+            skipHtml
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a({ node: _node, onClick, ...props }) {
+                return (
+                  <a
+                    {...props}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onClick?.(event);
+                    }}
+                  />
+                );
+              },
+            }}
+          >
+            {value}
+          </ReactMarkdown>
+        ) : (
+          <p className="markdown-note-placeholder">Write a note with Markdown…</p>
+        )}
+      </div>
+      <button
+        type="button"
+        className="markdown-note-edit-button"
+        aria-label="Edit Markdown note"
+        onClick={beginEditing}
+      >
+        <Pencil aria-hidden="true" size={16} />
+      </button>
     </div>
   );
 }

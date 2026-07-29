@@ -5434,6 +5434,16 @@ describe("WorkbenchPageClient", () => {
     const linkedItems = screen.getByRole("region", { name: "Linked items" });
     expect(within(linkedItems).getByRole("heading", { name: "Projects · 1" })).toBeInTheDocument();
     expect(within(linkedItems).getByRole("heading", { name: "Tasks · 1" })).toBeInTheDocument();
+    const layout = linkedItems.closest(".detail-layout");
+    const note = layout?.querySelector(".detail-note");
+    expect(layout).not.toBeNull();
+    expect(note).not.toBeNull();
+    if (!layout || !note) {
+      throw new Error("Missing linked-item detail layout or Markdown note");
+    }
+    expect(linkedItems.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(layout.lastElementChild).toBe(note);
     await user.click(within(linkedItems).getByRole("button", { name: "Open Checkup details" }));
     expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
     const areaSelect = screen.getByLabelText("Area for Checkup");
