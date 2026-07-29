@@ -23,6 +23,11 @@ pub enum Command {
     Init,
     /// Report the initialization and health of each engine.
     HealthCheck,
+    /// Import data from an existing engine.
+    Import {
+        #[command(subcommand)]
+        command: ImportCommand,
+    },
     /// Run an existing ToDo command.
     #[command(disable_help_flag = true)]
     Todo {
@@ -31,18 +36,31 @@ pub enum Command {
     },
 }
 
+#[derive(Debug, Subcommand)]
+pub enum ImportCommand {
+    /// Copy an existing ToDo database into Raven.
+    Todo {
+        #[arg(long)]
+        source_home: Option<PathBuf>,
+    },
+}
+
 impl Command {
     pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Init => "init",
             Self::HealthCheck => "health-check",
+            Self::Import { .. } => "import",
             Self::Todo { .. } => "todo",
         }
     }
 
     pub(crate) fn engine(&self) -> &'static str {
         match self {
-            Self::Todo { .. } => "todo",
+            Self::Import {
+                command: ImportCommand::Todo { .. },
+            }
+            | Self::Todo { .. } => "todo",
             Self::Init | Self::HealthCheck => "raven",
         }
     }

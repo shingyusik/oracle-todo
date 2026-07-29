@@ -1,16 +1,20 @@
+pub mod import;
 pub mod init;
 pub mod todo;
 
 use anyhow::Result;
 use todo_engine::interfaces::cli::TodoHealth;
 
-use crate::cli::Command;
+use crate::cli::{Command, ImportCommand};
 use crate::config::RavenPaths;
 
 pub fn execute(paths: &RavenPaths, command: Command) -> Result<()> {
     match command {
         Command::Init => init::run(paths),
         Command::HealthCheck => health_check(paths),
+        Command::Import {
+            command: ImportCommand::Todo { source_home },
+        } => import::run(paths, source_home),
         Command::Todo { args } => todo::run(paths, args),
     }
 }
