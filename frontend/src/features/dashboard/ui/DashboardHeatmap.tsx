@@ -3,9 +3,16 @@ import React from "react";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import type { HeatmapChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 
+export type DashboardHeatmapVisibility = {
+  limit: number;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+};
+
 type DashboardHeatmapProps = {
   chart: HeatmapChartSpec;
   onNavigate: (destination: DashboardDestination) => void;
+  visibility?: DashboardHeatmapVisibility;
 };
 
 type HeatmapCellStyle = React.CSSProperties & {
@@ -15,10 +22,16 @@ type HeatmapCellStyle = React.CSSProperties & {
 export function DashboardHeatmap({
   chart,
   onNavigate,
+  visibility,
 }: DashboardHeatmapProps) {
   const hasProgress = chart.rows.some(
     (row) => row.progressLabel !== undefined,
   );
+  const canExpand = visibility !== undefined
+    && chart.rows.length > visibility.limit;
+  const visibleRows = canExpand && !visibility.expanded
+    ? chart.rows.slice(0, visibility.limit)
+    : chart.rows;
 
   return (
     <div
@@ -40,7 +53,7 @@ export function DashboardHeatmap({
             </tr>
           </thead>
           <tbody>
-            {chart.rows.map((row) => {
+            {visibleRows.map((row) => {
               const attentionLabel = projectAttentionLabel(row.attention);
               const rowLabel = attentionLabel
                 ? `${row.label} · ${attentionLabel}`
@@ -101,6 +114,23 @@ export function DashboardHeatmap({
           </tbody>
         </table>
       </div>
+      {canExpand ? (
+        <footer className="dashboard-heatmap-footer">
+          <button
+            type="button"
+            className="dashboard-heatmap-toggle"
+            aria-expanded={visibility.expanded}
+            aria-label={`${chart.ariaLabel} ${
+              visibility.expanded ? "접기" : "전체 보기"
+            }`}
+            onClick={() => visibility.onExpandedChange(!visibility.expanded)}
+          >
+            {visibility.expanded
+              ? "접기"
+              : `전체 보기 (총 ${chart.rows.length}개)`}
+          </button>
+        </footer>
+      ) : null}
     </div>
   );
 }

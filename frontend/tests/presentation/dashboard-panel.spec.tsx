@@ -728,4 +728,80 @@ describe("DashboardPanel", () => {
     ]);
     expect(screen.getByText("Progress 50%")).toBeInTheDocument();
   });
+
+  it("limits controlled heatmap previews and requests expansion", async () => {
+    const user = setupUser();
+    const onExpandedChange = vi.fn();
+    const chart: DashboardChartSpec = {
+      kind: "heatmap",
+      ariaLabel: "Area status",
+      columns: [{ id: "completed", label: "Completed", tone: "success" }],
+      rows: heatmapRows(6),
+    };
+
+    render(
+      <DashboardChart
+        chart={chart}
+        onNavigate={vi.fn()}
+        heatmapVisibility={{
+          limit: 5,
+          expanded: false,
+          onExpandedChange,
+        }}
+      />,
+    );
+
+    expect(within(screen.getByRole("table")).getAllByRole("row"))
+      .toHaveLength(6);
+    const toggle = screen.getByRole("button", {
+      name: "Area status 전체 보기",
+    });
+    expect(toggle).toHaveTextContent("전체 보기 (총 6개)");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(onExpandedChange).toHaveBeenCalledWith(true);
+  });
+
+  it("omits the controlled heatmap toggle when every row is visible", () => {
+    const chart: DashboardChartSpec = {
+      kind: "heatmap",
+      ariaLabel: "Area status",
+      columns: [{ id: "completed", label: "Completed", tone: "success" }],
+      rows: heatmapRows(5),
+    };
+
+    render(
+      <DashboardChart
+        chart={chart}
+        onNavigate={vi.fn()}
+        heatmapVisibility={{
+          limit: 5,
+          expanded: false,
+          onExpandedChange: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Area status 전체 보기" }),
+    ).toBeNull();
+  });
 });
+
+function heatmapRows(count: number): Extract<
+  DashboardChartSpec,
+  { kind: "heatmap" }
+>["rows"] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `area-${index + 1}`,
+    label: `Area ${index + 1}`,
+    destination: { kind: "area-detail", itemId: `area-${index + 1}` },
+    cells: [{
+      id: `area-${index + 1}-completed`,
+      columnId: "completed",
+      value: index,
+      intensityPercent: 0,
+      ariaLabel: `Area ${index + 1}: ${index} completed`,
+    }],
+  }));
+}
