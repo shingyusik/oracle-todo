@@ -7,14 +7,16 @@ export function WorkspaceGroupedRows({
   groups,
   renderRow,
   emptyMessage,
+  bodyClassName,
 }: {
   groups: WorkspaceViewGroup[];
   renderRow(item: WorkspaceItemModel): React.ReactNode;
   emptyMessage: string;
+  bodyClassName?: string;
 }): React.ReactElement {
   if (groups.length === 0) {
     return (
-      <tbody>
+      <tbody className={bodyClassName}>
         <tr className="workspace-table-empty-row">
           <td className="items-message workspace-table-empty-cell">
             {emptyMessage}
@@ -25,7 +27,7 @@ export function WorkspaceGroupedRows({
   }
 
   if (groups.length === 1 && groups[0]?.key === "all") {
-    return <tbody>{groups[0].items.map(renderRow)}</tbody>;
+    return <tbody className={bodyClassName}>{groups[0].items.map(renderRow)}</tbody>;
   }
 
   return (
@@ -35,7 +37,11 @@ export function WorkspaceGroupedRows({
         const columnCount = workspaceRowColumnCount(rows);
 
         return (
-          <tbody aria-label={`${group.label} group`} key={group.key}>
+          <tbody
+            aria-label={`${group.label} group`}
+            className={bodyClassName}
+            key={group.key}
+          >
             <tr className="workspace-group-heading">
               <th scope="rowgroup" colSpan={columnCount}>
                 {group.label}

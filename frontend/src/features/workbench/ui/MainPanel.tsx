@@ -25,6 +25,7 @@ import {
   buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
   buildYearlyPeriodGoalCardsModel,
+  clonePlannerTableSettings,
   type DailyPlannerSection,
   filterPlannerItemsByRules,
   groupPlannerItems,
@@ -53,6 +54,8 @@ import {
   type WorkspaceItemTransitionAction,
 } from "@/features/workbench/model/workbench-model";
 import {
+  collapseWorkspaceGroups,
+  detailWorkspaceScope,
   deriveWorkspaceViewGroups,
   workspaceFilterFieldsForScope,
   workspaceScopeForPanel,
@@ -298,25 +301,15 @@ function DetailView({ controller }: MainPanelProps) {
           <section className="linked-items" aria-label="Linked items">
             <h2>Linked items</h2>
             {groups.map((group) => (
-              <section className="linked-items-group" key={group.type}>
-                <h3>
-                  {group.label} · {group.items.length}
-                </h3>
-                <ul>
-                  {group.items.map((linkedItem) => (
-                    <li key={linkedItem.id}>
-                      <button
-                        type="button"
-                        aria-label={`Open ${linkedItem.title} details`}
-                        onClick={() => openLinkedItem(linkedItem)}
-                      >
-                        <span>{linkedItem.title}</span>
-                        <span>{linkedItem.status}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+              <LinkedItemTable
+                key={`${detailItem.id}.${group.type}`}
+                parentItem={detailItem}
+                childType={group.type}
+                childLabel={group.label}
+                items={group.items}
+                controller={controller}
+                onOpen={openLinkedItem}
+              />
             ))}
           </section>
         ) : null}
@@ -350,6 +343,158 @@ function DetailView({ controller }: MainPanelProps) {
             </div>
           </section>
         </div>
+      ) : null}
+    </section>
+  );
+}
+
+function LinkedItemTable({
+  parentItem,
+  childType,
+  childLabel,
+  items,
+  controller,
+  onOpen,
+}: {
+  parentItem: WorkspaceItemModel;
+  childType: WorkspaceItemModel["type"];
+  childLabel: string;
+  items: WorkspaceItemModel[];
+  controller: WorkbenchController;
+  onOpen(item: WorkspaceItemModel): void;
+}): React.ReactElement {
+  const [expanded, setExpanded] = React.useState(false);
+  const scope = detailWorkspaceScope(parentItem.type, childType);
+  const tabs = controller.workspaceTableTabs(scope);
+  const settings = controller.workspaceTableSettings(scope);
+  const groups = React.useMemo(
+    () => deriveWorkspaceViewGroups(
+      scope,
+      items,
+      settings,
+      controller.workspaceItems.relatedItems,
+    ),
+    [
+      controller.workspaceItems.relatedItems,
+      items,
+      scope,
+      settings,
+    ],
+  );
+  const collapsed = React.useMemo(
+    () => collapseWorkspaceGroups(
+      groups,
+      expanded ? Number.MAX_SAFE_INTEGER : 5,
+    ),
+    [expanded, groups],
+  );
+  const filterOptions: PlannerFilterOptions = {
+    ...plannerFilterOptionsForItems(
+      items,
+      controller.workspaceItems.relatedItems,
+    ),
+    storedRelationLabels: {
+      area: controller.workspaceItems.relatedItems.areas,
+      project: controller.workspaceItems.relatedItems.projects,
+      routine: controller.workspaceItems.relatedItems.routines,
+      parent: controller.workspaceItems.relatedItems.goals,
+    },
+  };
+  const groupOptions = workspaceGroupOptionsForLinkedType(childType);
+  const controlsAdapter: TableViewControlsAdapter = {
+    scopeId: scope,
+    title: childLabel,
+    settings,
+    filterFields: workspaceFilterFieldsForScope(scope),
+    sortFields: workspaceSortFieldsForScope(scope),
+    groupOptions,
+    candidates: buildPlannerGroupCandidates({
+      view: "daily",
+      groupBy: settings.groupSettings.groupBy,
+      items,
+      relatedItems: controller.workspaceItems.relatedItems,
+    }),
+    filterOptions,
+    activeControlsAriaLabel: `Active ${childLabel} controls`,
+    dropdownIdPrefix: "linked",
+    isDefaultSort: (rules) =>
+      rules.length === 1 &&
+      rules[0]?.field === "updated" &&
+      rules[0]?.direction === "desc",
+    update: (updater) => controller.updateWorkspaceTableSettings(scope, updater),
+    add: controller.openCreationDialog,
+  };
+  const viewVersion = JSON.stringify({
+    activeTabId: tabs.activeTabId,
+    settings: clonePlannerTableSettings(settings),
+  });
+
+  useEffect(() => setExpanded(false), [viewVersion]);
+
+  return (
+    <section className="linked-items-group">
+      <header className="linked-items-group-header">
+        <h3>
+          {childLabel} · {items.length}
+        </h3>
+        <TableViewControls adapter={controlsAdapter} />
+      </header>
+      <TableViewTabs
+        scopeId={scope}
+        title={childLabel}
+        controller={{
+          tabs,
+          isDirty: controller.workspaceTableIsDirty(scope),
+          select: (tabId) => controller.selectWorkspaceTableTab(scope, tabId),
+          save: () => controller.saveWorkspaceTableTab(scope),
+          create: (name) => controller.createWorkspaceTableTab(scope, name),
+          rename: (tabId, name) =>
+            controller.renameWorkspaceTableTab(scope, tabId, name),
+          requestDelete: (tabId) =>
+            controller.requestDeleteWorkspaceTableTab(scope, tabId),
+        }}
+      />
+      <TableViewActivePills adapter={controlsAdapter} />
+      <table className="linked-items-table" aria-label={`${childLabel} linked items`}>
+        <WorkspaceGroupedRows
+          groups={collapsed.groups}
+          bodyClassName="linked-items-table-body"
+          emptyMessage="No linked items match this view."
+          renderRow={(linkedItem) => (
+            <tr key={linkedItem.id}>
+              <td>
+                <button
+                  className="linked-items-row-button"
+                  type="button"
+                  aria-label={`Open ${linkedItem.title} details`}
+                  onClick={() => onOpen(linkedItem)}
+                >
+                  <span>{linkedItem.title}</span>
+                  <span>{linkedItem.status}</span>
+                </button>
+              </td>
+            </tr>
+          )}
+        />
+      </table>
+      {collapsed.hiddenCount > 0 ? (
+        <button
+          className="linked-items-overflow-action"
+          type="button"
+          aria-label={`More (${collapsed.hiddenCount}) ${childLabel}`}
+          onClick={() => setExpanded(true)}
+        >
+          More ({collapsed.hiddenCount})
+        </button>
+      ) : expanded && collapsed.visibleCount > 5 ? (
+        <button
+          className="linked-items-overflow-action"
+          type="button"
+          aria-label={`Less ${childLabel}`}
+          onClick={() => setExpanded(false)}
+        >
+          Less
+        </button>
       ) : null}
     </section>
   );
@@ -4055,6 +4200,23 @@ function workspaceGroupOptionsForPanel(
     events: [common.none, common.area, common.project, common.tag, common.status],
   };
   return options[panelId];
+}
+
+function workspaceGroupOptionsForLinkedType(
+  itemType: WorkspaceItemModel["type"],
+): { value: PlannerGroupBy; label: string }[] {
+  const panelByType: Record<
+    WorkspaceItemModel["type"],
+    WorkspaceChildTabId
+  > = {
+    area: "areas",
+    project: "projects",
+    goal: "goals",
+    routine: "routines",
+    task: "tasks",
+    event: "events",
+  };
+  return workspaceGroupOptionsForPanel(panelByType[itemType]);
 }
 
 function CreationDialog({ controller }: { controller: WorkbenchController }) {

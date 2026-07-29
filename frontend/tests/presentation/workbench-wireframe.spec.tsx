@@ -264,6 +264,161 @@ function linkedAreaItemsResponse(url: string) {
   return [];
 }
 
+function linkedAreaWithOverflowResponse(url: string) {
+  const area = { id: "area-1", type: "area", title: "Health", status: "active" };
+
+  if (url === "/todo-engine/items?type=area") {
+    return [area];
+  }
+
+  if (url === "/todo-engine/items") {
+    return [
+      area,
+      {
+        id: "project-1",
+        type: "project",
+        title: "Checkup",
+        status: "active",
+        area_id: "area-1",
+        updated_at: "2026-07-29T07:00:00Z",
+      },
+      {
+        id: "task-alpha",
+        type: "task",
+        title: "Task Alpha",
+        status: "active",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T08:00:00Z",
+      },
+      {
+        id: "task-bravo",
+        type: "task",
+        title: "Task Bravo",
+        status: "completed",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T09:00:00Z",
+      },
+      {
+        id: "task-charlie",
+        type: "task",
+        title: "Task Charlie",
+        status: "active",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T10:00:00Z",
+      },
+      {
+        id: "task-delta",
+        type: "task",
+        title: "Task Delta",
+        status: "completed",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T11:00:00Z",
+      },
+      {
+        id: "task-echo",
+        type: "task",
+        title: "Task Echo",
+        status: "active",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T12:00:00Z",
+      },
+      {
+        id: "task-foxtrot",
+        type: "task",
+        title: "Task Foxtrot",
+        status: "active",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T13:00:00Z",
+      },
+      {
+        id: "task-indirect",
+        type: "task",
+        title: "Indirect project task",
+        status: "active",
+        project_id: "project-1",
+        updated_at: "2026-07-29T14:00:00Z",
+      },
+    ];
+  }
+
+  return [];
+}
+
+function linkedItemTypeGroup(name: string): HTMLElement {
+  const group = screen.getByRole("heading", { name }).closest(".linked-items-group");
+  expect(group).not.toBeNull();
+  if (!group) {
+    throw new Error(`Missing linked item group: ${name}`);
+  }
+  return group as HTMLElement;
+}
+
+async function openOverflowAreaDetail(user: ReturnType<typeof userEvent.setup>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaWithOverflowResponse(url),
+      }),
+    ),
+  );
+
+  render(<WorkbenchPageClient />);
+  await user.click(screen.getByRole("button", { name: "ToDo" }));
+  await user.click(screen.getByRole("button", { name: "Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Areas" }));
+  await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+}
+
+function nestedGoalOverflowResponse(url: string) {
+  const parent = {
+    id: "goal-parent",
+    type: "goal",
+    title: "Parent goal",
+    status: "active",
+    horizon: "year",
+  };
+  const child = {
+    id: "goal-child",
+    type: "goal",
+    title: "Child goal",
+    status: "active",
+    horizon: "month",
+    parent_id: "goal-parent",
+  };
+  const parentTasks = Array.from({ length: 6 }, (_, index) => ({
+    id: `parent-task-${index + 1}`,
+    type: "task",
+    title: `Parent Task ${index + 1}`,
+    status: "active",
+    parent_id: "goal-parent",
+    updated_at: `2026-07-29T${String(index + 8).padStart(2, "0")}:00:00Z`,
+  }));
+  const childTasks = Array.from({ length: 6 }, (_, index) => ({
+    id: `child-task-${index + 1}`,
+    type: "task",
+    title: `Child Task ${index + 1}`,
+    status: "active",
+    parent_id: "goal-child",
+    updated_at: `2026-07-30T${String(index + 8).padStart(2, "0")}:00:00Z`,
+  }));
+
+  if (url === "/todo-engine/items?type=goal") {
+    return [parent, child];
+  }
+  if (url === "/todo-engine/items") {
+    return [parent, child, ...parentTasks, ...childTasks];
+  }
+  return [];
+}
+
 function taskWithoutLinkedItemsResponse(url: string) {
   const task = { id: "task-1", type: "task", title: "Book appointment", status: "active" };
 
@@ -5991,6 +6146,175 @@ describe("WorkbenchPageClient", () => {
     const areaSelect = screen.getByLabelText("Area for Checkup");
     expect(areaSelect).toHaveValue("area-1");
     expect(within(areaSelect).getByRole("option", { name: "Health" })).toHaveValue("area-1");
+  });
+
+  it("caps each linked-item type at five direct children with accessible More and Less actions", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const tasks = linkedItemTypeGroup("Tasks · 6");
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5);
+    expect(within(tasks).queryByRole("button", {
+      name: "Open Indirect project task details",
+    })).toBeNull();
+
+    await user.click(within(tasks).getByRole("button", { name: "More (1) Tasks" }));
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(6);
+    expect(within(tasks).getByRole("button", { name: "Less Tasks" })).toBeVisible();
+
+    await user.click(within(tasks).getByRole("button", { name: "Less Tasks" }));
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5);
+    expect(within(tasks).getByRole("button", { name: "More (1) Tasks" })).toBeVisible();
+  });
+
+  it("starts retained linked types collapsed after navigating to another detail item", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const areaTasks = linkedItemTypeGroup("Tasks · 6");
+    await user.click(within(areaTasks).getByRole("button", { name: "More (1) Tasks" }));
+    expect(within(areaTasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(6);
+
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    expect(screen.getByLabelText("Checkup details")).toBeVisible();
+    const projectTasks = linkedItemTypeGroup("Tasks · 7");
+    expect(within(projectTasks).getAllByRole("button", {
+      name: /^Open (?:Task \w+|Indirect project task) details$/,
+    })).toHaveLength(5);
+    expect(within(projectTasks).getByRole("button", {
+      name: "More (2) Tasks",
+    })).toBeVisible();
+  });
+
+  it("remounts same-type linked lists when navigating between nested Goal details", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => nestedGoalOverflowResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+    await user.click(await screen.findByRole("button", {
+      name: "Open details for Parent goal",
+    }));
+
+    const parentTasks = linkedItemTypeGroup("Tasks · 6");
+    await user.click(within(parentTasks).getByRole("button", { name: "More (1) Tasks" }));
+    expect(within(parentTasks).getAllByRole("button", {
+      name: /^Open Parent Task \d details$/,
+    })).toHaveLength(6);
+
+    await user.click(screen.getByRole("button", { name: "Open Child goal details" }));
+    expect(screen.getByLabelText("Child goal details")).toBeVisible();
+    const childTasks = linkedItemTypeGroup("Tasks · 6");
+    expect(within(childTasks).getAllByRole("button", {
+      name: /^Open Child Task \d details$/,
+    })).toHaveLength(5);
+    expect(within(childTasks).getByRole("button", { name: "More (1) Tasks" })).toBeVisible();
+  });
+
+  it("keeps linked Project and Task controls independent and removes overflow after filtering", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const projects = linkedItemTypeGroup("Projects · 1");
+    const tasks = linkedItemTypeGroup("Tasks · 6");
+    expect(within(projects).getByRole("group", { name: "Projects controls" })).toBeVisible();
+    expect(within(tasks).getByRole("group", { name: "Tasks controls" })).toBeVisible();
+    expect(within(projects).getByRole("button", { name: "Filter Projects" })).toBeVisible();
+    expect(within(projects).getByRole("button", { name: "Sort Projects" })).toBeVisible();
+    expect(within(projects).getByRole("button", { name: "Group Projects" })).toBeVisible();
+    expect(within(tasks).getByRole("button", { name: "Filter Tasks" })).toBeVisible();
+    expect(within(tasks).getByRole("button", { name: "Sort Tasks" })).toBeVisible();
+    expect(within(tasks).getByRole("button", { name: "Group Tasks" })).toBeVisible();
+    expect(within(projects).getByRole("tablist", { name: "Projects views" })).toBeVisible();
+    expect(within(tasks).getByRole("tablist", { name: "Tasks views" })).toBeVisible();
+
+    await user.click(within(tasks).getByRole("button", { name: "Filter Tasks" }));
+    const filter = screen.getByRole("dialog", { name: "Filter Tasks" });
+    await user.click(within(filter).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filter).getByRole("option", { name: "Status" }));
+    await user.click(within(filter).getByRole("button", {
+      name: "Select Status filter values",
+    }));
+    await user.click(within(filter).getByRole("checkbox", { name: "completed" }));
+
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(2);
+    expect(within(tasks).queryByRole("button", { name: /More/ })).toBeNull();
+    expect(within(projects).getByRole("button", {
+      name: "Open Checkup details",
+    })).toBeVisible();
+    expect(within(projects).queryByText("No linked items match this view.")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Tasks · 6" })).toBeVisible();
+  });
+
+  it("applies the five-row cap across linked Task groups instead of per group", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const tasks = linkedItemTypeGroup("Tasks · 6");
+    await user.click(within(tasks).getByRole("button", { name: "Group Tasks" }));
+    const groupDialog = screen.getByRole("dialog", { name: "Group Tasks" });
+    await user.click(within(groupDialog).getByRole("button", {
+      name: "Choose group property",
+    }));
+    await user.click(within(groupDialog).getByRole("option", { name: "Status" }));
+
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5);
+    expect(within(tasks).getByRole("rowgroup", { name: "Active group" })).toBeVisible();
+    expect(within(tasks).getByRole("rowgroup", { name: "Completed group" })).toBeVisible();
+    expect(within(tasks).getByRole("button", { name: "More (1) Tasks" })).toBeVisible();
+  });
+
+  it("collapses expanded linked Tasks when their active tab or draft settings change", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const tasks = linkedItemTypeGroup("Tasks · 6");
+    await user.click(within(tasks).getByRole("button", { name: "More (1) Tasks" }));
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(6);
+
+    const taskTabs = within(tasks).getByRole("tablist", { name: "Tasks views" });
+    await user.click(within(taskTabs).getByRole("button", { name: "Add Tasks view" }));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5));
+    expect(within(taskTabs).getByRole("tab", { name: "새 보기" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await user.click(within(tasks).getByRole("button", { name: "More (1) Tasks" }));
+    await user.click(within(tasks).getByRole("button", { name: "Sort Tasks" }));
+    const sortDialog = screen.getByRole("dialog", { name: "Sort Tasks" });
+    await user.selectOptions(within(sortDialog).getByLabelText("Sort field"), "title");
+    await waitFor(() => expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5));
+    expect(within(tasks).getByRole("button", { name: "More (1) Tasks" })).toBeVisible();
   });
 
   it("confirms before discarding a dirty detail draft to open a linked item", async () => {
