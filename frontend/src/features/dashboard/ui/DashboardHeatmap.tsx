@@ -32,6 +32,15 @@ export function DashboardHeatmap({
   const visibleRows = canExpand && !visibility.expanded
     ? chart.rows.slice(0, visibility.limit)
     : chart.rows;
+  const expanded = visibility?.expanded ?? false;
+  const limit = visibility?.limit ?? chart.rows.length;
+  const onExpandedChange = visibility?.onExpandedChange;
+
+  React.useEffect(() => {
+    if (expanded && chart.rows.length <= limit) {
+      onExpandedChange?.(false);
+    }
+  }, [chart.rows.length, expanded, limit, onExpandedChange]);
 
   return (
     <div
