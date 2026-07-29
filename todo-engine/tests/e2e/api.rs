@@ -98,6 +98,71 @@ async fn planner_settings_require_an_object_value() {
 }
 
 #[tokio::test]
+async fn workspace_view_settings_round_trip_through_sqlite() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let workspace_views = json!({
+        "workspace.task": {
+            "tabs": [{
+                "id": "task-focus",
+                "name": "Focus",
+                "settings": {"filterMode": "or"}
+            }]
+        }
+    });
+
+    let planner_response = json_request(
+        router(&db_path).unwrap(),
+        "PUT",
+        "/settings/planner",
+        json!({"value": {"tableTabs": {"daily.today": {"tabs": []}}}}),
+    )
+    .await;
+    assert_eq!(planner_response.status(), 200);
+
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PUT",
+        "/settings/workspace-views",
+        json!({"value": workspace_views}),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = empty_request(
+        router(&db_path).unwrap(),
+        "GET",
+        "/settings/workspace-views",
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_json(response).await, workspace_views);
+
+    let planner_response =
+        empty_request(router(&db_path).unwrap(), "GET", "/settings/planner").await;
+    assert_eq!(planner_response.status(), 200);
+    assert_eq!(
+        body_json(planner_response).await,
+        json!({"tableTabs": {"daily.today": {"tabs": []}}})
+    );
+}
+
+#[tokio::test]
+async fn workspace_view_settings_require_an_object_value() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("todo.sqlite");
+    let response = json_request(
+        router(&db_path).unwrap(),
+        "PUT",
+        "/settings/workspace-views",
+        json!({"value": ["not", "an", "object"]}),
+    )
+    .await;
+
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
 async fn task_propose_and_items_use_same_service_path() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");

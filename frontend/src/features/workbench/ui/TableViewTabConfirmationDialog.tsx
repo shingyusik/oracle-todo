@@ -1,14 +1,38 @@
 import React, { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
-import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
+export type TableViewConfirmationTarget = {
+  scope: string;
+};
 
-export function PlannerTabConfirmationDialog({
-  controller,
+export type TableViewTabConfirmation<TTarget extends TableViewConfirmationTarget> =
+  | {
+      kind: "select" | "delete";
+      target: TTarget;
+      targetTabId: string;
+    }
+  | {
+      kind: "navigate";
+    };
+
+export type TableViewTabConfirmationDialogAdapter<
+  TTarget extends TableViewConfirmationTarget,
+> = {
+  confirmation: TableViewTabConfirmation<TTarget> | null;
+  confirm(): void;
+  cancel(): void;
+  isDirty(target: TTarget): boolean;
+  activeTabId(target: TTarget): string;
+};
+
+export function TableViewTabConfirmationDialog<
+  TTarget extends TableViewConfirmationTarget,
+>({
+  adapter,
 }: {
-  controller: WorkbenchController;
+  adapter: TableViewTabConfirmationDialogAdapter<TTarget>;
 }): React.JSX.Element | null {
-  const confirmation = controller.plannerTabConfirmation;
+  const confirmation = adapter.confirmation;
   const cancelRef = useRef<HTMLButtonElement>(null);
   const actionRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -25,28 +49,25 @@ export function PlannerTabConfirmationDialog({
   const activeConfirmation = confirmation;
   const title = activeConfirmation.kind === "delete"
     ? "Delete this view?"
-    : activeConfirmation.kind === "select"
-      ? "Discard unsaved view changes?"
-      : "Discard unsaved Planner changes?";
-  const tableTabs = activeConfirmation.kind === "delete"
-    ? controller.plannerTableTabs(activeConfirmation.tableId)
-    : null;
+    : "Discard unsaved view changes?";
   const discardsDirtySettings =
     activeConfirmation.kind === "delete" &&
-    tableTabs?.activeTabId === activeConfirmation.targetTabId &&
-    controller.plannerTableIsDirty(activeConfirmation.tableId);
+    adapter.isDirty(activeConfirmation.target) &&
+    adapter.activeTabId(activeConfirmation.target) ===
+      activeConfirmation.targetTabId;
 
   function focusActiveTab() {
     if (activeConfirmation.kind === "navigate") return;
+    const scope = activeConfirmation.target.scope;
     const tablist = Array.from(
-      document.querySelectorAll<HTMLElement>("[data-planner-table-id]"),
-    ).find((element) => element.dataset.plannerTableId === activeConfirmation.tableId);
+      document.querySelectorAll<HTMLElement>("[data-table-view-scope]"),
+    ).find((element) => element.dataset.tableViewScope === scope);
     tablist?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
   }
 
   function cancel() {
     const returnTarget = returnFocusRef.current;
-    controller.cancelPlannerTabAction();
+    adapter.cancel();
     requestAnimationFrame(() => {
       if (returnTarget?.isConnected) {
         returnTarget.focus();
@@ -59,7 +80,7 @@ export function PlannerTabConfirmationDialog({
   function confirm() {
     const returnTarget = returnFocusRef.current;
     const returnToNavigation = activeConfirmation.kind === "navigate";
-    controller.confirmPlannerTabAction();
+    adapter.confirm();
     requestAnimationFrame(() => {
       if (returnToNavigation && returnTarget?.isConnected) {
         returnTarget.focus();
@@ -70,7 +91,10 @@ export function PlannerTabConfirmationDialog({
   }
 
   return createPortal(
-    <div className="confirmation-backdrop planner-tab-confirmation-backdrop">
+    <div
+      className="confirmation-backdrop table-view-tab-confirmation-backdrop planner-tab-confirmation-backdrop"
+      data-table-view-confirmation=""
+    >
       <section
         className="confirmation-dialog"
         role="dialog"

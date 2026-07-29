@@ -3345,4 +3345,546 @@ describe("useWorkbenchController", () => {
 
     expect(result.current.workspaceItems.items[0]?.status).toBe("active");
   });
+
+  it("loads Workspace views independently and isolates malformed scopes", async () => {
+    const storedTaskSettings = {
+      filterMode: "or",
+      filterRules: [
+        {
+          id: "stored-task-filter",
+          field: "title",
+          type: "text",
+          operator: "contains",
+          value: "focus",
+        },
+      ],
+      sortRules: [
+        { id: "stored-task-sort", field: "title", direction: "asc" },
+      ],
+      groupSettings: {
+        groupBy: "status",
+        sort: "alphabetical",
+        hideEmpty: false,
+        manualOrder: [],
+        hiddenGroupKeys: [],
+      },
+    };
+    const storedDetailSettings = {
+      ...storedTaskSettings,
+      filterRules: [
+        {
+          id: "stored-detail-filter",
+          field: "title",
+          type: "text",
+          operator: "contains",
+          value: "linked",
+        },
+      ],
+    };
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (url === "/todo-engine/settings/workspace-views") {
+            return {
+              "workspace.task": {
+                tabs: [
+                  {
+                    id: "stored-task",
+                    name: "Stored task",
+                    settings: storedTaskSettings,
+                  },
+                ],
+              },
+              "workspace.project": "malformed",
+              "detail.area.task": {
+                tabs: [
+                  {
+                    id: "stored-detail",
+                    name: "Stored detail",
+                    settings: storedDetailSettings,
+                  },
+                ],
+              },
+            };
+          }
+          return url === "/todo-engine/settings/planner" ? null : [];
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await waitFor(() =>
+      expect(result.current.workspaceTableTabs("workspace.task").activeTabId).toBe(
+        "stored-task",
+      ),
+    );
+    expect(fetchMock).toHaveBeenCalledWith("/todo-engine/settings/planner");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/todo-engine/settings/workspace-views",
+    );
+    expect(result.current.workspaceTableSettings("workspace.task")).toEqual(
+      storedTaskSettings,
+    );
+    expect(result.current.workspaceTableTabs("workspace.project").tabs[0]?.name)
+      .toBe("Table");
+    expect(result.current.workspaceTableTabs("detail.area.task").activeTabId)
+      .toBe("stored-detail");
+    expect(result.current.workspaceTableSettings("detail.area.task")).toEqual(
+      storedDetailSettings,
+    );
+  });
+
+  it("persists Workspace and Planner view commands to independent endpoints", async () => {
+    const writes: Array<{ url: string; value: unknown }> = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        writes.push({
+          url,
+          value: JSON.parse(String(init.body)).value,
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/settings/planner" ||
+          url === "/todo-engine/settings/workspace-views"
+            ? null
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/todo-engine/settings/workspace-views",
+      ),
+    );
+
+    act(() => {
+      result.current.updateWorkspaceTableSettings(
+        "workspace.task",
+        (settings) => ({ ...settings, filterMode: "or" }),
+      );
+      result.current.saveWorkspaceTableTab("workspace.task");
+    });
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]?.url).toBe("/todo-engine/settings/workspace-views");
+    expect(writes[0]?.value).toHaveProperty("workspace.task");
+    expect(writes[0]?.value).not.toHaveProperty("tableTabs");
+
+    act(() => {
+      expect(result.current.createPlannerTableTab("daily.today", "Planner"))
+        .toBe(true);
+    });
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1]?.url).toBe("/todo-engine/settings/planner");
+    expect(writes[1]?.value).toHaveProperty("tableTabs");
+    expect(writes[1]?.value).not.toHaveProperty("workspace.task");
+  });
+
+  it("replays delayed Workspace commands and serializes the final stored document", async () => {
+    let resolveWorkspaceSettings:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    const pendingWorkspaceWrites: Array<() => void> = [];
+    let serverWorkspaceSettings: unknown;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/todo-engine/settings/workspace-views") {
+        if (!init) {
+          return new Promise((resolve) => {
+            resolveWorkspaceSettings = resolve;
+          });
+        }
+        const value = JSON.parse(String(init.body)).value;
+        return new Promise((resolve) => {
+          pendingWorkspaceWrites.push(() => {
+            serverWorkspaceSettings = value;
+            resolve({ ok: true, json: async () => value });
+          });
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/settings/planner" ? null : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(resolveWorkspaceSettings).toBeDefined());
+    const optimisticDefaultId =
+      result.current.workspaceTableTabs("workspace.task").activeTabId;
+
+    act(() => {
+      result.current.updateWorkspaceTableSettings(
+        "workspace.task",
+        (settings) => ({ ...settings, filterMode: "or" }),
+      );
+      result.current.saveWorkspaceTableTab("workspace.task");
+      expect(
+        result.current.renameWorkspaceTableTab(
+          "workspace.task",
+          optimisticDefaultId,
+          "Renamed stored",
+        ),
+      ).toBe(true);
+      expect(
+        result.current.createWorkspaceTableTab("workspace.task", "Early"),
+      ).toBe(true);
+    });
+    expect(pendingWorkspaceWrites).toHaveLength(0);
+
+    await act(async () => resolveWorkspaceSettings?.({
+      ok: true,
+      json: async () => ({
+        "workspace.task": {
+          tabs: [
+            { id: "stored-one", name: "Stored one", settings: {} },
+            { id: "stored-two", name: "Stored two", settings: {} },
+          ],
+        },
+      }),
+    }));
+
+    await waitFor(() => expect(pendingWorkspaceWrites).toHaveLength(1));
+    expect(
+      result.current.workspaceTableTabs("workspace.task").tabs.map(
+        ({ name }) => name,
+      ),
+    ).toEqual(["Renamed stored", "Stored two", "Early"]);
+    expect(
+      result.current.workspaceTableTabs("workspace.task").tabs[0]?.settings
+        .filterMode,
+    ).toBe("or");
+    expect(
+      result.current.workspaceTableTabs("workspace.task").tabs[1]?.settings
+        .filterMode,
+    ).toBe("and");
+
+    await act(async () => pendingWorkspaceWrites.shift()?.());
+    await waitFor(() => expect(pendingWorkspaceWrites).toHaveLength(1));
+    await act(async () => pendingWorkspaceWrites.shift()?.());
+    await waitFor(() => expect(pendingWorkspaceWrites).toHaveLength(1));
+    await act(async () => pendingWorkspaceWrites.shift()?.());
+
+    expect(serverWorkspaceSettings).toMatchObject({
+      "workspace.task": {
+        tabs: [
+          { name: "Renamed stored", settings: { filterMode: "or" } },
+          { name: "Stored two", settings: { filterMode: "and" } },
+          { name: "Early", settings: { filterMode: "or" } },
+        ],
+      },
+    });
+  });
+
+  it("keeps item loading and local default views when preference requests fail", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (
+        url === "/todo-engine/settings/planner" ||
+        url === "/todo-engine/settings/workspace-views"
+      ) {
+        return Promise.reject(new Error("preferences unavailable"));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/todo-engine/items"
+            ? [{ id: "task-1", type: "task", title: "One", status: "active" }]
+            : [],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    expect(result.current.workspaceItems.allItems).toHaveLength(1);
+    expect(result.current.workspaceTableTabs("workspace.task").tabs).toEqual([
+      expect.objectContaining({
+        id: "workspace.task-table",
+        name: "Table",
+      }),
+    ]);
+    expect(result.current.workspaceTableSettings("workspace.task")).toMatchObject({
+      filterMode: "and",
+      filterRules: [],
+      sortRules: [{ field: "updated", direction: "desc" }],
+    });
+  });
+
+  it("supports Workspace tab commands and shared confirmations", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/settings/planner" ||
+            url === "/todo-engine/settings/workspace-views"
+              ? null
+              : [],
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    expect(result.current.createWorkspaceTableTab("workspace.task", "")).toBe(false);
+    expect(
+      result.current.renameWorkspaceTableTab(
+        "workspace.task",
+        "unknown",
+        "Unknown",
+      ),
+    ).toBe(false);
+    act(() => {
+      expect(
+        result.current.createWorkspaceTableTab("workspace.task", "Focus"),
+      ).toBe(true);
+    });
+    const firstId =
+      result.current.workspaceTableTabs("workspace.task").tabs[0]!.id;
+    const focusId =
+      result.current.workspaceTableTabs("workspace.task").activeTabId;
+
+    act(() => {
+      expect(
+        result.current.renameWorkspaceTableTab(
+          "workspace.task",
+          focusId,
+          "Table",
+        ),
+      ).toBe(true);
+      result.current.updateWorkspaceTableSettings(
+        "workspace.task",
+        (settings) => ({ ...settings, filterMode: "or" }),
+      );
+    });
+    expect(
+      result.current.workspaceTableTabs("workspace.task").tabs[1]?.name,
+    ).toBe("Table 2");
+    expect(result.current.workspaceTableIsDirty("workspace.task")).toBe(true);
+
+    act(() =>
+      result.current.selectWorkspaceTableTab("workspace.task", firstId),
+    );
+    expect(result.current.tableViewTabConfirmation).toEqual({
+      kind: "select",
+      target: { surface: "workspace", scope: "workspace.task" },
+      targetTabId: firstId,
+    });
+    act(() => result.current.cancelTableViewTabAction());
+    expect(result.current.tableViewTabConfirmation).toBeNull();
+
+    act(() =>
+      result.current.selectWorkspaceTableTab("workspace.task", firstId),
+    );
+    act(() => result.current.confirmTableViewTabAction());
+    expect(result.current.workspaceTableTabs("workspace.task").activeTabId)
+      .toBe(firstId);
+    expect(result.current.workspaceTableIsDirty("workspace.task")).toBe(false);
+
+    act(() =>
+      result.current.requestDeleteWorkspaceTableTab(
+        "workspace.task",
+        focusId,
+      ),
+    );
+    expect(result.current.tableViewTabConfirmation).toEqual({
+      kind: "delete",
+      target: { surface: "workspace", scope: "workspace.task" },
+      targetTabId: focusId,
+    });
+    act(() => result.current.confirmTableViewTabAction());
+    expect(result.current.workspaceTableTabs("workspace.task").tabs).toHaveLength(1);
+
+    act(() => {
+      result.current.updateWorkspaceTableSettings(
+        "workspace.task",
+        (settings) => ({ ...settings, filterMode: "or" }),
+      );
+      result.current.saveWorkspaceTableTab("workspace.task");
+    });
+    expect(result.current.workspaceTableIsDirty("workspace.task")).toBe(false);
+
+    act(() => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+      result.current.updateWorkspaceTableSettings(
+        "workspace.task",
+        (settings) => ({ ...settings, filterMode: "and" }),
+      );
+    });
+    act(() => result.current.selectTab("projects"));
+    expect(result.current.selection.leafTabId).toBe("tasks");
+    expect(result.current.tableViewTabConfirmation).toMatchObject({
+      kind: "navigate",
+      dirtyTargets: [
+        { surface: "workspace", scope: "workspace.task" },
+      ],
+      targetSelection: { leafTabId: "projects" },
+    });
+    act(() => result.current.confirmTableViewTabAction());
+    expect(result.current.selection.leafTabId).toBe("projects");
+    expect(result.current.workspaceTableIsDirty("workspace.task")).toBe(false);
+  });
+
+  it("keeps Planner state unchanged across Workspace confirmation actions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/settings/planner" ||
+            url === "/todo-engine/settings/workspace-views"
+              ? null
+              : [],
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    act(() => {
+      expect(
+        result.current.createPlannerTableTab("daily.today", "Planner sentinel"),
+      ).toBe(true);
+      result.current.updatePlannerTableSettings("daily.today", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      }));
+      expect(
+        result.current.createWorkspaceTableTab("workspace.task", "Workspace"),
+      ).toBe(true);
+      result.current.updateWorkspaceTableSettings(
+        "workspace.task",
+        (settings) => ({ ...settings, filterMode: "or" }),
+      );
+    });
+    const plannerSentinel = JSON.parse(JSON.stringify(
+      result.current.plannerTableTabs("daily.today"),
+    ));
+    const workspaceTabs = result.current.workspaceTableTabs("workspace.task");
+    const firstWorkspaceId = workspaceTabs.tabs[0]!.id;
+    const secondWorkspaceId = workspaceTabs.activeTabId;
+
+    act(() =>
+      result.current.selectWorkspaceTableTab(
+        "workspace.task",
+        firstWorkspaceId,
+      ),
+    );
+    expect(result.current.tableViewTabConfirmation).toMatchObject({
+      kind: "select",
+      target: { surface: "workspace", scope: "workspace.task" },
+    });
+    act(() => result.current.confirmTableViewTabAction());
+    expect(result.current.plannerTableTabs("daily.today")).toEqual(
+      plannerSentinel,
+    );
+
+    act(() =>
+      result.current.requestDeleteWorkspaceTableTab(
+        "workspace.task",
+        secondWorkspaceId,
+      ),
+    );
+    expect(result.current.tableViewTabConfirmation).toMatchObject({
+      kind: "delete",
+      target: { surface: "workspace", scope: "workspace.task" },
+    });
+    act(() => result.current.confirmTableViewTabAction());
+    expect(result.current.plannerTableTabs("daily.today")).toEqual(
+      plannerSentinel,
+    );
+  });
+
+  it("toggles selection from the currently visible Workspace row ids", async () => {
+    const tasks = [
+      { id: "task-1", type: "task", title: "One", status: "active" },
+      { id: "task-2", type: "task", title: "Two", status: "active" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url.startsWith("/todo-engine/items") ? tasks : null,
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+    await waitFor(() => expect(result.current.workspaceItems.items).toHaveLength(2));
+
+    act(() => {
+      result.current.setVisibleWorkspaceItemIds(["task-2"]);
+      result.current.toggleVisibleSelection();
+    });
+
+    expect(result.current.selectedItemIds).toEqual(["task-2"]);
+  });
+
+  it("clears visible ids and selection when the Workspace panel changes", async () => {
+    const tasks = [
+      { id: "task-1", type: "task", title: "One", status: "active" },
+      { id: "task-2", type: "task", title: "Two", status: "active" },
+    ];
+    const projects = [
+      { id: "project-1", type: "project", title: "Project", status: "active" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => {
+            if (url === "/todo-engine/items?type=task") return tasks;
+            if (url === "/todo-engine/items?type=project") return projects;
+            if (url === "/todo-engine/items") return [...tasks, ...projects];
+            return url === "/todo-engine/settings/planner" ||
+              url === "/todo-engine/settings/workspace-views"
+              ? null
+              : [];
+          },
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useWorkbenchController());
+    act(() => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+    await waitFor(() =>
+      expect(result.current.workspaceItems.items.map(({ id }) => id)).toEqual([
+        "task-1",
+        "task-2",
+      ]),
+    );
+    act(() => {
+      result.current.setVisibleWorkspaceItemIds(["task-2"]);
+      result.current.toggleVisibleSelection();
+    });
+    expect(result.current.selectedItemIds).toEqual(["task-2"]);
+
+    act(() => result.current.selectTab("projects"));
+    await waitFor(() =>
+      expect(result.current.workspaceItems.items.map(({ id }) => id)).toEqual([
+        "project-1",
+      ]),
+    );
+    expect(result.current.selectedItemIds).toEqual([]);
+
+    act(() => result.current.toggleVisibleSelection());
+    expect(result.current.selectedItemIds).toEqual([]);
+  });
 });

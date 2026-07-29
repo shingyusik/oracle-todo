@@ -22,6 +22,8 @@ import {
   type PlannerControls,
   type PlannerTabConfirmation,
   type PostponeResult,
+  type TableViewTabConfirmation,
+  type TableViewTarget,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
@@ -40,10 +42,12 @@ import {
 import {
   addMonths,
   addYears,
+  clonePlannerTableSettings,
   isoWeekStart,
   monthStart,
   plannerTableIds,
   type PlannerTableId,
+  type PlannerTableSettings,
   yearStart,
 } from "@/features/workbench/model/planner-model";
 import {
@@ -60,6 +64,24 @@ import {
   type PlannerTableTabsState,
   type StoredPlannerTableTabs,
 } from "@/features/workbench/model/planner-tabs";
+import {
+  buildTableViewTabsState,
+  createTableViewTab,
+  deleteTableViewTab,
+  discardTableViewTabDraft,
+  renameTableViewTab,
+  saveTableViewTabDraft,
+  selectTableViewTab,
+  tableViewTabIsDirty,
+  updateTableViewTabDraft,
+  type TableViewTabsState,
+} from "@/features/workbench/model/table-view-tabs";
+import {
+  workspaceTableScopeIds,
+  workspaceTableViewSettingsAdapter,
+  type WorkspaceTableScopeId,
+  type WorkspaceTableViewsState,
+} from "@/features/workbench/model/workspace-table-views";
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 type DashboardDetailLeafTabId = "areas" | "projects";
@@ -70,6 +92,10 @@ type PendingDashboardDetail = {
 };
 type PendingPlannerSettingsCommand = {
   apply: (planner: PlannerControls) => PlannerControls;
+  persist: boolean;
+};
+type PendingWorkspaceViewCommand = {
+  apply: (state: WorkspaceTableViewsState) => WorkspaceTableViewsState;
   persist: boolean;
 };
 
@@ -139,6 +165,8 @@ type StoredPlannerSettings = Pick<PlannerControls, "tableTabs">;
 
 let plannerSettingsWrite = Promise.resolve();
 let plannerTabIdCounter = 0;
+let workspaceViewsWrite = Promise.resolve();
+let workspaceTabIdCounter = 0;
 
 async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
   try {
@@ -183,6 +211,47 @@ function persistPlannerSettings(planner: PlannerControls): void {
   plannerSettingsWrite = plannerSettingsWrite
     .catch(() => undefined)
     .then(() => fetch("/todo-engine/settings/planner", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body,
+    }))
+    .then(() => undefined)
+    .catch(() => undefined);
+}
+
+async function loadWorkspaceViews(): Promise<WorkspaceTableViewsState | null> {
+  try {
+    const response = await fetch("/todo-engine/settings/workspace-views");
+    if (!response.ok) return null;
+    const value = await response.json();
+    if (!isRecord(value)) return null;
+
+    const state = createDefaultWorkspaceViews();
+    for (const [scope, candidate] of Object.entries(value)) {
+      if (!isWorkspaceTableScopeId(scope)) continue;
+      state[scope] = buildTableViewTabsState(
+        scope,
+        candidate,
+        workspaceTableViewSettingsAdapter,
+      );
+    }
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+function persistWorkspaceViews(state: WorkspaceTableViewsState): void {
+  const value = Object.fromEntries(
+    Object.entries(state).map(([scope, tableTabs]) => [
+      scope,
+      { tabs: tableTabs?.tabs ?? [] },
+    ]),
+  );
+  const body = JSON.stringify({ value });
+  workspaceViewsWrite = workspaceViewsWrite
+    .catch(() => undefined)
+    .then(() => fetch("/todo-engine/settings/workspace-views", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body,
@@ -311,6 +380,43 @@ function createDefaultPlanner(): PlannerControls {
   };
 }
 
+function createDefaultWorkspaceViews(): WorkspaceTableViewsState {
+  return Object.fromEntries(
+    workspaceTableScopeIds.map((scope) => [
+      scope,
+      buildTableViewTabsState(
+        scope,
+        undefined,
+        workspaceTableViewSettingsAdapter,
+      ),
+    ]),
+  ) as WorkspaceTableViewsState;
+}
+
+function workspaceTableTabsFor(
+  state: WorkspaceTableViewsState,
+  scope: WorkspaceTableScopeId,
+): TableViewTabsState<PlannerTableSettings> {
+  return state[scope] ?? buildTableViewTabsState(
+    scope,
+    undefined,
+    workspaceTableViewSettingsAdapter,
+  );
+}
+
+function updateWorkspaceTableTabs(
+  state: WorkspaceTableViewsState,
+  scope: WorkspaceTableScopeId,
+  updater: (
+    tableTabs: TableViewTabsState<PlannerTableSettings>,
+  ) => TableViewTabsState<PlannerTableSettings>,
+): WorkspaceTableViewsState {
+  return {
+    ...state,
+    [scope]: updater(workspaceTableTabsFor(state, scope)),
+  };
+}
+
 function updateTableTabs(
   planner: PlannerControls,
   tableId: PlannerTableId,
@@ -331,6 +437,62 @@ function nextPlannerTabId(): string {
   }
   plannerTabIdCounter += 1;
   return `planner-tab-${Date.now()}-${plannerTabIdCounter}`;
+}
+
+function nextWorkspaceTabId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  workspaceTabIdCounter += 1;
+  return `workspace-tab-${Date.now()}-${workspaceTabIdCounter}`;
+}
+
+function workspaceScopeForLeaf(
+  leafTabId: LeafTabId,
+): WorkspaceTableScopeId | null {
+  const itemType = workspaceItemTypes[leafTabId];
+  return itemType
+    ? `workspace.${itemType}` as WorkspaceTableScopeId
+    : null;
+}
+
+function isWorkspaceTableScopeId(value: string): value is WorkspaceTableScopeId {
+  const segments = value.split(".");
+  const itemTypes = new Set([
+    "area",
+    "project",
+    "goal",
+    "routine",
+    "task",
+    "event",
+  ]);
+  return (
+    (segments.length === 2 &&
+      segments[0] === "workspace" &&
+      itemTypes.has(segments[1] ?? "")) ||
+    (segments.length === 3 &&
+      segments[0] === "detail" &&
+      itemTypes.has(segments[1] ?? "") &&
+      itemTypes.has(segments[2] ?? ""))
+  );
+}
+
+function plannerConfirmationFor(
+  confirmation: TableViewTabConfirmation | null,
+): PlannerTabConfirmation | null {
+  if (!confirmation) return null;
+  if (confirmation.kind === "navigate") {
+    return {
+      kind: "navigate",
+      targetSelection: confirmation.targetSelection,
+    };
+  }
+  if (confirmation.target.surface !== "planner") return null;
+  return {
+    kind: confirmation.kind,
+    tableId: confirmation.target.scope,
+    targetTabId: confirmation.targetTabId,
+  };
 }
 
 function plannerDateForPanel(panelId: LeafTabId, planner: PlannerControls): string {
@@ -621,11 +783,28 @@ export function useWorkbenchController(): WorkbenchController {
     setPlannerState(next);
     return next;
   };
+  const [workspaceViews, setWorkspaceViewsState] =
+    useState<WorkspaceTableViewsState>(() => createDefaultWorkspaceViews());
+  const workspaceViewsStateRef = useRef(workspaceViews);
+  const setWorkspaceViews = (
+    update:
+      | WorkspaceTableViewsState
+      | ((
+          current: WorkspaceTableViewsState,
+        ) => WorkspaceTableViewsState),
+  ): WorkspaceTableViewsState => {
+    const next = typeof update === "function"
+      ? update(workspaceViewsStateRef.current)
+      : update;
+    workspaceViewsStateRef.current = next;
+    setWorkspaceViewsState(next);
+    return next;
+  };
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [creationDialogOpen, setCreationDialogOpen] = useState(false);
-  const [plannerTabConfirmation, setPlannerTabConfirmation] =
-    useState<PlannerTabConfirmation | null>(null);
+  const [tableViewTabConfirmation, setTableViewTabConfirmation] =
+    useState<TableViewTabConfirmation | null>(null);
   const [plannerCreationContext, setPlannerCreationContext] =
     useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
@@ -637,6 +816,10 @@ export function useWorkbenchController(): WorkbenchController {
   const plannerSettingsLoaded = useRef(false);
   const pendingPlannerSettingsCommands =
     useRef<PendingPlannerSettingsCommand[]>([]);
+  const initialWorkspaceViews = useRef(workspaceViews);
+  const workspaceViewsLoaded = useRef(false);
+  const pendingWorkspaceViewCommands = useRef<PendingWorkspaceViewCommand[]>([]);
+  const visibleWorkspaceItemIds = useRef<string[]>([]);
   const [itemTransitionStates, setItemTransitionStates] = useState<
     Record<string, WorkspaceItemTransitionState>
   >({});
@@ -667,6 +850,20 @@ export function useWorkbenchController(): WorkbenchController {
     return next;
   };
 
+  const applyWorkspaceViewCommand = (
+    apply: PendingWorkspaceViewCommand["apply"],
+    persist = false,
+  ): WorkspaceTableViewsState => {
+    const next = apply(workspaceViewsStateRef.current);
+    setWorkspaceViews(next);
+    if (workspaceViewsLoaded.current) {
+      if (persist) persistWorkspaceViews(next);
+    } else {
+      pendingWorkspaceViewCommands.current.push({ apply, persist });
+    }
+    return next;
+  };
+
   const resolvePlannerTabCommandId = (
     tableId: PlannerTableId,
     tableTabs: PlannerTableTabsState,
@@ -678,6 +875,23 @@ export function useWorkbenchController(): WorkbenchController {
     const initialIndex = initialPlannerTableTabs.current[tableId].tabs.findIndex(
       (tab) => tab.id === requestedTabId,
     );
+    return initialIndex >= 0
+      ? tableTabs.tabs[initialIndex]?.id ?? requestedTabId
+      : requestedTabId;
+  };
+
+  const resolveWorkspaceTabCommandId = (
+    scope: WorkspaceTableScopeId,
+    tableTabs: TableViewTabsState<PlannerTableSettings>,
+    requestedTabId: string,
+  ): string => {
+    if (tableTabs.tabs.some((tab) => tab.id === requestedTabId)) {
+      return requestedTabId;
+    }
+    const initialIndex = workspaceTableTabsFor(
+      initialWorkspaceViews.current,
+      scope,
+    ).tabs.findIndex((tab) => tab.id === requestedTabId);
     return initialIndex >= 0
       ? tableTabs.tabs[initialIndex]?.id ?? requestedTabId
       : requestedTabId;
@@ -699,11 +913,17 @@ export function useWorkbenchController(): WorkbenchController {
       }
       pendingPlannerSettingsCommands.current = [];
       plannerSettingsLoaded.current = true;
-      setPlannerTabConfirmation((current) => {
-        if (!current || current.kind === "navigate") return current;
+      setTableViewTabConfirmation((current) => {
+        if (
+          !current ||
+          current.kind === "navigate" ||
+          current.target.surface !== "planner"
+        ) {
+          return current;
+        }
         const targetTabId = resolvePlannerTabCommandId(
-          current.tableId,
-          next.tableTabs[current.tableId],
+          current.target.scope,
+          next.tableTabs[current.target.scope],
           current.targetTabId,
         );
         return targetTabId === current.targetTabId
@@ -721,6 +941,47 @@ export function useWorkbenchController(): WorkbenchController {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    void loadWorkspaceViews().then((stored) => {
+      if (!active) return;
+
+      let next = stored ?? initialWorkspaceViews.current;
+      const persistedStates: WorkspaceTableViewsState[] = [];
+      for (const command of pendingWorkspaceViewCommands.current) {
+        next = command.apply(next);
+        if (command.persist) persistedStates.push(next);
+      }
+      pendingWorkspaceViewCommands.current = [];
+      workspaceViewsLoaded.current = true;
+      setTableViewTabConfirmation((current) => {
+        if (
+          !current ||
+          current.kind === "navigate" ||
+          current.target.surface !== "workspace"
+        ) {
+          return current;
+        }
+        const targetTabId = resolveWorkspaceTabCommandId(
+          current.target.scope,
+          workspaceTableTabsFor(next, current.target.scope),
+          current.targetTabId,
+        );
+        return targetTabId === current.targetTabId
+          ? current
+          : { ...current, targetTabId };
+      });
+      setWorkspaceViews(next);
+      for (const persistedState of persistedStates) {
+        persistWorkspaceViews(persistedState);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    visibleWorkspaceItemIds.current = [];
     setSelectedItemIds([]);
     setArchiveConfirmationOpen(false);
     setCreationDialogOpen(false);
@@ -835,14 +1096,28 @@ export function useWorkbenchController(): WorkbenchController {
     const currentSelection = selectionStateRef.current;
     const leafChanged = nextSelection.leafTabId !== currentSelection.leafTabId;
     const departingTableIds = tableIdsForPlannerLeaf(currentSelection.leafTabId);
-    if (
-      leafChanged &&
-      departingTableIds.some((tableId) =>
+    const dirtyTargets: TableViewTarget[] = departingTableIds
+      .filter((tableId) =>
         plannerTabIsDirty(plannerStateRef.current.tableTabs[tableId])
       )
+      .map((scope) => ({ surface: "planner", scope }));
+    const workspaceScope = workspaceScopeForLeaf(currentSelection.leafTabId);
+    if (
+      workspaceScope &&
+      tableViewTabIsDirty(
+        workspaceTableTabsFor(
+          workspaceViewsStateRef.current,
+          workspaceScope,
+        ),
+        clonePlannerTableSettings,
+      )
     ) {
-      setPlannerTabConfirmation({
+      dirtyTargets.push({ surface: "workspace", scope: workspaceScope });
+    }
+    if (leafChanged && dirtyTargets.length > 0) {
+      setTableViewTabConfirmation({
         kind: "navigate",
+        dirtyTargets,
         targetSelection: nextSelection,
       });
       return;
@@ -946,6 +1221,165 @@ export function useWorkbenchController(): WorkbenchController {
     return true;
   };
 
+  const persistWorkspaceTableTabs = (
+    scope: WorkspaceTableScopeId,
+    updater: (
+      tableTabs: TableViewTabsState<PlannerTableSettings>,
+    ) => TableViewTabsState<PlannerTableSettings> | null,
+  ): boolean => {
+    const tableTabs = updater(
+      workspaceTableTabsFor(workspaceViewsStateRef.current, scope),
+    );
+    if (!tableTabs) return false;
+    applyWorkspaceViewCommand(
+      (state) => {
+        const updatedTabs = updater(workspaceTableTabsFor(state, scope));
+        return updatedTabs
+          ? updateWorkspaceTableTabs(state, scope, () => updatedTabs)
+          : state;
+      },
+      true,
+    );
+    return true;
+  };
+
+  const confirmTableViewTabAction = (): void => {
+    const confirmation = tableViewTabConfirmation;
+    if (!confirmation) return;
+
+    if (confirmation.kind === "navigate") {
+      const plannerTargets = confirmation.dirtyTargets.filter(
+        (
+          target,
+        ): target is Extract<TableViewTarget, { surface: "planner" }> =>
+          target.surface === "planner",
+      );
+      const destinationTableIds = tableIdsForPlannerLeaf(
+        confirmation.targetSelection.leafTabId,
+      );
+      if (plannerTargets.length > 0 || destinationTableIds.length > 0) {
+        applyPlannerSettingsCommand((current) => {
+          let next = current;
+          for (const target of plannerTargets) {
+            next = updateTableTabs(
+              next,
+              target.scope,
+              discardPlannerTabDraft,
+            );
+          }
+          for (const tableId of destinationTableIds) {
+            next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
+          }
+          return next;
+        });
+      }
+
+      const workspaceTargets = confirmation.dirtyTargets.filter(
+        (
+          target,
+        ): target is Extract<TableViewTarget, { surface: "workspace" }> =>
+          target.surface === "workspace",
+      );
+      if (workspaceTargets.length > 0) {
+        applyWorkspaceViewCommand((state) => {
+          let next = state;
+          for (const target of workspaceTargets) {
+            next = updateWorkspaceTableTabs(
+              next,
+              target.scope,
+              (tableTabs) =>
+                discardTableViewTabDraft(
+                  tableTabs,
+                  clonePlannerTableSettings,
+                ),
+            );
+          }
+          return next;
+        });
+      }
+
+      setSelection(confirmation.targetSelection);
+      setTableViewTabConfirmation(null);
+      return;
+    }
+
+    if (confirmation.target.surface === "planner") {
+      const tableId = confirmation.target.scope;
+      if (confirmation.kind === "select") {
+        applyPlannerSettingsCommand((current) =>
+          updateTableTabs(current, tableId, (tableTabs) => {
+            const targetTabId = resolvePlannerTabCommandId(
+              tableId,
+              tableTabs,
+              confirmation.targetTabId,
+            );
+            return selectPlannerTab(
+              discardPlannerTabDraft(tableTabs),
+              targetTabId,
+            );
+          }),
+        );
+      } else {
+        applyPlannerSettingsCommand((current) => {
+          const tableTabs = current.tableTabs[tableId];
+          const targetTabId = resolvePlannerTabCommandId(
+            tableId,
+            tableTabs,
+            confirmation.targetTabId,
+          );
+          const deleted = deletePlannerTab(tableTabs, targetTabId);
+          return deleted
+            ? updateTableTabs(current, tableId, () => deleted)
+            : current;
+        }, true);
+      }
+    } else {
+      const scope = confirmation.target.scope;
+      if (confirmation.kind === "select") {
+        applyWorkspaceViewCommand((state) =>
+          updateWorkspaceTableTabs(state, scope, (tableTabs) => {
+            const targetTabId = resolveWorkspaceTabCommandId(
+              scope,
+              tableTabs,
+              confirmation.targetTabId,
+            );
+            return selectTableViewTab(
+              discardTableViewTabDraft(
+                tableTabs,
+                clonePlannerTableSettings,
+              ),
+              targetTabId,
+              clonePlannerTableSettings,
+            );
+          }),
+        );
+      } else {
+        applyWorkspaceViewCommand((state) => {
+          const tableTabs = workspaceTableTabsFor(state, scope);
+          const targetTabId = resolveWorkspaceTabCommandId(
+            scope,
+            tableTabs,
+            confirmation.targetTabId,
+          );
+          const deleted = deleteTableViewTab(
+            tableTabs,
+            targetTabId,
+            clonePlannerTableSettings,
+          );
+          return deleted
+            ? updateWorkspaceTableTabs(state, scope, () => deleted)
+            : state;
+        }, true);
+      }
+    }
+
+    setTableViewTabConfirmation(null);
+  };
+
+  const plannerTabConfirmation = plannerConfirmationFor(
+    tableViewTabConfirmation,
+  );
+
   return {
     selection,
     panel,
@@ -954,6 +1388,7 @@ export function useWorkbenchController(): WorkbenchController {
     selectedItemIds,
     archiveConfirmationOpen,
     creationDialogOpen,
+    tableViewTabConfirmation,
     plannerTabConfirmation,
     plannerCreationContext,
     plannerCreationAnalysis,
@@ -996,9 +1431,15 @@ export function useWorkbenchController(): WorkbenchController {
           ? current.filter((id) => id !== itemId)
           : [...current, itemId],
       ),
+    setVisibleWorkspaceItemIds: (itemIds) => {
+      const availableIds = new Set(workspaceItems.items.map((item) => item.id));
+      visibleWorkspaceItemIds.current = [
+        ...new Set(itemIds.filter((id) => availableIds.has(id))),
+      ];
+    },
     toggleVisibleSelection: () =>
       setSelectedItemIds((current) => {
-        const visibleIds = workspaceItems.items.map((item) => item.id);
+        const visibleIds = visibleWorkspaceItemIds.current;
 
         return visibleIds.every((id) => current.includes(id)) ? [] : visibleIds;
       }),
@@ -1119,9 +1560,9 @@ export function useWorkbenchController(): WorkbenchController {
         return;
       }
       if (plannerTabIsDirty(tableTabs)) {
-        setPlannerTabConfirmation({
+        setTableViewTabConfirmation({
           kind: "select",
-          tableId,
+          target: { surface: "planner", scope: tableId },
           targetTabId: tabId,
         });
         return;
@@ -1163,74 +1604,109 @@ export function useWorkbenchController(): WorkbenchController {
       ) {
         return;
       }
-      setPlannerTabConfirmation({
+      setTableViewTabConfirmation({
         kind: "delete",
-        tableId,
+        target: { surface: "planner", scope: tableId },
         targetTabId: tabId,
       });
     },
-    confirmPlannerTabAction: () => {
-      if (!plannerTabConfirmation) return;
-      switch (plannerTabConfirmation.kind) {
-        case "select": {
-          applyPlannerSettingsCommand((current) =>
-            updateTableTabs(
-              current,
-              plannerTabConfirmation.tableId,
-              (tableTabs) => {
-                const targetTabId = resolvePlannerTabCommandId(
-                  plannerTabConfirmation.tableId,
-                  tableTabs,
-                  plannerTabConfirmation.targetTabId,
-                );
-                return selectPlannerTab(
-                  discardPlannerTabDraft(tableTabs),
-                  targetTabId,
-                );
-              },
-            ),
-          );
-          break;
-        }
-        case "delete": {
-          applyPlannerSettingsCommand((current) => {
-            const tableTabs =
-              current.tableTabs[plannerTabConfirmation.tableId];
-            const targetTabId = resolvePlannerTabCommandId(
-              plannerTabConfirmation.tableId,
-              tableTabs,
-              plannerTabConfirmation.targetTabId,
-            );
-            const deleted = deletePlannerTab(tableTabs, targetTabId);
-            if (!deleted) return current;
-            return updateTableTabs(
-              current,
-              plannerTabConfirmation.tableId,
-              () => deleted,
-            );
-          }, true);
-          break;
-        }
-        case "navigate": {
-          applyPlannerSettingsCommand((current) => {
-            let next = current;
-            for (const tableId of tableIdsForPlannerLeaf(selection.leafTabId)) {
-              next = updateTableTabs(next, tableId, discardPlannerTabDraft);
-            }
-            for (const tableId of tableIdsForPlannerLeaf(
-              plannerTabConfirmation.targetSelection.leafTabId,
-            )) {
-              next = updateTableTabs(next, tableId, resetPlannerTabsToFirst);
-            }
-            return next;
-          });
-          setSelection(plannerTabConfirmation.targetSelection);
-          break;
-        }
-      }
-      setPlannerTabConfirmation(null);
+    workspaceTableTabs: (scope) =>
+      workspaceTableTabsFor(workspaceViews, scope),
+    workspaceTableSettings: (scope) =>
+      workspaceTableTabsFor(workspaceViews, scope).draftSettings,
+    workspaceTableIsDirty: (scope) =>
+      tableViewTabIsDirty(
+        workspaceTableTabsFor(workspaceViews, scope),
+        clonePlannerTableSettings,
+      ),
+    updateWorkspaceTableSettings: (scope, updater) => {
+      applyWorkspaceViewCommand((state) =>
+        updateWorkspaceTableTabs(state, scope, (tableTabs) =>
+          updateTableViewTabDraft(
+            tableTabs,
+            updater(tableTabs.draftSettings),
+            clonePlannerTableSettings,
+          ),
+        ),
+      );
     },
-    cancelPlannerTabAction: () => setPlannerTabConfirmation(null),
+    selectWorkspaceTableTab: (scope, tabId) => {
+      const tableTabs = workspaceTableTabsFor(
+        workspaceViewsStateRef.current,
+        scope,
+      );
+      if (
+        tableTabs.activeTabId === tabId ||
+        !tableTabs.tabs.some((tab) => tab.id === tabId)
+      ) {
+        return;
+      }
+      if (tableViewTabIsDirty(tableTabs, clonePlannerTableSettings)) {
+        setTableViewTabConfirmation({
+          kind: "select",
+          target: { surface: "workspace", scope },
+          targetTabId: tabId,
+        });
+        return;
+      }
+      applyWorkspaceViewCommand((state) =>
+        updateWorkspaceTableTabs(state, scope, (currentTabs) =>
+          selectTableViewTab(
+            currentTabs,
+            resolveWorkspaceTabCommandId(scope, currentTabs, tabId),
+            clonePlannerTableSettings,
+          ),
+        ),
+      );
+    },
+    saveWorkspaceTableTab: (scope) => {
+      persistWorkspaceTableTabs(scope, (tableTabs) =>
+        saveTableViewTabDraft(tableTabs, clonePlannerTableSettings),
+      );
+    },
+    createWorkspaceTableTab: (scope, name) => {
+      if (name.trim().length === 0) return false;
+      const tabId = nextWorkspaceTabId();
+      return persistWorkspaceTableTabs(scope, (tableTabs) =>
+        createTableViewTab(
+          tableTabs,
+          tabId,
+          name,
+          clonePlannerTableSettings,
+        ),
+      );
+    },
+    renameWorkspaceTableTab: (scope, tabId, name) => {
+      if (name.trim().length === 0) return false;
+      return persistWorkspaceTableTabs(scope, (tableTabs) =>
+        renameTableViewTab(
+          tableTabs,
+          resolveWorkspaceTabCommandId(scope, tableTabs, tabId),
+          name,
+        ),
+      );
+    },
+    requestDeleteWorkspaceTableTab: (scope, tabId) => {
+      const tableTabs = workspaceTableTabsFor(
+        workspaceViewsStateRef.current,
+        scope,
+      );
+      if (
+        tableTabs.tabs.length <= 1 ||
+        !tableTabs.tabs.some((tab) => tab.id === tabId)
+      ) {
+        return;
+      }
+      setTableViewTabConfirmation({
+        kind: "delete",
+        target: { surface: "workspace", scope },
+        targetTabId: tabId,
+      });
+    },
+    confirmTableViewTabAction,
+    cancelTableViewTabAction: () => setTableViewTabConfirmation(null),
+    confirmPlannerTabAction: confirmTableViewTabAction,
+    cancelPlannerTabAction: () => setTableViewTabConfirmation(null),
     transitionWorkspaceItem: (
       itemId: string,
       action: WorkspaceItemTransitionAction,

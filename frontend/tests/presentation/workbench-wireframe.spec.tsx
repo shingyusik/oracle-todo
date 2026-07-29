@@ -1,10 +1,27 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
+import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
+import type {
+  WorkbenchController,
+  WorkspaceItemsModel,
+} from "@/features/workbench/model/workbench-model";
+import { MainPanel } from "@/features/workbench/ui/MainPanel";
+import { TableViewControls } from "@/features/workbench/ui/TableViewControls";
+import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
 beforeEach(() => {
@@ -69,6 +86,89 @@ function expectPropertyImmediatelyBeforeField(propertyLabel: string, fieldLabel:
 
 function plannerViewActions(name: string): HTMLElement {
   return screen.getByRole("group", { name: `${name} view actions` });
+}
+
+async function openWorkspaceTasks(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: "ToDo" }));
+  await user.click(screen.getByRole("button", { name: "Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Tasks" }));
+  await screen.findByRole("table", { name: "Tasks items" });
+}
+
+async function addWorkspaceStatusFilter(
+  user: ReturnType<typeof userEvent.setup>,
+  status: string,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: "Filter Tasks" }));
+  const dialog = screen.getByRole("dialog", { name: "Filter Tasks" });
+  await user.click(within(dialog).getByRole("button", { name: "Add filter rule" }));
+  await user.click(within(dialog).getByRole("option", { name: "Status" }));
+  await user.click(
+    within(dialog).getByRole("button", { name: "Select Status filter values" }),
+  );
+  await user.click(within(dialog).getByRole("checkbox", { name: status }));
+}
+
+function workspaceTaskRows(): HTMLElement[] {
+  return screen.getAllByRole("button", { name: /^Open details for / });
+}
+
+function workspacePanelController(
+  controller: WorkbenchController,
+  panelId: "tasks" | "events",
+  title: "Tasks" | "Events",
+  workspaceItems: WorkspaceItemsModel,
+): WorkbenchController {
+  return {
+    ...controller,
+    selection: {
+      ...controller.selection,
+      mainTabId: "todo",
+      leafTabId: panelId,
+      workspaceExpanded: true,
+    },
+    panel: { id: panelId, title },
+    workspaceItems,
+  };
+}
+
+async function renderWorkspacePanelHarness() {
+  const hook = renderHook(() => useWorkbenchController());
+  await waitFor(() => expect(hook.result.current.workspaceItems.status).toBe("loaded"));
+  const loadedItems: WorkspaceItemsModel = {
+    ...hook.result.current.workspaceItems,
+    status: "loaded",
+    items: [],
+    allItems: [],
+  };
+  const view = render(
+    <MainPanel
+      controller={workspacePanelController(
+        hook.result.current,
+        "tasks",
+        "Tasks",
+        loadedItems,
+      )}
+    />,
+  );
+
+  return {
+    result: hook.result,
+    switchPanel(panelId: "tasks" | "events", title: "Tasks" | "Events") {
+      view.rerender(
+        <MainPanel
+          controller={workspacePanelController(
+            hook.result.current,
+            panelId,
+            title,
+            loadedItems,
+          )}
+        />,
+      );
+    },
+  };
 }
 
 async function savePlannerView(
@@ -161,6 +261,161 @@ function linkedAreaItemsResponse(url: string) {
     ];
   }
 
+  return [];
+}
+
+function linkedAreaWithOverflowResponse(url: string) {
+  const area = { id: "area-1", type: "area", title: "Health", status: "active" };
+
+  if (url === "/todo-engine/items?type=area") {
+    return [area];
+  }
+
+  if (url === "/todo-engine/items") {
+    return [
+      area,
+      {
+        id: "project-1",
+        type: "project",
+        title: "Checkup",
+        status: "active",
+        area_id: "area-1",
+        updated_at: "2026-07-29T07:00:00Z",
+      },
+      {
+        id: "task-alpha",
+        type: "task",
+        title: "Task Alpha",
+        status: "active",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T08:00:00Z",
+      },
+      {
+        id: "task-bravo",
+        type: "task",
+        title: "Task Bravo",
+        status: "completed",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T09:00:00Z",
+      },
+      {
+        id: "task-charlie",
+        type: "task",
+        title: "Task Charlie",
+        status: "active",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T10:00:00Z",
+      },
+      {
+        id: "task-delta",
+        type: "task",
+        title: "Task Delta",
+        status: "completed",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T11:00:00Z",
+      },
+      {
+        id: "task-echo",
+        type: "task",
+        title: "Task Echo",
+        status: "active",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T12:00:00Z",
+      },
+      {
+        id: "task-foxtrot",
+        type: "task",
+        title: "Task Foxtrot",
+        status: "active",
+        area_id: "area-1",
+        project_id: "project-1",
+        updated_at: "2026-07-29T13:00:00Z",
+      },
+      {
+        id: "task-indirect",
+        type: "task",
+        title: "Indirect project task",
+        status: "active",
+        project_id: "project-1",
+        updated_at: "2026-07-29T14:00:00Z",
+      },
+    ];
+  }
+
+  return [];
+}
+
+function linkedItemTypeGroup(name: string): HTMLElement {
+  const group = screen.getByRole("heading", { name }).closest(".linked-items-group");
+  expect(group).not.toBeNull();
+  if (!group) {
+    throw new Error(`Missing linked item group: ${name}`);
+  }
+  return group as HTMLElement;
+}
+
+async function openOverflowAreaDetail(user: ReturnType<typeof userEvent.setup>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaWithOverflowResponse(url),
+      }),
+    ),
+  );
+
+  render(<WorkbenchPageClient />);
+  await user.click(screen.getByRole("button", { name: "ToDo" }));
+  await user.click(screen.getByRole("button", { name: "Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Areas" }));
+  await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+}
+
+function nestedGoalOverflowResponse(url: string) {
+  const parent = {
+    id: "goal-parent",
+    type: "goal",
+    title: "Parent goal",
+    status: "active",
+    horizon: "year",
+  };
+  const child = {
+    id: "goal-child",
+    type: "goal",
+    title: "Child goal",
+    status: "active",
+    horizon: "month",
+    parent_id: "goal-parent",
+  };
+  const parentTasks = Array.from({ length: 6 }, (_, index) => ({
+    id: `parent-task-${index + 1}`,
+    type: "task",
+    title: `Parent Task ${index + 1}`,
+    status: "active",
+    parent_id: "goal-parent",
+    updated_at: `2026-07-29T${String(index + 8).padStart(2, "0")}:00:00Z`,
+  }));
+  const childTasks = Array.from({ length: 6 }, (_, index) => ({
+    id: `child-task-${index + 1}`,
+    type: "task",
+    title: `Child Task ${index + 1}`,
+    status: "active",
+    parent_id: "goal-child",
+    updated_at: `2026-07-30T${String(index + 8).padStart(2, "0")}:00:00Z`,
+  }));
+
+  if (url === "/todo-engine/items?type=goal") {
+    return [parent, child];
+  }
+  if (url === "/todo-engine/items") {
+    return [parent, child, ...parentTasks, ...childTasks];
+  }
   return [];
 }
 
@@ -285,6 +540,87 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByText("CONTROL. ANALYZE. OPTIMIZE."),
     ).toBeInTheDocument();
+  });
+
+  it("uses supplied table-control policy without interpreting the scope name", async () => {
+    const user = userEvent.setup();
+    const adapter = {
+      scopeId: "unconventional.scope",
+      title: "Unconventional",
+      settings: {
+        filterMode: "and" as const,
+        filterRules: [],
+        sortRules: [{ id: "custom-sort", field: "updated" as const, direction: "desc" as const }],
+        groupSettings: defaultPlannerGroupSettings(),
+      },
+      filterFields: ["title"] as const,
+      sortFields: ["updated"] as const,
+      groupOptions: [{ value: "none" as const, label: "None" }],
+      candidates: [],
+      filterOptions: {
+        tags: [],
+        daily: {
+          tags: [],
+          areas: [],
+          projects: [],
+          routines: [],
+          statuses: [],
+          priorities: [],
+          horizons: [],
+          parents: [],
+          materializationPolicies: [],
+          participants: [],
+        },
+      },
+      dropdownIdPrefix: "supplied-policy",
+      isDefaultSort: () => true,
+      update: () => undefined,
+      add: () => undefined,
+    };
+    const { rerender } = render(<TableViewControls adapter={adapter} />);
+
+    const sortTrigger = screen.getByRole("button", { name: "Sort Unconventional" });
+    const filterTrigger = screen.getByRole("button", { name: "Filter Unconventional" });
+    expect(sortTrigger).toHaveAttribute("data-active", "false");
+    expect(filterTrigger).not.toHaveAttribute("data-planner-miss-success-focus");
+
+    rerender(
+      <TableViewControls
+        adapter={{ ...adapter, missSuccessFocusTarget: "supplied-focus-target" }}
+      />,
+    );
+    expect(filterTrigger).toHaveAttribute(
+      "data-planner-miss-success-focus",
+      "supplied-focus-target",
+    );
+
+    await user.click(filterTrigger);
+    expect(screen.getByRole("dialog", { name: "Filter Unconventional" })).toHaveAttribute(
+      "id",
+      "supplied-policy-filter-dropdown-unconventional-scope",
+    );
+  });
+
+  it("uses supplied confirmation lookups without interpreting the target surface", () => {
+    const target = { surface: "unconventional", scope: "unconventional.scope" };
+    const confirmation = {
+      kind: "delete" as const,
+      target,
+      targetTabId: "active-view",
+    };
+    const adapter = {
+      confirmation,
+      cancel: () => undefined,
+      confirm: () => undefined,
+      isDirty: () => true,
+      activeTabId: () => "active-view",
+    };
+
+    render(<TableViewTabConfirmationDialog adapter={adapter} />);
+
+    expect(screen.getByRole("dialog", { name: "Delete this view?" })).toHaveTextContent(
+      "Its unsaved filter, sort, and group changes will also be discarded.",
+    );
   });
 
   it("does not render static overview cards", () => {
@@ -439,6 +775,62 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("tablist", { name: "Today views" })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "Before views" })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "Unscheduled views" })).toBeInTheDocument();
+  });
+
+  it("preserves the Daily Today table view controls and tab interactions", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    render(<WorkbenchPageClient />);
+
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+
+    const todayControls = screen.getByRole("group", { name: "Today controls" });
+    expect(within(todayControls).getByRole("button", { name: "Filter Today" })).toBeInTheDocument();
+    expect(within(todayControls).getByRole("button", { name: "Sort Today" })).toBeInTheDocument();
+    expect(within(todayControls).getByRole("button", { name: "Group Today" })).toBeInTheDocument();
+    expect(within(todayControls).getByRole("button", { name: "Add to Today" })).toBeInTheDocument();
+
+    const todayTabs = screen.getByRole("tablist", { name: "Today views" });
+    const tableTab = within(todayTabs).getByRole("tab", { name: "Table" });
+    expect(tableTab).toHaveAttribute("aria-selected", "true");
+    await user.click(within(todayTabs).getByRole("button", { name: "Add Today view" }));
+    await user.keyboard("{Enter}");
+
+    const savedTab = within(todayTabs).getByRole("tab", { name: "새 보기" });
+    expect(savedTab).toHaveAttribute("aria-selected", "true");
+    savedTab.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(tableTab).toHaveFocus();
+    expect(savedTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Enter}");
+    expect(tableTab).toHaveAttribute("aria-selected", "true");
+
+    const filterTrigger = within(todayControls).getByRole("button", { name: "Filter Today" });
+    await user.click(filterTrigger);
+    const filterDialog = screen.getByRole("dialog", { name: "Filter Today" });
+    expect(document.body).toContainElement(filterDialog);
+    expect(todayControls).not.toContainElement(filterDialog);
+    await user.click(within(filterDialog).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filterDialog).getByRole("option", { name: "Title" }));
+    await user.type(within(filterDialog).getByLabelText("Filter value"), "keep");
+    expect(screen.getByLabelText("Active planner controls")).toHaveTextContent("1 rules");
+
+    fireEvent.mouseDown(todayTabs);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Filter Today" })).toBeNull());
+    await waitFor(() => expect(filterTrigger).toHaveFocus());
+
+    await user.click(within(todayTabs).getByRole("button", {
+      name: "Open Table view menu",
+    }));
+    await user.click(within(plannerViewActions("Table")).getByRole("button", {
+      name: "Save current settings",
+    }));
+    expect(within(todayTabs).getByRole("tab", { name: "Table" })).not.toHaveTextContent("•");
   });
 
   it("manages named tabs below each Planner table title", async () => {
@@ -869,7 +1261,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(weeklyButton);
 
     const firstDialog = screen.getByRole("dialog", {
-      name: "Discard unsaved Planner changes?",
+      name: "Discard unsaved view changes?",
     });
     expect(firstDialog).toHaveTextContent(
       "Your unsaved filter, sort, and group changes will be lost.",
@@ -880,14 +1272,14 @@ describe("WorkbenchPageClient", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", {
-      name: "Discard unsaved Planner changes?",
+      name: "Discard unsaved view changes?",
     })).toBeNull();
     expect(activeDirtyTab).toHaveAttribute("aria-selected", "true");
     expect(dailyButton).toHaveAttribute("data-active", "true");
 
     await user.click(weeklyButton);
     await user.click(within(
-      screen.getByRole("dialog", { name: "Discard unsaved Planner changes?" }),
+      screen.getByRole("dialog", { name: "Discard unsaved view changes?" }),
     ).getByRole("button", { name: "Discard changes" }));
     expect(weeklyButton).toHaveAttribute("data-active", "true");
     expect(screen.queryByRole("tablist", { name: "Today views" })).toBeNull();
@@ -1039,6 +1431,362 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("cell", { name: "active" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "weekly" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Morning review" })).toBeInTheDocument();
+  });
+
+  it("exposes shared view controls and saved tabs on every Workspace table", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    for (const title of ["Areas", "Projects", "Goals", "Routines", "Tasks", "Events"]) {
+      await user.click(screen.getByRole("button", { name: title }));
+      const controls = await screen.findByRole("group", { name: `${title} controls` });
+
+      expect(within(controls).getByRole("button", { name: `Filter ${title}` })).toBeVisible();
+      expect(within(controls).getByRole("button", { name: `Sort ${title}` })).toBeVisible();
+      expect(within(controls).getByRole("button", { name: `Group ${title}` })).toBeVisible();
+      expect(within(controls).getByRole("button", { name: `Add to ${title}` })).toBeVisible();
+      expect(screen.getByRole("tablist", { name: `${title} views` })).toBeVisible();
+      expect(screen.getByText(`No ${title.toLowerCase()} found.`)).toBeVisible();
+    }
+
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    expect(screen.getByRole("button", { name: "Filter Tasks" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Sort Tasks" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Group Tasks" })).toBeVisible();
+    expect(screen.getByRole("tablist", { name: "Tasks views" })).toBeVisible();
+  });
+
+  it("discards an Add-view editor when switching Workspace scopes", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    const { result, switchPanel } = await renderWorkspacePanelHarness();
+    const taskTabs = screen.getByRole("tablist", { name: "Tasks views" });
+    await user.click(within(taskTabs).getByRole("button", { name: "Add Tasks view" }));
+    const editor = screen.getByRole("textbox", { name: "View name" });
+    await user.clear(editor);
+    await user.type(editor, "Leaked event view");
+
+    switchPanel("events", "Events");
+    const staleEditor = screen.queryByRole("textbox", { name: "View name" });
+    if (staleEditor) {
+      staleEditor.focus();
+      await user.keyboard("{Enter}");
+    }
+
+    expect(screen.queryByRole("textbox", { name: "View name" })).toBeNull();
+    expect(
+      result.current.workspaceTableTabs("workspace.event").tabs.map(({ name }) => name),
+    ).toEqual(["Table"]);
+    expect(
+      result.current.workspaceTableTabs("workspace.task").tabs.map(({ name }) => name),
+    ).toEqual(["Table"]);
+  });
+
+  it("closes an open filter without leaking transient state across Workspace scopes", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    const { switchPanel } = await renderWorkspacePanelHarness();
+    await user.click(screen.getByRole("button", { name: "Filter Tasks" }));
+    expect(screen.getByRole("dialog", { name: "Filter Tasks" })).toBeVisible();
+
+    switchPanel("events", "Events");
+    const eventTabs = screen.getByRole("tablist", { name: "Events views" });
+    expect(screen.queryByRole("dialog", { name: "Filter Tasks" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Filter Events" })).toBeNull();
+    expect(within(eventTabs).getByRole("tab", { name: "Table" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Filter Events" })).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+
+    switchPanel("tasks", "Tasks");
+    const taskTabs = screen.getByRole("tablist", { name: "Tasks views" });
+    expect(within(taskTabs).getByRole("tab", { name: "Table" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Filter Tasks" })).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+  });
+
+  it("filters Workspace rows and selects only the derived visible rows", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      {
+        id: "task-active",
+        type: "task",
+        title: "Active task",
+        status: "active",
+        updated_at: "2026-07-01T09:00:00Z",
+      },
+      {
+        id: "task-completed",
+        type: "task",
+        title: "Completed task",
+        status: "completed",
+        updated_at: "2026-07-01T08:00:00Z",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await addWorkspaceStatusFilter(user, "active");
+
+    expect(screen.getByRole("button", { name: "Open details for Active task" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Open details for Completed task" })).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible items" }));
+    expect(screen.getByRole("checkbox", { name: "Select Active task" })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Filter Tasks" }));
+    await user.click(screen.getByRole("button", { name: "Delete filter" }));
+    expect(
+      await screen.findByRole("checkbox", { name: "Select Completed task" }),
+    ).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Active task" })).toBeChecked();
+  });
+
+  it("keeps Workspace rows visible while new select, relation, text, and date filters have no value", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      {
+        id: "task-one",
+        type: "task",
+        title: "One",
+        status: "active",
+        updated_at: "2026-07-01T09:00:00Z",
+      },
+      {
+        id: "task-two",
+        type: "task",
+        title: "Two",
+        status: "completed",
+        updated_at: "2026-07-01T08:00:00Z",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Filter Tasks" }));
+    const filter = screen.getByRole("dialog", { name: "Filter Tasks" });
+    await user.click(within(filter).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filter).getByRole("option", { name: "Status" }));
+
+    for (const field of ["status", "area", "title", "scheduled"]) {
+      await user.selectOptions(within(filter).getByLabelText("Filter field"), field);
+      expect(screen.getByRole("button", { name: "Open details for One" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Open details for Two" })).toBeVisible();
+      expect(screen.queryByText("1 rules")).toBeNull();
+    }
+  });
+
+  it("sorts Workspace rows by descending title", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      {
+        id: "task-alpha",
+        type: "task",
+        title: "Alpha task",
+        status: "active",
+        updated_at: "2026-07-01T09:00:00Z",
+      },
+      {
+        id: "task-zulu",
+        type: "task",
+        title: "Zulu task",
+        status: "active",
+        updated_at: "2026-07-01T08:00:00Z",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    expect(
+      screen.getByRole("table", { name: "Tasks items" }).querySelectorAll("tbody"),
+    ).toHaveLength(1);
+    expect(workspaceTaskRows().map((row) => row.getAttribute("aria-label"))).toEqual([
+      "Open details for Alpha task",
+      "Open details for Zulu task",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Sort Tasks" }));
+    const dialog = screen.getByRole("dialog", { name: "Sort Tasks" });
+    await user.selectOptions(within(dialog).getByLabelText("Sort field"), "title");
+    await user.selectOptions(within(dialog).getByLabelText("Sort direction"), "desc");
+
+    expect(workspaceTaskRows().map((row) => row.getAttribute("aria-label"))).toEqual([
+      "Open details for Zulu task",
+      "Open details for Alpha task",
+    ]);
+  });
+
+  it("renders stable Workspace row groups without flattening table bodies", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      { id: "task-active", type: "task", title: "Active task", status: "active" },
+      {
+        id: "task-completed",
+        type: "task",
+        title: "Completed task",
+        status: "completed",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Group Tasks" }));
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
+    await user.click(screen.getByRole("option", { name: "Status" }));
+
+    const table = screen.getByRole("table", { name: "Tasks items" });
+    const activeGroup = within(table).getByRole("rowgroup", { name: "Active group" });
+    const completedGroup = within(table).getByRole("rowgroup", {
+      name: "Completed group",
+    });
+    expect(within(activeGroup).getByText("Active")).toBeVisible();
+    expect(within(activeGroup).getByRole("button", {
+      name: "Open details for Active task",
+    })).toBeVisible();
+    expect(within(completedGroup).getByText("Completed")).toBeVisible();
+    expect(within(completedGroup).getByRole("button", {
+      name: "Open details for Completed task",
+    })).toBeVisible();
+  });
+
+  it("keeps settings in a second Workspace saved tab independent", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      { id: "task-active", type: "task", title: "Active task", status: "active" },
+      {
+        id: "task-completed",
+        type: "task",
+        title: "Completed task",
+        status: "completed",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    const tabs = screen.getByRole("tablist", { name: "Tasks views" });
+    await user.click(within(tabs).getByRole("button", { name: "Add Tasks view" }));
+    await user.keyboard("{Enter}");
+    await addWorkspaceStatusFilter(user, "active");
+    await user.click(within(tabs).getByRole("button", {
+      name: "Open 새 보기 view menu",
+    }));
+    await user.click(within(plannerViewActions("새 보기")).getByRole("button", {
+      name: "Save current settings",
+    }));
+
+    expect(screen.queryByRole("button", { name: "Open details for Completed task" })).toBeNull();
+    await user.click(within(tabs).getByRole("tab", { name: "Table" }));
+    expect(
+      await screen.findByRole("button", { name: "Open details for Completed task" }),
+    ).toBeVisible();
+    await user.click(within(tabs).getByRole("tab", { name: "새 보기" }));
+    expect(screen.queryByRole("button", { name: "Open details for Completed task" })).toBeNull();
+  });
+
+  it("distinguishes an empty Workspace view from an empty Workspace panel", async () => {
+    const user = userEvent.setup();
+    const task = { id: "task-active", type: "task", title: "Active task", status: "active" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+              ? [task]
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await addWorkspaceStatusFilter(user, "missed");
+
+    expect(screen.getByText("No items match this view.")).toBeVisible();
+    expect(screen.queryByText("No tasks found.")).toBeNull();
   });
 
   it("renders weekly planner goals and seven day cards", async () => {
@@ -5099,7 +5847,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Tasks" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Tasks" }));
 
     expect(
       screen.getByRole("dialog", { name: "Create Tasks item" }),
@@ -5130,7 +5878,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    const addButton = screen.getByRole("button", { name: "Add item" });
+    const addButton = screen.getByRole("button", { name: "Add to Goals" });
     await user.click(addButton);
 
     const dialog = screen.getByRole("dialog", { name: "Create Goals item" });
@@ -5205,7 +5953,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Goals" }));
 
     const trigger = screen.getByRole("button", { name: "Period" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -5312,7 +6060,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Goals" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Goals" }));
     await user.type(screen.getByLabelText("Title"), "Career");
     const trigger = screen.getByRole("button", { name: "Period" });
     await user.click(trigger);
@@ -5349,7 +6097,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Events" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Events" }));
 
     expect(screen.getByLabelText("Scheduled")).toBeRequired();
   });
@@ -5449,6 +6197,203 @@ describe("WorkbenchPageClient", () => {
     const areaSelect = screen.getByLabelText("Area for Checkup");
     expect(areaSelect).toHaveValue("area-1");
     expect(within(areaSelect).getByRole("option", { name: "Health" })).toHaveValue("area-1");
+  });
+
+  it("omits Add from detail linked lists without leaving latent creation state", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => linkedAreaItemsResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+
+    const linkedItems = screen.getByRole("region", { name: "Linked items" });
+    expect(within(linkedItems).queryByRole("button", { name: "Add to Projects" })).toBeNull();
+    expect(within(linkedItems).queryByRole("button", { name: "Add to Tasks" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+
+    expect(screen.queryByRole("dialog", { name: /^Create / })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add to Areas" })).toBeVisible();
+  });
+
+  it("caps each linked-item type at five direct children with accessible More and Less actions", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const tasks = linkedItemTypeGroup("Tasks · 6");
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5);
+    expect(within(tasks).queryByRole("button", {
+      name: "Open Indirect project task details",
+    })).toBeNull();
+
+    await user.click(within(tasks).getByRole("button", { name: "More (1) Tasks" }));
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(6);
+    expect(within(tasks).getByRole("button", { name: "Less Tasks" })).toBeVisible();
+
+    await user.click(within(tasks).getByRole("button", { name: "Less Tasks" }));
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5);
+    expect(within(tasks).getByRole("button", { name: "More (1) Tasks" })).toBeVisible();
+  });
+
+  it("starts retained linked types collapsed after navigating to another detail item", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const areaTasks = linkedItemTypeGroup("Tasks · 6");
+    await user.click(within(areaTasks).getByRole("button", { name: "More (1) Tasks" }));
+    expect(within(areaTasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(6);
+
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    expect(screen.getByLabelText("Checkup details")).toBeVisible();
+    const projectTasks = linkedItemTypeGroup("Tasks · 7");
+    expect(within(projectTasks).getAllByRole("button", {
+      name: /^Open (?:Task \w+|Indirect project task) details$/,
+    })).toHaveLength(5);
+    expect(within(projectTasks).getByRole("button", {
+      name: "More (2) Tasks",
+    })).toBeVisible();
+  });
+
+  it("remounts same-type linked lists when navigating between nested Goal details", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => nestedGoalOverflowResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Goals" }));
+    await user.click(await screen.findByRole("button", {
+      name: "Open details for Parent goal",
+    }));
+
+    const parentTasks = linkedItemTypeGroup("Tasks · 6");
+    await user.click(within(parentTasks).getByRole("button", { name: "More (1) Tasks" }));
+    expect(within(parentTasks).getAllByRole("button", {
+      name: /^Open Parent Task \d details$/,
+    })).toHaveLength(6);
+
+    await user.click(screen.getByRole("button", { name: "Open Child goal details" }));
+    expect(screen.getByLabelText("Child goal details")).toBeVisible();
+    const childTasks = linkedItemTypeGroup("Tasks · 6");
+    expect(within(childTasks).getAllByRole("button", {
+      name: /^Open Child Task \d details$/,
+    })).toHaveLength(5);
+    expect(within(childTasks).getByRole("button", { name: "More (1) Tasks" })).toBeVisible();
+  });
+
+  it("keeps linked Project and Task controls independent and removes overflow after filtering", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const projects = linkedItemTypeGroup("Projects · 1");
+    const tasks = linkedItemTypeGroup("Tasks · 6");
+    expect(within(projects).getByRole("group", { name: "Projects controls" })).toBeVisible();
+    expect(within(tasks).getByRole("group", { name: "Tasks controls" })).toBeVisible();
+    expect(within(projects).getByRole("button", { name: "Filter Projects" })).toBeVisible();
+    expect(within(projects).getByRole("button", { name: "Sort Projects" })).toBeVisible();
+    expect(within(projects).getByRole("button", { name: "Group Projects" })).toBeVisible();
+    expect(within(tasks).getByRole("button", { name: "Filter Tasks" })).toBeVisible();
+    expect(within(tasks).getByRole("button", { name: "Sort Tasks" })).toBeVisible();
+    expect(within(tasks).getByRole("button", { name: "Group Tasks" })).toBeVisible();
+    expect(within(projects).getByRole("tablist", { name: "Projects views" })).toBeVisible();
+    expect(within(tasks).getByRole("tablist", { name: "Tasks views" })).toBeVisible();
+
+    await user.click(within(tasks).getByRole("button", { name: "Filter Tasks" }));
+    const filter = screen.getByRole("dialog", { name: "Filter Tasks" });
+    await user.click(within(filter).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filter).getByRole("option", { name: "Status" }));
+    await user.click(within(filter).getByRole("button", {
+      name: "Select Status filter values",
+    }));
+    await user.click(within(filter).getByRole("checkbox", { name: "completed" }));
+
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(2);
+    expect(within(tasks).queryByRole("button", { name: /More/ })).toBeNull();
+    expect(within(projects).getByRole("button", {
+      name: "Open Checkup details",
+    })).toBeVisible();
+    expect(within(projects).queryByText("No linked items match this view.")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Tasks · 6" })).toBeVisible();
+  });
+
+  it("applies the five-row cap across linked Task groups instead of per group", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const tasks = linkedItemTypeGroup("Tasks · 6");
+    await user.click(within(tasks).getByRole("button", { name: "Group Tasks" }));
+    const groupDialog = screen.getByRole("dialog", { name: "Group Tasks" });
+    await user.click(within(groupDialog).getByRole("button", {
+      name: "Choose group property",
+    }));
+    await user.click(within(groupDialog).getByRole("option", { name: "Status" }));
+
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5);
+    expect(within(tasks).getByRole("rowgroup", { name: "Active group" })).toBeVisible();
+    expect(within(tasks).getByRole("rowgroup", { name: "Completed group" })).toBeVisible();
+    expect(within(tasks).getByRole("button", { name: "More (1) Tasks" })).toBeVisible();
+  });
+
+  it("collapses expanded linked Tasks when their active tab or draft settings change", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const tasks = linkedItemTypeGroup("Tasks · 6");
+    await user.click(within(tasks).getByRole("button", { name: "More (1) Tasks" }));
+    expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(6);
+
+    const taskTabs = within(tasks).getByRole("tablist", { name: "Tasks views" });
+    await user.click(within(taskTabs).getByRole("button", { name: "Add Tasks view" }));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5));
+    expect(within(taskTabs).getByRole("tab", { name: "새 보기" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await user.click(within(tasks).getByRole("button", { name: "More (1) Tasks" }));
+    await user.click(within(tasks).getByRole("button", { name: "Sort Tasks" }));
+    const sortDialog = screen.getByRole("dialog", { name: "Sort Tasks" });
+    await user.selectOptions(within(sortDialog).getByLabelText("Sort field"), "title");
+    await waitFor(() => expect(within(tasks).getAllByRole("button", {
+      name: /^Open Task \w+ details$/,
+    })).toHaveLength(5));
+    expect(within(tasks).getByRole("button", { name: "More (1) Tasks" })).toBeVisible();
   });
 
   it("confirms before discarding a dirty detail draft to open a linked item", async () => {
@@ -5795,7 +6740,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Projects" }));
     await user.type(screen.getByLabelText("Title"), "Project title");
 
     expect(screen.getByLabelText("Definition of Done")).toBeInTheDocument();
@@ -5846,7 +6791,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "ToDo" }));
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Routines" }));
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Add to Routines" }));
     await user.type(screen.getByLabelText("Title"), "Daily review");
 
     expect(screen.getByLabelText("Recurrence Rule Preview")).toHaveTextContent(

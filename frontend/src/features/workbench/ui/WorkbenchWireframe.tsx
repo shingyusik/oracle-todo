@@ -1,9 +1,15 @@
 import React from "react";
 
 import { workbenchCopy } from "@/design/copy";
-import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
+import type {
+  TableViewTarget,
+  WorkbenchController,
+} from "@/features/workbench/model/workbench-model";
 import { MainPanel } from "@/features/workbench/ui/MainPanel";
-import { PlannerTabConfirmationDialog } from "@/features/workbench/ui/PlannerTabConfirmationDialog";
+import {
+  TableViewTabConfirmationDialog,
+  type TableViewTabConfirmationDialogAdapter,
+} from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 import { TreeSidebar } from "@/features/workbench/ui/TreeSidebar";
 
 type WorkbenchWireframeProps = {
@@ -11,6 +17,18 @@ type WorkbenchWireframeProps = {
 };
 
 export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
+  const confirmationAdapter: TableViewTabConfirmationDialogAdapter<TableViewTarget> = {
+    confirmation: controller.tableViewTabConfirmation,
+    confirm: controller.confirmTableViewTabAction,
+    cancel: controller.cancelTableViewTabAction,
+    isDirty: (target) => target.surface === "planner"
+      ? controller.plannerTableIsDirty(target.scope)
+      : controller.workspaceTableIsDirty(target.scope),
+    activeTabId: (target) => target.surface === "planner"
+      ? controller.plannerTableTabs(target.scope).activeTabId
+      : controller.workspaceTableTabs(target.scope).activeTabId,
+  };
+
   return (
     <div className="workbench-shell">
       <aside className="workbench-nav">
@@ -35,7 +53,7 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
         />
       </aside>
       <MainPanel controller={controller} />
-      <PlannerTabConfirmationDialog controller={controller} />
+      <TableViewTabConfirmationDialog adapter={confirmationAdapter} />
     </div>
   );
 }

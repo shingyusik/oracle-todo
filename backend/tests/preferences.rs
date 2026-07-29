@@ -14,3 +14,22 @@ fn planner_preferences_round_trip() {
         Some(json!({"filterMode": "or"}))
     );
 }
+
+#[test]
+fn workspace_view_preferences_round_trip_independently() {
+    let mut connection = Connection::open_in_memory().unwrap();
+
+    init_schema(&connection).unwrap();
+    put(
+        &mut connection,
+        "workspace-views.v1",
+        &json!({"workspace.task": {"tabs": []}}),
+    )
+    .unwrap();
+
+    assert_eq!(
+        get(&connection, "workspace-views.v1").unwrap(),
+        Some(json!({"workspace.task": {"tabs": []}}))
+    );
+    assert_eq!(get(&connection, "planner.v1").unwrap(), None);
+}

@@ -451,15 +451,21 @@ Every service-layer change creates a `TodoEvent` row.
 
 SQLite table: `workspace_preferences`.
 
-Planner preferences are stored as the `planner.v1` JSON document in the workspace's
-`todo.sqlite`. They are workspace-wide because the local server has no user or profile
-identity. Each stable Planner table ID owns an ordered, non-empty tab list. Every tab
-stores a name plus a filter, sort, and group settings snapshot; active tabs and unsaved
-drafts remain frontend runtime state and are not persisted.
+Planner preferences are stored as `planner.v1`, and Workspace table and detail linked-list
+views are stored independently as `workspace-views.v1`. Both JSON documents are
+workspace-wide because the local server has no user or profile identity. Each stable table
+scope owns an ordered, non-empty tab list. Every tab stores a name plus a filter, sort, and
+group settings snapshot; active tabs, unsaved drafts, and linked-list expansion remain
+frontend runtime state and are not persisted.
+
+The two keys are isolated: saving Workspace views does not replace Planner settings.
+Missing, unavailable, or malformed Workspace view documents retain frontend defaults.
+Within a valid Workspace document, a malformed scope falls back only that scope while
+valid sibling scopes remain available.
 
 | Column | Meaning |
 | --- | --- |
-| `key` | Preference key; Planner uses `planner.v1`. |
+| `key` | Preference key; Planner uses `planner.v1` and Workspace views use `workspace-views.v1`. |
 | `value` | JSON preference document. |
 | `updated_at` | Last write timestamp. |
 
@@ -474,6 +480,8 @@ Endpoints:
 - `GET /items/archive`: list terminal/archive items.
 - `GET /settings/planner`: return the workspace-wide `planner.v1` document, or `null` when no preference has been saved.
 - `PUT /settings/planner`: upsert the workspace-wide Planner preference from `{ "value": { ... } }`; `value` must be a JSON object.
+- `GET /settings/workspace-views`: return the workspace-wide `workspace-views.v1` document, or `null` when no preference has been saved.
+- `PUT /settings/workspace-views`: upsert Workspace table and detail linked-list views from `{ "value": { ... } }`; `value` must be a JSON object or the endpoint returns HTTP `400`.
 - `POST /areas`: create area.
 - `POST /projects/propose`: create an active project; `definition_of_done` is required.
 - `POST /routines/propose`: create an active routine; `recurrence_rule` is required.

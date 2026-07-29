@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- SQLite and the Rust `TodoService` remain untouched; this is a frontend preference and presentation feature.
+- The Rust `TodoService` and item schema remain untouched; the existing generic SQLite preference store gains only a `workspace-views.v1` key and HTTP route.
 - Planner and Workspace saved views must persist independently.
 - Workspace table scopes are `workspace.<item-type>`.
 - Detail linked-list scopes are `detail.<parent-type>.<child-type>`.
@@ -52,6 +52,9 @@
 - `frontend/tests/domain/planner-tabs.spec.ts` — prove the Planner adapter preserves existing behavior.
 - `frontend/tests/presentation/use-workbench-controller.spec.tsx` — Workspace preference and controller isolation tests.
 - `frontend/tests/presentation/workbench-wireframe.spec.tsx` — Workspace table controls, linked-list controls, overflow, grouping, and navigation tests.
+- `backend/src/api.rs` — expose the existing preference store at `/settings/workspace-views`.
+- `backend/tests/preferences.rs` — verify the independent Workspace view preference round trip.
+- `todo-engine/tests/e2e/api.rs` — verify the mounted HTTP route accepts and returns Workspace view settings.
 - `docs/superpowers/specs/2026-07-29-workspace-table-views-and-linked-list-overflow-design.md` — update only if implementation reveals an approved contract correction.
 
 ### Deleted files
@@ -370,6 +373,9 @@ git commit -m "[ADD] Model Workspace table views"
 
 **Files:**
 
+- Modify: `backend/src/api.rs`
+- Modify: `backend/tests/preferences.rs`
+- Modify: `todo-engine/tests/e2e/api.rs`
 - Modify: `frontend/src/features/workbench/model/workbench-model.ts`
 - Modify: `frontend/src/features/workbench/hooks/useWorkbenchController.ts`
 - Modify: `frontend/tests/presentation/use-workbench-controller.spec.tsx`
@@ -454,14 +460,57 @@ and a malformed `workspace.project` entry does not reset a valid
 separate case and prove item loading, table rendering state, and local default
 views still work.
 
-- [ ] **Step 2: Write failing command and visible-selection tests**
+- [ ] **Step 2: Write failing backend preference-route tests**
+
+Add a backend repository round-trip for `workspace-views.v1` and an API e2e
+test that PUTs an object to `/settings/workspace-views`, GETs it back, and
+proves `/settings/planner` remains unchanged. Reuse the existing Planner
+preference test setup and object-value validation.
+
+- [ ] **Step 3: Run the backend tests and verify failure**
+
+Run:
+
+```bash
+cargo test -p backend --test preferences
+cargo test -p todo-engine --test e2e api::workspace_view_settings_round_trip_through_sqlite
+```
+
+Expected: FAIL because the Workspace view preference key and route do not
+exist.
+
+- [ ] **Step 4: Add the Workspace view preference route**
+
+In `backend/src/api.rs`, add:
+
+```rust
+const WORKSPACE_VIEWS_PREFERENCE_KEY: &str = "workspace-views.v1";
+```
+
+Mount `GET` and `PUT` handlers at `/settings/workspace-views`. Use the same
+object-value validation, database initialization, `get`, and `put` flow as
+Planner, parameterized through a private helper where that removes duplicate
+handler logic. Do not change the preference schema or `TodoService`.
+
+- [ ] **Step 5: Run the backend route tests**
+
+Run:
+
+```bash
+cargo test -p backend --test preferences
+cargo test -p todo-engine --test e2e api::workspace_view_settings_round_trip_through_sqlite
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Write failing command and visible-selection tests**
 
 Exercise create, select, rename, save, delete confirmation, dirty select
 confirmation, dirty navigation confirmation, dirty state, and settings update
 for `workspace.task`. Set visible IDs to `["task-2"]`, call
 `toggleVisibleSelection`, and assert only `task-2` becomes selected.
 
-- [ ] **Step 3: Run focused controller tests and verify failure**
+- [ ] **Step 7: Run focused controller tests and verify failure**
 
 Run:
 
@@ -472,7 +521,7 @@ npm test -- --run tests/presentation/use-workbench-controller.spec.tsx
 
 Expected: FAIL because Workspace view controller members do not exist.
 
-- [ ] **Step 4: Add Workspace view state with queued startup commands**
+- [ ] **Step 8: Add Workspace view state with queued startup commands**
 
 Mirror Planner's load-race protection with separate refs:
 
@@ -490,7 +539,7 @@ Load `GET /todo-engine/settings/workspace-views`, normalize each present scope,
 replay commands made before loading finishes, and serialize writes through a
 dedicated `workspaceViewsWrite` promise.
 
-- [ ] **Step 5: Implement Workspace tab commands**
+- [ ] **Step 9: Implement Workspace tab commands**
 
 Use the generic lifecycle functions with the Workspace adapter. Persist saved
 tab mutations immediately. Keep draft filter/sort/group edits local until the
@@ -500,27 +549,30 @@ delete, and dirty-navigation confirmations through
 `TableViewTabConfirmation`; confirm/cancel must dispatch to the target
 surface's state without mutating the other surface.
 
-- [ ] **Step 6: Make visible selection derived-view aware**
+- [ ] **Step 10: Make visible selection derived-view aware**
 
 Add a `visibleWorkspaceItemIds` ref, update it through
 `setVisibleWorkspaceItemIds`, and remove IDs no longer present when the active
 Workspace panel changes. Keep archive behavior based on the selected IDs.
 
-- [ ] **Step 7: Run controller tests**
+- [ ] **Step 11: Run controller and backend tests**
 
 Run:
 
 ```bash
 cd frontend
 npm test -- --run tests/presentation/use-workbench-controller.spec.tsx
+cd ..
+cargo test -p backend --test preferences
+cargo test -p todo-engine --test e2e api::workspace_view_settings_round_trip_through_sqlite
 ```
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Workspace controller state**
+- [ ] **Step 12: Commit Workspace controller state**
 
 ```bash
-git add frontend/src/features/workbench/model/workbench-model.ts frontend/src/features/workbench/hooks/useWorkbenchController.ts frontend/tests/presentation/use-workbench-controller.spec.tsx
+git add backend/src/api.rs backend/tests/preferences.rs todo-engine/tests/e2e/api.rs frontend/src/features/workbench/model/workbench-model.ts frontend/src/features/workbench/hooks/useWorkbenchController.ts frontend/tests/presentation/use-workbench-controller.spec.tsx
 git commit -m "[ADD] Persist Workspace table views"
 ```
 

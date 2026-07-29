@@ -10,6 +10,7 @@ import {
   buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
   buildYearlyPeriodGoalCardsModel,
+  effectivePlannerFilterRules,
   filterPlannerItemsByRules,
   groupPlannerItems,
   matchesPlannerFilterRules,
@@ -207,6 +208,22 @@ function legacyPlannerControls(): LegacyPlannerControls {
 }
 
 describe("planner model", () => {
+  it("ignores incomplete filter rules while retaining empty operators and completed values", () => {
+    const rules: PlannerFilterRule[] = [
+      { id: "select", field: "status", type: "select", operator: "is", value: [] },
+      { id: "relation", field: "area", type: "relation", operator: "is", value: [] },
+      { id: "text", field: "title", type: "text", operator: "contains", value: "" },
+      { id: "date", field: "scheduled", type: "date", operator: "is", value: "" },
+      { id: "empty", field: "title", type: "text", operator: "is_empty", value: null },
+      { id: "complete", field: "title", type: "text", operator: "contains", value: "plan" },
+    ];
+
+    expect(effectivePlannerFilterRules(
+      rules,
+      ["status", "area", "title", "scheduled"],
+    ).map((rule) => rule.id)).toEqual(["empty", "complete"]);
+  });
+
   it("defines stable planner table identifiers", () => {
     expect(plannerTableIds).toEqual([
       "daily.today", "daily.overdue", "daily.unscheduled",

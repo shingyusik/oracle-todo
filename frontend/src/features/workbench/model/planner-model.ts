@@ -95,7 +95,7 @@ export type PlannerSortRule = {
   direction: PlannerSortDirection;
 };
 
-const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterType> = {
+export const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterType> = {
   title: "text",
   scheduled: "date",
   due: "date",
@@ -116,7 +116,7 @@ const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterType> = {
   note: "text",
 };
 
-const plannerFilterOperators: Record<PlannerFilterType, readonly PlannerFilterOperator[]> = {
+export const plannerFilterOperators: Record<PlannerFilterType, readonly PlannerFilterOperator[]> = {
   date: ["is", "is_not", "is_before", "is_after", "is_on_or_before", "is_on_or_after", "is_between", "is_relative_to_today", "is_empty", "is_not_empty"],
   number: ["is", "is_not", "greater_than", "less_than", "is_empty", "is_not_empty"],
   text: ["contains", "does_not_contain", "is", "is_not", "starts_with", "ends_with", "is_empty", "is_not_empty"],
@@ -318,28 +318,35 @@ function normalizeFilterRules(
   if (!Array.isArray(value)) return null;
   const rules: PlannerFilterRule[] = [];
   for (const rule of value) {
-    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return null;
-    if (
-      !isPlannerFilterField(rule.field) ||
-      !allowedFields.includes(rule.field) ||
-      !isPlannerFilterType(rule.type)
-    ) return null;
-    const { field, type } = rule;
-    if (plannerFilterFieldTypes[field] !== type) {
-      return null;
-    }
-    if (!isPlannerFilterOperator(type, rule.operator) || !isPlannerFilterValue(type, rule.operator, rule.value)) {
-      return null;
-    }
-    rules.push({
-      id: rule.id,
-      field,
-      type,
-      operator: rule.operator,
-      value: clonePlannerFilterValue(rule.value),
-    });
+    const normalized = normalizePlannerFilterRule(rule, allowedFields);
+    if (!normalized) return null;
+    rules.push(normalized);
   }
   return rules;
+}
+
+export function normalizePlannerFilterRule(
+  value: unknown,
+  allowedFields: readonly PlannerFilterField[],
+): PlannerFilterRule | null {
+  if (!isRecord(value) || typeof value.id !== "string" || value.id.length === 0) return null;
+  if (
+    !isPlannerFilterField(value.field) ||
+    !allowedFields.includes(value.field) ||
+    !isPlannerFilterType(value.type)
+  ) return null;
+  const { field, type } = value;
+  if (plannerFilterFieldTypes[field] !== type) return null;
+  if (!isPlannerFilterOperator(type, value.operator) || !isPlannerFilterValue(type, value.operator, value.value)) {
+    return null;
+  }
+  return {
+    id: value.id,
+    field,
+    type,
+    operator: value.operator,
+    value: clonePlannerFilterValue(value.value),
+  };
 }
 
 function normalizePlannerSortRules(
@@ -349,15 +356,24 @@ function normalizePlannerSortRules(
   if (!Array.isArray(value)) return null;
   const rules: PlannerSortRule[] = [];
   for (const rule of value) {
-    if (!isRecord(rule) || typeof rule.id !== "string" || rule.id.length === 0) return null;
-    if (
-      !isPlannerSortField(rule.field) ||
-      !allowedFields.includes(rule.field) ||
-      !isPlannerSortDirection(rule.direction)
-    ) return null;
-    rules.push({ id: rule.id, field: rule.field, direction: rule.direction });
+    const normalized = normalizePlannerSortRule(rule, allowedFields);
+    if (!normalized) return null;
+    rules.push(normalized);
   }
   return rules;
+}
+
+export function normalizePlannerSortRule(
+  value: unknown,
+  allowedFields: readonly PlannerSortBy[],
+): PlannerSortRule | null {
+  if (!isRecord(value) || typeof value.id !== "string" || value.id.length === 0) return null;
+  if (
+    !isPlannerSortField(value.field) ||
+    !allowedFields.includes(value.field) ||
+    !isPlannerSortDirection(value.direction)
+  ) return null;
+  return { id: value.id, field: value.field, direction: value.direction };
 }
 
 function sanitizeLegacyFilterRules(
@@ -761,6 +777,22 @@ export function matchesPlannerFilterRules(
   return mode === "and" ? results.every(Boolean) : results.some(Boolean);
 }
 
+export function effectivePlannerFilterRules(
+  rules: readonly PlannerFilterRule[],
+  allowedFields: readonly PlannerFilterField[],
+): PlannerFilterRule[] {
+  return rules.filter((rule) => {
+    if (!allowedFields.includes(rule.field)) return false;
+    if (rule.operator === "is_empty" || rule.operator === "is_not_empty") {
+      return true;
+    }
+    if (Array.isArray(rule.value)) {
+      return rule.value.some(Boolean);
+    }
+    return rule.value != null && rule.value !== "";
+  });
+}
+
 export function filterPlannerItemsByRules(
   items: WorkspaceItemModel[],
   relatedItems: WorkspaceItemsModel["relatedItems"],
@@ -1160,19 +1192,19 @@ export function isoWeekStart(date: string): string {
   const value = new Date(`${date}T00:00:00`);
   const day = value.getDay();
   value.setDate(value.getDate() + (day === 0 ? -6 : 1 - day));
-  return formatLocalDate(value);
+  return localCalendarDate(value);
 }
 
 export function addYears(date: string, years: number): string {
   const value = new Date(`${date}T00:00:00`);
   value.setFullYear(value.getFullYear() + years);
-  return formatLocalDate(value);
+  return localCalendarDate(value);
 }
 
 export function addMonths(date: string, months: number): string {
   const value = new Date(`${date}T00:00:00`);
   value.setMonth(value.getMonth() + months);
-  return formatLocalDate(value);
+  return localCalendarDate(value);
 }
 
 function addDays(date: string, days: number): string {
@@ -1181,7 +1213,9 @@ function addDays(date: string, days: number): string {
   return value.toISOString().slice(0, 10);
 }
 
-function formatLocalDate(date: Date): string {
+export function localCalendarDate(
+  date: Pick<Date, "getFullYear" | "getMonth" | "getDate">,
+): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
