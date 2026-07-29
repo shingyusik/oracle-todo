@@ -5397,15 +5397,10 @@ describe("WorkbenchPageClient", () => {
     expect(saveButton.textContent).toBe("");
     expect(saveButton).toBeDisabled();
     expect(detailView.querySelector(".detail-header")?.contains(saveButton)).toBe(true);
-    expect(
-      screen
-        .getByText("Created")
-        .compareDocumentPosition(screen.getByText("Description")) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-
-    await user.clear(screen.getByLabelText("Note"));
-    await user.type(screen.getByLabelText("Note"), "Saved note");
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
+    const note = screen.getByRole("textbox", { name: "Markdown note" });
+    await user.clear(note);
+    await user.type(note, "Saved note");
     expect(saveButton).toBeEnabled();
     await user.click(saveButton);
 
@@ -5439,6 +5434,16 @@ describe("WorkbenchPageClient", () => {
     const linkedItems = screen.getByRole("region", { name: "Linked items" });
     expect(within(linkedItems).getByRole("heading", { name: "Projects · 1" })).toBeInTheDocument();
     expect(within(linkedItems).getByRole("heading", { name: "Tasks · 1" })).toBeInTheDocument();
+    const layout = linkedItems.closest(".detail-layout");
+    const note = layout?.querySelector(".detail-note");
+    expect(layout).not.toBeNull();
+    expect(note).not.toBeNull();
+    if (!layout || !note) {
+      throw new Error("Missing linked-item detail layout or Markdown note");
+    }
+    expect(linkedItems.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(layout.lastElementChild).toBe(note);
     await user.click(within(linkedItems).getByRole("button", { name: "Open Checkup details" }));
     expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
     const areaSelect = screen.getByLabelText("Area for Checkup");
@@ -5551,8 +5556,10 @@ describe("WorkbenchPageClient", () => {
     await user.click(await screen.findByRole("cell", { name: "Secondary active goal" }));
 
     expect(screen.getByLabelText("Status for Secondary active goal")).toHaveValue("active");
-    await user.clear(screen.getByLabelText("Note"));
-    await user.type(screen.getByLabelText("Note"), "Saved note");
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
+    const note = screen.getByRole("textbox", { name: "Markdown note" });
+    await user.clear(note);
+    await user.type(note, "Saved note");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -5602,15 +5609,12 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Remove planning tag" })).toBeInTheDocument();
   });
 
-  it("keeps detail long-text drafts while relation edits wait for Save", async () => {
+  it("keeps detail Markdown note drafts while relation edits wait for Save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
-          JSON.stringify({
-            description: "Draft detail text",
-            area: "area-2",
-          }),
+          JSON.stringify({ note: "Draft detail text", area: "area-2" }),
         );
         return Promise.resolve({
           ok: true,
@@ -5619,7 +5623,7 @@ describe("WorkbenchPageClient", () => {
             type: "task",
             title: "One",
             status: "active",
-            description: "Draft detail text",
+            note: "Draft detail text",
             area_id: "area-2",
             project_id: "project-1",
             routine_id: "routine-1",
@@ -5667,6 +5671,7 @@ describe("WorkbenchPageClient", () => {
             project_id: "project-1",
             routine_id: "routine-1",
             description: "Original description",
+            note: "Original note",
           },
         ],
       });
@@ -5684,11 +5689,13 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Type")).toBeNull();
     expectFieldBefore("Status for One", "Area for One");
 
-    await user.clear(screen.getByLabelText("Description"));
-    await user.type(screen.getByLabelText("Description"), "Draft detail text");
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
+    const note = screen.getByRole("textbox", { name: "Markdown note" });
+    await user.clear(note);
+    await user.type(note, "Draft detail text");
     await user.selectOptions(screen.getByLabelText("Area for One"), "area-2");
 
-    expect(screen.getByLabelText("Description")).toHaveValue("Draft detail text");
+    expect(screen.getByText("Draft detail text")).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/todo-engine/items/task-1",
       expect.objectContaining({ method: "PATCH" }),
@@ -5929,13 +5936,12 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(calls).toEqual(["patch", "resume"]));
   });
 
-  it("shows the same task fields in the table and detail while editing long fields only in detail", async () => {
+  it("shows the same task fields in the table while keeping description table-only in detail", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/task-1") {
         expect(init).toEqual(expect.objectContaining({ method: "PATCH" }));
         expect(JSON.parse(String(init?.body))).toEqual({
-          description: "Updated description",
           note: "Updated note",
           priority: 2,
         });
@@ -5950,7 +5956,7 @@ describe("WorkbenchPageClient", () => {
             scheduled: "2026-07-03",
             due: "2026-07-04",
             priority: 2,
-            description: "Updated description",
+            description: "Original description",
             note: "Updated note",
             created_at: "2026-07-01T00:00:00Z",
             updated_at: "2026-07-02T00:00:00Z",
@@ -5996,27 +6002,63 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Scheduled")).toHaveValue("2026-07-03");
     expect(screen.getByLabelText("Due")).toHaveValue("2026-07-04");
     expect(screen.getByLabelText("Priority")).toHaveValue("1");
-    expect(screen.getByLabelText("Description")).toHaveValue("Original description");
-    expect(screen.getByLabelText("Note")).toHaveValue("Original note");
+    expect(screen.queryByLabelText("Description")).toBeNull();
+    expect(screen.getByText("Original note")).toBeInTheDocument();
     expect(screen.getByText("2026-07-01")).toBeInTheDocument();
     expect(screen.getByText("2026-07-02")).toBeInTheDocument();
     expectFieldBefore("Scheduled", "Due");
     expectFieldBefore("Due", "Priority");
     expectFieldBeforeProperty("Priority", "Created");
     expectPropertyImmediatelyBeforeProperty("Created", "Updated");
-    expectPropertyImmediatelyBeforeField("Updated", "Description");
 
-    await user.clear(screen.getByLabelText("Description"));
-    await user.type(screen.getByLabelText("Description"), "Updated description");
-    await user.clear(screen.getByLabelText("Note"));
-    await user.type(screen.getByLabelText("Note"), "Updated note");
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
+    const note = screen.getByRole("textbox", { name: "Markdown note" });
+    await user.clear(note);
+    await user.type(note, "Updated note");
     await user.selectOptions(screen.getByLabelText("Priority"), "2");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByDisplayValue("Updated description")).toBeInTheDocument();
+    expect(await screen.findByText("Updated note")).toBeInTheDocument();
   });
 
-  it("places timestamps directly above note when detail has no description", async () => {
+  it("shows one Markdown note last and omits description from Workspace details", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: "task-1",
+              type: "task",
+              title: "Write release notes",
+              status: "active",
+              description: "Legacy description",
+              note: "# Checklist\n\n- [x] Drafted",
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("cell", { name: "Write release notes" }));
+
+    expect(screen.queryByLabelText("Description")).toBeNull();
+    expect(screen.queryByLabelText("Note")).toBeNull();
+    expect(screen.queryByText("Legacy description")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Checklist" })).toBeInTheDocument();
+
+    const layout = screen.getByRole("heading", { name: "Write release notes" }).closest(".detail-layout");
+    const note = screen.getByRole("button", { name: "Edit Markdown note" }).closest(".detail-note");
+    expect(layout?.lastElementChild).toBe(note);
+  });
+
+  it("places the Markdown note after all detail properties", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -6048,7 +6090,10 @@ describe("WorkbenchPageClient", () => {
 
     expectFieldBeforeProperty("Standard", "Created");
     expectPropertyImmediatelyBeforeProperty("Created", "Updated");
-    expectPropertyImmediatelyBeforeField("Updated", "Note");
+    expect(screen.getByText("Monthly close")).toBeInTheDocument();
+    const layout = screen.getByRole("heading", { name: "Finance" }).closest(".detail-layout");
+    const note = screen.getByRole("button", { name: "Edit Markdown note" }).closest(".detail-note");
+    expect(layout?.lastElementChild).toBe(note);
   });
 
   it("selects task priority from a detail dropdown", async () => {
@@ -6170,7 +6215,10 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByLabelText("Horizon")).toBeNull();
     expect(screen.queryByLabelText("Scheduled")).toBeNull();
     expect(screen.getByLabelText("Parent")).toHaveValue("goal-root");
-    expect(screen.getByLabelText("Note")).toHaveValue("Ship the monthly target");
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
+    expect(screen.getByRole("textbox", { name: "Markdown note" })).toHaveValue(
+      "Ship the monthly target",
+    );
     expect(screen.getByText("2026-06-01")).toBeInTheDocument();
     expect(screen.getByText("2026-06-02")).toBeInTheDocument();
 
@@ -7007,7 +7055,6 @@ describe("WorkbenchPageClient", () => {
       if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
         expect(JSON.parse(String(init.body))).toEqual({
           project_id: "project-2",
-          description: "물을 천천히 마신다",
           priority: 3,
         });
 
@@ -7019,7 +7066,7 @@ describe("WorkbenchPageClient", () => {
             title: "물 마시기",
             status: "active",
             project_id: "project-2",
-            description: "물을 천천히 마신다",
+            description: "500ml를 마신다",
             priority: 3,
             recurrence_rule: "daily",
             materialization_policy: "single_open",
@@ -7075,14 +7122,12 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("cell", { name: "물 마시기" }));
 
     expect(screen.getByRole("button", { name: "Tags" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Note")).toHaveValue("오후에도 반복");
+    expect(screen.getByText("오후에도 반복")).toBeInTheDocument();
     expect(screen.getByLabelText("Project for 물 마시기")).toHaveValue("project-1");
     expect(screen.getByLabelText("Priority")).toHaveValue("2");
-    expect(screen.getByLabelText("Description")).toHaveValue("500ml를 마신다");
+    expect(screen.queryByLabelText("Description")).toBeNull();
 
     await user.selectOptions(screen.getByLabelText("Project for 물 마시기"), "project-2");
-    await user.clear(screen.getByLabelText("Description"));
-    await user.type(screen.getByLabelText("Description"), "물을 천천히 마신다");
     await user.selectOptions(screen.getByLabelText("Priority"), "3");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -7099,6 +7144,7 @@ describe("WorkbenchPageClient", () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
         expect(init.body).toBe(JSON.stringify({ note: "Keep this stretch" }));
+        expect(String(init.body)).not.toContain("description");
 
         return Promise.resolve({
           ok: true,
@@ -7145,7 +7191,8 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Frequency")).toHaveValue("weekly");
     expect(screen.getByLabelText("Monday")).toBeChecked();
 
-    await user.type(screen.getByLabelText("Note"), "Keep this stretch");
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
+    await user.type(screen.getByRole("textbox", { name: "Markdown note" }), "Keep this stretch");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -7222,8 +7269,10 @@ describe("WorkbenchPageClient", () => {
     expect(within(properties as HTMLElement).getByText("2026-06-21")).toBeInTheDocument();
     expect(screen.queryByLabelText("Last Materialized")).toBeNull();
     expectPropertyImmediatelyBeforeProperty("Updated", "Last Materialized");
-    expectPropertyImmediatelyBeforeField("Last Materialized", "Description");
-    expectFieldBefore("Description", "Note");
+    expect(screen.getByText("After coffee")).toBeInTheDocument();
+    const layout = screen.getByRole("heading", { name: "Stretch" }).closest(".detail-layout");
+    const note = screen.getByRole("button", { name: "Edit Markdown note" }).closest(".detail-note");
+    expect(layout?.lastElementChild).toBe(note);
   });
 
   it("omits unchanged event participants from the detail PATCH body", async () => {
@@ -7282,7 +7331,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Events" }));
 
     await user.click(await screen.findByRole("cell", { name: "Review" }));
-    expectFieldBefore("Description", "Note");
+    expectFieldBeforeProperty("Commitment Type", "Created");
+    expectPropertyImmediatelyBeforeProperty("Created", "Updated");
+    const layout = screen.getByRole("heading", { name: "Review" }).closest(".detail-layout");
+    const note = screen.getByRole("button", { name: "Edit Markdown note" }).closest(".detail-note");
+    expect(layout?.lastElementChild).toBe(note);
     await user.clear(screen.getByLabelText("Location"));
     await user.type(screen.getByLabelText("Location"), "Office");
     await user.selectOptions(screen.getByLabelText("Priority"), "2");

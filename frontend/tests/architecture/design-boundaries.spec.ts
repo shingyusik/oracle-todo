@@ -195,6 +195,18 @@ describe("design system boundaries", () => {
     );
   });
 
+  it("keeps the Markdown note full-width and outside the property grid", async () => {
+    const css = await readSource("src/styles/globals.css");
+
+    expect(css).toContain(".detail-note {\n  display: grid;");
+    expect(css).toContain(".markdown-note-surface,\n.markdown-note-input {\n  width: 100%;");
+    expect(css).toContain(".markdown-note-input {\n  min-height: 260px;");
+    expect(css).toContain(".markdown-note-edit-button:focus-visible");
+    expect(css).toContain(
+      ".markdown-note-surface hr {\n  margin: 1.5em 0;\n  border: 0;\n  border-top: 1px solid var(--color-hairline-light);",
+    );
+  });
+
   it("keeps table tag dropdowns clear of the horizontal scroll clip", async () => {
     const source = await readSource("src/styles/globals.css");
 
