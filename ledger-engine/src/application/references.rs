@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{CandidateMatch, LedgerRepository, LedgerTransaction};
 use crate::domain::{
@@ -10,6 +12,8 @@ use super::commands::{
 };
 use super::entries::{AuditMutation, audit_event, domain_validation, validate_actor};
 use super::service::LedgerService;
+
+const MAX_HIERARCHY_DEPTH: usize = 1024;
 
 impl<R: LedgerRepository> LedgerService<R> {
     pub fn create_currency(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
@@ -46,6 +50,15 @@ impl<R: LedgerRepository> LedgerService<R> {
         let before = transaction
             .get_currency(id, false)?
             .ok_or_else(|| LedgerError::NotFound(format!("currency {id}")))?;
+        if command
+            .decimal_places
+            .is_some_and(|precision| precision != before.decimal_places())
+            && transaction.currency_has_dependencies(id)?
+        {
+            return Err(LedgerError::Conflict(format!(
+                "currency {id} decimal places are immutable while referenced"
+            )));
+        }
         let after = Currency::rehydrate(
             before.id(),
             command.code.unwrap_or_else(|| before.code().to_string()),
@@ -121,11 +134,7 @@ impl<R: LedgerRepository> LedgerService<R> {
         let parent_id = match command.parent {
             Some(Some(reference)) => {
                 let parent = resolve_account_category(&*transaction, &reference)?;
-                if parent.id() == id {
-                    return Err(LedgerError::Conflict(
-                        "account category cannot be its own parent".to_string(),
-                    ));
-                }
+                validate_account_category_ancestor_chain(&*transaction, id, parent.id())?;
                 Some(parent.id().to_string())
             }
             Some(None) => None,
@@ -197,9 +206,15 @@ impl<R: LedgerRepository> LedgerService<R> {
             None => before.category_id().to_string(),
         };
         let currency_id = match command.currency {
-            Some(reference) => resolve_currency(&*transaction, &reference)?
-                .id()
-                .to_string(),
+            Some(reference) => {
+                let currency = resolve_currency(&*transaction, &reference)?;
+                if currency.id() != before.currency_id() && transaction.account_has_entries(id)? {
+                    return Err(LedgerError::Conflict(format!(
+                        "account {id} currency is immutable while entries reference the account"
+                    )));
+                }
+                currency.id().to_string()
+            }
             None => before.currency_id().to_string(),
         };
         let after = Account::rehydrate(
@@ -279,26 +294,33 @@ impl<R: LedgerRepository> LedgerService<R> {
             .get_transaction_category(id, false)?
             .ok_or_else(|| LedgerError::NotFound(format!("transaction category {id}")))?;
         let kind = command.kind.unwrap_or(before.kind());
+        let kind_changed = kind != before.kind();
+        if kind_changed && transaction.transaction_category_has_entries(id)? {
+            return Err(LedgerError::Conflict(format!(
+                "transaction category {id} kind is immutable while referenced by entries"
+            )));
+        }
+        if kind_changed && transaction.transaction_category_has_children(id)? {
+            return Err(LedgerError::Conflict(format!(
+                "transaction category {id} kind is immutable while children exist"
+            )));
+        }
         let parent_id = match command.parent {
             Some(Some(reference)) => {
                 let parent = resolve_transaction_category(&*transaction, &reference)?;
-                if parent.id() == id {
-                    return Err(LedgerError::Conflict(
-                        "transaction category cannot be its own parent".to_string(),
-                    ));
-                }
                 validate_parent_kind(parent.kind(), kind)?;
+                validate_transaction_category_ancestor_chain(&*transaction, id, parent.id())?;
                 Some(parent.id().to_string())
             }
             Some(None) => None,
-            None => before.parent_id().map(str::to_string),
-        };
-        if command.kind.is_some() {
-            if let Some(parent_id) = parent_id.as_deref() {
-                let parent = resolve_transaction_category(&*transaction, parent_id)?;
-                validate_parent_kind(parent.kind(), kind)?;
+            None => {
+                if let Some(parent_id) = before.parent_id() {
+                    let parent = historical_transaction_category(&*transaction, parent_id)?;
+                    validate_parent_kind(parent.kind(), kind)?;
+                }
+                before.parent_id().map(str::to_string)
             }
-        }
+        };
         let after = TransactionCategory::rehydrate(
             before.id(),
             command.name.unwrap_or_else(|| before.name().to_string()),
@@ -334,6 +356,79 @@ fn validate_parent_kind(
         });
     }
     Ok(())
+}
+
+fn historical_transaction_category(
+    transaction: &dyn LedgerTransaction,
+    id: &str,
+) -> LedgerResult<TransactionCategory> {
+    transaction
+        .get_transaction_category(id, true)?
+        .ok_or_else(|| {
+            LedgerError::Conflict(format!(
+                "transaction category hierarchy references missing parent {id}"
+            ))
+        })
+}
+
+fn validate_account_category_ancestor_chain(
+    transaction: &dyn LedgerTransaction,
+    target_id: &str,
+    proposed_parent_id: &str,
+) -> LedgerResult<()> {
+    let mut cursor = Some(proposed_parent_id.to_string());
+    let mut seen = HashSet::new();
+    for _ in 0..MAX_HIERARCHY_DEPTH {
+        let Some(id) = cursor else {
+            return Ok(());
+        };
+        if id == target_id || !seen.insert(id.clone()) {
+            return Err(LedgerError::Conflict(
+                "account category hierarchy cycle detected".to_string(),
+            ));
+        }
+        let category = transaction
+            .get_account_category(&id, true)?
+            .ok_or_else(|| {
+                LedgerError::Conflict(format!(
+                    "account category hierarchy references missing ancestor {id}"
+                ))
+            })?;
+        cursor = category.parent_id().map(str::to_string);
+    }
+    Err(LedgerError::Conflict(format!(
+        "account category hierarchy exceeds {MAX_HIERARCHY_DEPTH} ancestors"
+    )))
+}
+
+fn validate_transaction_category_ancestor_chain(
+    transaction: &dyn LedgerTransaction,
+    target_id: &str,
+    proposed_parent_id: &str,
+) -> LedgerResult<()> {
+    let mut cursor = Some(proposed_parent_id.to_string());
+    let mut seen = HashSet::new();
+    for _ in 0..MAX_HIERARCHY_DEPTH {
+        let Some(id) = cursor else {
+            return Ok(());
+        };
+        if id == target_id || !seen.insert(id.clone()) {
+            return Err(LedgerError::Conflict(
+                "transaction category hierarchy cycle detected".to_string(),
+            ));
+        }
+        let category = transaction
+            .get_transaction_category(&id, true)?
+            .ok_or_else(|| {
+                LedgerError::Conflict(format!(
+                    "transaction category hierarchy references missing ancestor {id}"
+                ))
+            })?;
+        cursor = category.parent_id().map(str::to_string);
+    }
+    Err(LedgerError::Conflict(format!(
+        "transaction category hierarchy exceeds {MAX_HIERARCHY_DEPTH} ancestors"
+    )))
 }
 
 pub(super) fn resolve_currency(

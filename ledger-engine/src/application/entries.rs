@@ -22,6 +22,7 @@ impl<R: LedgerRepository> LedgerService<R> {
         let mut transaction = self.repository.begin_transaction()?;
         let account = resolve_account(&*transaction, &command.account)?;
         let currency = resolve_currency(&*transaction, &command.currency)?;
+        validate_account_currency(&account, &currency)?;
         let category = resolve_entry_category(
             &*transaction,
             command.entry_type,
@@ -83,18 +84,42 @@ impl<R: LedgerRepository> LedgerService<R> {
         let before = transaction
             .get_entry(id, false)?
             .ok_or_else(|| LedgerError::NotFound(format!("ledger entry {id}")))?;
+        if matches!(
+            before.entry_type(),
+            EntryType::TransferOut | EntryType::TransferIn
+        ) {
+            return Err(validation(
+                "entry_type",
+                "transfer entries must be changed through the transfer service",
+            ));
+        }
+        if before.transfer_group_id().is_some() {
+            return Err(validation(
+                "transfer_group",
+                "grouped entries must be changed through the transfer service",
+            ));
+        }
         let entry_type_was_supplied = command.entry_type.is_some();
         let category_was_supplied = command.category.is_some();
+        let account_was_supplied = command.account.is_some();
+        let currency_was_supplied = command.currency.is_some();
         let entry_type = command.entry_type.unwrap_or(before.entry_type());
-        let account_id = match command.account {
-            Some(reference) => resolve_account(&*transaction, &reference)?.id().to_string(),
-            None => before.account_id().to_string(),
-        };
-        let currency_id = match command.currency {
-            Some(reference) => resolve_currency(&*transaction, &reference)?
-                .id()
-                .to_string(),
-            None => before.currency_id().to_string(),
+        let (account_id, currency_id) = if account_was_supplied || currency_was_supplied {
+            let account = match command.account {
+                Some(reference) => resolve_account(&*transaction, &reference)?,
+                None => resolve_account(&*transaction, before.account_id())?,
+            };
+            let currency = match command.currency {
+                Some(reference) => resolve_currency(&*transaction, &reference)?,
+                None => resolve_currency(&*transaction, before.currency_id())?,
+            };
+            validate_account_currency(&account, &currency)?;
+            (account.id().to_string(), currency.id().to_string())
+        } else {
+            (
+                before.account_id().to_string(),
+                before.currency_id().to_string(),
+            )
         };
         let category_id = match command.category {
             Some(reference) => {
@@ -103,7 +128,11 @@ impl<R: LedgerRepository> LedgerService<R> {
             }
             None => before.transaction_category_id().map(str::to_string),
         };
-        validate_category_presence(entry_type, category_id.as_deref())?;
+        validate_final_entry_shape(
+            entry_type,
+            category_id.as_deref(),
+            before.transfer_group_id(),
+        )?;
         if entry_type_was_supplied && !category_was_supplied {
             if let Some(category_id) = category_id.as_deref() {
                 let category = transaction
@@ -274,6 +303,47 @@ fn validate_category_presence(
         return Err(validation(
             "category",
             "transfer entries cannot carry a category",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_final_entry_shape(
+    entry_type: EntryType,
+    category_id: Option<&str>,
+    transfer_group_id: Option<&str>,
+) -> LedgerResult<()> {
+    validate_category_presence(entry_type, category_id)?;
+    match entry_type {
+        EntryType::TransferOut | EntryType::TransferIn if transfer_group_id.is_none() => {
+            Err(validation(
+                "transfer_group",
+                "transfer entries require a transfer group",
+            ))
+        }
+        EntryType::Expense
+        | EntryType::Income
+        | EntryType::AdjustmentOut
+        | EntryType::AdjustmentIn
+            if transfer_group_id.is_some() =>
+        {
+            Err(validation(
+                "transfer_group",
+                "non-transfer entries cannot carry a transfer group",
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_account_currency(
+    account: &crate::domain::Account,
+    currency: &crate::domain::Currency,
+) -> LedgerResult<()> {
+    if account.currency_id() != currency.id() {
+        return Err(validation(
+            "currency",
+            "entry currency must match the account currency",
         ));
     }
     Ok(())

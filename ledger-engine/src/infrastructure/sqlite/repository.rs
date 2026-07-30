@@ -248,6 +248,48 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
         )
     }
 
+    fn currency_has_dependencies(&self, id: &str) -> LedgerResult<bool> {
+        exists(
+            &self.transaction,
+            "SELECT EXISTS(
+                SELECT 1 FROM accounts WHERE currency_id = ?1
+                UNION ALL
+                SELECT 1 FROM ledger_entries WHERE currency_id = ?1
+             )",
+            id,
+        )
+    }
+
+    fn account_has_entries(&self, id: &str) -> LedgerResult<bool> {
+        exists(
+            &self.transaction,
+            "SELECT EXISTS(
+                SELECT 1 FROM ledger_entries WHERE account_id = ?1
+             )",
+            id,
+        )
+    }
+
+    fn transaction_category_has_entries(&self, id: &str) -> LedgerResult<bool> {
+        exists(
+            &self.transaction,
+            "SELECT EXISTS(
+                SELECT 1 FROM ledger_entries WHERE transaction_category_id = ?1
+             )",
+            id,
+        )
+    }
+
+    fn transaction_category_has_children(&self, id: &str) -> LedgerResult<bool> {
+        exists(
+            &self.transaction,
+            "SELECT EXISTS(
+                SELECT 1 FROM transaction_categories WHERE parent_id = ?1
+             )",
+            id,
+        )
+    }
+
     fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>> {
         list_active_currencies_on(&self.transaction, page)
     }
@@ -555,6 +597,12 @@ where
         1 => CandidateMatch::One(values.remove(0)),
         _ => CandidateMatch::Ambiguous,
     })
+}
+
+fn exists(connection: &Connection, sql: &str, id: &str) -> LedgerResult<bool> {
+    connection
+        .query_row(sql, [id], |row| row.get(0))
+        .map_err(storage_error)
 }
 
 fn list_active_currencies_on(connection: &Connection, page: Page) -> LedgerResult<Vec<Currency>> {

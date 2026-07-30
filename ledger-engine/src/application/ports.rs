@@ -22,6 +22,12 @@ impl Default for Page {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub next: Option<Page>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CandidateMatch<T> {
     None,
     One(T),
@@ -87,6 +93,10 @@ pub trait LedgerTransaction {
         &self,
         name: &str,
     ) -> LedgerResult<CandidateMatch<TransactionCategory>>;
+    fn currency_has_dependencies(&self, id: &str) -> LedgerResult<bool>;
+    fn account_has_entries(&self, id: &str) -> LedgerResult<bool>;
+    fn transaction_category_has_entries(&self, id: &str) -> LedgerResult<bool>;
+    fn transaction_category_has_children(&self, id: &str) -> LedgerResult<bool>;
     fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>>;
     fn list_active_account_categories(&self, page: Page) -> LedgerResult<Vec<AccountCategory>>;
     fn list_active_accounts(&self, page: Page) -> LedgerResult<Vec<Account>>;

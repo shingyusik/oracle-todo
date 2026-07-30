@@ -3,6 +3,7 @@ use ledger_engine::application::commands::{
     UpdateAccount, UpdateAccountCategory, UpdateCurrency, UpdateEntry, UpdateTransactionCategory,
 };
 use ledger_engine::application::error::LedgerError;
+use ledger_engine::application::ports::{EntryQuery, Page};
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
@@ -14,7 +15,10 @@ use uuid::Uuid;
 fn create_audit_contains_exact_after_snapshot_identity_and_timestamp() {
     let mut service = seeded_service();
     let entry = service.create_entry(valid_expense("Lunch")).unwrap();
-    let events = service.audit_for(entry.id()).unwrap();
+    let events = service
+        .audit_page("ledger_entry", entry.id(), Page::default())
+        .unwrap()
+        .items;
 
     assert_eq!(events.len(), 1);
     let event = &events[0];
@@ -50,7 +54,10 @@ fn update_audit_contains_before_and_after_snapshots_and_reason() {
             },
         )
         .unwrap();
-    let events = service.audit_for(entry.id()).unwrap();
+    let events = service
+        .audit_page("ledger_entry", entry.id(), Page::default())
+        .unwrap()
+        .items;
 
     assert_eq!(events.len(), 2);
     let event = &events[1];
@@ -69,7 +76,13 @@ fn audit_failure_rolls_back_the_entry_write() {
 
     let error = service.create_entry(command).unwrap_err();
     assert!(matches!(error, LedgerError::Storage(message) if message.contains("audit JSON")));
-    assert!(service.entries().unwrap().is_empty());
+    assert!(
+        service
+            .entries_page(EntryQuery::default())
+            .unwrap()
+            .items
+            .is_empty()
+    );
 }
 
 #[test]
@@ -91,7 +104,14 @@ fn update_audit_failure_rolls_back_to_the_before_snapshot() {
 
     assert!(matches!(error, LedgerError::Storage(message) if message.contains("audit JSON")));
     assert_eq!(service.get_entry(entry.id()).unwrap(), entry);
-    assert_eq!(service.audit_for(entry.id()).unwrap().len(), 1);
+    assert_eq!(
+        service
+            .audit_page("ledger_entry", entry.id(), Page::default())
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -138,7 +158,10 @@ fn every_master_create_writes_an_audit_event() {
         ("account", account.id()),
         ("transaction_category", category.id()),
     ] {
-        let events = service.audit_for_type(record_type, record_id).unwrap();
+        let events = service
+            .audit_page(record_type, record_id, Page::default())
+            .unwrap()
+            .items;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, "create");
         assert_eq!(events[0].before, None);
@@ -235,7 +258,10 @@ fn every_master_partial_update_writes_before_and_after_audit() {
         ("account", account.id()),
         ("transaction_category", category.id()),
     ] {
-        let events = service.audit_for_type(record_type, record_id).unwrap();
+        let events = service
+            .audit_page(record_type, record_id, Page::default())
+            .unwrap()
+            .items;
         assert_eq!(events.len(), 2);
         assert_eq!(events[1].action, "update");
         assert_eq!(events[1].actor, "editor");

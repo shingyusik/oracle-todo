@@ -3,6 +3,7 @@ use ledger_engine::application::commands::{
     UpdateAccount, UpdateCurrency, UpdateEntry,
 };
 use ledger_engine::application::error::LedgerError;
+use ledger_engine::application::ports::Page;
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
@@ -503,8 +504,9 @@ fn create_entry(
 
 fn account_id(service: &TestService, name: &str) -> String {
     service
-        .active_accounts()
+        .accounts_page(Page::default())
         .unwrap()
+        .items
         .into_iter()
         .find(|account| account.name() == name)
         .unwrap()
@@ -514,8 +516,9 @@ fn account_id(service: &TestService, name: &str) -> String {
 
 fn category_id(service: &TestService, name: &str) -> String {
     service
-        .active_categories()
+        .transaction_categories_page(Page::default())
         .unwrap()
+        .items
         .into_iter()
         .find(|category| category.name() == name)
         .unwrap()
@@ -525,8 +528,9 @@ fn category_id(service: &TestService, name: &str) -> String {
 
 fn currency_id(service: &TestService, code: &str) -> String {
     service
-        .active_currencies()
+        .currencies_page(Page::default())
         .unwrap()
+        .items
         .into_iter()
         .find(|currency| currency.code() == code)
         .unwrap()

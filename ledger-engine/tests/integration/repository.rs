@@ -110,6 +110,62 @@ fn transaction_can_read_its_reference_writes_before_commit() {
 }
 
 #[test]
+fn transaction_dependency_probes_observe_uncommitted_references_and_entries() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut transaction = repository.begin_transaction().unwrap();
+    seed_references(&mut *transaction);
+
+    assert!(
+        transaction
+            .currency_has_dependencies("currency-krw")
+            .unwrap()
+    );
+    assert!(!transaction.account_has_entries("account-cash").unwrap());
+    assert!(
+        !transaction
+            .transaction_category_has_entries("transaction-food")
+            .unwrap()
+    );
+    assert!(
+        !transaction
+            .transaction_category_has_children("transaction-food")
+            .unwrap()
+    );
+
+    transaction
+        .insert_entry(&entry("entry-probe", None))
+        .unwrap();
+    let child = TransactionCategory::new(
+        "transaction-lunch",
+        "Lunch",
+        Some("transaction-food".to_string()),
+        TransactionCategoryKind::Expense,
+    )
+    .unwrap();
+    transaction
+        .upsert_transaction_category(&child, datetime!(2026-07-30 01:03:00 UTC))
+        .unwrap();
+
+    assert!(transaction.account_has_entries("account-cash").unwrap());
+    assert!(
+        transaction
+            .transaction_category_has_entries("transaction-food")
+            .unwrap()
+    );
+    assert!(
+        transaction
+            .transaction_category_has_children("transaction-food")
+            .unwrap()
+    );
+    assert!(
+        !transaction
+            .currency_has_dependencies("currency-missing")
+            .unwrap()
+    );
+    transaction.rollback().unwrap();
+}
+
+#[test]
 fn transaction_currency_code_candidates_distinguish_none_and_one() {
     let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
     let mut transaction = repository.begin_transaction().unwrap();
