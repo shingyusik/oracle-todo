@@ -1,3 +1,4 @@
+pub mod api;
 pub mod health;
 pub mod import;
 pub mod init;
@@ -22,6 +23,7 @@ pub fn execute(paths: &RavenPaths, command: Command) -> Result<()> {
         Command::Todo { args } => todo::run(paths, args),
         Command::Ledger { command } => ledger::run(paths, *command),
         Command::Health { command } => health::run(paths, *command),
+        Command::Api => api::run(paths),
     }
 }
 

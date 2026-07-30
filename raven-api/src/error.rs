@@ -23,6 +23,7 @@ pub struct ApiErrorBody {
 
 #[derive(Debug)]
 enum ErrorKind {
+    Unauthorized,
     Validation { field: Option<&'static str> },
     PayloadTooLarge,
     UriTooLong,
@@ -39,6 +40,12 @@ pub struct ApiError {
 }
 
 impl ApiError {
+    pub fn unauthorized() -> Self {
+        Self {
+            kind: ErrorKind::Unauthorized,
+        }
+    }
+
     pub fn validation(field: Option<&'static str>) -> Self {
         Self {
             kind: ErrorKind::Validation {
@@ -94,6 +101,12 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let request_id = Uuid::new_v4();
         let (status, code, message, fields) = match self.kind {
+            ErrorKind::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                "Authentication is required.",
+                Map::new(),
+            ),
             ErrorKind::Validation { field } => (
                 StatusCode::BAD_REQUEST,
                 "validation_error",

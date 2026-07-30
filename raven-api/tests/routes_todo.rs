@@ -5,6 +5,17 @@ use raven_api::{AuthMode, RavenApiConfig, router};
 use serde_json::Value;
 use tower::ServiceExt;
 
+fn authenticated(app: axum::Router) -> axum::Router {
+    app.layer(axum::middleware::from_fn(
+        |mut request: Request<Body>, next: axum::middleware::Next| async move {
+            request
+                .headers_mut()
+                .insert("x-raven-session", "test".parse().unwrap());
+            next.run(request).await
+        },
+    ))
+}
+
 #[tokio::test]
 async fn todo_items_are_nested_under_v1_without_router_side_effects() {
     let temp = tempfile::tempdir().unwrap();
@@ -19,7 +30,7 @@ async fn todo_items_are_nested_under_v1_without_router_side_effects() {
             token: "test".into(),
         },
     };
-    let app = router(config).unwrap();
+    let app = authenticated(router(config).unwrap());
     assert!(!home.exists());
     let response = app
         .oneshot(
@@ -35,17 +46,19 @@ async fn todo_items_are_nested_under_v1_without_router_side_effects() {
 #[tokio::test]
 async fn oversized_todo_json_uses_the_common_payload_envelope() {
     let temp = tempfile::tempdir().unwrap();
-    let app = router(RavenApiConfig {
-        todo_db: temp.path().join("todo.sqlite"),
-        ledger_db: temp.path().join("ledger.sqlite"),
-        health_db: temp.path().join("health.sqlite"),
-        health_media_dir: temp.path().join("media"),
-        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
-        auth: AuthMode::UiSession {
-            token: "test".into(),
-        },
-    })
-    .unwrap();
+    let app = authenticated(
+        router(RavenApiConfig {
+            todo_db: temp.path().join("todo.sqlite"),
+            ledger_db: temp.path().join("ledger.sqlite"),
+            health_db: temp.path().join("health.sqlite"),
+            health_media_dir: temp.path().join("media"),
+            local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
+            auth: AuthMode::UiSession {
+                token: "test".into(),
+            },
+        })
+        .unwrap(),
+    );
     let response = app
         .oneshot(
             Request::post("/api/v1/todo/areas")
@@ -66,17 +79,19 @@ async fn oversized_todo_json_uses_the_common_payload_envelope() {
 #[tokio::test]
 async fn todo_mutation_and_validation_error_remain_nested_and_normalized() {
     let temp = tempfile::tempdir().unwrap();
-    let app = router(RavenApiConfig {
-        todo_db: temp.path().join("todo.sqlite"),
-        ledger_db: temp.path().join("ledger.sqlite"),
-        health_db: temp.path().join("health.sqlite"),
-        health_media_dir: temp.path().join("media"),
-        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
-        auth: AuthMode::UiSession {
-            token: "test".into(),
-        },
-    })
-    .unwrap();
+    let app = authenticated(
+        router(RavenApiConfig {
+            todo_db: temp.path().join("todo.sqlite"),
+            ledger_db: temp.path().join("ledger.sqlite"),
+            health_db: temp.path().join("health.sqlite"),
+            health_media_dir: temp.path().join("media"),
+            local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
+            auth: AuthMode::UiSession {
+                token: "test".into(),
+            },
+        })
+        .unwrap(),
+    );
     let created = app
         .clone()
         .oneshot(

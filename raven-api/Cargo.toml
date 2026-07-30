@@ -11,14 +11,28 @@ health-engine = { path = "../health-engine" }
 ledger-engine = { path = "../ledger-engine" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+subtle = "2.6"
+thiserror = "2"
 time = { version = "0.3", features = ["parsing", "serde"] }
 todo-engine = { path = "../todo-engine" }
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["net", "rt-multi-thread"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["serde", "v4"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs", "process"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 http-body-util = "0.1"
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }

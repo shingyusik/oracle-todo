@@ -65,8 +65,19 @@ impl DashboardFixture {
     }
 
     fn app(&self) -> axum::Router {
-        router(self.config.clone()).unwrap()
+        authenticated(router(self.config.clone()).unwrap())
     }
+}
+
+fn authenticated(app: axum::Router) -> axum::Router {
+    app.layer(axum::middleware::from_fn(
+        |mut request: Request<Body>, next: axum::middleware::Next| async move {
+            request
+                .headers_mut()
+                .insert("x-raven-session", "test".parse().unwrap());
+            next.run(request).await
+        },
+    ))
 }
 
 async fn get(app: axum::Router) -> (StatusCode, String, Value) {

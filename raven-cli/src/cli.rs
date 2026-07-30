@@ -44,6 +44,8 @@ pub enum Command {
         #[command(subcommand)]
         command: Box<HealthCommand>,
     },
+    /// Serve the authenticated standalone Raven HTTP API.
+    Api,
 }
 
 #[derive(Debug, Subcommand)]
@@ -906,6 +908,7 @@ impl Command {
             Self::Todo { .. } => "todo",
             Self::Ledger { .. } => "ledger",
             Self::Health { .. } => "health",
+            Self::Api => "api",
         }
     }
 
@@ -917,7 +920,7 @@ impl Command {
             | Self::Todo { .. } => "todo",
             Self::Ledger { .. } => "ledger",
             Self::Health { .. } => "health",
-            Self::Init | Self::HealthCheck => "raven",
+            Self::Init | Self::HealthCheck | Self::Api => "raven",
         }
     }
 }

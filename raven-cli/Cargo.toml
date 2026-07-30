@@ -10,6 +10,7 @@ dotenvy = "0.15"
 health-engine = { path = "../health-engine" }
 infer = "0.19"
 ledger-engine = { path = "../ledger-engine" }
+raven-api = { path = "../raven-api" }
 rusqlite = "0.32"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -17,6 +18,7 @@ tempfile = "3.15"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
 todo-engine = { path = "../todo-engine" }
+tokio = { version = "1", features = ["net", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 

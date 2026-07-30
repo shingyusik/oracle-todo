@@ -1,7 +1,10 @@
+mod auth;
+mod auth_permissions;
 mod config;
 mod dto;
 mod error;
 mod routes;
+mod server;
 mod state;
 
 use axum::Json;
@@ -10,15 +13,18 @@ use axum::middleware;
 use axum::routing::get;
 use serde_json::{Value, json};
 
-pub use config::{AuthMode, RavenApiConfig};
+pub use auth::{AuthConfigError, SecretToken, load_bearer, load_bearer_from_env};
+pub use config::{AuthMode, RavenApiConfig, ServerBind};
 pub use dto::dashboard::{
     DashboardResponse, DomainProjection, HealthDashboard, LedgerDashboard, RecentActivityItem,
     TodoDashboard,
 };
 pub use error::{ApiError, ApiErrorBody};
+pub use server::{BindError, serve, serve_listener, validate_bind};
 pub use state::RavenApiState;
 
 pub fn router(config: RavenApiConfig) -> anyhow::Result<Router> {
+    auth::validate_mode(&config.auth)?;
     let state = RavenApiState::new(config);
     Ok(Router::new()
         .route("/healthz", get(healthz))
@@ -27,6 +33,10 @@ pub fn router(config: RavenApiConfig) -> anyhow::Result<Router> {
         .nest("/api/v1/ledger", routes::ledger::router())
         .nest("/api/v1/health", routes::health::router())
         .layer(middleware::from_fn(routes::limit_query))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::authenticate,
+        ))
         .with_state(state))
 }
 

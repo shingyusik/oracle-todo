@@ -69,7 +69,18 @@ fn app() -> (tempfile::TempDir, axum::Router) {
             token: "test".into(),
         },
     };
-    (temp, router(config).unwrap())
+    (temp, authenticated(router(config).unwrap()))
+}
+
+fn authenticated(app: axum::Router) -> axum::Router {
+    app.layer(axum::middleware::from_fn(
+        |mut request: Request<Body>, next: axum::middleware::Next| async move {
+            request
+                .headers_mut()
+                .insert("x-raven-session", "test".parse().unwrap());
+            next.run(request).await
+        },
+    ))
 }
 
 async fn body(response: axum::response::Response) -> Value {

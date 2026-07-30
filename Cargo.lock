@@ -907,15 +907,19 @@ dependencies = [
  "health-engine",
  "http-body-util",
  "ledger-engine",
+ "rustix",
  "serde",
  "serde_json",
+ "subtle",
  "tempfile",
+ "thiserror",
  "time",
  "todo-engine",
  "tokio",
  "tower",
  "tracing",
  "uuid",
+ "windows-sys",
 ]
 
 [[package]]
@@ -928,6 +932,7 @@ dependencies = [
  "health-engine",
  "infer",
  "ledger-engine",
+ "raven-api",
  "rusqlite",
  "serde",
  "serde_json",
@@ -935,6 +940,7 @@ dependencies = [
  "thiserror",
  "time",
  "todo-engine",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1134,6 +1140,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
 name = "syn"
 version = "2.0.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1278,6 +1290,7 @@ version = "1.52.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe"
 dependencies = [
+ "bytes",
  "libc",
  "mio",
  "pin-project-lite",

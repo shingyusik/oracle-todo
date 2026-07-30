@@ -1,4 +1,5 @@
 use std::fmt;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use time::UtcOffset;
 
@@ -25,6 +26,12 @@ pub struct RavenApiConfig {
     pub health_media_dir: PathBuf,
     pub local_offset: UtcOffset,
     pub auth: AuthMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServerBind {
+    pub addr: SocketAddr,
+    pub allow_unsafe_cleartext: bool,
 }
 
 impl fmt::Debug for RavenApiConfig {
