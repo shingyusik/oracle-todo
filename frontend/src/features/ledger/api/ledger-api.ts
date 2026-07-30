@@ -42,7 +42,8 @@ import {
 } from "@/lib/raven-api";
 
 const ROOT = "/api/v1/ledger";
-const transferOperationKeys = new WeakMap<TransferInput, string>();
+const MAX_PENDING_TRANSFER_KEYS = 64;
+const pendingTransferKeys = new Map<string, string>();
 
 export type Page<T> = { items: T[]; nextOffset: number | null };
 export type PageQuery = { offset?: number; limit?: number };
@@ -120,22 +121,24 @@ export const ledgerApi = {
     );
   },
   async createTransfer(input: TransferInput): Promise<TransferView> {
-    const operationKey = transferOperationKeys.get(input) ?? crypto.randomUUID();
-    transferOperationKeys.set(input, operationKey);
-    const transfer = mapTransfer(await requestJson(`${ROOT}/transfers`, jsonRequest("POST", clean({
+    const payload = transferBody(input);
+    const fingerprint = await transferFingerprint(payload);
+    let operationKey = pendingTransferKeys.get(fingerprint);
+    if (operationKey === undefined) {
+      operationKey = crypto.randomUUID();
+      if (pendingTransferKeys.size >= MAX_PENDING_TRANSFER_KEYS) {
+        const oldest = pendingTransferKeys.keys().next().value;
+        if (oldest !== undefined) pendingTransferKeys.delete(oldest);
+      }
+      pendingTransferKeys.set(fingerprint, operationKey);
+    }
+    const transfer = mapTransfer(await requestJson(`${ROOT}/transfers`, jsonRequest("POST", {
       operation_key: operationKey,
-      date: input.date,
-      written_at: input.writtenAt,
-      content: input.content,
-      from_account: input.fromAccount,
-      to_account: input.toAccount,
-      amount: input.amount,
-      currency: input.currency,
-      source: input.source,
-      notes: input.notes,
-      actor: input.actor,
-    }))));
-    transferOperationKeys.delete(input);
+      ...payload,
+    })));
+    if (pendingTransferKeys.get(fingerprint) === operationKey) {
+      pendingTransferKeys.delete(fingerprint);
+    }
     return transfer;
   },
   async getTransfer(id: string): Promise<TransferView> {
@@ -320,6 +323,31 @@ function entryUpdateBody(input: LedgerEntryUpdate): JsonObject {
     actor: input.actor,
     reason: input.reason,
   });
+}
+
+function transferBody(input: TransferInput): JsonObject {
+  return clean({
+    date: input.date,
+    written_at: input.writtenAt,
+    content: input.content,
+    from_account: input.fromAccount,
+    to_account: input.toAccount,
+    amount: input.amount,
+    currency: input.currency,
+    source: input.source,
+    notes: input.notes,
+    actor: input.actor,
+  });
+}
+
+async function transferFingerprint(payload: JsonObject): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(payload)),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function reportQuery(input: ReportRangeInput | MonthlyReportInput) {
