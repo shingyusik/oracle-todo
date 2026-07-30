@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "Todo Engine",
-  description: "Local-first todo workbench",
+  title: "Raven",
+  description: "Local-first personal workbench",
   icons: {
     icon: "/merovingian-mark.png",
   },

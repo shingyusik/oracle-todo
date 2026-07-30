@@ -36,10 +36,10 @@ function candidate(key: string, label: string, count = 1): PlannerGroupCandidate
 describe("planner group settings", () => {
   it("uses independent versioned storage keys", () => {
     expect(plannerGroupStorageKey("yearly")).toBe(
-      "oracle-todo.planner-group-settings.v1.yearly",
+      "raven.planner-group-settings.v1.yearly",
     );
     expect(plannerGroupStorageKey("daily")).toBe(
-      "oracle-todo.planner-group-settings.v1.daily",
+      "raven.planner-group-settings.v1.daily",
     );
   });
 

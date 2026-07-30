@@ -80,10 +80,10 @@ function ravenResponse(): Response {
 
 function installLoadedDashboard(items: TestItem[]) {
   const fetchMock = vi.fn((url: string) => {
-    if (url === "/todo-engine/settings/planner") {
+    if (url === "/api/v1/preferences/planner.v1") {
       return Promise.resolve(jsonResponse(null));
     }
-    if (url === "/todo-engine/items") {
+    if (url === "/api/v1/todo/items") {
       return Promise.resolve(jsonResponse(items));
     }
     if (url === "/api/v1/dashboard") {
@@ -737,7 +737,7 @@ describe("DashboardPanel", () => {
       if (url === "/api/v1/dashboard") {
         return Promise.resolve(ravenResponse());
       }
-      if (url !== "/todo-engine/items") {
+      if (url !== "/api/v1/todo/items") {
         return Promise.resolve(jsonResponse());
       }
 
@@ -762,7 +762,7 @@ describe("DashboardPanel", () => {
       screen.getByText("No Tasks or Events are scheduled or due today."),
     ).toBeInTheDocument();
     expect(
-      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items"),
+      fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items"),
     ).toHaveLength(2);
   });
 

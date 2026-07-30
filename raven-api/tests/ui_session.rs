@@ -41,6 +41,83 @@ fn get(path: &str) -> Request<Body> {
 }
 
 #[tokio::test]
+async fn ui_session_round_trips_todo_and_preferences_on_the_production_paths() {
+    let (_temp, app) = fixture();
+    let bootstrap = app.clone().oneshot(get("/__raven/session")).await.unwrap();
+    let cookie = bootstrap.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/todo/areas")
+                .header(header::HOST, AUTHORITY)
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"title":"Work","review_cycle":"weekly","standard":"Keep current"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+
+    let items = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/todo/items?type=area")
+                .header(header::HOST, AUTHORITY)
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(items.status(), StatusCode::OK);
+    let items = items.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&items).unwrap()[0]["title"],
+        "Work"
+    );
+
+    let stored = app
+        .clone()
+        .oneshot(
+            Request::put("/api/v1/preferences/planner.v1")
+                .header(header::HOST, AUTHORITY)
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"value":{"selected":"daily"}}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stored.status(), StatusCode::OK);
+
+    let preference = app
+        .oneshot(
+            Request::get("/api/v1/preferences/planner.v1")
+                .header(header::HOST, AUTHORITY)
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preference.status(), StatusCode::OK);
+    let preference = preference.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&preference).unwrap()["selected"],
+        "daily"
+    );
+}
+
+#[tokio::test]
 async fn bootstrap_sets_strict_http_only_session_cookie_used_by_api() {
     let (_temp, app) = fixture();
     let response = app.clone().oneshot(get("/__raven/session")).await.unwrap();

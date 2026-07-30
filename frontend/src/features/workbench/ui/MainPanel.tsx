@@ -581,7 +581,7 @@ function PlannerPanel({ controller }: MainPanelProps) {
     return (
       <section className="items-section" aria-label={`${panel.title} planner`}>
         <p className="items-message" role="alert">
-          Could not load todo-engine items.
+          Could not load ToDo items.
         </p>
       </section>
     );
@@ -4000,7 +4000,7 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
     return (
       <section className="items-section" aria-label={`${panel.title} items`}>
         <p className="items-message" role="alert">
-          Could not load todo-engine items.
+          Could not load ToDo items.
         </p>
       </section>
     );

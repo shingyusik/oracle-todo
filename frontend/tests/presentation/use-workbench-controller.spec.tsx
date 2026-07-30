@@ -31,7 +31,7 @@ function testMonthStart(): string {
 function capturePlannerSettingsWrites(): unknown[] {
   const writes: unknown[] = [];
   vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-    if (url !== "/todo-engine/settings/planner") {
+    if (url !== "/api/v1/preferences/planner.v1") {
       return Promise.resolve({ ok: true, json: async () => [] });
     }
     if (!init) {
@@ -113,7 +113,7 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items"
+            url === "/api/v1/todo/items"
               ? [
                   {
                     id: "area",
@@ -132,7 +132,7 @@ describe("useWorkbenchController", () => {
     await waitFor(() =>
       expect(result.current.workspaceItems.allItems).toHaveLength(1),
     );
-    expect(fetch).toHaveBeenCalledWith("/todo-engine/items");
+    expect(fetch).toHaveBeenCalledWith("/api/v1/todo/items");
   });
 
   it("opens a Daily Planner date from a Dashboard destination", () => {
@@ -252,7 +252,7 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if (url === "/todo-engine/items" && deferTargetItems) {
+        if (url === "/api/v1/todo/items" && deferTargetItems) {
           return new Promise((resolve) => {
             resolveItems = resolve;
           });
@@ -303,7 +303,7 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items"
+            url === "/api/v1/todo/items"
               ? [
                   {
                     id: "project-1",
@@ -339,14 +339,14 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if (url === "/todo-engine/items" && requestMode === "area-failure") {
+        if (url === "/api/v1/todo/items" && requestMode === "area-failure") {
           return Promise.reject(new Error("unavailable"));
         }
 
         return Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items" && requestMode === "projects"
+            url === "/api/v1/todo/items" && requestMode === "projects"
               ? [
                   {
                     id: "area-1",
@@ -392,7 +392,7 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if (url === "/todo-engine/items" && requestMode === "areas") {
+        if (url === "/api/v1/todo/items" && requestMode === "areas") {
           return new Promise((resolve) => {
             resolveAreaItems = resolve;
           });
@@ -401,7 +401,7 @@ describe("useWorkbenchController", () => {
         return Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items" && requestMode === "projects"
+            url === "/api/v1/todo/items" && requestMode === "projects"
               ? [
                   {
                     id: "area-1",
@@ -505,14 +505,14 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { result } = renderHook(() => useWorkbenchController());
     const allItemCalls = () =>
-      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items");
+      fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items");
 
     await waitFor(() => expect(allItemCalls()).toHaveLength(1));
     act(() => result.current.reloadDashboard());
     await waitFor(() => expect(allItemCalls()).toHaveLength(2));
     expect(
       fetchMock.mock.calls.filter(([url]) =>
-        String(url).startsWith("/todo-engine/items?type="),
+        String(url).startsWith("/api/v1/todo/items?type="),
       ),
     ).toHaveLength(0);
   });
@@ -550,7 +550,7 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/settings/planner" ? savedPreferences : [],
+            url === "/api/v1/preferences/planner.v1" ? savedPreferences : [],
         }),
       ),
     );
@@ -633,7 +633,7 @@ describe("useWorkbenchController", () => {
       vi.fn((url: string) =>
         Promise.resolve({
           ok: true,
-          json: async () => url === "/todo-engine/settings/planner"
+          json: async () => url === "/api/v1/preferences/planner.v1"
             ? { tableSettings: { "daily.today": "broken", "daily.overdue": validOverdue } }
             : [],
         }),
@@ -657,7 +657,7 @@ describe("useWorkbenchController", () => {
     let resolveSettings: ((value: unknown) => void) | undefined;
     vi.stubGlobal(
       "fetch",
-      vi.fn((url: string) => url === "/todo-engine/settings/planner"
+      vi.fn((url: string) => url === "/api/v1/preferences/planner.v1"
         ? new Promise((resolve) => { resolveSettings = resolve; })
         : Promise.resolve({ ok: true, json: async () => [] })),
     );
@@ -695,7 +695,7 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) =>
-        url === "/todo-engine/settings/planner" && !init
+        url === "/api/v1/preferences/planner.v1" && !init
           ? new Promise((resolve) => { resolveSettings = resolve; })
           : Promise.resolve({ ok: true, json: async () => [] }),
       ),
@@ -722,7 +722,7 @@ describe("useWorkbenchController", () => {
     const writes: unknown[] = [];
     const storedSettings = defaultPlannerTableSettings("daily.today");
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url !== "/todo-engine/settings/planner") {
+      if (url !== "/api/v1/preferences/planner.v1") {
         return Promise.resolve({ ok: true, json: async () => [] });
       }
       if (!init) {
@@ -792,7 +792,7 @@ describe("useWorkbenchController", () => {
     let rejectSettings: ((reason: Error) => void) | undefined;
     const writes: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url !== "/todo-engine/settings/planner") {
+      if (url !== "/api/v1/preferences/planner.v1") {
         return Promise.resolve({ ok: true, json: async () => [] });
       }
       if (!init) {
@@ -845,7 +845,7 @@ describe("useWorkbenchController", () => {
         .spyOn(console, "error")
         .mockImplementation(() => undefined);
       vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-        if (url !== "/todo-engine/settings/planner") {
+        if (url !== "/api/v1/preferences/planner.v1") {
           return Promise.resolve({ ok: true, json: async () => [] });
         }
         if (!init) {
@@ -884,7 +884,7 @@ describe("useWorkbenchController", () => {
   it("migrates tableSettings into one Table tab and persists only saved tabs", async () => {
     const writes: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url !== "/todo-engine/settings/planner") {
+      if (url !== "/api/v1/preferences/planner.v1") {
         return Promise.resolve({ ok: true, json: async () => [] });
       }
       if (!init) {
@@ -1010,7 +1010,7 @@ describe("useWorkbenchController", () => {
       | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
       | undefined;
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url !== "/todo-engine/settings/planner") {
+      if (url !== "/api/v1/preferences/planner.v1") {
         return Promise.resolve({ ok: true, json: async () => [] });
       }
       if (!init) {
@@ -1122,7 +1122,7 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
-        if (url !== "/todo-engine/settings/planner") {
+        if (url !== "/api/v1/preferences/planner.v1") {
           return Promise.resolve({ ok: true, json: async () => [] });
         }
         if (init?.method !== "PUT") {
@@ -1238,7 +1238,7 @@ describe("useWorkbenchController", () => {
     const bodies: unknown[] = [];
     let putCount = 0;
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url !== "/todo-engine/settings/planner") {
+      if (url !== "/api/v1/preferences/planner.v1") {
         return Promise.resolve({ ok: true, json: async () => [] });
       }
       if (!init) {
@@ -1313,7 +1313,7 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/settings/planner" ? null : [],
+            url === "/api/v1/preferences/planner.v1" ? null : [],
         }),
       ),
     );
@@ -1347,7 +1347,7 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
-        if (url !== "/todo-engine/settings/planner") {
+        if (url !== "/api/v1/preferences/planner.v1") {
           return Promise.resolve({ ok: true, json: async () => [] });
         }
         if (init?.method === "PUT") {
@@ -1512,7 +1512,7 @@ describe("useWorkbenchController", () => {
       );
 
       for (const itemType of itemTypes) {
-        expect(fetchMock).toHaveBeenCalledWith(`/todo-engine/items?type=${itemType}`);
+        expect(fetchMock).toHaveBeenCalledWith(`/api/v1/todo/items?type=${itemType}`);
       }
     },
   );
@@ -1575,7 +1575,7 @@ describe("useWorkbenchController", () => {
     await act(async () => result.current.confirmArchiveSelected());
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/archive",
+      "/api/v1/todo/items/task-1/archive",
       expect.objectContaining({ method: "POST" }),
     );
     expect(result.current.workspaceItems.allItems.map((item) => item.id)).toEqual(["task-2"]);
@@ -1585,13 +1585,13 @@ describe("useWorkbenchController", () => {
 
   it("keeps failed archive rows selected while removing successful rows", async () => {
     const fetchMock = vi.fn((url: string) => {
-      if (url === "/todo-engine/items/task-1/archive") {
+      if (url === "/api/v1/todo/items/task-1/archive") {
         return Promise.resolve({
           ok: true,
           json: async () => ({ id: "task-1", status: "archived" }),
         });
       }
-      if (url === "/todo-engine/items/task-2/archive") {
+      if (url === "/api/v1/todo/items/task-2/archive") {
         return Promise.resolve({ ok: false, json: async () => ({}) });
       }
 
@@ -1633,7 +1633,7 @@ describe("useWorkbenchController", () => {
 
   it("patches detail-only and metadata workspace fields", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/event-1") {
+      if (url === "/api/v1/todo/items/event-1") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "PATCH",
@@ -1702,7 +1702,7 @@ describe("useWorkbenchController", () => {
 
   it("patches item tags from workspace edits", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1") {
+      if (url === "/api/v1/todo/items/task-1") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "PATCH",
@@ -1759,13 +1759,13 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if (url === "/todo-engine/tasks/propose") {
+        if (url === "/api/v1/todo/tasks/propose") {
           return Promise.resolve({
             ok: true,
             json: async () => ({ id: "task-new", type: "task", title: "New", status: "active" }),
           });
         }
-        if (url === "/todo-engine/items?type=task" || url === "/todo-engine/items") {
+        if (url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items") {
           return Promise.resolve({
             ok: true,
             json: async () => [
@@ -1805,7 +1805,7 @@ describe("useWorkbenchController", () => {
       Promise.resolve({
         ok: true,
         json: async () => {
-          if (url === "/todo-engine/items") {
+          if (url === "/api/v1/todo/items") {
             return [
               { id: "area-1", type: "area", title: "Area", status: "active", tags: ["backend"] },
               {
@@ -1819,7 +1819,7 @@ describe("useWorkbenchController", () => {
             ];
           }
 
-          return url === "/todo-engine/items?type=task"
+          return url === "/api/v1/todo/items?type=task"
             ? [{ id: "task-1", type: "task", title: "Plan", status: "active", tags: [] }]
             : [];
         },
@@ -1850,10 +1850,10 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () => {
-            if (url === "/todo-engine/items?type=area") {
+            if (url === "/api/v1/todo/items?type=area") {
               return [{ id: "area-1", type: "area", title: "Health", status: "active" }];
             }
-            if (url === "/todo-engine/items") {
+            if (url === "/api/v1/todo/items") {
               return [
                 { id: "area-1", type: "area", title: "Health", status: "active" },
                 {
@@ -1898,7 +1898,9 @@ describe("useWorkbenchController", () => {
   it("creates active workspace items with one complete request and no activation", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).endsWith("/propose")) {
-        const type = String(url).match(/\/todo-engine\/(tasks|events|projects|routines)\/propose/)?.[1];
+        const type = String(url).match(
+          /\/api\/v1\/todo\/(tasks|events|projects|routines)\/propose/,
+        )?.[1];
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -1948,7 +1950,7 @@ describe("useWorkbenchController", () => {
       await act(async () => result.current.createWorkspaceItem(form));
 
       expect(fetchMock).toHaveBeenCalledWith(
-        `/todo-engine/${panel}/propose`,
+        `/api/v1/todo/${panel}/propose`,
         expect.objectContaining({ method: "POST", body: JSON.stringify(body) }),
       );
     }
@@ -1962,7 +1964,7 @@ describe("useWorkbenchController", () => {
   it("anchors weekly planner goal creation to the active week", async () => {
     const weekStart = testWeekStart();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose") {
+      if (url === "/api/v1/todo/goals/propose") {
         expect(init).toEqual(expect.objectContaining({ method: "POST" }));
         return Promise.resolve({
           ok: true,
@@ -1995,7 +1997,7 @@ describe("useWorkbenchController", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/goals/propose",
+      "/api/v1/todo/goals/propose",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
@@ -2018,7 +2020,7 @@ describe("useWorkbenchController", () => {
     const scheduled = formatDate(new Date());
     const requestBodies: unknown[] = [];
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/tasks/propose") {
+      if (url === "/api/v1/todo/tasks/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
@@ -2102,7 +2104,7 @@ describe("useWorkbenchController", () => {
   it("keeps user-entered dates for an approved editable creation context", async () => {
     const requestBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/events/propose") {
+      if (url === "/api/v1/todo/events/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
@@ -2170,7 +2172,7 @@ describe("useWorkbenchController", () => {
     const requestBodies: unknown[] = [];
     const weekStart = testWeekStart();
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose") {
+      if (url === "/api/v1/todo/goals/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
@@ -2239,7 +2241,7 @@ describe("useWorkbenchController", () => {
   it("uses the moved planner period when a fixed goal context is submitted", async () => {
     const requestBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose") {
+      if (url === "/api/v1/todo/goals/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
@@ -2284,7 +2286,7 @@ describe("useWorkbenchController", () => {
   it("keeps an editable goal date while enforcing the table horizon at submit", async () => {
     const requestBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose") {
+      if (url === "/api/v1/todo/goals/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
@@ -2329,7 +2331,7 @@ describe("useWorkbenchController", () => {
   it("canonicalizes forged Daily Unscheduled semantics on open and submit", async () => {
     const requestBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/tasks/propose") {
+      if (url === "/api/v1/todo/tasks/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
@@ -2381,7 +2383,7 @@ describe("useWorkbenchController", () => {
     const requestBodies: unknown[] = [];
     const selectedDate = formatDate(new Date());
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/events/propose") {
+      if (url === "/api/v1/todo/events/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
@@ -2506,7 +2508,7 @@ describe("useWorkbenchController", () => {
   it("creates date-work items from the monthly calendar context", async () => {
     const requestBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/tasks/propose") {
+      if (url === "/api/v1/todo/tasks/propose") {
         const body = JSON.parse(String(init?.body));
         requestBodies.push(body);
         return Promise.resolve({
@@ -2628,7 +2630,7 @@ describe("useWorkbenchController", () => {
 
   it("creates yearly and monthly goals with canonical scheduled anchors", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose") {
+      if (url === "/api/v1/todo/goals/propose") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -2661,7 +2663,7 @@ describe("useWorkbenchController", () => {
     expect(
       JSON.parse(
         String(
-          fetchMock.mock.calls.find(([url]) => url === "/todo-engine/goals/propose")?.[1]
+          fetchMock.mock.calls.find(([url]) => url === "/api/v1/todo/goals/propose")?.[1]
             ?.body,
         ),
       ),
@@ -2678,7 +2680,7 @@ describe("useWorkbenchController", () => {
       await result.current.createWorkspaceItem({ title: "Month goal" });
     });
     const goalBodies = fetchMock.mock.calls
-      .filter(([url]) => url === "/todo-engine/goals/propose")
+      .filter(([url]) => url === "/api/v1/todo/goals/propose")
       .map(([, init]) => JSON.parse(String(init?.body)));
     expect(goalBodies.at(-1)).toEqual(
       expect.objectContaining({
@@ -2726,7 +2728,7 @@ describe("useWorkbenchController", () => {
 
   it("posts the user-provided scheduled value for events", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/events/propose") {
+      if (url === "/api/v1/todo/events/propose") {
         expect(init).toEqual(expect.objectContaining({ method: "POST" }));
         return Promise.resolve({
           ok: true,
@@ -2758,7 +2760,7 @@ describe("useWorkbenchController", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/events/propose",
+      "/api/v1/todo/events/propose",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
@@ -2774,7 +2776,7 @@ describe("useWorkbenchController", () => {
 
   it("saves the open detail item and updates list state", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "PATCH",
@@ -2827,7 +2829,7 @@ describe("useWorkbenchController", () => {
 
   it("transitions a workspace item and updates list state", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/complete") {
+      if (url === "/api/v1/todo/items/task-1/complete") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -2884,7 +2886,7 @@ describe("useWorkbenchController", () => {
       tags: ["focus"],
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/miss") {
+      if (url === "/api/v1/todo/items/task-1/miss") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -2899,7 +2901,7 @@ describe("useWorkbenchController", () => {
 
       return Promise.resolve({
         ok: true,
-        json: async () => url === "/todo-engine/items?type=task" ? [source] : [],
+        json: async () => url === "/api/v1/todo/items?type=task" ? [source] : [],
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -2944,7 +2946,7 @@ describe("useWorkbenchController", () => {
       scheduled: "2026-07-26",
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/postpone") {
+      if (url === "/api/v1/todo/items/task-1/postpone") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -2966,7 +2968,7 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=task" ? [source, staleFollowUp] : [],
+          url === "/api/v1/todo/items?type=task" ? [source, staleFollowUp] : [],
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -3016,7 +3018,7 @@ describe("useWorkbenchController", () => {
       tags: ["next"],
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/postpone") {
+      if (url === "/api/v1/todo/items/task-1/postpone") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -3093,7 +3095,7 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if (url === "/todo-engine/items/task-1/postpone") {
+        if (url === "/api/v1/todo/items/task-1/postpone") {
           return Promise.resolve({
             ok: true,
             json: async () => ({
@@ -3105,9 +3107,9 @@ describe("useWorkbenchController", () => {
         return Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=routine"
+            url === "/api/v1/todo/items?type=routine"
               ? [routine]
-              : url === "/todo-engine/items"
+              : url === "/api/v1/todo/items"
                 ? [routine, linkedTask]
                 : [],
         });
@@ -3139,7 +3141,7 @@ describe("useWorkbenchController", () => {
 
   it("posts an explicit date when postponing a workspace item", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/postpone") {
+      if (url === "/api/v1/todo/items/task-1/postpone") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -3178,7 +3180,7 @@ describe("useWorkbenchController", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/postpone",
+      "/api/v1/todo/items/task-1/postpone",
       expect.objectContaining({
         body: JSON.stringify({
           today: formatDate(new Date()),
@@ -3193,7 +3195,7 @@ describe("useWorkbenchController", () => {
       "fetch",
       vi.fn((url: string) =>
         Promise.resolve(
-          url === "/todo-engine/items/task-1/postpone"
+          url === "/api/v1/todo/items/task-1/postpone"
             ? {
                 ok: false,
                 status: 400,
@@ -3231,7 +3233,7 @@ describe("useWorkbenchController", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if (url === "/todo-engine/routines/routine-1/materialize") {
+        if (url === "/api/v1/todo/routines/routine-1/materialize") {
           return Promise.resolve({
             ok: true,
             json: async () => ({
@@ -3248,7 +3250,7 @@ describe("useWorkbenchController", () => {
             }),
           });
         }
-        if (url === "/todo-engine/items?type=routine" || url === "/todo-engine/items") {
+        if (url === "/api/v1/todo/items?type=routine" || url === "/api/v1/todo/items") {
           return Promise.resolve({ ok: true, json: async () => [routine] });
         }
 
@@ -3289,7 +3291,7 @@ describe("useWorkbenchController", () => {
       resolveTransition = resolve;
     });
     const fetchMock = vi.fn((url: string) =>
-      url === "/todo-engine/settings/planner"
+      url === "/api/v1/preferences/planner.v1"
         ? Promise.resolve({ ok: true, json: async () => null })
         : transitionResponse,
     );
@@ -3305,7 +3307,7 @@ describe("useWorkbenchController", () => {
 
     expect(
       fetchMock.mock.calls.filter(
-        ([url]) => url === "/todo-engine/items/task-1/complete",
+        ([url]) => url === "/api/v1/todo/items/task-1/complete",
       ),
     ).toHaveLength(1);
     expect(firstTransition).toBe(duplicateTransition);
@@ -3367,7 +3369,7 @@ describe("useWorkbenchController", () => {
 
   it("reopens a completed workspace item and replaces list state", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/reopen") {
+      if (url === "/api/v1/todo/items/task-1/reopen") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -3447,7 +3449,7 @@ describe("useWorkbenchController", () => {
       Promise.resolve({
         ok: true,
         json: async () => {
-          if (url === "/todo-engine/settings/workspace-views") {
+          if (url === "/api/v1/preferences/workspace.views.v1") {
             return {
               "workspace.task": {
                 tabs: [
@@ -3470,7 +3472,7 @@ describe("useWorkbenchController", () => {
               },
             };
           }
-          return url === "/todo-engine/settings/planner" ? null : [];
+          return url === "/api/v1/preferences/planner.v1" ? null : [];
         },
       }),
     );
@@ -3483,9 +3485,9 @@ describe("useWorkbenchController", () => {
         "stored-task",
       ),
     );
-    expect(fetchMock).toHaveBeenCalledWith("/todo-engine/settings/planner");
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/preferences/planner.v1");
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/settings/workspace-views",
+      "/api/v1/preferences/workspace.views.v1",
     );
     expect(result.current.workspaceTableSettings("workspace.task")).toEqual(
       storedTaskSettings,
@@ -3511,8 +3513,8 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/settings/planner" ||
-          url === "/todo-engine/settings/workspace-views"
+          url === "/api/v1/preferences/planner.v1" ||
+          url === "/api/v1/preferences/workspace.views.v1"
             ? null
             : [],
       });
@@ -3521,7 +3523,7 @@ describe("useWorkbenchController", () => {
     const { result } = renderHook(() => useWorkbenchController());
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/settings/workspace-views",
+        "/api/v1/preferences/workspace.views.v1",
       ),
     );
 
@@ -3533,7 +3535,7 @@ describe("useWorkbenchController", () => {
       result.current.saveWorkspaceTableTab("workspace.task");
     });
     await waitFor(() => expect(writes).toHaveLength(1));
-    expect(writes[0]?.url).toBe("/todo-engine/settings/workspace-views");
+    expect(writes[0]?.url).toBe("/api/v1/preferences/workspace.views.v1");
     expect(writes[0]?.value).toHaveProperty("workspace.task");
     expect(writes[0]?.value).not.toHaveProperty("tableTabs");
 
@@ -3542,7 +3544,7 @@ describe("useWorkbenchController", () => {
         .toBe(true);
     });
     await waitFor(() => expect(writes).toHaveLength(2));
-    expect(writes[1]?.url).toBe("/todo-engine/settings/planner");
+    expect(writes[1]?.url).toBe("/api/v1/preferences/planner.v1");
     expect(writes[1]?.value).toHaveProperty("tableTabs");
     expect(writes[1]?.value).not.toHaveProperty("workspace.task");
   });
@@ -3554,7 +3556,7 @@ describe("useWorkbenchController", () => {
     const pendingWorkspaceWrites: Array<() => void> = [];
     let serverWorkspaceSettings: unknown;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/settings/workspace-views") {
+      if (url === "/api/v1/preferences/workspace.views.v1") {
         if (!init) {
           return new Promise((resolve) => {
             resolveWorkspaceSettings = resolve;
@@ -3571,7 +3573,7 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/settings/planner" ? null : [],
+          url === "/api/v1/preferences/planner.v1" ? null : [],
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -3646,15 +3648,15 @@ describe("useWorkbenchController", () => {
   it("keeps item loading and local default views when preference requests fail", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (
-        url === "/todo-engine/settings/planner" ||
-        url === "/todo-engine/settings/workspace-views"
+        url === "/api/v1/preferences/planner.v1" ||
+        url === "/api/v1/preferences/workspace.views.v1"
       ) {
         return Promise.reject(new Error("preferences unavailable"));
       }
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items"
+          url === "/api/v1/todo/items"
             ? [{ id: "task-1", type: "task", title: "One", status: "active" }]
             : [],
       });
@@ -3685,8 +3687,8 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/settings/planner" ||
-            url === "/todo-engine/settings/workspace-views"
+            url === "/api/v1/preferences/planner.v1" ||
+            url === "/api/v1/preferences/workspace.views.v1"
               ? null
               : [],
         }),
@@ -3802,8 +3804,8 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/settings/planner" ||
-            url === "/todo-engine/settings/workspace-views"
+            url === "/api/v1/preferences/planner.v1" ||
+            url === "/api/v1/preferences/workspace.views.v1"
               ? null
               : [],
         }),
@@ -3877,7 +3879,7 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url.startsWith("/todo-engine/items") ? tasks : null,
+            url.startsWith("/api/v1/todo/items") ? tasks : null,
         }),
       ),
     );
@@ -3910,11 +3912,11 @@ describe("useWorkbenchController", () => {
         Promise.resolve({
           ok: true,
           json: async () => {
-            if (url === "/todo-engine/items?type=task") return tasks;
-            if (url === "/todo-engine/items?type=project") return projects;
-            if (url === "/todo-engine/items") return [...tasks, ...projects];
-            return url === "/todo-engine/settings/planner" ||
-              url === "/todo-engine/settings/workspace-views"
+            if (url === "/api/v1/todo/items?type=task") return tasks;
+            if (url === "/api/v1/todo/items?type=project") return projects;
+            if (url === "/api/v1/todo/items") return [...tasks, ...projects];
+            return url === "/api/v1/preferences/planner.v1" ||
+              url === "/api/v1/preferences/workspace.views.v1"
               ? null
               : [];
           },

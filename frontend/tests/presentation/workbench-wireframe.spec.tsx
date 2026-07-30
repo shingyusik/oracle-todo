@@ -237,11 +237,11 @@ function testLongDateLabel(date: string): string {
 function linkedAreaItemsResponse(url: string) {
   const area = { id: "area-1", type: "area", title: "Health", status: "active" };
 
-  if (url === "/todo-engine/items?type=area") {
+  if (url === "/api/v1/todo/items?type=area") {
     return [area];
   }
 
-  if (url === "/todo-engine/items") {
+  if (url === "/api/v1/todo/items") {
     return [
       area,
       {
@@ -267,11 +267,11 @@ function linkedAreaItemsResponse(url: string) {
 function linkedAreaWithOverflowResponse(url: string) {
   const area = { id: "area-1", type: "area", title: "Health", status: "active" };
 
-  if (url === "/todo-engine/items?type=area") {
+  if (url === "/api/v1/todo/items?type=area") {
     return [area];
   }
 
-  if (url === "/todo-engine/items") {
+  if (url === "/api/v1/todo/items") {
     return [
       area,
       {
@@ -410,10 +410,10 @@ function nestedGoalOverflowResponse(url: string) {
     updated_at: `2026-07-30T${String(index + 8).padStart(2, "0")}:00:00Z`,
   }));
 
-  if (url === "/todo-engine/items?type=goal") {
+  if (url === "/api/v1/todo/items?type=goal") {
     return [parent, child];
   }
-  if (url === "/todo-engine/items") {
+  if (url === "/api/v1/todo/items") {
     return [parent, child, ...parentTasks, ...childTasks];
   }
   return [];
@@ -422,7 +422,7 @@ function nestedGoalOverflowResponse(url: string) {
 function taskWithoutLinkedItemsResponse(url: string) {
   const task = { id: "task-1", type: "task", title: "Book appointment", status: "active" };
 
-  return url === "/todo-engine/items?type=task" || url === "/todo-engine/items" ? [task] : [];
+  return url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items" ? [task] : [];
 }
 
 function calendarSelectionRange(button: HTMLElement): { start: string; end: string } {
@@ -473,8 +473,8 @@ async function renderMonthlyDayOverflow() {
   const firstWeekStart = testWeekStart(testMonthStart(testToday()));
   const secondDate = testAddDays(firstWeekStart, 1);
   const responses: Record<string, unknown[]> = {
-    "/todo-engine/items?type=goal": [],
-    "/todo-engine/items?type=task": [
+    "/api/v1/todo/items?type=goal": [],
+    "/api/v1/todo/items?type=task": [
       { id: "task-earliest", type: "task", title: "Earliest task", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T07:00:00Z" },
       { id: "task-latest", type: "task", title: "Latest task", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T10:00:00Z" },
       { id: "task-overflow", type: "task", title: "Overflow task", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T09:00:00Z" },
@@ -482,14 +482,14 @@ async function renderMonthlyDayOverflow() {
       { id: "task-second-middle", type: "task", title: "Second day middle", status: "active", scheduled: secondDate, updated_at: "2026-07-01T09:00:00Z" },
       { id: "task-second-earliest", type: "task", title: "Second day earliest", status: "active", scheduled: secondDate, updated_at: "2026-07-01T08:00:00Z" },
     ],
-    "/todo-engine/items?type=event": [
+    "/api/v1/todo/items?type=event": [
       { id: "event-middle", type: "event", title: "Middle event", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T08:00:00Z" },
     ],
-    "/todo-engine/items?type=routine": [
+    "/api/v1/todo/items?type=routine": [
       { id: "routine-monthly", type: "routine", title: "Monthly routine", status: "active", scheduled: firstWeekStart, updated_at: "2026-07-01T11:00:00Z" },
     ],
-    "/todo-engine/items?type=area": [],
-    "/todo-engine/items?type=project": [],
+    "/api/v1/todo/items?type=area": [],
+    "/api/v1/todo/items?type=project": [],
   };
   vi.stubGlobal(
     "fetch",
@@ -1304,7 +1304,7 @@ describe("WorkbenchPageClient", () => {
       | undefined;
     const writes: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url !== "/todo-engine/settings/planner") {
+      if (url !== "/api/v1/preferences/planner.v1") {
         return Promise.resolve({ ok: true, json: async () => [] });
       }
       if (!init) {
@@ -1561,7 +1561,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
 
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/todo-engine/items?type=area"),
+      expect(fetchMock).toHaveBeenCalledWith("/api/v1/todo/items?type=area"),
     );
     expect(screen.getByRole("table", { name: "Areas items" })).toBeInTheDocument();
     expect(screen.getByLabelText("Select all visible items").closest("th")).toHaveClass(
@@ -1691,7 +1691,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+            url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items"
               ? tasks
               : [],
         }),
@@ -1740,7 +1740,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+            url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items"
               ? tasks
               : [],
         }),
@@ -1786,7 +1786,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+            url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items"
               ? tasks
               : [],
         }),
@@ -1831,7 +1831,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+            url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items"
               ? tasks
               : [],
         }),
@@ -1876,7 +1876,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+            url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items"
               ? tasks
               : [],
         }),
@@ -1914,7 +1914,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task" || url === "/todo-engine/items"
+            url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items"
               ? [task]
               : [],
         }),
@@ -1935,7 +1935,7 @@ describe("WorkbenchPageClient", () => {
     const weekStart = testWeekStart(today);
     const monthStart = testMonthStart(today);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         {
           id: "goal-1",
           type: "goal",
@@ -1953,19 +1953,19 @@ describe("WorkbenchPageClient", () => {
           scheduled: weekStart,
         },
       ],
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         { id: "task-active", type: "task", title: "Active task", status: "active", scheduled: weekStart },
         { id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: weekStart },
         { id: "task-secondary-active", type: "task", title: "Secondary active task", status: "active", scheduled: weekStart },
         { id: "task-waiting", type: "task", title: "Waiting task", status: "waiting", scheduled: weekStart },
       ],
-      "/todo-engine/items?type=event": [
+      "/api/v1/todo/items?type=event": [
         { id: "event-team", type: "event", title: "Team event", status: "active", scheduled: weekStart },
         { id: "event-done", type: "event", title: "Completed event", status: "completed", scheduled: weekStart },
       ],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -2002,20 +2002,20 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const weekStart = testWeekStart(testToday());
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "month-a", type: "goal", title: "Month Alpha", status: "active", horizon: "month", scheduled: testMonthStart(weekStart) },
         { id: "month-z", type: "goal", title: "Month Zulu", status: "active", horizon: "month", scheduled: testMonthStart(weekStart) },
         { id: "week-a", type: "goal", title: "Week Alpha", status: "active", horizon: "week", scheduled: weekStart },
         { id: "week-z", type: "goal", title: "Week Zulu", status: "active", horizon: "week", scheduled: weekStart },
       ],
-      "/todo-engine/items?type=task": Array.from({ length: 7 }, (_, offset) => [
+      "/api/v1/todo/items?type=task": Array.from({ length: 7 }, (_, offset) => [
         { id: `day-${offset}-a`, type: "task", title: `Alpha ${offset}`, status: "active", scheduled: testAddDays(weekStart, offset) },
         { id: `day-${offset}-z`, type: "task", title: `Zulu ${offset}`, status: "active", scheduled: testAddDays(weekStart, offset) },
       ]).flat(),
-      "/todo-engine/items?type=event": [],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=event": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -2153,22 +2153,22 @@ describe("WorkbenchPageClient", () => {
     const weekStart = testWeekStart(monthStart);
     const secondDay = testAddDays(weekStart, 1);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "month-a", type: "goal", title: "Month Alpha", status: "active", horizon: "month", scheduled: monthStart },
         { id: "month-z", type: "goal", title: "Month Zulu", status: "active", horizon: "month", scheduled: monthStart },
         { id: "week-a", type: "goal", title: "Week Alpha", status: "active", horizon: "week", scheduled: weekStart },
         { id: "week-z", type: "goal", title: "Week Zulu", status: "active", horizon: "week", scheduled: weekStart },
       ],
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         { id: "day-one-active", type: "task", title: "Day one active", status: "active", scheduled: weekStart },
         { id: "day-one-complete", type: "task", title: "Day one complete", status: "completed", scheduled: weekStart },
         { id: "day-two-active", type: "task", title: "Day two active", status: "active", scheduled: secondDay },
         { id: "day-two-complete", type: "task", title: "Day two complete", status: "completed", scheduled: secondDay },
       ],
-      "/todo-engine/items?type=event": [],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=event": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -2214,20 +2214,20 @@ describe("WorkbenchPageClient", () => {
     const firstWeekStart = testWeekStart(monthStart);
     const secondWeekStart = testAddDays(firstWeekStart, 7);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "week-one-keep", type: "goal", title: "Keep first rail", status: "active", horizon: "week", scheduled: firstWeekStart },
         { id: "week-one-hide", type: "goal", title: "Hide first rail", status: "active", horizon: "week", scheduled: firstWeekStart },
         { id: "week-two-keep", type: "goal", title: "Keep second rail", status: "active", horizon: "week", scheduled: secondWeekStart },
         { id: "week-two-hide", type: "goal", title: "Hide second rail", status: "active", horizon: "week", scheduled: secondWeekStart },
       ],
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         { id: "calendar-hide-one", type: "task", title: "Hide calendar one", status: "active", scheduled: firstWeekStart },
         { id: "calendar-hide-two", type: "task", title: "Hide calendar two", status: "active", scheduled: secondWeekStart },
       ],
-      "/todo-engine/items?type=event": [],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=event": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -2269,16 +2269,16 @@ describe("WorkbenchPageClient", () => {
       ];
     }).flat();
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "year-a", type: "goal", title: "Annual Alpha", status: "active", horizon: "year", scheduled: `${year}-01-01` },
         { id: "year-z", type: "goal", title: "Annual Zulu", status: "active", horizon: "year", scheduled: `${year}-01-01` },
         ...monthGoals,
       ],
-      "/todo-engine/items?type=task": [],
-      "/todo-engine/items?type=event": [],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=task": [],
+      "/api/v1/todo/items?type=event": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -2317,15 +2317,15 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const weekStart = testWeekStart(testToday());
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [],
-      "/todo-engine/items?type=task": [],
-      "/todo-engine/items?type=event": [],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=goal": [],
+      "/api/v1/todo/items?type=task": [],
+      "/api/v1/todo/items?type=event": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose") {
+      if (url === "/api/v1/todo/goals/propose") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -2388,17 +2388,17 @@ describe("WorkbenchPageClient", () => {
     const yearStart = testYearStart(today);
     const monthStart = testMonthStart(today);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [],
-      "/todo-engine/items?type=task": [],
-      "/todo-engine/items?type=event": [],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=goal": [],
+      "/api/v1/todo/items?type=task": [],
+      "/api/v1/todo/items?type=event": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     const goalBodies: Array<{ title: string; horizon: string; scheduled: string; actor: string }> =
       [];
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose") {
+      if (url === "/api/v1/todo/goals/propose") {
         const body = JSON.parse(String(init?.body)) as {
           title: string;
           horizon: string;
@@ -2471,15 +2471,15 @@ describe("WorkbenchPageClient", () => {
     const today = testToday();
     const weekStart = testWeekStart(today);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [],
-      "/todo-engine/items?type=task": [],
-      "/todo-engine/items?type=event": [],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=goal": [],
+      "/api/v1/todo/items?type=task": [],
+      "/api/v1/todo/items?type=event": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/tasks/propose") {
+      if (url === "/api/v1/todo/tasks/propose") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -2502,7 +2502,7 @@ describe("WorkbenchPageClient", () => {
           }),
         });
       }
-      if (url === "/todo-engine/events/propose") {
+      if (url === "/api/v1/todo/events/propose") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -2564,7 +2564,7 @@ describe("WorkbenchPageClient", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
-        if (url === "/todo-engine/tasks/propose") {
+        if (url === "/api/v1/todo/tasks/propose") {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
           taskBodies.push(body);
           return Promise.resolve({
@@ -2576,7 +2576,7 @@ describe("WorkbenchPageClient", () => {
         return Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task"
+            url === "/api/v1/todo/items?type=task"
               ? [{ id: "task-1", type: "task", title: "Focus task", status: "active" }]
               : [],
         });
@@ -2610,7 +2610,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task"
+            url === "/api/v1/todo/items?type=task"
               ? [{ id: "task-1", type: "task", title: "Focus task", status: "active" }]
               : [],
         }),
@@ -2640,7 +2640,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task"
+            url === "/api/v1/todo/items?type=task"
               ? [{ id: "task-1", type: "task", title: "Focus task", status: "active" }]
               : [],
         }),
@@ -2683,7 +2683,7 @@ describe("WorkbenchPageClient", () => {
     const overdue = testAddDays(today, -1);
     const upcoming = testAddDays(today, 1);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         {
           id: "task-active",
           type: "task",
@@ -2754,11 +2754,11 @@ describe("WorkbenchPageClient", () => {
           area_id: "area-2",
         },
       ],
-      "/todo-engine/items?type=event": [
+      "/api/v1/todo/items?type=event": [
         { id: "event-team", type: "event", title: "Team event", status: "active", scheduled: today },
       ],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [
         { id: "area-1", type: "area", title: "Focus", status: "active" },
         { id: "area-2", type: "area", title: "Admin", status: "active" },
         {
@@ -2769,7 +2769,7 @@ describe("WorkbenchPageClient", () => {
           scheduled: today,
         },
       ],
-      "/todo-engine/items?type=project": [
+      "/api/v1/todo/items?type=project": [
         {
           id: "project-1",
           type: "project",
@@ -2857,17 +2857,17 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const today = testToday();
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         { id: "today-keep", type: "task", title: "Keep today", status: "active", scheduled: today },
         { id: "today-hide", type: "task", title: "Hide today", status: "active", scheduled: today },
         { id: "before", type: "task", title: "Before remains", status: "active", scheduled: testAddDays(today, -1) },
         { id: "unscheduled", type: "task", title: "Inbox remains", status: "active" },
       ],
-      "/todo-engine/items?type=event": [],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=goal": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=event": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=goal": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -2915,7 +2915,7 @@ describe("WorkbenchPageClient", () => {
       "fetch",
       vi.fn((url: string) => Promise.resolve({
         ok: true,
-        json: async () => url === "/todo-engine/items?type=routine"
+        json: async () => url === "/api/v1/todo/items?type=routine"
           ? [{
               id: "routine-related",
               type: "routine",
@@ -3067,13 +3067,13 @@ describe("WorkbenchPageClient", () => {
     };
     const eventBodies: Array<Record<string, unknown>> = [];
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/settings/planner") {
+      if (url === "/api/v1/preferences/planner.v1") {
         return Promise.resolve({
           ok: true,
           json: async () => ({ tableSettings: { "daily.today": deterministicSettings } }),
         });
       }
-      if (url === "/todo-engine/events/propose") {
+      if (url === "/api/v1/todo/events/propose") {
         const body = JSON.parse(String(init?.body));
         eventBodies.push(body);
         return Promise.resolve({
@@ -3081,7 +3081,7 @@ describe("WorkbenchPageClient", () => {
           json: async () => ({ id: "event-filtered", type: "event", status: "active", ...body }),
         });
       }
-      if (url === "/todo-engine/items?type=area") {
+      if (url === "/api/v1/todo/items?type=area") {
         return Promise.resolve({
           ok: true,
           json: async () => [
@@ -3090,7 +3090,7 @@ describe("WorkbenchPageClient", () => {
           ],
         });
       }
-      if (url === "/todo-engine/items?type=project") {
+      if (url === "/api/v1/todo/items?type=project") {
         return Promise.resolve({
           ok: true,
           json: async () => [
@@ -3142,7 +3142,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const taskBodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/settings/planner") {
+      if (url === "/api/v1/preferences/planner.v1") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -3167,7 +3167,7 @@ describe("WorkbenchPageClient", () => {
           }),
         });
       }
-      if (url === "/todo-engine/tasks/propose") {
+      if (url === "/api/v1/todo/tasks/propose") {
         const body = JSON.parse(String(init?.body));
         taskBodies.push(body);
         return Promise.resolve({
@@ -3200,7 +3200,7 @@ describe("WorkbenchPageClient", () => {
   it("does not warn when an OR table has no effective filters", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn((url: string) => {
-      if (url === "/todo-engine/settings/planner") {
+      if (url === "/api/v1/preferences/planner.v1") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -3245,7 +3245,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const taskBodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/settings/planner") {
+      if (url === "/api/v1/preferences/planner.v1") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -3266,7 +3266,7 @@ describe("WorkbenchPageClient", () => {
           }),
         });
       }
-      if (url === "/todo-engine/tasks/propose") {
+      if (url === "/api/v1/todo/tasks/propose") {
         const body = JSON.parse(String(init?.body));
         taskBodies.push(body);
         return Promise.resolve({
@@ -3302,10 +3302,10 @@ describe("WorkbenchPageClient", () => {
       resolveComplete = resolve;
     });
     const fetchMock = vi.fn((url: string) => {
-      if (url === "/todo-engine/items/task-active/complete") return completeResponse;
+      if (url === "/api/v1/todo/items/task-active/complete") return completeResponse;
       return Promise.resolve({
         ok: true,
-        json: async () => url === "/todo-engine/items?type=task"
+        json: async () => url === "/api/v1/todo/items?type=task"
           ? [{ id: "task-active", type: "task", title: "Active task", status: "active", scheduled: testToday() }]
           : [],
       } as Response);
@@ -3328,7 +3328,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Active task" })).toBeInTheDocument();
     await user.click(checkbox);
     expect(
-      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items/task-active/complete"),
+      fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items/task-active/complete"),
     ).toHaveLength(1);
 
     resolveComplete({
@@ -3352,7 +3352,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     let status = "active";
     const fetchMock = vi.fn((url: string) => {
-      if (url === "/todo-engine/items/event-team/complete") {
+      if (url === "/api/v1/todo/items/event-team/complete") {
         status = "completed";
         return Promise.resolve({
           ok: true,
@@ -3365,7 +3365,7 @@ describe("WorkbenchPageClient", () => {
           }),
         } as Response);
       }
-      if (url === "/todo-engine/items/event-team/reopen") {
+      if (url === "/api/v1/todo/items/event-team/reopen") {
         status = "active";
         return Promise.resolve({
           ok: true,
@@ -3381,7 +3381,7 @@ describe("WorkbenchPageClient", () => {
       }
       return Promise.resolve({
         ok: true,
-        json: async () => url === "/todo-engine/items?type=event"
+        json: async () => url === "/api/v1/todo/items?type=event"
           ? [{ id: "event-team", type: "event", title: "Team event", status, scheduled: testToday() }]
           : [],
       } as Response);
@@ -3398,11 +3398,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("checkbox", { name: "Reopen Team event" }));
     expect(await screen.findByRole("checkbox", { name: "Complete Team event" })).not.toBeChecked();
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/event-team/complete",
+      "/api/v1/todo/items/event-team/complete",
       expect.objectContaining({ method: "POST" }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/event-team/reopen",
+      "/api/v1/todo/items/event-team/reopen",
       expect.objectContaining({ method: "POST" }),
     );
   });
@@ -3411,19 +3411,19 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const today = testToday();
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         { id: "task-active", type: "task", title: "Active task", status: "active", scheduled: today },
         { id: "task-missed", type: "task", title: "Missed task", status: "missed", scheduled: today },
         { id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: today },
         { id: "task-paused", type: "task", title: "Paused task", status: "paused", scheduled: today },
       ],
-      "/todo-engine/items?type=event": [
+      "/api/v1/todo/items?type=event": [
         { id: "event-active", type: "event", title: "Active event", status: "active", scheduled: today },
       ],
-      "/todo-engine/items?type=routine": [
+      "/api/v1/todo/items?type=routine": [
         { id: "routine-active", type: "routine", title: "Active routine", status: "active", scheduled: today },
       ],
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "goal-active", type: "goal", title: "Active goal", status: "active", horizon: "week", scheduled: testWeekStart(today) },
       ],
     };
@@ -3485,9 +3485,9 @@ describe("WorkbenchPageClient", () => {
       Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items/task-active/miss"
+          url === "/api/v1/todo/items/task-active/miss"
             ? { ...task, status: "missed" }
-            : url === "/todo-engine/items?type=task"
+            : url === "/api/v1/todo/items?type=task"
               ? [task]
               : [],
       }),
@@ -3509,7 +3509,7 @@ describe("WorkbenchPageClient", () => {
       expect(document.body).not.toHaveFocus();
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-active/miss",
+      "/api/v1/todo/items/task-active/miss",
       expect.objectContaining({ method: "POST", body: JSON.stringify({}) }),
     );
 
@@ -3539,9 +3539,9 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items/task-active/miss"
+            url === "/api/v1/todo/items/task-active/miss"
               ? { ...task, status: "missed" }
-              : url === "/todo-engine/items?type=task"
+              : url === "/api/v1/todo/items?type=task"
                 ? [task]
                 : [],
         }),
@@ -3581,9 +3581,9 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items/task-active/miss"
+            url === "/api/v1/todo/items/task-active/miss"
               ? { ...task, status: "missed" }
-              : url === "/todo-engine/items?type=task"
+              : url === "/api/v1/todo/items?type=task"
                 ? [task]
                 : [],
         }),
@@ -3625,12 +3625,12 @@ describe("WorkbenchPageClient", () => {
       resolvePostpone = resolve;
     });
     const fetchMock = vi.fn((url: string) => {
-      if (url === "/todo-engine/items/task-active/postpone") {
+      if (url === "/api/v1/todo/items/task-active/postpone") {
         return postponeResponse;
       }
       return Promise.resolve({
         ok: true,
-        json: async () => url === "/todo-engine/items?type=task" ? [task] : [],
+        json: async () => url === "/api/v1/todo/items?type=task" ? [task] : [],
       } as Response);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -3660,7 +3660,7 @@ describe("WorkbenchPageClient", () => {
       }),
     );
     expect(
-      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items/task-active/postpone"),
+      fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items/task-active/postpone"),
     ).toHaveLength(1);
 
     resolvePostpone({
@@ -3690,7 +3690,7 @@ describe("WorkbenchPageClient", () => {
       vi.fn((url: string) =>
         Promise.resolve({
           ok: true,
-          json: async () => url === "/todo-engine/items?type=task" ? [task] : [],
+          json: async () => url === "/api/v1/todo/items?type=task" ? [task] : [],
         }),
       ),
     );
@@ -3708,7 +3708,7 @@ describe("WorkbenchPageClient", () => {
   it("keeps a completed daily planner task checked when reopening fails", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string) => {
-      if (url === "/todo-engine/items/task-completed/reopen") {
+      if (url === "/api/v1/todo/items/task-completed/reopen") {
         return Promise.resolve({
           ok: false,
           status: 400,
@@ -3720,7 +3720,7 @@ describe("WorkbenchPageClient", () => {
       }
       return Promise.resolve({
         ok: true,
-        json: async () => url === "/todo-engine/items?type=task"
+        json: async () => url === "/api/v1/todo/items?type=task"
           ? [{ id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: testToday() }]
           : [],
       } as Response);
@@ -3752,13 +3752,13 @@ describe("WorkbenchPageClient", () => {
     });
     let transitionAttempt = 0;
     const fetchMock = vi.fn((url: string) => {
-      if (url === "/todo-engine/items/task-shared/complete") {
+      if (url === "/api/v1/todo/items/task-shared/complete") {
         transitionAttempt += 1;
         return transitionAttempt === 1 ? failureResponse : retryResponse;
       }
       return Promise.resolve({
         ok: true,
-        json: async () => url === "/todo-engine/items?type=task"
+        json: async () => url === "/api/v1/todo/items?type=task"
           ? [
               {
                 id: "task-shared",
@@ -3799,7 +3799,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("checkbox", { name: "Complete Other task" })).not.toBeDisabled();
     expect(
       fetchMock.mock.calls.filter(([url]) =>
-        url === "/todo-engine/items/task-shared/complete"),
+        url === "/api/v1/todo/items/task-shared/complete"),
     ).toHaveLength(1);
 
     resolveFailure({
@@ -3817,7 +3817,7 @@ describe("WorkbenchPageClient", () => {
     expect(sharedCheckboxes.every((checkbox) => checkbox.hasAttribute("disabled"))).toBe(true);
     expect(
       fetchMock.mock.calls.filter(([url]) =>
-        url === "/todo-engine/items/task-shared/complete"),
+        url === "/api/v1/todo/items/task-shared/complete"),
     ).toHaveLength(2);
 
     resolveRetry({
@@ -3851,7 +3851,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task"
+            url === "/api/v1/todo/items?type=task"
               ? [
                   {
                     id: "task-1",
@@ -3872,7 +3872,7 @@ describe("WorkbenchPageClient", () => {
                     scheduled: testToday(),
                   },
                 ]
-              : url === "/todo-engine/items?type=area"
+              : url === "/api/v1/todo/items?type=area"
                 ? [
                     { id: "area-1", type: "area", title: "Work", status: "active" },
                     { id: "area-2", type: "area", title: "Ops", status: "active" },
@@ -3916,7 +3916,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task"
+            url === "/api/v1/todo/items?type=task"
               ? [
                   {
                     id: "task-1",
@@ -3935,12 +3935,12 @@ describe("WorkbenchPageClient", () => {
                     scheduled: testToday(),
                   },
                 ]
-              : url === "/todo-engine/items?type=area"
+              : url === "/api/v1/todo/items?type=area"
                 ? [
                     { id: "area-1", type: "area", title: "Focus", status: "active" },
                     { id: "area-2", type: "area", title: "Ops", status: "active" },
                   ]
-                : url === "/todo-engine/items?type=goal"
+                : url === "/api/v1/todo/items?type=goal"
                   ? [
                       {
                         id: "goal-1",
@@ -3997,7 +3997,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task"
+            url === "/api/v1/todo/items?type=task"
               ? [
                   {
                     id: "task-b",
@@ -4474,7 +4474,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [
                   {
                     id: "month-goal-b",
@@ -4522,7 +4522,7 @@ describe("WorkbenchPageClient", () => {
                     tags: ["ops"],
                   },
                 ]
-              : url === "/todo-engine/items?type=task"
+              : url === "/api/v1/todo/items?type=task"
                 ? [
                     {
                       id: "task-1",
@@ -4577,7 +4577,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [
                   {
                     id: "goal-1",
@@ -4589,7 +4589,7 @@ describe("WorkbenchPageClient", () => {
                     area_id: "area-1",
                   },
                 ]
-              : url === "/todo-engine/items?type=area"
+              : url === "/api/v1/todo/items?type=area"
                 ? [{ id: "area-1", type: "area", title: "Work", status: "active" }]
                 : [],
         }),
@@ -4628,7 +4628,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [
                   {
                     id: "year-goal",
@@ -4658,7 +4658,7 @@ describe("WorkbenchPageClient", () => {
                     area_id: "area-1",
                   },
                 ]
-              : url === "/todo-engine/items?type=task"
+              : url === "/api/v1/todo/items?type=task"
                 ? [
                     {
                       id: "task-1",
@@ -4669,7 +4669,7 @@ describe("WorkbenchPageClient", () => {
                       area_id: "area-1",
                     },
                   ]
-                : url === "/todo-engine/items?type=area"
+                : url === "/api/v1/todo/items?type=area"
                   ? [{ id: "area-1", type: "area", title: "Work", status: "active" }]
                   : [],
         }),
@@ -4720,7 +4720,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [
                   {
                     id: "month-goal-b",
@@ -4750,7 +4750,7 @@ describe("WorkbenchPageClient", () => {
                     tags: ["focus"],
                   },
                 ]
-              : url === "/todo-engine/items?type=task"
+              : url === "/api/v1/todo/items?type=task"
                 ? [
                     {
                       id: "task-1",
@@ -4799,7 +4799,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task"
+            url === "/api/v1/todo/items?type=task"
               ? [
                   {
                     id: "task-b",
@@ -4868,14 +4868,14 @@ describe("WorkbenchPageClient", () => {
     const nextYearStart = testNextYearStart(today);
     const monthStart = testMonthStart(today);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "goal-year", type: "goal", title: "Annual Goal", status: "active", horizon: "year", scheduled: yearStart, tags: ["annual-current"] },
         { id: "goal-other-year", type: "goal", title: "Other Year Goal", status: "active", horizon: "year", scheduled: nextYearStart, tags: ["annual-future"] },
         { id: "goal-month", type: "goal", title: "Monthly Goal", status: "active", horizon: "month", scheduled: monthStart, tags: ["month-current"] },
         { id: "goal-year-done", type: "goal", title: "Completed Annual Goal", status: "completed", horizon: "year", scheduled: yearStart, tags: ["annual-done"] },
       ],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -4937,7 +4937,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [
                   { id: "goal-current", type: "goal", title: "Current annual goal", status: "active", horizon: "year", scheduled: currentYear, tags: ["focus"] },
                   { id: "goal-target", type: "goal", title: "Other annual goal", status: "active", horizon: "year", scheduled: targetYear, tags: ["ops"] },
@@ -4983,14 +4983,14 @@ describe("WorkbenchPageClient", () => {
     const secondWeekStart = testAddDays(firstWeekStart, 7);
     const firstWeekEventDate = testAddDays(firstWeekStart, 2);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "goal-month", type: "goal", title: "Monthly Goal", status: "active", horizon: "month", scheduled: monthStart, tags: ["month-current"] },
         { id: "goal-other-month", type: "goal", title: "Other Month Goal", status: "active", horizon: "month", scheduled: nextMonthStart, tags: ["month-future"] },
         { id: "goal-week-1", type: "goal", title: "First Week Goal", status: "active", horizon: "week", scheduled: firstWeekStart, tags: ["week-current"] },
         { id: "goal-week-2", type: "goal", title: "Second Week Goal", status: "active", horizon: "week", scheduled: secondWeekStart, tags: ["week-current"] },
         { id: "goal-week-done", type: "goal", title: "Done Week Goal", status: "completed", horizon: "week", scheduled: firstWeekStart, tags: ["week-done"] },
       ],
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         { id: "task-active", type: "task", title: "Active task", status: "active", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T09:00:00Z" },
         { id: "task-completed", type: "task", title: "Completed task", status: "completed", scheduled: firstWeekStart, tags: ["month-todo"], updated_at: "2026-07-01T08:00:00Z" },
         { id: "task-secondary-active", type: "task", title: "Secondary active task", status: "active", scheduled: testAddDays(firstWeekStart, 1), tags: ["month-todo"], updated_at: "2026-07-01T07:00:00Z" },
@@ -4998,12 +4998,12 @@ describe("WorkbenchPageClient", () => {
         { id: "task-additional-active", type: "task", title: "Additional active task", status: "active", scheduled: testAddDays(firstWeekStart, 3), tags: ["month-todo"], updated_at: "2026-07-01T05:00:00Z" },
         { id: "task-paused", type: "task", title: "Paused task", status: "paused", scheduled: testAddDays(firstWeekStart, 3), tags: ["month-todo"], updated_at: "2026-07-01T04:00:00Z" },
       ],
-      "/todo-engine/items?type=event": [
+      "/api/v1/todo/items?type=event": [
         { id: "event-month", type: "event", title: "Month Event", status: "active", scheduled: firstWeekEventDate, tags: ["month-todo"] },
       ],
-      "/todo-engine/items?type=routine": [],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=routine": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -5074,7 +5074,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [
                   { id: "parent-current", type: "goal", title: "Current parent", status: "active", horizon: "year", scheduled: testYearStart(currentMonth) },
                   { id: "parent-target", type: "goal", title: "Target parent", status: "active", horizon: "year", scheduled: testYearStart(targetMonth) },
@@ -5198,12 +5198,12 @@ describe("WorkbenchPageClient", () => {
     const monthStart = testMonthStart(today);
     const nextMonthStart = testNextMonthStart(today);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "current", type: "goal", title: "Current Month", status: "active", horizon: "month", scheduled: monthStart },
         { id: "next", type: "goal", title: "Next Month", status: "active", horizon: "month", scheduled: nextMonthStart },
       ],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -5238,12 +5238,12 @@ describe("WorkbenchPageClient", () => {
     const yearStart = testYearStart(today);
     const monthStart = testMonthStart(today);
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "current-year", type: "goal", title: "Current Year", status: "active", horizon: "year", scheduled: yearStart },
         { id: "current-month", type: "goal", title: "Current Month", status: "active", horizon: "month", scheduled: monthStart },
       ],
-      "/todo-engine/items?type=area": [],
-      "/todo-engine/items?type=project": [],
+      "/api/v1/todo/items?type=area": [],
+      "/api/v1/todo/items?type=project": [],
     };
     vi.stubGlobal(
       "fetch",
@@ -5280,7 +5280,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [
                   {
                     id: "goal-year",
@@ -5332,7 +5332,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [
                   {
                     id: "goal-month",
@@ -5377,7 +5377,7 @@ describe("WorkbenchPageClient", () => {
   it("normalizes visible workspace tags after save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1") {
+      if (url === "/api/v1/todo/items/task-1") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "PATCH",
@@ -5426,7 +5426,7 @@ describe("WorkbenchPageClient", () => {
   it("turns entered workspace tags into removable chips", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body)) as { tags: string[] };
 
         return Promise.resolve({
@@ -5444,7 +5444,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=task"
+          url === "/api/v1/todo/items?type=task"
             ? [
                 {
                   id: "task-1",
@@ -5470,7 +5470,7 @@ describe("WorkbenchPageClient", () => {
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/task-1",
+        "/api/v1/todo/items/task-1",
         expect.objectContaining({
           body: JSON.stringify({ tags: ["deep-work", "planning"] }),
           method: "PATCH",
@@ -5481,7 +5481,7 @@ describe("WorkbenchPageClient", () => {
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/task-1",
+        "/api/v1/todo/items/task-1",
         expect.objectContaining({
           body: JSON.stringify({ tags: ["deep-work"] }),
           method: "PATCH",
@@ -5493,7 +5493,7 @@ describe("WorkbenchPageClient", () => {
   it("selects stored tags from the workspace tag dropdown", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body)) as { tags: string[] };
 
         return Promise.resolve({
@@ -5511,7 +5511,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () => {
-          if (url === "/todo-engine/items") {
+          if (url === "/api/v1/todo/items") {
             return [
               { id: "task-1", type: "task", title: "Plan", status: "active", tags: ["deep-work"] },
               { id: "project-1", type: "project", title: "Roadmap", status: "active", tags: ["planning"] },
@@ -5519,7 +5519,7 @@ describe("WorkbenchPageClient", () => {
             ];
           }
 
-          return url === "/todo-engine/items?type=task"
+          return url === "/api/v1/todo/items?type=task"
             ? [
                 {
                   id: "task-1",
@@ -5549,7 +5549,7 @@ describe("WorkbenchPageClient", () => {
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/task-1",
+        "/api/v1/todo/items/task-1",
         expect.objectContaining({
           body: JSON.stringify({ tags: ["deep-work", "planning"] }),
           method: "PATCH",
@@ -5560,7 +5560,7 @@ describe("WorkbenchPageClient", () => {
 
   it("waits for IME composition to finish before committing a tag", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body)) as { tags: string[] };
 
         return Promise.resolve({
@@ -5578,7 +5578,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=task"
+          url === "/api/v1/todo/items?type=task"
             ? [
                 {
                   id: "task-1",
@@ -5604,13 +5604,13 @@ describe("WorkbenchPageClient", () => {
     fireEvent.change(tags, { target: { value: "새 태그" } });
     fireEvent.keyDown(tags, { key: "Enter", isComposing: true });
 
-    expect(fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items/task-1")).toEqual([]);
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items/task-1")).toEqual([]);
 
     fireEvent.keyDown(tags, { key: "Enter", isComposing: false });
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/task-1",
+        "/api/v1/todo/items/task-1",
         expect.objectContaining({
           body: JSON.stringify({ tags: ["deep-work", "새 태그"] }),
           method: "PATCH",
@@ -5625,7 +5625,7 @@ describe("WorkbenchPageClient", () => {
       Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=task"
+          url === "/api/v1/todo/items?type=task"
             ? [
                 {
                   id: "task-1",
@@ -5653,14 +5653,14 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Remove deep-work tag" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove planning tag" })).toBeInTheDocument();
     expect(
-      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items/task-1"),
+      fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items/task-1"),
     ).toHaveLength(0);
   });
 
   it("shows linked workspace item titles in item-specific columns", async () => {
     const user = userEvent.setup();
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=area": [
+      "/api/v1/todo/items?type=area": [
         {
           id: "area-1",
           type: "area",
@@ -5669,7 +5669,7 @@ describe("WorkbenchPageClient", () => {
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
-      "/todo-engine/items?type=project": [
+      "/api/v1/todo/items?type=project": [
         {
           id: "project-1",
           type: "project",
@@ -5682,7 +5682,7 @@ describe("WorkbenchPageClient", () => {
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
-      "/todo-engine/items?type=routine": [
+      "/api/v1/todo/items?type=routine": [
         {
           id: "routine-1",
           type: "routine",
@@ -5696,7 +5696,7 @@ describe("WorkbenchPageClient", () => {
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         {
           id: "task-1",
           type: "task",
@@ -5711,7 +5711,7 @@ describe("WorkbenchPageClient", () => {
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
-      "/todo-engine/items?type=event": [
+      "/api/v1/todo/items?type=event": [
         {
           id: "event-1",
           type: "event",
@@ -5723,7 +5723,7 @@ describe("WorkbenchPageClient", () => {
           updated_at: "2026-06-21T00:00:00Z",
         },
       ],
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         {
           id: "goal-1",
           type: "goal",
@@ -5883,7 +5883,7 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Archive" }));
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/archive",
+      "/api/v1/todo/items/task-1/archive",
       expect.objectContaining({ method: "POST" }),
     );
   });
@@ -5967,7 +5967,7 @@ describe("WorkbenchPageClient", () => {
   it("opens a creation dialog and creates a row", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string) => {
-      if (url === "/todo-engine/tasks/propose") {
+      if (url === "/api/v1/todo/tasks/propose") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -6047,7 +6047,7 @@ describe("WorkbenchPageClient", () => {
   it("creates workspace goals through one period control", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose" && init?.method === "POST") {
+      if (url === "/api/v1/todo/goals/propose" && init?.method === "POST") {
         expect(init.body).toBe(
           JSON.stringify({
             title: "July goal",
@@ -6069,7 +6069,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
 
-      if (url === "/todo-engine/items?type=goal" || url === "/todo-engine/items") {
+      if (url === "/api/v1/todo/items?type=goal" || url === "/api/v1/todo/items") {
         return Promise.resolve({
           ok: true,
           json: async () => [
@@ -6136,7 +6136,7 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/goals/propose",
+      "/api/v1/todo/goals/propose",
       expect.objectContaining({ method: "POST" }),
     );
     expect(
@@ -6156,7 +6156,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     let attempts = 0;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/goals/propose" && init?.method === "POST") {
+      if (url === "/api/v1/todo/goals/propose" && init?.method === "POST") {
         attempts += 1;
         if (attempts === 1) {
           return Promise.resolve({
@@ -6293,7 +6293,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(saveButton);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1",
+      "/api/v1/todo/items/task-1",
       expect.objectContaining({ method: "PATCH" }),
     );
 
@@ -6603,7 +6603,7 @@ describe("WorkbenchPageClient", () => {
     const apiStatus = "active";
     let apiNote = "Old note";
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
         apiNote = "Saved note";
         return Promise.resolve({
           ok: true,
@@ -6649,7 +6649,7 @@ describe("WorkbenchPageClient", () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/goal-1",
+        "/api/v1/todo/items/goal-1",
         expect.objectContaining({ method: "PATCH" }),
       );
     });
@@ -6665,7 +6665,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=task"
+            url === "/api/v1/todo/items?type=task"
               ? [
                   {
                     id: "task-1",
@@ -6697,7 +6697,7 @@ describe("WorkbenchPageClient", () => {
   it("keeps detail Markdown note drafts while relation edits wait for Save", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
           JSON.stringify({ note: "Draft detail text", area: "area-2" }),
         );
@@ -6716,7 +6716,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
 
-      if (url === "/todo-engine/items?type=area") {
+      if (url === "/api/v1/todo/items?type=area") {
         return Promise.resolve({
           ok: true,
           json: async () => [
@@ -6726,7 +6726,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
 
-      if (url === "/todo-engine/items?type=project") {
+      if (url === "/api/v1/todo/items?type=project") {
         return Promise.resolve({
           ok: true,
           json: async () => [
@@ -6735,7 +6735,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
 
-      if (url === "/todo-engine/items?type=routine") {
+      if (url === "/api/v1/todo/items?type=routine") {
         return Promise.resolve({
           ok: true,
           json: async () => [
@@ -6782,7 +6782,7 @@ describe("WorkbenchPageClient", () => {
 
     expect(screen.getByText("Draft detail text")).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith(
-      "/todo-engine/items/task-1",
+      "/api/v1/todo/items/task-1",
       expect.objectContaining({ method: "PATCH" }),
     );
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
@@ -6791,18 +6791,18 @@ describe("WorkbenchPageClient", () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/task-1",
+        "/api/v1/todo/items/task-1",
         expect.objectContaining({ method: "PATCH" }),
       );
     });
-    expect(fetchMock.mock.calls.find(([url]) => url === "/todo-engine/items/task-1")).toBeTruthy();
+    expect(fetchMock.mock.calls.find(([url]) => url === "/api/v1/todo/items/task-1")).toBeTruthy();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   });
 
   it("skips detail patch requests when save only changes status", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/complete") {
+      if (url === "/api/v1/todo/items/task-1/complete") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -6841,26 +6841,26 @@ describe("WorkbenchPageClient", () => {
 
     const patchCalls = fetchMock.mock.calls.filter(
       ([url, init]) =>
-        url === "/todo-engine/items/task-1" &&
+        url === "/api/v1/todo/items/task-1" &&
         (init as RequestInit | undefined)?.method === "PATCH",
     );
 
     expect(patchCalls).toHaveLength(0);
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/complete",
+      "/api/v1/todo/items/task-1/complete",
       expect.objectContaining({ method: "POST" }),
     );
     expect(
       fetchMock.mock.calls
         .filter(([, init]) => init?.method === "POST")
         .map(([url]) => url),
-    ).toEqual(["/todo-engine/items/task-1/complete"]);
+    ).toEqual(["/api/v1/todo/items/task-1/complete"]);
   });
 
   it("requires a Project definition of done and includes it in creation", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/projects/propose") {
+      if (url === "/api/v1/todo/projects/propose") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -6891,13 +6891,13 @@ describe("WorkbenchPageClient", () => {
       "Project requires definition_of_done",
     );
     expect(
-      fetchMock.mock.calls.some(([url]) => url === "/todo-engine/projects/propose"),
+      fetchMock.mock.calls.some(([url]) => url === "/api/v1/todo/projects/propose"),
     ).toBe(false);
 
     await user.type(screen.getByLabelText("Definition of Done"), "Done when verified");
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/projects/propose",
+      "/api/v1/todo/projects/propose",
       expect.objectContaining({
         body: JSON.stringify({
           title: "Project title",
@@ -6911,7 +6911,7 @@ describe("WorkbenchPageClient", () => {
   it("defaults Routine recurrence and rejects a cleared rule", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string) => {
-      if (url === "/todo-engine/routines/propose") {
+      if (url === "/api/v1/todo/routines/propose") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -6944,7 +6944,7 @@ describe("WorkbenchPageClient", () => {
     );
     expect(screen.getByRole("dialog", { name: "Create Routines item" })).toBeInTheDocument();
     expect(
-      fetchMock.mock.calls.some(([url]) => url === "/todo-engine/routines/propose"),
+      fetchMock.mock.calls.some(([url]) => url === "/api/v1/todo/routines/propose"),
     ).toBe(false);
 
     await user.clear(screen.getByLabelText("Every"));
@@ -6957,7 +6957,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Every")).toHaveValue(1);
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/routines/propose",
+      "/api/v1/todo/routines/propose",
       expect.objectContaining({
         body: JSON.stringify({
           title: "Daily review",
@@ -6981,7 +6981,7 @@ describe("WorkbenchPageClient", () => {
       materialization_policy: "per_occurrence",
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/routine-1" && init?.method === "PATCH") {
         calls.push("patch");
         expect(JSON.parse(String(init.body))).toEqual({
           recurrence_rule: "RRULE:FREQ=DAILY",
@@ -6991,7 +6991,7 @@ describe("WorkbenchPageClient", () => {
           json: async () => ({ ...routine, recurrence_rule: "RRULE:FREQ=DAILY" }),
         });
       }
-      if (url === "/todo-engine/items/routine-1/resume") {
+      if (url === "/api/v1/todo/items/routine-1/resume") {
         expect(init?.method).toBe("POST");
         calls.push("resume");
         return Promise.resolve({
@@ -7005,7 +7005,7 @@ describe("WorkbenchPageClient", () => {
       }
       return Promise.resolve({
         ok: true,
-        json: async () => (url === "/todo-engine/items?type=routine" ? [routine] : []),
+        json: async () => (url === "/api/v1/todo/items?type=routine" ? [routine] : []),
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -7024,7 +7024,7 @@ describe("WorkbenchPageClient", () => {
   it("shows the same task fields in the table while keeping description table-only in detail", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1") {
+      if (url === "/api/v1/todo/items/task-1") {
         expect(init).toEqual(expect.objectContaining({ method: "PATCH" }));
         expect(JSON.parse(String(init?.body))).toEqual({
           note: "Updated note",
@@ -7184,7 +7184,7 @@ describe("WorkbenchPageClient", () => {
   it("selects task priority from a detail dropdown", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
         expect(JSON.parse(String(init.body))).toEqual({ priority: 10 });
         return Promise.resolve({
           ok: true,
@@ -7233,7 +7233,7 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1",
+      "/api/v1/todo/items/task-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -7375,7 +7375,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/goal-1",
+      "/api/v1/todo/items/goal-1",
       expect.objectContaining({ method: "PATCH" }),
     );
     expect(screen.queryByRole("heading", { name: "Goal" })).not.toBeInTheDocument();
@@ -7473,7 +7473,7 @@ describe("WorkbenchPageClient", () => {
   it("selects a goal month from a year-scoped month grid", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
           JSON.stringify({ horizon: "month", scheduled: "2027-03-01" }),
         );
@@ -7530,7 +7530,7 @@ describe("WorkbenchPageClient", () => {
       expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull(),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/goal-1",
+      "/api/v1/todo/items/goal-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -7711,7 +7711,7 @@ describe("WorkbenchPageClient", () => {
   it("commits a same-year month goal to year exactly once and returns focus to the trigger", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
           JSON.stringify({ horizon: "year", scheduled: "2026-01-01" }),
         );
@@ -7760,7 +7760,7 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull());
     expect(
       fetchMock.mock.calls.filter(
-        ([url, init]) => url === "/todo-engine/items/goal-1" && init?.method === "PATCH",
+        ([url, init]) => url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH",
       ),
     ).toHaveLength(1);
     await waitFor(() => expect(trigger).toHaveFocus());
@@ -7770,7 +7770,7 @@ describe("WorkbenchPageClient", () => {
   it("commits a goal year through a scrollable year dropdown", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
           JSON.stringify({ horizon: "year", scheduled: "2040-01-01" }),
         );
@@ -7829,7 +7829,7 @@ describe("WorkbenchPageClient", () => {
       expect(screen.queryByRole("dialog", { name: "Period for Goal" })).toBeNull(),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/goal-1",
+      "/api/v1/todo/items/goal-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -7871,7 +7871,7 @@ describe("WorkbenchPageClient", () => {
   it("shows a parent horizon error when an inline goal period change is rejected", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
           JSON.stringify({ horizon: "year", scheduled: "2026-01-01" }),
         );
@@ -7944,7 +7944,7 @@ describe("WorkbenchPageClient", () => {
   it("shows equal parent and requested horizon labels from structured error metadata", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/goal-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
           JSON.stringify({ horizon: "month", scheduled: "2026-07-01" }),
         );
@@ -8017,7 +8017,7 @@ describe("WorkbenchPageClient", () => {
   it("saves project detail definition of done through the item PATCH endpoint", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/project-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/project-1" && init?.method === "PATCH") {
         expect(init.body).toBe(JSON.stringify({ definition_of_done: "Ship review fixes" }));
 
         return Promise.resolve({
@@ -8036,7 +8036,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=project"
+          url === "/api/v1/todo/items?type=project"
             ? [
                 {
                   id: "project-1",
@@ -8063,7 +8063,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/project-1",
+      "/api/v1/todo/items/project-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -8071,7 +8071,7 @@ describe("WorkbenchPageClient", () => {
   it("saves routine detail recurrence rule through the item PATCH endpoint", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/routine-1" && init?.method === "PATCH") {
         expect(init.body).toBe(
           JSON.stringify({
             recurrence_rule: "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR",
@@ -8094,7 +8094,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=routine"
+          url === "/api/v1/todo/items?type=routine"
             ? [
                 {
                   id: "routine-1",
@@ -8129,7 +8129,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/routine-1",
+      "/api/v1/todo/items/routine-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -8137,7 +8137,7 @@ describe("WorkbenchPageClient", () => {
   it("shows and saves routine task template fields", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/routine-1" && init?.method === "PATCH") {
         expect(JSON.parse(String(init.body))).toEqual({
           project_id: "project-2",
           priority: 3,
@@ -8161,7 +8161,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
 
-      if (url === "/todo-engine/items?type=project") {
+      if (url === "/api/v1/todo/items?type=project") {
         return Promise.resolve({
           ok: true,
           json: async () => [
@@ -8174,7 +8174,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=routine"
+          url === "/api/v1/todo/items?type=routine"
             ? [
                 {
                   id: "routine-1",
@@ -8218,7 +8218,7 @@ describe("WorkbenchPageClient", () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/todo-engine/items/routine-1",
+        "/api/v1/todo/items/routine-1",
         expect.objectContaining({ method: "PATCH" }),
       );
     });
@@ -8227,7 +8227,7 @@ describe("WorkbenchPageClient", () => {
   it("opens legacy weekly recurrence without sending an unchanged recurrence rule patch", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/routine-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/routine-1" && init?.method === "PATCH") {
         expect(init.body).toBe(JSON.stringify({ note: "Keep this stretch" }));
         expect(String(init.body)).not.toContain("description");
 
@@ -8248,7 +8248,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=routine"
+          url === "/api/v1/todo/items?type=routine"
             ? [
                 {
                   id: "routine-1",
@@ -8281,7 +8281,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/routine-1",
+      "/api/v1/todo/items/routine-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -8363,7 +8363,7 @@ describe("WorkbenchPageClient", () => {
   it("omits unchanged event participants from the detail PATCH body", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/event-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/event-1" && init?.method === "PATCH") {
         expect(init.body).toBe(JSON.stringify({ priority: 2, location: "Office" }));
 
         return Promise.resolve({
@@ -8388,7 +8388,7 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/todo-engine/items?type=event"
+          url === "/api/v1/todo/items?type=event"
             ? [
                 {
                   id: "event-1",
@@ -8427,7 +8427,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/event-1",
+      "/api/v1/todo/items/event-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -8440,7 +8440,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=event"
+            url === "/api/v1/todo/items?type=event"
               ? [
                   {
                     id: "event-1",
@@ -8491,7 +8491,7 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () =>
-            url === "/todo-engine/items?type=goal"
+            url === "/api/v1/todo/items?type=goal"
               ? [{ id: "goal-1", type: "goal", title: "Waiting goal", status: "waiting" }]
               : [],
         }),
@@ -8514,13 +8514,13 @@ describe("WorkbenchPageClient", () => {
         Promise.resolve({
           ok: true,
           json: async () => {
-            if (url === "/todo-engine/items?type=area") {
+            if (url === "/api/v1/todo/items?type=area") {
               return [{ id: "area-1", type: "area", title: "Health", status: "active" }];
             }
-            if (url === "/todo-engine/items?type=project") {
+            if (url === "/api/v1/todo/items?type=project") {
               return [{ id: "project-1", type: "project", title: "Plan", status: "active" }];
             }
-            if (url === "/todo-engine/items?type=goal") {
+            if (url === "/api/v1/todo/items?type=goal") {
               return [{ id: "goal-1", type: "goal", title: "Goal", status: "active" }];
             }
             return [{ id: "task-1", type: "task", title: "One", status: "active", area_id: "area-1" }];
@@ -8653,7 +8653,7 @@ describe("WorkbenchPageClient", () => {
       future_occurrences: 7,
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (String(url) === "/todo-engine/routines/rtn-1/materialize") {
+      if (String(url) === "/api/v1/todo/routines/rtn-1/materialize") {
         expect(init?.method).toBe("POST");
         expect(init?.body).toBe(
           JSON.stringify({ future_occurrences: 3 }),
@@ -8709,7 +8709,7 @@ describe("WorkbenchPageClient", () => {
       future_occurrences: 7,
     };
     const fetchMock = vi.fn((url: string) => {
-      if (String(url) === "/todo-engine/routines/rtn-1/materialize") {
+      if (String(url) === "/api/v1/todo/routines/rtn-1/materialize") {
         return Promise.resolve({
           ok: false,
           status: 400,
@@ -8797,7 +8797,7 @@ describe("WorkbenchPageClient", () => {
     await user.tab();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1",
+      "/api/v1/todo/items/task-1",
       expect.objectContaining({ method: "PATCH" }),
     );
     expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
@@ -8846,7 +8846,7 @@ describe("WorkbenchPageClient", () => {
     await user.tab();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/project-1",
+      "/api/v1/todo/items/project-1",
       expect.objectContaining({ method: "PATCH" }),
     );
     expect(screen.queryByRole("heading", { name: "Plan" })).not.toBeInTheDocument();
@@ -8899,7 +8899,7 @@ describe("WorkbenchPageClient", () => {
     await user.tab();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/event-1",
+      "/api/v1/todo/items/event-1",
       expect.objectContaining({ method: "PATCH" }),
     );
     expect(screen.queryByRole("heading", { name: "Review" })).not.toBeInTheDocument();
@@ -8908,7 +8908,7 @@ describe("WorkbenchPageClient", () => {
   it("patches inline event priority from a dropdown", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/event-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/event-1" && init?.method === "PATCH") {
         expect(init.body).toBe(JSON.stringify({ priority: 10 }));
         return Promise.resolve({
           ok: true,
@@ -8942,7 +8942,7 @@ describe("WorkbenchPageClient", () => {
 
     expect(priority).toHaveValue("10");
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/event-1",
+      "/api/v1/todo/items/event-1",
       expect.objectContaining({ method: "PATCH" }),
     );
   });
@@ -8950,7 +8950,7 @@ describe("WorkbenchPageClient", () => {
   it("reopens a completed task when inline status changes to active", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/task-1/reopen") {
+      if (url === "/api/v1/todo/items/task-1/reopen") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -8991,20 +8991,20 @@ describe("WorkbenchPageClient", () => {
     await user.selectOptions(status, "active");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/task-1/reopen",
+      "/api/v1/todo/items/task-1/reopen",
       expect.objectContaining({ method: "POST" }),
     );
     expect(
       fetchMock.mock.calls
         .filter(([, init]) => init?.method === "POST")
         .map(([url]) => url),
-    ).toEqual(["/todo-engine/items/task-1/reopen"]);
+    ).toEqual(["/api/v1/todo/items/task-1/reopen"]);
   });
 
   it("archives an area from the inline status select", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/todo-engine/items/area-1/archive") {
+      if (url === "/api/v1/todo/items/area-1/archive") {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
@@ -9044,7 +9044,7 @@ describe("WorkbenchPageClient", () => {
     await user.selectOptions(status, "archived");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/todo-engine/items/area-1/archive",
+      "/api/v1/todo/items/area-1/archive",
       expect.objectContaining({ method: "POST" }),
     );
   });
@@ -9052,10 +9052,10 @@ describe("WorkbenchPageClient", () => {
   it("shows stable status options for every item type", async () => {
     const user = userEvent.setup();
     const responses: Record<string, unknown[]> = {
-      "/todo-engine/items?type=area": [
+      "/api/v1/todo/items?type=area": [
         { id: "area-1", type: "area", title: "Area", status: "active" },
       ],
-      "/todo-engine/items?type=project": [
+      "/api/v1/todo/items?type=project": [
         {
           id: "project-1",
           type: "project",
@@ -9070,7 +9070,7 @@ describe("WorkbenchPageClient", () => {
           definition_of_done: "Done",
         },
       ],
-      "/todo-engine/items?type=routine": [
+      "/api/v1/todo/items?type=routine": [
         {
           id: "routine-1",
           type: "routine",
@@ -9085,7 +9085,7 @@ describe("WorkbenchPageClient", () => {
           recurrence_rule: "daily",
         },
       ],
-      "/todo-engine/items?type=event": [
+      "/api/v1/todo/items?type=event": [
         {
           id: "event-1",
           type: "event",
@@ -9100,14 +9100,14 @@ describe("WorkbenchPageClient", () => {
           scheduled: "2026-06-24T10:00:00Z",
         },
       ],
-      "/todo-engine/items?type=goal": [
+      "/api/v1/todo/items?type=goal": [
         { id: "goal-1", type: "goal", title: "Additional active goal", status: "active" },
         { id: "goal-2", type: "goal", title: "Secondary active goal", status: "active" },
         { id: "goal-3", type: "goal", title: "Active goal", status: "active" },
         { id: "goal-4", type: "goal", title: "Paused goal", status: "paused" },
         { id: "goal-5", type: "goal", title: "Waiting goal", status: "waiting" },
       ],
-      "/todo-engine/items?type=task": [
+      "/api/v1/todo/items?type=task": [
         { id: "task-1", type: "task", title: "Additional active task", status: "active" },
       ],
     };
@@ -9247,7 +9247,7 @@ describe("WorkbenchPageClient", () => {
     fireEvent.change(areaSelect, { target: { value: "" } });
 
     expect(fetchMock).not.toHaveBeenCalledWith(
-      "/todo-engine/items/task-1",
+      "/api/v1/todo/items/task-1",
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ area: "" }),

@@ -59,7 +59,7 @@ export function defaultPlannerGroupSettings(): PlannerGroupSettings {
 }
 
 export function plannerGroupStorageKey(view: PlannerViewId): string {
-  return `oracle-todo.planner-group-settings.v1.${view}`;
+  return `raven.planner-group-settings.v1.${view}`;
 }
 
 export function normalizePlannerGroupSettings(value: unknown): PlannerGroupSettings {

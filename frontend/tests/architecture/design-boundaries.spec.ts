@@ -82,12 +82,31 @@ describe("design system boundaries", () => {
     expect(source).toContain('icon: "/merovingian-mark.png"');
   });
 
-  it("proxies todo-engine API requests to the Rust server port", async () => {
-    const source = await readSource("next.config.mjs");
+  it("proxies the unified API to an injectable Raven development server", () => {
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        'import config from "./next.config.mjs"; console.log(JSON.stringify(await config.rewrites()));',
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NODE_ENV: "development",
+          RAVEN_API_URL: "http://127.0.0.1:3999",
+        },
+      },
+    );
 
-    expect(source).toContain("/todo-engine/:path*");
-    expect(source).toContain("TODO_ENGINE_API_URL");
-    expect(source).toContain('?? "http://127.0.0.1:3002"');
+    expect(JSON.parse(output.trim())).toEqual([
+      {
+        source: "/api/:path*",
+        destination: "http://127.0.0.1:3999/api/:path*",
+      },
+    ]);
   });
 
   it("exports the workbench as static files for release artifacts", async () => {
@@ -95,7 +114,7 @@ describe("design system boundaries", () => {
 
     expect(source).toContain('output: "export"');
     expect(source).toContain("rewrites()");
-    expect(source).toContain("/todo-engine/:path*");
+    expect(source).not.toContain("/todo-engine/");
   });
 
   it("enables the API rewrite only for the development server", () => {
