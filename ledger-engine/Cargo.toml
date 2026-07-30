@@ -1,0 +1,10 @@
+[package]
+name = "ledger-engine"
+version = "0.1.0"
+edition = "2024"
+description = "Policy-enforced Raven Ledger engine"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+time = { version = "0.3", features = ["macros", "parsing", "serde"] }
