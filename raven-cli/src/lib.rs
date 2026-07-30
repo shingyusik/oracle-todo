@@ -75,6 +75,17 @@ pub fn exit_code(error: &anyhow::Error) -> i32 {
     if let Some(error) = error.downcast_ref::<commands::import::ImportTodoError>() {
         return error.cli_exit_code();
     }
+    if let Some(error) = error.downcast_ref::<ledger_engine::application::error::LedgerError>() {
+        return match error {
+            ledger_engine::application::error::LedgerError::Validation { .. }
+            | ledger_engine::application::error::LedgerError::Conflict(_)
+            | ledger_engine::application::error::LedgerError::ConfirmationMismatch => 2,
+            ledger_engine::application::error::LedgerError::NotFound(_) => 4,
+            ledger_engine::application::error::LedgerError::Busy(_)
+            | ledger_engine::application::error::LedgerError::Storage(_)
+            | ledger_engine::application::error::LedgerError::Migration(_) => 1,
+        };
+    }
     todo_engine::application::error::TodoError::cli_exit_code_from_error(error).unwrap_or(1)
 }
 

@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::functions::FunctionFlags;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
@@ -20,6 +20,13 @@ pub const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub struct SqliteLedgerRepository {
     pub(super) connection: Connection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LedgerHealth {
+    Healthy { user_version: i64 },
+    NotInitialized,
+    Unavailable,
 }
 
 impl SqliteLedgerRepository {
@@ -49,6 +56,34 @@ impl SqliteLedgerRepository {
         register_read_functions(&repository.connection)?;
         repository.init_schema()?;
         Ok(repository)
+    }
+
+    /// Reports Ledger initialization and schema health without changing the
+    /// target path or database.
+    pub fn health_at(path: impl AsRef<Path>) -> LedgerHealth {
+        let path = path.as_ref();
+        match std::fs::metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return LedgerHealth::NotInitialized;
+            }
+            Err(_) => return LedgerHealth::Unavailable,
+            Ok(metadata) if !metadata.is_file() => return LedgerHealth::Unavailable,
+            Ok(_) => {}
+        }
+
+        let Ok(repository) = Self::open_read_only_connection(path) else {
+            return LedgerHealth::Unavailable;
+        };
+        let Ok(user_version) = repository.schema_version() else {
+            return LedgerHealth::Unavailable;
+        };
+        if user_version == 0 {
+            return LedgerHealth::NotInitialized;
+        }
+        match repository.check_schema() {
+            Ok(()) => LedgerHealth::Healthy { user_version },
+            Err(_) => LedgerHealth::Unavailable,
+        }
     }
 
     pub fn init_schema(&self) -> LedgerResult<()> {
@@ -96,6 +131,23 @@ impl SqliteLedgerRepository {
                 |row| row.get::<_, bool>(0),
             )
             .map_err(storage_error)
+    }
+
+    fn open_read_only_connection(path: &Path) -> LedgerResult<Self> {
+        let repository = Self {
+            connection: Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|error| LedgerError::Storage(error.to_string()))?,
+        };
+        repository
+            .connection
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
+            .map_err(storage_error)?;
+        repository
+            .connection
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(storage_error)?;
+        register_read_functions(&repository.connection)?;
+        Ok(repository)
     }
 }
 
