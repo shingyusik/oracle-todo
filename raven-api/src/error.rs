@@ -24,6 +24,8 @@ pub struct ApiErrorBody {
 #[derive(Debug)]
 enum ErrorKind {
     Validation { field: Option<&'static str> },
+    PayloadTooLarge,
+    UnsupportedMediaType,
     Conflict,
     NotFound,
     Internal,
@@ -46,6 +48,18 @@ impl ApiError {
     pub fn conflict() -> Self {
         Self {
             kind: ErrorKind::Conflict,
+        }
+    }
+
+    pub fn payload_too_large() -> Self {
+        Self {
+            kind: ErrorKind::PayloadTooLarge,
+        }
+    }
+
+    pub fn unsupported_media_type() -> Self {
+        Self {
+            kind: ErrorKind::UnsupportedMediaType,
         }
     }
 
@@ -73,6 +87,18 @@ impl IntoResponse for ApiError {
                 invalid_fields(field),
             ),
             ErrorKind::Conflict => (StatusCode::CONFLICT, "conflict", CONFLICT, Map::new()),
+            ErrorKind::PayloadTooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                INVALID_REQUEST,
+                Map::new(),
+            ),
+            ErrorKind::UnsupportedMediaType => (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported_media_type",
+                INVALID_REQUEST,
+                Map::new(),
+            ),
             ErrorKind::NotFound => (StatusCode::NOT_FOUND, "not_found", NOT_FOUND, Map::new()),
             ErrorKind::Internal => {
                 tracing::error!(

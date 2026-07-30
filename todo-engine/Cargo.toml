@@ -18,6 +18,7 @@ time = { version = "0.3", features = ["formatting", "parsing", "macros", "serde"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tower = { version = "0.5", features = ["util"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
@@ -26,4 +27,3 @@ http = "1"
 http-body-util = "0.1"
 predicates = "3"
 tempfile = "3.15"
-tower = { version = "0.5", features = ["util"] }

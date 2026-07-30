@@ -4,11 +4,14 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use axum::Json;
 use axum::Router;
+use axum::body::Body;
+use axum::extract::Request;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use serde::Serialize;
+use tower::ServiceExt;
 
 use crate::application::error::TodoError;
 use crate::application::service::TodoService;
@@ -55,6 +58,34 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
         .route("/items/:id/cancel", post(cancel_item))
         .with_state(state)
         .merge(preferences_router))
+}
+
+/// Builds the composable Raven adapter without opening or creating the ToDo DB.
+///
+/// The existing router is constructed and driven entirely on a blocking worker
+/// so its synchronous SQLite service never runs on an async executor thread.
+pub fn raven_router(db_path: impl AsRef<Path>) -> Router {
+    let db_path = db_path.as_ref().to_path_buf();
+    Router::new().fallback(move |request: Request<Body>| {
+        let db_path = db_path.clone();
+        async move {
+            let result: std::result::Result<Response, ApiError> =
+                tokio::task::spawn_blocking(move || -> ApiResult<Response> {
+                    let handle = tokio::runtime::Handle::current();
+                    if let Some(parent) = db_path.parent() {
+                        std::fs::create_dir_all(parent)
+                            .context("could not prepare ToDo database directory")?;
+                    }
+                    let router = router(db_path).map_err(ApiError::from)?;
+                    handle
+                        .block_on(router.oneshot(request))
+                        .map_err(|never| match never {})
+                })
+                .await
+                .map_err(|_| ApiError::from(anyhow::anyhow!("ToDo worker failed")))?;
+            result
+        }
+    })
 }
 
 fn service(state: &ApiState) -> ApiResult<TodoService> {
