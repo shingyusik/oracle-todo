@@ -19,6 +19,26 @@ export function DashboardLineChart({ chart }: DashboardLineChartProps) {
         : (index / (chart.points.length - 1)) * 100,
     y: 94 - (point.value / maximum) * 84,
   }));
+  const maximumXAxisTicks = 7;
+  const xTickStep = Math.max(
+    1,
+    Math.ceil((coordinates.length - 1) / (maximumXAxisTicks - 1)),
+  );
+  const xTicks = coordinates.filter(
+    (_, index) =>
+      coordinates.length <= maximumXAxisTicks ||
+      index === 0 ||
+      index === coordinates.length - 1 ||
+      index % xTickStep === 0,
+  );
+  const yTickStep = Math.max(1, Math.ceil(maximum / 4));
+  const yTicks = [
+    ...Array.from(
+      { length: Math.ceil(maximum / yTickStep) },
+      (_, index) => index * yTickStep,
+    ),
+    maximum,
+  ].filter((tick, index, ticks) => ticks.indexOf(tick) === index).reverse();
 
   return (
     <div
@@ -26,35 +46,67 @@ export function DashboardLineChart({ chart }: DashboardLineChartProps) {
       role="group"
       aria-label={chart.ariaLabel}
     >
-      <div className="dashboard-line-plot">
-        <svg
-          className="dashboard-line-svg"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <polyline
-            className="dashboard-line-path"
-            points={coordinates
-              .map((point) => `${point.x},${point.y}`)
-              .join(" ")}
-          />
-        </svg>
-        {coordinates.map((point) => (
-          <span
-            key={point.id}
-            className="dashboard-line-point"
-            role="img"
-            tabIndex={0}
-            aria-label={point.ariaLabel}
-            style={{ left: `${point.x}%`, top: `${point.y}%` }}
-          >
-            <span className="dashboard-line-marker" aria-hidden="true" />
-            <span className="dashboard-line-tooltip">
-              {point.ariaLabel}
+      <div className="dashboard-line-frame">
+        <div className="dashboard-line-y-axis" aria-hidden="true">
+          {yTicks.map((tick) => (
+            <span
+              key={tick}
+              className="dashboard-line-y-tick"
+              style={{ top: `${94 - (tick / maximum) * 84}%` }}
+            >
+              {tick}
             </span>
-          </span>
-        ))}
+          ))}
+        </div>
+        <div className="dashboard-line-plot">
+          <svg
+            className="dashboard-line-svg"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <polyline
+              className="dashboard-line-path"
+              points={coordinates
+                .map((point) => `${point.x},${point.y}`)
+                .join(" ")}
+            />
+          </svg>
+          {coordinates.map((point) => (
+            <span
+              key={point.id}
+              className="dashboard-line-point"
+              role="img"
+              tabIndex={0}
+              aria-label={point.ariaLabel}
+              style={{ left: `${point.x}%`, top: `${point.y}%` }}
+            >
+              <span className="dashboard-line-marker" aria-hidden="true" />
+              <span className="dashboard-line-tooltip">
+                {point.ariaLabel}
+              </span>
+            </span>
+          ))}
+        </div>
+        <div className="dashboard-line-x-axis" aria-hidden="true">
+          {xTicks.map((tick, index) => (
+            <time
+              key={tick.id}
+              className="dashboard-line-x-tick"
+              dateTime={tick.label}
+              data-edge={
+                index === 0
+                  ? "start"
+                  : index === xTicks.length - 1
+                    ? "end"
+                    : undefined
+              }
+              style={{ left: `${tick.x}%` }}
+            >
+              {tick.label}
+            </time>
+          ))}
+        </div>
       </div>
     </div>
   );

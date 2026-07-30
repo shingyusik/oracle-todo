@@ -3139,11 +3139,19 @@ button {
   padding: 4px 8px 2px;
 }
 
+.dashboard-line-frame {
+  display: grid;
+  grid-template:
+    "y plot" 210px
+    ". x" auto / 28px minmax(0, 1fr);
+  gap: 6px 8px;
+}
+
 .dashboard-line-plot {
+  grid-area: plot;
   position: relative;
-  width: calc(100% - 16px);
+  width: 100%;
   height: 210px;
-  margin: 0 8px;
   border-bottom: 1px solid var(--color-hairline-light);
   background:
     linear-gradient(
@@ -3152,6 +3160,46 @@ button {
       var(--color-hairline-light) 50%,
       transparent 51%
     );
+}
+
+.dashboard-line-x-axis,
+.dashboard-line-y-axis {
+  position: relative;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.dashboard-line-x-axis {
+  grid-area: x;
+  min-height: 12px;
+}
+
+.dashboard-line-y-axis {
+  grid-area: y;
+}
+
+.dashboard-line-x-tick,
+.dashboard-line-y-tick {
+  position: absolute;
+  white-space: nowrap;
+}
+
+.dashboard-line-x-tick {
+  transform: translateX(-50%);
+}
+
+.dashboard-line-x-tick[data-edge="start"] {
+  transform: none;
+}
+
+.dashboard-line-x-tick[data-edge="end"] {
+  transform: translateX(-100%);
+}
+
+.dashboard-line-y-tick {
+  right: 0;
+  transform: translateY(-50%);
 }
 
 .dashboard-line-svg {

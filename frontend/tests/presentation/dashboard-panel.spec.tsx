@@ -783,6 +783,115 @@ describe("DashboardPanel", () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
+  it("shows every date for a seven-point completion range", () => {
+    const points = Array.from({ length: 7 }, (_, index) => {
+      const date = `2026-07-${String(index + 1).padStart(2, "0")}`;
+      return {
+        id: date,
+        label: date,
+        value: index,
+        ariaLabel: `${date}: ${index} completed`,
+      };
+    });
+
+    const { container } = render(
+      <DashboardChart
+        chart={{
+          kind: "line",
+          ariaLabel: "Completion history",
+          points,
+        }}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(
+      Array.from(
+        container.querySelectorAll(".dashboard-line-x-tick"),
+        (tick) => tick.textContent,
+      ),
+    ).toEqual([
+      "2026-07-01",
+      "2026-07-02",
+      "2026-07-03",
+      "2026-07-04",
+      "2026-07-05",
+      "2026-07-06",
+      "2026-07-07",
+    ]);
+  });
+
+  it("derives evenly spaced endpoint-inclusive dates for longer ranges", () => {
+    const points = Array.from({ length: 30 }, (_, index) => {
+      const date = `2026-07-${String(index + 1).padStart(2, "0")}`;
+      return {
+        id: date,
+        label: date,
+        value: 0,
+        ariaLabel: `${date}: 0 completed`,
+      };
+    });
+
+    const { container } = render(
+      <DashboardChart
+        chart={{
+          kind: "line",
+          ariaLabel: "Completion history",
+          points,
+        }}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(
+      Array.from(
+        container.querySelectorAll(".dashboard-line-x-tick"),
+        (tick) => tick.textContent,
+      ),
+    ).toEqual([
+      "2026-07-01",
+      "2026-07-06",
+      "2026-07-11",
+      "2026-07-16",
+      "2026-07-21",
+      "2026-07-26",
+      "2026-07-30",
+    ]);
+  });
+
+  it("derives integer completion-count ticks from zero to the maximum", () => {
+    const { container } = render(
+      <DashboardChart
+        chart={{
+          kind: "line",
+          ariaLabel: "Completion history",
+          points: [
+            {
+              id: "2026-07-01",
+              label: "2026-07-01",
+              value: 0,
+              ariaLabel: "2026-07-01: 0 completed",
+            },
+            {
+              id: "2026-07-02",
+              label: "2026-07-02",
+              value: 7,
+              ariaLabel: "2026-07-02: 7 completed",
+            },
+          ],
+        }}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(
+      Array.from(
+        container.querySelectorAll(".dashboard-line-y-tick"),
+        (tick) => Number(tick.textContent),
+      ),
+    ).toEqual([7, 6, 4, 2, 0]);
+  });
+
   it("renders semantic heatmap row and cell buttons with typed destinations", async () => {
     const user = setupUser();
     const onNavigate = vi.fn();
