@@ -905,6 +905,8 @@ dependencies = [
  "anyhow",
  "clap",
  "dotenvy",
+ "health-engine",
+ "infer",
  "ledger-engine",
  "rusqlite",
  "serde",

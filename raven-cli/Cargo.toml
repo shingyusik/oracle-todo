@@ -7,6 +7,8 @@ edition = "2024"
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive", "env"] }
 dotenvy = "0.15"
+health-engine = { path = "../health-engine" }
+infer = "0.19"
 ledger-engine = { path = "../ledger-engine" }
 rusqlite = "0.32"
 serde = { version = "1", features = ["derive"] }

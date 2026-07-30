@@ -86,6 +86,22 @@ pub fn exit_code(error: &anyhow::Error) -> i32 {
             | ledger_engine::application::error::LedgerError::Migration(_) => 1,
         };
     }
+    if let Some(error) = error.downcast_ref::<health_engine::application::error::HealthError>() {
+        use health_engine::application::error::HealthError;
+        return match error {
+            HealthError::Validation { .. }
+            | HealthError::Conflict(_)
+            | HealthError::UnsupportedMedia
+            | HealthError::MediaTooLarge
+            | HealthError::ConfirmationMismatch => 2,
+            HealthError::NotFound(_) => 4,
+            HealthError::Busy(_)
+            | HealthError::Storage(_)
+            | HealthError::Migration(_)
+            | HealthError::Cleanup { .. }
+            | HealthError::CleanupPending { .. } => 1,
+        };
+    }
     todo_engine::application::error::TodoError::cli_exit_code_from_error(error).unwrap_or(1)
 }
 

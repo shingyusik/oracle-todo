@@ -39,6 +39,11 @@ pub enum Command {
         #[command(subcommand)]
         command: Box<LedgerCommand>,
     },
+    /// Use the structured Health Journal engine.
+    Health {
+        #[command(subcommand)]
+        command: Box<HealthCommand>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -107,6 +112,343 @@ pub enum LedgerEntryCommand {
     Archive(EntryIdentityArgs),
     Restore(EntryIdentityArgs),
     Purge(PurgeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HealthCommand {
+    /// Manage diet entries and optional images.
+    Diet {
+        #[command(subcommand)]
+        command: DietCommand,
+    },
+    /// Manage bowel events.
+    Bowel {
+        #[command(subcommand)]
+        command: BowelCommand,
+    },
+    /// Manage medication events.
+    Medication {
+        #[command(subcommand)]
+        command: MedicationCommand,
+    },
+    /// Manage weight, sleep, lab, symptom, and condition metrics.
+    Metric {
+        #[command(subcommand)]
+        command: MetricCommand,
+    },
+    /// Show the combined Health Journal timeline.
+    Timeline(HealthTimelineArgs),
+    /// Show bounded Health Journal trends.
+    Trends(HealthTrendsArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DietCommand {
+    Add(DietAddArgs),
+    Update(DietUpdateArgs),
+    List(HealthPageArgs),
+    Show(HealthIdentityReadArgs),
+    Archive(HealthIdentityArgs),
+    Restore(HealthIdentityArgs),
+    Purge(HealthPurgeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BowelCommand {
+    Add(BowelAddArgs),
+    Update(BowelUpdateArgs),
+    List(HealthPageArgs),
+    Show(HealthIdentityReadArgs),
+    Archive(HealthIdentityArgs),
+    Restore(HealthIdentityArgs),
+    Purge(HealthPurgeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MedicationCommand {
+    Add(MedicationAddArgs),
+    Update(MedicationUpdateArgs),
+    List(HealthPageArgs),
+    Show(HealthIdentityReadArgs),
+    Archive(HealthIdentityArgs),
+    Restore(HealthIdentityArgs),
+    Purge(HealthPurgeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MetricCommand {
+    Add(MetricAddArgs),
+    DailyUpsert(MetricDailyUpsertArgs),
+    Update(MetricUpdateArgs),
+    List(MetricListArgs),
+    Show(HealthIdentityReadArgs),
+    Archive(HealthIdentityArgs),
+    Restore(HealthIdentityArgs),
+    Purge(HealthPurgeArgs),
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum HealthMetricCategoryArg {
+    Weight,
+    Sleep,
+    Lab,
+    Symptom,
+    OverallCondition,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum HealthEventCategoryArg {
+    Weight,
+    Bowel,
+    Sleep,
+    Lab,
+    Symptom,
+    Medication,
+}
+
+#[derive(Debug, Args)]
+pub struct DietAddArgs {
+    #[arg(long, conflicts_with_all = ["at", "meal", "food", "note", "tags", "image", "content_type"])]
+    pub json: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub at: Option<String>,
+    #[arg(long)]
+    pub meal: Option<String>,
+    #[arg(long)]
+    pub food: Option<String>,
+    #[arg(long)]
+    pub note: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Vec<String>,
+    #[arg(long)]
+    pub image: Option<PathBuf>,
+    #[arg(long, requires = "image")]
+    pub content_type: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct DietUpdateArgs {
+    pub id: String,
+    #[arg(long, conflicts_with_all = ["at", "meal", "food", "note", "clear_note", "tags", "image", "remove_image", "content_type", "expected_updated_at", "reason"])]
+    pub json: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub at: Option<String>,
+    #[arg(long)]
+    pub meal: Option<String>,
+    #[arg(long)]
+    pub food: Option<String>,
+    #[arg(long, conflicts_with = "clear_note")]
+    pub note: Option<String>,
+    #[arg(long)]
+    pub clear_note: bool,
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Option<Vec<String>>,
+    #[arg(long, conflicts_with = "remove_image")]
+    pub image: Option<PathBuf>,
+    #[arg(long)]
+    pub remove_image: bool,
+    #[arg(long, requires = "image")]
+    pub content_type: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub expected_updated_at: Option<String>,
+    #[arg(long)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct BowelAddArgs {
+    #[arg(long, conflicts_with_all = ["at", "bristol", "blood_visible", "note"])]
+    pub json: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub at: Option<String>,
+    #[arg(long)]
+    pub bristol: Option<u8>,
+    #[arg(long, default_value_t = false)]
+    pub blood_visible: bool,
+    #[arg(long)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct BowelUpdateArgs {
+    pub id: String,
+    #[arg(long, conflicts_with_all = ["at", "bristol", "blood_visible", "note", "clear_note", "expected_updated_at", "reason"])]
+    pub json: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub at: Option<String>,
+    #[arg(long)]
+    pub bristol: Option<u8>,
+    #[arg(long)]
+    pub blood_visible: Option<bool>,
+    #[arg(long, conflicts_with = "clear_note")]
+    pub note: Option<String>,
+    #[arg(long)]
+    pub clear_note: bool,
+    #[arg(long, value_name = "RFC3339")]
+    pub expected_updated_at: Option<String>,
+    #[arg(long)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct MedicationAddArgs {
+    #[arg(long, conflicts_with_all = ["at", "name", "dose", "unit", "note"])]
+    pub json: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub at: Option<String>,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub dose: Option<f64>,
+    #[arg(long)]
+    pub unit: Option<String>,
+    #[arg(long)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct MedicationUpdateArgs {
+    pub id: String,
+    #[arg(long, conflicts_with_all = ["at", "name", "dose", "unit", "note", "clear_note", "expected_updated_at", "reason"])]
+    pub json: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub at: Option<String>,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub dose: Option<f64>,
+    #[arg(long)]
+    pub unit: Option<String>,
+    #[arg(long, conflicts_with = "clear_note")]
+    pub note: Option<String>,
+    #[arg(long)]
+    pub clear_note: bool,
+    #[arg(long, value_name = "RFC3339")]
+    pub expected_updated_at: Option<String>,
+    #[arg(long)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct MetricAddArgs {
+    #[arg(long, conflicts_with_all = ["at", "category", "key", "name", "value", "unit", "condition_note", "note"])]
+    pub json: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub at: Option<String>,
+    #[arg(long, value_enum)]
+    pub category: Option<HealthMetricCategoryArg>,
+    #[arg(long)]
+    pub key: Option<String>,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub value: Option<f64>,
+    #[arg(long)]
+    pub unit: Option<String>,
+    #[arg(long)]
+    pub condition_note: Option<String>,
+    #[arg(long)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct MetricDailyUpsertArgs {
+    #[arg(long, help = "Strict JSON array of metric objects")]
+    pub json: String,
+}
+
+#[derive(Debug, Args)]
+pub struct MetricUpdateArgs {
+    pub id: String,
+    #[arg(long, conflicts_with_all = ["at", "name", "value", "unit", "condition_note", "note", "clear_note", "expected_updated_at", "reason"])]
+    pub json: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub at: Option<String>,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub value: Option<f64>,
+    #[arg(long)]
+    pub unit: Option<String>,
+    #[arg(long)]
+    pub condition_note: Option<String>,
+    #[arg(long, conflicts_with = "clear_note")]
+    pub note: Option<String>,
+    #[arg(long)]
+    pub clear_note: bool,
+    #[arg(long, value_name = "RFC3339")]
+    pub expected_updated_at: Option<String>,
+    #[arg(long)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct HealthPageArgs {
+    #[arg(long, default_value_t = 0)]
+    pub offset: u32,
+    #[arg(long, default_value_t = 100)]
+    pub limit: u16,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct MetricListArgs {
+    #[arg(long, value_enum)]
+    pub category: Option<HealthEventCategoryArg>,
+    #[arg(long)]
+    pub key: Option<String>,
+    #[command(flatten)]
+    pub page: HealthPageArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct HealthIdentityReadArgs {
+    pub id: String,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct HealthIdentityArgs {
+    pub id: String,
+    #[arg(long, value_name = "RFC3339")]
+    pub expected_updated_at: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct HealthPurgeArgs {
+    pub id: String,
+    #[arg(long)]
+    pub confirm: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct HealthTimelineArgs {
+    #[arg(long, value_name = "RFC3339")]
+    pub from: Option<String>,
+    #[arg(long, value_name = "RFC3339")]
+    pub to: Option<String>,
+    #[arg(long, value_enum)]
+    pub category: Option<HealthEventCategoryArg>,
+    #[arg(long)]
+    pub include_archived: bool,
+    #[arg(long, default_value_t = 0)]
+    pub offset: u32,
+    #[arg(long, default_value_t = 100)]
+    pub limit: u16,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct HealthTrendsArgs {
+    #[arg(long, default_value_t = 30)]
+    pub days: u16,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Subcommand)]
@@ -559,6 +901,7 @@ impl Command {
             Self::Import { .. } => "import",
             Self::Todo { .. } => "todo",
             Self::Ledger { .. } => "ledger",
+            Self::Health { .. } => "health",
         }
     }
 
@@ -569,6 +912,7 @@ impl Command {
             }
             | Self::Todo { .. } => "todo",
             Self::Ledger { .. } => "ledger",
+            Self::Health { .. } => "health",
             Self::Init | Self::HealthCheck => "raven",
         }
     }

@@ -67,6 +67,7 @@ fn raven_init_creates_todo_and_ledger_databases_and_media_directory() {
     assert!(status.success());
     assert!(home.path().join("todo.sqlite").exists());
     assert!(home.path().join("ledger.sqlite").exists());
+    assert!(home.path().join("health.sqlite").exists());
     assert!(home.path().join("media/health").is_dir());
 }
 
@@ -186,7 +187,6 @@ fn raven_health_check_reports_a_corrupt_ledger_as_unavailable() {
     let home = tempfile::tempdir().unwrap();
     assert!(raven(home.path()).arg("init").status().unwrap().success());
     std::fs::write(home.path().join("ledger.sqlite"), b"not initialized").unwrap();
-    std::fs::create_dir(home.path().join("health.sqlite")).unwrap();
 
     let output = raven(home.path()).arg("health-check").output().unwrap();
 
@@ -194,7 +194,7 @@ fn raven_health_check_reports_a_corrupt_ledger_as_unavailable() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("todo=ok"));
     assert!(stdout.contains("ledger=unavailable"));
-    assert!(stdout.contains("health=not_initialized"));
+    assert!(stdout.contains("health=ok"));
     assert!(
         String::from_utf8(output.stderr)
             .unwrap()
