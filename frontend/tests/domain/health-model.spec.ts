@@ -147,12 +147,12 @@ describe("Health wire boundary", () => {
     expect(() => mapHealthTrends(trends)).toThrow();
   });
 
-  it("uploads image bytes without forcing JSON content type", async () => {
+  it("uploads image bytes with ASCII-safe Unicode metadata", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ...base,
       meal_type: "lunch",
-      food_name: "Salad",
-      tags: [],
+      food_name: "비빔밥😀",
+      tags: ["매운맛"],
       media_id: "00000000-0000-4000-8000-000000000002",
     }), { status: 201, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
@@ -163,13 +163,47 @@ describe("Health wire boundary", () => {
       metadata: {
         occurredAt: "2026-07-31T01:00:00Z",
         mealType: "lunch",
-        foodName: "Salad",
+        foodName: "비빔밥😀",
+        tags: ["매운맛"],
       },
     });
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const headers = new Headers(init.headers);
     expect(headers.get("content-type")).toBe("image/png");
-    expect(headers.get("x-raven-diet-metadata")).toContain('"food_name":"Salad"');
+    const metadata = headers.get("x-raven-diet-metadata") ?? "";
+    expect([...metadata].every((character) => character.charCodeAt(0) <= 0x7f)).toBe(true);
+    expect(JSON.parse(metadata)).toMatchObject({
+      food_name: "비빔밥😀",
+      tags: ["매운맛"],
+    });
+  });
+
+  it("serializes overall condition as a supported daily metric identity", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      items: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await healthApi.upsertDailyMetrics([{
+      occurredAt: "2026-07-31T01:00:00Z",
+      details: {
+        kind: "overall_condition",
+        score: 3,
+        conditionNote: "Mild headache",
+      },
+    }]);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      metrics: [{
+        occurred_at: "2026-07-31T01:00:00Z",
+        details: {
+          kind: "overall_condition",
+          score: 3,
+          condition_note: "Mild headache",
+        },
+      }],
+    });
   });
 });

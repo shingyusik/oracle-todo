@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from "react";
 
+import type { DailyMetricInput } from "@/features/health/api/health-api";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import type {
   DietInput,
@@ -35,6 +36,7 @@ export function DietForm({ controller }: { controller: HealthController }) {
   const [note, setNote] = useState("");
   const [tags, setTags] = useState("");
   const [image, setImage] = useState<File | null>(null);
+  const imageInput = useRef<HTMLInputElement | null>(null);
   const action = useFormAction();
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -55,6 +57,7 @@ export function DietForm({ controller }: { controller: HealthController }) {
       setNote("");
       setTags("");
       setImage(null);
+      if (imageInput.current) imageInput.current.value = "";
     });
   }
 
@@ -104,6 +107,7 @@ export function DietForm({ controller }: { controller: HealthController }) {
       <label className="field-label">
         Meal image
         <input
+          ref={imageInput}
           type="file"
           accept="image/*"
           onChange={(event) => setImage(event.target.files?.[0] ?? null)}
@@ -188,12 +192,15 @@ export function MedicationForm({ controller }: { controller: HealthController })
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await action.run(async () => {
+      const medicationName = name.trim();
+      if (!medicationName) throw new Error("Medication name is required");
+      const doseValue = positiveNumber(dose, "Dose");
       const input: EventInput = {
         occurredAt: toRfc3339(occurredAt),
         details: {
           kind: "medication",
-          medicationName: name.trim(),
-          dose: Number(dose),
+          medicationName,
+          dose: doseValue,
           unit,
         },
         note: nullable(note),
@@ -206,7 +213,11 @@ export function MedicationForm({ controller }: { controller: HealthController })
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} aria-label="Medication entry">
+    <form
+      noValidate
+      onSubmit={(event) => void submit(event)}
+      aria-label="Medication entry"
+    >
       <label className="field-label">
         Occurred at
         <input
@@ -224,7 +235,7 @@ export function MedicationForm({ controller }: { controller: HealthController })
         Dose
         <input
           type="number"
-          min="0"
+          min={Number.MIN_VALUE}
           step="any"
           value={dose}
           onChange={(event) => setDose(event.target.value)}
@@ -256,8 +267,8 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [weight, setWeight] = useState("");
   const [sleep, setSleep] = useState("");
-  const [symptomName, setSymptomName] = useState("");
-  const [symptomScore, setSymptomScore] = useState("");
+  const [conditionScore, setConditionScore] = useState("");
+  const [conditionNote, setConditionNote] = useState("");
   const [labKey, setLabKey] = useState("");
   const [labName, setLabName] = useState("");
   const [labValue, setLabValue] = useState("");
@@ -268,38 +279,59 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
     event.preventDefault();
     await action.run(async () => {
       const timestamp = toRfc3339(occurredAt);
-      const metrics: EventInput[] = [];
+      const metrics: DailyMetricInput[] = [];
       if (weight !== "") {
         metrics.push({
           occurredAt: timestamp,
-          details: { kind: "weight", value: Number(weight), unit: "kg" },
+          details: { kind: "weight", value: positiveNumber(weight, "Weight"), unit: "kg" },
         });
       }
       if (sleep !== "") {
+        const hours = positiveNumber(sleep, "Sleep hours");
+        if (hours > 24) throw new Error("Sleep hours must not exceed 24");
         metrics.push({
           occurredAt: timestamp,
-          details: { kind: "sleep", value: Number(sleep) },
+          details: { kind: "sleep", value: hours },
         });
       }
-      if (symptomName.trim() || symptomScore) {
+      if (conditionNote.trim() && conditionScore === "") {
+        throw new Error("Overall condition requires a score");
+      }
+      if (conditionScore !== "") {
+        const score = integerInRange(
+          conditionScore,
+          "Overall condition score",
+          1,
+          10,
+        );
         metrics.push({
           occurredAt: timestamp,
           details: {
-            kind: "symptom",
-            key: metricKey(symptomName),
-            name: symptomName.trim(),
-            score: Number(symptomScore),
+            kind: "overall_condition",
+            score,
+            conditionNote: nullable(conditionNote),
           },
         });
       }
-      if (labKey.trim() || labName.trim() || labValue) {
+      const hasAnyLabValue =
+        Boolean(labKey.trim() || labName.trim() || labValue || labUnit.trim());
+      if (hasAnyLabValue) {
+        const key = labKey.trim();
+        const name = labName.trim();
+        if (!key || !name || labValue === "") {
+          throw new Error("Lab requires metric key, name, and value");
+        }
+        if (!/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(key)) {
+          throw new Error("Lab metric key must use lower snake case");
+        }
+        const value = finiteNumericValue(labValue, "Lab value");
         metrics.push({
           occurredAt: timestamp,
           details: {
             kind: "lab",
-            key: labKey.trim(),
-            name: labName.trim(),
-            value: Number(labValue),
+            key,
+            name,
+            value,
             unit: nullable(labUnit),
           },
         });
@@ -308,8 +340,8 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
       await controller.upsertMetrics(metrics);
       setWeight("");
       setSleep("");
-      setSymptomName("");
-      setSymptomScore("");
+      setConditionScore("");
+      setConditionNote("");
       setLabKey("");
       setLabName("");
       setLabValue("");
@@ -318,7 +350,11 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} aria-label="Daily metrics">
+    <form
+      noValidate
+      onSubmit={(event) => void submit(event)}
+      aria-label="Daily metrics"
+    >
       <label className="field-label">
         Occurred at
         <input
@@ -334,7 +370,7 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
           Weight
           <input
             type="number"
-            min="0"
+            min={Number.MIN_VALUE}
             step="any"
             value={weight}
             onChange={(event) => setWeight(event.target.value)}
@@ -348,7 +384,7 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
           Sleep hours
           <input
             type="number"
-            min="0"
+            min={Number.MIN_VALUE}
             max="24"
             step="any"
             value={sleep}
@@ -357,23 +393,23 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
         </label>
       </fieldset>
       <fieldset>
-        <legend>Symptom</legend>
+        <legend>Overall condition</legend>
         <label className="field-label">
-          Symptom name
-          <input
-            value={symptomName}
-            onChange={(event) => setSymptomName(event.target.value)}
-          />
-        </label>
-        <label className="field-label">
-          Symptom score
+          Overall condition score
           <input
             type="number"
             min="1"
             max="10"
             step="1"
-            value={symptomScore}
-            onChange={(event) => setSymptomScore(event.target.value)}
+            value={conditionScore}
+            onChange={(event) => setConditionScore(event.target.value)}
+          />
+        </label>
+        <label className="field-label">
+          Condition note
+          <textarea
+            value={conditionNote}
+            onChange={(event) => setConditionNote(event.target.value)}
           />
         </label>
       </fieldset>
@@ -454,15 +490,6 @@ function nullable(value: string): string | null {
   return trimmed || null;
 }
 
-function metricKey(value: string): string {
-  const key = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return key && /^[a-z]/.test(key) ? key : "symptom";
-}
-
 function defaultLocalDateTime(): string {
   const date = new Date();
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
@@ -471,4 +498,31 @@ function defaultLocalDateTime(): string {
 
 function toRfc3339(value: string): string {
   return new Date(value).toISOString();
+}
+
+function positiveNumber(value: string, field: string): number {
+  const result = finiteNumericValue(value, field);
+  if (result <= 0) throw new Error(`${field} must be greater than zero`);
+  return result;
+}
+
+function finiteNumericValue(value: string, field: string): number {
+  const result = Number(value);
+  if (value.trim() === "" || !Number.isFinite(result)) {
+    throw new Error(`${field} must be a number`);
+  }
+  return result;
+}
+
+function integerInRange(
+  value: string,
+  field: string,
+  minimum: number,
+  maximum: number,
+): number {
+  const result = finiteNumericValue(value, field);
+  if (!Number.isInteger(result) || result < minimum || result > maximum) {
+    throw new Error(`${field} must be between ${minimum} and ${maximum}`);
+  }
+  return result;
 }

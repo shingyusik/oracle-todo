@@ -21,7 +21,7 @@ export function TimelinePanel({ controller }: { controller: HealthController }) 
       </header>
       {state.timelineStatus === "loading" && state.timeline.length === 0 ? (
         <p role="status" className="items-message">Loading Health Journal…</p>
-      ) : state.timelineStatus === "error" ? (
+      ) : state.timelineStatus === "error" && state.timeline.length === 0 ? (
         <>
           <p role="alert" className="items-message">
             {state.timelineError ?? "Health timeline is unavailable"}
@@ -86,6 +86,8 @@ export function HealthRecordTable({
               item.kind === "diet" ? "diet" : "event";
             const label = recordLabel(item);
             const archived = record.deletedAt !== null;
+            const recordKey = `${kind}:${record.id}`;
+            const actionContext = `${label}, ${formatDateTime(record.occurredAt)} (${record.id})`;
             return (
               <tr key={`${item.kind}:${record.id}`}>
                 <td>{formatDateTime(record.occurredAt)}</td>
@@ -99,11 +101,12 @@ export function HealthRecordTable({
                     <>
                       <button
                         type="button"
-                        disabled={action.isPending(`restore:${record.id}`)}
+                        aria-label={`Restore ${actionContext}`}
+                        disabled={action.isPending(recordKey)}
                         onClick={() => {
                           if (window.confirm(`Restore ${label}?`)) {
                             void action.run(
-                              `restore:${record.id}`,
+                              recordKey,
                               () => controller.restore(kind, record.id),
                             );
                           }
@@ -113,11 +116,12 @@ export function HealthRecordTable({
                       </button>
                       <button
                         type="button"
-                        disabled={action.isPending(`purge:${record.id}`)}
+                        aria-label={`Purge ${actionContext}`}
+                        disabled={action.isPending(recordKey)}
                         onClick={() => {
                           if (window.confirm(`Permanently purge ${label}?`)) {
                             void action.run(
-                              `purge:${record.id}`,
+                              recordKey,
                               () => controller.purge(kind, record.id, record.id),
                             );
                           }
@@ -129,11 +133,12 @@ export function HealthRecordTable({
                   ) : (
                     <button
                       type="button"
-                      disabled={action.isPending(`archive:${record.id}`)}
+                      aria-label={`Archive ${actionContext}`}
+                      disabled={action.isPending(recordKey)}
                       onClick={() => {
                         if (window.confirm(`Archive ${label}?`)) {
                           void action.run(
-                            `archive:${record.id}`,
+                            recordKey,
                             () => controller.archive(kind, record.id),
                           );
                         }

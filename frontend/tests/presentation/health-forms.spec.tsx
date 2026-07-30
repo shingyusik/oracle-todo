@@ -82,6 +82,7 @@ describe("Health Journal forms", () => {
       }),
       image,
     );
+    expect(screen.getByLabelText("Meal image")).toHaveProperty("files.length", 0);
   });
 
   it("keeps diet inputs and exposes an accessible error after submission fails", async () => {
@@ -89,12 +90,15 @@ describe("Health Journal forms", () => {
     const health = controller({
       createDiet: vi.fn().mockRejectedValue(new Error("Image is too large")),
     });
+    const image = new File(["photo"], "meal.png", { type: "image/png" });
     render(<DietPanel controller={health} />);
 
     await user.type(screen.getByLabelText("Food name"), "Lunch");
+    await user.upload(screen.getByLabelText("Meal image"), image);
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
 
     expect(screen.getByLabelText("Food name")).toHaveValue("Lunch");
+    expect(screen.getByLabelText("Meal image")).toHaveProperty("files.length", 1);
     expect(screen.getByRole("alert")).toHaveTextContent("Image is too large");
   });
 
@@ -118,15 +122,15 @@ describe("Health Journal forms", () => {
     }));
   });
 
-  it("batches populated weight, sleep, symptom, and lab daily metrics", async () => {
+  it("batches weight, sleep, overall condition, and lab daily metrics", async () => {
     const user = userEvent.setup();
     const health = controller();
     render(<HealthMetricsPanel controller={health} />);
 
     await user.type(screen.getByLabelText("Weight"), "72.5");
     await user.type(screen.getByLabelText("Sleep hours"), "7.25");
-    await user.type(screen.getByLabelText("Symptom name"), "Headache");
-    await user.type(screen.getByLabelText("Symptom score"), "3");
+    await user.type(screen.getByLabelText("Overall condition score"), "3");
+    await user.type(screen.getByLabelText("Condition note"), "Mild headache");
     await user.type(screen.getByLabelText("Lab metric key"), "fasting_glucose");
     await user.type(screen.getByLabelText("Lab name"), "Fasting glucose");
     await user.type(screen.getByLabelText("Lab value"), "92.4");
@@ -141,11 +145,11 @@ describe("Health Journal forms", () => {
         details: { kind: "sleep", value: 7.25 },
       }),
       expect.objectContaining({
-        details: expect.objectContaining({
-          kind: "symptom",
-          name: "Headache",
+        details: {
+          kind: "overall_condition",
           score: 3,
-        }),
+          conditionNote: "Mild headache",
+        },
       }),
       expect.objectContaining({
         details: {
@@ -157,6 +161,75 @@ describe("Health Journal forms", () => {
         },
       }),
     ]);
+  });
+
+  it("rejects non-positive medication doses before the controller call", async () => {
+    const health = controller();
+    render(<MedicationPanel controller={health} />);
+
+    fireEvent.change(screen.getByLabelText("Medication name"), {
+      target: { value: "Vitamin D" },
+    });
+    fireEvent.change(screen.getByLabelText("Dose"), { target: { value: "0" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
+
+    expect(await screen.findByRole("alert"))
+      .toHaveTextContent("Dose must be greater than zero");
+    expect(health.createMedication).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Dose")).toHaveValue(0);
+  });
+
+  it("rejects partial daily groups without losing valid or invalid inputs", async () => {
+    const health = controller();
+    render(<HealthMetricsPanel controller={health} />);
+
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "72.5" } });
+    fireEvent.change(screen.getByLabelText("Condition note"), {
+      target: { value: "Tired" },
+    });
+    fireEvent.change(screen.getByLabelText("Lab metric key"), {
+      target: { value: "fasting_glucose" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Overall condition requires a score",
+    );
+    expect(health.upsertMetrics).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Weight")).toHaveValue(72.5);
+    expect(screen.getByLabelText("Condition note")).toHaveValue("Tired");
+    expect(screen.getByLabelText("Lab metric key")).toHaveValue("fasting_glucose");
+  });
+
+  it.each([
+    ["Weight", "Weight must be greater than zero"],
+    ["Sleep hours", "Sleep hours must be greater than zero"],
+  ])("rejects a zero %s before daily upsert", async (label, message) => {
+    const health = controller();
+    render(<HealthMetricsPanel controller={health} />);
+
+    fireEvent.change(screen.getByLabelText(label), { target: { value: "0" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(health.upsertMetrics).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(label)).toHaveValue(0);
+  });
+
+  it("rejects a partial lab group before daily upsert", async () => {
+    const health = controller();
+    render(<HealthMetricsPanel controller={health} />);
+
+    fireEvent.change(screen.getByLabelText("Lab metric key"), {
+      target: { value: "fasting_glucose" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Lab requires metric key, name, and value",
+    );
+    expect(health.upsertMetrics).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Lab metric key")).toHaveValue("fasting_glucose");
   });
 
   it("converts browser-local health times to RFC3339 without changing the instant", async () => {

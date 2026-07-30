@@ -34,7 +34,13 @@ export type TimelineQuery = PageQuery & {
   category?: HealthCategory;
   includeArchived?: boolean;
 };
-export type DailyMetricInput = EventInput;
+type DailyMetricDetailsInput = Extract<
+  HealthEventDetailsInput,
+  { kind: "weight" | "sleep" | "lab" | "overall_condition" }
+>;
+export type DailyMetricInput = Omit<EventInput, "details"> & {
+  details: DailyMetricDetailsInput;
+};
 
 export const healthApi = {
   async listDiet(query: PageQuery = {}): Promise<DietEntry[]> {
@@ -61,7 +67,7 @@ export const healthApi = {
       body: input.image,
       headers: {
         "content-type": input.image.type,
-        "x-raven-diet-metadata": JSON.stringify(dietBody(input.metadata)),
+        "x-raven-diet-metadata": asciiJson(dietBody(input.metadata)),
       },
     }));
   },
@@ -247,4 +253,11 @@ function clean(value: Record<string, JsonValue | undefined>): JsonObject {
 
 function segment(value: string): string {
   return encodeURIComponent(value);
+}
+
+function asciiJson(value: JsonObject): string {
+  return JSON.stringify(value).replace(
+    /[^\x20-\x7e]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }

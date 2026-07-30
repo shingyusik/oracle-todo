@@ -54,9 +54,12 @@ const initialState: HealthState = {
 export function useHealthController(): HealthController {
   const [state, setState] = useState(initialState);
   const loadingPage = useRef(false);
+  const timelineGeneration = useRef(0);
+  const trendsGeneration = useRef(0);
   const timelineOffset = state.timeline.length;
 
   const refreshTimeline = useCallback(async () => {
+    const generation = ++timelineGeneration.current;
     setState((current) => ({
       ...current,
       timelineStatus: "loading",
@@ -68,6 +71,7 @@ export function useHealthController(): HealthController {
         limit: PAGE_SIZE,
         offset: 0,
       });
+      if (generation !== timelineGeneration.current) return;
       setState((current) => ({
         ...current,
         timelineStatus: "loaded",
@@ -76,15 +80,17 @@ export function useHealthController(): HealthController {
         timelineHasMore: timeline.length === PAGE_SIZE,
       }));
     } catch (error) {
+      if (generation !== timelineGeneration.current) return;
       setState((current) => ({
         ...current,
-        timelineStatus: "error",
+        timelineStatus: current.timeline.length === 0 ? "error" : "loaded",
         timelineError: errorMessage(error, "Health timeline request failed"),
       }));
     }
   }, []);
 
   const refreshTrends = useCallback(async (days = 30) => {
+    const generation = ++trendsGeneration.current;
     setState((current) => ({
       ...current,
       trendsStatus: "loading",
@@ -92,6 +98,7 @@ export function useHealthController(): HealthController {
     }));
     try {
       const trends = await healthApi.trends(days);
+      if (generation !== trendsGeneration.current) return;
       setState((current) => ({
         ...current,
         trendsStatus: "loaded",
@@ -99,6 +106,7 @@ export function useHealthController(): HealthController {
         trends,
       }));
     } catch (error) {
+      if (generation !== trendsGeneration.current) return;
       setState((current) => ({
         ...current,
         trendsStatus: "error",
@@ -115,6 +123,7 @@ export function useHealthController(): HealthController {
   const loadMoreTimeline = useCallback(async () => {
     if (loadingPage.current) return;
     loadingPage.current = true;
+    const generation = timelineGeneration.current;
     setState((current) => ({ ...current, timelineError: null }));
     try {
       const page = await healthApi.timeline({
@@ -122,17 +131,18 @@ export function useHealthController(): HealthController {
         limit: PAGE_SIZE,
         offset: timelineOffset,
       });
+      if (generation !== timelineGeneration.current) return;
       setState((current) => ({
         ...current,
         timeline: appendUnique(current.timeline, page),
         timelineHasMore: page.length === PAGE_SIZE,
       }));
     } catch (error) {
+      if (generation !== timelineGeneration.current) return;
       setState((current) => ({
         ...current,
         timelineError: errorMessage(error, "More health records could not be loaded"),
       }));
-      throw error;
     } finally {
       loadingPage.current = false;
     }

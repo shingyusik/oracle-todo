@@ -71,6 +71,7 @@ export function HealthTrendsPanel({
       ) : (
         <>
           <TrendChart
+            id="bowel-bristol-average"
             label="Bowel Bristol average"
             points={trends.bowelAverageByDay.map((point) => ({
               id: point.localDate,
@@ -126,6 +127,7 @@ function NumericTrend({ series }: { series: NumericSeries }) {
   const label = `${series.name}${series.unit ? ` (${series.unit})` : ""}`;
   return (
     <TrendChart
+      id={`${series.category}-${series.metricKey}`}
       label={label}
       points={series.points.map((point) => ({
         id: point.occurredAt,
@@ -140,15 +142,18 @@ function NumericTrend({ series }: { series: NumericSeries }) {
 }
 
 function TrendChart({
+  id,
   label,
   points,
 }: {
+  id: string;
   label: string;
   points: LineChartSpec["points"];
 }) {
+  const headingId = `trend-${slug(id)}`;
   return (
-    <section aria-labelledby={`trend-${slug(label)}`}>
-      <h2 id={`trend-${slug(label)}`}>{label}</h2>
+    <section aria-labelledby={headingId}>
+      <h2 id={headingId}>{label}</h2>
       {points.length === 0 ? (
         <p className="items-message">No {label.toLowerCase()} data.</p>
       ) : (
