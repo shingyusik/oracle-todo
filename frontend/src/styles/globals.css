@@ -823,7 +823,6 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workbench-nav,
   .period-carousel-card {
     transition: none;
     transform-style: flat;
@@ -2665,6 +2664,12 @@ button {
 
   .markdown-note-input {
     min-height: 220px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 760px) {
+  .workbench-nav {
+    transition: none;
   }
 }
 

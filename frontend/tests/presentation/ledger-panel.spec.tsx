@@ -1,6 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -120,6 +127,16 @@ function entryView(id: string, content: string): LedgerEntryView {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 describe("LedgerPanel", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -200,9 +217,9 @@ describe("LedgerPanel", () => {
     const ledger = controller(activeState);
     const { rerender } = render(<LedgerPanel controller={ledger} />);
 
-    await user.click(screen.getByRole("button", { name: "Archive Lunch" }));
+    await user.click(screen.getByRole("button", { name: /Archive Lunch/ }));
     expect(ledger.archive).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Archive Lunch" }));
+    await user.click(screen.getByRole("button", { name: /Archive Lunch/ }));
     expect(ledger.archive).toHaveBeenCalledWith("entry-1");
 
     const archivedLedger = {
@@ -219,13 +236,13 @@ describe("LedgerPanel", () => {
       },
     };
     rerender(<LedgerPanel controller={archivedLedger} />);
-    await user.click(screen.getByRole("button", { name: "Restore Lunch" }));
+    await user.click(screen.getByRole("button", { name: /Restore Lunch/ }));
     expect(ledger.restore).toHaveBeenCalledWith("entry-1");
 
-    const purgeTrigger = screen.getByRole("button", { name: "Purge Lunch" });
+    const purgeTrigger = screen.getByRole("button", { name: /Purge Lunch/ });
     await user.click(purgeTrigger);
     const purgeDialog = screen.getByRole("dialog", {
-      name: "Permanently purge Lunch?",
+      name: /Permanently purge Lunch/,
     });
     await user.click(within(purgeDialog).getByRole("button", {
       name: "Purge permanently",
@@ -241,17 +258,24 @@ describe("LedgerPanel", () => {
       ...loadedState,
       entries: [entryView("entry-1", "Lunch")],
     });
-    render(<LedgerPanel controller={ledger} />);
+    const view = render(<LedgerPanel controller={ledger} />);
+    const appRoot = view.container;
+    appRoot?.setAttribute("aria-hidden", "false");
+    appRoot?.setAttribute("inert", "existing");
 
-    const trigger = screen.getByRole("button", { name: "Purge Lunch" });
+    const trigger = screen.getByRole("button", { name: /Purge Lunch/ });
     await user.click(trigger);
     const dialog = screen.getByRole("dialog", {
-      name: "Permanently purge Lunch?",
+      name: /Permanently purge Lunch/,
     });
     const cancel = within(dialog).getByRole("button", { name: "Cancel" });
     const confirm = within(dialog).getByRole("button", {
       name: "Purge permanently",
     });
+    expect(cancel).toHaveFocus();
+    expect(appRoot).toHaveAttribute("aria-hidden", "true");
+    expect(appRoot).toHaveAttribute("inert");
+    trigger.focus();
     expect(cancel).toHaveFocus();
 
     await user.keyboard("{Shift>}{Tab}{/Shift}");
@@ -260,10 +284,49 @@ describe("LedgerPanel", () => {
     expect(cancel).toHaveFocus();
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Permanently purge Lunch?" }))
+    expect(screen.queryByRole("dialog", { name: /Permanently purge Lunch/ }))
       .toBeNull();
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(ledger.previewPurge).not.toHaveBeenCalled();
+    expect(appRoot).toHaveAttribute("aria-hidden", "false");
+    expect(appRoot).toHaveAttribute("inert", "existing");
+  });
+
+  it("distinguishes duplicate transaction actions and purge dialogs by row context", async () => {
+    const user = userEvent.setup();
+    const first = entryView("entry-1", "Lunch");
+    const second = {
+      ...entryView("entry-2", "Lunch"),
+      accountName: "Card",
+      entry: {
+        ...entryView("entry-2", "Lunch").entry,
+        date: "2026-07-31",
+      },
+    };
+    render(
+      <LedgerPanel
+        controller={controller({ ...loadedState, entries: [first, second] })}
+      />,
+    );
+
+    const firstPurge = screen.getByRole("button", {
+      name: "Purge Lunch, 2026-07-30, Cash (entry-1)",
+    });
+    expect(firstPurge).toHaveTextContent("Purge Lunch");
+    expect(screen.getByRole("button", {
+      name: "Purge Lunch, 2026-07-31, Card (entry-2)",
+    })).toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "Edit Lunch, 2026-07-30, Cash (entry-1)",
+    })).toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "Archive Lunch, 2026-07-31, Card (entry-2)",
+    })).toBeInTheDocument();
+
+    await user.click(firstPurge);
+    expect(screen.getByRole("dialog", {
+      name: "Permanently purge Lunch, 2026-07-30, Cash (entry-1)?",
+    })).toBeInTheDocument();
   });
 
   it("submits the selected Reports date range", async () => {
@@ -440,15 +503,24 @@ describe("LedgerPanel", () => {
     ledger.previewPurge = vi.fn(() => preview);
     render(<LedgerPanel controller={ledger} />);
 
-    const purge = screen.getByRole("button", { name: "Purge Lunch" });
-    const archive = screen.getByRole("button", { name: "Archive Lunch" });
+    const purge = screen.getByRole("button", { name: /Purge Lunch/ });
+    const archive = screen.getByRole("button", { name: /Archive Lunch/ });
     await user.click(purge);
-    await user.click(screen.getByRole("button", { name: "Purge permanently" }));
+    const confirmPurge = screen.getByRole("button", {
+      name: "Purge permanently",
+    });
+    await user.click(confirmPurge);
     expect(purge).toBeDisabled();
     expect(archive).not.toBeDisabled();
+    expect(confirmPurge).toHaveFocus();
+    expect(confirmPurge).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("dialog", {
+      name: /Permanently purge Lunch/,
+    })).toBeInTheDocument();
     rejectPreview(new Error("Preview expired"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Preview expired");
     expect(purge).not.toBeDisabled();
+    await waitFor(() => expect(purge).toHaveFocus());
 
     ledger.archive = vi.fn().mockRejectedValue(new Error("Archive conflict"));
     await user.click(archive);
@@ -478,22 +550,28 @@ describe("LedgerPanel", () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const accountController = controller();
-    accountController.previewAccountPurge =
-      vi.fn().mockRejectedValue(new Error("Account preview failed"));
+    const accountPreview = deferred<never>();
+    accountController.previewAccountPurge = vi.fn(() => accountPreview.promise);
     const { rerender } = render(
       <LedgerPanel leafTabId="accounts" controller={accountController} />,
     );
-    await user.click(screen.getByRole("button", { name: "Purge Cash" }));
+    const accountPurge = screen.getByRole("button", { name: "Purge Cash" });
+    await user.click(accountPurge);
     await user.click(screen.getByRole("button", { name: "Purge permanently" }));
+    await act(async () => accountPreview.reject(new Error("Account preview failed")));
     expect(await screen.findByRole("alert")).toHaveTextContent("Account preview failed");
+    await waitFor(() => expect(accountPurge).toHaveFocus());
 
     const categoryController = controller();
-    categoryController.previewCategoryPurge =
-      vi.fn().mockRejectedValue(new Error("Category preview failed"));
+    const categoryPreview = deferred<never>();
+    categoryController.previewCategoryPurge = vi.fn(() => categoryPreview.promise);
     rerender(<LedgerPanel leafTabId="categories" controller={categoryController} />);
-    await user.click(screen.getByRole("button", { name: "Purge Food" }));
+    const categoryPurge = screen.getByRole("button", { name: "Purge Food" });
+    await user.click(categoryPurge);
     await user.click(screen.getByRole("button", { name: "Purge permanently" }));
+    await act(async () => categoryPreview.reject(new Error("Category preview failed")));
     expect(await screen.findByRole("alert")).toHaveTextContent("Category preview failed");
+    await waitFor(() => expect(categoryPurge).toHaveFocus());
   });
 
   it("edits a two-decimal account opening balance without changing its value", async () => {

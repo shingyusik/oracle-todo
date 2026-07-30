@@ -13,6 +13,10 @@ import {
   type TableViewTabConfirmationDialogAdapter,
 } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 import { TreeSidebar } from "@/features/workbench/ui/TreeSidebar";
+import {
+  focusFirst,
+  useModalIsolation,
+} from "@/features/workbench/ui/modal-lifecycle";
 
 type WorkbenchWireframeProps = {
   controller: WorkbenchController;
@@ -24,6 +28,7 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
   const mobile = useMobileNavigation();
   const navigationRef = React.useRef<HTMLElement>(null);
   const navigationToggleRef = React.useRef<HTMLButtonElement>(null);
+  useModalIsolation(navigationRef, mobile && navigationOpen, "shell");
   const confirmationAdapter: TableViewTabConfirmationDialogAdapter<TableViewTarget> = {
     confirmation: controller.tableViewTabConfirmation,
     confirm: controller.confirmTableViewTabAction,
@@ -37,15 +42,9 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
   };
 
   React.useLayoutEffect(() => {
-    if (!mobile || !navigationOpen) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    navigationRef.current
-      ?.querySelector<HTMLElement>("button:not([disabled])")
-      ?.focus();
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    if (mobile && navigationOpen && navigationRef.current) {
+      focusFirst(navigationRef.current);
+    }
   }, [mobile, navigationOpen]);
 
   function closeNavigation(restoreFocus = true) {
@@ -91,10 +90,10 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
         </button>
       ) : null}
       {mobile && navigationOpen ? (
-        <button
-          type="button"
+        <div
           className="workbench-nav-overlay"
-          aria-label={workbenchCopy.navigation.closeLabel}
+          role="presentation"
+          aria-hidden="true"
           onClick={() => closeNavigation()}
         />
       ) : null}
@@ -146,7 +145,6 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
           className="items-toolbar-button"
           aria-haspopup="dialog"
           onClick={() => {
-            if (mobile) navigationToggleRef.current?.focus();
             setNavigationOpen(false);
             setQuickAddOpen(true);
           }}
@@ -160,6 +158,7 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
         <QuickAddDialog
           controller={controller}
           onClose={() => setQuickAddOpen(false)}
+          returnFocusRef={mobile ? navigationToggleRef : undefined}
         />
       ) : null}
     </div>

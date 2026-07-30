@@ -257,6 +257,22 @@ describe("design system boundaries", () => {
     expect(css).not.toContain("animation-library");
   });
 
+  it("places the mobile drawer reduced-motion override after its transition", async () => {
+    const css = await readSource("src/styles/globals.css");
+    const transition = css.indexOf("transition: transform 160ms ease;");
+    const override = css.indexOf(
+      `@media (prefers-reduced-motion: reduce) and (max-width: ${
+        workbenchLayout.mobileBreakpointPx - 1
+      }px)`,
+    );
+
+    expect(transition).toBeGreaterThan(-1);
+    expect(override).toBeGreaterThan(transition);
+    expect(css.slice(override)).toMatch(
+      /\.workbench-nav\s*\{\s*transition:\s*none;/,
+    );
+  });
+
   it("keeps planner group controls compact and headerless", async () => {
     const panel = await readSource(
       "src/features/workbench/ui/PlannerGroupPanel.tsx",

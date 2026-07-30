@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
@@ -16,21 +16,27 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
   const { entries } = controller.state;
   const actions = useLifecycleAction();
   const [purgeTarget, setPurgeTarget] = useState<LedgerEntryView | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
 
   if (entries.length === 0) {
     return <p className="items-message">No transactions yet.</p>;
   }
 
-  function purge(entry: LedgerEntryView) {
-    setPurgeTarget(null);
-    void actions.run(`purge:${entry.entry.id}`, async () => {
+  async function purge(entry: LedgerEntryView) {
+    await actions.run(`purge:${entry.entry.id}`, async () => {
       const preview = await controller.previewPurge(entry.entry.id);
       await controller.purge(entry.entry.id, preview.confirmationId);
     });
+    setPurgeTarget(null);
   }
 
   return (
-    <section className="items-section" aria-label="Transactions">
+    <section
+      ref={sectionRef}
+      className="items-section"
+      aria-label="Transactions"
+      tabIndex={-1}
+    >
       {actions.error && <p role="alert" className="items-message">{actions.error}</p>}
       <table className="items-table">
         <thead>
@@ -47,6 +53,7 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
         <tbody>
           {entries.map((entry) => {
             const archived = entry.entry.deletedAt !== null;
+            const actionContext = entryActionContext(entry);
             return (
               <tr key={entry.entry.id}>
                 <td>{entry.entry.date}</td>
@@ -64,12 +71,17 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
                   )}
                 </td>
                 <td>
-                  <button type="button" onClick={() => onEdit(entry)}>
+                  <button
+                    type="button"
+                    aria-label={`Edit ${actionContext}`}
+                    onClick={() => onEdit(entry)}
+                  >
                     Edit {entry.entry.content}
                   </button>
                   {archived ? (
                     <button
                       type="button"
+                      aria-label={`Restore ${actionContext}`}
                       disabled={actions.isPending(`restore:${entry.entry.id}`)}
                       onClick={() => {
                         if (window.confirm(`Restore ${entry.entry.content}?`)) {
@@ -85,6 +97,7 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
                   ) : (
                     <button
                       type="button"
+                      aria-label={`Archive ${actionContext}`}
                       disabled={actions.isPending(`archive:${entry.entry.id}`)}
                       onClick={() => {
                         if (window.confirm(`Archive ${entry.entry.content}?`)) {
@@ -100,6 +113,7 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
                   )}
                   <button
                     type="button"
+                    aria-label={`Purge ${actionContext}`}
                     disabled={actions.isPending(`purge:${entry.entry.id}`)}
                     onClick={() => setPurgeTarget(entry)}
                   >
@@ -113,12 +127,19 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
       </table>
       {purgeTarget ? (
         <DestructiveConfirmationDialog
-          title={`Permanently purge ${purgeTarget.entry.content}?`}
+          title={`Permanently purge ${entryActionContext(purgeTarget)}?`}
           description="This transaction will be permanently removed. This cannot be undone."
+          fallbackFocusRef={sectionRef}
           onCancel={() => setPurgeTarget(null)}
           onConfirm={() => purge(purgeTarget)}
         />
       ) : null}
     </section>
   );
+}
+
+function entryActionContext(entry: LedgerEntryView): string {
+  return `${entry.entry.content}, ${entry.entry.date}, ${
+    entry.accountName ?? "Unknown account"
+  } (${entry.entry.id})`;
 }

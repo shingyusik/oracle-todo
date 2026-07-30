@@ -63,11 +63,17 @@ export function HealthRecordTable({
 }) {
   const action = useRecordAction();
   const [purgeTarget, setPurgeTarget] = useState<TimelineItem | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
 
   if (items.length === 0) return <p className="items-message">{emptyMessage}</p>;
 
   return (
-    <section className="items-section" aria-label="Health records">
+    <section
+      ref={sectionRef}
+      className="items-section"
+      aria-label="Health records"
+      tabIndex={-1}
+    >
       {action.error && <p role="alert" className="items-message">{action.error}</p>}
       <table className="items-table">
         <thead>
@@ -152,16 +158,17 @@ export function HealthRecordTable({
         <DestructiveConfirmationDialog
           title={`Permanently purge ${recordLabel(purgeTarget)}?`}
           description="This health record will be permanently removed. This cannot be undone."
+          fallbackFocusRef={sectionRef}
           onCancel={() => setPurgeTarget(null)}
-          onConfirm={() => {
+          onConfirm={async () => {
             const target = purgeTarget;
             const kind: HealthRecordKind =
               target.kind === "diet" ? "diet" : "event";
-            setPurgeTarget(null);
-            void action.run(
+            await action.run(
               `${kind}:${target.record.id}`,
               () => controller.purge(kind, target.record.id, target.record.id),
             );
+            setPurgeTarget(null);
           }}
         />
       ) : null}

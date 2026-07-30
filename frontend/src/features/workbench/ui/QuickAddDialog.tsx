@@ -12,6 +12,7 @@ import {
 import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
+import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
 
 type QuickAddKind =
   | "select"
@@ -24,23 +25,27 @@ type QuickAddKind =
 export function QuickAddDialog({
   controller,
   onClose,
+  returnFocusRef,
 }: {
   controller: WorkbenchController;
   onClose: () => void;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [kind, setKind] = React.useState<QuickAddKind>("select");
   const [pending, setPending] = React.useState(false);
   const dialog = React.useRef<HTMLDivElement | null>(null);
   const returnFocus = React.useRef<HTMLElement | null>(null);
+  useModalIsolation(dialog, true, "shell");
 
   React.useEffect(() => {
-    returnFocus.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    returnFocus.current = returnFocusRef?.current
+      ?? (document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
     return () => {
       if (returnFocus.current?.isConnected) returnFocus.current.focus();
     };
-  }, []);
+  }, [returnFocusRef]);
 
   React.useEffect(() => {
     const focusable = dialog.current?.querySelector<HTMLElement>(

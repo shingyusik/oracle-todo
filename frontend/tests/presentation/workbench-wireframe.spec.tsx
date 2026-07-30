@@ -717,6 +717,8 @@ describe("WorkbenchPageClient", () => {
     render(<WorkbenchPageClient />);
 
     const trigger = screen.getByRole("button", { name: "Open Raven navigation" });
+    const main = screen.getByRole("main");
+    main.tabIndex = -1;
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveAttribute("aria-controls", "raven-navigation-drawer");
     expect(screen.queryByRole("dialog", { name: "Raven navigation drawer" }))
@@ -732,6 +734,17 @@ describe("WorkbenchPageClient", () => {
     expect(within(drawer).getByRole("navigation", { name: "Raven navigation" }))
       .toBeInTheDocument();
     expect(close).toHaveFocus();
+    expect(trigger).toHaveAttribute("inert");
+    expect(trigger).toHaveAttribute("aria-hidden", "true");
+    expect(main).toHaveAttribute("inert");
+    expect(main).toHaveAttribute("aria-hidden", "true");
+    const overlay = document.querySelector(".workbench-nav-overlay");
+    expect(overlay).toHaveAttribute("role", "presentation");
+    expect(overlay).toHaveAttribute("aria-hidden", "true");
+    expect(overlay?.tagName).toBe("DIV");
+
+    main.focus();
+    expect(close).toHaveFocus();
 
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(within(drawer).getByRole("button", { name: "Quick Add" })).toHaveFocus();
@@ -743,6 +756,31 @@ describe("WorkbenchPageClient", () => {
       .toBeNull();
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).not.toHaveAttribute("inert");
+    expect(trigger).not.toHaveAttribute("aria-hidden");
+    expect(main).not.toHaveAttribute("inert");
+    expect(main).not.toHaveAttribute("aria-hidden");
+  });
+
+  it("keeps body scroll locked from the mobile drawer through Quick Add", async () => {
+    useMobileViewport();
+    document.body.style.overflow = "scroll";
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    const trigger = screen.getByRole("button", { name: "Open Raven navigation" });
+    await user.click(trigger);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    const drawer = screen.getByRole("dialog", { name: "Raven navigation drawer" });
+    await user.click(within(drawer).getByRole("button", { name: "Quick Add" }));
+    expect(screen.getByRole("dialog", { name: "Quick Add" })).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    await user.click(screen.getByRole("button", { name: "Close Quick Add" }));
+    expect(document.body.style.overflow).toBe("scroll");
+    await waitFor(() => expect(trigger).toHaveFocus());
+    document.body.style.overflow = "";
   });
 
   it("opens Ledger and Health Journal at their default leaves one at a time", async () => {

@@ -1,52 +1,100 @@
 "use client";
 
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-export function DestructiveConfirmationDialog({
-  title,
-  description,
-  onCancel,
-  onConfirm,
-}: {
+import {
+  useModalIsolation,
+} from "@/features/workbench/ui/modal-lifecycle";
+
+type DestructiveConfirmationDialogProps = {
   title: string;
   description: string;
+  fallbackFocusRef: React.RefObject<HTMLElement>;
   onCancel: () => void;
-  onConfirm: () => void;
-}) {
+  onConfirm: () => Promise<void>;
+};
+
+export function DestructiveConfirmationDialog(
+  props: DestructiveConfirmationDialogProps,
+) {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    const element = document.createElement("div");
+    element.dataset.ravenModalHost = "";
+    document.body.append(element);
+    setHost(element);
+    return () => element.remove();
+  }, []);
+
+  return host
+    ? createPortal(<DestructiveDialogContent {...props} />, host)
+    : null;
+}
+
+function DestructiveDialogContent({
+  title,
+  description,
+  fallbackFocusRef,
+  onCancel,
+  onConfirm,
+}: DestructiveConfirmationDialogProps) {
+  const dialogRef = useRef<HTMLElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const activeConfirmation = useRef(false);
+  const [pending, setPending] = useState(false);
+  useModalIsolation(dialogRef, true, "body");
 
   useLayoutEffect(() => {
     returnFocusRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
     cancelRef.current?.focus();
-  }, []);
+    return () => {
+      const returnTarget = returnFocusRef.current;
+      requestAnimationFrame(() => {
+        if (isEnabledFocusTarget(returnTarget)) returnTarget.focus();
+        else fallbackFocusRef.current?.focus();
+      });
+    };
+  }, [fallbackFocusRef]);
 
-  function close(action: () => void) {
-    const returnTarget = returnFocusRef.current;
-    action();
-    requestAnimationFrame(() => returnTarget?.isConnected && returnTarget.focus());
+  async function confirm() {
+    if (activeConfirmation.current) return;
+    activeConfirmation.current = true;
+    setPending(true);
+    try {
+      await onConfirm();
+    } finally {
+      activeConfirmation.current = false;
+      setPending(false);
+    }
   }
 
-  return createPortal(
+  return (
     <div className="confirmation-backdrop">
       <section
+        ref={dialogRef}
         className="confirmation-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        aria-busy={pending}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
-            close(onCancel);
+            if (!pending) onCancel();
           } else if (event.key === "Tab") {
             event.preventDefault();
             if (document.activeElement === cancelRef.current && event.shiftKey) {
               confirmRef.current?.focus();
-            } else if (document.activeElement === confirmRef.current && !event.shiftKey) {
+            } else if (
+              document.activeElement === confirmRef.current &&
+              !event.shiftKey
+            ) {
               cancelRef.current?.focus();
             } else {
               (event.shiftKey ? cancelRef : confirmRef).current?.focus();
@@ -57,15 +105,35 @@ export function DestructiveConfirmationDialog({
         <h2>{title}</h2>
         <p>{description}</p>
         <div className="dialog-actions">
-          <button ref={cancelRef} type="button" onClick={() => close(onCancel)}>
+          <button
+            ref={cancelRef}
+            type="button"
+            aria-disabled={pending}
+            onClick={() => {
+              if (!pending) onCancel();
+            }}
+          >
             Cancel
           </button>
-          <button ref={confirmRef} type="button" onClick={() => close(onConfirm)}>
+          <button
+            ref={confirmRef}
+            type="button"
+            aria-disabled={pending}
+            onClick={() => void confirm()}
+          >
             Purge permanently
           </button>
         </div>
       </section>
-    </div>,
-    document.body,
+    </div>
+  );
+}
+
+function isEnabledFocusTarget(
+  target: HTMLElement | null,
+): target is HTMLElement {
+  return Boolean(
+    target?.isConnected &&
+    !target.matches(":disabled, [aria-disabled='true']"),
   );
 }

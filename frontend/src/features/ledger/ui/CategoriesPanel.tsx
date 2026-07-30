@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type {
@@ -16,6 +16,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
   const [error, setError] = useState<string | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<TransactionCategory | null>(null);
   const actions = useLifecycleAction();
+  const sectionRef = useRef<HTMLElement>(null);
 
   function edit(category: TransactionCategory | null) {
     setEditing(category);
@@ -40,12 +41,12 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
     }
   }
 
-  function purge(category: TransactionCategory) {
-    setPurgeTarget(null);
-    void actions.run(`purge:${category.id}`, async () => {
+  async function purge(category: TransactionCategory) {
+    await actions.run(`purge:${category.id}`, async () => {
       const preview = await controller.previewCategoryPurge(category.id);
       await controller.purgeCategory(category.id, preview.confirmationId);
     });
+    setPurgeTarget(null);
   }
 
   const names = new Map(
@@ -53,7 +54,11 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
   );
 
   return (
-    <section aria-labelledby="ledger-categories-heading">
+    <section
+      ref={sectionRef}
+      aria-labelledby="ledger-categories-heading"
+      tabIndex={-1}
+    >
       <header className="workspace-table-header">
         <h1 id="ledger-categories-heading">Categories</h1>
       </header>
@@ -176,6 +181,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         <DestructiveConfirmationDialog
           title={`Permanently purge ${purgeTarget.name}?`}
           description="This category will be permanently removed. This cannot be undone."
+          fallbackFocusRef={sectionRef}
           onCancel={() => setPurgeTarget(null)}
           onConfirm={() => purge(purgeTarget)}
         />
