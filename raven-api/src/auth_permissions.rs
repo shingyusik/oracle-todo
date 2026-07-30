@@ -5,6 +5,11 @@ use crate::auth::AuthConfigError;
 
 const MAX_FILE_BYTES: u64 = 4 * 1024 + 2;
 
+#[cfg(any(windows, test))]
+fn secure_owner_decision(present: bool, valid: bool, recognized: bool) -> bool {
+    present && valid && recognized
+}
+
 pub fn read_secure_token_file(path: &Path) -> Result<Vec<u8>, AuthConfigError> {
     let file = open_secure(path)?;
     let metadata = file
@@ -84,8 +89,9 @@ mod windows {
     use windows_sys::Win32::Security::{
         ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, CreateWellKnownSid, DACL_SECURITY_INFORMATION,
         EqualSid, GetAce, GetLengthSid, GetSecurityDescriptorControl, GetTokenInformation,
-        INHERITED_ACE, PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
-        TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid,
+        INHERITED_ACE, IsValidSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+        SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER, TokenUser, WinBuiltinAdministratorsSid,
+        WinLocalSystemSid,
     };
     use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -126,6 +132,7 @@ mod windows {
             return Err(AuthConfigError::InvalidTokenFile);
         }
 
+        let mut owner: PSID = null_mut();
         let mut dacl: *mut ACL = null_mut();
         let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
         // SAFETY: pointers remain valid for the call and the descriptor is freed below.
@@ -133,8 +140,8 @@ mod windows {
             GetSecurityInfo(
                 file.as_raw_handle(),
                 SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION,
-                null_mut(),
+                DACL_SECURITY_INFORMATION | OWNER_SECURITY_INFORMATION,
+                &mut owner,
                 null_mut(),
                 &mut dacl,
                 null_mut(),
@@ -158,6 +165,9 @@ mod windows {
         let current = current_user_sid()?;
         let admins = well_known_sid(WinBuiltinAdministratorsSid)?;
         let system = well_known_sid(WinLocalSystemSid)?;
+        if !owner_sid_allowed(owner, [&current, &admins, &system]) {
+            return Err(AuthConfigError::InvalidTokenFile);
+        }
         for index in 0..unsafe { (*dacl).AceCount } as u32 {
             let mut ace: *mut c_void = null_mut();
             // SAFETY: DACL came from GetSecurityInfo; GetAce validates the index.
@@ -182,6 +192,14 @@ mod windows {
             }
         }
         Ok(())
+    }
+
+    fn owner_sid_allowed(owner: PSID, allowed: [&Vec<u8>; 3]) -> bool {
+        let present = !owner.is_null();
+        // SAFETY: a non-null owner pointer came from the live GetSecurityInfo descriptor.
+        let valid = present && unsafe { IsValidSid(owner) != 0 };
+        let recognized = valid && sid_equals_any(owner, allowed);
+        super::secure_owner_decision(present, valid, recognized)
     }
 
     fn current_user_sid() -> Result<Vec<u8>, AuthConfigError> {
@@ -249,5 +267,35 @@ mod windows {
             // SAFETY: both pointers refer to SIDs returned by Win32.
             unsafe { EqualSid(sid, candidate) != 0 }
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn current_user_sid_is_valid_and_recognized() {
+            let current = current_user_sid().unwrap();
+            let owner = current.as_ptr().cast_mut().cast();
+            assert!(owner_sid_allowed(owner, [&current, &current, &current]));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::secure_owner_decision;
+
+    #[test]
+    fn owner_decision_fails_closed() {
+        assert!(secure_owner_decision(true, true, true));
+        for decision in [
+            (false, true, true),
+            (true, false, true),
+            (true, true, false),
+            (false, false, false),
+        ] {
+            assert!(!secure_owner_decision(decision.0, decision.1, decision.2));
+        }
     }
 }
