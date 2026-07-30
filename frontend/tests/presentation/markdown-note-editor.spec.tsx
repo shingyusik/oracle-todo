@@ -24,8 +24,6 @@ describe("MarkdownNoteEditor", () => {
     expect(screen.getByText("old").tagName).toBe("DEL");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noreferrer noopener");
-    expect(heading.closest("button, [role='button']")).toBeNull();
-    expect(link.closest("button, [role='button']")).toBeNull();
     expect(document.querySelector("script")).toBeNull();
   });
 
@@ -33,58 +31,132 @@ describe("MarkdownNoteEditor", () => {
     render(<MarkdownNoteEditor value="" onChange={vi.fn()} />);
 
     expect(screen.getByText("Write a note with Markdown…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit Markdown note" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edit Markdown note line 1" }),
+    ).toBeInTheDocument();
   });
 
-  it("enters edit mode by clicking the rendered surface, updates the draft, and renders again on blur", async () => {
+  it("keeps one Markdown surface with line-specific styling hooks", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <MarkdownNoteEditor value={"First\nSecond"} onChange={vi.fn()} />,
+    );
+
+    const surfaces = container.querySelectorAll(".markdown-note-surface");
+    expect(surfaces).toHaveLength(1);
+    expect(surfaces[0].querySelectorAll(".markdown-note-line")).toHaveLength(2);
+
+    await user.click(screen.getByText("First"));
+    const input = screen.getByRole("textbox", { name: "Markdown note line 1" });
+    expect(input).toHaveClass("markdown-note-line-input");
+    expect(input).not.toHaveClass("markdown-note-input");
+    expect(surfaces[0]).toContainElement(input);
+  });
+
+  it("edits a rendered line by pointer and renders it again on blur", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const { container } = render(
+    const { rerender } = render(
       <MarkdownNoteEditor value="**Draft**" onChange={onChange} />,
     );
 
-    const surface = container.querySelector(".markdown-note-surface");
-    expect(surface).not.toBeNull();
-    if (!surface) {
-      throw new Error("Missing rendered Markdown note surface");
-    }
-    expect(surface).not.toHaveAttribute("role");
-    expect(surface).not.toHaveAttribute("tabindex");
-    await user.click(surface);
-    const input = screen.getByRole("textbox", { name: "Markdown note" });
+    await user.click(screen.getByText("Draft"));
+    const input = screen.getByRole("textbox", { name: "Markdown note line 1" });
     expect(input).toHaveFocus();
 
     fireEvent.change(input, { target: { value: "# Updated" } });
     expect(onChange).toHaveBeenCalledWith("# Updated");
+    rerender(<MarkdownNoteEditor value="# Updated" onChange={onChange} />);
 
     fireEvent.blur(input);
-    expect(screen.getByRole("button", { name: "Edit Markdown note" })).toBeInTheDocument();
+    expect(screen.getByText("Updated")).toBeInTheDocument();
   });
 
-  it("enters edit mode through the dedicated edit control by pointer", async () => {
+  it("renders the completed line and edits a new line on Enter", async () => {
     const user = userEvent.setup();
-    render(<MarkdownNoteEditor value="Draft" onChange={vi.fn()} />);
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <MarkdownNoteEditor value="First" onChange={onChange} />,
+    );
 
-    await user.click(screen.getByRole("button", { name: "Edit Markdown note" }));
+    await user.click(screen.getByText("First"));
+    const input = screen.getByRole("textbox", { name: "Markdown note line 1" });
+    await user.type(input, "{Enter}");
 
-    expect(screen.getByRole("textbox", { name: "Markdown note" })).toHaveFocus();
+    expect(onChange).toHaveBeenLastCalledWith("First\n");
+    rerender(<MarkdownNoteEditor value={"First\n"} onChange={onChange} />);
+    expect(screen.getByText("First")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Markdown note line 2" })).toHaveFocus();
+  });
+
+  it("does not insert a line when Enter confirms an IME composition", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<MarkdownNoteEditor value="초안" onChange={onChange} />);
+
+    await user.click(screen.getByText("초안"));
+    const input = screen.getByRole("textbox", { name: "Markdown note line 1" });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input).toHaveFocus();
   });
 
   it.each([
     ["Enter", "{Enter}"],
     ["Space", " "],
   ])(
-    "enters edit mode through the dedicated edit control with %s",
+    "edits a rendered line with %s",
     async (_keyName, key) => {
       const user = userEvent.setup();
       render(<MarkdownNoteEditor value="Draft" onChange={vi.fn()} />);
 
-      screen.getByRole("button", { name: "Edit Markdown note" }).focus();
+      screen.getByRole("button", { name: "Edit Markdown note line 1" }).focus();
       await user.keyboard(key);
 
-      expect(screen.getByRole("textbox", { name: "Markdown note" })).toHaveFocus();
+      expect(screen.getByRole("textbox", { name: "Markdown note line 1" })).toHaveFocus();
     },
   );
+
+  it("renders marker-only tasks and strikes the checked line", () => {
+    const { container } = render(
+      <MarkdownNoteEditor value={"- [ ]\n- [x]\n- [X] Done"} onChange={vi.fn()} />,
+    );
+
+    const boxes = screen.getAllByRole("checkbox");
+    expect(boxes[0]).not.toBeChecked();
+    expect(boxes[1]).toBeChecked();
+    expect(boxes[2]).toBeChecked();
+    expect(container.querySelectorAll(".markdown-note-line--checked")).toHaveLength(2);
+    expect(screen.getByText("Done").closest(".markdown-note-line--checked")).not.toBeNull();
+  });
+
+  it("edits a marker-only task when its disabled checkbox is clicked", async () => {
+    const user = userEvent.setup();
+    render(<MarkdownNoteEditor value="- [ ]" onChange={vi.fn()} />);
+
+    const checkbox = screen.getByRole("checkbox");
+    expect(checkbox).toHaveAttribute("aria-disabled", "true");
+    await user.click(checkbox);
+
+    expect(screen.getByRole("textbox", { name: "Markdown note line 1" })).toHaveFocus();
+  });
+
+  it("keeps rendered semantics outside the line edit button", () => {
+    render(
+      <MarkdownNoteEditor
+        value={"# Plan\n[docs](https://example.com)\n- [x] Done"}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Plan" }).closest("button")).toBeNull();
+    expect(screen.getByRole("link", { name: "docs" }).closest("button")).toBeNull();
+    expect(screen.getByRole("checkbox").closest("button")).toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: /Edit Markdown note line \d/ }),
+    ).toHaveLength(3);
+  });
 
   it("keeps a keyboard-activated link in rendered mode", async () => {
     const user = userEvent.setup();
@@ -94,6 +166,8 @@ describe("MarkdownNoteEditor", () => {
     await user.keyboard("{Enter}");
 
     expect(screen.getByRole("link", { name: "docs" })).toHaveFocus();
-    expect(screen.queryByRole("textbox", { name: "Markdown note" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Markdown note line 1" }),
+    ).not.toBeInTheDocument();
   });
 });

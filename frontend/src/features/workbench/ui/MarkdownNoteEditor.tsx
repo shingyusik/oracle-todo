@@ -9,62 +9,105 @@ type MarkdownNoteEditorProps = {
 };
 
 export function MarkdownNoteEditor({ value, onChange }: MarkdownNoteEditorProps): React.JSX.Element {
-  const [isEditing, setIsEditing] = React.useState(false);
+  const [editingLine, setEditingLine] = React.useState<number | null>(null);
+  const lines = value.split("\n");
 
-  if (isEditing) {
-    return (
-      <textarea
-        autoFocus
-        className="markdown-note-input"
-        aria-label="Markdown note"
-        value={value}
-        onBlur={() => setIsEditing(false)}
-        onChange={(event) => onChange(event.target.value)}
-      />
+  function updateLine(index: number, nextLine: string) {
+    onChange(
+      lines.map((line, lineIndex) => (lineIndex === index ? nextLine : line)).join("\n"),
     );
   }
 
-  function beginEditing() {
-    setIsEditing(true);
+  function insertLineAfter(index: number) {
+    const nextLines = [...lines];
+    nextLines.splice(index + 1, 0, "");
+    onChange(nextLines.join("\n"));
+    setEditingLine(index + 1);
   }
 
   return (
-    <div className="markdown-note-rendered">
-      <div className="markdown-note-surface" onClick={beginEditing}>
-        {value ? (
-          <ReactMarkdown
-            skipHtml
-            remarkPlugins={[remarkGfm]}
-            components={{
-              a({ node: _node, onClick, ...props }) {
-                return (
-                  <a
-                    {...props}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onClick?.(event);
-                    }}
-                  />
-                );
-              },
+    <div className="markdown-note-rendered markdown-note-surface">
+      {lines.map((line, index) =>
+        editingLine === index ? (
+          <textarea
+            key={index}
+            autoFocus
+            rows={1}
+            className="markdown-note-line-input"
+            aria-label={`Markdown note line ${index + 1}`}
+            value={line}
+            onBlur={() => setEditingLine(null)}
+            onChange={(event) => updateLine(index, event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                insertLineAfter(index);
+              }
             }}
-          >
-            {value}
-          </ReactMarkdown>
+          />
         ) : (
-          <p className="markdown-note-placeholder">Write a note with Markdown…</p>
-        )}
-      </div>
-      <button
-        type="button"
-        className="markdown-note-edit-button"
-        aria-label="Edit Markdown note"
-        onClick={beginEditing}
-      >
-        <Pencil aria-hidden="true" size={16} />
-      </button>
+          <div key={index} className="markdown-note-line-shell">
+            <div
+              className={`markdown-note-line${
+                /^- \[[xX]\](?:\s|$)/.test(line) ? " markdown-note-line--checked" : ""
+              }`}
+              onClick={() => setEditingLine(index)}
+            >
+              {(() => {
+                const markerOnlyTask = /^- \[([ xX])\]$/.exec(line);
+                if (markerOnlyTask) {
+                  return (
+                    <input
+                      type="checkbox"
+                      checked={markerOnlyTask[1].toLowerCase() === "x"}
+                      readOnly
+                      aria-disabled="true"
+                      tabIndex={-1}
+                      onClick={(event) => event.preventDefault()}
+                    />
+                  );
+                }
+                if (!line) {
+                  return (
+                    <p className="markdown-note-placeholder">Write a note with Markdown…</p>
+                  );
+                }
+                return (
+                  <ReactMarkdown
+                    skipHtml
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a({ node: _node, onClick, ...props }) {
+                        return (
+                          <a
+                            {...props}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onClick?.(event);
+                            }}
+                          />
+                        );
+                      },
+                    }}
+                  >
+                    {line}
+                  </ReactMarkdown>
+                );
+              })()}
+            </div>
+            <button
+              type="button"
+              className="markdown-note-line-edit-button"
+              aria-label={`Edit Markdown note line ${index + 1}`}
+              onClick={() => setEditingLine(index)}
+            >
+              <Pencil aria-hidden="true" size={14} />
+            </button>
+          </div>
+        ),
+      )}
     </div>
   );
 }
