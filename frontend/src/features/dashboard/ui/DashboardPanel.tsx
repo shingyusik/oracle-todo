@@ -1,15 +1,22 @@
 import React from "react";
 
 import {
+  fetchDashboard,
+  type RavenDashboard,
+} from "@/features/dashboard/api/dashboard-api";
+import {
   buildDashboardSnapshot,
   completionRangeEndingOn,
   dashboardDateRangeError,
   dashboardToday,
+  toUnifiedDashboardModel,
   type DashboardDateRange,
+  type UnifiedDashboardModel,
 } from "@/features/dashboard/model/dashboard-model";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import {
   dashboardWidgets,
+  unifiedTodoStats,
   type DashboardChartSpec,
   type DashboardLinkedStat,
   type DashboardStatModel,
@@ -17,6 +24,9 @@ import {
 } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { CompletionRangeControls } from "@/features/dashboard/ui/CompletionRangeControls";
+import { HealthSummaryCard } from "@/features/dashboard/ui/HealthSummaryCard";
+import { LedgerSummaryCard } from "@/features/dashboard/ui/LedgerSummaryCard";
+import { RecentActivityCard } from "@/features/dashboard/ui/RecentActivityCard";
 import type { DashboardHeatmapVisibility } from "@/features/dashboard/ui/DashboardHeatmap";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 
@@ -24,6 +34,7 @@ const DASHBOARD_STATUS_PREVIEW_LIMIT = 5;
 
 type DashboardPanelProps = {
   controller: WorkbenchController;
+  initialDashboard?: RavenDashboard;
 };
 
 type DashboardStatusWidgetId = "area-status" | "project-status";
@@ -39,8 +50,21 @@ type DashboardWidgetProps = {
   heatmapVisibility?: DashboardHeatmapVisibility;
 };
 
-export function DashboardPanel({ controller }: DashboardPanelProps) {
+type UnifiedDashboardState =
+  | { status: "loading" }
+  | { status: "loaded"; model: UnifiedDashboardModel }
+  | { status: "error" };
+
+export function DashboardPanel({
+  controller,
+  initialDashboard,
+}: DashboardPanelProps) {
   const { workspaceItems } = controller;
+  const requestGeneration = React.useRef(0);
+  const [unifiedDashboard, setUnifiedDashboard] =
+    React.useState<UnifiedDashboardState>(() => initialDashboard
+      ? { status: "loaded", model: toUnifiedDashboardModel(initialDashboard) }
+      : { status: "loading" });
   const today = dashboardToday();
   const [selectedPreset, setSelectedPreset] =
     React.useState<7 | 14 | 30 | "custom">(14);
@@ -52,6 +76,37 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
   const [expandedStatus, setExpandedStatus] = React.useState<
     Record<DashboardStatusWidgetId, boolean>
   >({ "area-status": false, "project-status": false });
+
+  const reloadUnifiedDashboard = React.useCallback(async () => {
+    const generation = ++requestGeneration.current;
+    setUnifiedDashboard({ status: "loading" });
+    try {
+      const response = await fetchDashboard();
+      if (generation !== requestGeneration.current) return;
+      setUnifiedDashboard({
+        status: "loaded",
+        model: toUnifiedDashboardModel(response),
+      });
+    } catch {
+      if (generation !== requestGeneration.current) return;
+      setUnifiedDashboard({ status: "error" });
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (initialDashboard) {
+      requestGeneration.current += 1;
+      setUnifiedDashboard({
+        status: "loaded",
+        model: toUnifiedDashboardModel(initialDashboard),
+      });
+      return;
+    }
+    void reloadUnifiedDashboard();
+    return () => {
+      requestGeneration.current += 1;
+    };
+  }, [initialDashboard, reloadUnifiedDashboard]);
 
   const applyPreset = (preset: 7 | 14 | 30) => {
     const next = completionRangeEndingOn(today, preset);
@@ -125,9 +180,13 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
 
   if (workspaceItems.status === "error") {
     return (
-      <section className="dashboard-state" aria-label="Dashboard analytics">
+      <section className="dashboard-panel" aria-label="Dashboard analytics">
+        <DashboardHeader />
+        <UnifiedDashboardCards
+          state={unifiedDashboard}
+          onRetry={() => void reloadUnifiedDashboard()}
+        />
         <div className="dashboard-error" role="alert">
-          <h1>Dashboard</h1>
           <p>Could not load Dashboard analytics.</p>
           <button type="button" onClick={controller.reloadDashboard}>
             Retry Dashboard
@@ -139,10 +198,11 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
 
   return (
     <section className="dashboard-panel" aria-label="Dashboard analytics">
-      <header className="dashboard-panel-header">
-        <p className="dashboard-panel-kicker">Analytics</p>
-        <h1>Dashboard</h1>
-      </header>
+      <DashboardHeader />
+      <UnifiedDashboardCards
+        state={unifiedDashboard}
+        onRetry={() => void reloadUnifiedDashboard()}
+      />
       {primaryModels.map((model) => {
         return (
           <DashboardWidget
@@ -189,6 +249,66 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
         ))}
       </div>
     </section>
+  );
+}
+
+function DashboardHeader() {
+  return (
+    <header className="dashboard-panel-header">
+      <p className="dashboard-panel-kicker">Analytics</p>
+      <h1>Dashboard</h1>
+    </header>
+  );
+}
+
+function UnifiedDashboardCards({
+  state,
+  onRetry,
+}: {
+  state: UnifiedDashboardState;
+  onRetry: () => void;
+}) {
+  if (state.status === "loading") {
+    return <p role="status">Loading Raven summaries…</p>;
+  }
+  if (state.status === "error") {
+    return (
+      <div className="dashboard-error" role="alert">
+        <p>Could not load Raven Dashboard summaries.</p>
+        <button type="button" onClick={onRetry}>Retry summaries</button>
+      </div>
+    );
+  }
+
+  const { model } = state;
+  return (
+    <>
+      <div className="dashboard-stat-grid">
+        <section className="dashboard-widget" aria-label="Today's Plan">
+          <header className="dashboard-widget-header">
+            <div className="dashboard-widget-heading">
+              <h2>Today&apos;s Plan</h2>
+              <p>Current ToDo workload and today&apos;s outcomes.</p>
+            </div>
+          </header>
+          {model.todo.status === "error" ? (
+            <p className="dashboard-widget-empty">ToDo data unavailable</p>
+          ) : (
+            <div className="dashboard-stat-grid">
+              {unifiedTodoStats(model.todo.data).map((stat) => (
+                <div className="dashboard-stat" key={stat.label}>
+                  <span className="dashboard-stat-value">{stat.value}</span>
+                  <span className="dashboard-stat-label">{stat.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+        <LedgerSummaryCard projection={model.ledger} />
+        <HealthSummaryCard projection={model.health} />
+      </div>
+      <RecentActivityCard activity={model.recentActivity} />
+    </>
   );
 }
 

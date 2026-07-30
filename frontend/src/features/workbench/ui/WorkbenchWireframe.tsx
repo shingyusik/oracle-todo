@@ -6,6 +6,7 @@ import type {
   WorkbenchController,
 } from "@/features/workbench/model/workbench-model";
 import { MainPanel } from "@/features/workbench/ui/MainPanel";
+import { QuickAddDialog } from "@/features/workbench/ui/QuickAddDialog";
 import {
   TableViewTabConfirmationDialog,
   type TableViewTabConfirmationDialogAdapter,
@@ -17,6 +18,7 @@ type WorkbenchWireframeProps = {
 };
 
 export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
+  const [quickAddOpen, setQuickAddOpen] = React.useState(false);
   const confirmationAdapter: TableViewTabConfirmationDialogAdapter<TableViewTarget> = {
     confirmation: controller.tableViewTabConfirmation,
     confirm: controller.confirmTableViewTabAction,
@@ -51,9 +53,23 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
           controller={controller}
           ariaLabel={workbenchCopy.navigation.shellLabel}
         />
+        <button
+          type="button"
+          className="items-toolbar-button"
+          aria-haspopup="dialog"
+          onClick={() => setQuickAddOpen(true)}
+        >
+          Quick Add
+        </button>
       </aside>
       <MainPanel controller={controller} />
       <TableViewTabConfirmationDialog adapter={confirmationAdapter} />
+      {quickAddOpen ? (
+        <QuickAddDialog
+          controller={controller}
+          onClose={() => setQuickAddOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
