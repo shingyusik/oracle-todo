@@ -15,6 +15,8 @@ describe("workbench navigation", () => {
       leafTabId: "dashboard",
       workspaceExpanded: false,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -24,6 +26,8 @@ describe("workbench navigation", () => {
       leafTabId: "areas",
       workspaceExpanded: true,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -33,6 +37,8 @@ describe("workbench navigation", () => {
       leafTabId: "yearly",
       workspaceExpanded: false,
       plannerExpanded: true,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -42,6 +48,8 @@ describe("workbench navigation", () => {
       leafTabId: "daily",
       workspaceExpanded: false,
       plannerExpanded: true,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -51,12 +59,16 @@ describe("workbench navigation", () => {
       leafTabId: "events",
       workspaceExpanded: true,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
     expect(resolveSelection("goals")).toEqual({
       mainTabId: "todo",
       leafTabId: "goals",
       workspaceExpanded: true,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -66,6 +78,8 @@ describe("workbench navigation", () => {
       leafTabId: "todo",
       workspaceExpanded: false,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -75,6 +89,8 @@ describe("workbench navigation", () => {
       leafTabId: "areas",
       workspaceExpanded: true,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -86,6 +102,8 @@ describe("workbench navigation", () => {
       leafTabId: "yearly",
       workspaceExpanded: true,
       plannerExpanded: true,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -100,12 +118,16 @@ describe("workbench navigation", () => {
       leafTabId: "yearly",
       workspaceExpanded: false,
       plannerExpanded: true,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
     expect(toggleTodoGroupExpansion(bothExpanded, "planner")).toEqual({
       mainTabId: "todo",
       leafTabId: "areas",
       workspaceExpanded: true,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 
@@ -113,7 +135,55 @@ describe("workbench navigation", () => {
     expect(workbenchNavigation.mainTabs.map((tab) => tab.id)).toEqual([
       "dashboard",
       "todo",
+      "ledger",
+      "health",
     ]);
+  });
+
+  it("opens domain parents at their first useful leaf", () => {
+    expect(resolveSelection("ledger")).toMatchObject({
+      mainTabId: "ledger",
+      leafTabId: "transactions",
+      ledgerExpanded: true,
+      healthExpanded: false,
+    });
+    expect(resolveSelection("health")).toMatchObject({
+      mainTabId: "health",
+      leafTabId: "timeline",
+      ledgerExpanded: false,
+      healthExpanded: true,
+    });
+  });
+
+  it("keeps only one top-level workspace expanded", () => {
+    const ledger = resolveSelection("ledger");
+    const health = resolveSelection("health", ledger);
+
+    expect(health).toMatchObject({
+      ledgerExpanded: false,
+      healthExpanded: true,
+    });
+  });
+
+  it("defines the approved domain leaves without overview tabs", () => {
+    expect(workbenchNavigation.ledgerTabs.map((tab) => tab.label)).toEqual([
+      "Transactions",
+      "Accounts",
+      "Categories",
+      "Reports",
+    ]);
+    expect(workbenchNavigation.healthTabs.map((tab) => tab.label)).toEqual([
+      "Timeline",
+      "Diet",
+      "Bowel",
+      "Medication",
+      "Health Metrics",
+      "Trends",
+    ]);
+    expect([
+      ...workbenchNavigation.ledgerTabs,
+      ...workbenchNavigation.healthTabs,
+    ]).not.toContainEqual(expect.objectContaining({ label: "Overview" }));
   });
 
   it("defines workspace and planner as sibling todo tabs", () => {

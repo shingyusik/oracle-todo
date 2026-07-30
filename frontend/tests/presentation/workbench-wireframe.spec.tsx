@@ -680,12 +680,67 @@ describe("WorkbenchPageClient", () => {
     const navigation = screen.getByLabelText("Workbench navigation");
     const dashboard = within(navigation).getByRole("button", { name: "Dashboard" });
     const todo = within(navigation).getByRole("button", { name: "ToDo" });
+    const ledger = within(navigation).getByRole("button", { name: "Ledger" });
+    const health = within(navigation).getByRole("button", {
+      name: "Health Journal",
+    });
 
     expect(dashboard).toHaveTextContent("Dashboard");
     expect(todo).toHaveTextContent("ToDo");
+    expect(ledger).toHaveTextContent("Ledger");
+    expect(health).toHaveTextContent("Health Journal");
     expect(dashboard.compareDocumentPosition(todo) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+    expect(todo.compareDocumentPosition(ledger) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(ledger.compareDocumentPosition(health) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
     expect(navigation.querySelector(".tree-sidebar-divider")).not.toBeNull();
+  });
+
+  it("opens Ledger and Health Journal at their default leaves one at a time", async () => {
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    const ledger = screen.getByRole("button", { name: "Ledger" });
+    const health = screen.getByRole("button", { name: "Health Journal" });
+
+    expect(ledger).toHaveAttribute("aria-expanded", "false");
+    expect(health).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(ledger);
+
+    expect(ledger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Transactions" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.queryByRole("button", { name: "Timeline" })).toBeNull();
+
+    await user.click(health);
+
+    expect(ledger).toHaveAttribute("aria-expanded", "false");
+    expect(health).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("button", { name: "Transactions" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Timeline" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
+  });
+
+  it("keeps top-level navigation in keyboard focus order", async () => {
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Dashboard" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "ToDo" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Ledger" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Health Journal" })).toHaveFocus();
   });
 
   it("shows only workspace and planner children when todo is selected", async () => {

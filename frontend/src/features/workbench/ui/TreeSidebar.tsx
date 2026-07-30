@@ -1,7 +1,9 @@
 import {
+  Banknote,
   CalendarDays,
   ChevronDown,
   Folder,
+  HeartPulse,
   LayoutDashboard,
   ListTodo,
 } from "lucide-react";
@@ -26,6 +28,7 @@ export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
         type="button"
         className="tree-sidebar-tab tree-sidebar-leaf"
         data-active={tab.id === selection.leafTabId}
+        aria-current={tab.id === selection.leafTabId ? "page" : undefined}
         onClick={() => selectTab(tab.id as WorkbenchTabId)}
       >
         {tab.label}
@@ -38,6 +41,9 @@ export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
         type="button"
         className="tree-sidebar-tab tree-sidebar-top-level"
         data-active={selection.mainTabId === "dashboard"}
+        aria-current={
+          selection.leafTabId === "dashboard" ? "page" : undefined
+        }
         onClick={() => selectTab("dashboard")}
       >
         <LayoutDashboard aria-hidden="true" />
@@ -48,6 +54,8 @@ export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
         type="button"
         className="tree-sidebar-tab tree-sidebar-top-level"
         data-active={selection.mainTabId === "todo"}
+        aria-current={selection.leafTabId === "todo" ? "page" : undefined}
+        aria-expanded={selection.mainTabId === "todo"}
         onClick={() => selectTab("todo")}
       >
         <ListTodo aria-hidden="true" />
@@ -87,6 +95,36 @@ export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
               </div>
             );
           })}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="tree-sidebar-tab tree-sidebar-top-level"
+        data-active={selection.mainTabId === "ledger"}
+        aria-expanded={selection.ledgerExpanded}
+        onClick={() => selectTab("ledger")}
+      >
+        <Banknote aria-hidden="true" />
+        Ledger
+      </button>
+      {selection.ledgerExpanded ? (
+        <div className="tree-sidebar-children">
+          {renderLeaves(workbenchNavigation.ledgerTabs)}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="tree-sidebar-tab tree-sidebar-top-level"
+        data-active={selection.mainTabId === "health"}
+        aria-expanded={selection.healthExpanded}
+        onClick={() => selectTab("health")}
+      >
+        <HeartPulse aria-hidden="true" />
+        Health Journal
+      </button>
+      {selection.healthExpanded ? (
+        <div className="tree-sidebar-children">
+          {renderLeaves(workbenchNavigation.healthTabs)}
         </div>
       ) : null}
     </nav>

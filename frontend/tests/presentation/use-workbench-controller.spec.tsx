@@ -1238,6 +1238,8 @@ describe("useWorkbenchController", () => {
       leafTabId: "areas",
       workspaceExpanded: true,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
     expect(result.current.panel.title).toBe("Areas");
   });
@@ -1252,6 +1254,8 @@ describe("useWorkbenchController", () => {
       leafTabId: "daily",
       workspaceExpanded: false,
       plannerExpanded: true,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
     expect(result.current.panel.title).toBe("Daily");
   });
@@ -1362,6 +1366,8 @@ describe("useWorkbenchController", () => {
       leafTabId: "yearly",
       workspaceExpanded: false,
       plannerExpanded: true,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
     expect(result.current.panel.title).toBe("Yearly");
   });
@@ -1377,6 +1383,8 @@ describe("useWorkbenchController", () => {
       leafTabId: "todo",
       workspaceExpanded: false,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
     expect(result.current.panel.title).toBe("ToDo");
 
@@ -1387,6 +1395,8 @@ describe("useWorkbenchController", () => {
       leafTabId: "areas",
       workspaceExpanded: true,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
     expect(result.current.panel.title).toBe("Areas");
   });
@@ -1402,6 +1412,8 @@ describe("useWorkbenchController", () => {
       leafTabId: "yearly",
       workspaceExpanded: true,
       plannerExpanded: true,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
 
     act(() => result.current.selectTab("workspace"));
@@ -1411,6 +1423,8 @@ describe("useWorkbenchController", () => {
       leafTabId: "yearly",
       workspaceExpanded: false,
       plannerExpanded: true,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
 
     act(() => result.current.selectTab("planner"));
@@ -1420,6 +1434,8 @@ describe("useWorkbenchController", () => {
       leafTabId: "todo",
       workspaceExpanded: false,
       plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: false,
     });
   });
 

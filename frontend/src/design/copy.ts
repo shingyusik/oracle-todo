@@ -14,6 +14,12 @@ export const workbenchCopy = {
     todo: {
       title: "ToDo",
     },
+    ledger: {
+      title: "Ledger",
+    },
+    health: {
+      title: "Health Journal",
+    },
     areas: {
       title: "Areas",
     },
@@ -43,6 +49,36 @@ export const workbenchCopy = {
     },
     daily: {
       title: "Daily",
+    },
+    transactions: {
+      title: "Transactions",
+    },
+    accounts: {
+      title: "Accounts",
+    },
+    categories: {
+      title: "Categories",
+    },
+    reports: {
+      title: "Reports",
+    },
+    timeline: {
+      title: "Timeline",
+    },
+    diet: {
+      title: "Diet",
+    },
+    bowel: {
+      title: "Bowel",
+    },
+    medication: {
+      title: "Medication",
+    },
+    "health-metrics": {
+      title: "Health Metrics",
+    },
+    trends: {
+      title: "Trends",
     },
   },
 } as const;
