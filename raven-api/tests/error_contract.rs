@@ -128,6 +128,7 @@ async fn config_debug_redacts_paths_and_auth_secrets() {
         ledger_db: PathBuf::from("/secret/ledger.sqlite"),
         health_db: PathBuf::from("/secret/health.sqlite"),
         health_media_dir: PathBuf::from("/secret/media"),
+        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
         auth: AuthMode::Bearer {
             token: "top-secret-token".into(),
         },
@@ -147,6 +148,7 @@ async fn router_creation_has_no_filesystem_side_effects() {
         ledger_db: home.join("ledger.sqlite"),
         health_db: home.join("health.sqlite"),
         health_media_dir: home.join("media/health"),
+        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
         auth: AuthMode::UiSession {
             token: "session-secret".into(),
         },

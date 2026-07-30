@@ -14,6 +14,7 @@ async fn todo_items_are_nested_under_v1_without_router_side_effects() {
         ledger_db: home.join("ledger.sqlite"),
         health_db: home.join("health.sqlite"),
         health_media_dir: home.join("media"),
+        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
         auth: AuthMode::UiSession {
             token: "test".into(),
         },
@@ -39,6 +40,7 @@ async fn oversized_todo_json_uses_the_common_payload_envelope() {
         ledger_db: temp.path().join("ledger.sqlite"),
         health_db: temp.path().join("health.sqlite"),
         health_media_dir: temp.path().join("media"),
+        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
         auth: AuthMode::UiSession {
             token: "test".into(),
         },
@@ -69,6 +71,7 @@ async fn todo_mutation_and_validation_error_remain_nested_and_normalized() {
         ledger_db: temp.path().join("ledger.sqlite"),
         health_db: temp.path().join("health.sqlite"),
         health_media_dir: temp.path().join("media"),
+        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
         auth: AuthMode::UiSession {
             token: "test".into(),
         },

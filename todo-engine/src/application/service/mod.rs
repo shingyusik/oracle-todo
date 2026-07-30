@@ -20,7 +20,7 @@ mod update;
 pub use creation::{
     CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
 };
-pub use queries::{GoalNode, PeriodView};
+pub use queries::{GoalNode, PeriodView, TodoDashboardSummary};
 pub use update::UpdateItem;
 
 /// Single source of truth for the goal-depth cap on the public `service` path

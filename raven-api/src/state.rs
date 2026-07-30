@@ -1,6 +1,7 @@
 use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
+use time::UtcOffset;
 
 use crate::config::{AuthMode, RavenApiConfig};
 
@@ -30,6 +31,10 @@ impl RavenApiState {
 
     pub fn health_media_dir(&self) -> &Path {
         &self.config.health_media_dir
+    }
+
+    pub fn local_offset(&self) -> UtcOffset {
+        self.config.local_offset
     }
 
     pub fn auth(&self) -> &AuthMode {

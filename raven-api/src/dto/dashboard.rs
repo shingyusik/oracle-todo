@@ -37,7 +37,10 @@ impl<T> DomainProjection<T> {
 #[derive(Debug, Serialize)]
 pub struct TodoDashboard {
     pub active: u64,
-    pub today: u64,
+    pub today_completed: u64,
+    pub today_incomplete: u64,
+    pub today_missed: u64,
+    pub today_total: u64,
     pub overdue: u64,
 }
 

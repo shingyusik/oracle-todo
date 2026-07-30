@@ -13,8 +13,8 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 use crate::application::error::{HealthError, HealthResult};
-use crate::application::ports::{AuditActivity, HealthReadRepository, Page};
-use crate::application::queries::{HealthQuery, TimelineItem};
+use crate::application::ports::{AuditActivity, EventQuery, HealthReadRepository, Page};
+use crate::domain::{DietEntry, HealthCategory, HealthEvent};
 
 pub use schema::SCHEMA_VERSION;
 
@@ -156,9 +156,20 @@ impl SqliteHealthRepository {
         Ok(repository)
     }
 
-    pub fn dashboard_timeline(&self, limit: u16) -> HealthResult<Vec<TimelineItem>> {
-        let page = Page::new(0, limit)?;
-        self.timeline(&HealthQuery::new(page))
+    pub fn dashboard_latest_event(
+        &self,
+        category: HealthCategory,
+        metric_key: Option<&str>,
+    ) -> HealthResult<Option<HealthEvent>> {
+        let mut query = EventQuery::new(Page::new(0, 1)?).with_category(category);
+        if let Some(metric_key) = metric_key {
+            query = query.with_metric_key(metric_key)?;
+        }
+        Ok(self.list_events(&query, false)?.pop())
+    }
+
+    pub fn dashboard_recent_diet(&self, limit: u16) -> HealthResult<Vec<DietEntry>> {
+        self.list_diet(Page::new(0, limit)?, false)
     }
 
     pub fn recent_audit_activity(&self, limit: u16) -> HealthResult<Vec<AuditActivity>> {

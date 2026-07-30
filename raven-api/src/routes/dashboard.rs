@@ -1,15 +1,13 @@
 use axum::{Json, Router, routing::get};
-use health_engine::application::queries::TimelineItem;
 use health_engine::domain::HealthCategory;
+use health_engine::domain::{DietEntry, HealthEvent};
 use health_engine::infrastructure::sqlite::SqliteHealthRepository;
 use ledger_engine::application::reports::YearMonth;
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use time::{Date, OffsetDateTime, UtcOffset};
 use todo_engine::application::error::TodoError;
-use todo_engine::application::ports::ListFilter;
 use todo_engine::application::service::TodoService;
-use todo_engine::domain::{ItemStatus, ItemType};
 use todo_engine::infrastructure::sqlite::{SqliteTodoRepository, connect_read_only};
 use uuid::Uuid;
 
@@ -21,11 +19,24 @@ use crate::dto::dashboard::{
 };
 
 const ACTIVITY_LIMIT: usize = 20;
-const HEALTH_SNAPSHOT_LIMIT: u16 = 100;
+const HEALTH_DIET_LIMIT: u16 = 8;
 
 struct Projection<T> {
     data: T,
     activity: Vec<RecentActivityItem>,
+}
+
+#[derive(Clone, Copy)]
+struct DashboardContext {
+    local_date: Date,
+}
+
+impl DashboardContext {
+    fn new(now: OffsetDateTime, local_offset: UtcOffset) -> Self {
+        Self {
+            local_date: now.to_offset(local_offset).date(),
+        }
+    }
 }
 
 pub fn router() -> Router<RavenApiState> {
@@ -34,12 +45,13 @@ pub fn router() -> Router<RavenApiState> {
 
 async fn dashboard(state: axum::extract::State<RavenApiState>) -> Json<DashboardResponse> {
     let request_id = Uuid::new_v4();
+    let context = DashboardContext::new(OffsetDateTime::now_utc(), state.local_offset());
     let todo_path = state.todo_db().to_path_buf();
     let ledger_path = state.ledger_db().to_path_buf();
     let health_path = state.health_db().to_path_buf();
 
-    let todo = tokio::task::spawn_blocking(move || todo_projection(&todo_path));
-    let ledger = tokio::task::spawn_blocking(move || ledger_projection(&ledger_path));
+    let todo = tokio::task::spawn_blocking(move || todo_projection(&todo_path, context));
+    let ledger = tokio::task::spawn_blocking(move || ledger_projection(&ledger_path, context));
     let health = tokio::task::spawn_blocking(move || health_projection(&health_path));
     let (todo, ledger, health) = tokio::join!(todo, ledger, health);
 
@@ -84,6 +96,7 @@ async fn dashboard(state: axum::extract::State<RavenApiState>) -> Json<Dashboard
 
 fn todo_projection(
     path: &std::path::Path,
+    context: DashboardContext,
 ) -> Result<Projection<TodoDashboard>, todo_engine::application::error::TodoError> {
     let path = path
         .to_str()
@@ -101,29 +114,15 @@ fn todo_projection(
         })
         .collect();
     let mut service = TodoService::persistent(repository);
-    let items = service.list_items(ListFilter {
-        item_type: Some(ItemType::Task),
-        status: Some(ItemStatus::Active),
-        ..Default::default()
-    })?;
-    let today = local_today();
-    let mut due_today = 0;
-    let mut overdue = 0;
-    for item in &items {
-        let scheduled = persisted_date(item.scheduled.as_deref())?;
-        let due = persisted_date(item.due.as_deref())?;
-        if scheduled == Some(today) || due == Some(today) {
-            due_today += 1;
-        }
-        if due.is_some_and(|due| due < today) {
-            overdue += 1;
-        }
-    }
+    let summary = service.dashboard_summary(context.local_date)?;
     Ok(Projection {
         data: TodoDashboard {
-            active: items.len() as u64,
-            today: due_today,
-            overdue,
+            active: summary.active,
+            today_completed: summary.today_completed,
+            today_incomplete: summary.today_incomplete,
+            today_missed: summary.today_missed,
+            today_total: summary.today_total,
+            overdue: summary.overdue,
         },
         activity,
     })
@@ -131,12 +130,14 @@ fn todo_projection(
 
 fn ledger_projection(
     path: &std::path::Path,
+    context: DashboardContext,
 ) -> Result<Projection<LedgerDashboard>, ledger_engine::application::error::LedgerError> {
     let repository = SqliteLedgerRepository::open_read_only(path)?;
     let service = LedgerService::new(repository);
-    let today = local_today();
-    let summary =
-        service.monthly_summary(YearMonth::new(today.year(), u8::from(today.month()))?)?;
+    let summary = service.monthly_summary(YearMonth::new(
+        context.local_date.year(),
+        u8::from(context.local_date.month()),
+    )?)?;
     let activity = service
         .recent_audit_activity(ACTIVITY_LIMIT as u16)?
         .into_iter()
@@ -170,7 +171,13 @@ fn health_projection(
     path: &std::path::Path,
 ) -> Result<Projection<HealthDashboard>, health_engine::application::error::HealthError> {
     let repository = SqliteHealthRepository::open_read_only(path)?;
-    let snapshot = health_snapshot(repository.dashboard_timeline(HEALTH_SNAPSHOT_LIMIT)?);
+    let snapshot = health_snapshot(
+        repository.dashboard_latest_event(HealthCategory::Symptom, Some("overall_condition"))?,
+        repository.dashboard_latest_event(HealthCategory::Sleep, None)?,
+        repository.dashboard_latest_event(HealthCategory::Bowel, None)?,
+        repository.dashboard_latest_event(HealthCategory::Medication, None)?,
+        repository.dashboard_recent_diet(HEALTH_DIET_LIMIT)?,
+    );
     let activity = repository
         .recent_audit_activity(ACTIVITY_LIMIT as u16)?
         .into_iter()
@@ -187,60 +194,58 @@ fn health_projection(
     })
 }
 
-fn health_snapshot(items: Vec<TimelineItem>) -> HealthDashboard {
-    let mut dashboard = HealthDashboard {
-        latest_condition: None,
-        latest_sleep: None,
-        latest_bowel: None,
-        latest_medication: None,
-        recent_diet_tags: Vec::new(),
-    };
-    for item in items {
-        match item {
-            TimelineItem::Diet { record } => {
-                for tag in record.tags() {
-                    if dashboard.recent_diet_tags.len() == 8 {
-                        break;
-                    }
-                    if !dashboard.recent_diet_tags.contains(tag) {
-                        dashboard.recent_diet_tags.push(tag.clone());
-                    }
-                }
+fn health_snapshot(
+    condition: Option<HealthEvent>,
+    sleep: Option<HealthEvent>,
+    bowel: Option<HealthEvent>,
+    medication: Option<HealthEvent>,
+    diets: Vec<DietEntry>,
+) -> HealthDashboard {
+    let mut recent_diet_tags = Vec::new();
+    for diet in diets {
+        for tag in diet.tags() {
+            if recent_diet_tags.len() == 8 {
+                break;
             }
-            TimelineItem::HealthEvent { record } => {
-                let target = match record.category() {
-                    HealthCategory::Symptom
-                        if record.metric_key().as_str() == "overall_condition" =>
-                    {
-                        &mut dashboard.latest_condition
-                    }
-                    HealthCategory::Sleep => &mut dashboard.latest_sleep,
-                    HealthCategory::Bowel => &mut dashboard.latest_bowel,
-                    HealthCategory::Medication => &mut dashboard.latest_medication,
-                    _ => continue,
-                };
-                if target.is_none() {
-                    *target = record.value_num().map(|value| HealthMetricDashboard {
-                        timestamp: record.occurred_at(),
-                        name: record.name().to_string(),
-                        value,
-                        unit: record.unit().map(str::to_string),
-                    });
-                }
+            if !recent_diet_tags.contains(tag) {
+                recent_diet_tags.push(tag.clone());
             }
         }
     }
-    dashboard
+    HealthDashboard {
+        latest_condition: condition.and_then(metric_snapshot),
+        latest_sleep: sleep.and_then(metric_snapshot),
+        latest_bowel: bowel.and_then(metric_snapshot),
+        latest_medication: medication.and_then(metric_snapshot),
+        recent_diet_tags,
+    }
 }
 
-fn local_today() -> Date {
-    let offset = UtcOffset::from_hms(9, 0, 0).expect("valid Raven local offset");
-    OffsetDateTime::now_utc().to_offset(offset).date()
+fn metric_snapshot(record: HealthEvent) -> Option<HealthMetricDashboard> {
+    record.value_num().map(|value| HealthMetricDashboard {
+        timestamp: record.occurred_at(),
+        name: record.name().to_string(),
+        value,
+        unit: record.unit().map(str::to_string),
+    })
 }
 
-fn persisted_date(value: Option<&str>) -> Result<Option<Date>, TodoError> {
-    value
-        .map(|value| Date::parse(value, &time::format_description::well_known::Iso8601::DATE))
-        .transpose()
-        .map_err(|_| TodoError::Storage("invalid persisted todo date".to_string()))
+#[cfg(test)]
+mod tests {
+    use time::{OffsetDateTime, UtcOffset};
+
+    use super::DashboardContext;
+
+    #[test]
+    fn request_context_uses_the_configured_offset_across_a_month_boundary() {
+        let now = OffsetDateTime::parse(
+            "2026-07-31T23:30:00Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let utc = DashboardContext::new(now, UtcOffset::UTC);
+        let seoul = DashboardContext::new(now, UtcOffset::from_hms(9, 0, 0).unwrap());
+        assert_eq!(utc.local_date.to_string(), "2026-07-31");
+        assert_eq!(seoul.local_date.to_string(), "2026-08-01");
+    }
 }

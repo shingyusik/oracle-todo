@@ -9,7 +9,8 @@ use super::{ServiceStore, TodoService, parse_day};
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{ListFilter, apply_list_filter};
 use crate::domain::{
-    Horizon, ItemType, OPEN_STATUSES, TodoItem, normalize_to_period_start, terminal_status,
+    Horizon, ItemStatus, ItemType, OPEN_STATUSES, TodoItem, normalize_to_period_start,
+    terminal_status,
 };
 
 /// D-01: the single shared, serde-serializable nested period-view tree. The same
@@ -35,6 +36,16 @@ pub struct GoalNode {
     pub goal: TodoItem,
     pub child_goals: Vec<GoalNode>,
     pub tasks: Vec<TodoItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TodoDashboardSummary {
+    pub active: u64,
+    pub today_completed: u64,
+    pub today_incomplete: u64,
+    pub today_missed: u64,
+    pub today_total: u64,
+    pub overdue: u64,
 }
 
 impl TodoService {
@@ -74,6 +85,55 @@ impl TodoService {
             .into_iter()
             .filter(|item| terminal_status(item.status))
             .collect())
+    }
+
+    pub fn dashboard_summary(&mut self, today: Date) -> TodoResult<TodoDashboardSummary> {
+        let work = self
+            .list_items(ListFilter::default())?
+            .into_iter()
+            .filter(|item| matches!(item.item_type, ItemType::Task | ItemType::Event))
+            .filter(|item| {
+                matches!(
+                    item.status,
+                    ItemStatus::Active
+                        | ItemStatus::Waiting
+                        | ItemStatus::Paused
+                        | ItemStatus::Completed
+                        | ItemStatus::Missed
+                )
+            })
+            .collect::<Vec<_>>();
+        let today_work = work.iter().filter(|item| {
+            iso_day(item.scheduled.as_deref()) == Some(today)
+                || iso_day(item.due.as_deref()) == Some(today)
+        });
+        let mut summary = TodoDashboardSummary {
+            active: work
+                .iter()
+                .filter(|item| item.status == ItemStatus::Active)
+                .count() as u64,
+            today_completed: 0,
+            today_incomplete: 0,
+            today_missed: 0,
+            today_total: 0,
+            overdue: work
+                .iter()
+                .filter(|item| iso_day(item.scheduled.as_deref()).is_some_and(|date| date < today))
+                .count() as u64,
+        };
+        for item in today_work {
+            match item.status {
+                ItemStatus::Completed => summary.today_completed += 1,
+                ItemStatus::Active | ItemStatus::Waiting | ItemStatus::Paused => {
+                    summary.today_incomplete += 1;
+                }
+                ItemStatus::Missed => summary.today_missed += 1,
+                _ => {}
+            }
+        }
+        summary.today_total =
+            summary.today_completed + summary.today_incomplete + summary.today_missed;
+        Ok(summary)
     }
 
     /// Single-date agenda (VIEW-05 / SC3, D-02): open tasks where

@@ -1,5 +1,6 @@
 use std::fmt;
 use std::path::PathBuf;
+use time::UtcOffset;
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum AuthMode {
@@ -22,6 +23,7 @@ pub struct RavenApiConfig {
     pub ledger_db: PathBuf,
     pub health_db: PathBuf,
     pub health_media_dir: PathBuf,
+    pub local_offset: UtcOffset,
     pub auth: AuthMode,
 }
 
@@ -33,6 +35,7 @@ impl fmt::Debug for RavenApiConfig {
             .field("ledger_db", &"<redacted>")
             .field("health_db", &"<redacted>")
             .field("health_media_dir", &"<redacted>")
+            .field("local_offset", &self.local_offset)
             .field("auth", &self.auth)
             .finish()
     }

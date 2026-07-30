@@ -64,6 +64,7 @@ fn app() -> (tempfile::TempDir, axum::Router) {
         ledger_db: ledger,
         health_db: temp.path().join("health.sqlite"),
         health_media_dir: temp.path().join("media"),
+        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
         auth: AuthMode::UiSession {
             token: "test".into(),
         },
