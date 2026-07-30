@@ -6,9 +6,11 @@ use ledger_engine::application::commands::{
 use ledger_engine::application::doctor::DoctorOptions;
 use ledger_engine::application::error::{LedgerError, LedgerResult};
 use ledger_engine::application::export::ExportOptions;
-use ledger_engine::application::ports::{EntryQuery, Page};
+use ledger_engine::application::ports::{AuditEvent, EntryQuery, Page};
 use ledger_engine::application::queries::{AccountBalanceView, EntryView, TransferView};
-use ledger_engine::application::reports::ReportRange;
+use ledger_engine::application::reports::{
+    CurrencySummary, LedgerBriefing, LedgerComparison, LedgerSummary, ReportRange,
+};
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
 use ledger_engine::domain::{
@@ -22,11 +24,11 @@ use time::{Date, OffsetDateTime, UtcOffset, macros::format_description};
 
 use crate::cli::{
     AccountCategoryCommand, AccountCategoryCreateArgs, AccountCategoryUpdateArgs, AccountCommand,
-    AccountCreateArgs, AccountUpdateArgs, CategoryCommand, CategoryCreateArgs, CategoryKindArg,
-    CategoryUpdateArgs, CurrencyCommand, CurrencyCreateArgs, CurrencyUpdateArgs, DoctorArgs,
-    EntryAddArgs, EntryIdentityArgs, EntryListArgs, EntryShowArgs, EntryTypeArg, EntryUpdateArgs,
-    ExportArgs, LedgerCommand, LedgerEntryCommand, OutputFormat, PageReadArgs, PurgeArgs,
-    ReportArgs, ReportBy, ReportRangeArgs, TransferArgs, TransferShowArgs,
+    AccountCreateArgs, AccountUpdateArgs, AuditArgs, CategoryCommand, CategoryCreateArgs,
+    CategoryKindArg, CategoryUpdateArgs, CompareArgs, CurrencyCommand, CurrencyCreateArgs,
+    CurrencyUpdateArgs, DoctorArgs, EntryAddArgs, EntryIdentityArgs, EntryListArgs, EntryShowArgs,
+    EntryTypeArg, EntryUpdateArgs, ExportArgs, LedgerCommand, LedgerEntryCommand, OutputFormat,
+    PageReadArgs, PurgeArgs, ReportArgs, ReportBy, ReportRangeArgs, TransferArgs, TransferShowArgs,
 };
 use crate::config::RavenPaths;
 
@@ -53,6 +55,8 @@ fn execute(service: &mut Service, command: LedgerCommand) -> LedgerResult<()> {
         LedgerCommand::Reports(args) => reports(service, args),
         LedgerCommand::Balances(args) => balances(service, args),
         LedgerCommand::Briefing(args) => briefing(service, args),
+        LedgerCommand::Compare(args) => compare(service, args),
+        LedgerCommand::Audit(args) => audit(service, args),
         LedgerCommand::Doctor(args) => doctor(service, args),
         LedgerCommand::Export(args) => export(service, args),
     }
@@ -99,15 +103,11 @@ fn update_entry(service: &mut Service, args: EntryUpdateArgs) -> LedgerResult<()
     let input = entry_update_input(args)?;
     let amount = match input.amount.as_deref() {
         Some(value) => {
-            let reference = match input.currency.as_deref() {
-                Some(reference) => reference.to_string(),
-                None => service.get_entry(&id)?.currency_id().to_string(),
+            let precision = match input.currency.as_deref() {
+                Some(reference) => currency_precision(service, reference)?,
+                None => service.entry_currency_precision(&id)?,
             };
-            Some(parse_money(
-                value,
-                currency_precision(service, &reference)?,
-                "amount",
-            )?)
+            Some(parse_money(value, precision, "amount")?)
         }
         None => None,
     };
@@ -179,14 +179,14 @@ fn list_entries(service: &Service, args: EntryListArgs) -> LedgerResult<()> {
             for entry in &output.items {
                 println!(
                     "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                    entry.id,
-                    entry.date,
+                    table_cell(&entry.id),
+                    table_cell(&entry.date),
                     entry.entry_type,
                     entry.amount_minor,
-                    display_option(entry.currency_code.as_deref()),
-                    display_option(entry.account_name.as_deref()),
-                    display_option(entry.category_name.as_deref()),
-                    entry.content,
+                    table_option(entry.currency_code.as_deref()),
+                    table_option(entry.account_name.as_deref()),
+                    table_option(entry.category_name.as_deref()),
+                    table_cell(&entry.content),
                     entry.deleted_at.is_some()
                 );
             }
@@ -271,13 +271,13 @@ fn transfer_show(service: &Service, args: TransferShowArgs) -> LedgerResult<()> 
             println!("GROUP\tFROM\tTO\tAMOUNT_MINOR\tCURRENCY\tOUT_ENTRY\tIN_ENTRY");
             println!(
                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                output.transfer_group_id,
-                display_option(output.from_account_name.as_deref()),
-                display_option(output.to_account_name.as_deref()),
+                table_cell(&output.transfer_group_id),
+                table_option(output.from_account_name.as_deref()),
+                table_option(output.to_account_name.as_deref()),
                 output.amount_minor,
-                display_option(output.currency_code.as_deref()),
-                output.out_entry.id,
-                output.in_entry.id
+                table_option(output.currency_code.as_deref()),
+                table_cell(&output.out_entry.id),
+                table_cell(&output.in_entry.id)
             );
             Ok(())
         }
@@ -316,8 +316,11 @@ fn currency(service: &mut Service, command: CurrencyCommand) -> LedgerResult<()>
         }
         CurrencyCommand::List(args) => list_currencies(service, args),
         CurrencyCommand::Purge(args) => {
-            confirm_master(&args, "currency")?;
-            service.purge_currency(&args.id, args.confirm.as_deref().unwrap_or_default())?;
+            let Some(confirmation) = args.confirm.as_deref() else {
+                let preview = service.purge_currency_preview(&args.id)?;
+                return print_master_purge_preview(preview.confirmation_id, preview.record_type);
+            };
+            service.purge_currency(&args.id, confirmation)?;
             print_json(&PurgeResult {
                 purged: true,
                 id: args.id,
@@ -356,9 +359,11 @@ fn account_category(service: &mut Service, command: AccountCategoryCommand) -> L
         }
         AccountCategoryCommand::List(args) => list_account_categories(service, args),
         AccountCategoryCommand::Purge(args) => {
-            confirm_master(&args, "account_category")?;
-            service
-                .purge_account_category(&args.id, args.confirm.as_deref().unwrap_or_default())?;
+            let Some(confirmation) = args.confirm.as_deref() else {
+                let preview = service.purge_account_category_preview(&args.id)?;
+                return print_master_purge_preview(preview.confirmation_id, preview.record_type);
+            };
+            service.purge_account_category(&args.id, confirmation)?;
             print_json(&PurgeResult {
                 purged: true,
                 id: args.id,
@@ -386,15 +391,11 @@ fn account(service: &mut Service, command: AccountCommand) -> LedgerResult<()> {
             let input = account_update_input(args)?;
             let opening_balance = match input.opening_balance.as_deref() {
                 Some(value) => {
-                    let currency = match input.currency.as_deref() {
-                        Some(reference) => reference.to_string(),
-                        None => find_account(service, &id)?.currency_id().to_string(),
+                    let precision = match input.currency.as_deref() {
+                        Some(reference) => currency_precision(service, reference)?,
+                        None => service.account_currency_precision(&id)?,
                     };
-                    Some(parse_money(
-                        value,
-                        currency_precision(service, &currency)?,
-                        "opening_balance",
-                    )?)
+                    Some(parse_money(value, precision, "opening_balance")?)
                 }
                 None => None,
             };
@@ -414,8 +415,11 @@ fn account(service: &mut Service, command: AccountCommand) -> LedgerResult<()> {
         }
         AccountCommand::List(args) => list_accounts(service, args),
         AccountCommand::Purge(args) => {
-            confirm_master(&args, "account")?;
-            service.purge_account(&args.id, args.confirm.as_deref().unwrap_or_default())?;
+            let Some(confirmation) = args.confirm.as_deref() else {
+                let preview = service.purge_account_preview(&args.id)?;
+                return print_master_purge_preview(preview.confirmation_id, preview.record_type);
+            };
+            service.purge_account(&args.id, confirmation)?;
             print_json(&PurgeResult {
                 purged: true,
                 id: args.id,
@@ -454,8 +458,11 @@ fn category(service: &mut Service, command: CategoryCommand) -> LedgerResult<()>
         }
         CategoryCommand::List(args) => list_categories(service, args),
         CategoryCommand::Purge(args) => {
-            confirm_master(&args, "category")?;
-            service.purge_category(&args.id, args.confirm.as_deref().unwrap_or_default())?;
+            let Some(confirmation) = args.confirm.as_deref() else {
+                let preview = service.purge_category_preview(&args.id)?;
+                return print_master_purge_preview(preview.confirmation_id, preview.record_type);
+            };
+            service.purge_category(&args.id, confirmation)?;
             print_json(&PurgeResult {
                 purged: true,
                 id: args.id,
@@ -477,10 +484,10 @@ fn list_currencies(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
             for value in output.items {
                 println!(
                     "{}\t{}\t{}\t{}\t{}\t{}",
-                    value.id,
-                    value.code,
-                    value.name,
-                    value.symbol,
+                    table_cell(&value.id),
+                    table_cell(&value.code),
+                    table_cell(&value.name),
+                    table_cell(&value.symbol),
                     value.decimal_places,
                     value.active
                 );
@@ -503,9 +510,9 @@ fn list_account_categories(service: &Service, args: PageReadArgs) -> LedgerResul
             for value in output.items {
                 println!(
                     "{}\t{}\t{}\t{}\t{}",
-                    value.id,
-                    value.name,
-                    display_option(value.parent_id.as_deref()),
+                    table_cell(&value.id),
+                    table_cell(&value.name),
+                    table_option(value.parent_id.as_deref()),
                     value.liability,
                     value.active
                 );
@@ -528,10 +535,10 @@ fn list_accounts(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
             for value in output.items {
                 println!(
                     "{}\t{}\t{}\t{}\t{}\t{}",
-                    value.id,
-                    value.name,
-                    value.account_category_id,
-                    value.currency_id,
+                    table_cell(&value.id),
+                    table_cell(&value.name),
+                    table_cell(&value.account_category_id),
+                    table_cell(&value.currency_id),
                     value.opening_balance_minor,
                     value.active
                 );
@@ -554,9 +561,9 @@ fn list_categories(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
             for value in output.items {
                 println!(
                     "{}\t{}\t{}\t{}\t{}",
-                    value.id,
-                    value.name,
-                    display_option(value.parent_id.as_deref()),
+                    table_cell(&value.id),
+                    table_cell(&value.name),
+                    table_option(value.parent_id.as_deref()),
                     value.kind,
                     value.active
                 );
@@ -572,13 +579,13 @@ fn reports(service: &Service, args: ReportArgs) -> LedgerResult<()> {
         ReportBy::Summary => {
             let report = service.summary(range)?;
             match args.range.format {
-                OutputFormat::Json => print_json(&report),
+                OutputFormat::Json => print_json(&SummaryOutput::from(report)),
                 OutputFormat::Table => {
                     println!("CURRENCY\tINCOME_MINOR\tEXPENSE_MINOR\tNET_CHANGE_MINOR\tENTRIES");
                     for row in report.currencies {
                         println!(
                             "{}\t{}\t{}\t{}\t{}",
-                            row.currency_code,
+                            table_cell(&row.currency_code),
                             row.income_minor,
                             row.expense_minor,
                             row.net_change_minor,
@@ -611,8 +618,8 @@ fn print_report_rows(
             for row in report {
                 println!(
                     "{}\t{}\t{}\t{}\t{}\t{}",
-                    row.name,
-                    row.currency_code,
+                    table_cell(&row.name),
+                    table_cell(&row.currency_code),
                     row.income_minor,
                     row.expense_minor,
                     row.net_change_minor,
@@ -637,7 +644,10 @@ fn balances(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
             for row in output.items {
                 println!(
                     "{}\t{}\t{}\t{}",
-                    row.account_id, row.account_name, row.currency_code, row.current_balance_minor
+                    table_cell(&row.account_id),
+                    table_cell(&row.account_name),
+                    table_cell(&row.currency_code),
+                    row.current_balance_minor
                 );
             }
             Ok(())
@@ -648,9 +658,101 @@ fn balances(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
 fn briefing(service: &Service, args: ReportRangeArgs) -> LedgerResult<()> {
     let report = service.briefing(report_range(&args)?)?;
     match args.format {
-        OutputFormat::Json => print_json(&report),
+        OutputFormat::Json => print_json(&BriefingOutput::from(report)),
         OutputFormat::Table => {
             println!("{}", report.markdown);
+            Ok(())
+        }
+    }
+}
+
+fn compare(service: &Service, args: CompareArgs) -> LedgerResult<()> {
+    let current = explicit_range(
+        &args.current_from,
+        &args.current_to,
+        "current_from",
+        "current_to",
+    )?;
+    let previous = explicit_range(
+        &args.previous_from,
+        &args.previous_to,
+        "previous_from",
+        "previous_to",
+    )?;
+    let report = service.compare(current, previous)?;
+    match args.format {
+        OutputFormat::Json => print_json(&ComparisonOutput::from(report)),
+        OutputFormat::Table => {
+            println!(
+                "RANGE\tFROM\tTO\tCURRENCY\tINCOME_MINOR\tEXPENSE_MINOR\tNET_CHANGE_MINOR\tENTRIES"
+            );
+            print_comparison_rows("current", &report.current);
+            print_comparison_rows("previous", &report.previous);
+            Ok(())
+        }
+    }
+}
+
+fn print_comparison_rows(label: &str, summary: &LedgerSummary) {
+    if summary.currencies.is_empty() {
+        println!(
+            "{}\t{}\t{}\t-\t0\t0\t0\t0",
+            label, summary.range.start, summary.range.end
+        );
+        return;
+    }
+    for row in &summary.currencies {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            label,
+            summary.range.start,
+            summary.range.end,
+            table_cell(&row.currency_code),
+            row.income_minor,
+            row.expense_minor,
+            row.net_change_minor,
+            row.entry_count
+        );
+    }
+}
+
+fn audit(service: &Service, args: AuditArgs) -> LedgerResult<()> {
+    let record_type = required_reference(&args.record_type, "record_type")?;
+    let record_id = required_reference(&args.record_id, "record_id")?;
+    let page = service.audit_page(
+        record_type,
+        record_id,
+        Page {
+            offset: args.offset,
+            limit: args.limit,
+        },
+    )?;
+    let output = PageOutput {
+        items: page.items.into_iter().map(AuditEventOutput::from).collect(),
+        next: page.next.map(PageCursor::from),
+    };
+    match args.format {
+        OutputFormat::Json => print_json(&output),
+        OutputFormat::Table => {
+            println!(
+                "ID\tOCCURRED_AT\tACTOR\tACTION\tRECORD_TYPE\tRECORD_ID\tBEFORE_JSON\tAFTER_JSON\tREASON"
+            );
+            for event in output.items {
+                let before = compact_json_option(event.before.as_ref())?;
+                let after = compact_json_option(event.after.as_ref())?;
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    table_cell(&event.id),
+                    table_cell(&event.occurred_at),
+                    table_cell(&event.actor),
+                    table_cell(&event.action),
+                    table_cell(&event.record_type),
+                    table_cell(&event.record_id),
+                    table_cell(&before),
+                    table_cell(&after),
+                    table_option(event.reason.as_deref())
+                );
+            }
             Ok(())
         }
     }
@@ -676,10 +778,10 @@ fn doctor(service: &Service, args: DoctorArgs) -> LedgerResult<()> {
                 println!(
                     "{:?}\t{}\t{}\t{}\t{}",
                     issue.severity,
-                    issue.code,
-                    issue.record_type,
-                    display_option(issue.record_id.as_deref()),
-                    issue.message
+                    table_cell(&issue.code),
+                    table_cell(&issue.record_type),
+                    table_option(issue.record_id.as_deref()),
+                    table_cell(&issue.message)
                 );
             }
             Ok(())
@@ -695,7 +797,7 @@ fn export(service: &Service, args: ExportArgs) -> LedgerResult<()> {
         max_bytes: args.max_bytes.unwrap_or(defaults.max_bytes),
     })?;
     match args.format {
-        OutputFormat::Json => print_json(&export),
+        OutputFormat::Json => print_json_document(&export),
         OutputFormat::Table => {
             println!(
                 "schema_version={} restore_capable={} currencies={} account_categories={} \
@@ -720,15 +822,24 @@ fn report_range(args: &ReportRangeArgs) -> LedgerResult<ReportRange> {
     ReportRange::new(parse_date(&args.from, "from")?, parse_date(&args.to, "to")?)
 }
 
-fn confirm_master(args: &PurgeArgs, record_type: &'static str) -> LedgerResult<()> {
-    if args.confirm.is_none() {
-        print_json(&MasterPurgePreview {
-            confirmation_id: args.id.clone(),
-            record_type,
-        })?;
-        return Err(LedgerError::ConfirmationMismatch);
-    }
-    Ok(())
+fn explicit_range(
+    from: &str,
+    to: &str,
+    from_field: &'static str,
+    to_field: &'static str,
+) -> LedgerResult<ReportRange> {
+    ReportRange::new(parse_date(from, from_field)?, parse_date(to, to_field)?)
+}
+
+fn print_master_purge_preview(
+    confirmation_id: String,
+    record_type: &'static str,
+) -> LedgerResult<()> {
+    print_json(&MasterPurgePreviewOutput {
+        confirmation_id,
+        record_type,
+    })?;
+    Err(LedgerError::ConfirmationMismatch)
 }
 
 fn page(args: &PageReadArgs) -> Page {
@@ -782,20 +893,6 @@ fn all_currencies(service: &Service) -> LedgerResult<Vec<Currency>> {
         match result.next {
             Some(next) => page = next,
             None => return Ok(values),
-        }
-    }
-}
-
-fn find_account(service: &Service, id: &str) -> LedgerResult<Account> {
-    let mut page = Page::default();
-    loop {
-        let result = service.accounts_page(page)?;
-        if let Some(account) = result.items.into_iter().find(|account| account.id() == id) {
-            return Ok(account);
-        }
-        match result.next {
-            Some(next) => page = next,
-            None => return Err(LedgerError::NotFound(format!("account {id}"))),
         }
     }
 }
@@ -873,6 +970,17 @@ fn required(value: Option<String>, field: &'static str) -> LedgerResult<String> 
     value.ok_or_else(|| validation(field, "field is required"))
 }
 
+fn required_reference<'value>(
+    value: &'value str,
+    field: &'static str,
+) -> LedgerResult<&'value str> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(validation(field, "value must not be blank"));
+    }
+    Ok(value)
+}
+
 fn validation(field: &'static str, message: impl Into<String>) -> LedgerError {
     LedgerError::Validation {
         field,
@@ -901,8 +1009,51 @@ fn print_json(value: &impl Serialize) -> LedgerResult<()> {
     Ok(())
 }
 
+fn print_json_document(value: &impl Serialize) -> LedgerResult<()> {
+    use std::io::Write;
+
+    let output =
+        serde_json::to_vec(value).map_err(|error| LedgerError::Storage(error.to_string()))?;
+    std::io::stdout()
+        .write_all(&output)
+        .map_err(|error| LedgerError::Storage(error.to_string()))
+}
+
+fn compact_json_option(value: Option<&serde_json::Value>) -> LedgerResult<String> {
+    value
+        .map(serde_json::to_string)
+        .transpose()
+        .map(|value| value.unwrap_or_else(|| "-".to_string()))
+        .map_err(|error| LedgerError::Storage(error.to_string()))
+}
+
 fn display_option(value: Option<&str>) -> &str {
     value.unwrap_or("-")
+}
+
+fn table_option(value: Option<&str>) -> String {
+    table_cell(display_option(value))
+}
+
+fn table_cell(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => output.push_str(r"\\"),
+            '\t' => output.push_str(r"\t"),
+            '\n' => output.push_str(r"\n"),
+            '\r' => output.push_str(r"\r"),
+            character if character.is_control() => {
+                std::fmt::Write::write_fmt(
+                    &mut output,
+                    format_args!(r"\u{{{:04x}}}", u32::from(character)),
+                )
+                .expect("writing to a string cannot fail");
+            }
+            character => output.push(character),
+        }
+    }
+    output
 }
 
 fn format_timestamp(value: OffsetDateTime) -> String {
@@ -912,20 +1063,14 @@ fn format_timestamp(value: OffsetDateTime) -> String {
 }
 
 fn print_entry_table(entry: &EntryOutput) {
-    println!("id\t{}", entry.id);
-    println!("date\t{}", entry.date);
+    println!("id\t{}", table_cell(&entry.id));
+    println!("date\t{}", table_cell(&entry.date));
     println!("type\t{}", entry.entry_type);
     println!("amount_minor\t{}", entry.amount_minor);
-    println!(
-        "currency\t{}",
-        display_option(entry.currency_code.as_deref())
-    );
-    println!("account\t{}", display_option(entry.account_name.as_deref()));
-    println!(
-        "category\t{}",
-        display_option(entry.category_name.as_deref())
-    );
-    println!("content\t{}", entry.content);
+    println!("currency\t{}", table_option(entry.currency_code.as_deref()));
+    println!("account\t{}", table_option(entry.account_name.as_deref()));
+    println!("category\t{}", table_option(entry.category_name.as_deref()));
+    println!("content\t{}", table_cell(&entry.content));
 }
 
 #[derive(Debug, Deserialize)]
@@ -1611,6 +1756,122 @@ impl From<&AccountBalanceView> for BalanceOutput {
 }
 
 #[derive(Debug, Serialize)]
+struct ReportRangeOutput {
+    start: String,
+    end: String,
+}
+
+impl From<ReportRange> for ReportRangeOutput {
+    fn from(value: ReportRange) -> Self {
+        Self {
+            start: value.start.to_string(),
+            end: value.end.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct CurrencySummaryOutput {
+    currency_id: String,
+    currency_code: String,
+    income_minor: i64,
+    expense_minor: i64,
+    net_change_minor: i64,
+    entry_count: u64,
+}
+
+impl From<CurrencySummary> for CurrencySummaryOutput {
+    fn from(value: CurrencySummary) -> Self {
+        Self {
+            currency_id: value.currency_id,
+            currency_code: value.currency_code,
+            income_minor: value.income_minor,
+            expense_minor: value.expense_minor,
+            net_change_minor: value.net_change_minor,
+            entry_count: value.entry_count,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SummaryOutput {
+    range: ReportRangeOutput,
+    currencies: Vec<CurrencySummaryOutput>,
+}
+
+impl From<LedgerSummary> for SummaryOutput {
+    fn from(value: LedgerSummary) -> Self {
+        Self {
+            range: value.range.into(),
+            currencies: value
+                .currencies
+                .into_iter()
+                .map(CurrencySummaryOutput::from)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ComparisonOutput {
+    current: SummaryOutput,
+    previous: SummaryOutput,
+}
+
+impl From<LedgerComparison> for ComparisonOutput {
+    fn from(value: LedgerComparison) -> Self {
+        Self {
+            current: value.current.into(),
+            previous: value.previous.into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct BriefingOutput {
+    summary: SummaryOutput,
+    markdown: String,
+}
+
+impl From<LedgerBriefing> for BriefingOutput {
+    fn from(value: LedgerBriefing) -> Self {
+        Self {
+            summary: value.summary.into(),
+            markdown: value.markdown,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct AuditEventOutput {
+    id: String,
+    occurred_at: String,
+    actor: String,
+    action: String,
+    record_type: String,
+    record_id: String,
+    before: Option<serde_json::Value>,
+    after: Option<serde_json::Value>,
+    reason: Option<String>,
+}
+
+impl From<AuditEvent> for AuditEventOutput {
+    fn from(value: AuditEvent) -> Self {
+        Self {
+            id: value.id,
+            occurred_at: format_timestamp(value.occurred_at),
+            actor: value.actor,
+            action: value.action,
+            record_type: value.record_type,
+            record_id: value.record_id,
+            before: value.before,
+            after: value.after,
+            reason: value.reason,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct PurgePreviewOutput {
     confirmation_id: String,
     transfer_group_id: Option<String>,
@@ -1618,7 +1879,7 @@ struct PurgePreviewOutput {
 }
 
 #[derive(Debug, Serialize)]
-struct MasterPurgePreview {
+struct MasterPurgePreviewOutput {
     confirmation_id: String,
     record_type: &'static str,
 }

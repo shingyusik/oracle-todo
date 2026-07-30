@@ -87,6 +87,11 @@ pub enum LedgerCommand {
     Balances(PageReadArgs),
     /// Produce a concise date-range briefing.
     Briefing(ReportRangeArgs),
+    /// Compare summaries for two explicit inclusive date ranges.
+    Compare(CompareArgs),
+    /// Page through audit history for one Ledger record.
+    #[command(visible_alias = "history")]
+    Audit(AuditArgs),
     /// Run bounded, read-only Ledger diagnostics.
     Doctor(DoctorArgs),
     /// Export deterministic Ledger schema v3 JSON.
@@ -171,12 +176,16 @@ pub enum ReportBy {
 }
 
 #[derive(Debug, Args)]
+#[command(
+    long_about = "Create one Ledger entry from either a strict JSON object or mutation flags.",
+    after_help = "Input modes:\n  --json <OBJECT>\n  or the complete flag set: --date, --type, --amount, --currency, --account, --content.\n\nFormats:\n  --date YYYY-MM-DD\n  --written-at RFC3339\n\nExamples:\n  raven ledger entry add --date 2024-02-29 --type expense --amount 12.34 --currency USD --account cash --content Lunch\n  raven ledger entry add --json '{\"date\":\"2024-02-29\",\"entry_type\":\"expense\",\"amount\":\"12.34\",\"currency\":\"USD\",\"account\":\"cash\",\"content\":\"Lunch\"}'"
+)]
 pub struct EntryAddArgs {
     #[arg(long)]
     pub json: Option<String>,
-    #[arg(long)]
+    #[arg(long, value_name = "YYYY-MM-DD")]
     pub date: Option<String>,
-    #[arg(long)]
+    #[arg(long, value_name = "RFC3339")]
     pub written_at: Option<String>,
     #[arg(long = "type")]
     pub entry_type: Option<EntryTypeArg>,
@@ -279,14 +288,18 @@ pub struct PurgeArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(
+    long_about = "Create an atomic transfer from either a strict JSON object or mutation flags. Retries with the same canonical UUID v4 operation key are idempotent.",
+    after_help = "Input modes:\n  --json <OBJECT>\n  or the complete flag set: --operation-key, --date, --amount, --currency, --from-account, --to-account, --content.\n\nFormats:\n  --operation-key UUID v4 (canonical lowercase hyphenated form)\n  --date YYYY-MM-DD\n  --written-at RFC3339\n\nExample:\n  raven ledger transfer --operation-key 018f31c0-5c2a-4e75-9c18-a14d7bddb2a1 --date 2024-02-29 --amount 10.00 --currency USD --from-account checking --to-account savings --content Move"
+)]
 pub struct TransferArgs {
     #[arg(long)]
     pub json: Option<String>,
     #[arg(long, visible_alias = "idempotency-key")]
     pub operation_key: Option<String>,
-    #[arg(long)]
+    #[arg(long, value_name = "YYYY-MM-DD")]
     pub date: Option<String>,
-    #[arg(long)]
+    #[arg(long, value_name = "RFC3339")]
     pub written_at: Option<String>,
     #[arg(long)]
     pub amount: Option<String>,
@@ -477,10 +490,38 @@ pub struct ReportArgs {
 
 #[derive(Debug, Args)]
 pub struct ReportRangeArgs {
-    #[arg(long)]
+    #[arg(long, value_name = "YYYY-MM-DD")]
     pub from: String,
-    #[arg(long)]
+    #[arg(long, value_name = "YYYY-MM-DD")]
     pub to: String,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct CompareArgs {
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub current_from: String,
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub current_to: String,
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub previous_from: String,
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub previous_to: String,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct AuditArgs {
+    #[arg(long)]
+    pub record_type: String,
+    #[arg(long)]
+    pub record_id: String,
+    #[arg(long, default_value_t = 0)]
+    pub offset: u32,
+    #[arg(long, default_value_t = 100)]
+    pub limit: u16,
     #[arg(long, value_enum, default_value_t)]
     pub format: OutputFormat,
 }
@@ -501,7 +542,10 @@ pub struct ExportArgs {
     pub include_archived: bool,
     #[arg(long)]
     pub max_records: Option<usize>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Maximum bytes in the serialized JSON document (and JSON stdout)"
+    )]
     pub max_bytes: Option<usize>,
     #[arg(long, value_enum, default_value_t)]
     pub format: OutputFormat,

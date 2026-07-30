@@ -29,6 +29,30 @@ impl<R: LedgerReadRepository> LedgerService<R> {
             .map(entry_view_from_record))
     }
 
+    /// Returns the precision of the currency already preserved by an active entry.
+    ///
+    /// Historical master data is intentionally included: amount-only updates must
+    /// remain possible after the referenced currency is deactivated or archived.
+    pub fn entry_currency_precision(&self, id: &str) -> LedgerResult<u8> {
+        let entry = self
+            .repository
+            .get_entry_view_record(id, false)?
+            .ok_or_else(|| LedgerError::NotFound(format!("ledger entry {id}")))?;
+        self.historical_currency_precision(entry.entry.currency_id())
+    }
+
+    /// Returns the precision of the currency already preserved by an account.
+    ///
+    /// Inactive accounts and historical currencies remain readable because this
+    /// projection is only for parsing an amount on an existing account update.
+    pub fn account_currency_precision(&self, id: &str) -> LedgerResult<u8> {
+        let account = self
+            .repository
+            .get_account(id, false)?
+            .ok_or_else(|| LedgerError::NotFound(format!("account {id}")))?;
+        self.historical_currency_precision(account.currency_id())
+    }
+
     /// Lists entries with validated filters and resolved master-data labels.
     pub fn entries_page(&self, query: EntryQuery) -> LedgerResult<Paged<EntryView>> {
         self.query_entries(query)
@@ -67,6 +91,17 @@ impl<R: LedgerReadRepository> LedgerService<R> {
         paged(page, |page| {
             self.repository.list_active_transaction_categories(page)
         })
+    }
+
+    fn historical_currency_precision(&self, id: &str) -> LedgerResult<u8> {
+        self.repository
+            .get_currency(id, true)?
+            .map(|currency| currency.decimal_places())
+            .ok_or_else(|| {
+                LedgerError::Storage(format!(
+                    "persisted ledger record references missing currency {id}"
+                ))
+            })
     }
 }
 

@@ -350,6 +350,29 @@ fn referenced_master_data_cannot_be_purged_even_when_the_entry_is_archived() {
     let entry = seeded.service.create_entry(valid_expense()).unwrap();
     seeded.service.archive_entry(entry.id()).unwrap();
 
+    for preview in [
+        seeded
+            .service
+            .purge_currency_preview(&seeded.currency_id)
+            .map(|_| ()),
+        seeded
+            .service
+            .purge_account_category_preview(&seeded.account_category_id)
+            .map(|_| ()),
+        seeded
+            .service
+            .purge_account_preview(&seeded.account_id)
+            .map(|_| ()),
+        seeded
+            .service
+            .purge_category_preview(&seeded.transaction_category_id)
+            .map(|_| ()),
+    ] {
+        assert!(
+            matches!(preview, Err(LedgerError::Conflict(message)) if message.contains("referenced"))
+        );
+    }
+
     for (record_type, record_id, result) in [
         (
             "currency",
@@ -437,6 +460,32 @@ fn unreferenced_master_purge_keeps_final_snapshot_audits() {
             actor: "tester".to_string(),
         })
         .unwrap();
+
+    let currency_preview = seeded
+        .service
+        .purge_currency_preview(currency.id())
+        .unwrap();
+    assert_eq!(currency_preview.confirmation_id, currency.id());
+    assert_eq!(currency_preview.record_type, "currency");
+    let account_category_preview = seeded
+        .service
+        .purge_account_category_preview(account_category.id())
+        .unwrap();
+    assert_eq!(
+        account_category_preview.confirmation_id,
+        account_category.id()
+    );
+    assert_eq!(account_category_preview.record_type, "account_category");
+    let account_preview = seeded.service.purge_account_preview(account.id()).unwrap();
+    assert_eq!(account_preview.confirmation_id, account.id());
+    assert_eq!(account_preview.record_type, "account");
+    let category_preview = seeded
+        .service
+        .purge_category_preview(transaction_category.id())
+        .unwrap();
+    assert_eq!(category_preview.confirmation_id, transaction_category.id());
+    assert_eq!(category_preview.record_type, "transaction_category");
+
     let expected = [
         (
             "currency",
@@ -487,6 +536,23 @@ fn unreferenced_master_purge_keeps_final_snapshot_audits() {
         assert_eq!(purge.action, "purge");
         assert_eq!(purge.before, Some(before));
         assert_eq!(purge.after, None);
+    }
+}
+
+#[test]
+fn missing_master_purge_previews_return_not_found() {
+    let mut seeded = seeded_service_in_memory();
+
+    for preview in [
+        seeded.service.purge_currency_preview("missing").map(|_| ()),
+        seeded
+            .service
+            .purge_account_category_preview("missing")
+            .map(|_| ()),
+        seeded.service.purge_account_preview("missing").map(|_| ()),
+        seeded.service.purge_category_preview("missing").map(|_| ()),
+    ] {
+        assert!(matches!(preview, Err(LedgerError::NotFound(_))));
     }
 }
 

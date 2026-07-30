@@ -783,7 +783,6 @@ fn ambiguous_references_map_to_exit_two_without_creating_a_record() {
         home.path(),
         &["ledger", "account-category", "create", "--name", "Cash"],
     );
-
     assert_exit(
         home.path(),
         &[
@@ -844,4 +843,638 @@ fn ledger_health_rejects_future_schema_without_changing_database_bytes() {
             .contains("ledger=unavailable")
     );
     assert_eq!(std::fs::read(database).unwrap(), before);
+}
+
+#[test]
+fn historical_precision_updates_ignore_active_master_pages_and_soft_deletion() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"]);
+
+    for index in 0..101 {
+        let code = format!("X{index:03}");
+        json_success(
+            home.path(),
+            &[
+                "ledger",
+                "currency",
+                "create",
+                "--code",
+                &code,
+                "--name",
+                &format!("Currency {index:03}"),
+                "--symbol",
+                &code,
+                "--decimal-places",
+                "2",
+            ],
+        );
+    }
+    json_success(
+        home.path(),
+        &["ledger", "account-category", "create", "--name", "Cash"],
+    );
+    json_success(
+        home.path(),
+        &[
+            "ledger",
+            "category",
+            "create",
+            "--name",
+            "historical expense",
+            "--kind",
+            "expense",
+        ],
+    );
+    let currency = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "create",
+            "--code",
+            "HIS",
+            "--name",
+            "Historical",
+            "--symbol",
+            "H",
+            "--decimal-places",
+            "2",
+        ],
+    );
+    let currency_id = currency["id"].as_str().unwrap();
+    let account = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "create",
+            "--name",
+            "historical account",
+            "--category",
+            "Cash",
+            "--currency",
+            currency_id,
+            "--opening-balance",
+            "1.23",
+        ],
+    );
+    let account_id = account["id"].as_str().unwrap();
+    let entry = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "entry",
+            "add",
+            "--date",
+            "2024-02-29",
+            "--type",
+            "expense",
+            "--amount",
+            "2.34",
+            "--currency",
+            currency_id,
+            "--account",
+            account_id,
+            "--category",
+            "historical expense",
+            "--content",
+            "Historical precision",
+        ],
+    );
+    let entry_id = entry["id"].as_str().unwrap();
+
+    json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "update",
+            currency_id,
+            "--active",
+            "false",
+        ],
+    );
+    assert_eq!(
+        json_success(
+            home.path(),
+            &["ledger", "entry", "update", entry_id, "--amount", "3.45"],
+        )["amount_minor"],
+        345
+    );
+
+    json_success(
+        home.path(),
+        &[
+            "ledger", "account", "update", account_id, "--active", "false",
+        ],
+    );
+    assert_eq!(
+        json_success(
+            home.path(),
+            &[
+                "ledger",
+                "account",
+                "update",
+                account_id,
+                "--opening-balance",
+                "4.56",
+            ],
+        )["opening_balance_minor"],
+        456
+    );
+    assert_eq!(
+        json_success(
+            home.path(),
+            &[
+                "ledger",
+                "account",
+                "update",
+                account_id,
+                "--active",
+                "true",
+                "--opening-balance",
+                "5.67",
+            ],
+        )["opening_balance_minor"],
+        567
+    );
+
+    let connection = rusqlite::Connection::open(home.path().join("ledger.sqlite")).unwrap();
+    connection
+        .execute(
+            "UPDATE currencies
+             SET active = 0,
+                 updated_at = '2099-07-30T00:00:00Z',
+                 deleted_at = '2099-07-30T00:00:00Z'
+             WHERE id = ?1",
+            [currency_id],
+        )
+        .unwrap();
+    drop(connection);
+
+    assert_eq!(
+        json_success(
+            home.path(),
+            &[
+                "ledger",
+                "account",
+                "update",
+                account_id,
+                "--opening-balance",
+                "7.89",
+            ],
+        )["opening_balance_minor"],
+        789
+    );
+
+    let connection = rusqlite::Connection::open(home.path().join("ledger.sqlite")).unwrap();
+    connection
+        .execute(
+            "UPDATE accounts
+             SET active = 0,
+                 updated_at = '2099-07-30T00:00:00Z',
+                 deleted_at = '2099-07-30T00:00:00Z'
+             WHERE id = ?1",
+            [account_id],
+        )
+        .unwrap();
+    drop(connection);
+
+    assert_eq!(
+        json_success(
+            home.path(),
+            &["ledger", "entry", "update", entry_id, "--amount", "6.78"],
+        )["amount_minor"],
+        678
+    );
+}
+
+#[test]
+fn reports_compare_briefing_and_audit_emit_stable_iso_json() {
+    let home = tempfile::tempdir().unwrap();
+    init_and_seed(home.path());
+    let entry = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "entry",
+            "add",
+            "--date",
+            "2024-02-29",
+            "--written-at",
+            "2024-02-29T23:30:00-05:00",
+            "--type",
+            "expense",
+            "--amount",
+            "10",
+            "--currency",
+            "KRW",
+            "--account",
+            "card",
+            "--category",
+            "food",
+            "--content",
+            "Leap day",
+        ],
+    );
+    let entry_id = entry["id"].as_str().unwrap();
+    json_success(
+        home.path(),
+        &["ledger", "entry", "update", entry_id, "--notes", "reviewed"],
+    );
+
+    let report = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "reports",
+            "--from",
+            "2024-02-29",
+            "--to",
+            "2024-03-01",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(
+        report["range"],
+        json!({"start":"2024-02-29","end":"2024-03-01"})
+    );
+
+    let briefing = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "briefing",
+            "--from",
+            "2024-02-29",
+            "--to",
+            "2024-03-01",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(
+        briefing["summary"]["range"],
+        json!({"start":"2024-02-29","end":"2024-03-01"})
+    );
+
+    let comparison = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "compare",
+            "--current-from",
+            "2024-02-29",
+            "--current-to",
+            "2024-03-01",
+            "--previous-from",
+            "2023-02-28",
+            "--previous-to",
+            "2023-03-01",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(
+        comparison["current"]["range"],
+        json!({"start":"2024-02-29","end":"2024-03-01"})
+    );
+    assert_eq!(
+        comparison["previous"]["range"],
+        json!({"start":"2023-02-28","end":"2023-03-01"})
+    );
+    let comparison_table = success(
+        home.path(),
+        &[
+            "ledger",
+            "compare",
+            "--current-from",
+            "2024-02-29",
+            "--current-to",
+            "2024-03-01",
+            "--previous-from",
+            "2023-02-28",
+            "--previous-to",
+            "2023-03-01",
+            "--format",
+            "table",
+        ],
+    );
+    let comparison_table = String::from_utf8(comparison_table.stdout).unwrap();
+    assert!(comparison_table.contains("current\t2024-02-29\t2024-03-01"));
+    assert!(comparison_table.contains("previous\t2023-02-28\t2023-03-01"));
+
+    let first = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "audit",
+            "--record-type",
+            "ledger_entry",
+            "--record-id",
+            entry_id,
+            "--limit",
+            "1",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(first["items"].as_array().unwrap().len(), 1);
+    let occurred_at = first["items"][0]["occurred_at"].as_str().unwrap();
+    let parsed =
+        time::OffsetDateTime::parse(occurred_at, &time::format_description::well_known::Rfc3339)
+            .unwrap();
+    assert_eq!(parsed.offset(), time::UtcOffset::UTC);
+    assert!(occurred_at.ends_with('Z'));
+    assert_eq!(first["items"][0]["after"]["date"], "2024-02-29");
+    assert_eq!(
+        first["items"][0]["after"]["written_at"],
+        "2024-03-01T04:30:00Z"
+    );
+    assert_eq!(first["next"], json!({"offset":1,"limit":1}));
+
+    let second = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "history",
+            "--record-type",
+            "ledger_entry",
+            "--record-id",
+            entry_id,
+            "--offset",
+            "1",
+            "--limit",
+            "1",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(second["items"].as_array().unwrap().len(), 1);
+    assert!(
+        second["items"][0]["occurred_at"]
+            .as_str()
+            .unwrap()
+            .ends_with('Z')
+    );
+    let audit_table = success(
+        home.path(),
+        &[
+            "ledger",
+            "audit",
+            "--record-type",
+            "ledger_entry",
+            "--record-id",
+            entry_id,
+            "--limit",
+            "1",
+            "--format",
+            "table",
+        ],
+    );
+    let audit_table = String::from_utf8(audit_table.stdout).unwrap();
+    assert!(audit_table.contains("OCCURRED_AT"));
+    assert!(audit_table.contains("BEFORE_JSON"));
+    assert!(audit_table.contains(r#""date":"2024-02-29""#));
+
+    let help = String::from_utf8(success(home.path(), &["ledger", "--help"]).stdout).unwrap();
+    assert!(help.contains("compare"));
+    assert!(help.contains("audit"));
+    assert!(help.contains("history"));
+}
+
+#[test]
+fn master_purge_preview_is_service_validated_before_stdout() {
+    let home = tempfile::tempdir().unwrap();
+    init_and_seed(home.path());
+
+    let missing = assert_exit(home.path(), &["ledger", "currency", "purge", "missing"], 4);
+    assert!(missing.stdout.is_empty());
+
+    let krw = json_success(
+        home.path(),
+        &["ledger", "currency", "list", "--format", "json"],
+    );
+    let krw_id = krw["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["code"] == "KRW")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let referenced = assert_exit(home.path(), &["ledger", "currency", "purge", krw_id], 2);
+    assert!(referenced.stdout.is_empty());
+    assert!(
+        String::from_utf8(referenced.stderr)
+            .unwrap()
+            .contains("referenced")
+    );
+    let referenced_confirmed = assert_exit(
+        home.path(),
+        &["ledger", "currency", "purge", krw_id, "--confirm", krw_id],
+        2,
+    );
+    assert!(referenced_confirmed.stdout.is_empty());
+    assert!(
+        String::from_utf8(referenced_confirmed.stderr)
+            .unwrap()
+            .contains("referenced")
+    );
+
+    let temporary = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "create",
+            "--code",
+            "TMP",
+            "--name",
+            "Temporary",
+            "--symbol",
+            "T",
+            "--decimal-places",
+            "2",
+        ],
+    );
+    let temporary_id = temporary["id"].as_str().unwrap();
+    let connection = rusqlite::Connection::open(home.path().join("ledger.sqlite")).unwrap();
+    connection
+        .execute(
+            "UPDATE currencies
+             SET active = 0,
+                 updated_at = '2099-07-30T00:00:00Z',
+                 deleted_at = '2099-07-30T00:00:00Z'
+             WHERE id = ?1",
+            [temporary_id],
+        )
+        .unwrap();
+    drop(connection);
+    let preview = assert_exit(
+        home.path(),
+        &["ledger", "currency", "purge", temporary_id],
+        2,
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&preview.stdout).unwrap(),
+        json!({"confirmation_id":temporary_id,"record_type":"currency"})
+    );
+    json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "purge",
+            temporary_id,
+            "--confirm",
+            temporary_id,
+        ],
+    );
+    assert_exit(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "purge",
+            temporary_id,
+            "--confirm",
+            temporary_id,
+        ],
+        4,
+    );
+}
+
+#[test]
+fn mutation_help_documents_input_modes_and_canonical_formats() {
+    let home = tempfile::tempdir().unwrap();
+    let entry =
+        String::from_utf8(success(home.path(), &["ledger", "entry", "add", "--help"]).stdout)
+            .unwrap();
+    for required in [
+        "--json",
+        "--date YYYY-MM-DD",
+        "--written-at RFC3339",
+        "--type",
+        "--amount",
+        "--currency",
+        "--account",
+        "--content",
+    ] {
+        assert!(
+            entry.contains(required),
+            "missing {required:?} in:\n{entry}"
+        );
+    }
+
+    let transfer =
+        String::from_utf8(success(home.path(), &["ledger", "transfer", "--help"]).stdout).unwrap();
+    for required in [
+        "--json",
+        "--operation-key",
+        "UUID v4",
+        "--date YYYY-MM-DD",
+        "--written-at RFC3339",
+        "--from-account",
+        "--to-account",
+    ] {
+        assert!(
+            transfer.contains(required),
+            "missing {required:?} in:\n{transfer}"
+        );
+    }
+}
+
+#[test]
+fn table_cells_escape_line_breaks_controls_and_ansi_but_json_does_not() {
+    let home = tempfile::tempdir().unwrap();
+    init_and_seed(home.path());
+    let content = "line1\tline2\nline3\r\u{1b}[31m\\end";
+    let entry = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "entry",
+            "add",
+            "--date",
+            "2026-07-30",
+            "--type",
+            "expense",
+            "--amount",
+            "1",
+            "--currency",
+            "KRW",
+            "--account",
+            "card",
+            "--category",
+            "food",
+            "--content",
+            content,
+        ],
+    );
+    let entry_id = entry["id"].as_str().unwrap();
+
+    let table = success(
+        home.path(),
+        &["ledger", "entry", "list", "--format", "table"],
+    );
+    let stdout = String::from_utf8(table.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 2);
+    assert!(!stdout.contains('\r'));
+    assert!(!stdout.contains('\u{1b}'));
+    assert!(stdout.contains(r"line1\tline2\nline3\r\u{001b}[31m\\end"));
+
+    let shown = json_success(
+        home.path(),
+        &["ledger", "entry", "show", entry_id, "--format", "json"],
+    );
+    assert_eq!(shown["content"], content);
+}
+
+#[test]
+fn export_max_bytes_caps_exact_stdout_document_bytes() {
+    let home = tempfile::tempdir().unwrap();
+    init_and_seed(home.path());
+    add_lunch(home.path());
+
+    let baseline = success(
+        home.path(),
+        &[
+            "ledger",
+            "export",
+            "--format",
+            "json",
+            "--max-bytes",
+            "10000000",
+        ],
+    );
+    assert!(!baseline.stdout.ends_with(b"\n"));
+    let exact = baseline.stdout.len().to_string();
+    let capped = success(
+        home.path(),
+        &[
+            "ledger",
+            "export",
+            "--format",
+            "json",
+            "--max-bytes",
+            &exact,
+        ],
+    );
+    assert_eq!(capped.stdout, baseline.stdout);
+
+    let one_less = (baseline.stdout.len() - 1).to_string();
+    assert_exit(
+        home.path(),
+        &[
+            "ledger",
+            "export",
+            "--format",
+            "json",
+            "--max-bytes",
+            &one_less,
+        ],
+        1,
+    );
 }

@@ -12,3 +12,5 @@ pub mod reports;
 mod review_policy_tests;
 pub mod service;
 pub mod transfers;
+
+pub use lifecycle::{MasterPurgePreview, PurgePreview};

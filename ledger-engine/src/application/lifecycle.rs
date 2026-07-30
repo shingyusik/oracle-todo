@@ -20,6 +20,12 @@ pub struct PurgePreview {
     pub entry_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MasterPurgePreview {
+    pub confirmation_id: String,
+    pub record_type: &'static str,
+}
+
 #[derive(Serialize)]
 struct TransferLifecycleAudit<'entry> {
     operation_id: &'entry str,
@@ -124,6 +130,18 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         transaction.commit()
     }
 
+    pub fn purge_currency_preview(&mut self, id: &str) -> LedgerResult<MasterPurgePreview> {
+        let transaction = self.repository.begin_transaction()?;
+        transaction
+            .get_currency(id, true)?
+            .ok_or_else(|| LedgerError::NotFound(format!("currency {id}")))?;
+        if transaction.currency_has_dependencies(id)? {
+            return Err(referenced("currency", id));
+        }
+        transaction.rollback()?;
+        Ok(master_purge_preview(id, "currency"))
+    }
+
     pub fn purge_account_category(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
         validate_confirmation(id, confirmation)?;
         let now = OffsetDateTime::now_utc();
@@ -137,6 +155,18 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         transaction.insert_audit_event(&purge_audit(now, "account_category", &before)?)?;
         transaction.delete_account_category(id)?;
         transaction.commit()
+    }
+
+    pub fn purge_account_category_preview(&mut self, id: &str) -> LedgerResult<MasterPurgePreview> {
+        let transaction = self.repository.begin_transaction()?;
+        transaction
+            .get_account_category(id, true)?
+            .ok_or_else(|| LedgerError::NotFound(format!("account category {id}")))?;
+        if transaction.account_category_has_dependencies(id)? {
+            return Err(referenced("account category", id));
+        }
+        transaction.rollback()?;
+        Ok(master_purge_preview(id, "account_category"))
     }
 
     pub fn purge_account(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
@@ -154,6 +184,18 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         transaction.commit()
     }
 
+    pub fn purge_account_preview(&mut self, id: &str) -> LedgerResult<MasterPurgePreview> {
+        let transaction = self.repository.begin_transaction()?;
+        transaction
+            .get_account(id, true)?
+            .ok_or_else(|| LedgerError::NotFound(format!("account {id}")))?;
+        if transaction.account_has_entries(id)? {
+            return Err(referenced("account", id));
+        }
+        transaction.rollback()?;
+        Ok(master_purge_preview(id, "account"))
+    }
+
     pub fn purge_category(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
         validate_confirmation(id, confirmation)?;
         let now = OffsetDateTime::now_utc();
@@ -169,6 +211,20 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         transaction.insert_audit_event(&purge_audit(now, "transaction_category", &before)?)?;
         transaction.delete_transaction_category(id)?;
         transaction.commit()
+    }
+
+    pub fn purge_category_preview(&mut self, id: &str) -> LedgerResult<MasterPurgePreview> {
+        let transaction = self.repository.begin_transaction()?;
+        transaction
+            .get_transaction_category(id, true)?
+            .ok_or_else(|| LedgerError::NotFound(format!("transaction category {id}")))?;
+        if transaction.transaction_category_has_entries(id)?
+            || transaction.transaction_category_has_children(id)?
+        {
+            return Err(referenced("transaction category", id));
+        }
+        transaction.rollback()?;
+        Ok(master_purge_preview(id, "transaction_category"))
     }
 
     fn set_entry_archived(
@@ -238,6 +294,13 @@ fn validate_confirmation(id: &str, confirmation: &str) -> LedgerResult<()> {
         return Err(LedgerError::ConfirmationMismatch);
     }
     Ok(())
+}
+
+fn master_purge_preview(id: &str, record_type: &'static str) -> MasterPurgePreview {
+    MasterPurgePreview {
+        confirmation_id: id.to_string(),
+        record_type,
+    }
 }
 
 fn purge_audit<T: Serialize + RecordIdentity>(
