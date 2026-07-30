@@ -65,13 +65,14 @@ export async function fetchDashboard(): Promise<RavenDashboard> {
 
 export function mapDashboard(value: unknown): RavenDashboard {
   const wire = record(value, "dashboard");
+  const requestId = uuid(wire.request_id, "dashboard.request_id");
   const activity = array(wire.recent_activity, "dashboard.recent_activity");
   if (activity.length > 20) throw new TypeError("invalid dashboard.recent_activity");
   return {
-    requestId: uuid(wire.request_id, "dashboard.request_id"),
-    todo: projection(wire.todo, mapTodo),
-    ledger: projection(wire.ledger, mapLedger),
-    health: projection(wire.health, mapHealth),
+    requestId,
+    todo: projection(wire.todo, mapTodo, requestId),
+    ledger: projection(wire.ledger, mapLedger, requestId),
+    health: projection(wire.health, mapHealth, requestId),
     recentActivity: activity.map((item) => {
       const row = record(item, "dashboard activity");
       const domain = string(row.domain, "dashboard activity.domain");
@@ -88,16 +89,24 @@ export function mapDashboard(value: unknown): RavenDashboard {
   };
 }
 
-function projection<T>(value: unknown, mapper: (value: unknown) => T): DomainProjection<T> {
+function projection<T>(
+  value: unknown,
+  mapper: (value: unknown) => T,
+  rootRequestId: string,
+): DomainProjection<T> {
   const wire = record(value, "dashboard projection");
   const status = string(wire.status, "dashboard projection.status");
   if (status === "ok") return { status, data: mapper(wire.data) };
   if (status === "error") {
+    const requestId = uuid(wire.request_id, "dashboard projection.request_id");
+    if (requestId !== rootRequestId) {
+      throw new TypeError("dashboard projection request_id does not match root request_id");
+    }
     return {
       status,
       code: nonEmptyString(wire.code, "dashboard projection.code"),
       message: string(wire.message, "dashboard projection.message"),
-      requestId: uuid(wire.request_id, "dashboard projection.request_id"),
+      requestId,
     };
   }
   throw new TypeError("invalid dashboard projection.status");
@@ -127,11 +136,11 @@ function mapLedger(value: unknown): LedgerDashboard {
           row.currency_code,
           "ledger dashboard currency.currency_code",
         ),
-        incomeMinor: safeInteger(
+        incomeMinor: count(
           row.income_minor,
           "ledger dashboard currency.income_minor",
         ),
-        expenseMinor: safeInteger(
+        expenseMinor: count(
           row.expense_minor,
           "ledger dashboard currency.expense_minor",
         ),

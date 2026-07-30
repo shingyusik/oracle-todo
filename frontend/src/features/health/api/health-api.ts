@@ -20,7 +20,8 @@ import {
   jsonRequest,
   record,
   requestJson,
-  type JsonRecord,
+  type JsonObject,
+  type JsonValue,
 } from "@/lib/raven-api";
 
 const ROOT = "/api/v1/health";
@@ -147,7 +148,7 @@ export const healthApi = {
   },
 };
 
-function dietBody(input: DietInput): JsonRecord {
+function dietBody(input: DietInput): JsonObject {
   return clean({
     occurred_at: input.occurredAt,
     meal_type: input.mealType,
@@ -158,7 +159,7 @@ function dietBody(input: DietInput): JsonRecord {
   });
 }
 
-function eventBody(input: EventInput): JsonRecord {
+function eventBody(input: EventInput): JsonObject {
   return clean({
     occurred_at: input.occurredAt,
     details: detailsBody(input.details),
@@ -167,7 +168,7 @@ function eventBody(input: EventInput): JsonRecord {
   });
 }
 
-function detailsBody(input: HealthEventDetailsInput): JsonRecord {
+function detailsBody(input: HealthEventDetailsInput): JsonObject {
   switch (input.kind) {
     case "weight":
       return clean({
@@ -238,8 +239,10 @@ function mapItems<T>(value: unknown, mapper: (value: unknown) => T): T[] {
   return array(wire.items, "items response.items").map(mapper);
 }
 
-function clean(value: Record<string, unknown>): JsonRecord {
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+function clean(value: Record<string, JsonValue | undefined>): JsonObject {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  ) as JsonObject;
 }
 
 function segment(value: string): string {

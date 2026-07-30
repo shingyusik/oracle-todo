@@ -38,4 +38,19 @@ describe("Dashboard API boundary", () => {
     expect(dashboard.health.status).toBe("ok");
     expect(dashboard.recentActivity).toHaveLength(1);
   });
+
+  it("rejects a domain error with a different correlation id", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      request_id: "00000000-0000-4000-8000-000000000001",
+      todo: { status: "error", code: "domain_unavailable", message: "Unavailable",
+        request_id: "00000000-0000-4000-8000-000000000002" },
+      ledger: { status: "error", code: "domain_unavailable", message: "Unavailable",
+        request_id: "00000000-0000-4000-8000-000000000001" },
+      health: { status: "error", code: "domain_unavailable", message: "Unavailable",
+        request_id: "00000000-0000-4000-8000-000000000001" },
+      recent_activity: [],
+    }), { headers: { "content-type": "application/json" } })));
+
+    await expect(fetchDashboard()).rejects.toThrow();
+  });
 });

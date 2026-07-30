@@ -68,7 +68,6 @@ export type LedgerEntryUpdate = Partial<Omit<LedgerEntryInput, "category" | "not
 };
 
 export type TransferInput = {
-  operationKey: string;
   date: string;
   writtenAt: string;
   content: string;
@@ -162,7 +161,7 @@ export function mapLedgerEntry(value: unknown): LedgerEntry {
     ),
     accountId: id(wire.account_id, "ledger entry.account_id"),
     entryType: entryType(wire.entry_type),
-    amountMinor: safeInteger(wire.amount, "ledger entry.amount"),
+    amountMinor: positiveInteger(wire.amount, "ledger entry.amount"),
     currencyId: id(wire.currency_id, "ledger entry.currency_id"),
     transferGroupId: nullableString(wire.transfer_group_id, "ledger entry.transfer_group_id"),
     source: string(wire.source, "ledger entry.source"),
@@ -189,8 +188,8 @@ export function mapCurrency(value: unknown): Currency {
     id: id(wire.id, "currency.id"),
     code: nonEmptyString(wire.code, "currency.code"),
     name: nonEmptyString(wire.name, "currency.name"),
-    symbol: string(wire.symbol, "currency.symbol"),
-    decimalPlaces: safeInteger(wire.decimal_places, "currency.decimal_places"),
+    symbol: nonEmptyString(wire.symbol, "currency.symbol"),
+    decimalPlaces: rangeInteger(wire.decimal_places, "currency.decimal_places", 0, 18),
     active: boolean(wire.active, "currency.active"),
   };
 }
@@ -247,7 +246,7 @@ export function mapTransfer(value: unknown): TransferView {
     transferGroupId: id(wire.transfer_group_id, "transfer.transfer_group_id"),
     outEntry: mapLedgerEntryView(wire.out_entry),
     inEntry: mapLedgerEntryView(wire.in_entry),
-    amountMinor: safeInteger(wire.amount_minor, "transfer.amount_minor"),
+    amountMinor: positiveInteger(wire.amount_minor, "transfer.amount_minor"),
     currencyCode: nullableString(wire.currency_code, "transfer.currency_code"),
     fromAccountName: nullableString(wire.from_account_name, "transfer.from_account_name"),
     toAccountName: nullableString(wire.to_account_name, "transfer.to_account_name"),
@@ -318,7 +317,7 @@ export function mapPage<T>(
     items: array(wire.items, "page.items").map(mapItem),
     nextOffset: wire.next_offset === null
       ? null
-      : safeInteger(wire.next_offset, "page.next_offset"),
+      : rangeInteger(wire.next_offset, "page.next_offset", 0, 4_294_967_295),
   };
 }
 
@@ -327,10 +326,10 @@ function mapCurrencySummary(value: unknown): CurrencySummary {
   return {
     currencyId: id(wire.currency_id, "currency summary.currency_id"),
     currencyCode: nonEmptyString(wire.currency_code, "currency summary.currency_code"),
-    incomeMinor: safeInteger(wire.income_minor, "currency summary.income_minor"),
-    expenseMinor: safeInteger(wire.expense_minor, "currency summary.expense_minor"),
+    incomeMinor: unsignedInteger(wire.income_minor, "currency summary.income_minor"),
+    expenseMinor: unsignedInteger(wire.expense_minor, "currency summary.expense_minor"),
     netChangeMinor: safeInteger(wire.net_change_minor, "currency summary.net_change_minor"),
-    entryCount: safeInteger(wire.entry_count, "currency summary.entry_count"),
+    entryCount: unsignedInteger(wire.entry_count, "currency summary.entry_count"),
   };
 }
 
@@ -347,5 +346,19 @@ function categoryKind(value: unknown): TransactionCategoryKind {
   if (result !== "expense" && result !== "income") {
     throw new TypeError("invalid transaction category.kind");
   }
+  return result;
+}
+
+function positiveInteger(value: unknown, field: string): number {
+  return rangeInteger(value, field, 1, Number.MAX_SAFE_INTEGER);
+}
+
+function unsignedInteger(value: unknown, field: string): number {
+  return rangeInteger(value, field, 0, Number.MAX_SAFE_INTEGER);
+}
+
+function rangeInteger(value: unknown, field: string, min: number, max: number): number {
+  const result = safeInteger(value, field);
+  if (result < min || result > max) throw new TypeError(`invalid ${field}`);
   return result;
 }

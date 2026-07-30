@@ -45,16 +45,55 @@ describe("Health wire boundary", () => {
     attributes,
     mappedAttributes,
   ) => {
-    const valueNum = category === "sleep" ? 7.5 : category === "weight" ? 71.5 : 1;
+    const projection = {
+      weight: { name: "Body weight", value: 71.5, unit: "kg" },
+      bowel: { name: "Bowel", value: 4, unit: null },
+      sleep: { name: "Sleep", value: 7.5, unit: "hours" },
+      lab: { name: "Glucose", value: 90, unit: null },
+      symptom: { name: "Headache", value: 3, unit: "score" },
+      medication: { name: "Vitamin", value: 1, unit: "tablet" },
+    }[category as "weight"];
     expect(mapHealthEvent({
       ...base,
       category,
       metric_key: metricKey,
-      name: category,
-      value_num: valueNum,
-      unit: null,
+      name: projection.name,
+      value_num: projection.value,
+      unit: projection.unit,
       attributes,
     })).toMatchObject({ category, metricKey, attributes: mappedAttributes });
+  });
+
+  it.each([
+    ["weight", "body_weight", "Body weight", 0, "kg",
+      { metric_key: "body_weight", name: "Body weight", value: 0, unit: "kg" }],
+    ["bowel", "bowel", "Bowel", 3, null,
+      { bristol_scale: 4, blood_visible: false }],
+    ["sleep", "sleep_duration", "Sleep", 25, "hours",
+      { metric_key: "sleep_duration", name: "Sleep", hours: 25 }],
+    ["lab", "Bad_Key", "Lab", 1, null,
+      { metric_key: "Bad_Key", name: "Lab", value: 1 }],
+    ["symptom", "headache", "Different", 3, "score",
+      { metric_key: "headache", name: "Headache", score: 3, condition_note: null }],
+    ["medication", "medication", "Vitamin", -1, "tablet",
+      { medication_name: "Vitamin", dose: -1, unit: "tablet" }],
+  ])("rejects impossible or contradictory %s projections", (
+    category,
+    metricKey,
+    name,
+    value,
+    unit,
+    attributes,
+  ) => {
+    expect(() => mapHealthEvent({
+      ...base,
+      category,
+      metric_key: metricKey,
+      name,
+      value_num: value,
+      unit,
+      attributes,
+    })).toThrow();
   });
 
   it("maps tagged timeline records and trends", () => {
@@ -84,6 +123,28 @@ describe("Health wire boundary", () => {
       occurredAt: "2026-07-31T01:00:00Z",
       value: 71.5,
     });
+  });
+
+  it("rejects impossible Diet and trend bounds", () => {
+    const diet = {
+      ...base,
+      meal_type: "lunch",
+      food_name: "x".repeat(121),
+      tags: [],
+      media_id: null,
+    };
+    expect(() => mapTimelineItem({ kind: "diet", record: diet })).toThrow();
+    const trends = {
+      days: 0,
+      top_diet_tags: [],
+      bowel_average_by_day: [],
+      symptom_frequencies: [],
+      medication_frequencies: [],
+      numeric_series: [],
+      possible_tag_reactions: [],
+      reaction_disclaimer: "Descriptive only.",
+    };
+    expect(() => mapHealthTrends(trends)).toThrow();
   });
 
   it("uploads image bytes without forcing JSON content type", async () => {

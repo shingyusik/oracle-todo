@@ -33,9 +33,16 @@ import {
   mapTransactionCategory,
   mapTransfer,
 } from "@/features/ledger/model/ledger-model";
-import { apiPath, jsonRequest, requestJson, type JsonRecord } from "@/lib/raven-api";
+import {
+  apiPath,
+  jsonRequest,
+  requestJson,
+  type JsonObject,
+  type JsonValue,
+} from "@/lib/raven-api";
 
 const ROOT = "/api/v1/ledger";
+const transferOperationKeys = new WeakMap<TransferInput, string>();
 
 export type Page<T> = { items: T[]; nextOffset: number | null };
 export type PageQuery = { offset?: number; limit?: number };
@@ -113,8 +120,10 @@ export const ledgerApi = {
     );
   },
   async createTransfer(input: TransferInput): Promise<TransferView> {
-    return mapTransfer(await requestJson(`${ROOT}/transfers`, jsonRequest("POST", clean({
-      operation_key: input.operationKey,
+    const operationKey = transferOperationKeys.get(input) ?? crypto.randomUUID();
+    transferOperationKeys.set(input, operationKey);
+    const transfer = mapTransfer(await requestJson(`${ROOT}/transfers`, jsonRequest("POST", clean({
+      operation_key: operationKey,
       date: input.date,
       written_at: input.writtenAt,
       content: input.content,
@@ -126,6 +135,8 @@ export const ledgerApi = {
       notes: input.notes,
       actor: input.actor,
     }))));
+    transferOperationKeys.delete(input);
+    return transfer;
   },
   async getTransfer(id: string): Promise<TransferView> {
     return mapTransfer(await requestJson(`${ROOT}/transfers/${segment(id)}`));
@@ -278,7 +289,7 @@ async function masterPage<T>(
   );
 }
 
-function entryBody(input: LedgerEntryInput): JsonRecord {
+function entryBody(input: LedgerEntryInput): JsonObject {
   return clean({
     date: input.date,
     written_at: input.writtenAt,
@@ -294,7 +305,7 @@ function entryBody(input: LedgerEntryInput): JsonRecord {
   });
 }
 
-function entryUpdateBody(input: LedgerEntryUpdate): JsonRecord {
+function entryUpdateBody(input: LedgerEntryUpdate): JsonObject {
   return clean({
     date: input.date,
     written_at: input.writtenAt,
@@ -317,8 +328,10 @@ function reportQuery(input: ReportRangeInput | MonthlyReportInput) {
     : { from: input.from, to: input.to };
 }
 
-function clean(value: Record<string, unknown>): JsonRecord {
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+function clean(value: Record<string, JsonValue | undefined>): JsonObject {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  ) as JsonObject;
 }
 
 function segment(value: string): string {

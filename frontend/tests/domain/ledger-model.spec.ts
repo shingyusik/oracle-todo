@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
-import { mapLedgerEntry, mapLedgerSummary } from "@/features/ledger/model/ledger-model";
+import {
+  mapCurrency,
+  mapLedgerEntry,
+  mapLedgerSummary,
+  mapPage,
+} from "@/features/ledger/model/ledger-model";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -54,6 +59,30 @@ describe("Ledger wire boundary", () => {
   it("rejects unsafe integer money at the boundary", () => {
     expect(() => mapLedgerEntry({ ...entry, amount: Number.MAX_SAFE_INTEGER + 1 }))
       .toThrow(/amount/);
+    expect(() => mapLedgerEntry({ ...entry, amount: 0 })).toThrow(/amount/);
+    expect(() => mapLedgerEntry({ ...entry, amount: -1 })).toThrow(/amount/);
+  });
+
+  it("rejects impossible unsigned and precision values but keeps signed totals", () => {
+    expect(() => mapCurrency({
+      id: "currency-1", code: "KRW", name: "Won", symbol: "₩",
+      decimal_places: 19, active: true,
+    })).toThrow(/decimal_places/);
+    expect(() => mapPage({ items: [], next_offset: -1 }, mapLedgerEntry)).toThrow(/next_offset/);
+    expect(() => mapLedgerSummary({
+      range: { start: "2026-07-01", end: "2026-07-31" },
+      currencies: [{
+        currency_id: "currency-1", currency_code: "KRW",
+        income_minor: 1, expense_minor: 1, net_change_minor: -2, entry_count: -1,
+      }],
+    })).toThrow(/entry_count/);
+    expect(mapLedgerSummary({
+      range: { start: "2026-07-01", end: "2026-07-31" },
+      currencies: [{
+        currency_id: "currency-1", currency_code: "KRW",
+        income_minor: 1, expense_minor: 3, net_change_minor: -2, entry_count: 1,
+      }],
+    }).currencies[0]?.netChangeMinor).toBe(-2);
   });
 
   it("builds encoded queries while preserving false and zero", async () => {
@@ -66,5 +95,31 @@ describe("Ledger wire boundary", () => {
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe("/api/v1/ledger/entries?offset=0&include_archived=false&content=a%26b");
+  });
+
+  it("generates and reuses an internal transfer operation key", async () => {
+    const randomUUID = vi.fn().mockReturnValue("00000000-0000-4000-8000-000000000009");
+    vi.stubGlobal("crypto", { randomUUID });
+    const transfer = {
+      date: "2026-07-31",
+      writtenAt: "2026-07-31T01:00:00Z",
+      content: "Move",
+      fromAccount: "Wallet",
+      toAccount: "Bank",
+      amount: "1000",
+      currency: "KRW",
+    };
+    const failed = vi.fn().mockRejectedValue(new TypeError("offline"));
+    vi.stubGlobal("fetch", failed);
+
+    await ledgerApi.createTransfer(transfer).catch(() => undefined);
+    await ledgerApi.createTransfer(transfer).catch(() => undefined);
+
+    expect(randomUUID).toHaveBeenCalledTimes(1);
+    for (const [, init] of failed.mock.calls) {
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        operation_key: "00000000-0000-4000-8000-000000000009",
+      });
+    }
   });
 });

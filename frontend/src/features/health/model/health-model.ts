@@ -128,14 +128,20 @@ export type HealthTrends = {
 
 export function mapDietEntry(value: unknown): DietEntry {
   const wire = record(value, "diet entry");
+  const foodName = nonEmptyString(wire.food_name, "diet entry.food_name");
+  if ([...foodName].length > 120) throw new TypeError("invalid diet entry.food_name");
+  const tags = array(wire.tags, "diet entry.tags")
+    .map((tag) => nonEmptyString(tag, "diet entry.tags[]"));
+  if (tags.length > 20 || tags.some((tag) => [...tag].length > 40)) {
+    throw new TypeError("invalid diet entry.tags");
+  }
   return {
     id: uuid(wire.id, "diet entry.id"),
     occurredAt: timestamp(wire.occurred_at, "diet entry.occurred_at"),
     mealType: mealType(wire.meal_type),
-    foodName: nonEmptyString(wire.food_name, "diet entry.food_name"),
+    foodName,
     note: nullableString(wire.note, "diet entry.note"),
-    tags: array(wire.tags, "diet entry.tags")
-      .map((tag) => nonEmptyString(tag, "diet entry.tags[]")),
+    tags,
     mediaId: wire.media_id === null ? null : uuid(wire.media_id, "diet entry.media_id"),
     createdAt: timestamp(wire.created_at, "diet entry.created_at"),
     updatedAt: timestamp(wire.updated_at, "diet entry.updated_at"),
@@ -146,16 +152,28 @@ export function mapDietEntry(value: unknown): DietEntry {
 export function mapHealthEvent(value: unknown): HealthEvent {
   const wire = record(value, "health event");
   const category = healthCategory(wire.category);
+  const attributes = mapAttributes(category, wire.attributes);
+  const projection = eventProjection(attributes);
+  const metricKey = metricKeyValue(wire.metric_key, "health event.metric_key");
+  const name = nonEmptyString(wire.name, "health event.name");
+  const eventValue = finiteNumber(wire.value_num, "health event.value_num");
+  const unit = nullableString(wire.unit, "health event.unit");
+  if (metricKey !== projection.metricKey
+    || name !== projection.name
+    || eventValue !== projection.value
+    || unit !== projection.unit) {
+    throw new TypeError("health event projection does not match attributes");
+  }
   return {
     id: uuid(wire.id, "health event.id"),
     occurredAt: timestamp(wire.occurred_at, "health event.occurred_at"),
     category,
-    metricKey: nonEmptyString(wire.metric_key, "health event.metric_key"),
-    name: nonEmptyString(wire.name, "health event.name"),
-    value: wire.value_num === null ? null : finiteNumber(wire.value_num, "health event.value_num"),
-    unit: nullableString(wire.unit, "health event.unit"),
+    metricKey,
+    name,
+    value: eventValue,
+    unit,
     note: nullableString(wire.note, "health event.note"),
-    attributes: mapAttributes(category, wire.attributes),
+    attributes,
     createdAt: timestamp(wire.created_at, "health event.created_at"),
     updatedAt: timestamp(wire.updated_at, "health event.updated_at"),
     deletedAt: nullableTimestamp(wire.deleted_at, "health event.deleted_at"),
@@ -173,7 +191,7 @@ export function mapTimelineItem(value: unknown): TimelineItem {
 export function mapHealthTrends(value: unknown): HealthTrends {
   const wire = record(value, "health trends");
   return {
-    days: nonNegativeInteger(wire.days, "health trends.days"),
+    days: rangeInteger(wire.days, "health trends.days", 1, 3_650),
     topDietTags: array(wire.top_diet_tags, "health trends.top_diet_tags").map(mapNamedCount),
     bowelAverageByDay: array(
       wire.bowel_average_by_day,
@@ -183,7 +201,7 @@ export function mapHealthTrends(value: unknown): HealthTrends {
       return {
         localDate: isoDate(row.local_date, "daily average.local_date"),
         average: finiteNumber(row.average, "daily average.average"),
-        count: nonNegativeInteger(row.count, "daily average.count"),
+        count: u32(row.count, "daily average.count"),
       };
     }),
     symptomFrequencies: array(
@@ -198,7 +216,7 @@ export function mapHealthTrends(value: unknown): HealthTrends {
       const series = record(item, "numeric series");
       return {
         category: healthCategory(series.category),
-        metricKey: nonEmptyString(series.metric_key, "numeric series.metric_key"),
+        metricKey: metricKeyValue(series.metric_key, "numeric series.metric_key"),
         name: nonEmptyString(series.name, "numeric series.name"),
         unit: nullableString(series.unit, "numeric series.unit"),
         points: array(series.points, "numeric series.points").map((point) => {
@@ -217,11 +235,11 @@ export function mapHealthTrends(value: unknown): HealthTrends {
       const row = record(item, "possible tag reaction");
       return {
         tag: nonEmptyString(row.tag, "possible tag reaction.tag"),
-        dietEntries: nonNegativeInteger(
+        dietEntries: u32(
           row.diet_entries,
           "possible tag reaction.diet_entries",
         ),
-        eventsWithin24h: nonNegativeInteger(
+        eventsWithin24h: u32(
           row.events_within_24h,
           "possible tag reaction.events_within_24h",
         ),
@@ -237,31 +255,37 @@ export function mapHealthTrends(value: unknown): HealthTrends {
 function mapAttributes(category: HealthCategory, value: unknown): HealthAttributes {
   const wire = record(value, "health event.attributes");
   switch (category) {
-    case "weight":
+    case "weight": {
+      const measured = finiteNumber(wire.value, "weight.value");
+      if (measured <= 0) throw new TypeError("invalid weight.value");
       return {
         kind: category,
-        metricKey: nonEmptyString(wire.metric_key, "weight.metric_key"),
+        metricKey: metricKeyValue(wire.metric_key, "weight.metric_key"),
         name: nonEmptyString(wire.name, "weight.name"),
-        value: finiteNumber(wire.value, "weight.value"),
+        value: measured,
         unit: nonEmptyString(wire.unit, "weight.unit"),
       };
+    }
     case "bowel":
       return {
         kind: category,
         bristolScale: rangeInteger(wire.bristol_scale, "bowel.bristol_scale", 1, 7),
         bloodVisible: boolean(wire.blood_visible, "bowel.blood_visible"),
       };
-    case "sleep":
+    case "sleep": {
+      const hours = finiteNumber(wire.hours, "sleep.hours");
+      if (hours <= 0 || hours > 24) throw new TypeError("invalid sleep.hours");
       return {
         kind: category,
-        metricKey: nonEmptyString(wire.metric_key, "sleep.metric_key"),
+        metricKey: metricKeyValue(wire.metric_key, "sleep.metric_key"),
         name: nonEmptyString(wire.name, "sleep.name"),
-        hours: finiteNumber(wire.hours, "sleep.hours"),
+        hours,
       };
+    }
     case "lab":
       return {
         kind: category,
-        metricKey: nonEmptyString(wire.metric_key, "lab.metric_key"),
+        metricKey: metricKeyValue(wire.metric_key, "lab.metric_key"),
         name: nonEmptyString(wire.name, "lab.name"),
         value: finiteNumber(wire.value, "lab.value"),
         unit: wire.unit === undefined ? null : nullableString(wire.unit, "lab.unit"),
@@ -269,18 +293,21 @@ function mapAttributes(category: HealthCategory, value: unknown): HealthAttribut
     case "symptom":
       return {
         kind: category,
-        metricKey: nonEmptyString(wire.metric_key, "symptom.metric_key"),
+        metricKey: metricKeyValue(wire.metric_key, "symptom.metric_key"),
         name: nonEmptyString(wire.name, "symptom.name"),
         score: rangeInteger(wire.score, "symptom.score", 1, 10),
         conditionNote: nullableString(wire.condition_note, "symptom.condition_note"),
       };
-    case "medication":
+    case "medication": {
+      const dose = finiteNumber(wire.dose, "medication.dose");
+      if (dose <= 0) throw new TypeError("invalid medication.dose");
       return {
         kind: category,
         medicationName: nonEmptyString(wire.medication_name, "medication.medication_name"),
-        dose: finiteNumber(wire.dose, "medication.dose"),
+        dose,
         unit: medicationUnit(wire.unit),
       };
+    }
   }
 }
 
@@ -288,7 +315,7 @@ function mapNamedCount(value: unknown): NamedCount {
   const wire = record(value, "named count");
   return {
     name: nonEmptyString(wire.name, "named count.name"),
-    count: nonNegativeInteger(wire.count, "named count.count"),
+    count: u32(wire.count, "named count.count"),
   };
 }
 
@@ -316,8 +343,68 @@ function medicationUnit(value: unknown): MedicationUnit {
   return result as MedicationUnit;
 }
 
-function nonNegativeInteger(value: unknown, field: string): number {
-  return rangeInteger(value, field, 0, Number.MAX_SAFE_INTEGER);
+function eventProjection(attributes: HealthAttributes): {
+  metricKey: string;
+  name: string;
+  value: number;
+  unit: string | null;
+} {
+  switch (attributes.kind) {
+    case "weight":
+      return {
+        metricKey: attributes.metricKey,
+        name: attributes.name,
+        value: attributes.value,
+        unit: attributes.unit,
+      };
+    case "bowel":
+      return {
+        metricKey: "bowel",
+        name: "Bowel",
+        value: attributes.bristolScale,
+        unit: null,
+      };
+    case "sleep":
+      return {
+        metricKey: attributes.metricKey,
+        name: attributes.name,
+        value: attributes.hours,
+        unit: "hours",
+      };
+    case "lab":
+      return {
+        metricKey: attributes.metricKey,
+        name: attributes.name,
+        value: attributes.value,
+        unit: attributes.unit,
+      };
+    case "symptom":
+      return {
+        metricKey: attributes.metricKey,
+        name: attributes.name,
+        value: attributes.score,
+        unit: "score",
+      };
+    case "medication":
+      return {
+        metricKey: "medication",
+        name: attributes.medicationName,
+        value: attributes.dose,
+        unit: attributes.unit,
+      };
+  }
+}
+
+function metricKeyValue(value: unknown, field: string): string {
+  const result = string(value, field);
+  if (!/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(result) || result.length > 64) {
+    throw new TypeError(`invalid ${field}`);
+  }
+  return result;
+}
+
+function u32(value: unknown, field: string): number {
+  return rangeInteger(value, field, 0, 4_294_967_295);
 }
 
 function rangeInteger(value: unknown, field: string, min: number, max: number): number {
