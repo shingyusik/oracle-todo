@@ -1,5 +1,7 @@
 #[path = "integration/audit.rs"]
 mod audit;
+#[path = "integration/lifecycle.rs"]
+mod lifecycle;
 #[path = "integration/master_policy_review.rs"]
 mod master_policy_review;
 #[path = "integration/pagination_review.rs"]
@@ -12,3 +14,5 @@ mod review_policy;
 mod schema;
 #[path = "integration/service_policy.rs"]
 mod service_policy;
+#[path = "integration/transfers.rs"]
+mod transfers;

@@ -82,6 +82,11 @@ pub trait LedgerTransaction {
         include_archived: bool,
     ) -> LedgerResult<Option<TransactionCategory>>;
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>>;
+    fn list_entries_by_transfer_group(
+        &self,
+        transfer_group_id: &str,
+        include_archived: bool,
+    ) -> LedgerResult<Vec<LedgerEntry>>;
     fn currency_by_code(&self, code: &str) -> LedgerResult<CandidateMatch<Currency>>;
     fn currency_by_active_name(&self, name: &str) -> LedgerResult<CandidateMatch<Currency>>;
     fn account_category_by_active_name(
@@ -94,6 +99,7 @@ pub trait LedgerTransaction {
         name: &str,
     ) -> LedgerResult<CandidateMatch<TransactionCategory>>;
     fn currency_has_dependencies(&self, id: &str) -> LedgerResult<bool>;
+    fn account_category_has_dependencies(&self, id: &str) -> LedgerResult<bool>;
     fn account_has_entries(&self, id: &str) -> LedgerResult<bool>;
     fn transaction_category_has_entries(&self, id: &str) -> LedgerResult<bool>;
     fn transaction_category_has_children(&self, id: &str) -> LedgerResult<bool>;
@@ -121,8 +127,13 @@ pub trait LedgerTransaction {
         category: &TransactionCategory,
         changed_at: OffsetDateTime,
     ) -> LedgerResult<()>;
+    fn delete_currency(&mut self, id: &str) -> LedgerResult<()>;
+    fn delete_account_category(&mut self, id: &str) -> LedgerResult<()>;
+    fn delete_account(&mut self, id: &str) -> LedgerResult<()>;
+    fn delete_transaction_category(&mut self, id: &str) -> LedgerResult<()>;
     fn insert_entry(&mut self, entry: &LedgerEntry) -> LedgerResult<()>;
     fn update_entry(&mut self, entry: &LedgerEntry) -> LedgerResult<()>;
+    fn delete_entry(&mut self, id: &str) -> LedgerResult<()>;
     fn insert_audit_event(&mut self, event: &AuditEvent) -> LedgerResult<()>;
     fn commit(self: Box<Self>) -> LedgerResult<()>;
     fn rollback(self: Box<Self>) -> LedgerResult<()>;
@@ -156,6 +167,11 @@ pub trait LedgerRepository: Send {
     ) -> LedgerResult<Vec<TransactionCategory>>;
     fn list_entries(&self, query: &EntryQuery) -> LedgerResult<Vec<LedgerEntry>>;
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>>;
+    fn list_entries_by_transfer_group(
+        &self,
+        transfer_group_id: &str,
+        include_archived: bool,
+    ) -> LedgerResult<Vec<LedgerEntry>>;
     fn list_audit_events(
         &self,
         record_type: &str,

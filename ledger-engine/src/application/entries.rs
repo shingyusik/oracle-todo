@@ -244,7 +244,7 @@ pub(super) fn domain_validation(field: &'static str, error: ValidationError) -> 
     }
 }
 
-fn entry_validation(error: ValidationError) -> LedgerError {
+pub(super) fn entry_validation(error: ValidationError) -> LedgerError {
     let field = match error {
         ValidationError::NonPositiveEntryAmount => "amount",
         ValidationError::MalformedDate => "date",

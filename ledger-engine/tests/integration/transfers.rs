@@ -1,0 +1,304 @@
+use std::path::Path;
+
+use ledger_engine::application::commands::{
+    CreateAccount, CreateAccountCategory, CreateCurrency, UpdateAccount,
+};
+use ledger_engine::application::error::LedgerError;
+use ledger_engine::application::ports::{EntryQuery, Page};
+use ledger_engine::application::service::LedgerService;
+use ledger_engine::application::transfers::TransferCommand;
+use ledger_engine::domain::{EntryType, Money};
+use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
+use rusqlite::Connection;
+use time::macros::datetime;
+use uuid::Uuid;
+
+type TestService = LedgerService<SqliteLedgerRepository>;
+
+struct Seeded {
+    service: TestService,
+    krw_id: String,
+    wallet_id: String,
+    savings_id: String,
+}
+
+#[test]
+fn transfer_creates_exactly_two_opposite_rows_and_one_paired_audit() {
+    let mut seeded = seeded_service_in_memory();
+
+    let result = seeded.service.transfer(valid_transfer()).unwrap();
+
+    assert_ne!(result.out_entry_id, result.in_entry_id);
+    assert!(Uuid::parse_str(&result.out_entry_id).is_ok());
+    assert!(Uuid::parse_str(&result.in_entry_id).is_ok());
+    assert!(Uuid::parse_str(&result.transfer_group_id).is_ok());
+
+    let entries = seeded
+        .service
+        .entries_page(EntryQuery::default())
+        .unwrap()
+        .items;
+    assert_eq!(entries.len(), 2);
+    let out = entries
+        .iter()
+        .find(|entry| entry.id() == result.out_entry_id)
+        .unwrap();
+    let input = entries
+        .iter()
+        .find(|entry| entry.id() == result.in_entry_id)
+        .unwrap();
+    assert_eq!(out.entry_type(), EntryType::TransferOut);
+    assert_eq!(input.entry_type(), EntryType::TransferIn);
+    assert_eq!(out.account_id(), seeded.wallet_id);
+    assert_eq!(input.account_id(), seeded.savings_id);
+    assert_eq!(out.amount(), Money::from_minor_units(12_345));
+    assert_eq!(input.amount(), Money::from_minor_units(12_345));
+    assert_eq!(out.currency_id(), seeded.krw_id);
+    assert_eq!(input.currency_id(), seeded.krw_id);
+    assert_eq!(
+        out.transfer_group_id(),
+        Some(result.transfer_group_id.as_str())
+    );
+    assert_eq!(
+        input.transfer_group_id(),
+        Some(result.transfer_group_id.as_str())
+    );
+    assert_eq!(out.transaction_category_id(), None);
+    assert_eq!(input.transaction_category_id(), None);
+
+    let events = seeded
+        .service
+        .audit_page("transfer", &result.transfer_group_id, Page::default())
+        .unwrap()
+        .items;
+    assert_eq!(events.len(), 1);
+    let event = &events[0];
+    assert_eq!(event.action, "create");
+    assert_eq!(event.actor, "tester");
+    assert_eq!(event.before, None);
+    let after = event.after.as_ref().unwrap();
+    assert_eq!(after["out_entry"], serde_json::to_value(out).unwrap());
+    assert_eq!(after["in_entry"], serde_json::to_value(input).unwrap());
+}
+
+#[test]
+fn transfer_rejects_same_account_cross_currency_and_inactive_accounts() {
+    let mut seeded = seeded_service_in_memory();
+
+    let mut same_account = valid_transfer();
+    same_account.to_account = "Wallet".to_string();
+    assert!(matches!(
+        seeded.service.transfer(same_account),
+        Err(LedgerError::Validation {
+            field: "accounts",
+            ..
+        })
+    ));
+
+    let mut cross_currency = valid_transfer();
+    cross_currency.to_account = "Dollar card".to_string();
+    assert!(matches!(
+        seeded.service.transfer(cross_currency),
+        Err(LedgerError::Validation {
+            field: "currency",
+            ..
+        })
+    ));
+
+    let mut wrong_currency = valid_transfer();
+    wrong_currency.currency = "USD".to_string();
+    assert!(matches!(
+        seeded.service.transfer(wrong_currency),
+        Err(LedgerError::Validation {
+            field: "currency",
+            ..
+        })
+    ));
+
+    seeded
+        .service
+        .update_account(
+            &seeded.savings_id,
+            UpdateAccount {
+                active: Some(false),
+                actor: "tester".to_string(),
+                ..UpdateAccount::default()
+            },
+        )
+        .unwrap();
+    let mut inactive_command = valid_transfer();
+    inactive_command.to_account = seeded.savings_id.clone();
+    let inactive = seeded.service.transfer(inactive_command).unwrap_err();
+    assert!(matches!(inactive, LedgerError::Conflict(message) if message.contains("inactive")));
+
+    assert!(
+        seeded
+            .service
+            .entries_page(EntryQuery::default())
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[test]
+fn second_transfer_insert_failure_rolls_back_first_row_and_audit() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(seeded_service_at(&database));
+
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER reject_transfer_in
+             BEFORE INSERT ON ledger_entries
+             WHEN NEW.entry_type = 'transfer_in'
+             BEGIN
+                 SELECT RAISE(ABORT, 'forced second transfer insert failure');
+             END;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+    let error = service.transfer(valid_transfer()).unwrap_err();
+    assert!(matches!(error, LedgerError::Storage(message) if message.contains("forced second")));
+    assert!(
+        service
+            .entries_page(EntryQuery::default())
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    drop(service);
+
+    let connection = Connection::open(&database).unwrap();
+    let transfer_audits: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM audit_events WHERE record_type = 'transfer'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(transfer_audits, 0);
+}
+
+#[test]
+fn paired_audit_failure_rolls_back_both_transfer_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let mut command = valid_transfer();
+    command.content = "x".repeat(1024 * 1024);
+
+    let error = seeded.service.transfer(command).unwrap_err();
+
+    assert!(matches!(error, LedgerError::Storage(message) if message.contains("audit JSON")));
+    assert!(
+        seeded
+            .service
+            .entries_page(EntryQuery::default())
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    drop(seeded);
+    let connection = Connection::open(&database).unwrap();
+    let transfer_audits: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM audit_events WHERE record_type = 'transfer'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(transfer_audits, 0);
+}
+
+fn seeded_service_in_memory() -> Seeded {
+    seed(LedgerService::new(
+        SqliteLedgerRepository::open_in_memory().unwrap(),
+    ))
+}
+
+fn seeded_service_at(path: &Path) -> Seeded {
+    seed(LedgerService::new(
+        SqliteLedgerRepository::open(path).unwrap(),
+    ))
+}
+
+fn seed(mut service: TestService) -> Seeded {
+    let krw = service
+        .create_currency(CreateCurrency {
+            code: "KRW".to_string(),
+            name: "Korean won".to_string(),
+            symbol: "₩".to_string(),
+            decimal_places: 0,
+            actor: "seed".to_string(),
+        })
+        .unwrap();
+    let usd = service
+        .create_currency(CreateCurrency {
+            code: "USD".to_string(),
+            name: "US dollar".to_string(),
+            symbol: "$".to_string(),
+            decimal_places: 2,
+            actor: "seed".to_string(),
+        })
+        .unwrap();
+    let cash = service
+        .create_account_category(CreateAccountCategory {
+            name: "Cash".to_string(),
+            parent: None,
+            liability: false,
+            actor: "seed".to_string(),
+        })
+        .unwrap();
+    let wallet = service
+        .create_account(CreateAccount {
+            name: "Wallet".to_string(),
+            category: cash.id().to_string(),
+            currency: krw.id().to_string(),
+            opening_balance: Money::from_minor_units(0),
+            actor: "seed".to_string(),
+        })
+        .unwrap();
+    let savings = service
+        .create_account(CreateAccount {
+            name: "Savings".to_string(),
+            category: cash.id().to_string(),
+            currency: krw.id().to_string(),
+            opening_balance: Money::from_minor_units(0),
+            actor: "seed".to_string(),
+        })
+        .unwrap();
+    service
+        .create_account(CreateAccount {
+            name: "Dollar card".to_string(),
+            category: cash.id().to_string(),
+            currency: usd.id().to_string(),
+            opening_balance: Money::from_minor_units(0),
+            actor: "seed".to_string(),
+        })
+        .unwrap();
+    Seeded {
+        service,
+        krw_id: krw.id().to_string(),
+        wallet_id: wallet.id().to_string(),
+        savings_id: savings.id().to_string(),
+    }
+}
+
+fn valid_transfer() -> TransferCommand {
+    TransferCommand {
+        date: "2026-07-30".to_string(),
+        written_at: datetime!(2026-07-30 09:10:11 UTC),
+        content: "Move to savings".to_string(),
+        from_account: "Wallet".to_string(),
+        to_account: "Savings".to_string(),
+        amount: Money::from_minor_units(12_345),
+        currency: "KRW".to_string(),
+        source: "test".to_string(),
+        notes: Some("monthly allocation".to_string()),
+        actor: "tester".to_string(),
+    }
+}

@@ -104,6 +104,14 @@ impl LedgerRepository for SqliteLedgerRepository {
         Ok(entries.pop())
     }
 
+    fn list_entries_by_transfer_group(
+        &self,
+        transfer_group_id: &str,
+        include_archived: bool,
+    ) -> LedgerResult<Vec<LedgerEntry>> {
+        list_entries_by_transfer_group_on(&self.connection, transfer_group_id, include_archived)
+    }
+
     fn list_audit_events(
         &self,
         record_type: &str,
@@ -165,6 +173,14 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
 
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>> {
         get_entry_on(&self.transaction, id, include_archived)
+    }
+
+    fn list_entries_by_transfer_group(
+        &self,
+        transfer_group_id: &str,
+        include_archived: bool,
+    ) -> LedgerResult<Vec<LedgerEntry>> {
+        list_entries_by_transfer_group_on(&self.transaction, transfer_group_id, include_archived)
     }
 
     fn currency_by_code(&self, code: &str) -> LedgerResult<CandidateMatch<Currency>> {
@@ -255,6 +271,18 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
                 SELECT 1 FROM accounts WHERE currency_id = ?1
                 UNION ALL
                 SELECT 1 FROM ledger_entries WHERE currency_id = ?1
+             )",
+            id,
+        )
+    }
+
+    fn account_category_has_dependencies(&self, id: &str) -> LedgerResult<bool> {
+        exists(
+            &self.transaction,
+            "SELECT EXISTS(
+                SELECT 1 FROM accounts WHERE account_category_id = ?1
+                UNION ALL
+                SELECT 1 FROM account_categories WHERE parent_id = ?1
              )",
             id,
         )
@@ -434,6 +462,32 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
         Ok(())
     }
 
+    fn delete_currency(&mut self, id: &str) -> LedgerResult<()> {
+        delete_master(&self.transaction, "currencies", "currency", id)
+    }
+
+    fn delete_account_category(&mut self, id: &str) -> LedgerResult<()> {
+        delete_master(
+            &self.transaction,
+            "account_categories",
+            "account category",
+            id,
+        )
+    }
+
+    fn delete_account(&mut self, id: &str) -> LedgerResult<()> {
+        delete_master(&self.transaction, "accounts", "account", id)
+    }
+
+    fn delete_transaction_category(&mut self, id: &str) -> LedgerResult<()> {
+        delete_master(
+            &self.transaction,
+            "transaction_categories",
+            "transaction category",
+            id,
+        )
+    }
+
     fn insert_entry(&mut self, entry: &LedgerEntry) -> LedgerResult<()> {
         self.transaction
             .execute(
@@ -505,6 +559,17 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
             .map_err(storage_error)?;
         if changed == 0 {
             return Err(LedgerError::NotFound(entry.id().to_string()));
+        }
+        Ok(())
+    }
+
+    fn delete_entry(&mut self, id: &str) -> LedgerResult<()> {
+        let changed = self
+            .transaction
+            .execute("DELETE FROM ledger_entries WHERE id = ?1", [id])
+            .map_err(storage_error)?;
+        if changed == 0 {
+            return Err(LedgerError::NotFound(format!("ledger entry {id}")));
         }
         Ok(())
     }
@@ -603,6 +668,21 @@ fn exists(connection: &Connection, sql: &str, id: &str) -> LedgerResult<bool> {
     connection
         .query_row(sql, [id], |row| row.get(0))
         .map_err(storage_error)
+}
+
+fn delete_master(
+    transaction: &Transaction<'_>,
+    table: &str,
+    kind: &str,
+    id: &str,
+) -> LedgerResult<()> {
+    let changed = transaction
+        .execute(&format!("DELETE FROM {table} WHERE id = ?1"), [id])
+        .map_err(storage_error)?;
+    if changed == 0 {
+        return Err(LedgerError::NotFound(format!("{kind} {id}")));
+    }
+    Ok(())
 }
 
 fn list_active_currencies_on(connection: &Connection, page: Page) -> LedgerResult<Vec<Currency>> {
@@ -726,6 +806,28 @@ fn get_entry_on(
 ) -> LedgerResult<Option<LedgerEntry>> {
     let sql = select_by_id("ledger_entries", ENTRY_COLUMNS, include_archived);
     query_optional(connection, &sql, id, row_to_entry)
+}
+
+fn list_entries_by_transfer_group_on(
+    connection: &Connection,
+    transfer_group_id: &str,
+    include_archived: bool,
+) -> LedgerResult<Vec<LedgerEntry>> {
+    let visibility = if include_archived {
+        ""
+    } else {
+        "AND deleted_at IS NULL"
+    };
+    collect_entries(
+        connection,
+        &format!(
+            "SELECT {ENTRY_COLUMNS}
+             FROM ledger_entries
+             WHERE transfer_group_id = ?1 {visibility}
+             ORDER BY entry_type, id"
+        ),
+        [transfer_group_id],
+    )
 }
 
 fn select_by_id(table: &str, columns: &str, include_archived: bool) -> String {

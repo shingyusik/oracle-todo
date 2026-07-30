@@ -17,6 +17,10 @@ impl<R: LedgerRepository> LedgerService<R> {
             .ok_or_else(|| LedgerError::NotFound(format!("ledger entry {id}")))
     }
 
+    pub fn entry_including_archived(&self, id: &str) -> LedgerResult<Option<LedgerEntry>> {
+        self.repository.get_entry(id, true)
+    }
+
     pub fn entries_page(&self, query: EntryQuery) -> LedgerResult<Paged<LedgerEntry>> {
         let requested = Page {
             offset: query.offset,
