@@ -1,12 +1,13 @@
-use ledger_engine::application::error::LedgerError;
-use ledger_engine::application::ports::{
-    AuditEvent, CandidateMatch, EntryQuery, LedgerRepository, LedgerTransaction, Page,
+use super::SqliteLedgerRepository;
+use crate::application::error::LedgerError;
+use crate::application::ports::{
+    AuditEvent, CandidateMatch, EntryQuery, LedgerMutationRepository, LedgerRepository,
+    LedgerTransaction, Page,
 };
-use ledger_engine::domain::{
+use crate::domain::{
     Account, AccountCategory, Currency, EntryType, LedgerEntry, LedgerEntryRehydration, Money,
     TransactionCategory, TransactionCategoryKind,
 };
-use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};

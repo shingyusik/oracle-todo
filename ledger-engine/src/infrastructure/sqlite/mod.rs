@@ -1,6 +1,8 @@
 mod audit_json;
 mod mapping;
 mod repository;
+#[cfg(test)]
+mod repository_tests;
 mod schema;
 
 use std::path::Path;

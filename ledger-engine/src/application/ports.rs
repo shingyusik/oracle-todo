@@ -64,11 +64,18 @@ pub struct AuditEvent {
     pub reason: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransferOperationRecord {
+    pub payload_json: String,
+    pub result_json: String,
+}
+
 /// Persistence operations that must commit or roll back as one Ledger mutation.
 ///
 /// Consuming `commit` and `rollback` prevents a completed transaction from
 /// being reused. Dropping an unfinished implementation must roll it back.
-pub trait LedgerTransaction {
+#[allow(dead_code)]
+pub(crate) trait LedgerTransaction {
     fn get_currency(&self, id: &str, include_archived: bool) -> LedgerResult<Option<Currency>>;
     fn get_account_category(
         &self,
@@ -135,6 +142,17 @@ pub trait LedgerTransaction {
     fn update_entry(&mut self, entry: &LedgerEntry) -> LedgerResult<()>;
     fn delete_entry(&mut self, id: &str) -> LedgerResult<()>;
     fn insert_audit_event(&mut self, event: &AuditEvent) -> LedgerResult<()>;
+    fn get_transfer_operation(
+        &self,
+        operation_key: &str,
+    ) -> LedgerResult<Option<TransferOperationRecord>>;
+    fn insert_transfer_operation(
+        &mut self,
+        operation_key: &str,
+        payload_json: &str,
+        result_json: &str,
+        created_at: OffsetDateTime,
+    ) -> LedgerResult<()>;
     fn commit(self: Box<Self>) -> LedgerResult<()>;
     fn rollback(self: Box<Self>) -> LedgerResult<()>;
 }
@@ -145,7 +163,6 @@ pub trait LedgerTransaction {
 /// `dyn LedgerRepository` while still allowing a service mutation to return
 /// any application value after explicitly committing.
 pub trait LedgerRepository: Send {
-    fn begin_transaction(&mut self) -> LedgerResult<Box<dyn LedgerTransaction + '_>>;
     fn get_currency(&self, id: &str, include_archived: bool) -> LedgerResult<Option<Currency>>;
     fn get_account_category(
         &self,
@@ -178,4 +195,10 @@ pub trait LedgerRepository: Send {
         record_id: &str,
         page: Page,
     ) -> LedgerResult<Vec<AuditEvent>>;
+}
+
+/// Internal mutation capability. External callers only receive the read-only
+/// [`LedgerRepository`] surface; application services are the sole mutation path.
+pub(crate) trait LedgerMutationRepository: LedgerRepository {
+    fn begin_transaction(&mut self) -> LedgerResult<Box<dyn LedgerTransaction + '_>>;
 }

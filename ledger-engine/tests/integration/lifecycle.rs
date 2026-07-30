@@ -7,11 +7,12 @@ use ledger_engine::application::commands::{
 use ledger_engine::application::error::LedgerError;
 use ledger_engine::application::ports::{EntryQuery, LedgerRepository, Page};
 use ledger_engine::application::service::LedgerService;
-use ledger_engine::application::transfers::TransferCommand;
+use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
 use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
 use time::macros::datetime;
+use uuid::Uuid;
 
 type TestService = LedgerService<SqliteLedgerRepository>;
 
@@ -138,6 +139,20 @@ fn transfer_lifecycle_updates_and_purges_the_validated_pair_together() {
     let mut seeded = seeded_service_in_memory();
     let result = seeded.service.transfer(valid_transfer()).unwrap();
 
+    let preview = seeded
+        .service
+        .purge_entry_preview(&result.out_entry_id)
+        .unwrap();
+    assert_eq!(preview.confirmation_id, result.transfer_group_id);
+    assert_eq!(
+        preview.transfer_group_id.as_deref(),
+        Some(result.transfer_group_id.as_str())
+    );
+    assert_eq!(
+        preview.entry_ids,
+        [result.out_entry_id.clone(), result.in_entry_id.clone()]
+    );
+
     seeded.service.archive_entry(&result.out_entry_id).unwrap();
     let archived = seeded
         .service
@@ -159,9 +174,15 @@ fn transfer_lifecycle_updates_and_purges_the_validated_pair_together() {
     assert_eq!(active.len(), 2);
     assert!(active.iter().all(|entry| !entry.is_archived()));
 
+    assert_eq!(
+        seeded
+            .service
+            .purge_entry(&result.out_entry_id, &result.out_entry_id),
+        Err(LedgerError::ConfirmationMismatch)
+    );
     seeded
         .service
-        .purge_entry(&result.out_entry_id, &result.out_entry_id)
+        .purge_entry(&result.out_entry_id, &result.transfer_group_id)
         .unwrap();
     assert!(
         seeded
@@ -175,25 +196,38 @@ fn transfer_lifecycle_updates_and_purges_the_validated_pair_together() {
             .is_empty()
     );
     for id in [&result.out_entry_id, &result.in_entry_id] {
-        let actions: Vec<_> = seeded
-            .service
-            .audit_page("ledger_entry", id, Page::default())
-            .unwrap()
-            .items
-            .into_iter()
-            .map(|event| event.action)
-            .collect();
-        assert_eq!(actions, ["archive", "restore", "purge"]);
+        assert!(
+            seeded
+                .service
+                .audit_page("ledger_entry", id, Page::default())
+                .unwrap()
+                .items
+                .is_empty()
+        );
     }
-    assert_eq!(
-        seeded
-            .service
-            .audit_page("transfer", &result.transfer_group_id, Page::default())
-            .unwrap()
-            .items
-            .len(),
-        1
-    );
+    let events = seeded
+        .service
+        .audit_page("transfer", &result.transfer_group_id, Page::default())
+        .unwrap()
+        .items;
+    let actions: Vec<_> = events.iter().map(|event| event.action.as_str()).collect();
+    assert_eq!(actions, ["create", "archive", "restore", "purge"]);
+    for event in &events[1..] {
+        let before = event.before.as_ref().unwrap();
+        assert_eq!(
+            before["transfer_group_id"],
+            result.transfer_group_id.as_str()
+        );
+        assert!(Uuid::parse_str(before["operation_id"].as_str().unwrap()).is_ok());
+        assert!(before["out_entry"].is_object());
+        assert!(before["in_entry"].is_object());
+        if let Some(after) = &event.after {
+            assert_eq!(after["operation_id"], before["operation_id"]);
+            assert_eq!(after["transfer_group_id"], before["transfer_group_id"]);
+            assert!(after["out_entry"].is_object());
+            assert!(after["in_entry"].is_object());
+        }
+    }
 }
 
 #[test]
@@ -230,6 +264,21 @@ fn lifecycle_rejects_a_damaged_transfer_pair_without_mutation_or_audit() {
             .items
             .is_empty()
     );
+}
+
+#[test]
+fn every_pair_lifecycle_operation_rejects_corrupt_identity_and_timestamp_invariants() {
+    for operation in ["archive", "restore", "purge"] {
+        for corruption in [
+            "group_uuid",
+            "entry_uuid",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ] {
+            assert_corrupt_pair_is_rejected(operation, corruption);
+        }
+    }
 }
 
 #[test]
@@ -508,6 +557,7 @@ fn valid_expense() -> CreateEntry {
 
 fn valid_transfer() -> TransferCommand {
     TransferCommand {
+        operation_key: TransferOperationKey::generate(),
         date: "2026-07-30".to_string(),
         written_at: datetime!(2026-07-30 10:11:12 UTC),
         content: "Move to savings".to_string(),
@@ -519,4 +569,135 @@ fn valid_transfer() -> TransferCommand {
         notes: None,
         actor: "tester".to_string(),
     }
+}
+
+fn assert_corrupt_pair_is_rejected(operation: &str, corruption: &str) {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let result = seeded.service.transfer(valid_transfer()).unwrap();
+    if operation == "archive" {
+        seeded.service.archive_entry(&result.out_entry_id).unwrap();
+    }
+    drop(seeded);
+
+    let connection = Connection::open(&database).unwrap();
+    match corruption {
+        "group_uuid" => {
+            connection
+                .execute(
+                    "UPDATE ledger_entries SET transfer_group_id = 'not-an-engine-uuid'
+                     WHERE transfer_group_id = ?1",
+                    [&result.transfer_group_id],
+                )
+                .unwrap();
+        }
+        "entry_uuid" => {
+            connection
+                .execute(
+                    "UPDATE ledger_entries SET id = 'not-an-engine-uuid' WHERE id = ?1",
+                    [&result.in_entry_id],
+                )
+                .unwrap();
+        }
+        "created_at" => {
+            connection
+                .execute(
+                    "UPDATE ledger_entries SET created_at = '2026-07-29T00:00:00Z' WHERE id = ?1",
+                    [&result.in_entry_id],
+                )
+                .unwrap();
+        }
+        "updated_at" => {
+            connection
+                .execute(
+                    "UPDATE ledger_entries SET updated_at = '2026-07-29T00:00:00Z' WHERE id = ?1",
+                    [&result.in_entry_id],
+                )
+                .unwrap();
+        }
+        "deleted_at" => {
+            connection
+                .execute(
+                    "UPDATE ledger_entries SET deleted_at = '2026-07-29T00:00:00Z' WHERE id = ?1",
+                    [&result.in_entry_id],
+                )
+                .unwrap();
+            if operation != "archive" {
+                connection
+                    .execute(
+                        "UPDATE ledger_entries SET deleted_at = '2026-07-28T00:00:00Z'
+                         WHERE id = ?1",
+                        [&result.out_entry_id],
+                    )
+                    .unwrap();
+            }
+        }
+        _ => unreachable!(),
+    }
+    let audit_count_before: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM audit_events
+             WHERE record_type = 'transfer' AND record_id = ?1",
+            [&result.transfer_group_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let rows_before: Vec<(String, String, String, Option<String>)> = {
+        let mut statement = connection
+            .prepare(
+                "SELECT id, created_at, updated_at, deleted_at
+                 FROM ledger_entries ORDER BY entry_type",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    drop(connection);
+
+    let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+    let result_error = match operation {
+        "archive" => service.archive_entry(&result.out_entry_id).map(drop),
+        "restore" => service.restore_entry(&result.out_entry_id).map(drop),
+        "purge" => service.purge_entry(&result.out_entry_id, &result.transfer_group_id),
+        _ => unreachable!(),
+    }
+    .unwrap_err();
+    assert!(
+        matches!(result_error, LedgerError::Conflict(ref message) if message.contains("transfer pair")),
+        "{operation}/{corruption}: {result_error:?}"
+    );
+    drop(service);
+
+    let connection = Connection::open(&database).unwrap();
+    let audit_count_after: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM audit_events
+             WHERE record_type = 'transfer' AND record_id = ?1",
+            [&result.transfer_group_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let rows_after: Vec<(String, String, String, Option<String>)> = {
+        let mut statement = connection
+            .prepare(
+                "SELECT id, created_at, updated_at, deleted_at
+                 FROM ledger_entries ORDER BY entry_type",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    assert_eq!(audit_count_after, audit_count_before);
+    assert_eq!(rows_after, rows_before);
 }

@@ -1,9 +1,10 @@
 use serde::Serialize;
 use time::OffsetDateTime;
+use uuid::{Uuid, Version};
 
 use crate::application::entries::{AuditMutation, audit_event};
 use crate::application::error::{LedgerError, LedgerResult};
-use crate::application::ports::{LedgerRepository, LedgerTransaction};
+use crate::application::ports::{LedgerMutationRepository, LedgerTransaction};
 use crate::application::service::LedgerService;
 use crate::domain::{
     Account, AccountCategory, Currency, EntryType, LedgerEntry, LedgerEntryRehydration,
@@ -12,7 +13,23 @@ use crate::domain::{
 
 const LIFECYCLE_ACTOR: &str = "ledger-service";
 
-impl<R: LedgerRepository> LedgerService<R> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurgePreview {
+    pub confirmation_id: String,
+    pub transfer_group_id: Option<String>,
+    pub entry_ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct TransferLifecycleAudit<'entry> {
+    operation_id: &'entry str,
+    transfer_group_id: &'entry str,
+    out_entry: &'entry LedgerEntry,
+    in_entry: &'entry LedgerEntry,
+}
+
+#[allow(private_bounds)]
+impl<R: LedgerMutationRepository> LedgerService<R> {
     /// Archives an entry. Repeating the request is a no-op without a duplicate audit.
     ///
     /// A transfer entry always archives together with its validated counterpart.
@@ -32,12 +49,29 @@ impl<R: LedgerRepository> LedgerService<R> {
     /// A transfer entry always purges together with its validated counterpart. Audit
     /// snapshots are inserted before deletion and survive the committed purge.
     pub fn purge_entry(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
-        validate_confirmation(id, confirmation)?;
-
         let now = OffsetDateTime::now_utc();
         let mut transaction = self.repository.begin_transaction()?;
         let entries = lifecycle_entries(&*transaction, id)?;
-        for entry in &entries {
+        let transfer_group_id = entries
+            .first()
+            .and_then(|entry| entry.transfer_group_id())
+            .map(str::to_string);
+        validate_confirmation(transfer_group_id.as_deref().unwrap_or(id), confirmation)?;
+        if let Some(group_id) = transfer_group_id.as_deref() {
+            let operation_id = Uuid::new_v4().to_string();
+            let before = transfer_lifecycle_audit(&operation_id, group_id, &entries)?;
+            transaction.insert_audit_event(&audit_event(AuditMutation {
+                occurred_at: now,
+                actor: LIFECYCLE_ACTOR.to_string(),
+                action: "purge",
+                record_type: "transfer",
+                record_id: group_id,
+                before: Some(&before),
+                after: None::<&TransferLifecycleAudit<'_>>,
+                reason: None,
+            })?)?;
+        } else {
+            let entry = &entries[0];
             transaction.insert_audit_event(&audit_event(AuditMutation {
                 occurred_at: now,
                 actor: LIFECYCLE_ACTOR.to_string(),
@@ -48,9 +82,31 @@ impl<R: LedgerRepository> LedgerService<R> {
                 after: None::<&LedgerEntry>,
                 reason: None,
             })?)?;
+        }
+        for entry in &entries {
             transaction.delete_entry(entry.id())?;
         }
         transaction.commit()
+    }
+
+    /// Returns the exact identifier required to confirm a permanent purge.
+    ///
+    /// Transfers require their group identifier and expose both affected rows.
+    pub fn purge_entry_preview(&mut self, id: &str) -> LedgerResult<PurgePreview> {
+        let transaction = self.repository.begin_transaction()?;
+        let entries = lifecycle_entries(&*transaction, id)?;
+        let transfer_group_id = entries
+            .first()
+            .and_then(|entry| entry.transfer_group_id())
+            .map(str::to_string);
+        let confirmation_id = transfer_group_id.clone().unwrap_or_else(|| id.to_string());
+        let entry_ids = ordered_entry_ids(&entries);
+        transaction.rollback()?;
+        Ok(PurgePreview {
+            confirmation_id,
+            transfer_group_id,
+            entry_ids,
+        })
     }
 
     pub fn purge_currency(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
@@ -136,24 +192,40 @@ impl<R: LedgerRepository> LedgerService<R> {
         } else {
             "restore"
         };
-        let mut target_after = None;
-        for before in before_entries {
-            let after = with_archive_state(&before, should_be_archived.then_some(now), now)?;
+        let transfer_group_id = target.transfer_group_id().map(str::to_string);
+        let operation_id = Uuid::new_v4().to_string();
+        let mut after_entries = Vec::with_capacity(before_entries.len());
+        for before in &before_entries {
+            let after = with_archive_state(before, should_be_archived.then_some(now), now)?;
             transaction.update_entry(&after)?;
+            after_entries.push(after);
+        }
+        if let Some(group_id) = transfer_group_id.as_deref() {
+            let before = transfer_lifecycle_audit(&operation_id, group_id, &before_entries)?;
+            let after = transfer_lifecycle_audit(&operation_id, group_id, &after_entries)?;
+            transaction.insert_audit_event(&audit_event(AuditMutation {
+                occurred_at: now,
+                actor: LIFECYCLE_ACTOR.to_string(),
+                action,
+                record_type: "transfer",
+                record_id: group_id,
+                before: Some(&before),
+                after: Some(&after),
+                reason: None,
+            })?)?;
+        } else {
             transaction.insert_audit_event(&audit_event(AuditMutation {
                 occurred_at: now,
                 actor: LIFECYCLE_ACTOR.to_string(),
                 action,
                 record_type: "ledger_entry",
-                record_id: after.id(),
-                before: Some(&before),
-                after: Some(&after),
+                record_id: after_entries[0].id(),
+                before: Some(&before_entries[0]),
+                after: Some(&after_entries[0]),
                 reason: None,
             })?)?;
-            if after.id() == id {
-                target_after = Some(after);
-            }
         }
+        let target_after = after_entries.into_iter().find(|entry| entry.id() == id);
         transaction.commit()?;
         target_after.ok_or_else(|| {
             LedgerError::Storage("lifecycle transaction lost its target entry".to_string())
@@ -238,6 +310,7 @@ fn lifecycle_entries(
 }
 
 fn validate_transfer_pair(group_id: &str, entries: &[LedgerEntry]) -> LedgerResult<()> {
+    validate_engine_uuid(group_id, "group identity is not an engine UUID")?;
     if entries.len() != 2 {
         return Err(invalid_transfer_pair(
             "group must contain exactly two entries",
@@ -264,6 +337,8 @@ fn validate_transfer_pair(group_id: &str, entries: &[LedgerEntry]) -> LedgerResu
     }
     let first = &entries[0];
     let second = &entries[1];
+    validate_engine_uuid(first.id(), "entry identity is not an engine UUID")?;
+    validate_engine_uuid(second.id(), "entry identity is not an engine UUID")?;
     if first.id() == second.id() || first.account_id() == second.account_id() {
         return Err(invalid_transfer_pair(
             "paired entries must have distinct identities and accounts",
@@ -278,6 +353,9 @@ fn validate_transfer_pair(group_id: &str, entries: &[LedgerEntry]) -> LedgerResu
         || first.notes() != second.notes()
         || first.transaction_category_id().is_some()
         || second.transaction_category_id().is_some()
+        || first.created_at() != second.created_at()
+        || first.updated_at() != second.updated_at()
+        || first.deleted_at() != second.deleted_at()
     {
         return Err(invalid_transfer_pair(
             "paired entries have incompatible transfer fields",
@@ -289,6 +367,58 @@ fn validate_transfer_pair(group_id: &str, entries: &[LedgerEntry]) -> LedgerResu
         ));
     }
     Ok(())
+}
+
+fn validate_engine_uuid(value: &str, message: &str) -> LedgerResult<()> {
+    let parsed = Uuid::parse_str(value).map_err(|_| invalid_transfer_pair(message))?;
+    if parsed.get_version() != Some(Version::Random) || parsed.to_string() != value {
+        return Err(invalid_transfer_pair(message));
+    }
+    Ok(())
+}
+
+fn transfer_lifecycle_audit<'entry>(
+    operation_id: &'entry str,
+    group_id: &'entry str,
+    entries: &'entry [LedgerEntry],
+) -> LedgerResult<TransferLifecycleAudit<'entry>> {
+    let out_entry = entries
+        .iter()
+        .find(|entry| entry.entry_type() == EntryType::TransferOut)
+        .ok_or_else(|| invalid_transfer_pair("group has no transfer-out entry"))?;
+    let in_entry = entries
+        .iter()
+        .find(|entry| entry.entry_type() == EntryType::TransferIn)
+        .ok_or_else(|| invalid_transfer_pair("group has no transfer-in entry"))?;
+    Ok(TransferLifecycleAudit {
+        operation_id,
+        transfer_group_id: group_id,
+        out_entry,
+        in_entry,
+    })
+}
+
+fn ordered_entry_ids(entries: &[LedgerEntry]) -> Vec<String> {
+    [EntryType::TransferOut, EntryType::TransferIn]
+        .into_iter()
+        .filter_map(|entry_type| {
+            entries
+                .iter()
+                .find(|entry| entry.entry_type() == entry_type)
+                .map(|entry| entry.id().to_string())
+        })
+        .chain(
+            entries
+                .iter()
+                .filter(|entry| {
+                    !matches!(
+                        entry.entry_type(),
+                        EntryType::TransferOut | EntryType::TransferIn
+                    )
+                })
+                .map(|entry| entry.id().to_string()),
+        )
+        .collect()
 }
 
 fn with_archive_state(

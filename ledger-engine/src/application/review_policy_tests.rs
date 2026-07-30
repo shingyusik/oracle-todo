@@ -1,17 +1,17 @@
-use ledger_engine::application::commands::{
+use crate::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
     UpdateEntry,
 };
-use ledger_engine::application::error::LedgerError;
-use ledger_engine::application::ports::{
-    AuditEvent, EntryQuery, LedgerRepository, LedgerTransaction, Page,
+use crate::application::error::LedgerError;
+use crate::application::ports::{
+    AuditEvent, EntryQuery, LedgerMutationRepository, LedgerTransaction, Page,
 };
-use ledger_engine::application::service::LedgerService;
-use ledger_engine::domain::{
+use crate::application::service::LedgerService;
+use crate::domain::{
     Account, AccountCategory, Currency, EntryType, LedgerEntry, LedgerEntryRehydration, Money,
     TransactionCategory, TransactionCategoryKind,
 };
-use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
+use crate::infrastructure::sqlite::SqliteLedgerRepository;
 use serde_json::json;
 use time::macros::datetime;
 

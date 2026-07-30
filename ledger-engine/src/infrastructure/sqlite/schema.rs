@@ -8,7 +8,7 @@ use super::audit_json::{self, AUDIT_JSON_MAX_BYTES};
 use super::is_busy_error;
 use crate::application::error::{LedgerError, LedgerResult};
 
-pub(super) const SCHEMA_VERSION: i64 = 1;
+pub(super) const SCHEMA_VERSION: i64 = 2;
 const LEGACY_UNKNOWN_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
 const TIMESTAMP_MIGRATION_BATCH_SIZE: i64 = 256;
 const AUDIT_JSON_VALIDATION_BATCH_SIZE: i64 = 256;
@@ -187,6 +187,13 @@ fn create_missing_tables(connection: &Connection) -> LedgerResult<()> {
                 before_json TEXT,
                 after_json TEXT,
                 reason TEXT
+            ) STRICT;
+
+            CREATE TABLE IF NOT EXISTS transfer_operations (
+                operation_key TEXT NOT NULL PRIMARY KEY,
+                payload_json TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
             ) STRICT;
             "#,
         )
@@ -703,11 +710,12 @@ fn normalize_persisted_timestamps(connection: &Connection) -> LedgerResult<()> {
                 for (id, value) in rows {
                     let normalized = normalize_timestamp(timestamp, &id, &value)?;
                     if normalized != value {
+                        let identity_column = timestamp_identity_column(timestamp);
                         connection
                             .execute(
                                 &format!(
-                                    "UPDATE {} SET {} = ?1 WHERE id = ?2",
-                                    timestamp.table, timestamp.column
+                                    "UPDATE {} SET {} = ?1 WHERE {} = ?2",
+                                    timestamp.table, timestamp.column, identity_column
                                 ),
                                 params![normalized, id],
                             )
@@ -726,14 +734,15 @@ fn timestamp_batch(
     timestamp: &TimestampColumn,
     after_id: Option<&str>,
 ) -> LedgerResult<Vec<(String, String)>> {
+    let identity_column = timestamp_identity_column(timestamp);
     let mut statement = connection
         .prepare(&format!(
-            "SELECT id, {0}
+            "SELECT {2}, {0}
              FROM {1}
-             WHERE {0} IS NOT NULL AND (?1 IS NULL OR id > ?1)
-             ORDER BY id
+             WHERE {0} IS NOT NULL AND (?1 IS NULL OR {2} > ?1)
+             ORDER BY {2}
              LIMIT ?2",
-            timestamp.column, timestamp.table
+            timestamp.column, timestamp.table, identity_column
         ))
         .map_err(migration_error)?;
     statement
@@ -743,6 +752,14 @@ fn timestamp_batch(
         .map_err(migration_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(migration_error)
+}
+
+fn timestamp_identity_column(timestamp: &TimestampColumn) -> &'static str {
+    if timestamp.table == "transfer_operations" {
+        "operation_key"
+    } else {
+        "id"
+    }
 }
 
 fn normalize_timestamp(timestamp: &TimestampColumn, id: &str, value: &str) -> LedgerResult<String> {
@@ -1172,6 +1189,13 @@ const AUDIT_COLUMNS: &[ColumnSpec] = &[
     column("reason", "TEXT", false, false, Some("reason TEXT")),
 ];
 
+const TRANSFER_OPERATION_COLUMNS: &[ColumnSpec] = &[
+    column("operation_key", "TEXT", true, true, None),
+    column("payload_json", "TEXT", true, false, None),
+    column("result_json", "TEXT", true, false, None),
+    column("created_at", "TEXT", true, false, None),
+];
+
 const NO_FOREIGN_KEYS: &[ForeignKeySpec] = &[];
 const ACCOUNT_CATEGORY_FOREIGN_KEYS: &[ForeignKeySpec] = &[ForeignKeySpec {
     from: "parent_id",
@@ -1256,6 +1280,12 @@ const TABLES: &[TableSpec] = &[
     TableSpec {
         name: "audit_events",
         columns: AUDIT_COLUMNS,
+        foreign_keys: NO_FOREIGN_KEYS,
+        required_sql: &[],
+    },
+    TableSpec {
+        name: "transfer_operations",
+        columns: TRANSFER_OPERATION_COLUMNS,
         foreign_keys: NO_FOREIGN_KEYS,
         required_sql: &[],
     },
@@ -1370,6 +1400,12 @@ const AUDIT_TIMESTAMPS: &[TimestampColumn] = &[TimestampColumn {
     nullable: false,
 }];
 
+const TRANSFER_OPERATION_TIMESTAMPS: &[TimestampColumn] = &[TimestampColumn {
+    table: "transfer_operations",
+    column: "created_at",
+    nullable: false,
+}];
+
 const PERSISTED_TABLES: &[PersistedTableSpec] = &[
     PersistedTableSpec {
         name: "currencies",
@@ -1445,6 +1481,19 @@ const PERSISTED_TABLES: &[PersistedTableSpec] = &[
         booleans: &[],
         timestamps: AUDIT_TIMESTAMPS,
         extra_invalid: &[],
+    },
+    PersistedTableSpec {
+        name: "transfer_operations",
+        required_nonblank_text: &["operation_key", "payload_json", "result_json"],
+        optional_nonblank_text: &[],
+        required_text: &[],
+        optional_text: &[],
+        booleans: &[],
+        timestamps: TRANSFER_OPERATION_TIMESTAMPS,
+        extra_invalid: &[
+            "json_valid(payload_json) = 0",
+            "json_valid(result_json) = 0",
+        ],
     },
 ];
 
@@ -1545,6 +1594,14 @@ const INDEXES: &[IndexSpec] = &[
                      ON ledger_entries(transfer_group_id);",
     },
     IndexSpec {
+        name: "idx_ledger_entries_transfer_group_type",
+        table: "ledger_entries",
+        unique: true,
+        columns: &["transfer_group_id", "entry_type"],
+        create_sql: "CREATE UNIQUE INDEX idx_ledger_entries_transfer_group_type \
+                     ON ledger_entries(transfer_group_id, entry_type);",
+    },
+    IndexSpec {
         name: "idx_ledger_entries_deleted_at",
         table: "ledger_entries",
         unique: false,
@@ -1603,7 +1660,7 @@ mod tests {
                 "BEGIN IMMEDIATE;
                  CREATE TABLE future_marker (value TEXT NOT NULL);
                  INSERT INTO future_marker (value) VALUES ('future-data');
-                 PRAGMA user_version = 2;",
+                 PRAGMA user_version = 3;",
             )
             .unwrap();
 
@@ -1633,7 +1690,7 @@ mod tests {
             verification
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            2
+            3
         );
         assert_eq!(
             verification
@@ -1646,7 +1703,7 @@ mod tests {
     }
 
     #[test]
-    fn version_one_open_never_downgrades_a_concurrent_future_commit() {
+    fn version_two_open_never_downgrades_a_concurrent_future_commit() {
         let _test_lock = INTERLEAVING_TEST_LOCK.lock().unwrap();
         BUSY_HANDLER_REACHED.store(false, Ordering::Release);
         let directory = tempfile::tempdir().unwrap();
@@ -1661,7 +1718,7 @@ mod tests {
                 "BEGIN IMMEDIATE;
                  CREATE TABLE future_marker (value TEXT NOT NULL);
                  INSERT INTO future_marker (value) VALUES ('future-data');
-                 PRAGMA user_version = 2;",
+                 PRAGMA user_version = 3;",
             )
             .unwrap();
 
@@ -1699,7 +1756,7 @@ mod tests {
             verification
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            2
+            3
         );
         assert_eq!(
             verification

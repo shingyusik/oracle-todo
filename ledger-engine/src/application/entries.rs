@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::application::commands::{CreateEntry, UpdateEntry};
 use crate::application::error::{LedgerError, LedgerResult};
-use crate::application::ports::{AuditEvent, LedgerRepository};
+use crate::application::ports::{AuditEvent, LedgerMutationRepository};
 use crate::application::references::{
     resolve_account, resolve_currency, resolve_transaction_category,
 };
@@ -14,7 +14,8 @@ use crate::domain::{
     ValidationError,
 };
 
-impl<R: LedgerRepository> LedgerService<R> {
+#[allow(private_bounds)]
+impl<R: LedgerMutationRepository> LedgerService<R> {
     pub fn create_entry(&mut self, command: CreateEntry) -> LedgerResult<LedgerEntry> {
         validate_actor(&command.actor)?;
         validate_manual_fields(command.entry_type, command.transfer_group.as_deref())?;

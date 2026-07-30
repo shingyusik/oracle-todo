@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::application::error::{LedgerError, LedgerResult};
-use crate::application::ports::{CandidateMatch, LedgerRepository, LedgerTransaction};
+use crate::application::ports::{CandidateMatch, LedgerMutationRepository, LedgerTransaction};
 use crate::domain::{
     Account, AccountCategory, Currency, TransactionCategory, TransactionCategoryKind,
 };
@@ -15,7 +15,8 @@ use super::service::LedgerService;
 
 const MAX_HIERARCHY_DEPTH: usize = 1024;
 
-impl<R: LedgerRepository> LedgerService<R> {
+#[allow(private_bounds)]
+impl<R: LedgerMutationRepository> LedgerService<R> {
     pub fn create_currency(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
         validate_actor(&command.actor)?;
         let now = time::OffsetDateTime::now_utc();

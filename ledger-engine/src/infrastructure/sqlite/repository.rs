@@ -1,9 +1,10 @@
-use rusqlite::{Connection, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use time::OffsetDateTime;
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
-    AuditEvent, CandidateMatch, EntryQuery, LedgerRepository, LedgerTransaction, Page,
+    AuditEvent, CandidateMatch, EntryQuery, LedgerMutationRepository, LedgerRepository,
+    LedgerTransaction, Page, TransferOperationRecord,
 };
 use crate::domain::{
     Account, AccountCategory, Currency, LedgerEntry, TransactionCategory, TransactionCategoryKind,
@@ -18,14 +19,6 @@ use super::mapping::{
 use super::{SqliteLedgerRepository, storage_error};
 
 impl LedgerRepository for SqliteLedgerRepository {
-    fn begin_transaction(&mut self) -> LedgerResult<Box<dyn LedgerTransaction + '_>> {
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
-        Ok(Box::new(SqliteLedgerTransaction { transaction }))
-    }
-
     fn get_currency(&self, id: &str, include_archived: bool) -> LedgerResult<Option<Currency>> {
         get_currency_on(&self.connection, id, include_archived)
     }
@@ -139,6 +132,16 @@ impl LedgerRepository for SqliteLedgerRepository {
             events.push(row_to_audit_event(row)?);
         }
         Ok(events)
+    }
+}
+
+impl LedgerMutationRepository for SqliteLedgerRepository {
+    fn begin_transaction(&mut self) -> LedgerResult<Box<dyn LedgerTransaction + '_>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        Ok(Box::new(SqliteLedgerTransaction { transaction }))
     }
 }
 
@@ -595,6 +598,50 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
                     before,
                     after,
                     event.reason,
+                ],
+            )
+            .map_err(storage_error)?;
+        Ok(())
+    }
+
+    fn get_transfer_operation(
+        &self,
+        operation_key: &str,
+    ) -> LedgerResult<Option<TransferOperationRecord>> {
+        self.transaction
+            .query_row(
+                "SELECT payload_json, result_json
+                 FROM transfer_operations
+                 WHERE operation_key = ?1",
+                [operation_key],
+                |row| {
+                    Ok(TransferOperationRecord {
+                        payload_json: row.get(0)?,
+                        result_json: row.get(1)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(storage_error)
+    }
+
+    fn insert_transfer_operation(
+        &mut self,
+        operation_key: &str,
+        payload_json: &str,
+        result_json: &str,
+        created_at: OffsetDateTime,
+    ) -> LedgerResult<()> {
+        self.transaction
+            .execute(
+                "INSERT INTO transfer_operations (
+                    operation_key, payload_json, result_json, created_at
+                 ) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    operation_key,
+                    payload_json,
+                    result_json,
+                    format_time(created_at)?
                 ],
             )
             .map_err(storage_error)?;

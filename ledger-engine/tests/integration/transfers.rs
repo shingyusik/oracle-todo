@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::{Arc, Barrier};
 
 use ledger_engine::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, UpdateAccount,
@@ -6,7 +7,7 @@ use ledger_engine::application::commands::{
 use ledger_engine::application::error::LedgerError;
 use ledger_engine::application::ports::{EntryQuery, Page};
 use ledger_engine::application::service::LedgerService;
-use ledger_engine::application::transfers::TransferCommand;
+use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
 use ledger_engine::domain::{EntryType, Money};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
@@ -20,6 +21,24 @@ struct Seeded {
     krw_id: String,
     wallet_id: String,
     savings_id: String,
+}
+
+#[test]
+fn transfer_operation_keys_require_canonical_uuid_v4_values() {
+    for invalid in [
+        "not-a-uuid",
+        "10000000-0000-1000-8000-000000000001",
+        "10000000-0000-4000-8000-000000000001 ",
+        "ABCDEF00-0000-4000-8000-000000000001",
+    ] {
+        assert!(matches!(
+            TransferOperationKey::parse(invalid),
+            Err(LedgerError::Validation {
+                field: "operation_key",
+                ..
+            })
+        ));
+    }
 }
 
 #[test]
@@ -189,6 +208,7 @@ fn paired_audit_failure_rolls_back_both_transfer_rows() {
     let database = directory.path().join("ledger.sqlite");
     let mut seeded = seeded_service_at(&database);
     let mut command = valid_transfer();
+    let operation_key = command.operation_key.clone();
     command.content = "x".repeat(1024 * 1024);
 
     let error = seeded.service.transfer(command).unwrap_err();
@@ -212,6 +232,166 @@ fn paired_audit_failure_rolls_back_both_transfer_rows() {
         )
         .unwrap();
     assert_eq!(transfer_audits, 0);
+    drop(connection);
+
+    let mut retry = valid_transfer();
+    retry.operation_key = operation_key;
+    let retry_result = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap())
+        .transfer(retry)
+        .unwrap();
+    assert!(Uuid::parse_str(&retry_result.transfer_group_id).is_ok());
+}
+
+#[test]
+fn transfer_retries_with_the_same_operation_key_return_the_persisted_result_once() {
+    let mut seeded = seeded_service_in_memory();
+    let command = valid_transfer();
+
+    let first = seeded.service.transfer(command.clone()).unwrap();
+    let second = seeded.service.transfer(command).unwrap();
+
+    assert_eq!(second, first);
+    assert_eq!(
+        seeded
+            .service
+            .entries_page(EntryQuery::default())
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    assert_eq!(
+        seeded
+            .service
+            .audit_page("transfer", &first.transfer_group_id, Page::default())
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn transfer_operation_key_rejects_a_different_payload() {
+    let mut seeded = seeded_service_in_memory();
+    let command = valid_transfer();
+    seeded.service.transfer(command.clone()).unwrap();
+
+    let mut changed = command;
+    changed.amount = Money::from_minor_units(99_999);
+    let error = seeded.service.transfer(changed).unwrap_err();
+
+    assert!(matches!(error, LedgerError::Conflict(message) if message.contains("operation key")));
+    assert_eq!(
+        seeded
+            .service
+            .entries_page(EntryQuery::default())
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn equal_transfer_payloads_with_distinct_operation_keys_are_not_deduplicated() {
+    let mut seeded = seeded_service_in_memory();
+    let first = valid_transfer();
+    let mut second = first.clone();
+    second.operation_key =
+        TransferOperationKey::parse("10000000-0000-4000-8000-000000000002").unwrap();
+
+    let first = seeded.service.transfer(first).unwrap();
+    let second = seeded.service.transfer(second).unwrap();
+
+    assert_ne!(first.transfer_group_id, second.transfer_group_id);
+    assert_eq!(
+        seeded
+            .service
+            .entries_page(EntryQuery::default())
+            .unwrap()
+            .items
+            .len(),
+        4
+    );
+}
+
+#[test]
+fn concurrent_retries_with_one_operation_key_converge_on_one_transfer() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(seeded_service_at(&database));
+    let barrier = Arc::new(Barrier::new(2));
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let database = database.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let mut service =
+                    LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+                barrier.wait();
+                service.transfer(valid_transfer())
+            })
+        })
+        .collect();
+
+    let results: Vec<_> = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap().unwrap())
+        .collect();
+    assert_eq!(results[0], results[1]);
+
+    let service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+    assert_eq!(
+        service
+            .entries_page(EntryQuery::default())
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn sqlite_rejects_raw_operation_claim_and_transfer_side_collisions() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let command = valid_transfer();
+    let operation_key = command.operation_key.clone();
+    let result = seeded.service.transfer(command).unwrap();
+    drop(seeded);
+
+    let connection = Connection::open(&database).unwrap();
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO transfer_operations (
+                    operation_key, payload_json, result_json, created_at
+                 ) VALUES (?1, '{}', '{}', '2026-07-30T00:00:00Z')",
+                [operation_key.as_str()],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO ledger_entries (
+                    id, date, written_at, content, transaction_category_id, account_id,
+                    entry_type, amount_minor, currency_id, transfer_group_id, source,
+                    notes, created_at, updated_at, deleted_at
+                 )
+                 SELECT
+                    '40000000-0000-4000-8000-000000000001', date, written_at, content,
+                    transaction_category_id, account_id, entry_type, amount_minor,
+                    currency_id, transfer_group_id, source, notes, created_at, updated_at,
+                    deleted_at
+                 FROM ledger_entries
+                 WHERE id = ?1",
+                [&result.out_entry_id],
+            )
+            .is_err()
+    );
 }
 
 fn seeded_service_in_memory() -> Seeded {
@@ -290,6 +470,7 @@ fn seed(mut service: TestService) -> Seeded {
 
 fn valid_transfer() -> TransferCommand {
     TransferCommand {
+        operation_key: TransferOperationKey::parse("10000000-0000-4000-8000-000000000001").unwrap(),
         date: "2026-07-30".to_string(),
         written_at: datetime!(2026-07-30 09:10:11 UTC),
         content: "Move to savings".to_string(),

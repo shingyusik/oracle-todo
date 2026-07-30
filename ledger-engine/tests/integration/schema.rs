@@ -1,10 +1,8 @@
 use ledger_engine::application::error::LedgerError;
 use ledger_engine::application::ports::{LedgerRepository, Page};
-use ledger_engine::domain::{Account, Currency, Money};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::{Connection, params};
 use std::path::Path;
-use time::macros::datetime;
 
 #[test]
 fn schema_uses_integer_money_and_required_indexes() {
@@ -28,6 +26,7 @@ fn schema_uses_integer_money_and_required_indexes() {
         "idx_ledger_entries_account",
         "idx_ledger_entries_category",
         "idx_ledger_entries_transfer_group",
+        "idx_ledger_entries_transfer_group_type",
         "idx_currencies_code",
         "idx_currencies_active_name",
         "idx_account_categories_active_name",
@@ -60,7 +59,7 @@ fn schema_initialization_is_idempotent_and_additive() {
     let repository = SqliteLedgerRepository::open(&database).unwrap();
     repository.init_schema().unwrap();
     repository.init_schema().unwrap();
-    assert_eq!(repository.schema_version().unwrap(), 1);
+    assert_eq!(repository.schema_version().unwrap(), 2);
     repository.check_schema().unwrap();
     drop(repository);
 
@@ -78,7 +77,59 @@ fn schema_initialization_is_idempotent_and_additive() {
 }
 
 #[test]
-fn version_one_open_stays_read_only_under_a_concurrent_writer() {
+fn version_one_migrates_additively_to_transfer_operation_claims_and_pair_uniqueness() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "DROP TABLE transfer_operations;
+         DROP INDEX idx_ledger_entries_transfer_group_type;
+         PRAGMA user_version = 1;",
+    );
+
+    let repository = SqliteLedgerRepository::open(&database).unwrap();
+
+    assert_eq!(repository.schema_version().unwrap(), 2);
+    assert!(
+        repository
+            .table_exists_for_test("transfer_operations")
+            .unwrap()
+    );
+    assert!(
+        repository
+            .index_exists_for_test("idx_ledger_entries_transfer_group_type")
+            .unwrap()
+    );
+}
+
+#[test]
+fn version_one_migration_rejects_duplicate_transfer_sides_without_losing_data() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    seed_duplicate_transfer_side_version_one(&database);
+
+    let error = open_error(&database);
+
+    assert!(matches!(error, LedgerError::Migration(_)));
+    assert_eq!(user_version(&database), 1);
+    let connection = Connection::open(&database).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM ledger_entries
+                 WHERE transfer_group_id = '20000000-0000-4000-8000-000000000001'
+                   AND entry_type = 'transfer_out'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
+fn version_two_open_stays_read_only_under_a_concurrent_writer() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
     drop(SqliteLedgerRepository::open(&database).unwrap());
@@ -109,7 +160,7 @@ fn version_one_open_stays_read_only_under_a_concurrent_writer() {
     writer.execute_batch("ROLLBACK;").unwrap();
     assert!(
         reopened.is_ok(),
-        "version 1 health unexpectedly requested a writer lock: {:?}",
+        "version 2 health unexpectedly requested a writer lock: {:?}",
         reopened.err()
     );
 }
@@ -182,7 +233,7 @@ fn migration_backfills_compatible_partial_table_without_losing_rows() {
 
     let repository = SqliteLedgerRepository::open(&database).unwrap();
 
-    assert_eq!(repository.schema_version().unwrap(), 1);
+    assert_eq!(repository.schema_version().unwrap(), 2);
     assert_eq!(
         repository
             .get_currency("currency-legacy", false)
@@ -342,7 +393,7 @@ fn migration_adds_missing_nullable_entry_lifecycle_column() {
 
     let repository = SqliteLedgerRepository::open(&database).unwrap();
 
-    assert_eq!(repository.schema_version().unwrap(), 1);
+    assert_eq!(repository.schema_version().unwrap(), 2);
     assert!(column_names(&database, "ledger_entries").contains(&"deleted_at".to_string()));
 }
 
@@ -381,13 +432,13 @@ fn migration_rejects_future_schema_versions_without_touching_the_database() {
         &database,
         "CREATE TABLE future_marker (value TEXT NOT NULL);
          INSERT INTO future_marker (value) VALUES ('keep');
-         PRAGMA user_version = 2;",
+         PRAGMA user_version = 3;",
     );
 
     let error = open_error(&database);
 
     assert!(matches!(error, LedgerError::Migration(_)));
-    assert_eq!(user_version(&database), 2);
+    assert_eq!(user_version(&database), 3);
     assert!(!table_exists(&database, "currencies"));
     assert_eq!(
         Connection::open(&database)
@@ -598,7 +649,7 @@ fn health_rejects_nonpositive_entry_amount_before_repository_reads() {
     assert!(
         matches!(error, LedgerError::Migration(message) if message.contains("persisted scalar"))
     );
-    assert_eq!(user_version(&database), 1);
+    assert_eq!(user_version(&database), 2);
 }
 
 #[test]
@@ -856,26 +907,34 @@ fn fresh_schema_rejects_real_and_text_money_at_the_sqlite_boundary() {
 
 #[test]
 fn schema_enables_foreign_keys_and_enforces_reference_integrity() {
-    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
-    let account = Account::new(
-        "account-orphan",
-        "Orphan",
-        "missing-category",
-        "missing-currency",
-        Money::from_minor_units(0),
-    )
-    .unwrap();
-
-    let mut transaction = repository.begin_transaction().unwrap();
-    let error = transaction
-        .upsert_account(&account, datetime!(2026-07-30 00:00:00 UTC))
-        .unwrap_err();
-    assert!(matches!(error, LedgerError::Storage(_)));
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch("PRAGMA foreign_keys = ON;")
+        .unwrap();
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO accounts (
+                    id, name, account_category_id, currency_id,
+                    opening_balance_minor, active, created_at, updated_at
+                 ) VALUES (
+                    'account-orphan', 'Orphan', 'missing-category', 'missing-currency',
+                    0, 1, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+                 )",
+                [],
+            )
+            .is_err()
+    );
 }
 
 #[test]
 fn schema_has_lifecycle_columns_and_unique_currency_codes() {
-    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let repository = SqliteLedgerRepository::open(&database).unwrap();
 
     for table in [
         "currencies",
@@ -893,15 +952,30 @@ fn schema_has_lifecycle_columns_and_unique_currency_codes() {
         );
     }
 
-    let first = Currency::new("currency-1", "KRW", "Korean won", "KRW", 0).unwrap();
-    let duplicate = Currency::new("currency-2", "KRW", "Duplicate won", "KRW", 0).unwrap();
-    let mut transaction = repository.begin_transaction().unwrap();
-    transaction
-        .upsert_currency(&first, datetime!(2026-07-30 00:00:00 UTC))
+    drop(repository);
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "INSERT INTO currencies (
+                id, code, name, symbol, decimal_places, active, created_at, updated_at
+             ) VALUES (
+                'currency-1', 'KRW', 'Korean won', 'KRW', 0, 1,
+                '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+             )",
+            [],
+        )
         .unwrap();
     assert!(
-        transaction
-            .upsert_currency(&duplicate, datetime!(2026-07-30 00:00:00 UTC))
+        connection
+            .execute(
+                "INSERT INTO currencies (
+                    id, code, name, symbol, decimal_places, active, created_at, updated_at
+                 ) VALUES (
+                    'currency-2', 'KRW', 'Duplicate won', 'KRW', 0, 1,
+                    '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+                 )",
+                [],
+            )
             .is_err()
     );
 }
@@ -917,6 +991,7 @@ fn schema_creates_all_ledger_and_audit_tables() {
         "transaction_categories",
         "ledger_entries",
         "audit_events",
+        "transfer_operations",
     ] {
         assert!(
             repository.table_exists_for_test(table).unwrap(),
@@ -927,6 +1002,58 @@ fn schema_creates_all_ledger_and_audit_tables() {
 
 fn execute(path: &Path, sql: &str) {
     Connection::open(path).unwrap().execute_batch(sql).unwrap();
+}
+
+fn seed_duplicate_transfer_side_version_one(path: &Path) {
+    drop(SqliteLedgerRepository::open(path).unwrap());
+    execute(
+        path,
+        "DROP TABLE transfer_operations;
+         DROP INDEX idx_ledger_entries_transfer_group_type;
+         INSERT INTO currencies (
+             id, code, name, symbol, decimal_places, active, created_at, updated_at
+         ) VALUES (
+             'currency-pair', 'KRW', 'Korean won', 'KRW', 0, 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO account_categories (
+             id, name, liability, active, created_at, updated_at
+         ) VALUES (
+             'account-category-pair', 'Cash', 0, 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO accounts (
+             id, name, account_category_id, currency_id, opening_balance_minor,
+             active, created_at, updated_at
+         ) VALUES
+             (
+                 'account-pair-a', 'A', 'account-category-pair', 'currency-pair',
+                 0, 1, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+             ),
+             (
+                 'account-pair-b', 'B', 'account-category-pair', 'currency-pair',
+                 0, 1, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+             );
+         INSERT INTO ledger_entries (
+             id, date, written_at, content, account_id, entry_type, amount_minor,
+             currency_id, transfer_group_id, source, created_at, updated_at
+         ) VALUES
+             (
+                 '30000000-0000-4000-8000-000000000001', '2026-07-30',
+                 '2026-07-30T00:00:00Z', 'duplicate', 'account-pair-a',
+                 'transfer_out', 100, 'currency-pair',
+                 '20000000-0000-4000-8000-000000000001', 'import',
+                 '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+             ),
+             (
+                 '30000000-0000-4000-8000-000000000002', '2026-07-30',
+                 '2026-07-30T00:00:00Z', 'duplicate', 'account-pair-b',
+                 'transfer_out', 100, 'currency-pair',
+                 '20000000-0000-4000-8000-000000000001', 'import',
+                 '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+             );
+         PRAGMA user_version = 1;",
+    );
 }
 
 fn open_error(path: &Path) -> LedgerError {
