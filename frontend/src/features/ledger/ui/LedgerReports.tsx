@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
+import type { LedgerBriefing } from "@/features/ledger/model/ledger-model";
 import { formatMoney } from "@/features/ledger/ui/ledger-ui";
 
 export function LedgerReports({ controller }: { controller: LedgerController }) {
@@ -93,13 +94,52 @@ export function LedgerReports({ controller }: { controller: LedgerController }) 
               net: money(row.netChangeMinor, row.currencyId, row.currencyCode),
             }))}
           />
-          {state.briefing?.markdown && (
-            <section aria-labelledby="ledger-briefing-heading">
-              <h2 id="ledger-briefing-heading">Briefing</h2>
-              <pre>{state.briefing.markdown}</pre>
-            </section>
-          )}
+          {state.briefing && <Briefing briefing={state.briefing} money={money} />}
         </>
+      )}
+    </section>
+  );
+}
+
+function Briefing({
+  briefing,
+  money,
+}: {
+  briefing: LedgerBriefing;
+  money: (value: number, currencyId: string, currencyCode: string) => string;
+}) {
+  const { range, currencies } = briefing.summary;
+  return (
+    <section aria-labelledby="ledger-briefing-heading">
+      <h2 id="ledger-briefing-heading">Briefing</h2>
+      <p>{range.start} to {range.end}</p>
+      {currencies.length === 0 ? (
+        <p className="items-message">No briefing data for this range.</p>
+      ) : (
+        <div className="items-section">
+          <table className="items-table">
+            <thead>
+              <tr>
+                <th>Currency</th>
+                <th>Income</th>
+                <th>Expense</th>
+                <th>Net</th>
+                <th>Entries</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currencies.map((row) => (
+                <tr key={row.currencyId}>
+                  <td>{row.currencyCode}</td>
+                  <td>{money(row.incomeMinor, row.currencyId, row.currencyCode)}</td>
+                  <td>{money(row.expenseMinor, row.currencyId, row.currencyCode)}</td>
+                  <td>{money(row.netChangeMinor, row.currencyId, row.currencyCode)}</td>
+                  <td>{row.entryCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

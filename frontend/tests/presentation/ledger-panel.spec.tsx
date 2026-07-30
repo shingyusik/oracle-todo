@@ -315,12 +315,57 @@ describe("LedgerPanel", () => {
               entryCount: 2,
             }],
           },
+          briefing: {
+            summary: {
+              range: { start: "2026-07-01", end: "2026-07-31" },
+              currencies: [{
+                currencyId: "currency-usd",
+                currencyCode: "USD",
+                incomeMinor: 1234,
+                expenseMinor: 200,
+                netChangeMinor: 1034,
+                entryCount: 2,
+              }],
+            },
+            markdown: "Raw briefing: income 1234, expense 200, net 1034",
+          },
         })}
       />,
     );
-    expect(screen.getByText("12.34 USD")).toBeInTheDocument();
-    expect(screen.getByText("2.00 USD")).toBeInTheDocument();
-    expect(screen.getByText("10.34 USD")).toBeInTheDocument();
+    expect(screen.getAllByText("12.34 USD")).toHaveLength(2);
+    expect(screen.getAllByText("2.00 USD")).toHaveLength(2);
+    expect(screen.getAllByText("10.34 USD")).toHaveLength(2);
+    const briefing = screen.getByRole("region", { name: "Briefing" });
+    expect(briefing).toHaveTextContent("2026-07-01 to 2026-07-31");
+    expect(briefing).not.toHaveTextContent("Raw briefing");
+    expect(briefing).not.toHaveTextContent(/\b1234\b/);
+  });
+
+  it("renders an empty structured Briefing without exposing raw markdown", () => {
+    render(
+      <LedgerPanel
+        leafTabId="reports"
+        controller={controller({
+          ...loadedState,
+          reportStatus: "loaded",
+          summary: {
+            range: { start: "2026-07-01", end: "2026-07-31" },
+            currencies: [],
+          },
+          briefing: {
+            summary: {
+              range: { start: "2026-07-01", end: "2026-07-31" },
+              currencies: [],
+            },
+            markdown: "Raw 1234",
+          },
+        })}
+      />,
+    );
+
+    const briefing = screen.getByRole("region", { name: "Briefing" });
+    expect(briefing).toHaveTextContent("No briefing data for this range.");
+    expect(briefing).not.toHaveTextContent("Raw 1234");
   });
 
   it("reports purge preview failures and re-enables only the active transaction action", async () => {
