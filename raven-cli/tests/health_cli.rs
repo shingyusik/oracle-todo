@@ -1063,3 +1063,86 @@ fn image_input_rejects_symlinks_without_disclosing_the_path() {
             .contains(link.to_str().unwrap())
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn image_input_rejects_a_fifo_without_blocking() {
+    use std::os::unix::net::UnixListener;
+    use std::process::Stdio;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    let home = tempfile::tempdir_in("/tmp").unwrap();
+    init(home.path());
+    let fifo = home.path().join("input.png");
+    assert!(
+        Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let mut child = raven(home.path())
+        .args([
+            "health",
+            "diet",
+            "add",
+            "--at",
+            "2026-07-31T12:00:00Z",
+            "--meal",
+            "lunch",
+            "--food",
+            "Soup",
+            "--image",
+            fifo.to_str().unwrap(),
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("FIFO image input blocked instead of being rejected");
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(status.code(), Some(2));
+
+    let socket = home.path().join("input.webp");
+    let listener = match UnixListener::bind(&socket) {
+        Ok(listener) => Some(listener),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => None,
+        Err(error) => panic!("could not create test socket: {error}"),
+    };
+    let paths = listener
+        .as_ref()
+        .map(|_| socket.as_path())
+        .into_iter()
+        .chain([Path::new("/dev/null")]);
+    for path in paths {
+        assert_exit(
+            home.path(),
+            &[
+                "health",
+                "diet",
+                "add",
+                "--at",
+                "2026-07-31T12:00:00Z",
+                "--meal",
+                "lunch",
+                "--food",
+                "Soup",
+                "--image",
+                path.to_str().unwrap(),
+            ],
+            2,
+        );
+    }
+}
