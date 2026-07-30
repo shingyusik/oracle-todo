@@ -238,7 +238,7 @@ fn same_second_timestamps_keep_list_and_audit_chronology() {
     transaction.commit().unwrap();
 
     let event_ids = repository
-        .list_events(Default::default(), true)
+        .list_events(&Default::default(), true)
         .unwrap()
         .into_iter()
         .map(|event| event.id().as_str().to_string())

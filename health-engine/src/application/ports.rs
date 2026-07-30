@@ -3,7 +3,7 @@ use time::{Date, OffsetDateTime};
 
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::media::validate_media_relative_path;
-use crate::domain::{DietEntry, HealthEvent, HealthRecordId};
+use crate::domain::{DietEntry, HealthCategory, HealthEvent, HealthRecordId, MetricKey};
 
 pub const DEFAULT_PAGE_LIMIT: u16 = 100;
 pub const MAX_PAGE_LIMIT: u16 = 500;
@@ -40,6 +40,51 @@ impl Default for Page {
             offset: 0,
             limit: DEFAULT_PAGE_LIMIT,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventQuery {
+    page: Page,
+    category: Option<HealthCategory>,
+    metric_key: Option<MetricKey>,
+}
+
+impl EventQuery {
+    pub const fn new(page: Page) -> Self {
+        Self {
+            page,
+            category: None,
+            metric_key: None,
+        }
+    }
+
+    pub const fn with_category(mut self, category: HealthCategory) -> Self {
+        self.category = Some(category);
+        self
+    }
+
+    pub fn with_metric_key(mut self, metric_key: impl AsRef<str>) -> HealthResult<Self> {
+        self.metric_key = Some(MetricKey::new(metric_key)?);
+        Ok(self)
+    }
+
+    pub const fn page(&self) -> Page {
+        self.page
+    }
+
+    pub const fn category(&self) -> Option<HealthCategory> {
+        self.category
+    }
+
+    pub fn metric_key(&self) -> Option<&MetricKey> {
+        self.metric_key.as_ref()
+    }
+}
+
+impl Default for EventQuery {
+    fn default() -> Self {
+        Self::new(Page::default())
     }
 }
 
@@ -200,6 +245,12 @@ impl MediaFileRecord {
 pub(crate) trait HealthTransaction {
     fn get_diet(&self, id: &str, include_archived: bool) -> HealthResult<Option<DietEntry>>;
     fn get_event(&self, id: &str, include_archived: bool) -> HealthResult<Option<HealthEvent>>;
+    fn get_daily_event(
+        &self,
+        local_date: Date,
+        category: HealthCategory,
+        metric_key: &MetricKey,
+    ) -> HealthResult<Option<HealthEvent>>;
     fn get_media(&self, id: &str, include_archived: bool) -> HealthResult<Option<MediaFileRecord>>;
     fn insert_media(&mut self, media: &MediaFileRecord) -> HealthResult<()>;
     fn update_media(&mut self, media: &MediaFileRecord) -> HealthResult<()>;
@@ -214,12 +265,7 @@ pub(crate) trait HealthTransaction {
         local_date: Date,
         daily_upsert: bool,
     ) -> HealthResult<()>;
-    fn update_event(
-        &mut self,
-        event: &HealthEvent,
-        local_date: Date,
-        daily_upsert: bool,
-    ) -> HealthResult<()>;
+    fn update_event(&mut self, event: &HealthEvent, local_date: Date) -> HealthResult<()>;
     fn delete_event(&mut self, id: &str) -> HealthResult<()>;
     fn insert_audit_event(&mut self, event: &AuditEvent) -> HealthResult<()>;
     fn commit(self: Box<Self>) -> HealthResult<()>;
@@ -234,7 +280,11 @@ pub(crate) trait HealthReadRepository: HealthRepository {
     fn get_diet(&self, id: &str, include_archived: bool) -> HealthResult<Option<DietEntry>>;
     fn list_diet(&self, page: Page, include_archived: bool) -> HealthResult<Vec<DietEntry>>;
     fn get_event(&self, id: &str, include_archived: bool) -> HealthResult<Option<HealthEvent>>;
-    fn list_events(&self, page: Page, include_archived: bool) -> HealthResult<Vec<HealthEvent>>;
+    fn list_events(
+        &self,
+        query: &EventQuery,
+        include_archived: bool,
+    ) -> HealthResult<Vec<HealthEvent>>;
     fn get_media(&self, id: &str, include_archived: bool) -> HealthResult<Option<MediaFileRecord>>;
     fn list_audit_events(
         &self,

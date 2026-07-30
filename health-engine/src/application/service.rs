@@ -1,5 +1,5 @@
 use serde::Serialize;
-use time::{OffsetDateTime, UtcOffset, macros::offset};
+use time::{Date, Duration, OffsetDateTime, UtcOffset, macros::offset};
 use uuid::Uuid;
 
 use crate::application::error::{HealthError, HealthResult};
@@ -27,6 +27,10 @@ impl<R, M> HealthService<R, M> {
         }
     }
 
+    /// Sets the fixed UTC offset used to derive persisted local dates.
+    ///
+    /// The offset is applied directly to each UTC occurrence instant. It does
+    /// not resolve IANA timezone names or daylight-saving transitions.
     pub fn with_local_offset(mut self, local_offset: UtcOffset) -> Self {
         self.local_offset = local_offset;
         self
@@ -228,4 +232,46 @@ fn validated_reason(reason: Option<&str>) -> HealthResult<Option<String>> {
         ));
     }
     Ok(reason.map(str::to_string))
+}
+
+/// Converts UTC occurrence instants with one configured fixed offset.
+///
+/// This intentionally does not apply IANA timezone or DST rules.
+pub(super) fn checked_local_date(
+    occurred_at: OffsetDateTime,
+    offset: UtcOffset,
+) -> HealthResult<Date> {
+    let local = occurred_at.checked_to_offset(offset).ok_or_else(|| {
+        validation(
+            "occurred_at",
+            "cannot be represented in the configured offset",
+        )
+    })?;
+    if !(0..=9999).contains(&local.year()) {
+        return Err(validation(
+            "occurred_at",
+            "local date must remain RFC3339 representable",
+        ));
+    }
+    Ok(local.date())
+}
+
+pub(super) fn next_update_time(
+    previous: OffsetDateTime,
+    record_type: &str,
+) -> HealthResult<OffsetDateTime> {
+    let now = OffsetDateTime::now_utc();
+    let candidate = if now > previous {
+        now
+    } else {
+        previous
+            .checked_add(Duration::nanoseconds(1))
+            .ok_or_else(|| {
+                HealthError::Conflict(format!("{record_type} timestamp cannot advance"))
+            })?
+    };
+    candidate
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|_| HealthError::Conflict(format!("{record_type} timestamp cannot advance")))?;
+    Ok(candidate)
 }

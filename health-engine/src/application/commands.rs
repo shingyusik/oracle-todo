@@ -2,7 +2,7 @@ use std::fmt;
 
 use time::OffsetDateTime;
 
-use crate::domain::MealType;
+use crate::domain::{HealthEventDetails, MealType};
 
 pub struct MediaUpload {
     pub content_type: String,
@@ -59,4 +59,30 @@ pub struct UpdateDietEntry {
     pub expected_updated_at: Option<OffsetDateTime>,
     pub actor: String,
     pub reason: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct CreateHealthEvent {
+    pub occurred_at: OffsetDateTime,
+    pub details: HealthEventDetails,
+    pub note: Option<String>,
+    pub actor: String,
+}
+
+#[derive(Debug, Default)]
+pub struct UpdateHealthEvent {
+    pub occurred_at: Option<OffsetDateTime>,
+    pub details: Option<HealthEventDetails>,
+    pub note: Option<Option<String>>,
+    pub expected_updated_at: Option<OffsetDateTime>,
+    pub actor: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct DailyMetricInput {
+    pub occurred_at: OffsetDateTime,
+    pub details: HealthEventDetails,
+    pub note: Option<String>,
+    pub actor: String,
 }

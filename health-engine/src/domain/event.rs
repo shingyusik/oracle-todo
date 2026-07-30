@@ -13,7 +13,7 @@ use super::{
     validate_lifecycle, validated_timestamp,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HealthCategory {
     Weight,
@@ -823,6 +823,10 @@ impl HealthEvent {
 
     pub fn attributes(&self) -> &Value {
         &self.attributes
+    }
+
+    pub fn details(&self) -> Result<HealthEventDetails, ValidationError> {
+        HealthEventDetails::from_attributes(self.category, self.attributes.clone())
     }
 
     pub const fn created_at(&self) -> OffsetDateTime {

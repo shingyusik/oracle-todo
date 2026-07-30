@@ -1,5 +1,5 @@
 use serde::Serialize;
-use time::{Date, Duration, OffsetDateTime};
+use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::application::commands::{
@@ -11,8 +11,9 @@ use crate::application::ports::{
     HealthMutationRepository, HealthReadRepository, MediaFileRecord, Page,
 };
 use crate::application::service::{
-    AuditMutation, HealthService, audit_event, cleanup_with_primary, media_record,
-    rollback_with_primary, safe_error_summary, validate_actor, validate_reason,
+    AuditMutation, HealthService, audit_event, checked_local_date, cleanup_with_primary,
+    media_record, next_update_time, rollback_with_primary, safe_error_summary, validate_actor,
+    validate_reason,
 };
 use crate::domain::{DietEntry, DietEntryRehydration, HealthRecordId, NewDietEntry};
 
@@ -113,7 +114,7 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
             None,
         )?;
         let local_date = checked_local_date(validated.occurred_at(), self.local_offset)?;
-        let now = next_update_time(before.updated_at())?;
+        let now = next_update_time(before.updated_at(), "diet")?;
         let finalized = match &command.media {
             DietMediaUpdate::Replace(upload) => self.finalize_upload(Some(upload))?,
             DietMediaUpdate::Preserve | DietMediaUpdate::Remove => None,
@@ -344,7 +345,7 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
 
         let before = pending.clone();
         pending.cleanup_pending = false;
-        pending.updated_at = next_update_time(pending.updated_at)?;
+        pending.updated_at = next_update_time(pending.updated_at, "media")?;
         let now = pending.updated_at;
         let mut transaction =
             self.repository
@@ -442,37 +443,6 @@ fn ensure_expected_version(
         )));
     }
     Ok(())
-}
-
-fn checked_local_date(occurred_at: OffsetDateTime, offset: time::UtcOffset) -> HealthResult<Date> {
-    let local = occurred_at
-        .checked_to_offset(offset)
-        .ok_or_else(|| HealthError::Validation {
-            field: "occurred_at",
-            message: "cannot be represented in the configured local offset".to_string(),
-        })?;
-    if !(0..=9999).contains(&local.year()) {
-        return Err(HealthError::Validation {
-            field: "occurred_at",
-            message: "local date must remain RFC3339 representable".to_string(),
-        });
-    }
-    Ok(local.date())
-}
-
-fn next_update_time(previous: OffsetDateTime) -> HealthResult<OffsetDateTime> {
-    let now = OffsetDateTime::now_utc();
-    let candidate = if now > previous {
-        now
-    } else {
-        previous
-            .checked_add(Duration::nanoseconds(1))
-            .ok_or_else(|| HealthError::Conflict("diet timestamp cannot advance".to_string()))?
-    };
-    candidate
-        .format(&time::format_description::well_known::Rfc3339)
-        .map_err(|_| HealthError::Conflict("diet timestamp cannot advance".to_string()))?;
-    Ok(candidate)
 }
 
 #[derive(Serialize)]

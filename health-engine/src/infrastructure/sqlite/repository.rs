@@ -11,10 +11,10 @@ use super::mapping::{
 use super::storage_error;
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::ports::{
-    AuditEvent, HealthMutationRepository, HealthReadRepository, HealthRepository,
+    AuditEvent, EventQuery, HealthMutationRepository, HealthReadRepository, HealthRepository,
     HealthTransaction, MediaFileRecord, Page,
 };
-use crate::domain::{DietEntry, HealthCategory, HealthEvent};
+use crate::domain::{DietEntry, HealthCategory, HealthEvent, MetricKey};
 
 impl HealthRepository for SqliteHealthRepository {}
 
@@ -31,8 +31,12 @@ impl HealthReadRepository for SqliteHealthRepository {
         get_event_on(&self.connection, id, include_archived)
     }
 
-    fn list_events(&self, page: Page, include_archived: bool) -> HealthResult<Vec<HealthEvent>> {
-        list_events_on(&self.connection, page, include_archived)
+    fn list_events(
+        &self,
+        query: &EventQuery,
+        include_archived: bool,
+    ) -> HealthResult<Vec<HealthEvent>> {
+        list_events_on(&self.connection, query, include_archived)
     }
 
     fn get_media(&self, id: &str, include_archived: bool) -> HealthResult<Option<MediaFileRecord>> {
@@ -103,6 +107,31 @@ impl HealthTransaction for SqliteHealthTransaction<'_> {
 
     fn get_event(&self, id: &str, include_archived: bool) -> HealthResult<Option<HealthEvent>> {
         get_event_on(&self.transaction, id, include_archived)
+    }
+
+    fn get_daily_event(
+        &self,
+        local_date: Date,
+        category: HealthCategory,
+        metric_key: &MetricKey,
+    ) -> HealthResult<Option<HealthEvent>> {
+        let sql = format!(
+            "SELECT {EVENT_COLUMNS}
+             FROM health_events
+             WHERE local_date = ?1 AND category = ?2 AND metric_key = ?3
+               AND deleted_at IS NULL AND daily_upsert = 1"
+        );
+        let mut events = collect_rows(
+            &self.transaction,
+            &sql,
+            params![
+                format_date(local_date),
+                category_value(category),
+                metric_key.as_str()
+            ],
+            row_to_event,
+        )?;
+        Ok(events.pop())
     }
 
     fn get_media(&self, id: &str, include_archived: bool) -> HealthResult<Option<MediaFileRecord>> {
@@ -309,12 +338,7 @@ impl HealthTransaction for SqliteHealthTransaction<'_> {
         Ok(())
     }
 
-    fn update_event(
-        &mut self,
-        event: &HealthEvent,
-        local_date: Date,
-        daily_upsert: bool,
-    ) -> HealthResult<()> {
+    fn update_event(&mut self, event: &HealthEvent, local_date: Date) -> HealthResult<()> {
         let changed = self
             .transaction
             .execute(
@@ -328,9 +352,8 @@ impl HealthTransaction for SqliteHealthTransaction<'_> {
                     unit = ?8,
                     note = ?9,
                     attributes_json = ?10,
-                    daily_upsert = ?11,
-                    updated_at = ?12,
-                    deleted_at = ?13
+                    updated_at = ?11,
+                    deleted_at = ?12
                  WHERE id = ?1",
                 params![
                     event.id().as_str(),
@@ -343,7 +366,6 @@ impl HealthTransaction for SqliteHealthTransaction<'_> {
                     event.unit(),
                     event.note(),
                     encode_event_json(event.attributes())?,
-                    daily_upsert,
                     format_time(event.updated_at())?,
                     event.deleted_at().map(format_time).transpose()?,
                 ],
@@ -514,25 +536,33 @@ fn get_event_on(
 
 fn list_events_on(
     connection: &Connection,
-    page: Page,
+    query: &EventQuery,
     include_archived: bool,
 ) -> HealthResult<Vec<HealthEvent>> {
+    let page = query.page();
     let visibility = if include_archived {
-        ""
+        "1 = 1"
     } else {
-        "WHERE deleted_at IS NULL"
+        "deleted_at IS NULL"
     };
     let sql = format!(
         "SELECT {EVENT_COLUMNS}
          FROM health_events
-         {visibility}
+         WHERE {visibility}
+           AND (?1 IS NULL OR category = ?1)
+           AND (?2 IS NULL OR metric_key = ?2)
          ORDER BY occurred_at DESC, id DESC
-         LIMIT ?1 OFFSET ?2"
+         LIMIT ?3 OFFSET ?4"
     );
     collect_rows(
         connection,
         &sql,
-        params![i64::from(page.limit()), i64::from(page.offset())],
+        params![
+            query.category().map(category_value),
+            query.metric_key().map(MetricKey::as_str),
+            i64::from(page.limit()),
+            i64::from(page.offset())
+        ],
         row_to_event,
     )
 }
