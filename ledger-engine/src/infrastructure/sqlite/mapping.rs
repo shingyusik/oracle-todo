@@ -1,6 +1,6 @@
 use rusqlite::Row;
-use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, UtcOffset};
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::AuditEvent;
@@ -137,6 +137,7 @@ pub(super) fn row_to_audit_event(row: &Row<'_>) -> LedgerResult<AuditEvent> {
 
 pub(super) fn format_time(value: OffsetDateTime) -> LedgerResult<String> {
     value
+        .to_offset(UtcOffset::UTC)
         .format(&Rfc3339)
         .map_err(|error| LedgerError::Storage(error.to_string()))
 }

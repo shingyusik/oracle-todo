@@ -4,9 +4,45 @@ use time::OffsetDateTime;
 use crate::application::error::LedgerResult;
 use crate::domain::{Account, AccountCategory, Currency, LedgerEntry, TransactionCategory};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub const DEFAULT_PAGE_LIMIT: u16 = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Page {
+    pub offset: u32,
+    pub limit: u16,
+}
+
+impl Default for Page {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            limit: DEFAULT_PAGE_LIMIT,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CandidateMatch<T> {
+    None,
+    One(T),
+    Ambiguous,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryQuery {
     pub include_archived: bool,
+    pub offset: u32,
+    pub limit: u16,
+}
+
+impl Default for EntryQuery {
+    fn default() -> Self {
+        Self {
+            include_archived: false,
+            offset: 0,
+            limit: DEFAULT_PAGE_LIMIT,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +76,24 @@ pub trait LedgerTransaction {
         include_archived: bool,
     ) -> LedgerResult<Option<TransactionCategory>>;
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>>;
+    fn currency_by_code(&self, code: &str) -> LedgerResult<CandidateMatch<Currency>>;
+    fn currency_by_active_name(&self, name: &str) -> LedgerResult<CandidateMatch<Currency>>;
+    fn account_category_by_active_name(
+        &self,
+        name: &str,
+    ) -> LedgerResult<CandidateMatch<AccountCategory>>;
+    fn account_by_active_name(&self, name: &str) -> LedgerResult<CandidateMatch<Account>>;
+    fn transaction_category_by_active_name(
+        &self,
+        name: &str,
+    ) -> LedgerResult<CandidateMatch<TransactionCategory>>;
+    fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>>;
+    fn list_active_account_categories(&self, page: Page) -> LedgerResult<Vec<AccountCategory>>;
+    fn list_active_accounts(&self, page: Page) -> LedgerResult<Vec<Account>>;
+    fn list_active_transaction_categories(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<TransactionCategory>>;
     fn upsert_currency(
         &mut self,
         currency: &Currency,
@@ -85,5 +139,10 @@ pub trait LedgerRepository: Send {
     ) -> LedgerResult<Option<TransactionCategory>>;
     fn list_entries(&self, query: &EntryQuery) -> LedgerResult<Vec<LedgerEntry>>;
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>>;
-    fn list_audit_events(&self, record_id: &str) -> LedgerResult<Vec<AuditEvent>>;
+    fn list_audit_events(
+        &self,
+        record_type: &str,
+        record_id: &str,
+        page: Page,
+    ) -> LedgerResult<Vec<AuditEvent>>;
 }

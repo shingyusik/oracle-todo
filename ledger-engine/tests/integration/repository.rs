@@ -1,6 +1,6 @@
 use ledger_engine::application::error::LedgerError;
 use ledger_engine::application::ports::{
-    AuditEvent, EntryQuery, LedgerRepository, LedgerTransaction,
+    AuditEvent, CandidateMatch, EntryQuery, LedgerRepository, LedgerTransaction, Page,
 };
 use ledger_engine::domain::{
     Account, AccountCategory, Currency, EntryType, LedgerEntry, LedgerEntryRehydration, Money,
@@ -9,6 +9,9 @@ use ledger_engine::domain::{
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
 use serde_json::json;
+use std::time::{Duration, Instant};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use time::macros::datetime;
 
 #[test]
@@ -107,6 +110,149 @@ fn transaction_can_read_its_reference_writes_before_commit() {
 }
 
 #[test]
+fn transaction_currency_code_candidates_distinguish_none_and_one() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut transaction = repository.begin_transaction().unwrap();
+    let active = Currency::new("currency-krw", "KRW", "Korean won", "KRW", 0).unwrap();
+    let inactive =
+        Currency::rehydrate("currency-usd", "USD", "US dollar", "USD", 2, false).unwrap();
+    let at = datetime!(2026-07-30 01:00:00 UTC);
+    transaction.upsert_currency(&active, at).unwrap();
+    transaction.upsert_currency(&inactive, at).unwrap();
+
+    assert_eq!(
+        transaction.currency_by_code("KRW").unwrap(),
+        CandidateMatch::One(active)
+    );
+    assert_eq!(
+        transaction.currency_by_code("USD").unwrap(),
+        CandidateMatch::None
+    );
+    assert_eq!(
+        transaction.currency_by_code("EUR").unwrap(),
+        CandidateMatch::None
+    );
+    transaction.rollback().unwrap();
+}
+
+#[test]
+fn active_name_candidates_report_ambiguity_without_unique_name_constraints() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut transaction = repository.begin_transaction().unwrap();
+    let at = datetime!(2026-07-30 01:00:00 UTC);
+    let currency_one = Currency::new("currency-1", "ONE", "Shared", "1", 0).unwrap();
+    let currency_two = Currency::new("currency-2", "TWO", "Shared", "2", 0).unwrap();
+    let inactive = Currency::rehydrate("currency-3", "THR", "Solo", "3", 0, false).unwrap();
+    let solo = Currency::new("currency-4", "FOR", "Solo", "4", 0).unwrap();
+    for currency in [&currency_one, &currency_two, &inactive, &solo] {
+        transaction.upsert_currency(currency, at).unwrap();
+    }
+
+    let account_category_one =
+        AccountCategory::new("account-category-1", "Shared", None, false).unwrap();
+    let account_category_two =
+        AccountCategory::new("account-category-2", "Shared", None, false).unwrap();
+    for category in [&account_category_one, &account_category_two] {
+        transaction.upsert_account_category(category, at).unwrap();
+    }
+
+    let account_one = Account::new(
+        "account-1",
+        "Shared",
+        account_category_one.id(),
+        currency_one.id(),
+        Money::from_minor_units(0),
+    )
+    .unwrap();
+    let account_two = Account::new(
+        "account-2",
+        "Shared",
+        account_category_one.id(),
+        currency_one.id(),
+        Money::from_minor_units(0),
+    )
+    .unwrap();
+    for account in [&account_one, &account_two] {
+        transaction.upsert_account(account, at).unwrap();
+    }
+
+    let transaction_category_one = TransactionCategory::new(
+        "transaction-category-1",
+        "Shared",
+        None,
+        TransactionCategoryKind::Expense,
+    )
+    .unwrap();
+    let transaction_category_two = TransactionCategory::new(
+        "transaction-category-2",
+        "Shared",
+        None,
+        TransactionCategoryKind::Expense,
+    )
+    .unwrap();
+    for category in [&transaction_category_one, &transaction_category_two] {
+        transaction
+            .upsert_transaction_category(category, at)
+            .unwrap();
+    }
+
+    assert_eq!(
+        transaction.currency_by_active_name("Shared").unwrap(),
+        CandidateMatch::Ambiguous
+    );
+    assert_eq!(
+        transaction.currency_by_active_name("Solo").unwrap(),
+        CandidateMatch::One(solo)
+    );
+    assert_eq!(
+        transaction
+            .account_category_by_active_name("Shared")
+            .unwrap(),
+        CandidateMatch::Ambiguous
+    );
+    assert_eq!(
+        transaction.account_by_active_name("Shared").unwrap(),
+        CandidateMatch::Ambiguous
+    );
+    assert_eq!(
+        transaction
+            .transaction_category_by_active_name("Shared")
+            .unwrap(),
+        CandidateMatch::Ambiguous
+    );
+    transaction.rollback().unwrap();
+}
+
+#[test]
+fn transaction_master_lists_are_deterministic_and_bounded() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut transaction = repository.begin_transaction().unwrap();
+    seed_references(&mut *transaction);
+
+    let page = Page {
+        offset: 0,
+        limit: 1,
+    };
+    assert_eq!(transaction.list_active_currencies(page).unwrap().len(), 1);
+    assert_eq!(
+        transaction
+            .list_active_account_categories(page)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(transaction.list_active_accounts(page).unwrap().len(), 1);
+    assert_eq!(
+        transaction
+            .list_active_transaction_categories(page)
+            .unwrap()
+            .len(),
+        1
+    );
+    transaction.rollback().unwrap();
+}
+
+#[test]
 fn repository_updates_only_existing_entries() {
     let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
     let original = entry("entry-update", None);
@@ -153,6 +299,7 @@ fn entry_queries_hide_archived_rows_by_default() {
         repository
             .list_entries(&EntryQuery {
                 include_archived: true,
+                ..EntryQuery::default()
             })
             .unwrap(),
         vec![active, archived]
@@ -212,7 +359,7 @@ fn dropped_transaction_rolls_back_entry_and_audit_together() {
     assert_eq!(repository.get_entry("entry-rollback", true).unwrap(), None);
     assert!(
         repository
-            .list_audit_events("entry-rollback")
+            .list_audit_events("ledger_entry", "entry-rollback", Page::default(),)
             .unwrap()
             .is_empty()
     );
@@ -232,9 +379,235 @@ fn audit_events_round_trip_without_an_entry_foreign_key() {
 
     assert_eq!(
         repository
-            .list_audit_events("entry-already-purged")
+            .list_audit_events("ledger_entry", "entry-already-purged", Page::default(),)
             .unwrap(),
         vec![audit]
+    );
+}
+
+#[test]
+fn persistence_normalizes_master_and_audit_timestamps_to_utc() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut repository = SqliteLedgerRepository::open(&database).unwrap();
+    let changed_at = parse_time("2026-07-30T09:00:00+09:00");
+    let audit = audit_at(
+        "audit-offset",
+        "ledger_entry",
+        "entry-offset",
+        parse_time("2026-07-30T10:00:00+09:00"),
+    );
+    let currency = Currency::new("currency-offset", "UTC", "UTC test", "U", 0).unwrap();
+
+    let mut transaction = repository.begin_transaction().unwrap();
+    transaction.upsert_currency(&currency, changed_at).unwrap();
+    transaction.insert_audit_event(&audit).unwrap();
+    transaction.commit().unwrap();
+    drop(repository);
+
+    let connection = Connection::open(&database).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT created_at FROM currencies WHERE id = 'currency-offset'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "2026-07-30T00:00:00Z"
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT occurred_at FROM audit_events WHERE id = 'audit-offset'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "2026-07-30T01:00:00Z"
+    );
+}
+
+#[test]
+fn opening_normalizes_legacy_offset_timestamps_to_utc() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut repository = SqliteLedgerRepository::open(&database).unwrap();
+    let currency = Currency::new("currency-legacy-offset", "LOT", "Legacy offset", "L", 0).unwrap();
+    let audit = audit_at(
+        "audit-legacy-offset",
+        "currency",
+        currency.id(),
+        datetime!(2026-07-30 00:00:00 UTC),
+    );
+    let mut transaction = repository.begin_transaction().unwrap();
+    transaction
+        .upsert_currency(&currency, datetime!(2026-07-30 00:00:00 UTC))
+        .unwrap();
+    transaction.insert_audit_event(&audit).unwrap();
+    transaction.commit().unwrap();
+    drop(repository);
+
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "UPDATE currencies
+             SET created_at = '2026-07-30T09:00:00+09:00',
+                 updated_at = '2026-07-30T09:00:00+09:00'
+             WHERE id = 'currency-legacy-offset';
+             UPDATE audit_events
+             SET occurred_at = '2026-07-29T20:30:00-04:00'
+             WHERE id = 'audit-legacy-offset';",
+        )
+        .unwrap();
+    drop(connection);
+
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+
+    let connection = Connection::open(&database).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT created_at FROM currencies WHERE id = 'currency-legacy-offset'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "2026-07-30T00:00:00Z"
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT occurred_at FROM audit_events WHERE id = 'audit-legacy-offset'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "2026-07-30T00:30:00Z"
+    );
+}
+
+#[test]
+fn audit_order_uses_instant_order_across_input_offsets() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let earlier = audit_at(
+        "audit-earlier",
+        "ledger_entry",
+        "entry-order",
+        parse_time("2026-07-30T09:00:00+09:00"),
+    );
+    let later = audit_at(
+        "audit-later",
+        "ledger_entry",
+        "entry-order",
+        parse_time("2026-07-29T20:30:00-04:00"),
+    );
+
+    let mut transaction = repository.begin_transaction().unwrap();
+    transaction.insert_audit_event(&later).unwrap();
+    transaction.insert_audit_event(&earlier).unwrap();
+    transaction.commit().unwrap();
+
+    let events = repository
+        .list_audit_events("ledger_entry", "entry-order", Page::default())
+        .unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["audit-earlier", "audit-later"]
+    );
+    assert!(
+        events
+            .iter()
+            .all(|event| event.occurred_at.offset() == time::UtcOffset::UTC)
+    );
+}
+
+#[test]
+fn audit_lookup_uses_full_record_identity_and_bounded_page() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut transaction = repository.begin_transaction().unwrap();
+    for (id, record_type) in [
+        ("audit-1", "ledger_entry"),
+        ("audit-2", "ledger_entry"),
+        ("audit-3", "ledger_entry"),
+        ("audit-account", "account"),
+    ] {
+        transaction
+            .insert_audit_event(&audit_at(
+                id,
+                record_type,
+                "shared-id",
+                datetime!(2026-07-30 01:02:06 UTC),
+            ))
+            .unwrap();
+    }
+    transaction.commit().unwrap();
+
+    let events = repository
+        .list_audit_events(
+            "ledger_entry",
+            "shared-id",
+            Page {
+                offset: 1,
+                limit: 1,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["audit-2"]
+    );
+}
+
+#[test]
+fn entry_query_applies_bounded_offset_and_limit_in_sql() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut transaction = repository.begin_transaction().unwrap();
+    seed_references(&mut *transaction);
+    for id in ["entry-page-1", "entry-page-2", "entry-page-3"] {
+        transaction.insert_entry(&entry(id, None)).unwrap();
+    }
+    transaction.commit().unwrap();
+
+    let entries = repository
+        .list_entries(&EntryQuery {
+            offset: 1,
+            limit: 1,
+            ..EntryQuery::default()
+        })
+        .unwrap();
+    assert_eq!(
+        entries.iter().map(|entry| entry.id()).collect::<Vec<_>>(),
+        vec!["entry-page-2"]
+    );
+}
+
+#[test]
+fn writer_lock_expiry_is_reported_as_retryable_busy() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+    let locker = Connection::open(&database).unwrap();
+    locker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+
+    let started = Instant::now();
+    let error = match SqliteLedgerRepository::open(&database) {
+        Ok(_) => panic!("a held writer lock must prevent schema initialization"),
+        Err(error) => error,
+    };
+    let elapsed = started.elapsed();
+    locker.execute_batch("ROLLBACK;").unwrap();
+
+    assert!(matches!(error, LedgerError::Busy(_)));
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "configured busy timeout must remain bounded, got {elapsed:?}"
     );
 }
 
@@ -388,15 +761,33 @@ fn custom_entry_with_deleted_at(
 }
 
 fn audit(id: &str, record_id: &str) -> AuditEvent {
+    audit_at(
+        id,
+        "ledger_entry",
+        record_id,
+        datetime!(2026-07-30 01:02:06 UTC),
+    )
+}
+
+fn audit_at(
+    id: &str,
+    record_type: &str,
+    record_id: &str,
+    occurred_at: OffsetDateTime,
+) -> AuditEvent {
     AuditEvent {
         id: id.to_string(),
-        occurred_at: datetime!(2026-07-30 01:02:06 UTC),
+        occurred_at,
         actor: "user".to_string(),
         action: "create".to_string(),
-        record_type: "ledger_entry".to_string(),
+        record_type: record_type.to_string(),
         record_id: record_id.to_string(),
         before: None,
         after: Some(json!({"id": record_id})),
         reason: None,
     }
+}
+
+fn parse_time(value: &str) -> OffsetDateTime {
+    OffsetDateTime::parse(value, &Rfc3339).unwrap()
 }

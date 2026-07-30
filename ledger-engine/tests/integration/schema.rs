@@ -3,6 +3,7 @@ use ledger_engine::application::ports::LedgerRepository;
 use ledger_engine::domain::{Account, Currency, Money};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
+use std::path::Path;
 use time::macros::datetime;
 
 #[test]
@@ -28,6 +29,10 @@ fn schema_uses_integer_money_and_required_indexes() {
         "idx_ledger_entries_category",
         "idx_ledger_entries_transfer_group",
         "idx_currencies_code",
+        "idx_currencies_active_name",
+        "idx_account_categories_active_name",
+        "idx_accounts_active_name",
+        "idx_transaction_categories_active_name",
     ] {
         assert!(
             repository.index_exists_for_test(index).unwrap(),
@@ -55,6 +60,8 @@ fn schema_initialization_is_idempotent_and_additive() {
     let repository = SqliteLedgerRepository::open(&database).unwrap();
     repository.init_schema().unwrap();
     repository.init_schema().unwrap();
+    assert_eq!(repository.schema_version().unwrap(), 1);
+    repository.check_schema().unwrap();
     drop(repository);
 
     let connection = Connection::open(&database).unwrap();
@@ -67,6 +74,416 @@ fn schema_initialization_is_idempotent_and_additive() {
             )
             .unwrap(),
         "keep-me"
+    );
+}
+
+#[test]
+fn migration_backfills_compatible_partial_table_without_losing_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE currencies (
+            id TEXT NOT NULL PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            decimal_places INTEGER NOT NULL
+                CHECK (decimal_places >= 0 AND decimal_places <= 18),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL
+        ) STRICT;
+        INSERT INTO currencies (
+            id, code, name, symbol, decimal_places, active, created_at
+        ) VALUES (
+            'currency-legacy', 'KRW', 'Korean won', 'KRW', 0, 1,
+            '2026-07-30T00:00:00Z'
+        );",
+    );
+
+    let repository = SqliteLedgerRepository::open(&database).unwrap();
+
+    assert_eq!(repository.schema_version().unwrap(), 1);
+    assert_eq!(
+        repository
+            .get_currency("currency-legacy", false)
+            .unwrap()
+            .unwrap()
+            .code(),
+        "KRW"
+    );
+    assert_eq!(
+        column_names(&database, "currencies"),
+        vec![
+            "id",
+            "code",
+            "name",
+            "symbol",
+            "decimal_places",
+            "active",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ]
+    );
+}
+
+#[test]
+fn migration_preserves_compatible_extra_legacy_columns() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE currencies (
+            id TEXT NOT NULL PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            decimal_places INTEGER NOT NULL
+                CHECK (decimal_places >= 0 AND decimal_places <= 18),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT,
+            legacy_source TEXT
+        ) STRICT;
+        INSERT INTO currencies (
+            id, code, name, symbol, decimal_places, active, created_at, updated_at,
+            legacy_source
+        ) VALUES (
+            'currency-legacy-extra', 'KRW', 'Korean won', 'KRW', 0, 1,
+            '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z', 'import-v0'
+        );",
+    );
+
+    let repository = SqliteLedgerRepository::open(&database).unwrap();
+
+    assert_eq!(
+        repository
+            .get_currency("currency-legacy-extra", false)
+            .unwrap()
+            .unwrap()
+            .code(),
+        "KRW"
+    );
+    assert!(column_names(&database, "currencies").contains(&"legacy_source".to_string()));
+    assert_eq!(
+        Connection::open(&database)
+            .unwrap()
+            .query_row(
+                "SELECT legacy_source FROM currencies WHERE id = 'currency-legacy-extra'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "import-v0"
+    );
+}
+
+#[test]
+fn migration_adds_missing_nullable_entry_lifecycle_column() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE ledger_entries (
+            id TEXT NOT NULL PRIMARY KEY,
+            date TEXT NOT NULL,
+            written_at TEXT NOT NULL,
+            content TEXT NOT NULL,
+            transaction_category_id TEXT REFERENCES transaction_categories(id),
+            account_id TEXT NOT NULL REFERENCES accounts(id),
+            entry_type TEXT NOT NULL CHECK (
+                entry_type IN (
+                    'expense', 'income', 'transfer_out', 'transfer_in',
+                    'adjustment_out', 'adjustment_in'
+                )
+            ),
+            amount_minor INTEGER NOT NULL CHECK (
+                typeof(amount_minor) = 'integer' AND amount_minor > 0
+            ),
+            currency_id TEXT NOT NULL REFERENCES currencies(id),
+            transfer_group_id TEXT,
+            source TEXT NOT NULL,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        ) STRICT;",
+    );
+
+    let repository = SqliteLedgerRepository::open(&database).unwrap();
+
+    assert_eq!(repository.schema_version().unwrap(), 1);
+    assert!(column_names(&database, "ledger_entries").contains(&"deleted_at".to_string()));
+}
+
+#[test]
+fn migration_rejects_wrong_same_name_index_and_rolls_back_every_change() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE currencies (
+            id TEXT NOT NULL PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            decimal_places INTEGER NOT NULL
+                CHECK (decimal_places >= 0 AND decimal_places <= 18),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL
+        ) STRICT;
+        CREATE INDEX idx_currencies_code ON currencies(name);",
+    );
+
+    let error = open_error(&database);
+
+    assert!(matches!(error, LedgerError::Migration(_)));
+    assert_eq!(user_version(&database), 0);
+    assert!(!table_exists(&database, "accounts"));
+    assert!(!column_names(&database, "currencies").contains(&"updated_at".to_string()));
+}
+
+#[test]
+fn migration_rejects_future_schema_versions_without_touching_the_database() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE future_marker (value TEXT NOT NULL);
+         INSERT INTO future_marker (value) VALUES ('keep');
+         PRAGMA user_version = 2;",
+    );
+
+    let error = open_error(&database);
+
+    assert!(matches!(error, LedgerError::Migration(_)));
+    assert_eq!(user_version(&database), 2);
+    assert!(!table_exists(&database, "currencies"));
+    assert_eq!(
+        Connection::open(&database)
+            .unwrap()
+            .query_row("SELECT value FROM future_marker", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+        "keep"
+    );
+}
+
+#[test]
+fn migration_rejects_incompatible_column_types() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE currencies (
+            id TEXT NOT NULL PRIMARY KEY,
+            code INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            decimal_places INTEGER NOT NULL
+                CHECK (decimal_places >= 0 AND decimal_places <= 18),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        ) STRICT;",
+    );
+    assert!(matches!(
+        SqliteLedgerRepository::open(&database),
+        Err(LedgerError::Migration(_))
+    ));
+}
+
+#[test]
+fn migration_rejects_incompatible_foreign_keys() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE accounts (
+            id TEXT NOT NULL PRIMARY KEY,
+            name TEXT NOT NULL,
+            account_category_id TEXT NOT NULL REFERENCES currencies(id),
+            currency_id TEXT NOT NULL REFERENCES currencies(id),
+            opening_balance_minor INTEGER NOT NULL DEFAULT 0
+                CHECK (typeof(opening_balance_minor) = 'integer'),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        ) STRICT;",
+    );
+    assert!(matches!(
+        SqliteLedgerRepository::open(&database),
+        Err(LedgerError::Migration(_))
+    ));
+}
+
+#[test]
+fn migration_rejects_legacy_money_columns_without_storage_class_constraints() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE accounts (
+            id TEXT NOT NULL PRIMARY KEY,
+            name TEXT NOT NULL,
+            account_category_id TEXT NOT NULL REFERENCES account_categories(id),
+            currency_id TEXT NOT NULL REFERENCES currencies(id),
+            opening_balance_minor INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        );",
+    );
+
+    assert!(matches!(
+        SqliteLedgerRepository::open(&database),
+        Err(LedgerError::Migration(_))
+    ));
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn migration_fails_closed_when_legacy_money_uses_non_integer_storage() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE currencies (
+            id TEXT NOT NULL PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            decimal_places INTEGER NOT NULL
+                CHECK (decimal_places >= 0 AND decimal_places <= 18),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        ) STRICT;
+        CREATE TABLE account_categories (
+            id TEXT NOT NULL PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id TEXT REFERENCES account_categories(id),
+            liability INTEGER NOT NULL DEFAULT 0 CHECK (liability IN (0, 1)),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        ) STRICT;
+        CREATE TABLE accounts (
+            id TEXT NOT NULL PRIMARY KEY,
+            name TEXT NOT NULL,
+            account_category_id TEXT NOT NULL REFERENCES account_categories(id),
+            currency_id TEXT NOT NULL REFERENCES currencies(id),
+            opening_balance_minor INTEGER NOT NULL DEFAULT 0
+                CHECK (typeof(opening_balance_minor) = 'integer'),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        INSERT INTO currencies (
+            id, code, name, symbol, decimal_places, active, created_at, updated_at
+        ) VALUES (
+            'currency-krw', 'KRW', 'Korean won', 'KRW', 0, 1,
+            '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+        );
+        INSERT INTO account_categories (
+            id, name, liability, active, created_at, updated_at
+        ) VALUES (
+            'account-category-cash', 'Cash', 0, 1,
+            '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+        );
+        PRAGMA ignore_check_constraints = ON;
+        INSERT INTO accounts (
+            id, name, account_category_id, currency_id, opening_balance_minor,
+            active, created_at, updated_at
+        ) VALUES (
+            'account-corrupt', 'Corrupt', 'account-category-cash', 'currency-krw',
+            1.25, 1, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+        );
+        PRAGMA ignore_check_constraints = OFF;",
+    );
+
+    let error = open_error(&database);
+
+    assert!(matches!(error, LedgerError::Migration(message) if message.contains("non-integer")));
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn fresh_schema_rejects_real_and_text_money_at_the_sqlite_boundary() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys = ON;
+         INSERT INTO currencies (
+             id, code, name, symbol, decimal_places, active, created_at, updated_at
+         ) VALUES (
+             'currency-krw', 'KRW', 'Korean won', 'KRW', 0, 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO account_categories (
+             id, name, liability, active, created_at, updated_at
+         ) VALUES (
+             'account-category-cash', 'Cash', 0, 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO accounts (
+             id, name, account_category_id, currency_id, opening_balance_minor,
+             active, created_at, updated_at
+         ) VALUES (
+             'account-cash', 'Cash', 'account-category-cash', 'currency-krw',
+             0, 1, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO transaction_categories (
+             id, name, kind, active, created_at, updated_at
+         ) VALUES (
+             'transaction-food', 'Food', 'expense', 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO ledger_entries (
+             id, date, written_at, content, transaction_category_id, account_id,
+             entry_type, amount_minor, currency_id, source, created_at, updated_at
+         ) VALUES (
+             'entry-1', '2026-07-30', '2026-07-30T00:00:00Z', 'Lunch',
+             'transaction-food', 'account-cash', 'expense', 12000, 'currency-krw',
+             'manual', '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );",
+        )
+        .unwrap();
+
+    assert!(
+        connection
+            .execute(
+                "UPDATE accounts SET opening_balance_minor = 1.25 WHERE id = 'account-cash'",
+                [],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "UPDATE ledger_entries SET amount_minor = 12.5 WHERE id = 'entry-1'",
+                [],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "UPDATE ledger_entries SET amount_minor = 'oops' WHERE id = 'entry-1'",
+                [],
+            )
+            .is_err()
     );
 }
 
@@ -139,4 +556,47 @@ fn schema_creates_all_ledger_and_audit_tables() {
             "missing table {table}"
         );
     }
+}
+
+fn execute(path: &Path, sql: &str) {
+    Connection::open(path).unwrap().execute_batch(sql).unwrap();
+}
+
+fn open_error(path: &Path) -> LedgerError {
+    match SqliteLedgerRepository::open(path) {
+        Ok(_) => panic!("opening an incompatible schema must fail"),
+        Err(error) => error,
+    }
+}
+
+fn user_version(path: &Path) -> i64 {
+    Connection::open(path)
+        .unwrap()
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap()
+}
+
+fn table_exists(path: &Path, table: &str) -> bool {
+    Connection::open(path)
+        .unwrap()
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1
+            )",
+            [table],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+fn column_names(path: &Path, table: &str) -> Vec<String> {
+    let connection = Connection::open(path).unwrap();
+    let mut statement = connection
+        .prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid")
+        .unwrap();
+    statement
+        .query_map([table], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
 }

@@ -3,10 +3,14 @@ mod repository;
 mod schema;
 
 use std::path::Path;
+use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::application::error::{LedgerError, LedgerResult};
+
+/// Keep cross-process writer contention bounded so callers can retry promptly.
+pub const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub struct SqliteLedgerRepository {
     pub(super) connection: Connection,
@@ -18,6 +22,10 @@ impl SqliteLedgerRepository {
             connection: Connection::open(path)
                 .map_err(|error| LedgerError::Storage(error.to_string()))?,
         };
+        repository
+            .connection
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
+            .map_err(storage_error)?;
         repository.init_schema()?;
         Ok(repository)
     }
@@ -27,12 +35,24 @@ impl SqliteLedgerRepository {
             connection: Connection::open_in_memory()
                 .map_err(|error| LedgerError::Storage(error.to_string()))?,
         };
+        repository
+            .connection
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
+            .map_err(storage_error)?;
         repository.init_schema()?;
         Ok(repository)
     }
 
     pub fn init_schema(&self) -> LedgerResult<()> {
         schema::init_schema(&self.connection)
+    }
+
+    pub fn schema_version(&self) -> LedgerResult<i64> {
+        schema::user_version(&self.connection)
+    }
+
+    pub fn check_schema(&self) -> LedgerResult<()> {
+        schema::check_schema(&self.connection)
     }
 
     #[doc(hidden)]
@@ -72,6 +92,9 @@ impl SqliteLedgerRepository {
 }
 
 pub(super) fn storage_error(error: rusqlite::Error) -> LedgerError {
+    if is_busy_error(&error) {
+        return LedgerError::Busy(error.to_string());
+    }
     match &error {
         rusqlite::Error::SqliteFailure(failure, _)
             if failure.code == rusqlite::ErrorCode::ConstraintViolation
@@ -85,4 +108,15 @@ pub(super) fn storage_error(error: rusqlite::Error) -> LedgerError {
         }
         _ => LedgerError::Storage(error.to_string()),
     }
+}
+
+pub(super) fn is_busy_error(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(failure, _)
+            if matches!(
+                failure.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            )
+    )
 }

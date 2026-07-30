@@ -3,7 +3,9 @@ use serde_json::Value;
 use time::OffsetDateTime;
 
 use crate::application::error::{LedgerError, LedgerResult};
-use crate::application::ports::{AuditEvent, EntryQuery, LedgerRepository, LedgerTransaction};
+use crate::application::ports::{
+    AuditEvent, CandidateMatch, EntryQuery, LedgerRepository, LedgerTransaction, Page,
+};
 use crate::domain::{
     Account, AccountCategory, Currency, LedgerEntry, TransactionCategory, TransactionCategoryKind,
 };
@@ -58,9 +60,14 @@ impl LedgerRepository for SqliteLedgerRepository {
             "SELECT {ENTRY_COLUMNS}
              FROM ledger_entries
              {visibility}
-             ORDER BY date, written_at, id"
+             ORDER BY date, written_at, id
+             LIMIT ?1 OFFSET ?2"
         );
-        collect_entries(&self.connection, &sql, [])
+        collect_entries(
+            &self.connection,
+            &sql,
+            params![i64::from(query.limit), i64::from(query.offset)],
+        )
     }
 
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>> {
@@ -78,15 +85,28 @@ impl LedgerRepository for SqliteLedgerRepository {
         Ok(entries.pop())
     }
 
-    fn list_audit_events(&self, record_id: &str) -> LedgerResult<Vec<AuditEvent>> {
+    fn list_audit_events(
+        &self,
+        record_type: &str,
+        record_id: &str,
+        page: Page,
+    ) -> LedgerResult<Vec<AuditEvent>> {
         let sql = format!(
             "SELECT {AUDIT_COLUMNS}
              FROM audit_events
-             WHERE record_id = ?1
-             ORDER BY occurred_at, id"
+             WHERE record_type = ?1 AND record_id = ?2
+             ORDER BY occurred_at, id
+             LIMIT ?3 OFFSET ?4"
         );
         let mut statement = self.connection.prepare(&sql).map_err(storage_error)?;
-        let mut rows = statement.query([record_id]).map_err(storage_error)?;
+        let mut rows = statement
+            .query(params![
+                record_type,
+                record_id,
+                i64::from(page.limit),
+                i64::from(page.offset),
+            ])
+            .map_err(storage_error)?;
         let mut events = Vec::new();
         while let Some(row) = rows.next().map_err(storage_error)? {
             events.push(row_to_audit_event(row)?);
@@ -126,6 +146,150 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
 
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>> {
         get_entry_on(&self.transaction, id, include_archived)
+    }
+
+    fn currency_by_code(&self, code: &str) -> LedgerResult<CandidateMatch<Currency>> {
+        candidate_query(
+            &self.transaction,
+            &format!(
+                "SELECT {CURRENCY_COLUMNS}
+                 FROM currencies
+                 WHERE active = 1 AND deleted_at IS NULL AND code = ?1
+                 ORDER BY id
+                 LIMIT 2"
+            ),
+            [code],
+            row_to_currency,
+        )
+    }
+
+    fn currency_by_active_name(&self, name: &str) -> LedgerResult<CandidateMatch<Currency>> {
+        candidate_query(
+            &self.transaction,
+            &format!(
+                "SELECT {CURRENCY_COLUMNS}
+                 FROM currencies
+                 WHERE active = 1 AND deleted_at IS NULL AND name = ?1
+                 ORDER BY id
+                 LIMIT 2"
+            ),
+            [name],
+            row_to_currency,
+        )
+    }
+
+    fn account_category_by_active_name(
+        &self,
+        name: &str,
+    ) -> LedgerResult<CandidateMatch<AccountCategory>> {
+        candidate_query(
+            &self.transaction,
+            &format!(
+                "SELECT {ACCOUNT_CATEGORY_COLUMNS}
+                 FROM account_categories
+                 WHERE active = 1 AND deleted_at IS NULL AND name = ?1
+                 ORDER BY id
+                 LIMIT 2"
+            ),
+            [name],
+            row_to_account_category,
+        )
+    }
+
+    fn account_by_active_name(&self, name: &str) -> LedgerResult<CandidateMatch<Account>> {
+        candidate_query(
+            &self.transaction,
+            &format!(
+                "SELECT {ACCOUNT_COLUMNS}
+                 FROM accounts
+                 WHERE active = 1 AND deleted_at IS NULL AND name = ?1
+                 ORDER BY id
+                 LIMIT 2"
+            ),
+            [name],
+            row_to_account,
+        )
+    }
+
+    fn transaction_category_by_active_name(
+        &self,
+        name: &str,
+    ) -> LedgerResult<CandidateMatch<TransactionCategory>> {
+        candidate_query(
+            &self.transaction,
+            &format!(
+                "SELECT {TRANSACTION_CATEGORY_COLUMNS}
+                 FROM transaction_categories
+                 WHERE active = 1 AND deleted_at IS NULL AND name = ?1
+                 ORDER BY id
+                 LIMIT 2"
+            ),
+            [name],
+            row_to_transaction_category,
+        )
+    }
+
+    fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>> {
+        collect_rows(
+            &self.transaction,
+            &format!(
+                "SELECT {CURRENCY_COLUMNS}
+                 FROM currencies
+                 WHERE active = 1 AND deleted_at IS NULL
+                 ORDER BY name, id
+                 LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_currency,
+        )
+    }
+
+    fn list_active_account_categories(&self, page: Page) -> LedgerResult<Vec<AccountCategory>> {
+        collect_rows(
+            &self.transaction,
+            &format!(
+                "SELECT {ACCOUNT_CATEGORY_COLUMNS}
+                 FROM account_categories
+                 WHERE active = 1 AND deleted_at IS NULL
+                 ORDER BY name, id
+                 LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_account_category,
+        )
+    }
+
+    fn list_active_accounts(&self, page: Page) -> LedgerResult<Vec<Account>> {
+        collect_rows(
+            &self.transaction,
+            &format!(
+                "SELECT {ACCOUNT_COLUMNS}
+                 FROM accounts
+                 WHERE active = 1 AND deleted_at IS NULL
+                 ORDER BY name, id
+                 LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_account,
+        )
+    }
+
+    fn list_active_transaction_categories(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<TransactionCategory>> {
+        collect_rows(
+            &self.transaction,
+            &format!(
+                "SELECT {TRANSACTION_CATEGORY_COLUMNS}
+                 FROM transaction_categories
+                 WHERE active = 1 AND deleted_at IS NULL
+                 ORDER BY name, id
+                 LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_transaction_category,
+        )
     }
 
     fn upsert_currency(
@@ -379,6 +543,45 @@ where
         entries.push(row_to_entry(row)?);
     }
     Ok(entries)
+}
+
+fn collect_rows<T, P>(
+    connection: &Connection,
+    sql: &str,
+    parameters: P,
+    map: fn(&rusqlite::Row<'_>) -> LedgerResult<T>,
+) -> LedgerResult<Vec<T>>
+where
+    P: rusqlite::Params,
+{
+    let mut statement = connection.prepare(sql).map_err(storage_error)?;
+    let mut rows = statement.query(parameters).map_err(storage_error)?;
+    let mut values = Vec::new();
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        values.push(map(row)?);
+    }
+    Ok(values)
+}
+
+fn candidate_query<T, P>(
+    connection: &Connection,
+    sql: &str,
+    parameters: P,
+    map: fn(&rusqlite::Row<'_>) -> LedgerResult<T>,
+) -> LedgerResult<CandidateMatch<T>>
+where
+    P: rusqlite::Params,
+{
+    let mut values = collect_rows(connection, sql, parameters, map)?;
+    Ok(match values.len() {
+        0 => CandidateMatch::None,
+        1 => CandidateMatch::One(values.remove(0)),
+        _ => CandidateMatch::Ambiguous,
+    })
+}
+
+fn page_params(page: Page) -> [i64; 2] {
+    [i64::from(page.limit), i64::from(page.offset)]
 }
 
 fn get_currency_on(

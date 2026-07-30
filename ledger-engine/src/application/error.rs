@@ -13,6 +13,8 @@ pub enum LedgerError {
     NotFound(String),
     #[error("ledger conflict: {0}")]
     Conflict(String),
+    #[error("ledger database is busy: {0}")]
+    Busy(String),
     #[error("ledger storage error: {0}")]
     Storage(String),
     #[error("ledger migration error: {0}")]
