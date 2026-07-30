@@ -3,14 +3,24 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 smoke="$repo_root/scripts/smoke-raven.sh"
-smoke_home="$(mktemp -d)"
+smoke_home="$(mktemp -d "${TMPDIR:-/tmp}/raven smoke.XXXXXX")"
 unmarked_home="$(mktemp -d)"
 nonempty_home="$(mktemp -d)"
 
 cleanup() {
   rm -rf -- "$smoke_home" "$unmarked_home" "$nonempty_home"
 }
-trap cleanup EXIT INT TERM
+
+on_signal() {
+  local status="$1"
+  trap - EXIT INT TERM
+  cleanup
+  exit "$status"
+}
+
+trap cleanup EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 if "$smoke" >/dev/null 2>&1; then
   echo "smoke script accepted a missing home" >&2
