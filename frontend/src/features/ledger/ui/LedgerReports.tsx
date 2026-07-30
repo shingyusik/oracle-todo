@@ -1,0 +1,142 @@
+"use client";
+
+import React, { useState } from "react";
+
+import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
+
+export function LedgerReports({ controller }: { controller: LedgerController }) {
+  const [range, setRange] = useState({ from: "", to: "" });
+  const [formError, setFormError] = useState<string | null>(null);
+  const { state } = controller;
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setFormError(null);
+    try {
+      await controller.runReports(range);
+    } catch (cause) {
+      setFormError(cause instanceof Error ? cause.message : "Could not load reports");
+    }
+  }
+
+  return (
+    <section aria-labelledby="ledger-reports-heading">
+      <header className="workspace-table-header">
+        <h1 id="ledger-reports-heading">Reports</h1>
+      </header>
+      <form aria-label="Ledger report range" onSubmit={submit}>
+        <label className="field-label">
+          From
+          <input
+            type="date"
+            required
+            value={range.from}
+            onChange={(event) =>
+              setRange((current) => ({ ...current, from: event.target.value }))}
+          />
+        </label>
+        <label className="field-label">
+          To
+          <input
+            type="date"
+            required
+            value={range.to}
+            onChange={(event) =>
+              setRange((current) => ({ ...current, to: event.target.value }))}
+          />
+        </label>
+        <button type="submit" disabled={state.reportStatus === "loading"}>
+          {state.reportStatus === "loading" ? "Running…" : "Run reports"}
+        </button>
+      </form>
+      {(formError || state.reportError) && (
+        <p role="alert" className="items-message">{formError ?? state.reportError}</p>
+      )}
+      {state.reportStatus === "idle" && (
+        <p className="items-message">Choose a date range to view reports.</p>
+      )}
+      {state.reportStatus === "loaded" && state.summary && (
+        <>
+          <ReportTable
+            heading="Summary"
+            rows={state.summary.currencies.map((row) => ({
+              key: row.currencyId,
+              name: row.currencyCode,
+              income: row.incomeMinor,
+              expense: row.expenseMinor,
+              net: row.netChangeMinor,
+            }))}
+          />
+          <ReportTable
+            heading="By account"
+            rows={state.accountBreakdown.map((row) => ({
+              key: `${row.currencyId}-${row.referenceId ?? row.name}`,
+              name: row.name,
+              income: row.incomeMinor,
+              expense: row.expenseMinor,
+              net: row.netChangeMinor,
+            }))}
+          />
+          <ReportTable
+            heading="By category"
+            rows={state.categoryBreakdown.map((row) => ({
+              key: `${row.currencyId}-${row.referenceId ?? row.name}`,
+              name: row.name,
+              income: row.incomeMinor,
+              expense: row.expenseMinor,
+              net: row.netChangeMinor,
+            }))}
+          />
+          {state.briefing?.markdown && (
+            <section aria-labelledby="ledger-briefing-heading">
+              <h2 id="ledger-briefing-heading">Briefing</h2>
+              <pre>{state.briefing.markdown}</pre>
+            </section>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+type ReportRow = {
+  key: string;
+  name: string;
+  income: number;
+  expense: number;
+  net: number;
+};
+
+function ReportTable({ heading, rows }: { heading: string; rows: ReportRow[] }) {
+  return (
+    <section aria-labelledby={`report-${heading.replaceAll(" ", "-")}`}>
+      <h2 id={`report-${heading.replaceAll(" ", "-")}`}>{heading}</h2>
+      {rows.length === 0 ? (
+        <p className="items-message">No report data for this range.</p>
+      ) : (
+        <div className="items-section">
+          <table className="items-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Income</th>
+                <th>Expense</th>
+                <th>Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.name}</td>
+                  <td>{row.income}</td>
+                  <td>{row.expense}</td>
+                  <td>{row.net}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}

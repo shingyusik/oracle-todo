@@ -11,8 +11,14 @@ import {
   X,
 } from "lucide-react";
 
-import type { LeafTabId, WorkspaceChildTabId } from "@/domain/workbench/navigation";
+import type {
+  LeafTabId,
+  LedgerTabId,
+  WorkspaceChildTabId,
+} from "@/domain/workbench/navigation";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
+import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
@@ -129,6 +135,14 @@ export function MainPanel({ controller }: MainPanelProps) {
     );
   }
 
+  if (isLedgerPanel(controller.selection.leafTabId)) {
+    return (
+      <main className="main-panel">
+        <LedgerWorkspace leafTabId={controller.selection.leafTabId} />
+      </main>
+    );
+  }
+
   if (isPlannerPanel(controller.selection.leafTabId)) {
     return (
       <main className="main-panel">
@@ -142,6 +156,11 @@ export function MainPanel({ controller }: MainPanelProps) {
       <WorkspaceItemsTable controller={controller} />
     </main>
   );
+}
+
+function LedgerWorkspace({ leafTabId }: { leafTabId: LedgerTabId }) {
+  const controller = useLedgerController();
+  return <LedgerPanel controller={controller} leafTabId={leafTabId} />;
 }
 
 function DetailView({ controller }: MainPanelProps) {
@@ -508,6 +527,10 @@ function LinkedItemTable({
 
 function isPlannerPanel(leafTabId: LeafTabId): boolean {
   return ["yearly", "monthly", "weekly", "daily"].includes(leafTabId);
+}
+
+function isLedgerPanel(leafTabId: LeafTabId): leafTabId is LedgerTabId {
+  return ["transactions", "accounts", "categories", "reports"].includes(leafTabId);
 }
 
 function PlannerPanel({ controller }: MainPanelProps) {
