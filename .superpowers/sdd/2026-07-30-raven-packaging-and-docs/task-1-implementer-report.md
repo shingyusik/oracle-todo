@@ -102,3 +102,38 @@
   `GetFileInformationByHandleEx` calls passed.
 - Focused UI security remained 9 passed; Raven API and CLI full suites, fmt,
   clippy with warnings denied, and diff checks passed.
+
+## Directory Capability Follow-up
+
+- Replaced path-based traversal and reopen checks with directory capabilities.
+  Unix opens the artifact root with `O_DIRECTORY | O_NOFOLLOW`, enumerates from
+  that descriptor, opens every child with `openat` and `O_NOFOLLOW`, recurses
+  through opened directory descriptors, and reads bytes only from the exact
+  opened file descriptor.
+- Keeps every ancestor directory descriptor alive while traversing. A renamed
+  or replaced pathname therefore cannot redirect a child lookup outside the
+  directory capability used by `openat`.
+- Windows opens root and child handles with
+  `FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS` and omits
+  `FILE_SHARE_DELETE`. Directory guards remain alive during enumeration and
+  recursion; every opened handle rejects reparse points and verifies its final
+  normalized path is a component-descendant of the root handle path.
+- Windows file reads use the opened handle only and compare stable volume/file
+  identity, size, attributes, creation/write time, and `ChangeTime` before and
+  after the bounded read.
+- Removed the superseded path-canonicalization, path-reopen, and expected-path
+  stamp comparisons. Existing 16 MiB file, 128 MiB total, 10,000 entry, and
+  64-level depth limits remain enforced.
+- TDD RED: synchronized Unix tests initially failed to compile because the
+  capability loader and phases did not exist.
+- Unix capability tests pass for a root symlink held active during root open, a
+  nested directory symlink held active during `openat`, and an in-place
+  same-length mutation after the file handle is opened: 3 passed.
+- Focused UI security: 9 passed.
+- Raven API full suite excluding the sandbox-blocked real socket test: passed.
+- Raven CLI full suite: passed.
+- A dependency-minimal Windows cfg crate using the exact directory flags,
+  delete-denying share mode, handle identity calls, and
+  `GetFinalPathNameByHandleW` compiled for `x86_64-pc-windows-gnu`.
+- `cargo fmt --all --check`, clippy for Raven API/CLI with all targets,
+  features, and warnings denied, plus `git diff --check`: passed.

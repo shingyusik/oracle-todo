@@ -106,26 +106,10 @@ struct StaticAsset {
 impl UiArtifact {
     pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        let metadata = std::fs::symlink_metadata(path)
-            .map_err(|_| anyhow::anyhow!("UI artifact is missing"))?;
-        if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
-            anyhow::bail!("UI artifact must be a regular directory");
-        }
-        let root = path
-            .canonicalize()
-            .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
-        let mut files = BTreeMap::new();
-        let mut total_bytes = 0_u64;
-        let mut entries = 0_usize;
-        load_directory(
-            &root,
-            &root,
-            "",
-            0,
-            &mut entries,
-            &mut total_bytes,
-            &mut files,
-        )?;
+        #[cfg(unix)]
+        let files = load_artifact_unix(path)?;
+        #[cfg(windows)]
+        let files = load_artifact_windows(path)?;
         if !files.contains_key("index.html") {
             anyhow::bail!("UI artifact does not contain index.html");
         }
@@ -133,81 +117,158 @@ impl UiArtifact {
     }
 }
 
-fn load_directory(
-    root: &Path,
-    directory: &Path,
+struct SnapshotBuilder {
+    files: BTreeMap<String, StaticAsset>,
+    total_bytes: u64,
+    entries: usize,
+}
+
+impl SnapshotBuilder {
+    fn new() -> Self {
+        Self {
+            files: BTreeMap::new(),
+            total_bytes: 0,
+            entries: 0,
+        }
+    }
+
+    fn count_entry(&mut self) -> anyhow::Result<()> {
+        self.entries += 1;
+        if self.entries > MAX_UI_ENTRIES {
+            anyhow::bail!("UI artifact contains too many entries");
+        }
+        Ok(())
+    }
+
+    fn insert(&mut self, key: String, bytes: Vec<u8>) -> anyhow::Result<()> {
+        let length = bytes.len() as u64;
+        if length > MAX_UI_FILE_BYTES {
+            anyhow::bail!("UI artifact file exceeds the size limit");
+        }
+        self.total_bytes = self
+            .total_bytes
+            .checked_add(length)
+            .filter(|value| *value <= MAX_UI_TOTAL_BYTES)
+            .ok_or_else(|| anyhow::anyhow!("UI artifact exceeds the total size limit"))?;
+        self.files.insert(
+            key.clone(),
+            StaticAsset {
+                bytes: Bytes::from(bytes),
+                content_type: content_type(Path::new(&key)),
+            },
+        );
+        Ok(())
+    }
+}
+
+fn validate_name(name: &str) -> anyhow::Result<()> {
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+        anyhow::bail!("UI artifact contains an invalid name");
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum UnixLoadPhase {
+    RootOpening,
+    ChildOpening(String),
+    FileOpened(String),
+}
+
+#[cfg(unix)]
+fn load_artifact_unix(path: &Path) -> anyhow::Result<BTreeMap<String, StaticAsset>> {
+    load_artifact_unix_with_hook(path, |_| {})
+}
+
+#[cfg(unix)]
+fn load_artifact_unix_with_hook(
+    path: &Path,
+    mut hook: impl FnMut(UnixLoadPhase),
+) -> anyhow::Result<BTreeMap<String, StaticAsset>> {
+    use rustix::fs::{Mode, OFlags};
+
+    hook(UnixLoadPhase::RootOpening);
+    let root = rustix::fs::open(
+        path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map(std::fs::File::from)
+    .map_err(|_| anyhow::anyhow!("UI artifact must be a regular directory"))?;
+    let mut builder = SnapshotBuilder::new();
+    load_directory_unix(&root, "", 0, &mut builder, &mut hook)?;
+    Ok(builder.files)
+}
+
+#[cfg(unix)]
+fn load_directory_unix(
+    directory: &std::fs::File,
     prefix: &str,
     depth: usize,
-    entries: &mut usize,
-    total_bytes: &mut u64,
-    files: &mut BTreeMap<String, StaticAsset>,
+    builder: &mut SnapshotBuilder,
+    hook: &mut impl FnMut(UnixLoadPhase),
 ) -> anyhow::Result<()> {
+    use rustix::fs::{Mode, OFlags};
+    use std::ffi::CString;
+
     if depth > MAX_UI_DEPTH {
         anyhow::bail!("UI artifact directory depth exceeds the limit");
     }
-    let mut children = std::fs::read_dir(directory)
+    let mut children = rustix::fs::Dir::read_from(directory)
         .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
-    children.sort_by_key(std::fs::DirEntry::file_name);
+        .filter_map(|entry| match entry {
+            Ok(entry)
+                if entry.file_name().to_bytes() == b"."
+                    || entry.file_name().to_bytes() == b".." =>
+            {
+                None
+            }
+            other => Some(other),
+        })
+        .map(|entry| {
+            let entry = entry.map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
+            let bytes = entry.file_name().to_bytes();
+            let name = std::str::from_utf8(bytes)
+                .map_err(|_| anyhow::anyhow!("UI artifact contains a non-UTF-8 name"))?
+                .to_owned();
+            validate_name(&name)?;
+            let os_name = CString::new(bytes)
+                .map_err(|_| anyhow::anyhow!("UI artifact contains an invalid name"))?;
+            Ok((name, os_name))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    children.sort_by(|left, right| left.0.cmp(&right.0));
 
-    for child in children {
-        *entries += 1;
-        if *entries > MAX_UI_ENTRIES {
-            anyhow::bail!("UI artifact contains too many entries");
-        }
-        let name = child
-            .file_name()
-            .into_string()
-            .map_err(|_| anyhow::anyhow!("UI artifact contains a non-UTF-8 name"))?;
-        if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
-            anyhow::bail!("UI artifact contains an invalid name");
-        }
+    for (name, os_name) in children {
+        builder.count_entry()?;
         let key = if prefix.is_empty() {
             name
         } else {
             format!("{prefix}/{name}")
         };
-        let path = child.path();
-        let metadata = std::fs::symlink_metadata(&path)
-            .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
-        if metadata.file_type().is_symlink() {
-            anyhow::bail!("UI artifact must not contain symlinks");
-        }
+        hook(UnixLoadPhase::ChildOpening(key.clone()));
+        let child = rustix::fs::openat(
+            directory,
+            os_name.as_c_str(),
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+            Mode::empty(),
+        )
+        .map(std::fs::File::from)
+        .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))?;
+        let metadata = child
+            .metadata()
+            .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))?;
         if metadata.is_dir() {
-            let canonical = path
-                .canonicalize()
-                .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
-            if !canonical.starts_with(root) {
-                anyhow::bail!("UI artifact entry escapes its root");
-            }
-            load_directory(
-                root,
-                &canonical,
-                &key,
-                depth + 1,
-                entries,
-                total_bytes,
-                files,
-            )?;
+            load_directory_unix(&child, &key, depth + 1, builder, hook)?;
         } else if metadata.is_file() {
-            let length = metadata.len();
-            if length > MAX_UI_FILE_BYTES {
+            let opened = opened_file_stamp(&child)?;
+            if opened.len > MAX_UI_FILE_BYTES {
                 anyhow::bail!("UI artifact file exceeds the size limit");
             }
-            let next_total = total_bytes
-                .checked_add(length)
-                .filter(|value| *value <= MAX_UI_TOTAL_BYTES)
-                .ok_or_else(|| anyhow::anyhow!("UI artifact exceeds the total size limit"))?;
-            let bytes = read_snapshot_file(&path, root, &metadata)?;
-            *total_bytes = next_total;
-            files.insert(
-                key.clone(),
-                StaticAsset {
-                    bytes: Bytes::from(bytes),
-                    content_type: content_type(Path::new(&key)),
-                },
-            );
+            hook(UnixLoadPhase::FileOpened(key.clone()));
+            let bytes = read_opened_unix_file(child, opened)?;
+            builder.insert(key, bytes)?;
         } else {
             anyhow::bail!("UI artifact contains a non-regular entry");
         }
@@ -215,90 +276,175 @@ fn load_directory(
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReadPhase {
-    BeforeOpen,
-    AfterOpen,
-    AfterRead,
-}
-
-fn read_snapshot_file(
-    path: &Path,
-    root: &Path,
-    expected: &std::fs::Metadata,
-) -> anyhow::Result<Vec<u8>> {
-    read_snapshot_file_with_hook(path, root, expected, |_| {})
-}
-
-fn read_snapshot_file_with_hook(
-    path: &Path,
-    root: &Path,
-    expected: &std::fs::Metadata,
-    mut hook: impl FnMut(ReadPhase),
-) -> anyhow::Result<Vec<u8>> {
-    if expected.len() > MAX_UI_FILE_BYTES {
-        anyhow::bail!("UI artifact file exceeds the size limit");
-    }
-
-    hook(ReadPhase::BeforeOpen);
-    let mut file = open_snapshot_file(path)?;
-    let opened = opened_file_stamp(&file)?;
-    if !expected_matches_opened(expected, opened)? {
-        anyhow::bail!("UI artifact changed while loading");
-    }
-
-    hook(ReadPhase::AfterOpen);
-    let canonical = path
-        .canonicalize()
-        .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))?;
-    let current = open_snapshot_file(path)?;
-    if !canonical.starts_with(root) || opened_file_stamp(&current)? != opened {
-        anyhow::bail!("UI artifact changed while loading");
-    }
-
+#[cfg(unix)]
+fn read_opened_unix_file(mut file: std::fs::File, opened: FileStamp) -> anyhow::Result<Vec<u8>> {
     let mut bytes = Vec::with_capacity(opened.len as usize);
     (&mut file)
         .take(MAX_UI_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
-    hook(ReadPhase::AfterRead);
-
     let after = opened_file_stamp(&file)?;
-    let path_after = open_snapshot_file(path)?;
-    if after != opened
-        || opened_file_stamp(&path_after)? != opened
-        || bytes.len() as u64 != opened.len
-    {
+    if after != opened || bytes.len() as u64 != opened.len {
         anyhow::bail!("UI artifact changed while loading");
     }
     Ok(bytes)
 }
 
-#[cfg(unix)]
-fn open_snapshot_file(path: &Path) -> anyhow::Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
+#[cfg(windows)]
+fn load_artifact_windows(path: &Path) -> anyhow::Result<BTreeMap<String, StaticAsset>> {
+    let root = open_windows_entry(path)?;
+    ensure_windows_directory(&root)?;
+    let root_path = final_windows_path(&root)?;
+    let mut builder = SnapshotBuilder::new();
+    load_directory_windows(path, &root, &root_path, "", 0, &mut builder)?;
+    Ok(builder.files)
+}
 
-    let flags = rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC;
+#[cfg(windows)]
+fn open_windows_entry(path: &Path) -> anyhow::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
     std::fs::OpenOptions::new()
         .read(true)
-        .custom_flags(flags.bits() as i32)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)
         .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))
 }
 
 #[cfg(windows)]
-fn open_snapshot_file(path: &Path) -> anyhow::Result<std::fs::File> {
-    use std::os::windows::fs::OpenOptionsExt;
+fn load_directory_windows(
+    directory_path: &Path,
+    _directory_guard: &std::fs::File,
+    root_final_path: &str,
+    prefix: &str,
+    depth: usize,
+    builder: &mut SnapshotBuilder,
+) -> anyhow::Result<()> {
+    if depth > MAX_UI_DEPTH {
+        anyhow::bail!("UI artifact directory depth exceeds the limit");
+    }
+    let mut children = std::fs::read_dir(directory_path)
+        .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
+    children.sort_by_key(std::fs::DirEntry::file_name);
+
+    for child in children {
+        builder.count_entry()?;
+        let name = child
+            .file_name()
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("UI artifact contains a non-UTF-8 name"))?;
+        validate_name(&name)?;
+        let key = if prefix.is_empty() {
+            name
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let child_path = child.path();
+        let mut handle = open_windows_entry(&child_path)?;
+        ensure_windows_contained(&handle, root_final_path)?;
+        let metadata = handle
+            .metadata()
+            .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))?;
+        ensure_windows_not_reparse(&metadata)?;
+        if metadata.is_dir() {
+            load_directory_windows(
+                &child_path,
+                &handle,
+                root_final_path,
+                &key,
+                depth + 1,
+                builder,
+            )?;
+        } else if metadata.is_file() {
+            let opened = opened_windows_handle_stamp(&handle)?;
+            if opened.len > MAX_UI_FILE_BYTES {
+                anyhow::bail!("UI artifact file exceeds the size limit");
+            }
+            let mut bytes = Vec::with_capacity(opened.len as usize);
+            (&mut handle)
+                .take(MAX_UI_FILE_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
+            if opened_windows_handle_stamp(&handle)? != opened || bytes.len() as u64 != opened.len {
+                anyhow::bail!("UI artifact changed while loading");
+            }
+            builder.insert(key, bytes)?;
+        } else {
+            anyhow::bail!("UI artifact contains a non-regular entry");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn ensure_windows_directory(file: &std::fs::File) -> anyhow::Result<()> {
+    let metadata = file
+        .metadata()
+        .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
+    ensure_windows_not_reparse(&metadata)?;
+    if !metadata.is_dir() {
+        anyhow::bail!("UI artifact must be a regular directory");
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn ensure_windows_not_reparse(metadata: &std::fs::Metadata) -> anyhow::Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        anyhow::bail!("UI artifact must not contain reparse points");
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn final_windows_path(file: &std::fs::File) -> anyhow::Result<String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
     };
 
-    std::fs::OpenOptions::new()
-        .read(true)
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(path)
-        .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))
+    let handle = file.as_raw_handle() as HANDLE;
+    let mut buffer = vec![0_u16; 512];
+    loop {
+        // SAFETY: `file` owns a valid handle and the buffer is writable for its full length.
+        let length = unsafe {
+            GetFinalPathNameByHandleW(
+                handle,
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
+            )
+        };
+        if length == 0 {
+            anyhow::bail!("UI artifact changed while loading");
+        }
+        if length < buffer.len() as u32 {
+            return Ok(String::from_utf16_lossy(&buffer[..length as usize]).to_lowercase());
+        }
+        buffer.resize(length as usize + 1, 0);
+    }
+}
+
+#[cfg(windows)]
+fn ensure_windows_contained(file: &std::fs::File, root: &str) -> anyhow::Result<()> {
+    let child = final_windows_path(file)?;
+    let remainder = child
+        .strip_prefix(root)
+        .ok_or_else(|| anyhow::anyhow!("UI artifact entry escapes its root"))?;
+    if !remainder.starts_with('\\') {
+        anyhow::bail!("UI artifact entry escapes its root");
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -319,14 +465,6 @@ fn opened_file_stamp(file: &std::fs::File) -> anyhow::Result<FileStamp> {
         .metadata()
         .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))?;
     unix_file_stamp(&metadata)
-}
-
-#[cfg(unix)]
-fn expected_matches_opened(
-    expected: &std::fs::Metadata,
-    opened: FileStamp,
-) -> anyhow::Result<bool> {
-    Ok(unix_file_stamp(expected)? == opened)
 }
 
 #[cfg(unix)]
@@ -360,7 +498,7 @@ struct FileStamp {
 }
 
 #[cfg(windows)]
-fn opened_file_stamp(file: &std::fs::File) -> anyhow::Result<FileStamp> {
+fn opened_windows_handle_stamp(file: &std::fs::File) -> anyhow::Result<FileStamp> {
     use std::os::windows::fs::MetadataExt;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::HANDLE;
@@ -373,9 +511,7 @@ fn opened_file_stamp(file: &std::fs::File) -> anyhow::Result<FileStamp> {
         .metadata()
         .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))?;
 
-    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        anyhow::bail!("UI artifact must contain regular non-reparse files");
-    }
+    ensure_windows_not_reparse(&metadata)?;
     let mut identity = BY_HANDLE_FILE_INFORMATION::default();
     let mut basic = FILE_BASIC_INFO::default();
     let handle = file.as_raw_handle() as HANDLE;
@@ -402,23 +538,6 @@ fn opened_file_stamp(file: &std::fs::File) -> anyhow::Result<FileStamp> {
         modified: filetime(identity.ftLastWriteTime),
         changed: basic.ChangeTime,
     })
-}
-
-#[cfg(windows)]
-fn expected_matches_opened(
-    expected: &std::fs::Metadata,
-    opened: FileStamp,
-) -> anyhow::Result<bool> {
-    use std::os::windows::fs::MetadataExt;
-    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-
-    if !expected.is_file() || expected.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        anyhow::bail!("UI artifact must contain regular non-reparse files");
-    }
-    Ok(expected.len() == opened.len
-        && expected.file_attributes() == opened.attributes
-        && expected.creation_time() == opened.created
-        && expected.last_write_time() == opened.modified)
 }
 
 #[cfg(windows)]
@@ -566,44 +685,48 @@ fn content_type(path: &Path) -> &'static str {
 mod tests {
     use super::*;
 
-    fn file_fixture() -> (tempfile::TempDir, std::path::PathBuf, std::fs::Metadata) {
+    fn artifact_fixture() -> (tempfile::TempDir, std::path::PathBuf) {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("asset.js");
-        std::fs::write(&path, b"trusted").unwrap();
-        let metadata = std::fs::symlink_metadata(&path).unwrap();
-        (temp, path, metadata)
+        let root = temp.path().join("ui");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("index.html"), b"trusted").unwrap();
+        (temp, root)
     }
 
     #[test]
-    fn no_follow_open_rejects_a_link_swapped_in_before_open() {
+    fn root_symlink_swap_is_rejected_during_root_open() {
         use std::os::unix::fs::symlink;
 
-        let (temp, path, metadata) = file_fixture();
+        let (temp, root) = artifact_fixture();
+        let original = temp.path().join("original");
         let victim = temp.path().join("victim");
-        std::fs::write(&victim, b"foreign").unwrap();
-        let result = read_snapshot_file_with_hook(&path, temp.path(), &metadata, |phase| {
-            if phase == ReadPhase::BeforeOpen {
-                std::fs::remove_file(&path).unwrap();
-                symlink(&victim, &path).unwrap();
+        std::fs::create_dir(&victim).unwrap();
+        std::fs::write(victim.join("index.html"), b"foreign").unwrap();
+        let result = load_artifact_unix_with_hook(&root, |phase| {
+            if phase == UnixLoadPhase::RootOpening {
+                std::fs::rename(&root, &original).unwrap();
+                symlink(&victim, &root).unwrap();
             }
         });
         assert!(result.is_err());
     }
 
     #[test]
-    fn path_double_swap_is_rejected_without_snapshotting_victim_bytes() {
+    fn parent_component_symlink_swap_is_rejected_during_child_open() {
         use std::os::unix::fs::symlink;
 
-        let (temp, path, metadata) = file_fixture();
-        let original = temp.path().join("original");
+        let (temp, root) = artifact_fixture();
+        let nested = root.join("assets");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(nested.join("app.js"), b"trusted").unwrap();
+        let original = root.join("assets-original");
         let victim = temp.path().join("victim");
-        std::fs::write(&victim, b"foreign").unwrap();
-        let result = read_snapshot_file_with_hook(&path, temp.path(), &metadata, |phase| {
-            if phase == ReadPhase::AfterOpen {
-                std::fs::rename(&path, &original).unwrap();
-                symlink(&victim, &path).unwrap();
-                std::fs::remove_file(&path).unwrap();
-                std::fs::rename(&original, &path).unwrap();
+        std::fs::create_dir(&victim).unwrap();
+        std::fs::write(victim.join("app.js"), b"foreign").unwrap();
+        let result = load_artifact_unix_with_hook(&root, |phase| {
+            if phase == UnixLoadPhase::ChildOpening("assets".into()) {
+                std::fs::rename(&nested, &original).unwrap();
+                symlink(&victim, &nested).unwrap();
             }
         });
         assert!(result.is_err());
@@ -611,9 +734,10 @@ mod tests {
 
     #[test]
     fn same_length_mutation_after_open_is_rejected() {
-        let (temp, path, metadata) = file_fixture();
-        let result = read_snapshot_file_with_hook(&path, temp.path(), &metadata, |phase| {
-            if phase == ReadPhase::AfterOpen {
+        let (_temp, root) = artifact_fixture();
+        let path = root.join("index.html");
+        let result = load_artifact_unix_with_hook(&root, |phase| {
+            if phase == UnixLoadPhase::FileOpened("index.html".into()) {
                 std::thread::sleep(std::time::Duration::from_millis(2));
                 std::fs::write(&path, b"changed").unwrap();
             }
