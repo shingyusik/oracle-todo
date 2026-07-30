@@ -8,9 +8,9 @@
 Make the Area and Project status summaries easier to compare without allowing
 large workspaces to make the Dashboard excessively tall.
 
-Area status and Project status remain separate analytical widgets. On wide
-screens they share one row as equal-width cards; on narrower screens they
-return to a vertical sequence so their tables remain readable.
+Area status and Project status remain separate analytical widgets. Above the
+mobile breakpoint they share one row as equal-width cards; at `767px` and
+below they return to a vertical sequence.
 
 ## Layout
 
@@ -20,14 +20,13 @@ The Dashboard keeps its existing information order:
 2. Area status; and
 3. Project status.
 
-The Area and Project widgets use a nested two-column grid when enough
-horizontal space is available. Each widget remains its own card with an
-independent heading, description, table, and expansion control.
+The Area and Project widgets use a nested two-column grid above `767px`.
+Each widget remains its own card with an independent heading, description,
+table, and expansion control.
 
-The nested grid collapses to one column before either table becomes too narrow
-to read comfortably. On narrow screens, the existing horizontal table scroll
-remains available as a fallback. The DOM and keyboard reading order stay Area
-first and Project second at every width.
+At `767px` and below, the nested grid collapses to one column. The existing
+horizontal table scroll handles narrow card contents. The DOM and keyboard
+reading order stay Area first and Project second at every width.
 
 ## Row Priority
 
