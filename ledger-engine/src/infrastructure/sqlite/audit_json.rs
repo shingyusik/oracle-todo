@@ -22,6 +22,10 @@ fn decode(value: &str) -> Result<Value, String> {
 fn encode(value: &Value) -> Result<String, String> {
     let encoded = serde_json::to_string(value).map_err(|error| error.to_string())?;
     validate_size(&encoded)?;
+    // Audit writes deliberately pay for one decode of their serialized form.
+    // This keeps write, health, and read acceptance identical and prevents a
+    // durable audit snapshot from making its own database unreadable.
+    drop(decode(&encoded)?);
     Ok(encoded)
 }
 

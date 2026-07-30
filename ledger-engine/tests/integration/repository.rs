@@ -8,7 +8,7 @@ use ledger_engine::domain::{
 };
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -608,18 +608,86 @@ fn audit_lookup_uses_full_record_identity_and_bounded_page() {
 }
 
 #[test]
-fn audit_write_rejects_json_above_the_health_resource_limit() {
+fn deep_audit_json_write_error_allows_the_paired_mutation_to_roll_back() {
     let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
-    let mut oversized = audit("audit-oversized", "entry-oversized");
-    oversized.after = Some(json!("x".repeat(2 * 1024 * 1024)));
+    let paired_entry = entry("entry-deep-audit", None);
+    let mut deep_audit = audit("audit-deep", paired_entry.id());
+    deep_audit.after = Some(nested_array_value(200));
 
     let mut transaction = repository.begin_transaction().unwrap();
-    let error = transaction.insert_audit_event(&oversized).unwrap_err();
+    seed_references(&mut *transaction);
+    transaction.insert_entry(&paired_entry).unwrap();
+    let error = transaction.insert_audit_event(&deep_audit).unwrap_err();
+    transaction.rollback().unwrap();
+
+    assert!(
+        matches!(error, LedgerError::Storage(_)),
+        "deep audit JSON must be rejected before persistence"
+    );
+    assert_eq!(repository.get_entry(paired_entry.id(), true).unwrap(), None);
+    assert!(
+        repository
+            .list_audit_events("ledger_entry", paired_entry.id(), Page::default())
+            .unwrap()
+            .is_empty()
+    );
+    repository.check_schema().unwrap();
+}
+
+#[test]
+fn normal_nested_audit_json_writes_and_round_trips() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut event = audit("audit-nested", "entry-nested");
+    event.before = Some(json!({
+        "account": {"tags": ["cash", {"region": "KR"}]},
+        "active": true
+    }));
+    event.after = Some(json!([
+        {"entry": {"amount": 1250, "metadata": {"source": "manual"}}},
+        null
+    ]));
+
+    let mut transaction = repository.begin_transaction().unwrap();
+    transaction.insert_audit_event(&event).unwrap();
+    transaction.commit().unwrap();
+
+    repository.check_schema().unwrap();
+    assert_eq!(
+        repository
+            .list_audit_events("ledger_entry", "entry-nested", Page::default())
+            .unwrap(),
+        vec![event]
+    );
+}
+
+#[test]
+fn audit_json_write_matches_the_documented_byte_boundary() {
+    const MAX_AUDIT_JSON_BYTES: usize = 1024 * 1024;
+
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut exact = audit("audit-exact-limit", "entry-exact-limit");
+    exact.after = Some(json!("x".repeat(MAX_AUDIT_JSON_BYTES - 2)));
+    let mut above = audit("audit-above-limit", "entry-above-limit");
+    above.after = Some(json!("x".repeat(MAX_AUDIT_JSON_BYTES - 1)));
+
+    let mut transaction = repository.begin_transaction().unwrap();
+    transaction.insert_audit_event(&exact).unwrap();
+    transaction.commit().unwrap();
+
+    let mut transaction = repository.begin_transaction().unwrap();
+    let error = transaction.insert_audit_event(&above).unwrap_err();
     transaction.rollback().unwrap();
 
     assert!(
         matches!(error, LedgerError::Storage(message) if message.contains("audit JSON")),
-        "oversized audit JSON must be rejected before persistence"
+        "one byte above the audit JSON boundary must be rejected"
+    );
+    repository.check_schema().unwrap();
+    assert_eq!(
+        repository
+            .list_audit_events("ledger_entry", "entry-exact-limit", Page::default())
+            .unwrap(),
+        vec![exact]
     );
 }
 
@@ -849,6 +917,10 @@ fn audit_at(
         after: Some(json!({"id": record_id})),
         reason: None,
     }
+}
+
+fn nested_array_value(depth: usize) -> Value {
+    (0..depth).fold(json!(0), |value, _| Value::Array(vec![value]))
 }
 
 fn parse_time(value: &str) -> OffsetDateTime {
