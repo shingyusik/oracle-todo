@@ -3,6 +3,8 @@ use time::{Date, OffsetDateTime};
 
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::media::validate_media_relative_path;
+use crate::application::queries::{HealthQuery, TimelineItem};
+use crate::application::trends::TrendRecords;
 use crate::domain::{DietEntry, HealthCategory, HealthEvent, HealthRecordId, MetricKey};
 
 pub const DEFAULT_PAGE_LIMIT: u16 = 100;
@@ -293,6 +295,13 @@ pub(crate) trait HealthReadRepository: HealthRepository {
         page: Page,
     ) -> HealthResult<Vec<AuditEvent>>;
     fn list_pending_media(&self, page: Page) -> HealthResult<Vec<MediaFileRecord>>;
+    fn timeline(&self, query: &HealthQuery) -> HealthResult<Vec<TimelineItem>>;
+    fn trend_records(
+        &self,
+        start_exclusive: OffsetDateTime,
+        end_inclusive: OffsetDateTime,
+        limit: u32,
+    ) -> HealthResult<TrendRecords>;
 }
 
 #[allow(dead_code)]
