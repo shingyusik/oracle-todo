@@ -35,6 +35,10 @@ impl HealthReadRepository for SqliteHealthRepository {
         list_events_on(&self.connection, page, include_archived)
     }
 
+    fn get_media(&self, id: &str, include_archived: bool) -> HealthResult<Option<MediaFileRecord>> {
+        get_media_on(&self.connection, id, include_archived)
+    }
+
     fn list_audit_events(
         &self,
         record_type: &str,
@@ -99,6 +103,10 @@ impl HealthTransaction for SqliteHealthTransaction<'_> {
 
     fn get_event(&self, id: &str, include_archived: bool) -> HealthResult<Option<HealthEvent>> {
         get_event_on(&self.transaction, id, include_archived)
+    }
+
+    fn get_media(&self, id: &str, include_archived: bool) -> HealthResult<Option<MediaFileRecord>> {
+        get_media_on(&self.transaction, id, include_archived)
     }
 
     fn insert_media(&mut self, media: &MediaFileRecord) -> HealthResult<()> {
@@ -443,6 +451,29 @@ fn list_diet_on(
         entries.push(row_to_diet(row, diet_tags_on(connection, &id)?)?);
     }
     Ok(entries)
+}
+
+fn get_media_on(
+    connection: &Connection,
+    id: &str,
+    include_archived: bool,
+) -> HealthResult<Option<MediaFileRecord>> {
+    let visibility = if include_archived {
+        ""
+    } else {
+        "AND deleted_at IS NULL"
+    };
+    let sql = format!(
+        "SELECT {MEDIA_COLUMNS}
+         FROM media_files
+         WHERE id = ?1 {visibility}"
+    );
+    let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+    let mut rows = statement.query([id]).map_err(storage_error)?;
+    let Some(row) = rows.next().map_err(storage_error)? else {
+        return Ok(None);
+    };
+    row_to_media(row).map(Some)
 }
 
 fn diet_tags_on(connection: &Connection, id: &str) -> HealthResult<Vec<String>> {

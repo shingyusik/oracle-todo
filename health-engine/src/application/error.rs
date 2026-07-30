@@ -25,6 +25,15 @@ pub enum HealthError {
     UnsupportedMedia,
     #[error("health media exceeds the configured size limit")]
     MediaTooLarge,
+    #[error("{primary}; cleanup also failed: {cleanup}")]
+    Cleanup {
+        primary: Box<HealthError>,
+        cleanup: String,
+    },
+    #[error(
+        "health mutation committed for {record_id}, but media cleanup remains pending: {message}"
+    )]
+    CleanupPending { record_id: String, message: String },
     #[error("health confirmation does not match the record identifier")]
     ConfirmationMismatch,
 }

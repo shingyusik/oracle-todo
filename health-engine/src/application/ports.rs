@@ -44,20 +44,60 @@ impl Default for Page {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct AuditEvent {
-    pub id: String,
-    pub request_id: String,
-    pub occurred_at: OffsetDateTime,
-    pub actor: String,
-    pub action: String,
-    pub record_type: String,
-    pub record_id: String,
-    pub before: Option<Value>,
-    pub after: Option<Value>,
-    pub reason: Option<String>,
+pub struct AuditEvent {
+    pub(crate) id: String,
+    pub(crate) request_id: String,
+    pub(crate) occurred_at: OffsetDateTime,
+    pub(crate) actor: String,
+    pub(crate) action: String,
+    pub(crate) record_type: String,
+    pub(crate) record_id: String,
+    pub(crate) before: Option<Value>,
+    pub(crate) after: Option<Value>,
+    pub(crate) reason: Option<String>,
 }
 
 impl AuditEvent {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+
+    pub const fn occurred_at(&self) -> OffsetDateTime {
+        self.occurred_at
+    }
+
+    pub fn actor(&self) -> &str {
+        &self.actor
+    }
+
+    pub fn action(&self) -> &str {
+        &self.action
+    }
+
+    pub fn record_type(&self) -> &str {
+        &self.record_type
+    }
+
+    pub fn record_id(&self) -> &str {
+        &self.record_id
+    }
+
+    pub fn before(&self) -> Option<&Value> {
+        self.before.as_ref()
+    }
+
+    pub fn after(&self) -> Option<&Value> {
+        self.after.as_ref()
+    }
+
+    pub fn reason(&self) -> Option<&str> {
+        self.reason.as_deref()
+    }
+
     pub(crate) fn validate(&self) -> HealthResult<()> {
         HealthRecordId::parse(&self.id)?;
         HealthRecordId::parse(&self.request_id)?;
@@ -173,6 +213,7 @@ impl MediaFileRecord {
 pub(crate) trait HealthTransaction {
     fn get_diet(&self, id: &str, include_archived: bool) -> HealthResult<Option<DietEntry>>;
     fn get_event(&self, id: &str, include_archived: bool) -> HealthResult<Option<HealthEvent>>;
+    fn get_media(&self, id: &str, include_archived: bool) -> HealthResult<Option<MediaFileRecord>>;
     fn insert_media(&mut self, media: &MediaFileRecord) -> HealthResult<()>;
     fn update_media(&mut self, media: &MediaFileRecord) -> HealthResult<()>;
     fn delete_media(&mut self, id: &str) -> HealthResult<()>;
@@ -207,6 +248,7 @@ pub(crate) trait HealthReadRepository: HealthRepository {
     fn list_diet(&self, page: Page, include_archived: bool) -> HealthResult<Vec<DietEntry>>;
     fn get_event(&self, id: &str, include_archived: bool) -> HealthResult<Option<HealthEvent>>;
     fn list_events(&self, page: Page, include_archived: bool) -> HealthResult<Vec<HealthEvent>>;
+    fn get_media(&self, id: &str, include_archived: bool) -> HealthResult<Option<MediaFileRecord>>;
     fn list_audit_events(
         &self,
         record_type: &str,
