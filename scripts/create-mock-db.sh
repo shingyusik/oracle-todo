@@ -20,8 +20,12 @@ if [[ "$home" == "$repo_root/.mock-data/todo-engine" ]]; then
 fi
 mkdir -p "$home"
 
+run_raven() {
+  RAVEN_CONSOLE_LOG=error cargo run -q -p raven-cli -- --home "$home" "$@"
+}
+
 run() {
-  TODO_ENGINE_CONSOLE_LOG=error cargo run -q -p todo-engine -- --home "$home" "$@"
+  run_raven todo "$@"
 }
 
 json_id() {
@@ -59,7 +63,7 @@ for key, value in values.items():
 PY
 )"
 
-run init >/dev/null
+run_raven init >/dev/null
 
 dev_area="$(run area create "개발" \
   --review-cycle weekly \
@@ -78,7 +82,6 @@ project="$(run project propose "Workbench mock 데이터 점검" \
   --outcome "현재 UI와 백엔드 API를 실제 SQLite로 점검한다" \
   --definition-of-done "pending, today, archive 화면에 대표 데이터가 보인다" \
   --due "$today" | json_id)"
-run activate "$project" --reason "mock seed" >/dev/null
 tag_item "$project" planner workbench
 
 daily_project="$(run project propose "Planner daily flow 리허설" \
@@ -87,7 +90,6 @@ daily_project="$(run project propose "Planner daily flow 리허설" \
   --outcome "Daily planner의 섹션, 필터, 정렬 상태를 한 번에 확인한다" \
   --definition-of-done "오늘, 어제, 내일, 미지정 할 일이 모두 보인다" \
   --due "$tomorrow" | json_id)"
-run activate "$daily_project" --reason "mock seed" >/dev/null
 tag_item "$daily_project" planner daily focus
 
 year_goal="$(run goal propose "올해 Workbench 품질 기준 세우기" \
@@ -95,7 +97,6 @@ year_goal="$(run goal propose "올해 Workbench 품질 기준 세우기" \
   --horizon year \
   --scheduled "$year_start" \
   --note "goal 테이블용 year 샘플" | json_id)"
-run activate "$year_goal" --reason "mock seed" >/dev/null
 tag_item "$year_goal" planner yearly strategy
 
 month_goal="$(run goal propose "이번 달 UI 데이터 흐름 검증" \
@@ -104,7 +105,6 @@ month_goal="$(run goal propose "이번 달 UI 데이터 흐름 검증" \
   --scheduled "$month_start" \
   --parent "$year_goal" \
   --note "goal 테이블용 month 샘플" | json_id)"
-run activate "$month_goal" --reason "mock seed" >/dev/null
 tag_item "$month_goal" planner monthly focus
 
 week_goal="$(run goal propose "이번 주 Planner 실행력 만들기" \
@@ -113,7 +113,6 @@ week_goal="$(run goal propose "이번 주 Planner 실행력 만들기" \
   --scheduled "$week_mon" \
   --parent "$month_goal" \
   --note "weekly planner goal 카드용 샘플" | json_id)"
-run activate "$week_goal" --reason "mock seed" >/dev/null
 tag_item "$week_goal" planner weekly focus
 
 active_task="$(run task propose "Workbench 테이블 편집 플로우 점검" \
@@ -124,7 +123,6 @@ active_task="$(run task propose "Workbench 테이블 편집 플로우 점검" \
   --description "행 선택, 상태 전환, 상세 패널 표시를 확인" | json_id)"
 run update "$active_task" --project-id "$project" --reason "mock seed link" >/dev/null
 run update "$active_task" --parent-id "$week_goal" --reason "mock seed goal link" >/dev/null
-run activate "$active_task" --reason "mock seed" >/dev/null
 tag_item "$active_task" planner daily focus
 
 proposed_task="$(run task propose "Mock API 응답 확인" \
@@ -142,7 +140,6 @@ overdue_task="$(run task propose "어제 넘긴 데이터 정리" \
   --priority 1 \
   --description "Daily planner의 어제 했어야 하는 일 섹션 확인" | json_id)"
 run update "$overdue_task" --project-id "$daily_project" --parent-id "$week_goal" --reason "mock seed link" >/dev/null
-run activate "$overdue_task" --reason "mock seed" >/dev/null
 tag_item "$overdue_task" planner overdue ops
 
 tomorrow_task="$(run task propose "내일 오전 planner 필터 확인" \
@@ -152,7 +149,6 @@ tomorrow_task="$(run task propose "내일 오전 planner 필터 확인" \
   --priority 2 \
   --description "Upcoming 섹션과 날짜 범위 필터 확인" | json_id)"
 run update "$tomorrow_task" --project-id "$daily_project" --parent-id "$week_goal" --reason "mock seed link" >/dev/null
-run activate "$tomorrow_task" --reason "mock seed" >/dev/null
 tag_item "$tomorrow_task" planner upcoming focus
 
 unscheduled_task="$(run task propose "날짜 없는 inbox triage" \
@@ -161,7 +157,6 @@ unscheduled_task="$(run task propose "날짜 없는 inbox triage" \
   --priority 3 \
   --description "Daily planner의 미지정 섹션 확인" | json_id)"
 run update "$unscheduled_task" --project-id "$daily_project" --reason "mock seed link" >/dev/null
-run activate "$unscheduled_task" --reason "mock seed" >/dev/null
 tag_item "$unscheduled_task" planner inbox ops
 
 weekly_days=(
@@ -183,7 +178,6 @@ for entry in "${weekly_days[@]}"; do
     --priority "$priority" \
     --description "Weekly planner day card fixture" | json_id)"
   run update "$task_id" --project-id "$daily_project" --parent-id "$week_goal" --reason "mock seed link" >/dev/null
-  run activate "$task_id" --reason "mock seed" >/dev/null
   tag_item "$task_id" planner weekly focus
 done
 
@@ -208,9 +202,8 @@ routine="$(run routine propose "Workbench mock DB 스모크" \
   --recurrence-rule daily \
   --materialization-policy single_open \
   --note "today view에 생성 태스크가 보여야 함" | json_id)"
-run activate "$routine" --reason "mock seed" >/dev/null
 tag_item "$routine" planner routine ops
-routine_task="$(run routine materialize --now "$today" --lookahead-days 0 --catchup-days 0 | json_id)"
+routine_task="$(run routine materialize | json_id)"
 tag_item "$routine_task" planner routine today
 
 today_event="$(run event propose "Mock API 데모 미팅" "${today}T15:00" \
@@ -245,5 +238,5 @@ tomorrow_event="$(run event propose "내일 planner 리뷰" "${tomorrow}T10:30" 
   --description "Daily upcoming 및 weekly event 표시 확인" | json_id)"
 tag_item "$tomorrow_event" planner event upcoming
 
-run health
+run_raven health-check
 echo "TODO_ENGINE_HOME=$home"

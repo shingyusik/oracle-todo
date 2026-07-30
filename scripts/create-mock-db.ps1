@@ -41,10 +41,10 @@ if ($isDefaultHome -and (Test-Path -LiteralPath $DataHome)) {
 }
 New-Item -ItemType Directory -Force -Path $DataHome | Out-Null
 
-$env:TODO_ENGINE_CONSOLE_LOG = 'error'
+$env:RAVEN_CONSOLE_LOG = 'error'
 
-function Invoke-Todo {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CliArgs)
+function Invoke-Raven {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$RavenArgs)
 
     # PowerShell decodes a native command's stdout with [Console]::OutputEncoding.
     # The engine emits UTF-8, so on a default Korean console (CP949) a Korean
@@ -54,15 +54,21 @@ function Invoke-Todo {
     $previousEncoding = [Console]::OutputEncoding
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     try {
-        $output = & cargo run -q -p todo-engine -- --home $DataHome @CliArgs
+        $output = & cargo run -q -p raven-cli -- --home $DataHome @RavenArgs
         if ($LASTEXITCODE -ne 0) {
-            throw "todo-engine failed ($LASTEXITCODE): $($CliArgs -join ' ')"
+            throw "raven failed ($LASTEXITCODE): $($RavenArgs -join ' ')"
         }
         return ($output -join "`n")
     }
     finally {
         [Console]::OutputEncoding = $previousEncoding
     }
+}
+
+function Invoke-Todo {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CliArgs)
+
+    Invoke-Raven todo @CliArgs
 }
 
 function Get-ItemId {
@@ -99,7 +105,7 @@ for ($i = 0; $i -lt $dayNames.Count; $i++) {
     $weekDays[$dayNames[$i]] = Format-Day $weekStart.AddDays($i)
 }
 
-Invoke-Todo init | Out-Null
+Invoke-Raven init | Out-Null
 
 $devArea = Get-ItemId (Invoke-Todo area create '개발' `
         --review-cycle weekly `
@@ -118,7 +124,6 @@ $project = Get-ItemId (Invoke-Todo project propose 'Workbench mock 데이터 점
         --outcome '현재 UI와 백엔드 API를 실제 SQLite로 점검한다' `
         --definition-of-done 'pending, today, archive 화면에 대표 데이터가 보인다' `
         --due $today)
-Invoke-Todo activate $project --reason 'mock seed' | Out-Null
 Set-ItemTags $project @('planner', 'workbench')
 
 $dailyProject = Get-ItemId (Invoke-Todo project propose 'Planner daily flow 리허설' `
@@ -127,7 +132,6 @@ $dailyProject = Get-ItemId (Invoke-Todo project propose 'Planner daily flow 리�
         --outcome 'Daily planner의 섹션, 필터, 정렬 상태를 한 번에 확인한다' `
         --definition-of-done '오늘, 어제, 내일, 미지정 할 일이 모두 보인다' `
         --due $tomorrow)
-Invoke-Todo activate $dailyProject --reason 'mock seed' | Out-Null
 Set-ItemTags $dailyProject @('planner', 'daily', 'focus')
 
 $yearGoal = Get-ItemId (Invoke-Todo goal propose '올해 Workbench 품질 기준 세우기' `
@@ -135,7 +139,6 @@ $yearGoal = Get-ItemId (Invoke-Todo goal propose '올해 Workbench 품질 기준
         --horizon year `
         --scheduled $yearStart `
         --note 'goal 테이블용 year 샘플')
-Invoke-Todo activate $yearGoal --reason 'mock seed' | Out-Null
 Set-ItemTags $yearGoal @('planner', 'yearly', 'strategy')
 
 $monthGoal = Get-ItemId (Invoke-Todo goal propose '이번 달 UI 데이터 흐름 검증' `
@@ -144,7 +147,6 @@ $monthGoal = Get-ItemId (Invoke-Todo goal propose '이번 달 UI 데이터 흐�
         --scheduled $monthStart `
         --parent $yearGoal `
         --note 'goal 테이블용 month 샘플')
-Invoke-Todo activate $monthGoal --reason 'mock seed' | Out-Null
 Set-ItemTags $monthGoal @('planner', 'monthly', 'focus')
 
 $weekGoal = Get-ItemId (Invoke-Todo goal propose '이번 주 Planner 실행력 만들기' `
@@ -153,7 +155,6 @@ $weekGoal = Get-ItemId (Invoke-Todo goal propose '이번 주 Planner 실행력 �
         --scheduled $weekDays['mon'] `
         --parent $monthGoal `
         --note 'weekly planner goal 카드용 샘플')
-Invoke-Todo activate $weekGoal --reason 'mock seed' | Out-Null
 Set-ItemTags $weekGoal @('planner', 'weekly', 'focus')
 
 $activeTask = Get-ItemId (Invoke-Todo task propose 'Workbench 테이블 편집 플로우 점검' `
@@ -164,7 +165,6 @@ $activeTask = Get-ItemId (Invoke-Todo task propose 'Workbench 테이블 편집 �
         --description '행 선택, 상태 전환, 상세 패널 표시를 확인')
 Invoke-Todo update $activeTask --project-id $project --reason 'mock seed link' | Out-Null
 Invoke-Todo update $activeTask --parent-id $weekGoal --reason 'mock seed goal link' | Out-Null
-Invoke-Todo activate $activeTask --reason 'mock seed' | Out-Null
 Set-ItemTags $activeTask @('planner', 'daily', 'focus')
 
 $proposedTask = Get-ItemId (Invoke-Todo task propose 'Mock API 응답 확인' `
@@ -182,7 +182,6 @@ $overdueTask = Get-ItemId (Invoke-Todo task propose '어제 넘긴 데이터 정
         --priority 1 `
         --description 'Daily planner의 어제 했어야 하는 일 섹션 확인')
 Invoke-Todo update $overdueTask --project-id $dailyProject --parent-id $weekGoal --reason 'mock seed link' | Out-Null
-Invoke-Todo activate $overdueTask --reason 'mock seed' | Out-Null
 Set-ItemTags $overdueTask @('planner', 'overdue', 'ops')
 
 $tomorrowTask = Get-ItemId (Invoke-Todo task propose '내일 오전 planner 필터 확인' `
@@ -192,7 +191,6 @@ $tomorrowTask = Get-ItemId (Invoke-Todo task propose '내일 오전 planner 필�
         --priority 2 `
         --description 'Upcoming 섹션과 날짜 범위 필터 확인')
 Invoke-Todo update $tomorrowTask --project-id $dailyProject --parent-id $weekGoal --reason 'mock seed link' | Out-Null
-Invoke-Todo activate $tomorrowTask --reason 'mock seed' | Out-Null
 Set-ItemTags $tomorrowTask @('planner', 'upcoming', 'focus')
 
 $unscheduledTask = Get-ItemId (Invoke-Todo task propose '날짜 없는 inbox triage' `
@@ -201,7 +199,6 @@ $unscheduledTask = Get-ItemId (Invoke-Todo task propose '날짜 없는 inbox tri
         --priority 3 `
         --description 'Daily planner의 미지정 섹션 확인')
 Invoke-Todo update $unscheduledTask --project-id $dailyProject --reason 'mock seed link' | Out-Null
-Invoke-Todo activate $unscheduledTask --reason 'mock seed' | Out-Null
 Set-ItemTags $unscheduledTask @('planner', 'inbox', 'ops')
 
 $weeklyDays = @(
@@ -222,7 +219,6 @@ foreach ($entry in $weeklyDays) {
             --priority $entry.Priority `
             --description 'Weekly planner day card fixture')
     Invoke-Todo update $taskId --project-id $dailyProject --parent-id $weekGoal --reason 'mock seed link' | Out-Null
-    Invoke-Todo activate $taskId --reason 'mock seed' | Out-Null
     Set-ItemTags $taskId @('planner', 'weekly', 'focus')
 }
 
@@ -247,9 +243,8 @@ $routine = Get-ItemId (Invoke-Todo routine propose 'Workbench mock DB 스모크'
         --recurrence-rule daily `
         --materialization-policy single_open `
         --note 'today view에 생성 태스크가 보여야 함')
-Invoke-Todo activate $routine --reason 'mock seed' | Out-Null
 Set-ItemTags $routine @('planner', 'routine', 'ops')
-$routineTask = Get-ItemId (Invoke-Todo routine materialize --now $today --lookahead-days 0 --catchup-days 0)
+$routineTask = Get-ItemId (Invoke-Todo routine materialize)
 Set-ItemTags $routineTask @('planner', 'routine', 'today')
 
 $todayEvent = Get-ItemId (Invoke-Todo event propose 'Mock API 데모 미팅' "${today}T15:00" `
@@ -284,5 +279,5 @@ $tomorrowEvent = Get-ItemId (Invoke-Todo event propose '내일 planner 리뷰' "
         --description 'Daily upcoming 및 weekly event 표시 확인')
 Set-ItemTags $tomorrowEvent @('planner', 'event', 'upcoming')
 
-Invoke-Todo health
+Invoke-Raven health-check
 Write-Output "TODO_ENGINE_HOME=$DataHome"

@@ -62,6 +62,9 @@ fn raven_init_creates_todo_database_and_media_directory() {
     let status = raven(home.path()).arg("init").status().unwrap();
 
     assert!(status.success());
+    let status = raven(home.path()).args(["todo", "today"]).status().unwrap();
+
+    assert!(status.success());
     assert!(home.path().join("todo.sqlite").exists());
     assert!(home.path().join("media/health").is_dir());
 }
