@@ -10,6 +10,7 @@ import type {
   HealthEvent,
   TimelineItem,
 } from "@/features/health/model/health-model";
+import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 export function TimelinePanel({ controller }: { controller: HealthController }) {
   const { state } = controller;
@@ -61,6 +62,7 @@ export function HealthRecordTable({
   emptyMessage: string;
 }) {
   const action = useRecordAction();
+  const [purgeTarget, setPurgeTarget] = useState<TimelineItem | null>(null);
 
   if (items.length === 0) return <p className="items-message">{emptyMessage}</p>;
 
@@ -118,14 +120,7 @@ export function HealthRecordTable({
                         type="button"
                         aria-label={`Purge ${actionContext}`}
                         disabled={action.isPending(recordKey)}
-                        onClick={() => {
-                          if (window.confirm(`Permanently purge ${label}?`)) {
-                            void action.run(
-                              recordKey,
-                              () => controller.purge(kind, record.id, record.id),
-                            );
-                          }
-                        }}
+                        onClick={() => setPurgeTarget(item)}
                       >
                         Purge {label}
                       </button>
@@ -153,6 +148,23 @@ export function HealthRecordTable({
           })}
         </tbody>
       </table>
+      {purgeTarget ? (
+        <DestructiveConfirmationDialog
+          title={`Permanently purge ${recordLabel(purgeTarget)}?`}
+          description="This health record will be permanently removed. This cannot be undone."
+          onCancel={() => setPurgeTarget(null)}
+          onConfirm={() => {
+            const target = purgeTarget;
+            const kind: HealthRecordKind =
+              target.kind === "diet" ? "diet" : "event";
+            setPurgeTarget(null);
+            void action.run(
+              `${kind}:${target.record.id}`,
+              () => controller.purge(kind, target.record.id, target.record.id),
+            );
+          }}
+        />
+      ) : null}
     </section>
   );
 }

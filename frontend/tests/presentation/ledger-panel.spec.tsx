@@ -171,7 +171,6 @@ describe("LedgerPanel", () => {
     const confirm = vi.spyOn(window, "confirm")
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true)
-      .mockReturnValueOnce(true)
       .mockReturnValueOnce(true);
     const activeState: LedgerState = {
       ...loadedState,
@@ -223,10 +222,48 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Restore Lunch" }));
     expect(ledger.restore).toHaveBeenCalledWith("entry-1");
 
-    await user.click(screen.getByRole("button", { name: "Purge Lunch" }));
+    const purgeTrigger = screen.getByRole("button", { name: "Purge Lunch" });
+    await user.click(purgeTrigger);
+    const purgeDialog = screen.getByRole("dialog", {
+      name: "Permanently purge Lunch?",
+    });
+    await user.click(within(purgeDialog).getByRole("button", {
+      name: "Purge permanently",
+    }));
     expect(ledger.previewPurge).toHaveBeenCalledWith("entry-1");
     expect(ledger.purge).toHaveBeenCalledWith("entry-1", "confirm-entry");
-    expect(confirm).toHaveBeenCalledTimes(4);
+    expect(confirm).toHaveBeenCalledTimes(3);
+  });
+
+  it("traps purge confirmation focus and restores the trigger on Escape", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      entries: [entryView("entry-1", "Lunch")],
+    });
+    render(<LedgerPanel controller={ledger} />);
+
+    const trigger = screen.getByRole("button", { name: "Purge Lunch" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", {
+      name: "Permanently purge Lunch?",
+    });
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    const confirm = within(dialog).getByRole("button", {
+      name: "Purge permanently",
+    });
+    expect(cancel).toHaveFocus();
+
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(confirm).toHaveFocus();
+    await user.tab();
+    expect(cancel).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Permanently purge Lunch?" }))
+      .toBeNull();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(ledger.previewPurge).not.toHaveBeenCalled();
   });
 
   it("submits the selected Reports date range", async () => {
@@ -370,6 +407,7 @@ describe("LedgerPanel", () => {
 
   it("reports purge preview failures and re-enables only the active transaction action", async () => {
     const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     let rejectPreview: (reason: Error) => void = () => undefined;
     const preview = new Promise<never>((_, reject) => {
       rejectPreview = reject;
@@ -400,12 +438,12 @@ describe("LedgerPanel", () => {
       }],
     });
     ledger.previewPurge = vi.fn(() => preview);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<LedgerPanel controller={ledger} />);
 
     const purge = screen.getByRole("button", { name: "Purge Lunch" });
     const archive = screen.getByRole("button", { name: "Archive Lunch" });
     await user.click(purge);
+    await user.click(screen.getByRole("button", { name: "Purge permanently" }));
     expect(purge).toBeDisabled();
     expect(archive).not.toBeDisabled();
     rejectPreview(new Error("Preview expired"));
@@ -446,6 +484,7 @@ describe("LedgerPanel", () => {
       <LedgerPanel leafTabId="accounts" controller={accountController} />,
     );
     await user.click(screen.getByRole("button", { name: "Purge Cash" }));
+    await user.click(screen.getByRole("button", { name: "Purge permanently" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Account preview failed");
 
     const categoryController = controller();
@@ -453,6 +492,7 @@ describe("LedgerPanel", () => {
       vi.fn().mockRejectedValue(new Error("Category preview failed"));
     rerender(<LedgerPanel leafTabId="categories" controller={categoryController} />);
     await user.click(screen.getByRole("button", { name: "Purge Food" }));
+    await user.click(screen.getByRole("button", { name: "Purge permanently" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Category preview failed");
   });
 

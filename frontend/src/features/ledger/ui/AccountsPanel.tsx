@@ -9,11 +9,13 @@ import {
   formatMoney,
   useLifecycleAction,
 } from "@/features/ledger/ui/ledger-ui";
+import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 export function AccountsPanel({ controller }: { controller: LedgerController }) {
   const [editing, setEditing] = useState<Account | null>(null);
   const [draft, setDraft] = useState(accountDraft(null, controller.state.currencies));
   const [error, setError] = useState<string | null>(null);
+  const [purgeTarget, setPurgeTarget] = useState<Account | null>(null);
   const actions = useLifecycleAction();
 
   function edit(account: Account | null) {
@@ -35,7 +37,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
   }
 
   function purge(account: Account) {
-    if (!window.confirm(`Permanently purge ${account.name}?`)) return;
+    setPurgeTarget(null);
     void actions.run(`purge:${account.id}`, async () => {
       const preview = await controller.previewAccountPurge(account.id);
       await controller.purgeAccount(account.id, preview.confirmationId);
@@ -189,7 +191,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
                     <button
                       type="button"
                       disabled={actions.isPending(`purge:${account.id}`)}
-                      onClick={() => purge(account)}
+                      onClick={() => setPurgeTarget(account)}
                     >
                       Purge {account.name}
                     </button>
@@ -200,6 +202,14 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
           </table>
         </div>
       )}
+      {purgeTarget ? (
+        <DestructiveConfirmationDialog
+          title={`Permanently purge ${purgeTarget.name}?`}
+          description="This account will be permanently removed. This cannot be undone."
+          onCancel={() => setPurgeTarget(null)}
+          onConfirm={() => purge(purgeTarget)}
+        />
+      ) : null}
     </section>
   );
 }

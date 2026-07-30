@@ -1,11 +1,14 @@
 export const workbenchCopy = {
-  brandName: "Todo Engine",
+  brandName: "Raven",
   logoLabel: "Logo",
   logoAlt: "Merovingian",
   logoWordmark: "MEROVINGIAN",
   logoTagline: "CONTROL. ANALYZE. OPTIMIZE.",
   navigation: {
-    shellLabel: "Workbench navigation",
+    shellLabel: "Raven navigation",
+    drawerLabel: "Raven navigation drawer",
+    openLabel: "Open Raven navigation",
+    closeLabel: "Close Raven navigation",
   },
   panels: {
     dashboard: {

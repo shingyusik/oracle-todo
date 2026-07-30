@@ -524,6 +524,19 @@ function testNextYearStart(date: string): string {
   return formatDate(value);
 }
 
+function useMobileViewport() {
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+    matches: true,
+    media: "(max-width: 760px)",
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 describe("WorkbenchPageClient", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -674,10 +687,10 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Yearly" })).toBeNull();
   });
 
-  it("renders dashboard and todo in one labeled navigation tree", () => {
+  it("renders dashboard and todo in one labeled Raven navigation tree", () => {
     render(<WorkbenchPageClient />);
 
-    const navigation = screen.getByLabelText("Workbench navigation");
+    const navigation = screen.getByRole("navigation", { name: "Raven navigation" });
     const dashboard = within(navigation).getByRole("button", { name: "Dashboard" });
     const todo = within(navigation).getByRole("button", { name: "ToDo" });
     const ledger = within(navigation).getByRole("button", { name: "Ledger" });
@@ -696,6 +709,40 @@ describe("WorkbenchPageClient", () => {
     expect(ledger.compareDocumentPosition(health) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
     expect(navigation.querySelector(".tree-sidebar-divider")).not.toBeNull();
+  });
+
+  it("opens the mobile navigation as a modal drawer and restores focus on Escape", async () => {
+    useMobileViewport();
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    const trigger = screen.getByRole("button", { name: "Open Raven navigation" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveAttribute("aria-controls", "raven-navigation-drawer");
+    expect(screen.queryByRole("dialog", { name: "Raven navigation drawer" }))
+      .toBeNull();
+
+    await user.click(trigger);
+
+    const drawer = screen.getByRole("dialog", { name: "Raven navigation drawer" });
+    const close = within(drawer).getByRole("button", {
+      name: "Close Raven navigation",
+    });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(within(drawer).getByRole("navigation", { name: "Raven navigation" }))
+      .toBeInTheDocument();
+    expect(close).toHaveFocus();
+
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(within(drawer).getByRole("button", { name: "Quick Add" })).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Raven navigation drawer" }))
+      .toBeNull();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("opens Ledger and Health Journal at their default leaves one at a time", async () => {

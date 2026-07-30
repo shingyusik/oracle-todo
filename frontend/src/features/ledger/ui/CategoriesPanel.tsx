@@ -8,11 +8,13 @@ import type {
   TransactionCategoryKind,
 } from "@/features/ledger/model/ledger-model";
 import { useLifecycleAction } from "@/features/ledger/ui/ledger-ui";
+import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 export function CategoriesPanel({ controller }: { controller: LedgerController }) {
   const [editing, setEditing] = useState<TransactionCategory | null>(null);
   const [draft, setDraft] = useState(categoryDraft(null));
   const [error, setError] = useState<string | null>(null);
+  const [purgeTarget, setPurgeTarget] = useState<TransactionCategory | null>(null);
   const actions = useLifecycleAction();
 
   function edit(category: TransactionCategory | null) {
@@ -39,7 +41,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
   }
 
   function purge(category: TransactionCategory) {
-    if (!window.confirm(`Permanently purge ${category.name}?`)) return;
+    setPurgeTarget(null);
     void actions.run(`purge:${category.id}`, async () => {
       const preview = await controller.previewCategoryPurge(category.id);
       await controller.purgeCategory(category.id, preview.confirmationId);
@@ -159,7 +161,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
                     <button
                       type="button"
                       disabled={actions.isPending(`purge:${category.id}`)}
-                      onClick={() => purge(category)}
+                      onClick={() => setPurgeTarget(category)}
                     >
                       Purge {category.name}
                     </button>
@@ -170,6 +172,14 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
           </table>
         </div>
       )}
+      {purgeTarget ? (
+        <DestructiveConfirmationDialog
+          title={`Permanently purge ${purgeTarget.name}?`}
+          description="This category will be permanently removed. This cannot be undone."
+          onCancel={() => setPurgeTarget(null)}
+          onConfirm={() => purge(purgeTarget)}
+        />
+      ) : null}
     </section>
   );
 }

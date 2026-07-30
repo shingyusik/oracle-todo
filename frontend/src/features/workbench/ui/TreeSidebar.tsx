@@ -16,9 +16,17 @@ import {
 } from "@/domain/workbench/navigation";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 
-type TreeSidebarProps = { controller: WorkbenchController; ariaLabel: string };
+type TreeSidebarProps = {
+  controller: WorkbenchController;
+  ariaLabel: string;
+  onNavigate?: () => void;
+};
 
-export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
+export function TreeSidebar({
+  controller,
+  ariaLabel,
+  onNavigate,
+}: TreeSidebarProps) {
   const { selection, selectTab } = controller;
   const todoVisible = selection.mainTabId === "todo";
   const renderLeaves = (tabs: readonly NavigationTab[]) =>
@@ -29,7 +37,10 @@ export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
         className="tree-sidebar-tab tree-sidebar-leaf"
         data-active={tab.id === selection.leafTabId}
         aria-current={tab.id === selection.leafTabId ? "page" : undefined}
-        onClick={() => selectTab(tab.id as WorkbenchTabId)}
+        onClick={() => {
+          selectTab(tab.id as WorkbenchTabId);
+          onNavigate?.();
+        }}
       >
         {tab.label}
       </button>
@@ -44,7 +55,10 @@ export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
         aria-current={
           selection.leafTabId === "dashboard" ? "page" : undefined
         }
-        onClick={() => selectTab("dashboard")}
+        onClick={() => {
+          selectTab("dashboard");
+          onNavigate?.();
+        }}
       >
         <LayoutDashboard aria-hidden="true" />
         Dashboard
@@ -102,7 +116,10 @@ export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
         className="tree-sidebar-tab tree-sidebar-top-level"
         data-active={selection.mainTabId === "ledger"}
         aria-expanded={selection.ledgerExpanded}
-        onClick={() => selectTab("ledger")}
+        onClick={() => {
+          selectTab("ledger");
+          onNavigate?.();
+        }}
       >
         <Banknote aria-hidden="true" />
         Ledger
@@ -117,7 +134,10 @@ export function TreeSidebar({ controller, ariaLabel }: TreeSidebarProps) {
         className="tree-sidebar-tab tree-sidebar-top-level"
         data-active={selection.mainTabId === "health"}
         aria-expanded={selection.healthExpanded}
-        onClick={() => selectTab("health")}
+        onClick={() => {
+          selectTab("health");
+          onNavigate?.();
+        }}
       >
         <HeartPulse aria-hidden="true" />
         Health Journal

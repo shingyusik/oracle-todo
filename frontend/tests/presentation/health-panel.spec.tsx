@@ -1,6 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -334,6 +341,7 @@ describe("HealthPanel", () => {
     expect(restoreButton).toBeEnabled();
     expect(purgeButton).toBeEnabled();
     await user.click(purgeButton);
+    await user.click(screen.getByRole("button", { name: "Purge permanently" }));
     expect(health.purge).toHaveBeenCalledWith("diet", "diet-1", "diet-1");
   });
 
@@ -354,6 +362,11 @@ describe("HealthPanel", () => {
     const restoreButton = screen.getByRole("button", { name: /Restore Bowel.*event-1/ });
     const purgeButton = screen.getByRole("button", { name: /Purge Bowel.*event-1/ });
     await user.click(purgeButton);
+    const dialog = screen.getByRole("dialog", { name: "Permanently purge Bowel?" });
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.click(within(dialog).getByRole("button", {
+      name: "Purge permanently",
+    }));
     expect(restoreButton).toBeDisabled();
     expect(purgeButton).toBeDisabled();
 

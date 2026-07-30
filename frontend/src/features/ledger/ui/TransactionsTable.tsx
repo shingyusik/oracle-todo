@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import { formatMoney, useLifecycleAction } from "@/features/ledger/ui/ledger-ui";
+import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type TransactionsTableProps = {
   controller: LedgerController;
@@ -14,13 +15,14 @@ type TransactionsTableProps = {
 export function TransactionsTable({ controller, onEdit }: TransactionsTableProps) {
   const { entries } = controller.state;
   const actions = useLifecycleAction();
+  const [purgeTarget, setPurgeTarget] = useState<LedgerEntryView | null>(null);
 
   if (entries.length === 0) {
     return <p className="items-message">No transactions yet.</p>;
   }
 
   function purge(entry: LedgerEntryView) {
-    if (!window.confirm(`Permanently purge ${entry.entry.content}?`)) return;
+    setPurgeTarget(null);
     void actions.run(`purge:${entry.entry.id}`, async () => {
       const preview = await controller.previewPurge(entry.entry.id);
       await controller.purge(entry.entry.id, preview.confirmationId);
@@ -99,7 +101,7 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
                   <button
                     type="button"
                     disabled={actions.isPending(`purge:${entry.entry.id}`)}
-                    onClick={() => purge(entry)}
+                    onClick={() => setPurgeTarget(entry)}
                   >
                     Purge {entry.entry.content}
                   </button>
@@ -109,6 +111,14 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
           })}
         </tbody>
       </table>
+      {purgeTarget ? (
+        <DestructiveConfirmationDialog
+          title={`Permanently purge ${purgeTarget.entry.content}?`}
+          description="This transaction will be permanently removed. This cannot be undone."
+          onCancel={() => setPurgeTarget(null)}
+          onConfirm={() => purge(purgeTarget)}
+        />
+      ) : null}
     </section>
   );
 }

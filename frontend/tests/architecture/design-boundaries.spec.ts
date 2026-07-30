@@ -35,7 +35,7 @@ describe("design system boundaries", () => {
   it("exposes non-empty tokens, copy, and layout constants", () => {
     expect(designTokens.colors.aloe).toBe("#c1fbd4");
     expect(designTokens.colors.aloeStrong).toBe("#3fae6a");
-    expect(workbenchCopy.brandName).toBe("Todo Engine");
+    expect(workbenchCopy.brandName).toBe("Raven");
     expect(workbenchLayout.mainSidebarWidthPx).toBe(64);
   });
 
@@ -238,7 +238,9 @@ describe("design system boundaries", () => {
     expect(source).toMatch(
       /\.dashboard-donut-ring\s*\{[^}]*width:\s*min\(180px,\s*100%\);/s,
     );
-    expect(source).toContain("@media (max-width: 767px)");
+    expect(source).toContain(
+      `@media (max-width: ${workbenchLayout.mobileBreakpointPx - 1}px)`,
+    );
   });
 
   it("keeps planner period cards motion-safe and dependency-free", async () => {
