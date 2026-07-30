@@ -46,6 +46,21 @@ pub enum Command {
     },
     /// Serve the authenticated standalone Raven HTTP API.
     Api,
+    /// Serve Raven's local UI and authenticated API.
+    Ui(UiArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct UiArgs {
+    /// Path to the bundled static UI artifact.
+    #[arg(long)]
+    pub ui_path: Option<PathBuf>,
+    /// Loopback port to listen on.
+    #[arg(long, default_value_t = 3002)]
+    pub port: u16,
+    /// Do not open the system browser.
+    #[arg(long)]
+    pub no_open: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -909,6 +924,7 @@ impl Command {
             Self::Ledger { .. } => "ledger",
             Self::Health { .. } => "health",
             Self::Api => "api",
+            Self::Ui(_) => "ui",
         }
     }
 
@@ -920,7 +936,7 @@ impl Command {
             | Self::Todo { .. } => "todo",
             Self::Ledger { .. } => "ledger",
             Self::Health { .. } => "health",
-            Self::Init | Self::HealthCheck | Self::Api => "raven",
+            Self::Init | Self::HealthCheck | Self::Api | Self::Ui(_) => "raven",
         }
     }
 }

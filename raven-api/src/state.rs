@@ -11,7 +11,7 @@ pub struct RavenApiState {
 }
 
 impl RavenApiState {
-    pub fn new(config: RavenApiConfig) -> Self {
+    pub(crate) fn new(config: RavenApiConfig) -> Self {
         Self {
             config: Arc::new(config),
         }

@@ -4,6 +4,7 @@ pub mod import;
 pub mod init;
 pub mod ledger;
 pub mod todo;
+pub mod ui;
 
 use anyhow::Result;
 use health_engine::infrastructure::sqlite::{HealthStorageHealth, SqliteHealthRepository};
@@ -24,6 +25,7 @@ pub fn execute(paths: &RavenPaths, command: Command) -> Result<()> {
         Command::Ledger { command } => ledger::run(paths, *command),
         Command::Health { command } => health::run(paths, *command),
         Command::Api => api::run(paths),
+        Command::Ui(args) => ui::run(paths, args),
     }
 }
 

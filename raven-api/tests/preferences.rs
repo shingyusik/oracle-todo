@@ -26,7 +26,7 @@ fn request(method: &str, path: &str, body: Body) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(path)
-        .header("x-raven-session", SESSION)
+        .header(header::COOKIE, format!("raven_session={SESSION}"))
         .header(header::CONTENT_TYPE, "application/json")
         .body(body)
         .unwrap()
@@ -157,7 +157,7 @@ async fn put_requires_bounded_json_object() {
         ),
         (
             Request::put("/api/v1/preferences/planner.v1")
-                .header("x-raven-session", SESSION)
+                .header(header::COOKIE, format!("raven_session={SESSION}"))
                 .body(Body::from(r#"{"value":{}}"#))
                 .unwrap(),
             StatusCode::UNSUPPORTED_MEDIA_TYPE,

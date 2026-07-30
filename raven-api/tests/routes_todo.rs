@@ -1,5 +1,5 @@
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use raven_api::{AuthMode, RavenApiConfig, router};
 use serde_json::Value;
@@ -10,7 +10,7 @@ fn authenticated(app: axum::Router) -> axum::Router {
         |mut request: Request<Body>, next: axum::middleware::Next| async move {
             request
                 .headers_mut()
-                .insert("x-raven-session", "test".parse().unwrap());
+                .insert(header::COOKIE, "raven_session=test".parse().unwrap());
             next.run(request).await
         },
     ))

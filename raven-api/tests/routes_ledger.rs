@@ -77,7 +77,7 @@ fn authenticated(app: axum::Router) -> axum::Router {
         |mut request: Request<Body>, next: axum::middleware::Next| async move {
             request
                 .headers_mut()
-                .insert("x-raven-session", "test".parse().unwrap());
+                .insert(header::COOKIE, "raven_session=test".parse().unwrap());
             next.run(request).await
         },
     ))

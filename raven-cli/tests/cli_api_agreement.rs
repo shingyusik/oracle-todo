@@ -47,7 +47,7 @@ fn json_request(method: &str, path: &str, value: Value) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(path)
-        .header("x-raven-session", SESSION)
+        .header(header::COOKIE, format!("raven_session={SESSION}"))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(value.to_string()))
         .unwrap()

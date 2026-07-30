@@ -118,7 +118,7 @@ async fn ui_session_mode_is_not_an_unauthenticated_fallback() {
     let valid = app
         .oneshot(
             Request::get("/api/v1/dashboard")
-                .header("x-raven-session", "session-verifier")
+                .header(header::COOKIE, "raven_session=session-verifier")
                 .body(Body::empty())
                 .unwrap(),
         )
