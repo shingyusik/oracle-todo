@@ -2,110 +2,120 @@
 
 ## Prerequisites
 
-Use Node.js 18 or newer for the npm wrapper. Use a Rust 2024 toolchain (`cargo`) when
-building from source. SQLite is bundled via `rusqlite` — no external SQLite install is required.
+- Node.js 18+ for `npx @shings/raven`
+- Rust 2024 toolchain for source builds
 
-## Run with npx
+SQLite is bundled through `rusqlite`.
 
-Use the npm wrapper when you want to run the local engine without installing Rust:
-
-```bash
-npx @shings/oracle-todo init
-npx @shings/oracle-todo today
-npx @shings/oracle-todo pending
-```
-
-Run the local UI:
+## npm release bundle
 
 ```bash
-npx @shings/oracle-todo ui
-npx @shings/oracle-todo ui --no-open
+npx @shings/raven init
+npx @shings/raven health-check
+npx @shings/raven ui
 ```
 
-The `ui` command downloads the matching GitHub Release UI artifact, starts `todo-engine api`
-on `127.0.0.1:3002`, serves the UI on `127.0.0.1:3001`, proxies `/todo-engine/*` requests to
-the API, and opens the browser by default.
+The wrapper installs the matching native `raven` archive and `raven-ui` archive from the
+Raven GitHub Release into `RAVEN_CACHE_DIR` or `~/.local/share/raven`. User data remains
+under `RAVEN_HOME`; the release cache is not a data backup.
 
-The wrapper downloads a matching `todo-engine` and UI bundle from GitHub Releases and stores it
-under `~/.local/share/oracle-todo/`. User data stays in the normal data home:
-`~/.todo-engine/` unless `--home` or `TODO_ENGINE_HOME` points elsewhere.
-
-Update the cached engine/UI bundle:
+Wrapper-only commands:
 
 ```bash
-npx @shings/oracle-todo update
+npx @shings/raven install
+npx @shings/raven update
+npx @shings/raven version
+npx @shings/raven doctor
 ```
 
-## Publish the npm wrapper
+Other arguments are forwarded to the native binary. `ui` installs both artifacts and
+delegates to native `raven ui`.
 
-The npm wrapper is published from `.github/workflows/npm-publish.yml` with npm Trusted
-Publishing. The workflow uses GitHub Actions OIDC, so it does not require an `NPM_TOKEN`
-secret.
-
-Configure the trusted publisher on the `@shings/oracle-todo` package in npm:
-
-| Field | Value |
-| --- | --- |
-| Publisher | GitHub Actions |
-| Organization or user | `shingyusik` |
-| Repository | `oracle-todo` |
-| Workflow filename | `npm-publish.yml` |
-| Environment name | leave blank |
-| Allowed actions | `npm publish` |
-
-Publish a new wrapper version by bumping `npm/oracle-todo/package.json`, committing it,
-and pushing a matching npm tag:
+## Source build
 
 ```bash
-git tag npm-v<version>
-git push origin npm-v<version>
+cargo build -p raven-cli
+cargo run -p raven-cli -- init
+cargo run -p raven-cli -- health-check
 ```
 
-## Build and initialize
-
-```bash
-cargo build                 # build the library + binary (workspace root)
-cargo run -p todo-engine -- init           # create todo.sqlite at the data home
-```
-
-`init` creates the data home directory (if needed) and runs `init_schema`, which creates the
-`items` and `events` tables and normalizes legacy `proposed`/`approved` rows to `active`.
-It prints `initialized <path-to-todo.sqlite>`.
+`init` creates the Raven home, all three databases, and `media/health`. It is idempotent.
+`health-check` is read-only and reports each schema version and media-directory readiness;
+it fails if any component is missing, corrupt, or unsupported.
 
 ## Data home
 
-By default the data home is `~/.todo-engine/`. It is resolved (in order) from:
+Resolution order:
 
-1. the `--home <path>` flag,
-2. an existing `TODO_ENGINE_HOME` process environment variable,
-3. `TODO_ENGINE_HOME` loaded from the nearest `.env` file in the current directory or a parent,
-4. `$HOME/.todo-engine` (errors if `HOME` is unset).
-
-```bash
-export TODO_ENGINE_HOME=/path/to/data
-cargo run -p todo-engine -- init
-# or:
-echo 'TODO_ENGINE_HOME=/path/to/data' > .env
-cargo run -p todo-engine -- init
-# or, per-invocation:
-cargo run -p todo-engine -- --home /path/to/data init
-```
-
-The full layout (`todo.sqlite`, `logs/`) and resolution rules are documented in
-[data-home.md](data-home.md).
-
-## Verify the install
+1. `--home <path>`
+2. `RAVEN_HOME` from the process or `.env`
+3. `$HOME/.raven`
 
 ```bash
-cargo run -p todo-engine -- health         # prints "ok db=<path> user_version=<n>"
-cargo run -p todo-engine -- pending        # active work
-cargo run -p todo-engine -- today          # today's task view
+RAVEN_HOME=/path/to/data raven init
+raven --home /path/to/data health-check
 ```
 
-## Next steps
+An invalid `.env` aborts instead of falling back. Single-quote values containing
+backslashes:
 
-- [cli-reference.md](cli-reference.md) — every subcommand and its flags.
-- [api-reference.md](api-reference.md) — the HTTP surface over the same service.
-- [verification-and-smoke.md](verification-and-smoke.md) — the build/test gate and the safe
-  copied-data smoke procedure.
-- `README.md` — quick-usage examples and the canonical data-model reference.
+```dotenv
+RAVEN_HOME='C:\Users\me\raven-data'
+```
+
+See [data-home.md](data-home.md).
+
+## Standalone API
+
+Provide exactly one token source:
+
+```bash
+export RAVEN_API_TOKEN='replace-with-at-least-16-visible-ASCII-characters'
+raven api
+```
+
+or:
+
+```bash
+export RAVEN_API_TOKEN_FILE=/path/to/secure-token-file
+raven api
+```
+
+The token file must satisfy platform permission checks. Default bind is
+`127.0.0.1:3002`; configure `RAVEN_API_BIND_HOST` and `RAVEN_API_BIND_PORT` when needed.
+Non-loopback cleartext requires the explicit
+`RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true` override.
+
+## Local UI
+
+The release bundle supplies the UI path automatically:
+
+```bash
+raven ui
+raven ui --no-open
+raven ui --port 3202
+```
+
+For a source build:
+
+```bash
+npm --prefix frontend install
+npm --prefix frontend run build
+cargo run -p raven-cli -- ui --ui-path frontend/out --no-open
+```
+
+`RAVEN_UI_PATH` is the environment alternative to `--ui-path`.
+
+## ToDo import
+
+```bash
+raven import todo --source-home ~/.todo-engine
+```
+
+Import is a one-time no-clobber copy. It validates a temporary destination before
+publishing it and never replaces an existing Raven `todo.sqlite`.
+
+## Verification
+
+Run the full gate in [verification-and-smoke.md](verification-and-smoke.md). Use a temporary
+Raven home for all mutation or purge smoke checks.

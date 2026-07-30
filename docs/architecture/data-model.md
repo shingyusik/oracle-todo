@@ -1,125 +1,102 @@
 # Data Model
 
-`todo-engine` stores everything in one SQLite `items` table plus an `events` audit table.
-This page describes the item types, their invariants, the `ItemStatus` lifecycle, and the
-event contract. The **canonical column tables** (every column, its type, and meaning) live
-in [`README.md`](../../README.md) — see its "Shared item columns", per-type column tables,
-and "Event log" sections. This page does not duplicate them; it explains the semantics the
-service layer enforces on top of them.
+Raven stores canonical records in three independent SQLite databases. IDs are
+engine-generated, timestamps are persisted in UTC, and mutations write the owning engine's
+audit event in the same service operation.
 
-## Item types
+## ToDo database
 
-The `type` column (Rust enum `ItemType`, serialized in `snake_case`) is one of:
-`area`, `project`, `routine`, `task`, `event`, `review`, `archive_item`, `goal`. The actively
-created/managed types and their invariants:
+`todo.sqlite` contains the `items`, `events`, and UI preference tables.
 
-- **`area`** — a long-lived responsibility domain (e.g. `재정`, `건강`). Created `active`
-  immediately. Areas are *not* completed as ordinary work; they are paused or archived.
-  Owns standards and a review rhythm.
-- **`project`** — finite, outcome-oriented work inside an area. Creation requires a non-blank
-  `definition_of_done`. Should represent outcomes, not single actions.
-- **`routine`** — a recurring work template. Creation/materialization requires a non-blank
-  `recurrence_rule`. Active routines materialize task instances through the service layer;
-  generated tasks link back via `routine_id` and are de-duplicated by `occurrence_key`.
-  `materialization_policy` is `single_open` (default — at most one open generated task per
-  routine) or `per_occurrence` (maintain `future_occurrences` open generated tasks). Explicit
-  materialization fills the target, completion replenishes existing generated work, and
-  reducing the target never deletes tasks.
-- **`task`** — a concrete action item. Created `active` for every actor. May belong to an
-  area, a (non-terminal) project, or a
-  (non-terminal) routine.
-- **`event`** — an external commitment / scheduled appointment. Requires `scheduled`. Uses
-  `metadata` for location, participants, and commitment type. Listed separately from tasks.
-- **`review`** — a scheduled review/checkpoint item (reserved type).
-- **`archive_item`** — a historical/terminal item type (reserved type).
-- **`goal`** — a period-scoped planning goal. Created `active` through the service, CLI, or
-  API with a required `horizon` (`year` / `month` / `week`) and canonical `scheduled` period
-  start. It may nest under a strictly coarser goal through `parent_id`.
-
-`ItemType` round-trips through `ItemType::as_str()` / `FromStr` using these exact canonical
-lowercase strings (with `archive_item` snake-cased). Unknown strings are rejected.
-
-## Actor
-
-The legacy-named `proposed_by` column records the creator as the `Actor` enum: `user`,
-`agent`, or `system` (serialized lowercase). The `approved_by` and `approved_at` columns
-remain only for compatibility and historical data; new creation leaves them empty. SQLite
-reads treat legacy `oracle` actor values as `agent`; new writes use only the canonical
-`user`, `agent`, and `system` values.
-
-## Status lifecycle
-
-The `status` column is the Rust enum `ItemStatus` (serialized lowercase). It has **9
-variants**, verified against `todo-engine/src/domain/status.rs`:
-
-| Phase | Statuses |
+| Item type | Policy |
 | --- | --- |
-| Live work | `active`, `waiting`, `paused` |
-| Terminal | `completed`, `cancelled`, `dropped`, `archived`, `missed`, `rejected` |
+| `area` | Long-lived responsibility; created `active`; not completed as ordinary work |
+| `project` | Finite outcome; non-blank `definition_of_done` required |
+| `goal` | `year`, `month`, or `week`; explicit canonical period start; parent must be coarser |
+| `routine` | RRULE required; materializes de-duplicated task occurrences |
+| `task` | Concrete work linked optionally to area, project, or routine |
+| `event` | External commitment with required `scheduled` value |
+| `review`, `archive_item` | Reserved persisted types |
 
-- `active` → current work or a maintained routine/project.
-- `waiting` → blocked/waiting; used for generated routine tasks when a routine is paused.
-- `paused` → temporarily stopped.
-- `completed` / `cancelled` / `dropped` / `archived` / `missed` / `rejected` → terminal.
+Statuses are `active`, `waiting`, `paused`, `completed`, `cancelled`, `dropped`,
+`archived`, `missed`, and `rejected`. Terminal statuses remain persisted. Normal lists hide
+`archived`, `dropped`, and `cancelled` unless explicitly requested; `missed` remains
+queryable but is not active work.
 
-**Terminal set** (`terminal_status()` returns `true`): `completed`, `cancelled`, `dropped`,
-`archived`, `missed`, `rejected`. A terminal item is the end of the line for normal updates;
-v1 has no hard delete (see [decisions/adr-0004-no-hard-delete.md](decisions/adr-0004-no-hard-delete.md)).
+Routines support RRULE frequency `DAILY`, `WEEKLY`, `MONTHLY`, or `YEARLY` with the
+validated subset of `INTERVAL`, `BYDAY`, `BYMONTHDAY`, and `BYMONTH`.
+`single_open` maintains one open generated task; `per_occurrence` maintains the configured
+`future_occurrences` target.
 
-**Hidden-by-default set** (`hidden_by_default_status()` returns `true`): `archived`,
-`dropped`, `cancelled`. The list view (`apply_list_filter`) omits these unless
-`include_archived` is set or an explicit `status` filter is supplied. `missed` remains in
-ordinary list results but is excluded from views whose working set is `active`.
+Each `events` row records timestamp, actor, action, object identity, optional reason, and
+before/after item JSON.
 
-`ItemStatus::from_str` is **case-sensitive lowercase** (it trims surrounding whitespace).
-`"Active"` is rejected; `"  active  "` parses to `Active`. App paths reject unknown status
-values rather than silently coercing them.
+## Ledger database
 
-Schema initialization converts legacy `proposed` and `approved` rows to `active` and legacy
-`someday` rows to `missed` before normal reads. It does not invent missing content such as
-project completion criteria or routine recurrence rules.
+`ledger.sqlite` schema version is `2`.
 
-## Recurrence rules
+| Table | Canonical content |
+| --- | --- |
+| `currencies` | Code, name, symbol, decimal places, active flag |
+| `account_categories` | Name, optional parent, liability flag, active flag |
+| `accounts` | Category, currency, signed opening balance in minor units, active flag |
+| `transaction_categories` | Name, optional parent, `expense`/`income` kind, active flag |
+| `ledger_entries` | Date, written timestamp, content, references, type, positive minor-unit amount, source, notes, lifecycle timestamps |
+| `transfer_operations` | Idempotency key and paired-transfer result |
+| `audit_events` | Immutable mutation history with before/after JSON |
 
-Routine `recurrence_rule` strings are parsed by `domain::occurrences`. New rules use RRULE
-strings such as `RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR`; legacy natural-language strings
-remain readable for existing data. The supported RRULE subset is documented in
-[decisions/adr-0005-recurrence-pattern-parsing.md](decisions/adr-0005-recurrence-pattern-parsing.md)
-and in `README.md`'s "Supported recurrence examples" table.
+Entry types are `expense`, `income`, `transfer_out`, `transfer_in`, `adjustment_out`, and
+`adjustment_in`. The type supplies balance direction; SQLite `REAL` is not used for money.
+User decimals are parsed using the referenced currency precision.
 
-## Event log (audit contract)
+Transfers create `transfer_out` and `transfer_in` rows with one transfer-group ID. The
+operation key makes retries idempotent, and all transfer rows/audit state commit atomically.
 
-Every service-layer mutation writes one `TodoEvent` row to the SQLite `events` table — this
-is an invariant, not a best-effort. Each event captures `id`, `at` (timestamp), `actor`,
-`action` (e.g. `propose_task`, `pause`, `materialize_routine_task`), `object_type`,
-`object_id`, a `before` JSON snapshot, an `after` JSON snapshot, and an optional `reason`.
-The `before`/`after` snapshots are produced by serializing the `TodoItem`, so the event log
-is a complete change history. See `README.md`'s "Event log" table for the column reference,
-and [decisions/adr-0002-service-layer-policy.md](decisions/adr-0002-service-layer-policy.md)
-for why the event is written atomically with the item.
+Archive sets `deleted_at`; restore clears it. Purge physically removes the record after
+confirmation but preserves audit history. A transfer-pair purge covers the pair.
 
-## Schema initialization (additive)
+## Health database and media
 
-`init_schema` runs whenever the engine opens the database (via `init`, the CLI service
-factory, and the API service factory). It is **additive and idempotent** — verified against
-`todo-engine/src/infrastructure/sqlite/schema.rs`:
+`health.sqlite` schema version is `1`.
 
-- `CREATE TABLE IF NOT EXISTS items (...)` and `CREATE TABLE IF NOT EXISTS events (...)` —
-  never drops or rewrites existing tables.
-- `ensure_item_columns` reads `PRAGMA table_info(items)` and `ALTER TABLE items ADD COLUMN`
-  for any column from the canonical set that an older database is missing (e.g. `note`,
-  `materialization_policy`, `future_occurrences`, `occurrence_key`, `last_materialized_at`). Existing columns are
-  left untouched.
-- Legacy rows with status `proposed` or `approved` are normalized to `active`, and legacy rows
-  with status `someday` are normalized to `missed`; legacy provenance columns remain in place
-  for compatibility and history.
-- Indexes are created with `IF NOT EXISTS`, including a unique index on
-  `(routine_id, occurrence_key)` (where both are non-null) that guards routine occurrence
-  de-duplication, and the planning indexes `idx_items_parent_id` (`parent_id`),
-  `idx_items_scheduled` (`scheduled`), and composite `idx_items_type_horizon_scheduled`
-  (`type, horizon, scheduled`).
-- `PRAGMA user_version = 1` marks the schema baseline (reported by `health`).
-- The whole thing runs in a transaction; on error it rolls back.
+| Table | Canonical content |
+| --- | --- |
+| `diet_entries` | Timestamp, meal type, food, note, optional media ID, lifecycle timestamps |
+| `diet_tags`, `diet_entry_tags` | Normalized many-to-many tags |
+| `health_events` | Timestamp, category, metric key/name, numeric value, unit, note, category attributes, lifecycle timestamps |
+| `media_files` | Relative path, MIME type, byte size, SHA-256 checksum, cleanup state, lifecycle timestamps |
+| `audit_events` | Immutable mutation history with before/after JSON |
 
-An older `items` table is upgraded in place on the next open — no separate "create then
-migrate" step is needed. Columns are only added, never dropped or rewritten.
+Meal types are `breakfast`, `lunch`, `dinner`, `snack`, and `late_night`. Tags are Unicode
+normalized, case-folded, de-duplicated, and bounded.
+
+Health categories are `weight`, `bowel`, `sleep`, `lab`, `symptom`, and `medication`.
+Metric keys are normalized lowercase ASCII identifiers. Weight is positive, sleep is in
+`(0,24]` hours, Bristol scale is `1..=7`, and all numeric values must be finite.
+
+Images are JPEG, PNG, or WebP, at most 10 MiB. Bytes live below `media/health`; records keep
+generated relative paths, never caller file paths. Media lifecycle is constrained by
+SQLite triggers and coordinated by `HealthService`.
+
+Archive/restore use `deleted_at`. Purge requires exact confirmation and leaves audit
+history. Optimistic `expected_updated_at` checks are available for mutable Health records.
+
+## Dashboard projection
+
+`GET /api/v1/dashboard` returns:
+
+- ToDo active/today/overdue counts
+- Ledger current-period currency totals
+- latest Health condition, sleep, bowel, and medication values plus recent diet tags
+- a bounded, sanitized recent-activity list
+
+Each domain is wrapped as `{status:"ok",data:...}` or
+`{status:"error",code:"domain_unavailable",message,request_id}`. Projection reads do not
+create or migrate missing databases.
+
+## Schema initialization
+
+`raven init` initializes all three stores and `media/health`. ToDo initialization is
+additive and normalizes supported legacy statuses. Ledger and Health migrations run under
+their own schema-version checks and reject future versions. Initialization never drops a
+production database.

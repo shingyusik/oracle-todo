@@ -1,134 +1,162 @@
 # CLI Reference
 
-The binary is `todo-engine`. Invoke as `cargo run -p todo-engine -- <subcommand> [args]` (or
-the built binary directly). This reference is verified against `todo-engine/src/interfaces/cli/mod.rs`.
+The native command is `raven`. Inputs are structured flags or schema-validated JSON; Raven
+does not parse natural-language journal text.
 
-## Global flag
+## Global option
 
-- `--home <path>` (env `TODO_ENGINE_HOME`, including from `.env`) — data home. See
-  [data-home.md](data-home.md).
+```text
+raven [--home <path>] <command>
+```
 
-Every run emits tracing logs to stderr and to the rotating JSONL file log (see
-[logging-and-rotation.md](logging-and-rotation.md)). Created/updated items are printed as a
-single JSON line on stdout; view commands print rendered Markdown.
+`--home` overrides `RAVEN_HOME` and the default `$HOME/.raven`. It may precede any native
+command.
 
 ## System commands
 
-| Subcommand | Purpose | Output |
-| --- | --- | --- |
-| `init` | Create the data home and the SQLite schema. | `initialized <db>` |
-| `health` | Check DB reachability and schema baseline. | `ok db=<db> user_version=<n>` |
-| `api` | Serve the HTTP API. Flags: `--host` (default `127.0.0.1`), `--port` (default `3002`). | `serving http://<host>:<port>` |
-
-## Creation commands
-
-### `area create <title>`
-Create an active area. Flags: `--review-cycle`, `--standard`, `--note`.
-
-### `project propose <title>`
-Create an active project. `--definition-of-done` is required and must be non-blank; otherwise
-the command exits `2` with `Project requires definition_of_done`. Other flags: `--area`,
-`--outcome`, `--due`, `--note`, `--actor` (default `agent`).
-
-### `task propose <title>`
-Create an active task. Flags: `--area`, `--due`, `--scheduled`, `--priority <int>`, `--description`,
-`--note`, `--actor` (default `agent`).
-
-### `goal propose <title>`
-Create an active goal. Required flags: `--horizon`, `--scheduled`. Other flags: `--parent`,
-`--note`, `--actor` (default `agent`).
-
-### `routine propose <title>`
-Create an active routine. `--recurrence-rule` is required and must be non-blank; otherwise
-the command exits `2` with `Routine requires recurrence_rule`. Other flags: `--area`,
-`--project-id`, `--description`, `--priority <int>`, `--tag <tag>` (repeatable),
-`--materialization-policy` (default `single_open`), `--future-occurrences <int>` (default `7`,
-range `1..=365`), `--note`, `--actor` (default `agent`).
-
-### `routine materialize`
-Fill every active routine to its stored target. Prints each created task as JSON, or
-`No routine tasks materialized`. Routine creation stores the active template without creating
-tasks. After materialization creates tasks, completing one replenishes its active routine.
-
-To materialize a single routine instead of sweeping all of them, use
-`POST /routines/{id}/materialize` (see [api-reference.md](api-reference.md)).
-
-### `event propose <title> <scheduled>`
-Create an active event. `<scheduled>` is a positional date/time string. Flags: `--area`,
-`--project-id`, `--due`, `--priority <int>`, `--description`, `--note`, `--location`,
-`--with <participant>` (repeatable), `--commitment-type` (default `appointment`),
-`--actor` (default `agent`).
-
-> `--actor` accepts `agent`, `user`, or `system`; every actor creates `active` work. The
-> compatible `propose` command name is retained for callers and does not imply a waiting state.
-
-## Lifecycle (transition) commands
-
-These commands take a positional `<item_id>` and an optional `--reason`:
-
-`pause`, `miss`, `postpone`, `resume`, `complete`, `archive`, `drop`, `cancel`.
-
-| Subcommand | Effect |
+| Command | Behavior |
 | --- | --- |
-| `pause` | Pause an item. |
-| `miss` | Mark an active task or event as `missed`. |
-| `postpone` | Mark an active task or event as `missed` and create an active follow-up. |
-| `resume` | Resume a paused item. |
-| `complete` | Complete an item (terminal). |
-| `archive` | Archive an item (terminal). |
-| `drop` | Drop an item (terminal). |
-| `cancel` | Cancel an item (terminal). |
+| `raven init` | Idempotently initialize all stores and Health media |
+| `raven health-check` | Read-only health/schema report for all stores and media |
+| `raven import todo [--source-home <path>]` | Safely copy a source `todo.sqlite`; default source home is `$HOME/.todo-engine` |
+| `raven api` | Serve bearer-authenticated HTTP API |
+| `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | Serve loopback UI and cookie-authenticated API |
 
-### `miss <item_id>`
+`RAVEN_UI_PATH` supplies the UI artifact when `--ui-path` is absent.
 
-Mark an active task or event as `missed`, retain its original `scheduled` value, and print the
-updated source item. A routine-generated source records the missed occurrence and replenishes
-its routine's configured open-work target. No follow-up is created.
+## ToDo
 
-### `postpone <item_id>`
+`raven todo` forwards the remaining arguments unchanged to the reusable ToDo CLI:
 
-Postpone an active task or event. Flags: `--scheduled <ISO_DATE>` and
-`--reason <TEXT>`.
+```text
+init, health, api, list,
+area create,
+project propose,
+goal propose,
+task propose,
+routine propose|materialize,
+event propose,
+pause, miss, postpone, resume, complete, reopen,
+archive, drop, cancel, update,
+archive-list, pending, today, agenda, date-range, period
+```
 
-- If `--scheduled` is omitted, the CLI process derives tomorrow from its local calendar. This
-  convenience is CLI-only; HTTP and browser clients must supply a date.
-- An explicit date must use `YYYY-MM-DD` and be later than the local current date.
-- The source becomes `missed`, retains its original `scheduled` value, and remains available
-  through ordinary list results and `list --status missed`; active-work views exclude it.
-- The new follow-up is `active` at the requested date. The source records
-  `metadata.postponed_to=<follow-up id>` and the follow-up records
-  `metadata.postponed_from=<source id>`.
-- A routine-generated source records the missed occurrence and replenishes its routine's
-  configured open-work target. The follow-up is detached from the routine: it has no
-  `routine_id`, `occurrence_key`, or `metadata.generated_by`.
-- Output is `{"source": TodoItem, "follow_up": TodoItem}`.
+Examples:
 
-### `update <item_id>`
-Update mutable fields. Flags (all optional): `--title`, `--description`, `--note`,
-`--outcome`, `--definition-of-done`, `--standard`, `--review-cycle`, `--recurrence-rule`,
-`--materialization-policy`, `--future-occurrences`, `--area`, `--project-id`, `--parent-id`,
-`--routine-id`, `--due`, `--scheduled`,
-`--priority <int>`, `--tag <tag>` (repeatable), `--reason`.
+```bash
+raven todo project propose "Monthly close" \
+  --definition-of-done "Statements reconciled"
+raven todo routine propose "Morning review" \
+  --recurrence-rule "RRULE:FREQ=DAILY"
+raven todo task propose "Call dentist" --scheduled today
+raven todo complete <item-id>
+```
 
-## View commands
+Projects require a non-blank `definition_of_done`; routines require a non-blank RRULE;
+events require `scheduled`. ToDo uses its status lifecycle and does not expose purge.
+Run `raven todo --help` and `raven todo <command> --help` for the complete existing flags.
 
-| Subcommand | Output |
+## Ledger
+
+Top-level groups:
+
+| Command | Operations |
 | --- | --- |
-| `list` | List items as Markdown. Filter flags: `--status`, `--type`, `--area-id`, `--project-id`, `--routine-id`, `--query`, `--include-archived`. |
-| `archive-list` | List terminal/archive items as Markdown. |
-| `pending` | Show active work as Markdown. |
-| `today` | Show today's task view as Markdown. |
-| `agenda <date>` | Return scheduled or due items for one date as a JSON array. |
-| `date-range <from> <to>` | Return items in an inclusive date range as a JSON array. |
-| `period --horizon <year\|month\|week> --period <date>` | Return the goal-tree period view as JSON. |
+| `ledger entry` | `add`, `update`, `list`, `show`, `archive`, `restore`, `purge` |
+| `ledger transfer` | Create an atomic idempotent paired transfer |
+| `ledger transfer-show` | Show a transfer pair |
+| `ledger currency` | `create`, `update`, `list`, `purge` |
+| `ledger account-category` | `create`, `update`, `list`, `purge` |
+| `ledger account` | `create`, `update`, `list`, `purge` |
+| `ledger category` | `create`, `update`, `list`, `purge` |
+| `ledger reports` | Summary, account, or category report for an inclusive range |
+| `ledger balances` | Current account balances |
+| `ledger briefing` | Concise inclusive-range briefing |
+| `ledger compare` | Compare two explicit inclusive ranges |
+| `ledger audit` | Audit page for one record; alias `history` |
+| `ledger doctor` | Bounded read-only consistency diagnostics |
+| `ledger export` | Deterministic schema-v3 JSON export |
 
-`--status` accepts: `active`, `waiting`, `paused`, `completed`,
-`cancelled`, `dropped`, `archived`, `missed`, `rejected`. `--type` accepts: `area`,
-`project`, `routine`, `task`, `event`, `review`, `archive_item`, `goal`. Invalid values are rejected
-with a helpful message and a validation exit code.
+Mutating add/create/update commands accept either `--json <object>` or field flags, not a
+mixture. Dates use `YYYY-MM-DD`; timestamps use RFC 3339. Lists default to
+`--offset 0 --limit 100 --format table`; `--format json` is script-friendly.
 
-## Exit codes
+Entry example:
 
-Policy/validation → `2`; not-found → `4`; conflict → `2`; storage/migration/internal → `1`;
-success → `0`.
-See [../conventions/error-handling.md](../conventions/error-handling.md).
+```bash
+raven ledger entry add \
+  --date 2026-07-31 --type expense --amount 12000 --currency KRW \
+  --account Wallet --category Food --content Lunch
+raven ledger entry list --from 2026-07-01 --to 2026-07-31 --format json
+```
+
+Transfer example:
+
+```bash
+raven ledger transfer \
+  --operation-key 018f31c0-5c2a-4e75-9c18-a14d7bddb2a1 \
+  --date 2026-07-31 --amount 10000 --currency KRW \
+  --from-account Checking --to-account Savings --content Transfer
+```
+
+The operation key is a canonical UUID v4. Retrying the same operation is idempotent.
+
+### Ledger archive, restore, and purge
+
+```bash
+raven ledger entry archive <id>
+raven ledger entry restore <id>
+raven ledger entry purge <id>
+# inspect confirmation_id, then:
+raven ledger entry purge <id> --confirm <confirmation-id>
+```
+
+The first purge invocation prints a preview and exits `2`. Master-data purge follows the
+same preview/confirm contract. Confirmation must match exactly. Purge removes the record but
+not its audit events; transfer entry preview/purge covers the linked pair.
+
+## Health Journal
+
+| Command | Operations |
+| --- | --- |
+| `health diet` | `add`, `update`, `list`, `show`, `archive`, `restore`, `purge` |
+| `health bowel` | same lifecycle |
+| `health medication` | same lifecycle |
+| `health metric` | `add`, `daily-upsert`, `update`, `list`, `show`, lifecycle commands |
+| `health timeline` | Combined paginated diet/event timeline |
+| `health trends` | Bounded trends; default `--days 30` |
+
+Create/update commands accept strict `--json` or typed flags. Timestamps use RFC 3339.
+Mutation JSON rejects unknown fields.
+
+```bash
+raven health diet add \
+  --at 2026-07-31T12:00:00+09:00 --meal lunch --food "Rice bowl" \
+  --tags rice,vegetables --image ./meal.jpg
+raven health medication add \
+  --at 2026-07-31T08:00:00+09:00 --name Vitamin-D --dose 1 --unit tablet
+raven health metric daily-upsert \
+  --json '[{"at":"2026-07-31T07:00:00+09:00","category":"weight","key":"body_weight","name":"Weight","value":70.2,"unit":"kg"}]'
+raven health timeline --limit 50 --format json
+```
+
+Health archive/restore accept optional `--expected-updated-at <RFC3339>` for optimistic
+concurrency. Purge uses the same two-step exact confirmation contract:
+
+```bash
+raven health diet purge <id>
+raven health diet purge <id> --confirm <confirmation-id>
+```
+
+## Output and exit codes
+
+- Successful mutations print compact JSON.
+- Reads default to tabular output where supported; use `--format json`.
+- User results go to stdout. Errors and console logs go to stderr.
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | Success, including clap help/version output |
+| `2` | Validation, policy, conflict, unsafe configuration, or confirmation mismatch |
+| `4` | Record not found |
+| `1` | Storage, migration, cleanup, import integrity, or internal failure |

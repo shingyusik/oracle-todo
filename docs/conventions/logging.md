@@ -1,75 +1,55 @@
 # Logging
 
-There are two logging concerns: console tracing for the operator and structured JSONL file
-logs for later inspection. Rotation behavior and file layout are in
-[../operations/logging-and-rotation.md](../operations/logging-and-rotation.md).
+Raven CLI tracing is operational metadata, not a second record store.
 
-## CLI output layers
+## Streams
 
-The CLI separates three streams:
+- stdout: stable command result
+- stderr: console tracing and user-facing error
+- `RAVEN_HOME/logs/raven.log.jsonl`: structured command events
 
-- **stdout** — the user-facing command result (JSON for created/updated items, rendered
-  Markdown for views).
-- **stderr** — user-facing errors plus console tracing logs.
-- **file log** — structured JSONL tracing logs under
-  `TODO_ENGINE_HOME/logs/todo-engine.log.jsonl`.
+Never write diagnostics to stdout.
 
-Do not write diagnostic or progress logs to stdout. Keep stdout parseable for scripts.
+## Event convention
 
-## Tracing API
-
-Use `tracing::{debug, info, warn, error}!` for operational logs:
-
-| Level | Use |
-| --- | --- |
-| `debug` | Resolved paths, selected filters, repository/service steps, export/materialization details. |
-| `info` | Command start/completion, database open, and major user-visible milestones. |
-| `warn` | Recoverable fallback behavior and logging/rotation failures. |
-| `error` | Command failures and storage/policy errors before returning to the entrypoint. |
-
-Attach an `event` field for machine-readable log filtering:
+Use `tracing` with a stable `event` field. The top-level command boundary emits:
 
 ```rust
-tracing::info!(event = "command_started", command = command_name, "command started");
-tracing::debug!(event = "database_opened", path = %db_path.display());
-tracing::error!(
-    event = "command_failed",
-    command = command_name,
-    exit_code,
-    error = %format!("{error:#}"),
-    "command failed"
+tracing::info!(
+    event = "command_started",
+    command,
+    engine,
+    "command started"
 );
 ```
 
-## Level configuration
+Completion/failure records add `duration_ms` and the mapped `exit_code`.
 
-`todo-engine/src/infrastructure/system.rs` installs two `tracing_subscriber` layers:
-
-| Destination | Env var | Default |
-| --- | --- | --- |
-| stderr console logs | `TODO_ENGINE_CONSOLE_LOG` | `info` |
-| `logs/todo-engine.log.jsonl` | `TODO_ENGINE_FILE_LOG` | `debug` |
-
-Accepted levels are `off`, `error`, `warn`/`warning`, `info`, `debug`, and `trace`.
-Invalid values fall back to the destination default.
-
-## File records
-
-The file layer writes one JSON object per tracing event. Records use the
-`tracing-subscriber` JSON shape, with fields such as:
-
-| Field | Notes |
+| Level | Use |
 | --- | --- |
-| `timestamp` | RFC 3339 UTC. |
-| `level` | Event level, such as `DEBUG`, `INFO`, or `ERROR`. |
-| `target` | Rust module path that emitted the event. |
-| `fields.event` | Machine-readable event name, such as `command_started`. |
-| `fields.message` | Human-readable message. |
-| `fields.command` | Command label when applicable, e.g. `task propose`. |
-| `fields.exit_code` | `0` on success, mapped CLI code on command failure. |
-| `fields.duration_ms` | Elapsed milliseconds on command completion/failure. |
-| `fields.error` | Error message on command failure. |
+| `debug` | Bounded operational detail that contains no record payload or secret |
+| `info` | Command start/completion and safe listener readiness |
+| `warn` | Recoverable browser/log/media-cleanup behavior |
+| `error` | Final command or API internal classification |
 
-File logging is best-effort and must not abort the command. If the file writer cannot create,
-rotate, open, or write the log file, it reports a non-recursive warning to stderr rather than
-calling `tracing` from inside the writer.
+## Redaction
+
+Never log:
+
+- `RAVEN_API_TOKEN`, token-file contents, bearer headers, or UI session cookies
+- Health image bytes
+- raw request bodies or full domain records by default
+- database paths or SQL in composed API responses
+- internal storage messages returned to HTTP clients
+
+API internal errors log the generated `request_id` and a fixed classification. The response
+uses the same ID and generic text.
+
+## File writer
+
+The JSONL writer buffers one tracing event and appends it atomically under a process-local
+mutex. Rotation and write errors are best-effort and issue a direct, non-recursive stderr
+warning instead of logging from inside the writer.
+
+Configuration and rotation behavior are in
+[../operations/logging-and-rotation.md](../operations/logging-and-rotation.md).

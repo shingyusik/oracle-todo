@@ -1,68 +1,71 @@
 # Error Handling
 
-## `TodoError`
+Expected failures are typed at the owning engine boundary. Domain/application code returns
+results; CLI and API adapters map them without parsing display strings.
 
-Domain/service errors are modeled by the `TodoError` enum in `todo-engine/src/application/error.rs`. It
-has **nine variants** (verified against source):
+## Engine error types
 
-| Variant | `Display` form | Meaning |
-| --- | --- | --- |
-| `GoalInvalidAnchor { horizon, scheduled }` | `Goal anchor {scheduled} is not the canonical start of its {horizon} period` | A goal's `scheduled` date is not its period's start. |
-| `GoalParentHorizonNotCoarser { parent_horizon, child_horizon }` | `Goal parent horizon ({parent}) must be strictly coarser than child horizon ({child})` | A goal's parent does not sit on a coarser horizon. |
-| `Policy(String)` | `{0}` | A policy rule was violated (e.g. activating a project without a `definition_of_done`). |
-| `Validation(String)` | `{0}` | Input was malformed or invalid (bad date, unknown actor/status, bad request body). |
-| `NotFound(String)` | `Item not found: {0}` | The referenced item does not exist. |
-| `Conflict(String)` | `conflict: {0}` | A write lost a uniqueness race against a concurrent one. |
-| `Storage(String)` | `storage error: {0}` | A SQLite/storage operation failed. |
-| `Migration(String)` | `migration error: {0}` | The legacy migration failed. |
-| `Internal(String)` | `internal error: {0}` | An unexpected internal failure (e.g. a serialization/format failure). |
+| Engine | Error families |
+| --- | --- |
+| ToDo | goal policy, policy, validation, not found, conflict, storage, migration, internal |
+| Ledger | validation, not found, conflict, busy, storage, migration, confirmation mismatch |
+| Health | validation, not found, conflict, busy, unsupported media, media too large, cleanup, migration/storage, confirmation mismatch |
+| Raven command | import safety/integrity and API configuration/bind/startup |
 
-`GoalInvalidAnchor` and `GoalParentHorizonNotCoarser` also carry their horizons into the API
-error body via `api_metadata`, so a client can render the conflict without parsing the message.
+Validation errors should identify a safe static field name. Storage errors may contain useful
+operator context at the CLI boundary; the composed API never serializes their internal
+message.
 
-`Conflict` is raised by the SQLite layer when a write violates a `UNIQUE` index — the database,
-not a prior read, is what settles who won. Callers that can reconcile it do: materialization
-treats a lost race for an occurrence as "already materialized" and skips it, because the
-occurrence now exists either way.
+## CLI mapping
 
-`TodoResult<T>` is the crate alias `Result<T, TodoError>` used throughout the service and
-repository layers.
+| Exit | ToDo | Ledger | Health | Raven system |
+| --- | --- | --- | --- | --- |
+| `2` | policy, validation, conflict | validation, conflict, confirmation | validation, conflict, media type/size, confirmation | import destination exists; invalid API token/bind/env |
+| `4` | not found | not found | not found | — |
+| `1` | storage, migration, internal | busy, storage, migration | busy, storage, migration, cleanup | import integrity/I/O; server startup |
+| `0` | success | success | success | success/help |
 
-## Exit-code / HTTP-status mapping
+Purge without `--confirm` deliberately prints a preview and exits `2`. This is not a storage
+failure.
 
-The variant determines both the CLI exit code (`cli_exit_code`) and the HTTP status
-(`http_status_code`):
+## API mapping
 
-| Variant | CLI exit code | HTTP status |
-| --- | --- | --- |
-| `GoalInvalidAnchor`, `GoalParentHorizonNotCoarser`, `Policy`, `Validation` | `2` | `400` |
-| `NotFound` | `4` | `404` |
-| `Conflict` | `2` | `409` |
-| `Storage`, `Migration`, `Internal` | `1` | `500` |
+The composed `ApiError` emits:
 
-> The `axum` `ApiError::into_response` boundary maps every variant through
-> `http_status_code` above — `NotFound` → 404, like the CLI's exit-code mapping.
+```json
+{
+  "code": "validation_error",
+  "message": "The request is invalid.",
+  "fields": {"field": ["invalid"]},
+  "request_id": "uuid"
+}
+```
 
-## Propagation pattern
+| Engine condition | HTTP |
+| --- | --- |
+| validation/policy/confirmation mismatch | `400` |
+| not found | `404` |
+| conflict or database busy | `409` |
+| unsupported media | `415` |
+| media too large/body too large | `413` |
+| storage/migration/cleanup/internal | `500` |
 
-- The service and repository layers return `TodoResult<T>` and never panic on expected
-  failures.
-- At the binary boundary the CLI uses `anyhow` (`run() -> anyhow::Result<()>`). On error it
-  downcasts back to `TodoError` via `TodoError::cli_exit_code_from_error(&err)` to derive the
-  process exit code (and to record the mapped `exit_code` in the operational log). A
-  non-`TodoError` anyhow error yields `None` (the caller falls back to a generic failure).
-- The API wraps any `Into<anyhow::Error>` in `ApiError`; `into_response` downcasts to
-  `TodoError` to choose the status and returns a JSON body `{"detail": "<message>"}`.
+Authentication, URI, and header boundaries add `401`, `414`, and `431`. Unknown routes use
+`404`.
 
-## No-panic policy
+API messages are fixed safe text. `fields` contains only allow-listed field identifiers.
+`request_id` is the correlation handle for internal failures.
 
-Production code does not `panic!`/`unwrap` on expected error paths — failures become
-`TodoError` values. The few `.expect()` sites that remain are **documented invariants** that
-genuinely cannot fail (e.g. serializing a `TodoItem` to JSON, month arithmetic that is always
-in range). These are preserved verbatim across refactors; do not introduce new `.expect()` on
-paths that can realistically fail.
+## Committed cleanup failures
 
-See [logging.md](logging.md) for how errors are recorded operationally, and
-[../operations/cli-reference.md](../operations/cli-reference.md) /
-[../operations/api-reference.md](../operations/api-reference.md) for the surfaces that consume
-these codes.
+Health operations can span SQLite and a media file. If the database mutation commits but
+file cleanup cannot complete, return a cleanup-pending error and preserve recovery metadata.
+Never claim the domain mutation rolled back after it committed.
+
+## Propagation rules
+
+- No panic for expected input, storage, concurrency, or media failure.
+- Map errors once at the outer CLI/API boundary.
+- Do not match on human-readable `Display` strings.
+- Do not log bearer tokens, UI sessions, image bytes, or raw API storage errors.
+- Keep audit history after domain-record purge.

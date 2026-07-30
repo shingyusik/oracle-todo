@@ -1,536 +1,277 @@
-# todo-engine
+# Raven
 
-Policy-enforced personal ToDo engine for agent workflows.
+Raven is a local-first personal engine for planning, finance, and health records. One
+structured CLI, one authenticated HTTP API, and one UI expose three policy-enforced Rust
+engines:
+
+```text
+raven todo ...
+raven ledger ...
+raven health ...
+raven ui
+```
+
+Each engine owns its service policy, SQLite database, and audit history. CLI and HTTP
+adapters call those services; they do not write domain tables directly.
 
 ## Core model
 
-`todo-engine` keeps areas, projects, tasks, routines, and events in one SQLite-backed item graph.
+- **ToDo** — areas, projects, goals, routines, tasks, events, recurrence, lifecycle
+  transitions, and immutable audit events.
+- **Ledger** — currencies, account categories, accounts, transaction categories, entries,
+  atomic transfers, balances, reports, briefing, diagnostics, and deterministic export.
+- **Health Journal** — diet and images, bowel and medication events, health metrics, daily
+  metric upsert, a combined timeline, and bounded trends.
+- **Dashboard** — one read-only screen combining ToDo, Ledger, and Health projections plus
+  recent activity. Each projection can fail independently; a failed domain does not erase
+  the others.
 
-- **SQLite source of truth**: CLI and API are views over `todo.sqlite`.
-- **Rust service layer enforces policy**: CLI/API use the same validation and state transitions.
-- **Audit events are mandatory**: every service-layer mutation writes an event row to SQLite `events`.
-- **Creation is direct-active**: every creator produces active work; the service validates required fields before persistence.
-- **File logs are structured tracing logs**: CLI progress, success, and errors are written under `logs/` with rotation.
+Ledger and Health Journal do not repeat an Overview page. Their operational tabs sit under
+the single Dashboard:
+
+- Ledger: Transactions, Accounts, Categories, Reports
+- Health Journal: Timeline, Diet, Bowel, Medication, Health Metrics, Trends
 
 ## Stack
 
-- Rust 2024
-- SQLite via `rusqlite`
-- CLI via `clap`
-- API via `axum`
-- Error types via `thiserror`
-- Tests via `cargo test`
+- Rust 2024, `clap`, `axum`, `rusqlite`
+- Next.js 14 and React 18, exported as a static UI artifact
+- Node.js 18+ npm launcher, published as `@shings/raven`
 
 ## Current status
 
-This repo is a monorepo: the Rust engine lives in `todo-engine/`, with a reserved `frontend/` package slot.
+The workspace builds one native executable, `raven`. The engine crates remain reusable
+libraries:
 
-- Data home default: `~/.todo-engine/`
-- Operating guardrails: `docs/operations/verification-and-smoke.md`, `docs/operations/data-home.md`
+```text
+raven-cli
+├── todo-engine
+├── ledger-engine
+├── health-engine
+└── raven-api
+```
+
+`frontend/` is the single Raven UI. `backend/` supplies the existing preference adapter
+used by the composed API.
 
 ## Setup
 
-Run without a Rust toolchain:
+Run the release bundle without a Rust toolchain:
 
 ```bash
-npx @shings/oracle-todo init
-npx @shings/oracle-todo today
-npx @shings/oracle-todo ui
+npx @shings/raven init
+npx @shings/raven health-check
+npx @shings/raven ui
 ```
 
-Build from source for development:
+Build from source:
 
 ```bash
-cargo build
-cargo run -p todo-engine -- init
+cargo build -p raven-cli
+cargo run -p raven-cli -- init
+cargo run -p raven-cli -- health-check
 ```
 
-Default data directory:
+The data home resolves from `--home`, then `RAVEN_HOME`, then `$HOME/.raven`:
 
 ```text
-~/.todo-engine/
+~/.raven/
 ├── todo.sqlite
+├── ledger.sqlite
+├── health.sqlite
+├── media/
+│   └── health/
 └── logs/
-    ├── todo-engine.log.jsonl
-    ├── todo-engine.log.jsonl.1
-    ├── todo-engine.log.jsonl.2
-    └── todo-engine.log.jsonl.3
+    ├── raven.log.jsonl
+    ├── raven.log.jsonl.1
+    ├── raven.log.jsonl.2
+    └── raven.log.jsonl.3
 ```
 
-Use another data directory:
+Override it for one command or a shell:
 
 ```bash
-export TODO_ENGINE_HOME=/path/to/data
-cargo run -p todo-engine -- init
-# or put TODO_ENGINE_HOME=/path/to/data in .env
-# (single-quote a path with backslashes: TODO_ENGINE_HOME='C:\path\to\data')
-# or
-cargo run -p todo-engine -- --home /path/to/data init
+raven --home /path/to/raven-data init
+export RAVEN_HOME=/path/to/raven-data
+```
+
+`RAVEN_HOME` may also be stored in `.env`. Single-quote Windows paths containing
+backslashes:
+
+```dotenv
+RAVEN_HOME='C:\Users\me\raven-data'
 ```
 
 ## Quick usage
 
+ToDo retains its structured command surface behind `raven todo`:
+
 ```bash
-# Create an ongoing area. Areas are active immediately.
-cargo run -p todo-engine -- area create "재정" \
-  --review-cycle weekly \
-  --standard "월 1회 계정/자동화 상태 점검" \
-  --note "월말 자동화까지 함께 확인"
-
-# The compatible `propose` command name creates an active project.
-cargo run -p todo-engine -- project propose "MoneyManager 안정화" \
-  --area "재정" \
-  --outcome "가계부 운영 안정화" \
-  --definition-of-done "원본 DB 백업과 브리핑이 매일 실패 없이 동작한다" \
-  --due 2026-06-30 \
-  --note "SQLite 백업 경로도 확인"
-
-# Add a task.
-cargo run -p todo-engine -- task propose "MoneyManager 앱 열고 DB 생성 여부 확인" \
-  --area "재정" \
-  --scheduled today \
-  --priority 1 \
-  --description "명령어와 컬럼 설명 확인" \
-  --note "실행 로그도 확인"
-
-# Add a routine.
-cargo run -p todo-engine -- routine propose "운동 기록 확인" \
-  --area "건강" \
-  --recurrence-rule "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" \
-  --materialization-policy single_open \
-  --future-occurrences 7 \
-  --note "아침 루틴"
-
-# Add an external event.
-cargo run -p todo-engine -- event propose "치과 예약" "2026-06-12T10:30" \
-  --area "건강" \
-  --location "서울" \
-  --with "치과" \
-  --commitment-type appointment \
-  --note "보험 서류 챙기기"
-
-# Read current views.
-cargo run -p todo-engine -- pending
-cargo run -p todo-engine -- today
-
-# Mark a task or event as missed without creating replacement work.
-cargo run -p todo-engine -- miss <item_id>
-
-# Move a task or event out of the active flow and create a dated follow-up.
-cargo run -p todo-engine -- postpone <item_id> --scheduled 2026-06-13
+raven todo area create "Finance"
+raven todo project propose "Monthly close" \
+  --area "Finance" \
+  --definition-of-done "Statements reconciled"
+raven todo task propose "Reconcile card statement" --area "Finance" --scheduled today
+raven todo pending
 ```
 
-## Item types
+Ledger mutations use typed flags or strict JSON. Create required master data first; names or
+IDs resolve through the service layer:
 
-### Area
+```bash
+raven ledger currency create --code KRW --name "Korean Won" --symbol ₩ --decimal-places 0
+raven ledger account-category create --name Cash
+raven ledger account create --name Wallet --category Cash --currency KRW --opening-balance 0
+raven ledger category create --name Food --kind expense
+raven ledger entry add \
+  --date 2026-07-31 --content Lunch --category Food --account Wallet \
+  --type expense --amount 12000 --currency KRW
+raven ledger reports --from 2026-07-01 --to 2026-07-31
+```
 
-Long-lived responsibility domain. Examples: `재정`, `건강`, `Second_Brain`, `개발`, `가족`.
+Health Journal records use RFC 3339 timestamps:
 
-- Created as `active`.
-- Not completed as ordinary work.
-- Owns standards and review rhythm.
+```bash
+raven health diet add \
+  --at 2026-07-31T12:00:00+09:00 --meal lunch --food "Rice bowl" --tags rice,vegetables
+raven health bowel add \
+  --at 2026-07-31T13:00:00+09:00 --bristol 4
+raven health metric add \
+  --at 2026-07-31T07:00:00+09:00 --category weight \
+  --key body_weight --name Weight --value 70.2 --unit kg
+raven health timeline
+```
 
-Required / useful columns:
+Run `raven <domain> <command> --help` for authoritative field flags and
+[the CLI reference](docs/operations/cli-reference.md) for command groups.
 
-| Column | Required | Meaning |
-| --- | --- | --- |
-| `id` | yes | Stable area ID generated by the Rust engine. |
-| `type` | yes | Always `area`. |
-| `title` | yes | Area name. |
-| `status` | yes | Created as `active`. |
-| `review_cycle` | recommended | Review rhythm, e.g. `weekly`, `monthly`. |
-| `standard` | recommended | Operating standard / health criterion for the area. |
-| `note` | optional | Short free-form memo. |
-| `proposed_by` | yes | Usually `user`. |
-| `approved_by` / `approved_at` | compatibility only | Preserved legacy approval history; new creation leaves these empty. |
+## Domain model
 
-### Project
+### ToDo
 
-Finite outcome-oriented work inside an area.
+ToDo stores an item graph in `todo.sqlite`:
 
-- Creation requires a non-blank `definition_of_done`.
-- Projects should represent outcomes, not single actions.
-- Tasks can link to a project through `project_id`.
+- `area` — long-lived responsibility domain.
+- `project` — finite outcome; creation requires `definition_of_done`.
+- `goal` — year, month, or week goal anchored to the canonical period start.
+- `routine` — recurring task template; creation requires an RRULE.
+- `task` — concrete action, optionally linked to an area, project, or routine.
+- `event` — external commitment with a required schedule.
 
-Required / useful columns:
+Creation is direct-active. Normal mutations pass through `TodoService`, and each mutation
+writes a `TodoEvent` with before/after snapshots. ToDo has status transitions rather than a
+physical purge operation.
 
-| Column | Required | Meaning |
-| --- | --- | --- |
-| `id` | yes | Stable project ID generated by the Rust engine. |
-| `type` | yes | Always `project`. |
-| `title` | yes | Project name. |
-| `status` | yes | Created as `active`. |
-| `area_id` | recommended | Owning area ID, resolved by `--area <name-or-id>`. |
-| `outcome` | recommended | Desired result. |
-| `definition_of_done` | required at creation | Completion criteria. |
-| `due` | optional | Date or date-like string. |
-| `note` | optional | Short free-form memo. |
-| `proposed_by` | yes | `agent`, `user`, or `system`. |
-| `approved_by` / `approved_at` | compatibility only | Preserved legacy approval history; new creation leaves these empty. |
+### Ledger
 
-### Task
+Ledger stores money as integer minor units. An entry has a date, written timestamp, content,
+account, currency, entry type, positive amount, optional transaction category, source,
+notes, and lifecycle timestamps. Entry types are `expense`, `income`, `transfer_out`,
+`transfer_in`, `adjustment_out`, and `adjustment_in`.
 
-Concrete action item.
+Transfers are created only by the transfer service as one idempotent operation. The paired
+rows share a transfer-group ID and commit atomically. Current balances are derived from
+opening balances and non-archived entries.
 
-- Tasks are created as `active` for every actor.
-- Tasks may belong to an area, project, or routine.
-- `today` includes active tasks when `scheduled` is empty, `today`, or a date not later than today.
+### Health Journal
 
-Required / useful columns:
+Diet records contain an occurrence timestamp, meal type, food name, normalized tags,
+optional note, and optional image. Meal types are `breakfast`, `lunch`, `dinner`, `snack`,
+and `late_night`. Accepted images are JPEG, PNG, or WebP and are limited to 10 MiB.
 
-| Column | Required | Meaning |
-| --- | --- | --- |
-| `id` | yes | Stable task ID generated by the Rust engine. |
-| `type` | yes | Always `task`. |
-| `title` | yes | Action title. |
-| `status` | yes | Created as `active`; may later be `waiting` or terminal. |
-| `area_id` | recommended | Owning area ID. |
-| `project_id` | optional | Parent project ID; must point to a non-terminal project. |
-| `routine_id` | optional | Source routine ID; must point to a non-terminal routine. |
-| `description` | optional | Detailed instructions or acceptance notes. |
-| `note` | optional | Short free-form memo. |
-| `due` | optional | Deadline string. |
-| `scheduled` | optional | Schedule/visibility string, e.g. `today`, `2026-06-05`. |
-| `priority` | optional | Integer priority. |
-| `occurrence_key` | system-managed for routines | Routine occurrence key, usually ISO date. |
-| `metadata.generated_by` | system-managed for routines | `routine` for generated tasks. |
+Health events cover weight, bowel, sleep, lab, symptom, and medication categories. Numeric
+metrics use stable keys; daily upsert gives one active value per local day, category, and
+metric key. Timeline and trend reads combine records without mutating them.
 
-### Routine
+More detail is in [the data-model reference](docs/architecture/data-model.md).
 
-Recurring work template. Active routines materialize task instances through the service layer.
+## Lifecycle and deletion
 
-- Creation requires a non-blank `recurrence_rule`.
-- Generated tasks link back through `routine_id`.
-- Generated tasks copy `title`, `area_id`, `project_id`, `description`, `note`, `priority`, and
-  `tags` from the routine when they are created. Their `scheduled` value is the occurrence date.
-  Existing tasks are not synchronized after later routine updates.
-- `routine materialize` fills active routines to their stored targets. Once generated tasks
-  exist, completing one replenishes its active routine automatically.
-- `single_open` maintains one non-terminal generated task per routine.
-- `per_occurrence` maintains `future_occurrences` non-terminal generated tasks.
-- `future_occurrences` defaults to `7` and must be between `1` and `365`.
-- Reducing the target keeps existing tasks and pauses replenishment until the open count falls
-  below the target.
-- Past occurrences are not generated.
-- Occurrences are unique per `(routine_id, occurrence_key)`.
+- **ToDo:** lifecycle status is canonical. Terminal items remain auditable; there is no
+  hard-delete command.
+- **Ledger and Health:** archive sets `deleted_at`; restore clears it. Normal lists omit
+  archived rows.
+- **Purge:** permanently removes a Ledger or Health record only after the caller repeats the
+  exact confirmation ID returned by the preview. Audit events remain.
+- **Health media:** image metadata and files follow the owning diet record lifecycle.
+  Cleanup failures are surfaced; committed mutations are never reported as rolled back.
 
-Required / useful columns:
+## API and UI
 
-| Column | Required | Meaning |
-| --- | --- | --- |
-| `id` | yes | Stable routine ID generated by the Rust engine. |
-| `type` | yes | Always `routine`. |
-| `title` | yes | Routine task title used for generated tasks. |
-| `status` | yes | Created as `active`; may later be `paused`. |
-| `area_id` | recommended | Owning area ID. |
-| `project_id` | optional | Project copied to generated tasks; must point to a non-terminal project. |
-| `description` | optional | Detailed instructions copied to generated tasks. |
-| `priority` | optional | Integer priority copied to generated tasks. |
-| `tags` | optional | Tags copied to generated tasks. |
-| `recurrence_rule` | required at creation/materialization | RRULE recurrence string. |
-| `materialization_policy` | yes | `single_open` or `per_occurrence`; default `single_open`. |
-| `future_occurrences` | yes | Rolling target for `per_occurrence`; default `7`, range `1..=365`. |
-| `note` | optional | Short free-form memo. |
-| `last_materialized_at` | system-managed | Last materialization timestamp. |
-| `metadata.occurrences` | system-managed | Terminal-state history for generated routine tasks. |
+`raven api` serves the composed API on `127.0.0.1:3002` by default. It requires exactly one
+bearer-token source:
 
-Supported recurrence examples:
+```bash
+export RAVEN_API_TOKEN='replace-with-at-least-16-visible-ASCII-characters'
+raven api
+curl -H "Authorization: Bearer $RAVEN_API_TOKEN" \
+  http://127.0.0.1:3002/api/v1/dashboard
+```
 
-| Rule | Meaning |
-| --- | --- |
-| `RRULE:FREQ=DAILY` | Every day. |
-| `RRULE:FREQ=DAILY;INTERVAL=2` | Every 2 days from the first generated occurrence. |
-| `RRULE:FREQ=WEEKLY` | Every 7 days from the first generated occurrence. |
-| `RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR` | Monday through Friday. |
-| `RRULE:FREQ=WEEKLY;BYDAY=SA,SU` | Saturday and Sunday. |
-| `RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO` | Every 2 weeks on Monday. |
-| `RRULE:FREQ=MONTHLY;BYMONTHDAY=1` | Monthly on day 1. |
-| `RRULE:FREQ=MONTHLY;BYMONTHDAY=15` | Monthly on the 15th. |
-| `RRULE:FREQ=MONTHLY;BYMONTHDAY=-1` | Monthly on the last day. |
-| `RRULE:FREQ=YEARLY;BYMONTH=1;BYMONTHDAY=1` | Yearly on Jan 1. |
-| `RRULE:FREQ=YEARLY;INTERVAL=2;BYMONTH=1;BYMONTHDAY=1` | Every 2 years on Jan 1. |
+`RAVEN_API_TOKEN_FILE` is the file-based alternative. `RAVEN_API_BIND_HOST` and
+`RAVEN_API_BIND_PORT` set the listener. Non-loopback cleartext binding is rejected unless
+`RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true` is set exactly.
 
-Supported RRULE fields:
+`raven ui` serves the static UI and API from one loopback origin. It generates a fresh
+per-launch session, opens `/__raven/session`, sets an HTTP-only `SameSite=Strict` cookie,
+and redirects to the UI. Use `--no-open`, `--port`, or `--ui-path` as needed. `RAVEN_UI_PATH`
+is the environment alternative to `--ui-path`.
 
-| Field | Values | Meaning |
-| --- | --- | --- |
-| `FREQ` | `DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY` | Required frequency. |
-| `INTERVAL` | positive integer | Optional interval; defaults to `1`. |
-| `BYDAY` | `MO,TU,WE,TH,FR,SA,SU` | Weekly weekday set. |
-| `BYMONTHDAY` | `1..31`, `-1` | Monthly/yearly day; `-1` means last day. Positive days that do not exist in a month are skipped. |
-| `BYMONTH` | `1..12` | Yearly month set. |
+Only exact `/healthz` is unauthenticated. API errors use a stable
+`{code,message,fields,request_id}` object and do not expose storage details.
 
-RRULE input must use the `RRULE:` prefix. Unsupported fields or invalid field/frequency combinations are rejected during materialization.
+## Import
 
-Legacy natural-language rules such as `daily`, `월-금`, and `every month on the last` remain readable for existing data.
+Import an existing ToDo data home once:
 
-### Event
+```bash
+raven import todo --source-home ~/.todo-engine
+```
 
-External commitment or scheduled appointment.
-
-- Requires `scheduled`.
-- Uses `metadata` for location, participants, and commitment type.
-- Listed separately from tasks.
-
-Required / useful columns:
-
-| Column | Required | Meaning |
-| --- | --- | --- |
-| `id` | yes | Stable event ID generated by the Rust engine. |
-| `type` | yes | Always `event`. |
-| `title` | yes | Event title. |
-| `status` | yes | Created as `active`; may later be terminal. |
-| `scheduled` | yes | Scheduled date/time string. |
-| `area_id` | optional | Related area ID. |
-| `project_id` | optional | Related project ID. |
-| `due` | optional | Separate deadline if needed. |
-| `priority` | optional | Integer priority. |
-| `description` | optional | Details. |
-| `note` | optional | Short free-form memo. |
-| `metadata.location` | optional | Location. |
-| `metadata.participants` | optional | People/groups/institutions. |
-| `metadata.commitment_type` | yes | Defaults to `appointment`. |
-| `metadata.schedule_kind` | yes | `external_commitment`. |
-
-### Goal
-
-Period planning item: a goal for a specific year, month, or week that decomposes top-down into tasks.
-
-- Anchored to one period by `(horizon, scheduled)` — e.g. a month goal is `horizon:month` + `scheduled:2026-06-01`.
-- Multiple goals may share the same `(horizon, scheduled, parent_id)` values. These fields group goals into a period and hierarchy; the engine-generated `id` is the goal identity.
-- `scheduled` must be the canonical period start: year = Jan 1, month = the 1st, week = the ISO Monday. A non-canonical or relative anchor is strictly rejected — the engine never auto-snaps. Unlike tasks, a goal does **not** accept the `today` sentinel; its anchor must be an explicit ISO date.
-- Nestable under a strictly-coarser parent goal via `parent_id` (year > month > week). Level-skipping is allowed (a week goal may attach directly under a year goal); an equal or finer parent horizon is rejected, as are nesting cycles.
-- Goals are created as `active` for every actor.
-
-Required / useful columns:
-
-| Column | Required | Meaning |
-| --- | --- | --- |
-| `id` | yes | Stable goal ID generated by the Rust engine. |
-| `type` | yes | Always `goal`. |
-| `title` | yes | Goal title. |
-| `status` | yes | Created as `active`. |
-| `horizon` | yes | Period grain: `year`, `month`, or `week`. |
-| `scheduled` | yes | Canonical period start (Jan 1 / the 1st / ISO Monday); strictly rejected if non-canonical or relative. |
-| `parent_id` | optional | Parent goal ID; must point to a strictly-coarser, non-terminal goal. |
-| `note` | optional | Short free-form memo. |
-| `proposed_by` | yes | `agent`, `user`, or `system`. |
-| `approved_by` / `approved_at` | compatibility only | Preserved legacy approval history; new creation leaves these empty. |
-
-## Shared item columns
-
-SQLite table: `items`.
-
-| Column | Type / values | Meaning |
-| --- | --- | --- |
-| `id` | string, primary key | Stable item ID. |
-| `type` | `area`, `project`, `routine`, `task`, `event`, `review`, `archive_item`, `goal` | Item kind. |
-| `title` | string | Human-readable title. |
-| `status` | enum | Lifecycle status. |
-| `area_id` | nullable item ID | Owning area. |
-| `project_id` | nullable item ID | Parent project. |
-| `routine_id` | nullable item ID | Source routine. |
-| `parent_id` | nullable item ID | Generic parent link. |
-| `description` | nullable text | Details. |
-| `note` | nullable text | Short free-form memo for area/project/task/routine/event. |
-| `outcome` | nullable text | Desired result, mainly for projects. |
-| `definition_of_done` | nullable text | Completion criteria; required for new projects. |
-| `standard` | nullable text | Area operating standard. |
-| `review_cycle` | nullable text | Area review rhythm. |
-| `recurrence_rule` | nullable text | Routine RRULE recurrence rule. |
-| `materialization_policy` | `single_open`, `per_occurrence` | Routine task generation policy. |
-| `future_occurrences` | integer `1..=365` | Rolling target for future generated routine tasks. |
-| `occurrence_key` | nullable string | Routine occurrence key for generated tasks. |
-| `priority` | nullable int | Sort/attention priority. |
-| `due` | nullable string | Deadline. |
-| `scheduled` | nullable string | Schedule or visibility date/time. |
-| `horizon` | nullable `year` / `month` / `week` | Planning horizon (domain `Horizon` enum); part of the `(type, horizon, scheduled)` planning index. |
-| `proposed_by` | `user`, `agent`, `system` | Creator actor; legacy column name retained for compatibility. |
-| `approved_by` | nullable actor | Legacy approval history; not populated by new creation. |
-| `approved_at` | nullable datetime | Legacy approval timestamp; not populated by new creation. |
-| `completed_at` | nullable datetime | Completion timestamp. |
-| `archived_at` | nullable datetime | Archive/terminal timestamp. |
-| `last_materialized_at` | nullable datetime | Last routine materialization timestamp. |
-| `second_brain_refs` | JSON list | Read-only references into Second_Brain. |
-| `tags` | JSON array of strings | Common item tags for workspace editing and planner filters. |
-| `metadata` | JSON object | Type-specific or integration metadata. |
-| `created_at` | datetime | Creation timestamp. |
-| `updated_at` | datetime | Last update timestamp. |
-
-## Status lifecycle
-
-Allowed status values:
-
-| Status | Meaning |
-| --- | --- |
-| `active` | Current work or maintained routine/project. |
-| `waiting` | Blocked or waiting; used for generated routine tasks when a routine is paused. |
-| `paused` | Temporarily stopped. |
-| `completed` | Done. Terminal. |
-| `cancelled` | Cancelled. Terminal. |
-| `dropped` | Intentionally abandoned. Terminal. |
-| `archived` | Archived. Terminal. |
-| `missed` | Scheduled work that was not completed. Terminal for normal updates. |
-| `rejected` | Proposal rejected. Terminal. |
-
-Completed tasks and events can be reopened through the dedicated `reopen` transition. Reopening changes the item to `active`, clears `completed_at`, and records a `reopen` audit event. Other completed item types remain terminal.
-
-An active task or event can be marked missed or postponed. Both actions set the source to
-`missed`, retain its original `scheduled` value, and keep it available through ordinary list
-results, `list --status missed`, and `GET /items?status=missed`; active-work views exclude it.
-`miss` returns the updated source without creating replacement work. `postpone` also creates an
-independent active follow-up at a requested `YYYY-MM-DD` and returns
-`{"source": TodoItem, "follow_up": TodoItem}`. The source records
-`metadata.postponed_to=<follow-up id>`, and the follow-up records
-`metadata.postponed_from=<source id>`. HTTP clients must supply canonical `today` and
-`scheduled` dates, with `scheduled > today`; browser clients use their local calendar. Only the
-CLI derives tomorrow from its local process calendar when `--scheduled` is omitted.
-
-For a routine-generated task, either action records the missed occurrence and replenishes the
-routine's configured open-work target. A postponed follow-up is detached from the routine: it
-has no `routine_id`, `occurrence_key`, or `metadata.generated_by`.
-
-Schema initialization normalizes legacy `proposed` and `approved` rows to `active` and legacy
-`someday` rows to `missed`. The legacy provenance columns remain for compatibility and
-historical data.
-
-The Rust domain parses status strings through the `ItemStatus` enum. App paths reject unknown status values.
-
-A `goal` reuses this single `ItemStatus` lifecycle unchanged — there are no goal-specific states. An active goal is in its period; `completed`, `dropped`, and `cancelled` are user-driven and terminal. A goal reaching a terminal status does **not** cascade to its child goals or linked tasks in v1: the only cascade in the engine is routine → generated tasks, which does not apply to goals. See [ADR-0006](docs/architecture/decisions/adr-0006-goal-itemstatus-semantics.md) for the rationale.
+The importer opens the source read-only, copies through SQLite backup into a temporary file,
+checks schema support and `PRAGMA integrity_check`, normalizes WAL state, and publishes with
+no-clobber semantics. It refuses to overwrite an existing Raven `todo.sqlite` and removes
+only import-owned temporary files on failure.
 
 ## Logging and errors
 
-CLI output has two layers:
+Raven keeps user results on stdout, diagnostics on stderr, and structured JSONL logs under
+`logs/`. Configure:
 
-- **stdout**: user-facing command result, usually JSON or rendered Markdown.
-- **stderr**: user-facing errors plus console tracing logs at `TODO_ENGINE_CONSOLE_LOG` or `info`.
-- **file log**: structured JSONL tracing log at `TODO_ENGINE_HOME/logs/todo-engine.log.jsonl`.
-
-File logging behavior:
-
-- Code emits logs with `tracing::{debug, info, warn, error}!`.
-- Console logs default to `INFO` and above; override with `TODO_ENGINE_CONSOLE_LOG=<level>`.
-- File logs default to `DEBUG` and above; override with `TODO_ENGINE_FILE_LOG=<level>`.
-- Each file line is a JSON object with tracing fields such as `timestamp`, `level`, `target`, and `fields`.
-- Command events include `command_started`, `command_completed`, and `command_failed`.
-- `command_completed` records include `duration_ms` and `exit_code: 0`.
-- `command_failed` records include the error message and mapped `exit_code`.
-- Default max file size: `1_048_576` bytes.
-- Override with `TODO_ENGINE_LOG_MAX_BYTES=<bytes>`.
-- Default backup count: `3`.
-- Override with `TODO_ENGINE_LOG_MAX_FILES=<count>`.
-- Rotation shifts `todo-engine.log.jsonl` to `todo-engine.log.jsonl.1`, then `.2`, `.3`, up to the configured backup count.
-
-Error handling:
-
-- Domain/service errors use `TodoError` in `todo-engine/src/application/error.rs`.
-- Policy/validation errors map to CLI exit code `2` and HTTP `400`.
-- Not-found errors map to CLI exit code `4` and HTTP `404`.
-- Conflict errors (a write that lost a uniqueness race) map to CLI exit code `2` and HTTP `409`.
-- Storage/migration/internal errors map to CLI exit code `1` and HTTP `500`.
-
-## Event log
-
-SQLite table: `events`.
-
-Every service-layer change creates a `TodoEvent` row.
-
-| Column | Meaning |
+| Variable | Default |
 | --- | --- |
-| `id` | Event ID. |
-| `at` | Event timestamp. |
-| `actor` | `user`, `agent`, or `system`. |
-| `action` | Action name, e.g. `propose_task`, `pause`, `materialize_routine_task`. |
-| `object_type` | Affected item type. |
-| `object_id` | Affected item ID. |
-| `before` | JSON snapshot before the change. |
-| `after` | JSON snapshot after the change. |
-| `reason` | Optional reason string. |
+| `RAVEN_CONSOLE_LOG` | `info` |
+| `RAVEN_FILE_LOG` | `debug` |
+| `RAVEN_LOG_MAX_BYTES` | `1048576` |
+| `RAVEN_LOG_MAX_FILES` | `3` |
 
-## Workspace preferences
-
-SQLite table: `workspace_preferences`.
-
-Planner preferences are stored as `planner.v1`, and Workspace table and detail linked-list
-views are stored independently as `workspace-views.v1`. Both JSON documents are
-workspace-wide because the local server has no user or profile identity. Each stable table
-scope owns an ordered, non-empty tab list. Every tab stores a name plus a filter, sort, and
-group settings snapshot; active tabs, unsaved drafts, and linked-list expansion remain
-frontend runtime state and are not persisted.
-
-The two keys are isolated: saving Workspace views does not replace Planner settings.
-Missing, unavailable, or malformed Workspace view documents retain frontend defaults.
-Within a valid Workspace document, a malformed scope falls back only that scope while
-valid sibling scopes remain available.
-
-| Column | Meaning |
-| --- | --- |
-| `key` | Preference key; Planner uses `planner.v1` and Workspace views use `workspace-views.v1`. |
-| `value` | JSON preference document. |
-| `updated_at` | Last write timestamp. |
-
-## API
-
-`todo-engine/src/interfaces/api/mod.rs` provides an `axum` router over the same service layer.
-
-Endpoints:
-
-- `GET /health`: health check.
-- `GET /items`: list items. Supports `status`, `type`, `area_id`, `project_id`, `parent_id`, `routine_id`, `horizon`, `scheduled`, `query`, `include_archived`.
-- `GET /items/archive`: list terminal/archive items.
-- `GET /settings/planner`: return the workspace-wide `planner.v1` document, or `null` when no preference has been saved.
-- `PUT /settings/planner`: upsert the workspace-wide Planner preference from `{ "value": { ... } }`; `value` must be a JSON object.
-- `GET /settings/workspace-views`: return the workspace-wide `workspace-views.v1` document, or `null` when no preference has been saved.
-- `PUT /settings/workspace-views`: upsert Workspace table and detail linked-list views from `{ "value": { ... } }`; `value` must be a JSON object or the endpoint returns HTTP `400`.
-- `POST /areas`: create area.
-- `POST /projects/propose`: create an active project; `definition_of_done` is required.
-- `POST /routines/propose`: create an active routine; `recurrence_rule` is required.
-- `POST /routines/{id}/materialize`: save an active routine's `future_occurrences` target and fill any shortage. Returns `{"routine", "created"}`.
-- `POST /events/propose`: create an active event.
-- `POST /tasks/propose`: create an active task.
-- `POST /goals/propose`: create an active goal.
-- `PATCH /items/{id}`: update mutable item fields through the shared service layer.
-- `POST /items/{id}/pause`: pause item.
-- `POST /items/{id}/miss`: mark an active task or event missed. The JSON body accepts optional
-  `reason` and the response is the updated source.
-- `POST /items/{id}/postpone`: mark an active task or event missed and create a follow-up. The
-  JSON body requires canonical `today` and `scheduled` dates with `scheduled > today`, and
-  accepts optional `reason`. Returns
-  `{"source": TodoItem, "follow_up": TodoItem}`.
-- `POST /items/{id}/resume`: resume item.
-- `POST /items/{id}/complete`: complete item.
-- `POST /items/{id}/reopen`: reopen a completed task or event as active.
-- `POST /items/{id}/archive`: archive item.
-- `POST /items/{id}/drop`: drop item.
-- `POST /items/{id}/cancel`: cancel item.
-
-The frontend loads Planner preferences through the local API and keeps its in-memory
-defaults when the value is missing, malformed, or unavailable. Preference writes are
-best-effort; a later successful write replaces the saved document.
+CLI validation/conflict/confirmation failures exit `2`, missing records exit `4`, and
+storage/migration/internal failures exit `1`. Success exits `0`.
 
 ## Verification
 
 ```bash
 cargo fmt --check
-cargo test
+cargo test --workspace
 cargo clippy --all-targets --all-features -- -D warnings
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+npm --prefix npm/raven test
+cargo build --release -p raven-cli
 ```
 
-## Copied-data smoke
+Always use `--home "$(mktemp -d)"` for destructive smoke checks. Never target live Raven or
+source ToDo data.
 
-Run smoke tests only against a copied data home:
+## Documentation
 
-```bash
-tmp_home="$(mktemp -d)"
-cp ~/.todo-engine/todo.sqlite "$tmp_home/todo.sqlite"
-cargo run -p todo-engine -- --home "$tmp_home" pending
-cargo run -p todo-engine -- --home "$tmp_home" today
-```
-
-SQLite schema initialization is additive for existing databases. `init_schema()` creates tables and ensures missing columns exist on older `items` tables, including:
-
-- `note`
-- `materialization_policy`
-- `future_occurrences`
-- `occurrence_key`
-- `last_materialized_at`
+- [Architecture overview](docs/architecture/overview.md)
+- [Layer boundaries](docs/architecture/layers.md)
+- [Data model](docs/architecture/data-model.md)
+- [Setup](docs/operations/setup.md)
+- [Data-home safety](docs/operations/data-home.md)
+- [CLI reference](docs/operations/cli-reference.md)
+- [API reference](docs/operations/api-reference.md)
+- [Verification and smoke](docs/operations/verification-and-smoke.md)
+- [Logging and rotation](docs/operations/logging-and-rotation.md)

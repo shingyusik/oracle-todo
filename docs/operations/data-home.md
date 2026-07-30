@@ -1,65 +1,76 @@
 # Data Home
 
-The **data home** is the directory that holds the canonical SQLite database and the
-operational logs. Everything `todo-engine` persists lives under it.
+The Raven home contains all canonical domain stores, Health media, and operational logs.
 
 ## Resolution
 
-The data home is resolved by `infrastructure::paths::todo_home`, in this order:
+`RavenPaths` resolves:
 
-1. `--home <path>` flag.
-2. Existing `TODO_ENGINE_HOME` process environment variable.
-3. `TODO_ENGINE_HOME` loaded from the nearest `.env` file in the current directory or a parent.
-4. `$HOME/.todo-engine` (the default; errors if `HOME` is unset).
+1. global `--home <path>`
+2. `RAVEN_HOME` from the process or `.env`
+3. `$HOME/.raven`
 
 ```bash
-export TODO_ENGINE_HOME=/path/to/data
-cargo run -p todo-engine -- --home /path/to/data init   # flag wins over the env var
-
-echo 'TODO_ENGINE_HOME=/path/to/data' > .env
-cargo run -p todo-engine -- init
+raven --home /path/to/raven-data init
+RAVEN_HOME=/path/to/raven-data raven health-check
 ```
 
-### Backslashes in `.env`
-
-`.env` values follow shell escaping, so `\` starts an escape sequence and a bare Windows path
-fails to parse. Single-quote the value (or write it with forward slashes):
+`.env` uses shell-style escaping. Single-quote Windows paths containing backslashes:
 
 ```dotenv
-TODO_ENGINE_HOME='C:\Users\me\todo-data'   # or: C:/Users/me/todo-data
+RAVEN_HOME='C:\Users\me\raven-data'
 ```
 
-A `.env` that fails to parse aborts the command with exit `1` rather than silently falling back
-to the default home. A missing `.env` is normal and stays silent.
+A malformed `.env` aborts with exit `1`; it never silently redirects a command to the
+default home.
 
 ## Layout
 
 ```text
-<data-home>/
-├── todo.sqlite                 # canonical store (items + events tables)
-└── logs/                       # structured JSONL tracing log + rotated backups
-    ├── todo-engine.log.jsonl
-    ├── todo-engine.log.jsonl.1
-    ├── todo-engine.log.jsonl.2
-    └── todo-engine.log.jsonl.3
+<raven-home>/
+├── todo.sqlite
+├── ledger.sqlite
+├── health.sqlite
+├── media/
+│   └── health/
+└── logs/
+    ├── raven.log.jsonl
+    ├── raven.log.jsonl.1
+    ├── raven.log.jsonl.2
+    └── raven.log.jsonl.3
 ```
 
-- `todo.sqlite` — the source of truth (`paths::db_path`). See
-  [../architecture/decisions/adr-0001-sqlite-source-of-truth.md](../architecture/decisions/adr-0001-sqlite-source-of-truth.md).
-- `logs/` — structured tracing logs and rotated backups. See
-  [logging-and-rotation.md](logging-and-rotation.md).
+- `todo.sqlite` — ToDo item graph, ToDo events, and namespaced UI preferences.
+- `ledger.sqlite` — Ledger master data, entries, transfer operations, and audit events.
+- `health.sqlite` — diet, media metadata, health events, tags, and audit events.
+- `media/health` — generated Health image files; never SQLite blobs.
+- `logs` — best-effort Raven CLI JSONL logs and rotated backups.
 
-## Safety rule: never target the live home
+The databases are intentionally independent. Back up `health.sqlite` and `media/health`
+together to preserve diet-image references.
 
-The live data home (`~/.todo-engine/`) is canonical. **Never aim destructive
-experiments at `~/.todo-engine/todo.sqlite` without explicit approval.** For any smoke
-test or migration trial, copy the database into a fresh temporary home and operate there:
+## Safety
+
+The live home is canonical. Never aim destructive tests, import trials, schema experiments,
+or purge probes at it.
 
 ```bash
-tmp_home="$(mktemp -d)"
-cp ~/.todo-engine/todo.sqlite "$tmp_home/todo.sqlite"
-cargo run -p todo-engine -- --home "$tmp_home" pending
+smoke_home="$(mktemp -d)"
+cargo run -p raven-cli -- --home "$smoke_home" init
+cargo run -p raven-cli -- --home "$smoke_home" health-check
 ```
 
-`*.sqlite` is gitignored, so a temp copy never gets committed. The full safe procedure is in
-[verification-and-smoke.md](verification-and-smoke.md).
+For a copied-data ToDo check, copy the source database into a separate source directory and
+import into a different empty Raven home. The importer refuses an existing destination,
+opens the source read-only, uses SQLite backup, validates schema and integrity, and publishes
+the temporary file without clobbering.
+
+## Backup boundary
+
+Stop Raven processes before a raw file copy, or use SQLite-aware backup tooling. A complete
+snapshot contains:
+
+- all three `*.sqlite` files
+- `media/health`
+
+Logs and the npm release cache are operational artifacts, not canonical records.
