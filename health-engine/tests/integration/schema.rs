@@ -331,6 +331,170 @@ fn migration_rejects_extended_check_constraints_without_advancing_version() {
 }
 
 #[test]
+fn migration_rejects_additional_restricting_checks_without_advancing_version() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "ALTER TABLE diet_entries
+             ADD COLUMN legacy_guard INTEGER CHECK(food_name = 'only');
+         PRAGMA user_version = 0;",
+    );
+
+    assert!(matches!(
+        SqliteHealthRepository::open(&database),
+        Err(HealthError::Migration(_))
+    ));
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn migration_rejects_unexpected_unique_indexes_without_advancing_version() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "CREATE UNIQUE INDEX legacy_unique_food ON diet_entries(food_name);
+         PRAGMA user_version = 0;",
+    );
+
+    assert!(matches!(
+        SqliteHealthRepository::open(&database),
+        Err(HealthError::Migration(_))
+    ));
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn migration_rejects_unexpected_unique_table_constraints_without_advancing_version() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "PRAGMA foreign_keys = OFF;
+         DROP TABLE diet_entry_tags;
+         DROP TABLE diet_entries;
+         CREATE TABLE diet_entries (
+             id TEXT NOT NULL PRIMARY KEY,
+             occurred_at TEXT NOT NULL,
+             local_date TEXT NOT NULL,
+             meal_type TEXT NOT NULL CHECK (
+                 meal_type IN ('breakfast', 'lunch', 'dinner', 'snack', 'late_night')
+             ),
+             food_name TEXT NOT NULL UNIQUE,
+             note TEXT,
+             media_id TEXT REFERENCES media_files(id),
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL,
+             deleted_at TEXT
+         ) STRICT;
+         CREATE TABLE diet_entry_tags (
+             diet_entry_id TEXT NOT NULL
+                 REFERENCES diet_entries(id) ON DELETE CASCADE,
+             tag_id TEXT NOT NULL REFERENCES diet_tags(id),
+             PRIMARY KEY (diet_entry_id, tag_id)
+         ) STRICT;
+         PRAGMA user_version = 0;",
+    );
+
+    assert!(matches!(
+        SqliteHealthRepository::open(&database),
+        Err(HealthError::Migration(_))
+    ));
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn migration_rejects_missing_media_path_uniqueness_without_advancing_version() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "PRAGMA foreign_keys = OFF;
+         DROP TABLE media_files;
+         CREATE TABLE media_files (
+             id TEXT NOT NULL PRIMARY KEY,
+             relative_path TEXT NOT NULL,
+             mime_type TEXT NOT NULL CHECK (
+                 mime_type IN ('image/jpeg', 'image/png', 'image/webp')
+             ),
+             byte_size INTEGER NOT NULL CHECK (
+                 typeof(byte_size) = 'integer' AND byte_size >= 0
+             ),
+             checksum_sha256 TEXT NOT NULL,
+             cleanup_pending INTEGER NOT NULL DEFAULT 0 CHECK (
+                 typeof(cleanup_pending) = 'integer'
+                 AND cleanup_pending IN (0, 1)
+             ),
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL,
+             deleted_at TEXT
+         ) STRICT;
+         PRAGMA user_version = 0;",
+    );
+
+    assert!(matches!(
+        SqliteHealthRepository::open(&database),
+        Err(HealthError::Migration(_))
+    ));
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn migration_accepts_equivalent_table_constraint_sql_variations() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "PRAGMA foreign_keys = OFF;
+         DROP TABLE media_files;
+         CREATE TABLE \"media_files\" (
+             \"id\" TEXT NOT NULL PRIMARY KEY,
+             \"relative_path\" TEXT NOT NULL UNIQUE,
+             \"mime_type\" TEXT NOT NULL CHECK ((
+                 \"mime_type\" IN ('image/jpeg', 'image/png', 'image/webp')
+             )),
+             \"byte_size\" INTEGER NOT NULL CHECK (
+                 typeof(\"byte_size\") == 'integer' AND \"byte_size\" >= 0
+             ),
+             \"checksum_sha256\" TEXT NOT NULL,
+             \"cleanup_pending\" INTEGER NOT NULL DEFAULT 0 CHECK ((
+                 typeof(\"cleanup_pending\") == 'integer'
+                 AND \"cleanup_pending\" IN (0, 1)
+             )),
+             \"created_at\" TEXT NOT NULL,
+             \"updated_at\" TEXT NOT NULL,
+             \"deleted_at\" TEXT
+         ) STRICT;
+         PRAGMA user_version = 0;",
+    );
+
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    assert_eq!(user_version(&database), SCHEMA_VERSION);
+}
+
+#[test]
+fn migration_preserves_additional_nonunique_performance_indexes() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "CREATE INDEX legacy_diet_food_lookup ON diet_entries(food_name);
+         PRAGMA user_version = 0;",
+    );
+
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    assert_eq!(user_version(&database), SCHEMA_VERSION);
+    assert!(index_exists(&database, "legacy_diet_food_lookup"));
+}
+
+#[test]
 fn health_probe_is_read_only_and_does_not_initialize_missing_paths() {
     let directory = tempfile::tempdir().unwrap();
     let missing = directory.path().join("missing.sqlite");
@@ -370,6 +534,19 @@ fn table_exists(path: &Path, table: &str) -> bool {
                 SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1
              )",
             [table],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+fn index_exists(path: &Path, index: &str) -> bool {
+    Connection::open(path)
+        .unwrap()
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1
+             )",
+            [index],
             |row| row.get(0),
         )
         .unwrap()

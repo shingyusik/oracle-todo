@@ -230,15 +230,19 @@ fn validate_table(connection: &Connection, expected: &TableSpec) -> HealthResult
             expected.name
         )));
     }
-    let actual_checks = check_expression_tokens(&create_sql)?;
-    for required_check in expected.checks {
-        let required_check = canonical_expression_tokens(sql_tokens(required_check)?);
-        if !actual_checks.contains(&required_check) {
-            return Err(HealthError::Migration(format!(
-                "table {} is missing a required check constraint",
-                expected.name
-            )));
-        }
+    let mut actual_checks = check_expression_tokens(&create_sql)?;
+    actual_checks.sort();
+    let mut required_checks = expected
+        .checks
+        .iter()
+        .map(|required_check| sql_tokens(required_check).map(canonical_expression_tokens))
+        .collect::<HealthResult<Vec<_>>>()?;
+    required_checks.sort();
+    if actual_checks != required_checks {
+        return Err(HealthError::Migration(format!(
+            "table {} has incompatible check constraints",
+            expected.name
+        )));
     }
 
     let mut statement = connection
@@ -278,7 +282,67 @@ fn validate_table(connection: &Connection, expected: &TableSpec) -> HealthResult
             )));
         }
     }
+    validate_unique_indexes(connection, expected)?;
     validate_foreign_keys(connection, expected)
+}
+
+fn validate_unique_indexes(connection: &Connection, expected: &TableSpec) -> HealthResult<()> {
+    let mut statement = connection
+        .prepare(
+            "SELECT name, origin
+             FROM pragma_index_list(?1)
+             WHERE \"unique\" = 1",
+        )
+        .map_err(migration_error)?;
+    let unique_indexes = statement
+        .query_map([expected.name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(migration_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(migration_error)?;
+    let mut actual_table_constraints = Vec::new();
+    for (name, origin) in unique_indexes {
+        let declared_named_index = origin == "c"
+            && INDEXES
+                .iter()
+                .any(|index| index.table == expected.name && index.name == name && index.unique);
+        match origin.as_str() {
+            "pk" => {}
+            "u" => actual_table_constraints.push(index_columns(connection, &name)?),
+            "c" if declared_named_index => {}
+            _ => {
+                return Err(HealthError::Migration(format!(
+                    "table {} has unexpected unique index {name}",
+                    expected.name
+                )));
+            }
+        }
+    }
+    actual_table_constraints.sort();
+    let mut required_table_constraints = expected
+        .unique_constraints
+        .iter()
+        .map(|constraint| {
+            constraint
+                .columns
+                .iter()
+                .map(|column| IndexColumn {
+                    name: Some((*column).to_string()),
+                    descending: false,
+                    collation: "binary".to_string(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    required_table_constraints.sort();
+    if actual_table_constraints != required_table_constraints {
+        return Err(HealthError::Migration(format!(
+            "table {} has incompatible unique constraints",
+            expected.name
+        )));
+    }
+    Ok(())
 }
 
 fn validate_foreign_keys(connection: &Connection, expected: &TableSpec) -> HealthResult<()> {
@@ -345,25 +409,7 @@ fn validate_index(connection: &Connection, expected: &IndexSpec) -> HealthResult
         )
         .optional()
         .map_err(migration_error)?;
-    let mut statement = connection
-        .prepare(
-            "SELECT name, \"desc\", coll
-             FROM pragma_index_xinfo(?1)
-             WHERE key = 1
-             ORDER BY seqno",
-        )
-        .map_err(migration_error)?;
-    let columns = statement
-        .query_map([expected.name], |row| {
-            Ok(IndexColumn {
-                name: row.get(0)?,
-                descending: row.get::<_, i64>(1)? != 0,
-                collation: row.get(2)?,
-            })
-        })
-        .map_err(migration_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(migration_error)?;
+    let columns = index_columns(connection, expected.name)?;
     let predicate = index_predicate_tokens(&sql)?;
     let expected_predicate = expected
         .predicate
@@ -396,6 +442,28 @@ fn validate_index(connection: &Connection, expected: &IndexSpec) -> HealthResult
         )));
     }
     Ok(())
+}
+
+fn index_columns(connection: &Connection, index: &str) -> HealthResult<Vec<IndexColumn>> {
+    let mut statement = connection
+        .prepare(
+            "SELECT name, \"desc\", coll
+             FROM pragma_index_xinfo(?1)
+             WHERE key = 1
+             ORDER BY seqno",
+        )
+        .map_err(migration_error)?;
+    statement
+        .query_map([index], |row| {
+            Ok(IndexColumn {
+                name: row.get(0)?,
+                descending: row.get::<_, i64>(1)? != 0,
+                collation: row.get::<_, String>(2)?.to_ascii_lowercase(),
+            })
+        })
+        .map_err(migration_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(migration_error)
 }
 
 fn index_definition(connection: &Connection, name: &str) -> HealthResult<Option<(String, String)>> {
@@ -950,6 +1018,7 @@ struct TableSpec {
     columns: &'static [ColumnSpec],
     checks: &'static [&'static str],
     foreign_keys: &'static [ForeignKeySpec],
+    unique_constraints: &'static [UniqueConstraintSpec],
 }
 
 struct IndexSpec {
@@ -967,10 +1036,15 @@ struct IndexMetadata {
     partial: bool,
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct IndexColumn {
     name: Option<String>,
     descending: bool,
     collation: String,
+}
+
+struct UniqueConstraintSpec {
+    columns: &'static [&'static str],
 }
 
 struct ForeignKeySpec {
@@ -1071,6 +1145,7 @@ const TABLES: &[TableSpec] = &[
             "typeof(cleanup_pending) = 'integer' AND cleanup_pending IN (0, 1)",
         ],
         foreign_keys: &[],
+        unique_constraints: &[unique(&["relative_path"])],
     },
     TableSpec {
         name: "diet_entries",
@@ -1083,12 +1158,14 @@ const TABLES: &[TableSpec] = &[
             "NO ACTION",
             "NO ACTION",
         )],
+        unique_constraints: &[],
     },
     TableSpec {
         name: "diet_tags",
         columns: TAG_COLUMNS,
         checks: &[],
         foreign_keys: &[],
+        unique_constraints: &[],
     },
     TableSpec {
         name: "diet_entry_tags",
@@ -1104,6 +1181,7 @@ const TABLES: &[TableSpec] = &[
             ),
             foreign_key("tag_id", "diet_tags", "id", "NO ACTION", "NO ACTION"),
         ],
+        unique_constraints: &[],
     },
     TableSpec {
         name: "health_events",
@@ -1113,12 +1191,14 @@ const TABLES: &[TableSpec] = &[
             "typeof(daily_upsert) = 'integer' AND daily_upsert IN (0, 1)",
         ],
         foreign_keys: &[],
+        unique_constraints: &[],
     },
     TableSpec {
         name: "audit_events",
         columns: AUDIT_COLUMNS,
         checks: &[],
         foreign_keys: &[],
+        unique_constraints: &[],
     },
 ];
 
@@ -1366,6 +1446,10 @@ const fn foreign_key(
         on_update,
         on_delete,
     }
+}
+
+const fn unique(columns: &'static [&'static str]) -> UniqueConstraintSpec {
+    UniqueConstraintSpec { columns }
 }
 
 const fn index(
