@@ -11,6 +11,8 @@ use crate::domain::{DietEntry, HealthCategory, HealthEvent};
 
 const MAX_TREND_DAYS: u16 = 3_650;
 const MAX_TREND_RECORDS: u32 = 100_000;
+// The pinned Health source exposes eight rows for every ranked dashboard projection.
+const TOP_PROJECTION_LIMIT: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TrendRecords {
@@ -51,7 +53,7 @@ pub struct NumericSeries {
 pub struct PossibleTagReaction {
     pub tag: String,
     pub diet_entries: u32,
-    pub symptom_events_within_24h: u32,
+    pub events_within_24h: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -153,7 +155,7 @@ fn project(
                 && event.metric_key().as_str() != "overall_condition"
         })
         .collect::<Vec<_>>();
-    let mut reactions = BTreeMap::<String, (BTreeSet<String>, u32)>::new();
+    let mut reactions = BTreeMap::<String, (u32, u32)>::new();
     for diet in &records.diets {
         let upper = diet
             .occurred_at()
@@ -164,7 +166,7 @@ fn project(
             })?;
         for tag in diet.tags() {
             let bucket = reactions.entry(tag.clone()).or_default();
-            bucket.0.insert(diet.id().as_str().to_string());
+            bucket.0 += 1;
             bucket.1 += u32::try_from(
                 symptom_events
                     .iter()
@@ -205,16 +207,31 @@ fn project(
                 }
             })
             .collect(),
-        possible_tag_reactions: reactions
-            .into_iter()
-            .map(|(tag, (diets, count))| PossibleTagReaction {
-                tag,
-                diet_entries: diets.len() as u32,
-                symptom_events_within_24h: count,
-            })
-            .collect(),
+        possible_tag_reactions: ranked_reactions(reactions),
         reaction_disclaimer: "Descriptive co-occurrence in the following 24 hours; it does not establish causation.",
     })
+}
+
+fn ranked_reactions(reactions: BTreeMap<String, (u32, u32)>) -> Vec<PossibleTagReaction> {
+    let mut reactions = reactions
+        .into_iter()
+        .filter(|(_, (_, count))| *count > 0)
+        .map(
+            |(tag, (diet_entries, events_within_24h))| PossibleTagReaction {
+                tag,
+                diet_entries,
+                events_within_24h,
+            },
+        )
+        .collect::<Vec<_>>();
+    reactions.sort_by(|left, right| {
+        right
+            .events_within_24h
+            .cmp(&left.events_within_24h)
+            .then_with(|| left.tag.cmp(&right.tag))
+    });
+    reactions.truncate(TOP_PROJECTION_LIMIT);
+    reactions
 }
 
 fn sorted_counts(counts: BTreeMap<String, u32>) -> Vec<NamedCount> {
@@ -228,5 +245,6 @@ fn sorted_counts(counts: BTreeMap<String, u32>) -> Vec<NamedCount> {
             .cmp(&left.count)
             .then_with(|| left.name.cmp(&right.name))
     });
+    counts.truncate(TOP_PROJECTION_LIMIT);
     counts
 }
