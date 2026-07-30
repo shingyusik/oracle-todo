@@ -1,5 +1,3 @@
-use std::fs::File;
-use std::io::Read;
 use std::str::FromStr;
 
 use anyhow::Result;
@@ -8,7 +6,7 @@ use health_engine::application::commands::{
     UpdateDietEntry, UpdateHealthEvent,
 };
 use health_engine::application::error::{HealthError, HealthResult};
-use health_engine::application::ports::{EventQuery, Page};
+use health_engine::application::ports::{EventClass, EventQuery, Page};
 use health_engine::application::queries::{HealthQuery, TimelineItem};
 use health_engine::application::service::HealthService;
 use health_engine::application::trends::HealthTrends;
@@ -17,7 +15,7 @@ use health_engine::domain::{
     MedicationAttributes, MedicationUnit, SleepAttributes, SleepValue, SymptomAttributes,
     WeightAttributes,
 };
-use health_engine::infrastructure::media::LocalMediaStore;
+use health_engine::infrastructure::media::{LocalMediaStore, read_bounded_regular_file};
 use health_engine::infrastructure::sqlite::{HealthStorageHealth, SqliteHealthRepository};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -36,6 +34,12 @@ type Service = HealthService<SqliteHealthRepository, LocalMediaStore>;
 
 const ACTOR: &str = "raven-cli";
 const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+
+macro_rules! table_row {
+    ($($value:expr),+ $(,)?) => {
+        print_table_row(&[$(($value).to_string()),+])
+    };
+}
 
 pub fn run(paths: &RavenPaths, command: HealthCommand) -> Result<()> {
     let mut service = open_service(paths, is_mutation(&command)).map_err(anyhow::Error::new)?;
@@ -363,7 +367,9 @@ fn update_metric(service: &mut Service, args: MetricUpdateArgs) -> HealthResult<
             name: args.name,
             value: args.value,
             unit: args.unit,
+            clear_unit: args.clear_unit,
             condition_note: args.condition_note,
+            clear_condition_note: args.clear_condition_note,
             note: args.note,
             clear_note: args.clear_note,
             expected_updated_at: args.expected_updated_at,
@@ -384,24 +390,15 @@ fn metric_list(service: &Service, args: MetricListArgs) -> HealthResult<()> {
     }) {
         return validation("category", "must be weight, sleep, lab, or symptom");
     }
-    let mut query = EventQuery::new(page(args.page.offset, args.page.limit)?);
+    let mut query =
+        EventQuery::new(page(args.page.offset, args.page.limit)?).with_class(EventClass::Metric);
     if let Some(category) = args.category {
         query = query.with_category(category.into());
     }
     if let Some(key) = args.key {
         query = query.with_metric_key(key)?;
     }
-    let records = service
-        .list_events(query)?
-        .into_iter()
-        .filter(|event| {
-            !matches!(
-                event.category(),
-                HealthCategory::Bowel | HealthCategory::Medication
-            )
-        })
-        .collect::<Vec<_>>();
-    print_event_list(&records, args.page.format)
+    print_event_list(&service.list_events(query)?, args.page.format)
 }
 
 fn list_events(
@@ -527,21 +524,23 @@ fn timeline(service: &Service, args: HealthTimelineArgs) -> HealthResult<()> {
     match args.format {
         OutputFormat::Json => print_json(&records),
         OutputFormat::Table => {
-            println!("KIND\tID\tOCCURRED_AT\tCATEGORY\tNAME\tVALUE");
+            table_row!("KIND", "ID", "OCCURRED_AT", "CATEGORY", "NAME", "VALUE");
             for item in records {
                 match item {
-                    TimelineItem::Diet { record } => println!(
-                        "diet\t{}\t{}\tdiet\t{}\t",
+                    TimelineItem::Diet { record } => table_row!(
+                        "diet",
                         record.id().as_str(),
                         format_timestamp(record.occurred_at())?,
-                        cell(record.food_name()),
+                        "diet",
+                        record.food_name(),
+                        "",
                     ),
-                    TimelineItem::HealthEvent { record } => println!(
-                        "health_event\t{}\t{}\t{}\t{}\t{}",
+                    TimelineItem::HealthEvent { record } => table_row!(
+                        "health_event",
                         record.id().as_str(),
                         format_timestamp(record.occurred_at())?,
                         category_name(record.category()),
-                        cell(record.name()),
+                        record.name(),
                         record
                             .value_num()
                             .map(|value| value.to_string())
@@ -563,22 +562,102 @@ fn trends(service: &Service, args: HealthTrendsArgs) -> HealthResult<()> {
 }
 
 fn print_trends_table(trends: &HealthTrends) -> HealthResult<()> {
-    println!("SECTION\tNAME\tVALUE");
+    table_row!(
+        "SECTION",
+        "DATE_OR_TIME",
+        "CATEGORY_OR_NAME",
+        "METRIC_OR_TAG",
+        "VALUE",
+        "DETAIL"
+    );
+    let mut diet_tags = false;
     for item in &trends.top_diet_tags {
-        println!("diet_tag\t{}\t{}", cell(&item.name), item.count);
+        diet_tags = true;
+        table_row!("diet_tag", "", "", item.name, item.count, "");
     }
+    print_empty("diet_tag", diet_tags);
+
+    let mut bowel_averages = false;
+    for item in &trends.bowel_average_by_day {
+        bowel_averages = true;
+        table_row!(
+            "bowel_average",
+            item.local_date,
+            "bowel",
+            "",
+            item.average,
+            format!("count={}", item.count),
+        );
+    }
+    print_empty("bowel_average", bowel_averages);
+
+    let mut symptoms = false;
     for item in &trends.symptom_frequencies {
-        println!("symptom\t{}\t{}", cell(&item.name), item.count);
+        symptoms = true;
+        table_row!("symptom_frequency", "", item.name, "", item.count, "");
     }
+    print_empty("symptom_frequency", symptoms);
+
+    let mut medications = false;
     for item in &trends.medication_frequencies {
-        println!("medication\t{}\t{}", cell(&item.name), item.count);
+        medications = true;
+        table_row!("medication_frequency", "", item.name, "", item.count, "");
     }
-    println!("disclaimer\t\t{}", cell(trends.reaction_disclaimer));
+    print_empty("medication_frequency", medications);
+
+    let mut numeric_series = false;
+    for series in &trends.numeric_series {
+        for point in &series.points {
+            numeric_series = true;
+            table_row!(
+                "numeric_series",
+                format_timestamp(point.occurred_at)?,
+                category_name(series.category),
+                series.metric_key,
+                point.value,
+                format!(
+                    "name={} unit={}",
+                    series.name,
+                    series.unit.as_deref().unwrap_or("")
+                ),
+            );
+        }
+    }
+    print_empty("numeric_series", numeric_series);
+
+    let mut reactions = false;
+    for item in &trends.possible_tag_reactions {
+        reactions = true;
+        table_row!(
+            "possible_tag_reaction",
+            "",
+            "",
+            item.tag,
+            item.events_within_24h,
+            format!("diet_entries={}", item.diet_entries),
+        );
+    }
+    print_empty("possible_tag_reaction", reactions);
+    table_row!(
+        "reaction_disclaimer",
+        "",
+        "",
+        "",
+        "",
+        trends.reaction_disclaimer
+    );
     Ok(())
+}
+
+fn print_empty(section: &str, has_rows: bool) {
+    if !has_rows {
+        table_row!(section, "", "", "", "", "empty");
+    }
 }
 
 fn metric_details(input: &MetricInput) -> HealthResult<HealthEventDetails> {
     let category = parse_metric_category(&input.category)?;
+    validate_metric_add_fields(category, input)?;
     let name = required(input.name.clone(), "name")?;
     let value = required(input.value, "value")?;
     Ok(match category {
@@ -625,39 +704,135 @@ fn update_metric_details(
     before: HealthEventDetails,
     input: &MetricUpdateInput,
 ) -> HealthResult<HealthEventDetails> {
+    if input.unit.is_some() && input.clear_unit {
+        return validation("unit", "cannot be set and cleared together");
+    }
+    if input.condition_note.is_some() && input.clear_condition_note {
+        return validation("condition_note", "cannot be set and cleared together");
+    }
     let name = |old: &str| input.name.clone().unwrap_or_else(|| old.to_string());
     Ok(match before {
-        HealthEventDetails::Weight(old) => HealthEventDetails::Weight(WeightAttributes::new(
-            old.metric_key().as_str(),
-            name(old.name()),
-            input.value.unwrap_or(old.value().get()),
-            input.unit.clone().unwrap_or_else(|| old.unit().to_string()),
-        )?),
-        HealthEventDetails::Sleep(old) => HealthEventDetails::Sleep(SleepAttributes::new(
-            old.metric_key().as_str(),
-            name(old.name()),
-            SleepValue::hours(input.value.unwrap_or(old.hours().get()))?,
-        )?),
-        HealthEventDetails::Lab(old) => HealthEventDetails::Lab(LabAttributes::new(
-            old.metric_key().as_str(),
-            name(old.name()),
-            input.value.unwrap_or(old.value()),
-            input.unit.as_deref().or(old.unit()),
-        )?),
-        HealthEventDetails::Symptom(old) => HealthEventDetails::Symptom(SymptomAttributes::new(
-            old.metric_key().as_str(),
-            name(old.name()),
-            input
-                .value
-                .map(strict_score)
-                .transpose()?
-                .unwrap_or(old.score()),
-            input.condition_note.as_deref().or(old.condition_note()),
-        )?),
+        HealthEventDetails::Weight(old) => {
+            reject_clear(input.clear_unit, "clear_unit", "weight")?;
+            reject_optional(
+                input.condition_note.as_ref(),
+                input.clear_condition_note,
+                "condition_note",
+                "weight",
+            )?;
+            HealthEventDetails::Weight(WeightAttributes::new(
+                old.metric_key().as_str(),
+                name(old.name()),
+                input.value.unwrap_or(old.value().get()),
+                input.unit.clone().unwrap_or_else(|| old.unit().to_string()),
+            )?)
+        }
+        HealthEventDetails::Sleep(old) => {
+            reject_optional(input.unit.as_ref(), input.clear_unit, "unit", "sleep")?;
+            reject_optional(
+                input.condition_note.as_ref(),
+                input.clear_condition_note,
+                "condition_note",
+                "sleep",
+            )?;
+            HealthEventDetails::Sleep(SleepAttributes::new(
+                old.metric_key().as_str(),
+                name(old.name()),
+                SleepValue::hours(input.value.unwrap_or(old.hours().get()))?,
+            )?)
+        }
+        HealthEventDetails::Lab(old) => {
+            reject_optional(
+                input.condition_note.as_ref(),
+                input.clear_condition_note,
+                "condition_note",
+                "lab",
+            )?;
+            let unit = patched_optional(input.unit.as_deref(), input.clear_unit, old.unit());
+            HealthEventDetails::Lab(LabAttributes::new(
+                old.metric_key().as_str(),
+                name(old.name()),
+                input.value.unwrap_or(old.value()),
+                unit,
+            )?)
+        }
+        HealthEventDetails::Symptom(old) => {
+            reject_optional(input.unit.as_ref(), input.clear_unit, "unit", "symptom")?;
+            let condition_note = patched_optional(
+                input.condition_note.as_deref(),
+                input.clear_condition_note,
+                old.condition_note(),
+            );
+            HealthEventDetails::Symptom(SymptomAttributes::new(
+                old.metric_key().as_str(),
+                name(old.name()),
+                input
+                    .value
+                    .map(strict_score)
+                    .transpose()?
+                    .unwrap_or(old.score()),
+                condition_note,
+            )?)
+        }
         HealthEventDetails::Bowel(_) | HealthEventDetails::Medication(_) => {
             return validation("id", "does not identify a metric event");
         }
     })
+}
+
+fn validate_metric_add_fields(
+    category: HealthMetricCategory,
+    input: &MetricInput,
+) -> HealthResult<()> {
+    match category {
+        HealthMetricCategory::Weight => {
+            reject_present(input.condition_note.as_ref(), "condition_note", "weight")
+        }
+        HealthMetricCategory::Sleep => {
+            reject_present(input.unit.as_ref(), "unit", "sleep")?;
+            reject_present(input.condition_note.as_ref(), "condition_note", "sleep")
+        }
+        HealthMetricCategory::Lab => {
+            reject_present(input.condition_note.as_ref(), "condition_note", "lab")
+        }
+        HealthMetricCategory::Symptom => reject_present(input.unit.as_ref(), "unit", "symptom"),
+        HealthMetricCategory::OverallCondition => {
+            reject_present(input.key.as_ref(), "key", "overall_condition")?;
+            reject_present(input.unit.as_ref(), "unit", "overall_condition")
+        }
+    }
+}
+
+fn reject_present<T>(value: Option<&T>, field: &'static str, category: &str) -> HealthResult<()> {
+    if value.is_some() {
+        return validation(field, format!("is not supported for {category}"));
+    }
+    Ok(())
+}
+
+fn reject_clear(clear: bool, field: &'static str, category: &str) -> HealthResult<()> {
+    if clear {
+        return validation(field, format!("is not supported for {category}"));
+    }
+    Ok(())
+}
+
+fn reject_optional<T>(
+    value: Option<&T>,
+    clear: bool,
+    field: &'static str,
+    category: &str,
+) -> HealthResult<()> {
+    reject_present(value, field, category)?;
+    reject_clear(clear, field, category)
+}
+
+fn patched_optional<'a>(
+    value: Option<&'a str>,
+    clear: bool,
+    previous: Option<&'a str>,
+) -> Option<&'a str> {
+    if clear { None } else { value.or(previous) }
 }
 
 fn event_update(
@@ -678,29 +853,7 @@ fn event_update(
 }
 
 fn read_upload(input: ImageInput) -> HealthResult<MediaUpload> {
-    let metadata = std::fs::metadata(&input.path).map_err(|_| HealthError::Validation {
-        field: "image",
-        message: "cannot be opened".to_string(),
-    })?;
-    if !metadata.is_file() {
-        return validation("image", "must be a regular file");
-    }
-    if metadata.len() > MAX_IMAGE_BYTES {
-        return Err(HealthError::MediaTooLarge);
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(&input.path)
-        .and_then(|file| file.take(MAX_IMAGE_BYTES + 1).read_to_end(&mut bytes))
-        .map_err(|_| HealthError::Validation {
-            field: "image",
-            message: "could not be read".to_string(),
-        })?;
-    if bytes.len() as u64 > MAX_IMAGE_BYTES {
-        return Err(HealthError::MediaTooLarge);
-    }
-    if bytes.len() as u64 != metadata.len() {
-        return validation("image", "changed while it was being read");
-    }
+    let bytes = read_bounded_regular_file(&input.path, MAX_IMAGE_BYTES)?;
     let detected = infer::get(&bytes)
         .map(|kind| kind.mime_type())
         .filter(|mime| matches!(*mime, "image/jpeg" | "image/png" | "image/webp"))
@@ -861,15 +1014,14 @@ fn print_diet_list(
     match format {
         OutputFormat::Json => print_json(records),
         OutputFormat::Table => {
-            println!("ID\tOCCURRED_AT\tMEAL\tFOOD\tTAGS\tARCHIVED");
+            table_row!("ID", "OCCURRED_AT", "MEAL", "FOOD", "TAGS", "ARCHIVED");
             for record in records {
-                println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}",
+                table_row!(
                     record.id().as_str(),
                     format_timestamp(record.occurred_at())?,
                     record.meal_type(),
-                    cell(record.food_name()),
-                    cell(&record.tags().join(",")),
+                    record.food_name(),
+                    record.tags().join(","),
                     record.is_deleted(),
                 );
             }
@@ -882,15 +1034,23 @@ fn print_event_list(records: &[HealthEvent], format: OutputFormat) -> HealthResu
     match format {
         OutputFormat::Json => print_json(records),
         OutputFormat::Table => {
-            println!("ID\tOCCURRED_AT\tCATEGORY\tKEY\tNAME\tVALUE\tUNIT\tARCHIVED");
+            table_row!(
+                "ID",
+                "OCCURRED_AT",
+                "CATEGORY",
+                "KEY",
+                "NAME",
+                "VALUE",
+                "UNIT",
+                "ARCHIVED"
+            );
             for record in records {
-                println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                table_row!(
                     record.id().as_str(),
                     format_timestamp(record.occurred_at())?,
                     category_name(record.category()),
                     record.metric_key().as_str(),
-                    cell(record.name()),
+                    record.name(),
                     record
                         .value_num()
                         .map(|value| value.to_string())
@@ -905,33 +1065,46 @@ fn print_event_list(records: &[HealthEvent], format: OutputFormat) -> HealthResu
 }
 
 fn diet_table(record: &health_engine::domain::DietEntry) -> HealthResult<()> {
-    println!("FIELD\tVALUE");
-    println!("id\t{}", record.id().as_str());
-    println!("occurred_at\t{}", format_timestamp(record.occurred_at())?);
-    println!("meal_type\t{}", record.meal_type());
-    println!("food_name\t{}", cell(record.food_name()));
-    println!("tags\t{}", cell(&record.tags().join(",")));
-    println!("archived\t{}", record.is_deleted());
+    table_row!("FIELD", "VALUE");
+    table_row!("id", record.id().as_str());
+    table_row!("occurred_at", format_timestamp(record.occurred_at())?);
+    table_row!("meal_type", record.meal_type());
+    table_row!("food_name", record.food_name());
+    table_row!("note", record.note().unwrap_or_default());
+    table_row!("tags", record.tags().join(","));
+    table_row!("archived", record.is_deleted());
     Ok(())
 }
 
 fn event_table(record: &HealthEvent) -> HealthResult<()> {
-    println!("FIELD\tVALUE");
-    println!("id\t{}", record.id().as_str());
-    println!("occurred_at\t{}", format_timestamp(record.occurred_at())?);
-    println!("category\t{}", category_name(record.category()));
-    println!("metric_key\t{}", record.metric_key().as_str());
-    println!("name\t{}", cell(record.name()));
-    println!(
-        "value\t{}",
+    table_row!("FIELD", "VALUE");
+    table_row!("id", record.id().as_str());
+    table_row!("occurred_at", format_timestamp(record.occurred_at())?);
+    table_row!("category", category_name(record.category()));
+    table_row!("metric_key", record.metric_key().as_str());
+    table_row!("name", record.name());
+    table_row!(
+        "value",
         record
             .value_num()
             .map(|value| value.to_string())
             .unwrap_or_default()
     );
-    println!("unit\t{}", record.unit().unwrap_or_default());
-    println!("archived\t{}", record.is_deleted());
+    table_row!("unit", record.unit().unwrap_or_default());
+    table_row!("note", record.note().unwrap_or_default());
+    table_row!("archived", record.is_deleted());
     Ok(())
+}
+
+fn print_table_row(values: &[String]) {
+    println!(
+        "{}",
+        values
+            .iter()
+            .map(|value| cell(value))
+            .collect::<Vec<_>>()
+            .join("\t")
+    );
 }
 
 fn cell(value: &str) -> String {
@@ -1169,7 +1342,11 @@ struct MetricUpdateInput {
     #[serde(default)]
     unit: Option<String>,
     #[serde(default)]
+    clear_unit: bool,
+    #[serde(default)]
     condition_note: Option<String>,
+    #[serde(default)]
+    clear_condition_note: bool,
     #[serde(default)]
     note: Option<String>,
     #[serde(default)]

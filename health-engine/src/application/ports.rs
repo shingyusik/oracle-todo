@@ -50,6 +50,12 @@ pub struct EventQuery {
     page: Page,
     category: Option<HealthCategory>,
     metric_key: Option<MetricKey>,
+    class: Option<EventClass>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventClass {
+    Metric,
 }
 
 impl EventQuery {
@@ -58,6 +64,7 @@ impl EventQuery {
             page,
             category: None,
             metric_key: None,
+            class: None,
         }
     }
 
@@ -71,6 +78,11 @@ impl EventQuery {
         Ok(self)
     }
 
+    pub const fn with_class(mut self, class: EventClass) -> Self {
+        self.class = Some(class);
+        self
+    }
+
     pub const fn page(&self) -> Page {
         self.page
     }
@@ -81,6 +93,10 @@ impl EventQuery {
 
     pub fn metric_key(&self) -> Option<&MetricKey> {
         self.metric_key.as_ref()
+    }
+
+    pub const fn class(&self) -> Option<EventClass> {
+        self.class
     }
 }
 

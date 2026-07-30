@@ -11,8 +11,8 @@ use super::mapping::{
 use super::storage_error;
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::ports::{
-    AuditEvent, EventQuery, HealthMutationRepository, HealthReadRepository, HealthRepository,
-    HealthTransaction, MediaFileRecord, Page,
+    AuditEvent, EventClass, EventQuery, HealthMutationRepository, HealthReadRepository,
+    HealthRepository, HealthTransaction, MediaFileRecord, Page,
 };
 use crate::application::queries::{HealthQuery, TimelineItem};
 use crate::application::trends::TrendRecords;
@@ -566,8 +566,9 @@ fn list_events_on(
          WHERE {visibility}
            AND (?1 IS NULL OR category = ?1)
            AND (?2 IS NULL OR metric_key = ?2)
+           AND (?3 = 0 OR category NOT IN ('bowel', 'medication'))
          ORDER BY occurred_at DESC, id DESC
-         LIMIT ?3 OFFSET ?4"
+         LIMIT ?4 OFFSET ?5"
     );
     collect_rows(
         connection,
@@ -575,6 +576,7 @@ fn list_events_on(
         params![
             query.category().map(category_value),
             query.metric_key().map(MetricKey::as_str),
+            i64::from(matches!(query.class(), Some(EventClass::Metric))),
             i64::from(page.limit()),
             i64::from(page.offset())
         ],

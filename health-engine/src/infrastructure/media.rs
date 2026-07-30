@@ -68,6 +68,93 @@ impl LocalMediaStore {
     }
 }
 
+/// Reads one regular, non-link file through the same handle used for validation.
+pub fn read_bounded_regular_file(path: &Path, max_bytes: u64) -> HealthResult<Vec<u8>> {
+    if max_bytes == 0 {
+        return Err(HealthError::Validation {
+            field: "image",
+            message: "size limit must be positive".to_string(),
+        });
+    }
+    let read_limit = max_bytes.checked_add(1).ok_or(HealthError::MediaTooLarge)?;
+
+    #[cfg(unix)]
+    let mut file = {
+        let descriptor = rustix::fs::open(
+            path,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+        .map_err(|_| HealthError::Validation {
+            field: "image",
+            message: "cannot be safely opened".to_string(),
+        })?;
+        File::from(descriptor)
+    };
+    #[cfg(windows)]
+    let mut file = open_regular_windows(path, "image input")?;
+    #[cfg(not(any(unix, windows)))]
+    return Err(HealthError::Storage(
+        "secure image input requires no-follow file support on this platform".to_string(),
+    ));
+
+    #[cfg(any(unix, windows))]
+    {
+        let before = input_file_identity(&file)?;
+        if before.1 > max_bytes {
+            return Err(HealthError::MediaTooLarge);
+        }
+        let capacity = usize::try_from(before.1).unwrap_or(usize::MAX);
+        let maximum_capacity = usize::try_from(max_bytes).unwrap_or(usize::MAX);
+        let mut bytes = Vec::with_capacity(capacity.min(maximum_capacity));
+        (&mut file)
+            .take(read_limit)
+            .read_to_end(&mut bytes)
+            .map_err(|_| HealthError::Validation {
+                field: "image",
+                message: "could not be read".to_string(),
+            })?;
+        if bytes.len() as u64 > max_bytes {
+            return Err(HealthError::MediaTooLarge);
+        }
+        let after = input_file_identity(&file)?;
+        if before != after || bytes.len() as u64 != before.1 {
+            return Err(HealthError::Validation {
+                field: "image",
+                message: "changed while it was being read".to_string(),
+            });
+        }
+        Ok(bytes)
+    }
+}
+
+#[cfg(unix)]
+fn input_file_identity(file: &File) -> HealthResult<((u64, u64), u64)> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = file.metadata().map_err(|_| HealthError::Validation {
+        field: "image",
+        message: "could not be inspected".to_string(),
+    })?;
+    if !metadata.is_file() {
+        return Err(HealthError::Validation {
+            field: "image",
+            message: "must be a regular file".to_string(),
+        });
+    }
+    Ok(((metadata.dev(), metadata.ino()), metadata.len()))
+}
+
+#[cfg(windows)]
+fn input_file_identity(file: &File) -> HealthResult<((u64, u64), u64)> {
+    let (volume, index) = windows_file_identity(file)?;
+    let metadata = file.metadata().map_err(|_| HealthError::Validation {
+        field: "image",
+        message: "could not be inspected".to_string(),
+    })?;
+    Ok(((u64::from(volume), index), metadata.len()))
+}
+
 fn decode_recovery(name: &str, bytes: &[u8]) -> HealthResult<MediaRecovery> {
     if bytes.len() as u64 > MAX_RECOVERY_JOURNAL_BYTES {
         return Err(HealthError::Storage(

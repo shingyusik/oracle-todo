@@ -362,7 +362,7 @@ pub struct MetricDailyUpsertArgs {
 #[derive(Debug, Args)]
 pub struct MetricUpdateArgs {
     pub id: String,
-    #[arg(long, conflicts_with_all = ["at", "name", "value", "unit", "condition_note", "note", "clear_note", "expected_updated_at", "reason"])]
+    #[arg(long, conflicts_with_all = ["at", "name", "value", "unit", "clear_unit", "condition_note", "clear_condition_note", "note", "clear_note", "expected_updated_at", "reason"])]
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
@@ -370,10 +370,14 @@ pub struct MetricUpdateArgs {
     pub name: Option<String>,
     #[arg(long)]
     pub value: Option<f64>,
-    #[arg(long)]
+    #[arg(long, conflicts_with = "clear_unit")]
     pub unit: Option<String>,
     #[arg(long)]
+    pub clear_unit: bool,
+    #[arg(long, conflicts_with = "clear_condition_note")]
     pub condition_note: Option<String>,
+    #[arg(long)]
+    pub clear_condition_note: bool,
     #[arg(long, conflicts_with = "clear_note")]
     pub note: Option<String>,
     #[arg(long)]
