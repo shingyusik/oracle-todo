@@ -82,6 +82,7 @@ import {
   type WorkspaceTableScopeId,
   type WorkspaceTableViewsState,
 } from "@/features/workbench/model/workspace-table-views";
+import { decodeApiError, RavenApiError } from "@/lib/raven-api";
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 type DashboardDetailLeafTabId = "areas" | "projects";
@@ -98,22 +99,6 @@ type PendingWorkspaceViewCommand = {
   apply: (state: WorkspaceTableViewsState) => WorkspaceTableViewsState;
   persist: boolean;
 };
-
-export class TodoEngineApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    readonly detail: string,
-    readonly parentHorizon?: string,
-    readonly childHorizon?: string,
-    readonly horizon?: string,
-    readonly scheduled?: string,
-    readonly parentId?: string,
-  ) {
-    super(detail);
-    this.name = "TodoEngineApiError";
-  }
-}
 
 const workspaceItemTypes: Partial<Record<LeafTabId, string>> = {
   areas: "area",
@@ -1527,10 +1512,12 @@ export function useWorkbenchController(): WorkbenchController {
           const label = requestedItemType
             ? requestedItemType[0].toUpperCase() + requestedItemType.slice(1)
             : "Item";
-          throw new TodoEngineApiError(
-            400,
+          throw new RavenApiError(
             "validation_error",
             `${label} is not allowed for ${canonicalContext.tableId}.`,
+            {},
+            "",
+            400,
           );
         }
         contextualForm = {
@@ -1777,8 +1764,8 @@ export function useWorkbenchController(): WorkbenchController {
       void transition.then(
         () => clearTransition(null),
         (cause) => clearTransition(
-          cause instanceof TodoEngineApiError
-            ? cause.detail
+          cause instanceof RavenApiError
+            ? cause.message
             : "Could not update item.",
         ),
       );
@@ -1826,8 +1813,8 @@ export function useWorkbenchController(): WorkbenchController {
       void transition.then(
         () => clearTransition(null),
         (cause) => clearTransition(
-          cause instanceof TodoEngineApiError
-            ? cause.detail
+          cause instanceof RavenApiError
+            ? cause.message
             : "Could not update item.",
         ),
       );
@@ -1881,8 +1868,8 @@ export function useWorkbenchController(): WorkbenchController {
       void transition.then(
         () => clearTransition(null),
         (cause) => clearTransition(
-          cause instanceof TodoEngineApiError
-            ? cause.detail
+          cause instanceof RavenApiError
+            ? cause.message
             : "Could not update item.",
         ),
       );
@@ -2046,29 +2033,9 @@ function patchItem(
 }
 
 async function throwApiError(response: Response): Promise<never> {
-  const body = (await response.json().catch(() => null)) as
-    | {
-        code?: unknown;
-        detail?: unknown;
-        parent_horizon?: unknown;
-        child_horizon?: unknown;
-        horizon?: unknown;
-        scheduled?: unknown;
-        parent_id?: unknown;
-      }
-    | null;
-
-  throw new TodoEngineApiError(
+  throw decodeApiError(
+    await response.json().catch(() => null),
     response.status,
-    typeof body?.code === "string" ? body.code : "internal_error",
-    typeof body?.detail === "string"
-      ? body.detail
-      : `Raven ToDo API returned ${response.status}`,
-    typeof body?.parent_horizon === "string" ? body.parent_horizon : undefined,
-    typeof body?.child_horizon === "string" ? body.child_horizon : undefined,
-    typeof body?.horizon === "string" ? body.horizon : undefined,
-    typeof body?.scheduled === "string" ? body.scheduled : undefined,
-    typeof body?.parent_id === "string" ? body.parent_id : undefined,
   );
 }
 

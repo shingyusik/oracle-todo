@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { promises as fs } from "node:fs";
 
 import packageJson from "../../package.json";
 
@@ -12,5 +13,15 @@ describe("frontend package scripts", () => {
       typecheck: "tsc --noEmit",
     });
     expect(packageJson.scripts).not.toHaveProperty("dev:with-api");
+  });
+
+  it("documents only active Raven runtime environment names", async () => {
+    const example = await fs.readFile("../.env.example", "utf8");
+
+    expect(example).toContain("RAVEN_HOME=/path/to/raven-data");
+    expect(example).toContain("RAVEN_CONSOLE_LOG=info");
+    expect(example).not.toContain("TODO_ENGINE_");
+    expect(example).not.toContain("DEV_UI_PORT");
+    expect(example).not.toContain("DEV_API_PORT");
   });
 });

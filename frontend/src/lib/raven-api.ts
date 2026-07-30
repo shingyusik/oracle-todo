@@ -95,33 +95,38 @@ export async function requestJson(
   }
 
   if (!response.ok) {
-    try {
-      const value = record(body, "error");
-      const fieldsValue = record(value.fields, "error.fields");
-      const fields = Object.fromEntries(Object.entries(fieldsValue).map(([key, item]) => {
-        if (!/^[a-z0-9_]{1,64}$/.test(key)) throw boundary("error.fields");
-        const messages = array(item, `error.fields.${key}`);
-        if (messages.length === 0 || messages.length > 16) throw boundary("error.fields");
-        return [key, messages.map((message) => {
-          const decoded = string(message, `error.fields.${key}`);
-          if (decoded.length === 0 || decoded.length > 256) throw boundary("error.fields");
-          return decoded;
-        })];
-      }));
-      const requestId = uuid(value.request_id, "error.request_id");
-      throw new RavenApiError(
-        string(value.code, "error.code"),
-        string(value.message, "error.message"),
-        fields,
-        requestId,
-        response.status,
-      );
-    } catch (cause) {
-      if (cause instanceof RavenApiError) throw cause;
-      throw new RavenTransportError("protocol", response.status);
-    }
+    throw decodeApiError(body, response.status);
   }
   return decode ? decode(body) : body;
+}
+
+export function decodeApiError(body: unknown, status: number): RavenApiError {
+  try {
+    const value = record(body, "error");
+    const fieldsValue = record(value.fields, "error.fields");
+    const fields = Object.fromEntries(Object.entries(fieldsValue).map(([key, item]) => {
+      if (!/^[a-z0-9_]{1,64}$/.test(key)) throw boundary("error.fields");
+      const messages = array(item, `error.fields.${key}`);
+      if (messages.length === 0 || messages.length > 16) throw boundary("error.fields");
+      return [key, messages.map((message) => {
+        const decoded = string(message, `error.fields.${key}`);
+        if (decoded.length === 0 || decoded.length > 256) throw boundary("error.fields");
+        return decoded;
+      })];
+    }));
+    return new RavenApiError(
+      string(value.code, "error.code"),
+      string(value.message, "error.message"),
+      fields,
+      uuid(value.request_id, "error.request_id"),
+      status,
+    );
+  } catch (cause) {
+    if (cause instanceof RavenTransportError) {
+      throw new RavenTransportError("protocol", status);
+    }
+    throw cause;
+  }
 }
 
 export function jsonRequest(method: string, body?: JsonRoot): RequestInit {

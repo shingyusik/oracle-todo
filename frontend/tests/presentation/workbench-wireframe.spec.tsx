@@ -3713,8 +3713,10 @@ describe("WorkbenchPageClient", () => {
           ok: false,
           status: 400,
           json: async () => ({
-            code: "policy_error",
-            detail: "Cannot reopen task in status active",
+            code: "validation_error",
+            message: "The request is invalid.",
+            fields: {},
+            request_id: "00000000-0000-4000-8000-000000000003",
           }),
         } as Response);
       }
@@ -3735,7 +3737,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(await screen.findByRole("checkbox", { name: "Reopen Completed task" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Cannot reopen task in status active",
+      "The request is invalid.",
     );
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
   });
@@ -3805,10 +3807,15 @@ describe("WorkbenchPageClient", () => {
     resolveFailure({
       ok: false,
       status: 400,
-      json: async () => ({ code: "policy_error", detail: "Shared transition failed" }),
+      json: async () => ({
+        code: "validation_error",
+        message: "The request is invalid.",
+        fields: {},
+        request_id: "00000000-0000-4000-8000-000000000004",
+      }),
     } as Response);
     expect(await screen.findAllByRole("alert")).toHaveLength(2);
-    expect(screen.getAllByRole("alert")[0]).toHaveTextContent("Shared transition failed");
+    expect(screen.getAllByRole("alert")[0]).toHaveTextContent("The request is invalid.");
     expect(screen.getAllByRole("checkbox", { name: "Complete Shared task" })[0]).not.toBeChecked();
 
     await user.click(screen.getAllByRole("checkbox", { name: "Complete Shared task" })[0]);
@@ -6163,10 +6170,10 @@ describe("WorkbenchPageClient", () => {
             ok: false,
             status: 400,
             json: async () => ({
-              code: "goal_invalid_anchor",
-              detail: "Goal anchor is invalid",
-              horizon: "month",
-              scheduled: "2026-07-01",
+              code: "validation_error",
+              message: "The request is invalid.",
+              fields: {},
+              request_id: "00000000-0000-4000-8000-000000000005",
             }),
           });
         }
@@ -6210,7 +6217,7 @@ describe("WorkbenchPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Goal anchor is invalid");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The request is invalid.");
     expect(screen.getByRole("dialog", { name: "Create Goals item" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Career");
     expect(trigger).toHaveTextContent(/^Month · July 2026$/);
@@ -7880,10 +7887,10 @@ describe("WorkbenchPageClient", () => {
           ok: false,
           status: 400,
           json: async () => ({
-            code: "goal_parent_horizon_not_coarser",
-            detail: "opaque server detail",
-            parent_horizon: "month",
-            child_horizon: "year",
+            code: "validation_error",
+            message: "Request validation failed.",
+            fields: {},
+            request_id: "00000000-0000-4000-8000-000000000001",
           }),
         });
       }
@@ -7930,9 +7937,7 @@ describe("WorkbenchPageClient", () => {
       await screen.findByRole("dialog", { name: "Year로 변경할 수 없음" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "현재 Parent 기간은 Month이고, 요청한 Goal 기간은 Year입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.",
-      ),
+      screen.getByText("기간을 변경하지 못했습니다. 다시 시도해 주세요."),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "확인" }));
@@ -7941,7 +7946,7 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("shows equal parent and requested horizon labels from structured error metadata", async () => {
+  it("uses the requested horizon when normalized validation metadata is absent", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
@@ -7953,10 +7958,10 @@ describe("WorkbenchPageClient", () => {
           ok: false,
           status: 400,
           json: async () => ({
-            code: "goal_parent_horizon_not_coarser",
-            detail: "opaque server detail",
-            parent_horizon: "month",
-            child_horizon: "month",
+            code: "validation_error",
+            message: "Request validation failed.",
+            fields: { horizon: ["invalid"] },
+            request_id: "00000000-0000-4000-8000-000000000002",
           }),
         });
       }
@@ -8003,9 +8008,7 @@ describe("WorkbenchPageClient", () => {
       await screen.findByRole("dialog", { name: "Month로 변경할 수 없음" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "현재 Parent 기간은 Month이고, 요청한 Goal 기간은 Month입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.",
-      ),
+      screen.getByText("기간을 변경하지 못했습니다. 다시 시도해 주세요."),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "확인" }));
@@ -8714,8 +8717,10 @@ describe("WorkbenchPageClient", () => {
           ok: false,
           status: 400,
           json: async () => ({
-            code: "policy_violation",
-            detail: "Routine is not eligible for materialization",
+            code: "validation_error",
+            message: "The request is invalid.",
+            fields: {},
+            request_id: "00000000-0000-4000-8000-000000000006",
           }),
         });
       }
@@ -8744,10 +8749,8 @@ describe("WorkbenchPageClient", () => {
     await user.type(screen.getByLabelText("Future occurrences"), "7");
     await user.click(screen.getByRole("button", { name: "Materialize" }));
 
-    // The service owns the active-routine rule; the panel surfaces its wording
-    // rather than reimplementing the check.
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Routine is not eligible for materialization",
+      "The request is invalid.",
     );
   });
 

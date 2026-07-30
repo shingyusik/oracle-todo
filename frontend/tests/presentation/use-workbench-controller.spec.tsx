@@ -2466,7 +2466,7 @@ describe("useWorkbenchController", () => {
       })).rejects.toMatchObject({
         status: 400,
         code: "validation_error",
-        detail: "Event is not allowed for weekly.week-goals.",
+        message: "Event is not allowed for weekly.week-goals.",
       });
     });
 
@@ -3201,7 +3201,9 @@ describe("useWorkbenchController", () => {
                 status: 400,
                 json: async () => ({
                   code: "validation_error",
-                  detail: "scheduled must be in the future",
+                  message: "scheduled must be in the future",
+                  fields: { scheduled: ["must be in the future"] },
+                  request_id: "00000000-0000-4000-8000-000000000001",
                 }),
               }
             : { ok: true, json: async () => [] },

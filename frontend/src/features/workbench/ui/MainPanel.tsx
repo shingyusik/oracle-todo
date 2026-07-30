@@ -22,7 +22,7 @@ import { useHealthController } from "@/features/health/hooks/useHealthController
 import { HealthPanel } from "@/features/health/ui/HealthPanel";
 import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
-import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
+import { RavenApiError } from "@/lib/raven-api";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
   buildPlannerGroupCandidates,
@@ -2727,8 +2727,8 @@ function RoutineMaterializeField({
       );
     } catch (cause) {
       setError(
-        cause instanceof TodoEngineApiError
-          ? cause.detail
+        cause instanceof RavenApiError
+          ? cause.message
           : "Could not materialize routine.",
       );
     } finally {
@@ -2898,10 +2898,7 @@ type GoalPeriodControlProps = {
 };
 
 type GoalPeriodCommitError = {
-  code: string;
   attemptedHorizon: GoalHorizon;
-  parentHorizon?: GoalHorizon;
-  childHorizon?: GoalHorizon;
 };
 
 function GoalPeriodControl({
@@ -3018,17 +3015,10 @@ function GoalPeriodControl({
       });
       close(true);
     } catch (error) {
-      if (error instanceof TodoEngineApiError) {
+      if (error instanceof RavenApiError) {
         close(false);
         setCommitError({
-          code: error.code,
           attemptedHorizon: candidateHorizon,
-          parentHorizon: isGoalHorizon(error.parentHorizon)
-            ? error.parentHorizon
-            : undefined,
-          childHorizon: isGoalHorizon(error.childHorizon)
-            ? error.childHorizon
-            : undefined,
         });
         return;
       }
@@ -3037,7 +3027,7 @@ function GoalPeriodControl({
     }
   }
 
-  const requestedHorizon = commitError?.childHorizon ?? commitError?.attemptedHorizon;
+  const requestedHorizon = commitError?.attemptedHorizon;
   const commitErrorTitle = requestedHorizon
     ? `${goalHorizonLabel(requestedHorizon)}로 변경할 수 없음`
     : "";
@@ -3185,18 +3175,6 @@ function goalPeriodCommitErrorMessage(
 ): string {
   if (!commitError) {
     return "";
-  }
-
-  if (
-    commitError.code === "goal_parent_horizon_not_coarser" &&
-    commitError.parentHorizon &&
-    commitError.childHorizon
-  ) {
-    return `현재 Parent 기간은 ${goalHorizonLabel(commitError.parentHorizon)}이고, 요청한 Goal 기간은 ${goalHorizonLabel(commitError.childHorizon)}입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.`;
-  }
-
-  if (commitError.code === "goal_invalid_anchor") {
-    return "선택한 기간과 맞지 않는 날짜입니다. 다시 선택해 주세요.";
   }
 
   return "기간을 변경하지 못했습니다. 다시 시도해 주세요.";
@@ -4330,8 +4308,8 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
       });
     } catch (error) {
       setSubmitError(
-        error instanceof TodoEngineApiError
-          ? error.detail
+        error instanceof RavenApiError
+          ? error.message
           : "항목을 생성하지 못했습니다. 다시 시도해 주세요.",
       );
     } finally {
