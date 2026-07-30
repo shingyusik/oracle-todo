@@ -1764,19 +1764,26 @@ button {
   position: relative;
 }
 
-.markdown-note-surface,
-.markdown-note-input {
+.markdown-note-surface {
   width: 100%;
   border: 1px solid transparent;
   border-radius: var(--radius-xs);
   background: transparent;
   color: var(--color-ink);
-}
-
-.markdown-note-surface {
   min-height: 180px;
   padding: 18px 44px 18px 0;
   cursor: text;
+}
+
+.markdown-note-line,
+.markdown-note-line-input {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.65;
 }
 
 .markdown-note-surface:hover {
@@ -1784,7 +1791,8 @@ button {
 }
 
 .markdown-note-edit-button:focus-visible,
-.markdown-note-input:focus {
+.markdown-note-line:focus-visible,
+.markdown-note-line-input:focus-visible {
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
 }
@@ -1809,12 +1817,8 @@ button {
   color: var(--color-ink);
 }
 
-.markdown-note-input {
-  min-height: 260px;
-  padding: 18px;
-  resize: vertical;
-  font: inherit;
-  line-height: 1.65;
+.markdown-note-line--checked {
+  text-decoration: line-through;
 }
 
 .markdown-note-placeholder {
@@ -2581,10 +2585,6 @@ button {
 
   .markdown-note-surface {
     min-height: 140px;
-  }
-
-  .markdown-note-input {
-    min-height: 220px;
   }
 }
 
