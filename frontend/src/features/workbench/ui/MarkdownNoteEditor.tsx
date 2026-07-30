@@ -25,14 +25,14 @@ export function MarkdownNoteEditor({ value, onChange }: MarkdownNoteEditorProps)
   }
 
   return (
-    <div className="markdown-note-rendered">
+    <div className="markdown-note-rendered markdown-note-surface">
       {lines.map((line, index) =>
         editingLine === index ? (
           <textarea
             key={index}
             autoFocus
             rows={1}
-            className="markdown-note-input"
+            className="markdown-note-line-input"
             aria-label={`Markdown note line ${index + 1}`}
             value={line}
             onBlur={() => setEditingLine(null)}
@@ -47,7 +47,7 @@ export function MarkdownNoteEditor({ value, onChange }: MarkdownNoteEditorProps)
         ) : (
           <div
             key={index}
-            className={`markdown-note-surface markdown-note-line${
+            className={`markdown-note-line${
               /^- \[[xX]\](?:\s|$)/.test(line) ? " markdown-note-line--checked" : ""
             }`}
             role="button"

@@ -34,6 +34,23 @@ describe("MarkdownNoteEditor", () => {
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
 
+  it("keeps one Markdown surface with line-specific styling hooks", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <MarkdownNoteEditor value={"First\nSecond"} onChange={vi.fn()} />,
+    );
+
+    const surfaces = container.querySelectorAll(".markdown-note-surface");
+    expect(surfaces).toHaveLength(1);
+    expect(surfaces[0].querySelectorAll(".markdown-note-line")).toHaveLength(2);
+
+    await user.click(screen.getByText("First"));
+    const input = screen.getByRole("textbox", { name: "Markdown note line 1" });
+    expect(input).toHaveClass("markdown-note-line-input");
+    expect(input).not.toHaveClass("markdown-note-input");
+    expect(surfaces[0]).toContainElement(input);
+  });
+
   it("edits a rendered line by pointer and renders it again on blur", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
