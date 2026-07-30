@@ -12,14 +12,16 @@ use crate::application::media::{
     validate_media_relative_path,
 };
 
+#[cfg(unix)]
 const MAX_TEMP_NAME_ATTEMPTS: usize = 8;
+const MAX_RECOVERY_JOURNAL_BYTES: u64 = 4096;
 
 #[derive(Debug)]
 pub struct LocalMediaStore {
-    #[cfg_attr(unix, allow(dead_code))]
+    #[cfg_attr(any(unix, windows), allow(dead_code))]
     root: PathBuf,
     max_bytes: u64,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     directory: Arc<File>,
 }
 
@@ -32,14 +34,16 @@ impl LocalMediaStore {
         validate_max_bytes(max_bytes)?;
         #[cfg(unix)]
         let (root, directory) = prepare_root_unix_with_hook(root.as_ref(), |_| {})?;
-        #[cfg(unix)]
+        #[cfg(windows)]
+        let (root, directory) = prepare_root_windows(root.as_ref())?;
+        #[cfg(any(unix, windows))]
         let directory = Arc::new(directory);
-        #[cfg(not(unix))]
-        let root = prepare_root_portable(root.as_ref())?;
+        #[cfg(not(any(unix, windows)))]
+        let root = prepare_root_unsupported(root.as_ref())?;
         Ok(Self {
             root,
             max_bytes,
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             directory,
         })
     }
@@ -49,51 +53,138 @@ impl LocalMediaStore {
     }
 
     pub fn list_recoveries(&self) -> HealthResult<Vec<MediaRecovery>> {
-        let mut recoveries = Vec::new();
-        for entry in fs::read_dir(&self.root)
-            .map_err(|error| media_storage_error("could not list media recoveries", &error))?
+        #[cfg(unix)]
         {
-            let entry = entry
-                .map_err(|error| media_storage_error("could not read media recovery", &error))?;
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else {
-                continue;
-            };
-            if !name.starts_with(".raven-recovery-") || !name.ends_with(".json") {
-                continue;
-            }
-            let metadata = fs::symlink_metadata(entry.path())
-                .map_err(|error| media_storage_error("could not inspect media recovery", &error))?;
-            if !metadata.file_type().is_file() {
-                return Err(HealthError::Storage(
-                    "media recovery journal must be a regular file".to_string(),
-                ));
-            }
-            let mut bytes = Vec::new();
-            File::open(entry.path())
-                .and_then(|mut file| file.read_to_end(&mut bytes))
-                .map_err(|error| media_storage_error("could not read media recovery", &error))?;
-            let recovery: MediaRecovery = serde_json::from_slice(&bytes)
-                .map_err(|_| HealthError::Storage("invalid media recovery journal".to_string()))?;
-            recovery.validate()?;
-            if recovery.journal_name() != Path::new(name) {
-                return Err(HealthError::Storage(
-                    "media recovery journal name does not match its contents".to_string(),
-                ));
-            }
-            recoveries.push(recovery);
+            list_recoveries_unix(&self.directory)
         }
-        recoveries.sort_by(|left, right| left.media_id().cmp(right.media_id()));
-        Ok(recoveries)
+        #[cfg(windows)]
+        {
+            list_recoveries_windows(&self.root, &self.directory)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            list_recoveries_unsupported(&self.root)
+        }
     }
 }
 
+fn decode_recovery(name: &str, bytes: &[u8]) -> HealthResult<MediaRecovery> {
+    if bytes.len() as u64 > MAX_RECOVERY_JOURNAL_BYTES {
+        return Err(HealthError::Storage(
+            "media recovery journal exceeds the size limit".to_string(),
+        ));
+    }
+    let recovery: MediaRecovery = serde_json::from_slice(bytes)
+        .map_err(|_| HealthError::Storage("invalid media recovery journal".to_string()))?;
+    recovery.validate()?;
+    if recovery.journal_name() != Path::new(name) {
+        return Err(HealthError::Storage(
+            "media recovery journal name does not match its contents".to_string(),
+        ));
+    }
+    Ok(recovery)
+}
+
 #[cfg(unix)]
+fn list_recoveries_unix(directory: &File) -> HealthResult<Vec<MediaRecovery>> {
+    let entries = rustix::fs::Dir::read_from(directory).map_err(|error| {
+        media_storage_error(
+            "could not open media recoveries",
+            &std::io::Error::from(error),
+        )
+    })?;
+    let mut recoveries = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            media_storage_error(
+                "could not list media recoveries",
+                &std::io::Error::from(error),
+            )
+        })?;
+        let Ok(name) = entry.file_name().to_str() else {
+            continue;
+        };
+        if !name.starts_with(".raven-recovery-") || !name.ends_with(".json") {
+            continue;
+        }
+        let descriptor = rustix::fs::openat(
+            directory,
+            entry.file_name(),
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+        .map_err(|error| {
+            media_storage_error(
+                "could not safely open media recovery",
+                &std::io::Error::from(error),
+            )
+        })?;
+        let metadata = rustix::fs::fstat(&descriptor).map_err(|error| {
+            media_storage_error(
+                "could not inspect media recovery",
+                &std::io::Error::from(error),
+            )
+        })?;
+        if rustix::fs::FileType::from_raw_mode(metadata.st_mode)
+            != rustix::fs::FileType::RegularFile
+        {
+            return Err(HealthError::Storage(
+                "media recovery journal must be a regular file".to_string(),
+            ));
+        }
+        let mut bytes = Vec::new();
+        File::from(descriptor)
+            .take(MAX_RECOVERY_JOURNAL_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| media_storage_error("could not read media recovery", &error))?;
+        recoveries.push(decode_recovery(name, &bytes)?);
+    }
+    recoveries.sort_by(|left, right| left.media_id().cmp(right.media_id()));
+    Ok(recoveries)
+}
+
+#[cfg(windows)]
+fn list_recoveries_windows(root: &Path, directory: &File) -> HealthResult<Vec<MediaRecovery>> {
+    let _root_guard = lock_root_windows(root, directory)?;
+    let mut recoveries = Vec::new();
+    for entry in fs::read_dir(root)
+        .map_err(|error| media_storage_error("could not list media recoveries", &error))?
+    {
+        let entry =
+            entry.map_err(|error| media_storage_error("could not read media recovery", &error))?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with(".raven-recovery-") || !name.ends_with(".json") {
+            continue;
+        }
+        let file = open_regular_windows(&entry.path(), "media recovery journal")?;
+        let mut bytes = Vec::new();
+        std::io::Read::take(file, MAX_RECOVERY_JOURNAL_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| media_storage_error("could not read media recovery", &error))?;
+        recoveries.push(decode_recovery(name, &bytes)?);
+    }
+    recoveries.sort_by(|left, right| left.media_id().cmp(right.media_id()));
+    Ok(recoveries)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn list_recoveries_unsupported(_root: &Path) -> HealthResult<Vec<MediaRecovery>> {
+    Err(HealthError::Storage(
+        "secure media recovery requires directory-handle support on this platform".to_string(),
+    ))
+}
+
+#[cfg(unix)]
+#[must_use = "staged media must be finalized or explicitly aborted"]
 #[derive(Debug)]
 pub struct LocalStagedMedia {
     directory: Arc<File>,
     temporary_name: String,
     stored: StoredMedia,
+    recovery: MediaRecovery,
     finalized: bool,
 }
 
@@ -106,22 +197,63 @@ impl LocalStagedMedia {
 #[cfg(unix)]
 impl Drop for LocalStagedMedia {
     fn drop(&mut self) {
-        if !self.finalized {
-            let _ = rustix::fs::unlinkat(
-                &*self.directory,
-                self.temporary_name.as_str(),
-                rustix::fs::AtFlags::empty(),
-            );
+        if !self.finalized
+            && matches!(
+                rustix::fs::unlinkat(
+                    &*self.directory,
+                    self.temporary_name.as_str(),
+                    rustix::fs::AtFlags::empty(),
+                ),
+                Ok(()) | Err(rustix::io::Errno::NOENT)
+            )
+        {
+            let _ = unlink_recovery_unix(&self.directory, &self.recovery);
         }
     }
 }
 
 #[cfg(not(unix))]
+impl Drop for LocalStagedMedia {
+    fn drop(&mut self) {
+        let Some(temporary) = self.temporary.take() else {
+            return;
+        };
+        if temporary.close().is_ok() {
+            let _ = remove_recovery_portable(&self.root, &self.recovery);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn remove_staged_unix(staged: &mut LocalStagedMedia) -> HealthResult<()> {
+    match rustix::fs::unlinkat(
+        &*staged.directory,
+        staged.temporary_name.as_str(),
+        rustix::fs::AtFlags::empty(),
+    ) {
+        Ok(()) | Err(rustix::io::Errno::NOENT) => {
+            staged.finalized = true;
+            unlink_recovery_unix(&staged.directory, &staged.recovery)
+        }
+        Err(error) => Err(HealthError::Cleanup {
+            primary: Box::new(HealthError::Storage(
+                "could not cancel staged media".to_string(),
+            )),
+            cleanup: safe_io_summary(&std::io::Error::from(error)),
+            recovery: Some(Box::new(staged.recovery.clone())),
+            cleanup_path: Some(Box::new(PathBuf::from(&staged.temporary_name))),
+        }),
+    }
+}
+
+#[cfg(not(unix))]
+#[must_use = "staged media must be finalized or explicitly aborted"]
 #[derive(Debug)]
 pub struct LocalStagedMedia {
     root: PathBuf,
     temporary: Option<tempfile::NamedTempFile>,
     stored: StoredMedia,
+    recovery: MediaRecovery,
 }
 
 impl MediaStore for LocalMediaStore {
@@ -142,6 +274,7 @@ impl MediaStore for LocalMediaStore {
             mime_type: format.mime_type().to_string(),
             byte_size,
             checksum_sha256,
+            recovery_staged_path: None,
         };
         self.stage_bytes(bytes, stored)
     }
@@ -150,16 +283,14 @@ impl MediaStore for LocalMediaStore {
         #[cfg(unix)]
         {
             if !Arc::ptr_eq(&self.directory, &staged.directory) {
+                let recovery = staged.recovery.clone();
                 let primary = HealthError::Validation {
                     field: "media.staged",
                     message: "belongs to a different media store".to_string(),
                 };
-                return Err(cleanup_staged_unix(&mut staged, primary, None));
+                return Err(cleanup_staged_unix(&mut staged, primary, Some(&recovery)));
             }
-            let recovery = MediaRecovery::for_media(&staged.stored);
-            if let Err(primary) = write_recovery_unix(&self.directory, &recovery) {
-                return Err(cleanup_staged_unix(&mut staged, primary, None));
-            }
+            let recovery = staged.recovery.clone();
             let result = atomic_finalize_unix(
                 &self.directory,
                 &staged.temporary_name,
@@ -183,33 +314,15 @@ impl MediaStore for LocalMediaStore {
 
         #[cfg(not(unix))]
         {
+            #[cfg(windows)]
+            let _root_guard = lock_root_windows(&self.root, &self.directory)?;
             if self.root != staged.root {
                 return Err(HealthError::Validation {
                     field: "media.staged",
                     message: "belongs to a different media store".to_string(),
                 });
             }
-            let recovery = MediaRecovery::for_media(&staged.stored);
-            if let Err(primary) = write_recovery_portable(&self.root, &recovery) {
-                let cleanup = staged
-                    .temporary
-                    .take()
-                    .ok_or_else(|| HealthError::Storage("staged media is unavailable".to_string()))
-                    .and_then(|file| {
-                        file.close().map_err(|error| {
-                            media_storage_error("could not remove staged media", &error)
-                        })
-                    });
-                return Err(match cleanup {
-                    Ok(()) => primary,
-                    Err(cleanup) => HealthError::Cleanup {
-                        primary: Box::new(primary),
-                        cleanup: safe_error_text(&cleanup),
-                        recovery: None,
-                        cleanup_path: None,
-                    },
-                });
-            }
+            let recovery = staged.recovery.clone();
             let target = self.root.join(&staged.stored.relative_path);
             let temporary = staged
                 .temporary
@@ -233,7 +346,7 @@ impl MediaStore for LocalMediaStore {
                             },
                         });
                     }
-                    Ok(staged.stored)
+                    Ok(staged.stored.clone())
                 }
                 Err(error) => {
                     let tempfile::PersistError { error, file } = error;
@@ -242,19 +355,70 @@ impl MediaStore for LocalMediaStore {
                     } else {
                         media_storage_error("could not atomically finalize staged media", &error)
                     };
+                    let cleanup_path = file.path().to_path_buf();
                     match file.close() {
-                        Ok(()) => Err(primary),
+                        Ok(()) => match remove_recovery_portable(&self.root, &recovery) {
+                            Ok(()) => Err(primary),
+                            Err(cleanup) => Err(HealthError::Cleanup {
+                                primary: Box::new(primary),
+                                cleanup: safe_error_text(&cleanup),
+                                recovery: Some(Box::new(recovery.clone())),
+                                cleanup_path: Some(Box::new(cleanup_path)),
+                            }),
+                        },
                         Err(cleanup) => Err(HealthError::Cleanup {
                             primary: Box::new(primary),
                             cleanup: safe_io_summary(&cleanup),
                             recovery: Some(Box::new(recovery.clone())),
-                            cleanup_path: staged
-                                .temporary
-                                .as_ref()
-                                .map(|file| Box::new(file.path().to_path_buf())),
+                            cleanup_path: Some(Box::new(cleanup_path)),
                         }),
                     }
                 }
+            }
+        }
+    }
+
+    fn abort(&self, mut staged: Self::Staged) -> HealthResult<()> {
+        #[cfg(unix)]
+        {
+            if !Arc::ptr_eq(&self.directory, &staged.directory) {
+                let recovery = staged.recovery.clone();
+                return Err(cleanup_staged_unix(
+                    &mut staged,
+                    HealthError::Validation {
+                        field: "media.staged",
+                        message: "belongs to a different media store".to_string(),
+                    },
+                    Some(&recovery),
+                ));
+            }
+            abort_staged_unix(&mut staged)
+        }
+        #[cfg(not(unix))]
+        {
+            #[cfg(windows)]
+            let _root_guard = lock_root_windows(&self.root, &self.directory)?;
+            if self.root != staged.root {
+                return Err(HealthError::Validation {
+                    field: "media.staged",
+                    message: "belongs to a different media store".to_string(),
+                });
+            }
+            let temporary = staged
+                .temporary
+                .take()
+                .ok_or_else(|| HealthError::Storage("staged media is unavailable".to_string()))?;
+            let cleanup_path = temporary.path().to_path_buf();
+            match temporary.close() {
+                Ok(()) => remove_recovery_portable(&self.root, &staged.recovery),
+                Err(error) => Err(HealthError::Cleanup {
+                    primary: Box::new(HealthError::Storage(
+                        "could not cancel staged media".to_string(),
+                    )),
+                    cleanup: safe_io_summary(&error),
+                    recovery: Some(Box::new(staged.recovery.clone())),
+                    cleanup_path: Some(Box::new(cleanup_path)),
+                }),
             }
         }
     }
@@ -270,6 +434,8 @@ impl MediaStore for LocalMediaStore {
         }
         #[cfg(not(unix))]
         {
+            #[cfg(windows)]
+            let _root_guard = lock_root_windows(&self.root, &self.directory)?;
             remove_recovery_portable(&self.root, &recovery)
         }
     }
@@ -342,6 +508,9 @@ impl MediaStore for LocalMediaStore {
 
         #[cfg(not(unix))]
         {
+            #[cfg(windows)]
+            let _parent_guards =
+                lock_media_parents_windows(&self.root, &self.directory, relative_path)?;
             let target = self.root.join(relative_path);
             match fs::symlink_metadata(&target) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -373,7 +542,7 @@ impl MediaStore for LocalMediaStore {
 
 impl LocalMediaStore {
     #[cfg(unix)]
-    fn stage_bytes(&self, bytes: &[u8], stored: StoredMedia) -> HealthResult<LocalStagedMedia> {
+    fn stage_bytes(&self, bytes: &[u8], mut stored: StoredMedia) -> HealthResult<LocalStagedMedia> {
         for _ in 0..MAX_TEMP_NAME_ATTEMPTS {
             let temporary_name = format!(".raven-upload-{}.tmp", Uuid::new_v4());
             let descriptor = match rustix::fs::openat(
@@ -414,12 +583,19 @@ impl LocalMediaStore {
                     },
                 });
             }
-            return Ok(LocalStagedMedia {
+            stored.recovery_staged_path = Some(PathBuf::from(&temporary_name));
+            let recovery = MediaRecovery::for_media(&stored);
+            let mut staged = LocalStagedMedia {
                 directory: Arc::clone(&self.directory),
                 temporary_name,
                 stored,
+                recovery: recovery.clone(),
                 finalized: false,
-            });
+            };
+            if let Err(primary) = write_recovery_unix(&self.directory, &recovery) {
+                return Err(cleanup_staged_unix(&mut staged, primary, Some(&recovery)));
+            }
+            return Ok(staged);
         }
         Err(HealthError::Conflict(
             "could not allocate a unique staged media path".to_string(),
@@ -427,18 +603,35 @@ impl LocalMediaStore {
     }
 
     #[cfg(not(unix))]
-    fn stage_bytes(&self, bytes: &[u8], stored: StoredMedia) -> HealthResult<LocalStagedMedia> {
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.root)
+    fn stage_bytes(&self, bytes: &[u8], mut stored: StoredMedia) -> HealthResult<LocalStagedMedia> {
+        #[cfg(windows)]
+        let _root_guard = lock_root_windows(&self.root, &self.directory)?;
+        let mut temporary = tempfile::Builder::new()
+            .prefix(".raven-upload-")
+            .suffix(".tmp")
+            .tempfile_in(&self.root)
             .map_err(|error| media_storage_error("could not create staged media", &error))?;
         temporary
             .write_all(bytes)
             .and_then(|()| temporary.as_file().sync_all())
             .map_err(|error| media_storage_error("could not write staged media", &error))?;
-        Ok(LocalStagedMedia {
+        let staged_path = temporary
+            .path()
+            .file_name()
+            .ok_or_else(invalid_media_relative_path)?
+            .into();
+        stored.recovery_staged_path = Some(staged_path);
+        let recovery = MediaRecovery::for_media(&stored);
+        let mut staged = LocalStagedMedia {
             root: self.root.clone(),
             temporary: Some(temporary),
             stored,
-        })
+            recovery,
+        };
+        if let Err(primary) = write_recovery_portable(&self.root, &staged.recovery) {
+            return Err(cleanup_staged_portable(&mut staged, primary));
+        }
+        Ok(staged)
     }
 }
 
@@ -472,6 +665,45 @@ fn cleanup_staged_unix(
         cleanup: safe_io_summary(&std::io::Error::from(temporary.unwrap_err())),
         recovery: recovery.cloned().map(Box::new),
         cleanup_path: Some(Box::new(PathBuf::from(&staged.temporary_name))),
+    }
+}
+
+#[cfg(unix)]
+fn abort_staged_unix(staged: &mut LocalStagedMedia) -> HealthResult<()> {
+    remove_staged_unix(staged)
+}
+
+#[cfg(not(unix))]
+fn cleanup_staged_portable(staged: &mut LocalStagedMedia, primary: HealthError) -> HealthError {
+    let cleanup_path = staged
+        .temporary
+        .as_ref()
+        .map(|file| file.path().to_path_buf())
+        .or_else(|| staged.recovery.staged_path().map(Path::to_path_buf));
+    let temporary = staged
+        .temporary
+        .take()
+        .ok_or_else(|| HealthError::Storage("staged media is unavailable".to_string()))
+        .and_then(|file| {
+            file.close()
+                .map_err(|error| media_storage_error("could not remove staged media", &error))
+        });
+    let journal = remove_recovery_portable(&staged.root, &staged.recovery);
+    match (temporary, journal) {
+        (Ok(()), Ok(())) => primary,
+        (temporary, journal) => HealthError::Cleanup {
+            primary: Box::new(primary),
+            cleanup: match (temporary.err(), journal.err()) {
+                (Some(_), Some(_)) => {
+                    "staged media and its recovery journal could not be removed".to_string()
+                }
+                (Some(_), None) => "staged media could not be removed".to_string(),
+                (None, Some(_)) => "media recovery journal could not be removed".to_string(),
+                (None, None) => unreachable!(),
+            },
+            recovery: Some(Box::new(staged.recovery.clone())),
+            cleanup_path: cleanup_path.map(Box::new),
+        },
     }
 }
 
@@ -615,6 +847,7 @@ fn recovery_for_path(relative_path: &Path) -> HealthResult<MediaRecovery> {
         mime_type: String::new(),
         byte_size: 0,
         checksum_sha256: "0".repeat(64),
+        recovery_staged_path: None,
     };
     Ok(MediaRecovery::for_media(&stored))
 }
@@ -874,8 +1107,168 @@ fn normalize_root_anchor(root: &Path) -> HealthResult<PathBuf> {
     Ok(normalized)
 }
 
-#[cfg(not(unix))]
-fn prepare_root_portable(_root: &Path) -> HealthResult<PathBuf> {
+#[cfg(windows)]
+fn prepare_root_windows(root: &Path) -> HealthResult<(PathBuf, File)> {
+    let absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| media_storage_error("could not resolve current directory", &error))?
+            .join(root)
+    };
+    if absolute
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(HealthError::Validation {
+            field: "media.root",
+            message: "must not contain parent traversal".to_string(),
+        });
+    }
+
+    let mut current = PathBuf::new();
+    let mut guards = Vec::new();
+    for component in absolute.components() {
+        current.push(component.as_os_str());
+        if !matches!(component, Component::Normal(_)) {
+            continue;
+        }
+        match fs::create_dir(&current) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(media_storage_error(
+                    "could not create the media directory",
+                    &error,
+                ));
+            }
+        }
+        guards.push(open_directory_windows(&current)?);
+    }
+    let directory = guards.pop().ok_or_else(|| HealthError::Validation {
+        field: "media.root",
+        message: "must name a media directory".to_string(),
+    })?;
+    Ok((absolute, directory))
+}
+
+#[cfg(windows)]
+fn open_directory_windows(path: &Path) -> HealthResult<File> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+
+    let file = fs::OpenOptions::new()
+        .access_mode(0)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|error| media_storage_error("could not safely open media directory", &error))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| media_storage_error("could not inspect media directory", &error))?;
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(HealthError::Storage(
+            "configured media path crosses a reparse point or non-directory".to_string(),
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_regular_windows(path: &Path, label: &str) -> HealthResult<File> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|error| media_storage_error(&format!("could not safely open {label}"), &error))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| media_storage_error(&format!("could not inspect {label}"), &error))?;
+    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(HealthError::Storage(format!(
+            "{label} must be a regular non-reparse file"
+        )));
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn lock_root_windows(root: &Path, expected: &File) -> HealthResult<File> {
+    let actual = open_directory_windows(root)?;
+    if windows_file_identity(expected)? != windows_file_identity(&actual)? {
+        return Err(HealthError::Storage(
+            "configured media directory was replaced".to_string(),
+        ));
+    }
+    Ok(actual)
+}
+
+#[cfg(windows)]
+fn windows_file_identity(file: &File) -> HealthResult<(u32, u64)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: `file` owns a valid Windows handle and `information` is writable
+    // for the duration of the call.
+    let success = unsafe {
+        GetFileInformationByHandle(
+            file.as_raw_handle() as HANDLE,
+            std::ptr::addr_of_mut!(information),
+        )
+    };
+    if success == 0 {
+        return Err(media_storage_error(
+            "could not identify opened media directory",
+            &std::io::Error::last_os_error(),
+        ));
+    }
+    Ok((
+        information.dwVolumeSerialNumber,
+        u64::from(information.nFileIndexHigh) << 32 | u64::from(information.nFileIndexLow),
+    ))
+}
+
+#[cfg(windows)]
+fn lock_media_parents_windows(
+    root: &Path,
+    directory: &File,
+    relative_path: &Path,
+) -> HealthResult<Vec<File>> {
+    let mut guards = vec![lock_root_windows(root, directory)?];
+    let mut current = root.to_path_buf();
+    let mut components = relative_path.components().peekable();
+    while let Some(component) = components.next() {
+        if components.peek().is_none() {
+            break;
+        }
+        let Component::Normal(component) = component else {
+            return Err(invalid_media_relative_path());
+        };
+        current.push(component);
+        guards.push(open_directory_windows(&current)?);
+    }
+    Ok(guards)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn prepare_root_unsupported(_root: &Path) -> HealthResult<PathBuf> {
     Err(HealthError::Storage(
         "secure media storage requires directory-handle support on this platform".to_string(),
     ))
@@ -893,6 +1286,7 @@ fn validate_max_bytes(max_bytes: u64) -> HealthResult<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn invalid_relative_path() -> HealthError {
     invalid_media_relative_path()
 }

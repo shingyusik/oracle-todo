@@ -525,6 +525,7 @@ dependencies = [
  "unicode-casefold",
  "unicode-normalization",
  "uuid",
+ "windows-sys",
 ]
 
 [[package]]

@@ -181,6 +181,7 @@ pub(super) fn stored_media(record: MediaFileRecord) -> StoredMedia {
         mime_type: record.mime_type,
         byte_size: record.byte_size,
         checksum_sha256: record.checksum_sha256,
+        recovery_staged_path: None,
     }
 }
 

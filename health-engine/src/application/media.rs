@@ -14,6 +14,7 @@ pub struct StoredMedia {
     pub(crate) mime_type: String,
     pub(crate) byte_size: u64,
     pub(crate) checksum_sha256: String,
+    pub(crate) recovery_staged_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +23,8 @@ pub struct MediaRecovery {
     relative_path: PathBuf,
     journal_name: PathBuf,
     checksum_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    staged_path: Option<PathBuf>,
 }
 
 impl MediaRecovery {
@@ -41,12 +44,17 @@ impl MediaRecovery {
         &self.checksum_sha256
     }
 
+    pub fn staged_path(&self) -> Option<&Path> {
+        self.staged_path.as_deref()
+    }
+
     pub(crate) fn for_media(media: &StoredMedia) -> Self {
         Self {
             media_id: media.id.clone(),
             relative_path: media.relative_path.clone(),
             journal_name: PathBuf::from(format!(".raven-recovery-{}.json", media.id)),
             checksum_sha256: media.checksum_sha256.clone(),
+            staged_path: media.recovery_staged_path.clone(),
         }
     }
 
@@ -62,6 +70,20 @@ impl MediaRecovery {
         {
             return Err(HealthError::Storage(
                 "invalid media recovery journal".to_string(),
+            ));
+        }
+        if self.staged_path.as_ref().is_some_and(|path| {
+            let Some(name) = path.to_str() else {
+                return true;
+            };
+            path.is_absolute()
+                || name.contains('/')
+                || name.contains('\\')
+                || name.contains('\0')
+                || !name.starts_with(".raven-upload-")
+        }) {
+            return Err(HealthError::Storage(
+                "invalid staged media recovery path".to_string(),
             ));
         }
         Ok(())
@@ -95,6 +117,7 @@ pub trait MediaStore {
 
     fn stage(&self, content_type: &str, bytes: &[u8]) -> HealthResult<Self::Staged>;
     fn finalize(&self, staged: Self::Staged) -> HealthResult<StoredMedia>;
+    fn abort(&self, staged: Self::Staged) -> HealthResult<()>;
     fn confirm(&self, stored: &StoredMedia) -> HealthResult<()>;
     fn remove(&self, relative_path: &Path) -> HealthResult<()>;
 }

@@ -107,6 +107,45 @@ fn finalized_media_remains_recoverable_until_database_ownership_is_confirmed() {
     assert!(directory.path().join(stored.relative_path()).is_file());
 }
 
+#[cfg(unix)]
+#[test]
+fn recovery_listing_stays_bound_to_the_opened_root_after_path_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("media");
+    let moved = directory.path().join("original-media");
+    let store = LocalMediaStore::new(&root).unwrap();
+    let stored = store
+        .finalize(store.stage("image/png", PNG).unwrap())
+        .unwrap();
+
+    fs::rename(&root, &moved).unwrap();
+    fs::create_dir(&root).unwrap();
+
+    let recoveries = store.list_recoveries().unwrap();
+    assert_eq!(recoveries.len(), 1);
+    assert_eq!(recoveries[0].media_id(), stored.id());
+    assert!(moved.join(stored.relative_path()).is_file());
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_listing_rejects_journal_symlinks_without_following_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("media");
+    let store = LocalMediaStore::new(&root).unwrap();
+    let outside = directory.path().join("outside.json");
+    fs::write(&outside, br#"{"secret":"outside"}"#).unwrap();
+    let journal = root.join(format!(".raven-recovery-{}.json", Uuid::new_v4()));
+    symlink_file(&outside, &journal);
+
+    assert!(matches!(
+        store.list_recoveries(),
+        Err(HealthError::Storage(_))
+    ));
+    assert_eq!(fs::read(&outside).unwrap(), br#"{"secret":"outside"}"#);
+}
+
 #[test]
 fn enforces_exact_size_boundary_and_rejects_zero_or_overflowing_limits() {
     let exact_directory = tempfile::tempdir().unwrap();
@@ -210,6 +249,78 @@ fn explicit_finalize_cleanup_failure_reports_the_generated_temporary_path() {
     );
     assert!(first_directory.path().join(&cleanup_path).is_file());
     fs::remove_file(first_directory.path().join(cleanup_path)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_abort_reports_cleanup_identity_instead_of_hiding_unlink_failure() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = LocalMediaStore::new(directory.path()).unwrap();
+    let staged = store.stage("image/png", PNG).unwrap();
+    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o500)).unwrap();
+
+    let error = store.abort(staged).unwrap_err();
+
+    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let cleanup_path = match error {
+        HealthError::Cleanup {
+            cleanup_path: Some(path),
+            recovery: Some(recovery),
+            ..
+        } => {
+            assert_eq!(recovery.staged_path(), Some(path.as_path()));
+            *path
+        }
+        error => panic!("expected explicit staged cleanup failure, got {error:?}"),
+    };
+    assert!(!cleanup_path.is_absolute());
+    assert!(
+        cleanup_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".raven-upload-")
+    );
+    assert!(directory.path().join(&cleanup_path).is_file());
+    let recoveries = store.list_recoveries().unwrap();
+    assert_eq!(recoveries.len(), 1);
+    assert_eq!(recoveries[0].staged_path(), Some(cleanup_path.as_path()));
+    fs::remove_file(directory.path().join(cleanup_path)).unwrap();
+    fs::remove_file(directory.path().join(recoveries[0].journal_name())).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn staged_drop_failure_keeps_discoverable_cleanup_identity_without_panicking() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = LocalMediaStore::new(directory.path()).unwrap();
+    let staged = store.stage("image/png", PNG).unwrap();
+    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o500)).unwrap();
+
+    drop(staged);
+
+    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let recoveries = store.list_recoveries().unwrap();
+    assert_eq!(recoveries.len(), 1);
+    let cleanup_path = recoveries[0].staged_path().unwrap();
+    assert!(directory.path().join(cleanup_path).is_file());
+    fs::remove_file(directory.path().join(cleanup_path)).unwrap();
+    fs::remove_file(directory.path().join(recoveries[0].journal_name())).unwrap();
+}
+
+#[test]
+fn explicit_abort_removes_staged_bytes() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = LocalMediaStore::new(directory.path()).unwrap();
+    let staged = store.stage("image/png", PNG).unwrap();
+
+    store.abort(staged).unwrap();
+
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
 }
 
 #[test]
