@@ -77,3 +77,28 @@
 - `cargo clippy -p raven-api -p raven-cli --all-targets --all-features -- -D warnings`:
   passed.
 - `git diff --check`: passed.
+
+## Descriptor-safe Snapshot Follow-up
+
+- Opens each original artifact path through a read-only descriptor before
+  reading any bytes. Unix uses `OpenOptionsExt` with `O_NOFOLLOW` and
+  `O_CLOEXEC`; Windows uses `FILE_FLAG_OPEN_REPARSE_POINT` and rejects reparse
+  handles.
+- Reads exclusively from the opened descriptor. It compares the validated
+  path, opened handle, post-read handle, and a newly opened final path handle.
+  Unix stamps include device, inode, size, mtime, and ctime. Windows stamps
+  include volume, file index, size, attributes, creation/write time, and
+  `ChangeTime` obtained from handle APIs.
+- Canonical containment is checked after the safe open. A final-link swap,
+  path double-swap, same-length mutation, identity change, or timestamp change
+  aborts the entire artifact snapshot.
+- Deterministic Unix race tests pass for a symlink inserted immediately before
+  open, a regular→symlink→regular double-swap after open, and an in-place
+  same-length mutation after open: 3 passed.
+- The installed Windows target could not build the complete Raven dependency
+  graph because the local cross C toolchain lacks SQLite's Windows standard
+  headers. A dependency-minimal Windows cfg check using the exact
+  `OpenOptionsExt`, `windows-sys` constants, handle identity, and
+  `GetFileInformationByHandleEx` calls passed.
+- Focused UI security remained 9 passed; Raven API and CLI full suites, fmt,
+  clippy with warnings denied, and diff checks passed.
