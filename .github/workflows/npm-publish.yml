@@ -12,11 +12,11 @@ permissions:
 
 jobs:
   publish:
-    name: Publish @shings/oracle-todo
+    name: Publish @shings/raven
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: npm/oracle-todo
+        working-directory: npm/raven
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -24,6 +24,8 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
+      - name: Verify package identity
+        run: test "$(node -p "require('./package.json').name")" = "@shings/raven"
       - name: Test wrapper
         run: npm test
       - name: Publish to npm

@@ -3,6 +3,7 @@ name = "todo-engine"
 version = "0.2.0"
 edition = "2024"
 description = "Policy-enforced personal ToDo engine"
+autobins = false
 
 [dependencies]
 anyhow = "1.0"
