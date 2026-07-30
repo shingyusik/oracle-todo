@@ -353,7 +353,6 @@ async fn health_categories_and_diet_tags_cannot_be_displaced_by_other_rows() {
             ),
         );
     }
-    drop(create);
     drop(service);
 
     let (_, _, body) = get(fixture.app()).await;
