@@ -12,11 +12,14 @@ import {
 } from "lucide-react";
 
 import type {
+  HealthTabId,
   LeafTabId,
   LedgerTabId,
   WorkspaceChildTabId,
 } from "@/domain/workbench/navigation";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import { useHealthController } from "@/features/health/hooks/useHealthController";
+import { HealthPanel } from "@/features/health/ui/HealthPanel";
 import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
@@ -143,6 +146,14 @@ export function MainPanel({ controller }: MainPanelProps) {
     );
   }
 
+  if (isHealthPanel(controller.selection.leafTabId)) {
+    return (
+      <main className="main-panel">
+        <HealthWorkspace leafTabId={controller.selection.leafTabId} />
+      </main>
+    );
+  }
+
   if (isPlannerPanel(controller.selection.leafTabId)) {
     return (
       <main className="main-panel">
@@ -161,6 +172,11 @@ export function MainPanel({ controller }: MainPanelProps) {
 function LedgerWorkspace({ leafTabId }: { leafTabId: LedgerTabId }) {
   const controller = useLedgerController();
   return <LedgerPanel controller={controller} leafTabId={leafTabId} />;
+}
+
+function HealthWorkspace({ leafTabId }: { leafTabId: HealthTabId }) {
+  const controller = useHealthController();
+  return <HealthPanel controller={controller} leafTabId={leafTabId} />;
 }
 
 function DetailView({ controller }: MainPanelProps) {
@@ -531,6 +547,17 @@ function isPlannerPanel(leafTabId: LeafTabId): boolean {
 
 function isLedgerPanel(leafTabId: LeafTabId): leafTabId is LedgerTabId {
   return ["transactions", "accounts", "categories", "reports"].includes(leafTabId);
+}
+
+function isHealthPanel(leafTabId: LeafTabId): leafTabId is HealthTabId {
+  return [
+    "timeline",
+    "diet",
+    "bowel",
+    "medication",
+    "health-metrics",
+    "trends",
+  ].includes(leafTabId);
 }
 
 function PlannerPanel({ controller }: MainPanelProps) {
