@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 use serde_json::Value;
 use time::{Date, OffsetDateTime};
@@ -103,32 +105,142 @@ pub struct ForeignKeyViolation {
     pub foreign_key_index: i64,
 }
 
-/// Raw, read-only projection used by doctor so malformed persisted values can
-/// be reported instead of failing domain rehydration.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiagnosticEntry {
-    pub id: String,
-    pub date: String,
-    pub written_at: String,
-    pub content: String,
-    pub transaction_category_id: Option<String>,
-    pub account_id: String,
-    pub entry_type: String,
-    pub amount_minor: i64,
+pub(crate) struct AccountBalanceRecord {
+    pub account: Account,
+    pub currency_code: String,
+    pub movement_minor: i64,
+    pub currency_mismatch_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EntryViewRecord {
+    pub entry: LedgerEntry,
+    pub account_name: Option<String>,
+    pub category_name: Option<String>,
+    pub currency_code: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReportAggregateRecord {
+    pub reference_id: Option<String>,
+    pub name: Option<String>,
     pub currency_id: String,
-    pub transfer_group_id: Option<String>,
-    pub source: String,
-    pub notes: Option<String>,
+    pub currency_code: String,
+    pub income_minor: i64,
+    pub expense_minor: i64,
+    pub net_change_minor: i64,
+    pub entry_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredRecord<T> {
+    pub record: T,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiagnosticTransferOperation {
+pub(crate) struct StoredTransferOperation {
     pub operation_key: String,
     pub payload_json: String,
     pub result_json: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExportEstimate {
+    pub record_count: u64,
+    pub byte_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EntryScanCursor {
+    pub date: String,
+    pub written_at: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AuditScanCursor {
+    pub occurred_at: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum DiagnosticTable {
+    Currencies,
+    AccountCategories,
+    Accounts,
+    TransactionCategories,
+    LedgerEntries,
+    AuditEvents,
+    TransferOperations,
+}
+
+impl DiagnosticTable {
+    pub(crate) const ALL: [Self; 7] = [
+        Self::Currencies,
+        Self::AccountCategories,
+        Self::Accounts,
+        Self::TransactionCategories,
+        Self::AuditEvents,
+        Self::TransferOperations,
+        Self::LedgerEntries,
+    ];
+
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Currencies => "currencies",
+            Self::AccountCategories => "account_categories",
+            Self::Accounts => "accounts",
+            Self::TransactionCategories => "transaction_categories",
+            Self::LedgerEntries => "ledger_entries",
+            Self::AuditEvents => "audit_events",
+            Self::TransferOperations => "transfer_operations",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum DiagnosticValue {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text {
+        value: Option<String>,
+        byte_len: usize,
+    },
+    Blob {
+        byte_len: usize,
+    },
+}
+
+impl DiagnosticValue {
+    pub(crate) const fn byte_len(&self) -> usize {
+        match self {
+            Self::Null => 0,
+            Self::Integer(_) | Self::Real(_) => std::mem::size_of::<i64>(),
+            Self::Text { byte_len, .. } | Self::Blob { byte_len } => *byte_len,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DiagnosticRow {
+    pub rowid: i64,
+    pub values: BTreeMap<String, DiagnosticValue>,
+    pub byte_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DiagnosticBatch {
+    pub rows: Vec<DiagnosticRow>,
+    pub next_cursor: Option<i64>,
+    pub next_unscanned_rowid: Option<i64>,
+    pub byte_count: usize,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,13 +336,15 @@ pub(crate) trait LedgerTransaction {
     fn rollback(self: Box<Self>) -> LedgerResult<()>;
 }
 
-/// Object-safe Ledger persistence boundary.
+/// Public marker for a supported Ledger persistence adapter.
 ///
-/// Returning a boxed, borrowing transaction keeps the trait usable behind
-/// `dyn LedgerRepository` while still allowing a service mutation to return
-/// any application value after explicitly committing.
-pub trait LedgerRepository: Send {
+/// Storage reads remain crate-internal so callers cannot bypass service-level
+/// validation, reference resolution, or resolved read projections.
+pub trait LedgerRepository: Send {}
+
+pub(crate) trait LedgerReadRepository: LedgerRepository {
     fn get_currency(&self, id: &str, include_archived: bool) -> LedgerResult<Option<Currency>>;
+    #[cfg(test)]
     fn get_account_category(
         &self,
         id: &str,
@@ -249,42 +363,105 @@ pub trait LedgerRepository: Send {
         &self,
         page: Page,
     ) -> LedgerResult<Vec<TransactionCategory>>;
-    fn list_currencies(&self, include_archived: bool, page: Page) -> LedgerResult<Vec<Currency>>;
-    fn list_account_categories(
-        &self,
-        include_archived: bool,
-        page: Page,
-    ) -> LedgerResult<Vec<AccountCategory>>;
-    fn list_accounts(&self, include_archived: bool, page: Page) -> LedgerResult<Vec<Account>>;
-    fn list_transaction_categories(
-        &self,
-        include_archived: bool,
-        page: Page,
-    ) -> LedgerResult<Vec<TransactionCategory>>;
+    #[cfg(test)]
     fn list_entries(&self, query: &EntryQuery) -> LedgerResult<Vec<LedgerEntry>>;
+    #[cfg(test)]
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>>;
+    fn list_entry_view_records(&self, query: &EntryQuery) -> LedgerResult<Vec<EntryViewRecord>>;
+    fn get_entry_view_record(
+        &self,
+        id: &str,
+        include_archived: bool,
+    ) -> LedgerResult<Option<EntryViewRecord>>;
+    fn account_by_name(
+        &self,
+        name: &str,
+        include_archived: bool,
+    ) -> LedgerResult<CandidateMatch<Account>>;
+    fn transaction_category_by_name(
+        &self,
+        name: &str,
+        include_archived: bool,
+    ) -> LedgerResult<CandidateMatch<TransactionCategory>>;
+    fn currency_by_code_or_name(
+        &self,
+        value: &str,
+        include_archived: bool,
+    ) -> LedgerResult<CandidateMatch<Currency>>;
     fn list_entries_by_transfer_group(
         &self,
         transfer_group_id: &str,
         include_archived: bool,
     ) -> LedgerResult<Vec<LedgerEntry>>;
+    fn list_account_balance_records(&self, page: Page) -> LedgerResult<Vec<AccountBalanceRecord>>;
+    fn summarize_entries(&self, start: Date, end: Date)
+    -> LedgerResult<Vec<ReportAggregateRecord>>;
+    fn account_breakdown(&self, start: Date, end: Date)
+    -> LedgerResult<Vec<ReportAggregateRecord>>;
+    fn category_breakdown(
+        &self,
+        start: Date,
+        end: Date,
+    ) -> LedgerResult<Vec<ReportAggregateRecord>>;
+    fn export_estimate(&self, include_archived: bool) -> LedgerResult<ExportEstimate>;
+    fn export_currencies_after(
+        &self,
+        include_archived: bool,
+        after_id: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredRecord<Currency>>>;
+    fn export_account_categories_after(
+        &self,
+        include_archived: bool,
+        after_id: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredRecord<AccountCategory>>>;
+    fn export_accounts_after(
+        &self,
+        include_archived: bool,
+        after_id: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredRecord<Account>>>;
+    fn export_transaction_categories_after(
+        &self,
+        include_archived: bool,
+        after_id: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredRecord<TransactionCategory>>>;
+    fn export_entries_after(
+        &self,
+        include_archived: bool,
+        after: Option<&EntryScanCursor>,
+        limit: u16,
+    ) -> LedgerResult<Vec<EntryViewRecord>>;
+    fn export_audits_after(
+        &self,
+        after: Option<&AuditScanCursor>,
+        limit: u16,
+    ) -> LedgerResult<Vec<AuditEvent>>;
+    fn export_transfer_operations_after(
+        &self,
+        after_key: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredTransferOperation>>;
+    fn scan_diagnostic_rows(
+        &self,
+        table: DiagnosticTable,
+        after_rowid: i64,
+        max_rows: u16,
+        max_bytes: usize,
+    ) -> LedgerResult<DiagnosticBatch>;
     fn list_audit_events(
         &self,
         record_type: &str,
         record_id: &str,
         page: Page,
     ) -> LedgerResult<Vec<AuditEvent>>;
-    fn list_all_audit_events(&self, page: Page) -> LedgerResult<Vec<AuditEvent>>;
     fn database_health(&self) -> LedgerResult<DatabaseHealth>;
-    fn list_diagnostic_entries(&self, page: Page) -> LedgerResult<Vec<DiagnosticEntry>>;
-    fn list_diagnostic_transfer_operations(
-        &self,
-        page: Page,
-    ) -> LedgerResult<Vec<DiagnosticTransferOperation>>;
 }
 
-/// Internal mutation capability. External callers only receive the read-only
-/// [`LedgerRepository`] surface; application services are the sole mutation path.
-pub(crate) trait LedgerMutationRepository: LedgerRepository {
+/// Internal mutation capability. External callers use the service read surface;
+/// application services are the sole mutation path.
+pub(crate) trait LedgerMutationRepository: LedgerReadRepository {
     fn begin_transaction(&mut self) -> LedgerResult<Box<dyn LedgerTransaction + '_>>;
 }

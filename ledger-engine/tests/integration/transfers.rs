@@ -96,8 +96,14 @@ fn transfer_creates_exactly_two_opposite_rows_and_one_paired_audit() {
     assert_eq!(event.actor, "tester");
     assert_eq!(event.before, None);
     let after = event.after.as_ref().unwrap();
-    assert_eq!(after["out_entry"], serde_json::to_value(out).unwrap());
-    assert_eq!(after["in_entry"], serde_json::to_value(input).unwrap());
+    assert_eq!(
+        after["out_entry"],
+        serde_json::to_value(&out.entry).unwrap()
+    );
+    assert_eq!(
+        after["in_entry"],
+        serde_json::to_value(&input.entry).unwrap()
+    );
 }
 
 #[test]

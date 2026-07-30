@@ -1,8 +1,8 @@
 use super::SqliteLedgerRepository;
 use crate::application::error::LedgerError;
 use crate::application::ports::{
-    AuditEvent, CandidateMatch, EntryQuery, LedgerMutationRepository, LedgerRepository,
-    LedgerTransaction, Page,
+    AuditEvent, CandidateMatch, EntryQuery, LedgerMutationRepository, LedgerReadRepository,
+    LedgerRepository, LedgerTransaction, Page,
 };
 use crate::domain::{
     Account, AccountCategory, Currency, EntryType, LedgerEntry, LedgerEntryRehydration, Money,

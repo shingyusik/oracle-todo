@@ -1,40 +1,37 @@
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
-    AuditEvent, EntryQuery, LedgerRepository, MAX_PAGE_LIMIT, Page, Paged,
+    AuditEvent, EntryQuery, LedgerReadRepository, MAX_PAGE_LIMIT, Page, Paged,
 };
-use crate::domain::{Account, AccountCategory, Currency, LedgerEntry, TransactionCategory};
+use crate::application::queries::{EntryView, entry_view_from_record};
+use crate::domain::{Account, AccountCategory, Currency, TransactionCategory};
 
 pub struct LedgerService<R> {
     pub(super) repository: R,
 }
 
-impl<R: LedgerRepository> LedgerService<R> {
+#[allow(private_bounds)]
+impl<R: LedgerReadRepository> LedgerService<R> {
     pub fn new(repository: R) -> Self {
         Self { repository }
     }
 
-    pub fn get_entry(&self, id: &str) -> LedgerResult<LedgerEntry> {
+    pub fn get_entry(&self, id: &str) -> LedgerResult<EntryView> {
         self.repository
-            .get_entry(id, false)?
+            .get_entry_view_record(id, false)?
+            .map(entry_view_from_record)
             .ok_or_else(|| LedgerError::NotFound(format!("ledger entry {id}")))
     }
 
-    pub fn entry_including_archived(&self, id: &str) -> LedgerResult<Option<LedgerEntry>> {
-        self.repository.get_entry(id, true)
+    pub fn entry_including_archived(&self, id: &str) -> LedgerResult<Option<EntryView>> {
+        Ok(self
+            .repository
+            .get_entry_view_record(id, true)?
+            .map(entry_view_from_record))
     }
 
-    pub fn entries_page(&self, query: EntryQuery) -> LedgerResult<Paged<LedgerEntry>> {
-        let requested = Page {
-            offset: query.offset,
-            limit: query.limit,
-        };
-        paged(requested, |page| {
-            self.repository.list_entries(&EntryQuery {
-                offset: page.offset,
-                limit: page.limit,
-                ..query.clone()
-            })
-        })
+    /// Lists entries with validated filters and resolved master-data labels.
+    pub fn entries_page(&self, query: EntryQuery) -> LedgerResult<Paged<EntryView>> {
+        self.query_entries(query)
     }
 
     pub fn audit_page(
@@ -73,7 +70,7 @@ impl<R: LedgerRepository> LedgerService<R> {
     }
 }
 
-fn paged<T>(
+pub(crate) fn paged<T>(
     page: Page,
     mut fetch: impl FnMut(Page) -> LedgerResult<Vec<T>>,
 ) -> LedgerResult<Paged<T>> {

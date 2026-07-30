@@ -1,14 +1,16 @@
 use rusqlite::{
     Connection, OptionalExtension, Transaction, TransactionBehavior, params, params_from_iter,
-    types::Value,
+    types::{Value, ValueRef},
 };
 use time::OffsetDateTime;
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
-    AuditEvent, CandidateMatch, DatabaseHealth, DiagnosticEntry, DiagnosticTransferOperation,
-    EntryQuery, ForeignKeyViolation, LedgerMutationRepository, LedgerRepository, LedgerTransaction,
-    Page, TransferOperationRecord,
+    AccountBalanceRecord, AuditEvent, AuditScanCursor, CandidateMatch, DatabaseHealth,
+    DiagnosticBatch, DiagnosticRow, DiagnosticTable, DiagnosticValue, EntryQuery, EntryScanCursor,
+    EntryViewRecord, ExportEstimate, ForeignKeyViolation, LedgerMutationRepository,
+    LedgerReadRepository, LedgerRepository, LedgerTransaction, Page, ReportAggregateRecord,
+    StoredRecord, StoredTransferOperation, TransferOperationRecord,
 };
 use crate::domain::{
     Account, AccountCategory, Currency, LedgerEntry, TransactionCategory, TransactionCategoryKind,
@@ -22,11 +24,14 @@ use super::mapping::{
 };
 use super::{SqliteLedgerRepository, storage_error};
 
-impl LedgerRepository for SqliteLedgerRepository {
+impl LedgerRepository for SqliteLedgerRepository {}
+
+impl LedgerReadRepository for SqliteLedgerRepository {
     fn get_currency(&self, id: &str, include_archived: bool) -> LedgerResult<Option<Currency>> {
         get_currency_on(&self.connection, id, include_archived)
     }
 
+    #[cfg(test)]
     fn get_account_category(
         &self,
         id: &str,
@@ -66,84 +71,9 @@ impl LedgerRepository for SqliteLedgerRepository {
         list_active_transaction_categories_on(&self.connection, page)
     }
 
-    fn list_currencies(&self, include_archived: bool, page: Page) -> LedgerResult<Vec<Currency>> {
-        list_currencies_on(&self.connection, include_archived, page)
-    }
-
-    fn list_account_categories(
-        &self,
-        include_archived: bool,
-        page: Page,
-    ) -> LedgerResult<Vec<AccountCategory>> {
-        list_account_categories_on(&self.connection, include_archived, page)
-    }
-
-    fn list_accounts(&self, include_archived: bool, page: Page) -> LedgerResult<Vec<Account>> {
-        list_accounts_on(&self.connection, include_archived, page)
-    }
-
-    fn list_transaction_categories(
-        &self,
-        include_archived: bool,
-        page: Page,
-    ) -> LedgerResult<Vec<TransactionCategory>> {
-        list_transaction_categories_on(&self.connection, include_archived, page)
-    }
-
+    #[cfg(test)]
     fn list_entries(&self, query: &EntryQuery) -> LedgerResult<Vec<LedgerEntry>> {
-        let mut clauses = Vec::new();
-        let mut values = Vec::<Value>::new();
-        if !query.include_archived {
-            clauses.push("deleted_at IS NULL".to_string());
-        }
-        push_entry_filter(
-            &mut clauses,
-            &mut values,
-            "date >= ",
-            query.date_from.map(|date| date.to_string()),
-        );
-        push_entry_filter(
-            &mut clauses,
-            &mut values,
-            "date <= ",
-            query.date_to.map(|date| date.to_string()),
-        );
-        push_entry_filter(
-            &mut clauses,
-            &mut values,
-            "entry_type = ",
-            query.entry_type.map(|kind| kind.as_str().to_string()),
-        );
-        push_entry_filter(
-            &mut clauses,
-            &mut values,
-            "account_id = ",
-            query.account.clone(),
-        );
-        push_entry_filter(
-            &mut clauses,
-            &mut values,
-            "transaction_category_id = ",
-            query.category.clone(),
-        );
-        push_entry_filter(
-            &mut clauses,
-            &mut values,
-            "currency_id = ",
-            query.currency.clone(),
-        );
-        if let Some(content) = query.content.as_deref() {
-            values.push(Value::Text(content.to_string()));
-            clauses.push(format!(
-                "ledger_content_contains(content, ?{}) = 1",
-                values.len()
-            ));
-        }
-        let where_clause = if clauses.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", clauses.join(" AND "))
-        };
+        let (where_clause, mut values) = entry_where_clause(query);
         values.push(Value::Integer(i64::from(query.limit)));
         let limit_parameter = values.len();
         values.push(Value::Integer(i64::from(query.offset)));
@@ -158,6 +88,7 @@ impl LedgerRepository for SqliteLedgerRepository {
         collect_entries(&self.connection, &sql, params_from_iter(values.iter()))
     }
 
+    #[cfg(test)]
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>> {
         let visibility = if include_archived {
             ""
@@ -173,12 +104,297 @@ impl LedgerRepository for SqliteLedgerRepository {
         Ok(entries.pop())
     }
 
+    fn list_entry_view_records(&self, query: &EntryQuery) -> LedgerResult<Vec<EntryViewRecord>> {
+        let (where_clause, mut values) = entry_where_clause(query);
+        values.push(Value::Integer(i64::from(query.limit)));
+        let limit_parameter = values.len();
+        values.push(Value::Integer(i64::from(query.offset)));
+        let offset_parameter = values.len();
+        let sql = format!(
+            "SELECT selected.*, a.name, tc.name, c.code
+             FROM (
+                 SELECT {ENTRY_COLUMNS}
+                 FROM ledger_entries
+                 {where_clause}
+                 ORDER BY date, written_at, id
+                 LIMIT ?{limit_parameter} OFFSET ?{offset_parameter}
+             ) AS selected
+             LEFT JOIN accounts AS a ON a.id = selected.account_id
+             LEFT JOIN transaction_categories AS tc
+                ON tc.id = selected.transaction_category_id
+             LEFT JOIN currencies AS c ON c.id = selected.currency_id
+             ORDER BY selected.date, selected.written_at, selected.id"
+        );
+        collect_rows(
+            &self.connection,
+            &sql,
+            params_from_iter(values.iter()),
+            row_to_entry_view_record,
+        )
+    }
+
+    fn get_entry_view_record(
+        &self,
+        id: &str,
+        include_archived: bool,
+    ) -> LedgerResult<Option<EntryViewRecord>> {
+        let visibility = if include_archived {
+            ""
+        } else {
+            "AND e.deleted_at IS NULL"
+        };
+        let sql = format!(
+            "SELECT e.id, e.date, e.written_at, e.content,
+                    e.transaction_category_id, e.account_id, e.entry_type,
+                    e.amount_minor, e.currency_id, e.transfer_group_id,
+                    e.source, e.notes, e.created_at, e.updated_at, e.deleted_at,
+                    a.name, tc.name, c.code
+             FROM ledger_entries AS e
+             LEFT JOIN accounts AS a ON a.id = e.account_id
+             LEFT JOIN transaction_categories AS tc
+                ON tc.id = e.transaction_category_id
+             LEFT JOIN currencies AS c ON c.id = e.currency_id
+             WHERE e.id = ?1 {visibility}"
+        );
+        let mut statement = self.connection.prepare(&sql).map_err(storage_error)?;
+        let mut rows = statement.query([id]).map_err(storage_error)?;
+        let value = rows
+            .next()
+            .map_err(storage_error)?
+            .map(row_to_entry_view_record)
+            .transpose()?;
+        Ok(value)
+    }
+
+    fn account_by_name(
+        &self,
+        name: &str,
+        include_archived: bool,
+    ) -> LedgerResult<CandidateMatch<Account>> {
+        candidate_master_by_value(
+            &self.connection,
+            "accounts",
+            ACCOUNT_COLUMNS,
+            "name",
+            name,
+            include_archived,
+            row_to_account,
+        )
+    }
+
+    fn transaction_category_by_name(
+        &self,
+        name: &str,
+        include_archived: bool,
+    ) -> LedgerResult<CandidateMatch<TransactionCategory>> {
+        candidate_master_by_value(
+            &self.connection,
+            "transaction_categories",
+            TRANSACTION_CATEGORY_COLUMNS,
+            "name",
+            name,
+            include_archived,
+            row_to_transaction_category,
+        )
+    }
+
+    fn currency_by_code_or_name(
+        &self,
+        value: &str,
+        include_archived: bool,
+    ) -> LedgerResult<CandidateMatch<Currency>> {
+        let visibility = if include_archived {
+            ""
+        } else {
+            "AND deleted_at IS NULL"
+        };
+        candidate_query(
+            &self.connection,
+            &format!(
+                "SELECT {CURRENCY_COLUMNS}
+                 FROM currencies
+                 WHERE (code = ?1 OR name = ?1) {visibility}
+                 ORDER BY id
+                 LIMIT 2"
+            ),
+            [value],
+            row_to_currency,
+        )
+    }
+
     fn list_entries_by_transfer_group(
         &self,
         transfer_group_id: &str,
         include_archived: bool,
     ) -> LedgerResult<Vec<LedgerEntry>> {
         list_entries_by_transfer_group_on(&self.connection, transfer_group_id, include_archived)
+    }
+
+    fn list_account_balance_records(&self, page: Page) -> LedgerResult<Vec<AccountBalanceRecord>> {
+        let sql = "SELECT
+                a.id, a.name, a.account_category_id, a.currency_id,
+                a.opening_balance_minor, a.active,
+                c.code,
+                COALESCE(SUM(CASE e.entry_type
+                    WHEN 'expense' THEN -e.amount_minor
+                    WHEN 'income' THEN e.amount_minor
+                    WHEN 'transfer_out' THEN -e.amount_minor
+                    WHEN 'transfer_in' THEN e.amount_minor
+                    WHEN 'adjustment_out' THEN -e.amount_minor
+                    WHEN 'adjustment_in' THEN e.amount_minor
+                    ELSE 0
+                END), 0),
+                COALESCE(SUM(CASE
+                    WHEN e.id IS NOT NULL AND e.currency_id <> a.currency_id THEN 1
+                    ELSE 0
+                END), 0)
+             FROM accounts AS a
+             JOIN currencies AS c ON c.id = a.currency_id
+             LEFT JOIN ledger_entries AS e
+                ON e.account_id = a.id AND e.deleted_at IS NULL
+             WHERE a.active = 1 AND a.deleted_at IS NULL
+             GROUP BY
+                a.id, a.name, a.account_category_id, a.currency_id,
+                a.opening_balance_minor, a.active, c.code
+             ORDER BY a.name, a.id
+             LIMIT ?1 OFFSET ?2";
+        collect_rows(
+            &self.connection,
+            sql,
+            page_params(page),
+            row_to_account_balance_record,
+        )
+    }
+
+    fn summarize_entries(
+        &self,
+        start: time::Date,
+        end: time::Date,
+    ) -> LedgerResult<Vec<ReportAggregateRecord>> {
+        aggregate_entries(&self.connection, AggregateKind::Summary, start, end)
+    }
+
+    fn account_breakdown(
+        &self,
+        start: time::Date,
+        end: time::Date,
+    ) -> LedgerResult<Vec<ReportAggregateRecord>> {
+        aggregate_entries(&self.connection, AggregateKind::Account, start, end)
+    }
+
+    fn category_breakdown(
+        &self,
+        start: time::Date,
+        end: time::Date,
+    ) -> LedgerResult<Vec<ReportAggregateRecord>> {
+        aggregate_entries(&self.connection, AggregateKind::Category, start, end)
+    }
+
+    fn export_estimate(&self, include_archived: bool) -> LedgerResult<ExportEstimate> {
+        export_estimate(&self.connection, include_archived)
+    }
+
+    fn export_currencies_after(
+        &self,
+        include_archived: bool,
+        after_id: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredRecord<Currency>>> {
+        export_master_records(
+            &self.connection,
+            "currencies",
+            CURRENCY_COLUMNS,
+            include_archived,
+            after_id,
+            limit,
+            row_to_currency,
+        )
+    }
+
+    fn export_account_categories_after(
+        &self,
+        include_archived: bool,
+        after_id: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredRecord<AccountCategory>>> {
+        export_master_records(
+            &self.connection,
+            "account_categories",
+            ACCOUNT_CATEGORY_COLUMNS,
+            include_archived,
+            after_id,
+            limit,
+            row_to_account_category,
+        )
+    }
+
+    fn export_accounts_after(
+        &self,
+        include_archived: bool,
+        after_id: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredRecord<Account>>> {
+        export_master_records(
+            &self.connection,
+            "accounts",
+            ACCOUNT_COLUMNS,
+            include_archived,
+            after_id,
+            limit,
+            row_to_account,
+        )
+    }
+
+    fn export_transaction_categories_after(
+        &self,
+        include_archived: bool,
+        after_id: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredRecord<TransactionCategory>>> {
+        export_master_records(
+            &self.connection,
+            "transaction_categories",
+            TRANSACTION_CATEGORY_COLUMNS,
+            include_archived,
+            after_id,
+            limit,
+            row_to_transaction_category,
+        )
+    }
+
+    fn export_entries_after(
+        &self,
+        include_archived: bool,
+        after: Option<&EntryScanCursor>,
+        limit: u16,
+    ) -> LedgerResult<Vec<EntryViewRecord>> {
+        export_entries_after(&self.connection, include_archived, after, limit)
+    }
+
+    fn export_audits_after(
+        &self,
+        after: Option<&AuditScanCursor>,
+        limit: u16,
+    ) -> LedgerResult<Vec<AuditEvent>> {
+        export_audits_after(&self.connection, after, limit)
+    }
+
+    fn export_transfer_operations_after(
+        &self,
+        after_key: Option<&str>,
+        limit: u16,
+    ) -> LedgerResult<Vec<StoredTransferOperation>> {
+        export_transfer_operations_after(&self.connection, after_key, limit)
+    }
+
+    fn scan_diagnostic_rows(
+        &self,
+        table: DiagnosticTable,
+        after_rowid: i64,
+        max_rows: u16,
+        max_bytes: usize,
+    ) -> LedgerResult<DiagnosticBatch> {
+        scan_diagnostic_rows(&self.connection, table, after_rowid, max_rows, max_bytes)
     }
 
     fn list_audit_events(
@@ -191,7 +407,7 @@ impl LedgerRepository for SqliteLedgerRepository {
             "SELECT {AUDIT_COLUMNS}
              FROM audit_events
              WHERE record_type = ?1 AND record_id = ?2
-             ORDER BY occurred_at, id
+             ORDER BY occurred_at, rowid
              LIMIT ?3 OFFSET ?4"
         );
         let mut statement = self.connection.prepare(&sql).map_err(storage_error)?;
@@ -208,20 +424,6 @@ impl LedgerRepository for SqliteLedgerRepository {
             events.push(row_to_audit_event(row)?);
         }
         Ok(events)
-    }
-
-    fn list_all_audit_events(&self, page: Page) -> LedgerResult<Vec<AuditEvent>> {
-        collect_rows(
-            &self.connection,
-            &format!(
-                "SELECT {AUDIT_COLUMNS}
-                 FROM audit_events
-                 ORDER BY occurred_at, id
-                 LIMIT ?1 OFFSET ?2"
-            ),
-            page_params(page),
-            row_to_audit_event,
-        )
     }
 
     fn database_health(&self) -> LedgerResult<DatabaseHealth> {
@@ -264,36 +466,6 @@ impl LedgerRepository for SqliteLedgerRepository {
             foreign_key_violations,
             foreign_key_truncated,
         })
-    }
-
-    fn list_diagnostic_entries(&self, page: Page) -> LedgerResult<Vec<DiagnosticEntry>> {
-        collect_rows(
-            &self.connection,
-            "SELECT
-                id, date, written_at, content, transaction_category_id, account_id,
-                entry_type, amount_minor, currency_id, transfer_group_id, source, notes,
-                created_at, updated_at, deleted_at
-             FROM ledger_entries
-             ORDER BY id
-             LIMIT ?1 OFFSET ?2",
-            page_params(page),
-            row_to_diagnostic_entry,
-        )
-    }
-
-    fn list_diagnostic_transfer_operations(
-        &self,
-        page: Page,
-    ) -> LedgerResult<Vec<DiagnosticTransferOperation>> {
-        collect_rows(
-            &self.connection,
-            "SELECT operation_key, payload_json, result_json
-             FROM transfer_operations
-             ORDER BY operation_key
-             LIMIT ?1 OFFSET ?2",
-            page_params(page),
-            row_to_diagnostic_transfer_operation,
-        )
     }
 }
 
@@ -856,6 +1028,607 @@ where
     Ok(values)
 }
 
+fn row_to_account_balance_record(row: &rusqlite::Row<'_>) -> LedgerResult<AccountBalanceRecord> {
+    let account = row_to_account(row)?;
+    let mismatch_count = row.get::<_, i64>(8).map_err(storage_error)?;
+    Ok(AccountBalanceRecord {
+        account,
+        currency_code: row.get(6).map_err(storage_error)?,
+        movement_minor: row.get(7).map_err(storage_error)?,
+        currency_mismatch_count: u64::try_from(mismatch_count).map_err(|_| {
+            LedgerError::Storage("account balance mismatch count is negative".to_string())
+        })?,
+    })
+}
+
+fn export_estimate(
+    connection: &Connection,
+    include_archived: bool,
+) -> LedgerResult<ExportEstimate> {
+    let master_visibility = if include_archived {
+        ""
+    } else {
+        "WHERE deleted_at IS NULL"
+    };
+    let entry_visibility = if include_archived {
+        ""
+    } else {
+        "WHERE deleted_at IS NULL"
+    };
+    let specifications = [
+        (
+            "currencies",
+            "id, code, name, symbol, decimal_places, active, created_at, updated_at, deleted_at",
+            master_visibility,
+        ),
+        (
+            "account_categories",
+            "id, name, parent_id, liability, active, created_at, updated_at, deleted_at",
+            master_visibility,
+        ),
+        (
+            "accounts",
+            "id, name, account_category_id, currency_id, opening_balance_minor, active,
+             created_at, updated_at, deleted_at",
+            master_visibility,
+        ),
+        (
+            "transaction_categories",
+            "id, name, parent_id, kind, active, created_at, updated_at, deleted_at",
+            master_visibility,
+        ),
+        (
+            "ledger_entries",
+            "id, date, written_at, content, transaction_category_id, account_id,
+             entry_type, amount_minor, currency_id, transfer_group_id, source, notes,
+             created_at, updated_at, deleted_at",
+            entry_visibility,
+        ),
+        (
+            "audit_events",
+            "id, occurred_at, actor, action, record_type, record_id,
+             before_json, after_json, reason",
+            "",
+        ),
+        (
+            "transfer_operations",
+            "operation_key, payload_json, result_json, created_at",
+            "",
+        ),
+    ];
+    let mut record_count = 0_u64;
+    let mut byte_count = 0_u64;
+    for (table, columns, visibility) in specifications {
+        let byte_expression = columns
+            .split(',')
+            .map(str::trim)
+            .map(|column| format!("COALESCE(length(CAST({column} AS BLOB)), 0)"))
+            .collect::<Vec<_>>()
+            .join(" + ");
+        let (rows, bytes) = connection
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*), COALESCE(SUM({byte_expression} + 256), 0)
+                     FROM {table} {visibility}"
+                ),
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .map_err(storage_error)?;
+        record_count = record_count
+            .checked_add(u64::try_from(rows).map_err(|_| {
+                LedgerError::Storage("export record estimate is negative".to_string())
+            })?)
+            .ok_or_else(|| LedgerError::Storage("export record estimate overflow".to_string()))?;
+        byte_count = byte_count
+            .checked_add(u64::try_from(bytes).map_err(|_| {
+                LedgerError::Storage("export byte estimate is negative".to_string())
+            })?)
+            .ok_or_else(|| LedgerError::Storage("export byte estimate overflow".to_string()))?;
+    }
+    Ok(ExportEstimate {
+        record_count,
+        byte_count,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn export_master_records<T>(
+    connection: &Connection,
+    table: &str,
+    columns: &str,
+    include_archived: bool,
+    after_id: Option<&str>,
+    limit: u16,
+    map: fn(&rusqlite::Row<'_>) -> LedgerResult<T>,
+) -> LedgerResult<Vec<StoredRecord<T>>> {
+    let visibility = if include_archived {
+        ""
+    } else {
+        "AND deleted_at IS NULL"
+    };
+    let sql = format!(
+        "SELECT {columns}, created_at, updated_at, deleted_at
+         FROM {table}
+         WHERE (?1 = '' OR id > ?1) {visibility}
+         ORDER BY id
+         LIMIT ?2"
+    );
+    let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+    let mut rows = statement
+        .query(params![after_id.unwrap_or(""), i64::from(limit)])
+        .map_err(storage_error)?;
+    let mut records = Vec::new();
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        let timestamp_index = row.as_ref().column_count() - 3;
+        records.push(StoredRecord {
+            record: map(row)?,
+            created_at: row.get(timestamp_index).map_err(storage_error)?,
+            updated_at: row.get(timestamp_index + 1).map_err(storage_error)?,
+            deleted_at: row.get(timestamp_index + 2).map_err(storage_error)?,
+        });
+    }
+    Ok(records)
+}
+
+fn export_entries_after(
+    connection: &Connection,
+    include_archived: bool,
+    after: Option<&EntryScanCursor>,
+    limit: u16,
+) -> LedgerResult<Vec<EntryViewRecord>> {
+    let visibility = if include_archived {
+        ""
+    } else {
+        "AND e.deleted_at IS NULL"
+    };
+    let after_date = after.map_or("", |cursor| cursor.date.as_str());
+    let after_written_at = after.map_or("", |cursor| cursor.written_at.as_str());
+    let after_id = after.map_or("", |cursor| cursor.id.as_str());
+    let sql = format!(
+        "SELECT e.id, e.date, e.written_at, e.content,
+                e.transaction_category_id, e.account_id, e.entry_type,
+                e.amount_minor, e.currency_id, e.transfer_group_id,
+                e.source, e.notes, e.created_at, e.updated_at, e.deleted_at,
+                a.name, tc.name, c.code
+         FROM ledger_entries AS e
+         LEFT JOIN accounts AS a ON a.id = e.account_id
+         LEFT JOIN transaction_categories AS tc
+            ON tc.id = e.transaction_category_id
+         LEFT JOIN currencies AS c ON c.id = e.currency_id
+         WHERE (
+             ?1 = ''
+             OR e.date > ?1
+             OR (e.date = ?1 AND e.written_at > ?2)
+             OR (e.date = ?1 AND e.written_at = ?2 AND e.id > ?3)
+         ) {visibility}
+         ORDER BY e.date, e.written_at, e.id
+         LIMIT ?4"
+    );
+    collect_rows(
+        connection,
+        &sql,
+        params![after_date, after_written_at, after_id, i64::from(limit)],
+        row_to_entry_view_record,
+    )
+}
+
+fn export_audits_after(
+    connection: &Connection,
+    after: Option<&AuditScanCursor>,
+    limit: u16,
+) -> LedgerResult<Vec<AuditEvent>> {
+    let after_occurred_at = after.map_or("", |cursor| cursor.occurred_at.as_str());
+    let after_id = after.map_or("", |cursor| cursor.id.as_str());
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {AUDIT_COLUMNS}
+             FROM audit_events
+             WHERE (
+                ?1 = ''
+                OR occurred_at > ?1
+                OR (occurred_at = ?1 AND id > ?2)
+             )
+             ORDER BY occurred_at, id
+             LIMIT ?3"
+        ),
+        params![after_occurred_at, after_id, i64::from(limit)],
+        row_to_audit_event,
+    )
+}
+
+fn export_transfer_operations_after(
+    connection: &Connection,
+    after_key: Option<&str>,
+    limit: u16,
+) -> LedgerResult<Vec<StoredTransferOperation>> {
+    collect_rows(
+        connection,
+        "SELECT operation_key, payload_json, result_json, created_at
+         FROM transfer_operations
+         WHERE (?1 = '' OR operation_key > ?1)
+         ORDER BY operation_key
+         LIMIT ?2",
+        params![after_key.unwrap_or(""), i64::from(limit)],
+        |row| {
+            Ok(StoredTransferOperation {
+                operation_key: row.get(0).map_err(storage_error)?,
+                payload_json: row.get(1).map_err(storage_error)?,
+                result_json: row.get(2).map_err(storage_error)?,
+                created_at: row.get(3).map_err(storage_error)?,
+            })
+        },
+    )
+}
+
+fn scan_diagnostic_rows(
+    connection: &Connection,
+    table: DiagnosticTable,
+    after_rowid: i64,
+    max_rows: u16,
+    max_bytes: usize,
+) -> LedgerResult<DiagnosticBatch> {
+    let columns = diagnostic_columns(table);
+    let byte_expression = columns
+        .iter()
+        .map(|column| format!("COALESCE(length(CAST({column} AS BLOB)), 0)"))
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let mut metadata_statement = connection
+        .prepare(&format!(
+            "SELECT rowid, {byte_expression} + 128
+             FROM {}
+             WHERE rowid > ?1
+             ORDER BY rowid
+             LIMIT ?2",
+            table.name()
+        ))
+        .map_err(storage_error)?;
+    let mut metadata_rows = metadata_statement
+        .query(params![after_rowid, i64::from(max_rows) + 1])
+        .map_err(storage_error)?;
+    let mut metadata = Vec::new();
+    while let Some(row) = metadata_rows.next().map_err(storage_error)? {
+        let byte_count = row.get::<_, i64>(1).map_err(storage_error)?;
+        metadata.push((
+            row.get::<_, i64>(0).map_err(storage_error)?,
+            usize::try_from(byte_count).map_err(|_| {
+                LedgerError::Storage("diagnostic row byte count is invalid".to_string())
+            })?,
+        ));
+    }
+    drop(metadata_rows);
+    drop(metadata_statement);
+
+    let mut selected = Vec::new();
+    let mut byte_count = 0_usize;
+    let mut next_unscanned_rowid = None;
+    for (rowid, row_bytes) in metadata.into_iter().take(usize::from(max_rows)) {
+        if byte_count.saturating_add(row_bytes) > max_bytes {
+            next_unscanned_rowid = Some(rowid);
+            break;
+        }
+        byte_count = byte_count
+            .checked_add(row_bytes)
+            .ok_or_else(|| LedgerError::Storage("diagnostic byte count overflow".to_string()))?;
+        selected.push((rowid, row_bytes));
+    }
+
+    let mut rows = Vec::with_capacity(selected.len());
+    if let Some((last_rowid, _)) = selected.last() {
+        let byte_counts: std::collections::BTreeMap<_, _> = selected.iter().copied().collect();
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT rowid, {} FROM {}
+                 WHERE rowid > ?1 AND rowid <= ?2
+                 ORDER BY rowid",
+                columns.join(", "),
+                table.name()
+            ))
+            .map_err(storage_error)?;
+        let mut selected_rows = statement
+            .query(params![after_rowid, last_rowid])
+            .map_err(storage_error)?;
+        while let Some(row) = selected_rows.next().map_err(storage_error)? {
+            let rowid = row.get::<_, i64>(0).map_err(storage_error)?;
+            let mut values = std::collections::BTreeMap::new();
+            for (index, column) in columns.iter().enumerate() {
+                values.insert(
+                    (*column).to_string(),
+                    diagnostic_value(row.get_ref(index + 1).map_err(storage_error)?),
+                );
+            }
+            rows.push(DiagnosticRow {
+                rowid,
+                values,
+                byte_count: *byte_counts.get(&rowid).ok_or_else(|| {
+                    LedgerError::Storage("diagnostic row changed during bounded scan".to_string())
+                })?,
+            });
+        }
+        if rows.len() != selected.len() {
+            return Err(LedgerError::Storage(
+                "diagnostic rows changed during bounded scan".to_string(),
+            ));
+        }
+    }
+    let next_cursor = rows.last().map(|row| row.rowid);
+    Ok(DiagnosticBatch {
+        rows,
+        next_cursor,
+        next_unscanned_rowid,
+        byte_count,
+        truncated: next_unscanned_rowid.is_some(),
+    })
+}
+
+fn diagnostic_value(value: ValueRef<'_>) -> DiagnosticValue {
+    match value {
+        ValueRef::Null => DiagnosticValue::Null,
+        ValueRef::Integer(value) => DiagnosticValue::Integer(value),
+        ValueRef::Real(value) => DiagnosticValue::Real(value),
+        ValueRef::Text(bytes) => DiagnosticValue::Text {
+            value: std::str::from_utf8(bytes).ok().map(str::to_string),
+            byte_len: bytes.len(),
+        },
+        ValueRef::Blob(bytes) => DiagnosticValue::Blob {
+            byte_len: bytes.len(),
+        },
+    }
+}
+
+fn diagnostic_columns(table: DiagnosticTable) -> &'static [&'static str] {
+    match table {
+        DiagnosticTable::Currencies => &[
+            "id",
+            "code",
+            "name",
+            "symbol",
+            "decimal_places",
+            "active",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ],
+        DiagnosticTable::AccountCategories => &[
+            "id",
+            "name",
+            "parent_id",
+            "liability",
+            "active",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ],
+        DiagnosticTable::Accounts => &[
+            "id",
+            "name",
+            "account_category_id",
+            "currency_id",
+            "opening_balance_minor",
+            "active",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ],
+        DiagnosticTable::TransactionCategories => &[
+            "id",
+            "name",
+            "parent_id",
+            "kind",
+            "active",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ],
+        DiagnosticTable::LedgerEntries => &[
+            "id",
+            "date",
+            "written_at",
+            "content",
+            "transaction_category_id",
+            "account_id",
+            "entry_type",
+            "amount_minor",
+            "currency_id",
+            "transfer_group_id",
+            "source",
+            "notes",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ],
+        DiagnosticTable::AuditEvents => &[
+            "id",
+            "occurred_at",
+            "actor",
+            "action",
+            "record_type",
+            "record_id",
+            "before_json",
+            "after_json",
+            "reason",
+        ],
+        DiagnosticTable::TransferOperations => {
+            &["operation_key", "payload_json", "result_json", "created_at"]
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AggregateKind {
+    Summary,
+    Account,
+    Category,
+}
+
+fn aggregate_entries(
+    connection: &Connection,
+    kind: AggregateKind,
+    start: time::Date,
+    end: time::Date,
+) -> LedgerResult<Vec<ReportAggregateRecord>> {
+    let (reference_id, name, join, group_by) = match kind {
+        AggregateKind::Summary => ("NULL", "NULL", "", "e.currency_id, currency_code"),
+        AggregateKind::Account => (
+            "e.account_id",
+            "COALESCE(a.name, e.account_id)",
+            "LEFT JOIN accounts AS a ON a.id = e.account_id",
+            "e.account_id, reference_name, e.currency_id, currency_code",
+        ),
+        AggregateKind::Category => (
+            "e.transaction_category_id",
+            "COALESCE(tc.name, 'Uncategorized')",
+            "LEFT JOIN transaction_categories AS tc ON tc.id = e.transaction_category_id",
+            "e.transaction_category_id, reference_name, e.currency_id, currency_code",
+        ),
+    };
+    let sql = format!(
+        "SELECT
+            {reference_id} AS reference_id,
+            {name} AS reference_name,
+            e.currency_id,
+            COALESCE(c.code, e.currency_id) AS currency_code,
+            COALESCE(SUM(CASE WHEN e.entry_type = 'income'
+                THEN e.amount_minor ELSE 0 END), 0) AS income_minor,
+            COALESCE(SUM(CASE WHEN e.entry_type = 'expense'
+                THEN e.amount_minor ELSE 0 END), 0) AS expense_minor,
+            COALESCE(SUM(CASE e.entry_type
+                WHEN 'expense' THEN -e.amount_minor
+                WHEN 'income' THEN e.amount_minor
+                WHEN 'transfer_out' THEN -e.amount_minor
+                WHEN 'transfer_in' THEN e.amount_minor
+                WHEN 'adjustment_out' THEN -e.amount_minor
+                WHEN 'adjustment_in' THEN e.amount_minor
+                ELSE 0
+            END), 0) AS net_change_minor,
+            COUNT(*) AS entry_count
+         FROM ledger_entries AS e
+         LEFT JOIN currencies AS c ON c.id = e.currency_id
+         {join}
+         WHERE e.deleted_at IS NULL AND e.date >= ?1 AND e.date <= ?2
+         GROUP BY {group_by}
+         ORDER BY currency_code, e.currency_id, reference_name, reference_id"
+    );
+    let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+    let mut rows = statement
+        .query(params![start.to_string(), end.to_string()])
+        .map_err(storage_error)?;
+    let mut records = Vec::new();
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        let count = row.get::<_, i64>(7).map_err(storage_error)?;
+        records.push(ReportAggregateRecord {
+            reference_id: row.get(0).map_err(storage_error)?,
+            name: row.get(1).map_err(storage_error)?,
+            currency_id: row.get(2).map_err(storage_error)?,
+            currency_code: row.get(3).map_err(storage_error)?,
+            income_minor: row.get(4).map_err(storage_error)?,
+            expense_minor: row.get(5).map_err(storage_error)?,
+            net_change_minor: row.get(6).map_err(storage_error)?,
+            entry_count: u64::try_from(count).map_err(|_| {
+                LedgerError::Storage("ledger report entry count is negative".to_string())
+            })?,
+        });
+    }
+    Ok(records)
+}
+
+fn row_to_entry_view_record(row: &rusqlite::Row<'_>) -> LedgerResult<EntryViewRecord> {
+    Ok(EntryViewRecord {
+        entry: row_to_entry(row)?,
+        account_name: row.get(15).map_err(storage_error)?,
+        category_name: row.get(16).map_err(storage_error)?,
+        currency_code: row.get(17).map_err(storage_error)?,
+    })
+}
+
+fn entry_where_clause(query: &EntryQuery) -> (String, Vec<Value>) {
+    let mut clauses = Vec::new();
+    let mut values = Vec::<Value>::new();
+    if !query.include_archived {
+        clauses.push("deleted_at IS NULL".to_string());
+    }
+    push_entry_filter(
+        &mut clauses,
+        &mut values,
+        "date >= ",
+        query.date_from.map(|date| date.to_string()),
+    );
+    push_entry_filter(
+        &mut clauses,
+        &mut values,
+        "date <= ",
+        query.date_to.map(|date| date.to_string()),
+    );
+    push_entry_filter(
+        &mut clauses,
+        &mut values,
+        "entry_type = ",
+        query.entry_type.map(|kind| kind.as_str().to_string()),
+    );
+    push_entry_filter(
+        &mut clauses,
+        &mut values,
+        "account_id = ",
+        query.account.clone(),
+    );
+    push_entry_filter(
+        &mut clauses,
+        &mut values,
+        "transaction_category_id = ",
+        query.category.clone(),
+    );
+    push_entry_filter(
+        &mut clauses,
+        &mut values,
+        "currency_id = ",
+        query.currency.clone(),
+    );
+    if let Some(content) = query.content.as_deref() {
+        values.push(Value::Text(content.to_string()));
+        clauses.push(format!(
+            "ledger_content_contains(content, ?{}) = 1",
+            values.len()
+        ));
+    }
+    let where_clause = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", clauses.join(" AND "))
+    };
+    (where_clause, values)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn candidate_master_by_value<T>(
+    connection: &Connection,
+    table: &str,
+    columns: &str,
+    column: &str,
+    value: &str,
+    include_archived: bool,
+    map: fn(&rusqlite::Row<'_>) -> LedgerResult<T>,
+) -> LedgerResult<CandidateMatch<T>> {
+    let visibility = if include_archived {
+        ""
+    } else {
+        "AND deleted_at IS NULL"
+    };
+    candidate_query(
+        connection,
+        &format!(
+            "SELECT {columns}
+             FROM {table}
+             WHERE {column} = ?1 {visibility}
+             ORDER BY id
+             LIMIT 2"
+        ),
+        [value],
+        map,
+    )
+}
+
 fn push_entry_filter(
     clauses: &mut Vec<String>,
     values: &mut Vec<Value>,
@@ -972,94 +1745,6 @@ fn list_active_transaction_categories_on(
     )
 }
 
-fn list_currencies_on(
-    connection: &Connection,
-    include_archived: bool,
-    page: Page,
-) -> LedgerResult<Vec<Currency>> {
-    collect_rows(
-        connection,
-        &format!(
-            "SELECT {CURRENCY_COLUMNS}
-             FROM currencies
-             {}
-             ORDER BY id
-             LIMIT ?1 OFFSET ?2",
-            master_visibility(include_archived)
-        ),
-        page_params(page),
-        row_to_currency,
-    )
-}
-
-fn list_account_categories_on(
-    connection: &Connection,
-    include_archived: bool,
-    page: Page,
-) -> LedgerResult<Vec<AccountCategory>> {
-    collect_rows(
-        connection,
-        &format!(
-            "SELECT {ACCOUNT_CATEGORY_COLUMNS}
-             FROM account_categories
-             {}
-             ORDER BY id
-             LIMIT ?1 OFFSET ?2",
-            master_visibility(include_archived)
-        ),
-        page_params(page),
-        row_to_account_category,
-    )
-}
-
-fn list_accounts_on(
-    connection: &Connection,
-    include_archived: bool,
-    page: Page,
-) -> LedgerResult<Vec<Account>> {
-    collect_rows(
-        connection,
-        &format!(
-            "SELECT {ACCOUNT_COLUMNS}
-             FROM accounts
-             {}
-             ORDER BY id
-             LIMIT ?1 OFFSET ?2",
-            master_visibility(include_archived)
-        ),
-        page_params(page),
-        row_to_account,
-    )
-}
-
-fn list_transaction_categories_on(
-    connection: &Connection,
-    include_archived: bool,
-    page: Page,
-) -> LedgerResult<Vec<TransactionCategory>> {
-    collect_rows(
-        connection,
-        &format!(
-            "SELECT {TRANSACTION_CATEGORY_COLUMNS}
-             FROM transaction_categories
-             {}
-             ORDER BY id
-             LIMIT ?1 OFFSET ?2",
-            master_visibility(include_archived)
-        ),
-        page_params(page),
-        row_to_transaction_category,
-    )
-}
-
-fn master_visibility(include_archived: bool) -> &'static str {
-    if include_archived {
-        ""
-    } else {
-        "WHERE deleted_at IS NULL"
-    }
-}
-
 fn page_params(page: Page) -> [i64; 2] {
     [i64::from(page.limit), i64::from(page.offset)]
 }
@@ -1170,34 +1855,4 @@ fn transaction_category_kind_value(kind: TransactionCategoryKind) -> &'static st
         TransactionCategoryKind::Expense => "expense",
         TransactionCategoryKind::Income => "income",
     }
-}
-
-fn row_to_diagnostic_entry(row: &rusqlite::Row<'_>) -> LedgerResult<DiagnosticEntry> {
-    Ok(DiagnosticEntry {
-        id: row.get(0).map_err(storage_error)?,
-        date: row.get(1).map_err(storage_error)?,
-        written_at: row.get(2).map_err(storage_error)?,
-        content: row.get(3).map_err(storage_error)?,
-        transaction_category_id: row.get(4).map_err(storage_error)?,
-        account_id: row.get(5).map_err(storage_error)?,
-        entry_type: row.get(6).map_err(storage_error)?,
-        amount_minor: row.get(7).map_err(storage_error)?,
-        currency_id: row.get(8).map_err(storage_error)?,
-        transfer_group_id: row.get(9).map_err(storage_error)?,
-        source: row.get(10).map_err(storage_error)?,
-        notes: row.get(11).map_err(storage_error)?,
-        created_at: row.get(12).map_err(storage_error)?,
-        updated_at: row.get(13).map_err(storage_error)?,
-        deleted_at: row.get(14).map_err(storage_error)?,
-    })
-}
-
-fn row_to_diagnostic_transfer_operation(
-    row: &rusqlite::Row<'_>,
-) -> LedgerResult<DiagnosticTransferOperation> {
-    Ok(DiagnosticTransferOperation {
-        operation_key: row.get(0).map_err(storage_error)?,
-        payload_json: row.get(1).map_err(storage_error)?,
-        result_json: row.get(2).map_err(storage_error)?,
-    })
 }

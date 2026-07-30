@@ -10,6 +10,8 @@ use std::time::Duration;
 
 use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension};
+use unicode_casefold::UnicodeCaseFold;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::application::error::{LedgerError, LedgerResult};
 
@@ -108,10 +110,14 @@ fn register_read_functions(connection: &Connection) -> LedgerResult<()> {
             |context| {
                 let content = context.get::<String>(0)?;
                 let needle = context.get::<String>(1)?;
-                Ok(content.to_lowercase().contains(&needle.to_lowercase()))
+                Ok(unicode_search_key(&content).contains(&unicode_search_key(&needle)))
             },
         )
         .map_err(storage_error)
+}
+
+fn unicode_search_key(value: &str) -> String {
+    value.nfkc().case_fold().nfkc().collect()
 }
 
 pub(super) fn storage_error(error: rusqlite::Error) -> LedgerError {

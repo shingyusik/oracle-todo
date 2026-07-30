@@ -5,7 +5,7 @@ use ledger_engine::application::commands::{
     UpdateAccount, UpdateCurrency,
 };
 use ledger_engine::application::error::LedgerError;
-use ledger_engine::application::ports::{EntryQuery, LedgerRepository, Page};
+use ledger_engine::application::ports::{EntryQuery, Page};
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
 use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
@@ -33,7 +33,11 @@ fn archive_and_restore_are_audited_reversible_and_idempotent() {
     assert!(archived.is_archived());
     assert!(seeded.service.get_entry(entry.id()).is_err());
     assert_eq!(
-        seeded.service.entry_including_archived(entry.id()).unwrap(),
+        seeded
+            .service
+            .entry_including_archived(entry.id())
+            .unwrap()
+            .map(|view| view.entry),
         Some(archived.clone())
     );
     assert_eq!(seeded.service.archive_entry(entry.id()).unwrap(), archived);
@@ -87,7 +91,11 @@ fn purge_requires_exact_confirmation_accepts_archived_rows_and_keeps_final_audit
         Err(LedgerError::ConfirmationMismatch)
     );
     assert_eq!(
-        seeded.service.entry_including_archived(entry.id()).unwrap(),
+        seeded
+            .service
+            .entry_including_archived(entry.id())
+            .unwrap()
+            .map(|view| view.entry),
         Some(archived.clone())
     );
 
@@ -317,14 +325,23 @@ fn lifecycle_preserves_historical_master_references_and_purge_never_deletes_them
     let currency_id = seeded.currency_id.clone();
     drop(seeded);
 
-    let repository = SqliteLedgerRepository::open(&database).unwrap();
-    assert!(repository.get_account(&account_id, true).unwrap().is_some());
-    assert!(
-        repository
-            .get_currency(&currency_id, true)
-            .unwrap()
-            .is_some()
-    );
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    let account_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM accounts WHERE id = ?1",
+            [&account_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let currency_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM currencies WHERE id = ?1",
+            [&currency_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(account_count, 1);
+    assert_eq!(currency_count, 1);
 }
 
 #[test]

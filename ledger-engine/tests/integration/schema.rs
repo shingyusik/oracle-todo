@@ -1,5 +1,5 @@
 use ledger_engine::application::error::LedgerError;
-use ledger_engine::application::ports::{LedgerRepository, Page};
+use ledger_engine::application::ports::Page;
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::{Connection, params};
 use std::path::Path;
@@ -234,12 +234,9 @@ fn migration_backfills_compatible_partial_table_without_losing_rows() {
     let repository = SqliteLedgerRepository::open(&database).unwrap();
 
     assert_eq!(repository.schema_version().unwrap(), 2);
+    let service = ledger_engine::application::service::LedgerService::new(repository);
     assert_eq!(
-        repository
-            .get_currency("currency-legacy", false)
-            .unwrap()
-            .unwrap()
-            .code(),
+        service.currencies_page(Page::default()).unwrap().items[0].code(),
         "KRW"
     );
     assert_eq!(
@@ -338,12 +335,9 @@ fn migration_preserves_compatible_extra_legacy_columns() {
 
     let repository = SqliteLedgerRepository::open(&database).unwrap();
 
+    let service = ledger_engine::application::service::LedgerService::new(repository);
     assert_eq!(
-        repository
-            .get_currency("currency-legacy-extra", false)
-            .unwrap()
-            .unwrap()
-            .code(),
+        service.currencies_page(Page::default()).unwrap().items[0].code(),
         "KRW"
     );
     assert!(column_names(&database, "currencies").contains(&"legacy_source".to_string()));
@@ -765,13 +759,14 @@ fn health_and_repository_mapping_accept_the_same_normal_nested_audit_json() {
 
     let repository = SqliteLedgerRepository::open(&database).unwrap();
     repository.check_schema().unwrap();
-    let events = repository
-        .list_audit_events("ledger_entry", "entry-health", Page::default())
+    let service = ledger_engine::application::service::LedgerService::new(repository);
+    let events = service
+        .audit_page("ledger_entry", "entry-health", Page::default())
         .unwrap();
 
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.items.len(), 1);
     assert_eq!(
-        events[0].before,
+        events.items[0].before,
         Some(serde_json::json!({
             "account": {
                 "tags": ["cash", {"region": "KR"}]
@@ -780,7 +775,7 @@ fn health_and_repository_mapping_accept_the_same_normal_nested_audit_json() {
         }))
     );
     assert_eq!(
-        events[0].after,
+        events.items[0].after,
         Some(serde_json::json!([
             {
                 "entry": {
