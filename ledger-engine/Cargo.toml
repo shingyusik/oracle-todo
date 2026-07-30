@@ -5,7 +5,7 @@ edition = "2024"
 description = "Policy-enforced Raven Ledger engine"
 
 [dependencies]
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "functions"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

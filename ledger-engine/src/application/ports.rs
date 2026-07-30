@@ -1,10 +1,14 @@
+use serde::Serialize;
 use serde_json::Value;
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 
 use crate::application::error::LedgerResult;
-use crate::domain::{Account, AccountCategory, Currency, LedgerEntry, TransactionCategory};
+use crate::domain::{
+    Account, AccountCategory, Currency, EntryType, LedgerEntry, TransactionCategory,
+};
 
 pub const DEFAULT_PAGE_LIMIT: u16 = 100;
+pub const MAX_PAGE_LIMIT: u16 = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Page {
@@ -36,6 +40,17 @@ pub enum CandidateMatch<T> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryQuery {
+    pub date_from: Option<Date>,
+    pub date_to: Option<Date>,
+    pub entry_type: Option<EntryType>,
+    /// Account ID at the repository boundary; the service also accepts a unique name.
+    pub account: Option<String>,
+    /// Category ID at the repository boundary; the service also accepts a unique name.
+    pub category: Option<String>,
+    /// Currency ID at the repository boundary; the service also accepts ID/code/name.
+    pub currency: Option<String>,
+    /// A literal, case-insensitive substring. SQL wildcard characters have no special meaning.
+    pub content: Option<String>,
     pub include_archived: bool,
     pub offset: u32,
     pub limit: u16,
@@ -44,6 +59,13 @@ pub struct EntryQuery {
 impl Default for EntryQuery {
     fn default() -> Self {
         Self {
+            date_from: None,
+            date_to: None,
+            entry_type: None,
+            account: None,
+            category: None,
+            currency: None,
+            content: None,
             include_archived: false,
             offset: 0,
             limit: DEFAULT_PAGE_LIMIT,
@@ -51,9 +73,10 @@ impl Default for EntryQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuditEvent {
     pub id: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: OffsetDateTime,
     pub actor: String,
     pub action: String,
@@ -62,6 +85,50 @@ pub struct AuditEvent {
     pub before: Option<Value>,
     pub after: Option<Value>,
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DatabaseHealth {
+    pub integrity_messages: Vec<String>,
+    pub integrity_truncated: bool,
+    pub foreign_key_violations: Vec<ForeignKeyViolation>,
+    pub foreign_key_truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignKeyViolation {
+    pub table: String,
+    pub row_id: Option<i64>,
+    pub parent_table: String,
+    pub foreign_key_index: i64,
+}
+
+/// Raw, read-only projection used by doctor so malformed persisted values can
+/// be reported instead of failing domain rehydration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticEntry {
+    pub id: String,
+    pub date: String,
+    pub written_at: String,
+    pub content: String,
+    pub transaction_category_id: Option<String>,
+    pub account_id: String,
+    pub entry_type: String,
+    pub amount_minor: i64,
+    pub currency_id: String,
+    pub transfer_group_id: Option<String>,
+    pub source: String,
+    pub notes: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticTransferOperation {
+    pub operation_key: String,
+    pub payload_json: String,
+    pub result_json: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,6 +249,18 @@ pub trait LedgerRepository: Send {
         &self,
         page: Page,
     ) -> LedgerResult<Vec<TransactionCategory>>;
+    fn list_currencies(&self, include_archived: bool, page: Page) -> LedgerResult<Vec<Currency>>;
+    fn list_account_categories(
+        &self,
+        include_archived: bool,
+        page: Page,
+    ) -> LedgerResult<Vec<AccountCategory>>;
+    fn list_accounts(&self, include_archived: bool, page: Page) -> LedgerResult<Vec<Account>>;
+    fn list_transaction_categories(
+        &self,
+        include_archived: bool,
+        page: Page,
+    ) -> LedgerResult<Vec<TransactionCategory>>;
     fn list_entries(&self, query: &EntryQuery) -> LedgerResult<Vec<LedgerEntry>>;
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>>;
     fn list_entries_by_transfer_group(
@@ -195,6 +274,13 @@ pub trait LedgerRepository: Send {
         record_id: &str,
         page: Page,
     ) -> LedgerResult<Vec<AuditEvent>>;
+    fn list_all_audit_events(&self, page: Page) -> LedgerResult<Vec<AuditEvent>>;
+    fn database_health(&self) -> LedgerResult<DatabaseHealth>;
+    fn list_diagnostic_entries(&self, page: Page) -> LedgerResult<Vec<DiagnosticEntry>>;
+    fn list_diagnostic_transfer_operations(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<DiagnosticTransferOperation>>;
 }
 
 /// Internal mutation capability. External callers only receive the read-only

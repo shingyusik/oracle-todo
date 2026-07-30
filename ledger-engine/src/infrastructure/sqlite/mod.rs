@@ -8,6 +8,7 @@ mod schema;
 use std::path::Path;
 use std::time::Duration;
 
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::application::error::{LedgerError, LedgerResult};
@@ -29,6 +30,7 @@ impl SqliteLedgerRepository {
             .connection
             .busy_timeout(SQLITE_BUSY_TIMEOUT)
             .map_err(storage_error)?;
+        register_read_functions(&repository.connection)?;
         repository.init_schema()?;
         Ok(repository)
     }
@@ -42,6 +44,7 @@ impl SqliteLedgerRepository {
             .connection
             .busy_timeout(SQLITE_BUSY_TIMEOUT)
             .map_err(storage_error)?;
+        register_read_functions(&repository.connection)?;
         repository.init_schema()?;
         Ok(repository)
     }
@@ -92,6 +95,23 @@ impl SqliteLedgerRepository {
             )
             .map_err(storage_error)
     }
+}
+
+fn register_read_functions(connection: &Connection) -> LedgerResult<()> {
+    connection
+        .create_scalar_function(
+            "ledger_content_contains",
+            2,
+            FunctionFlags::SQLITE_UTF8
+                | FunctionFlags::SQLITE_DETERMINISTIC
+                | FunctionFlags::SQLITE_INNOCUOUS,
+            |context| {
+                let content = context.get::<String>(0)?;
+                let needle = context.get::<String>(1)?;
+                Ok(content.to_lowercase().contains(&needle.to_lowercase()))
+            },
+        )
+        .map_err(storage_error)
 }
 
 pub(super) fn storage_error(error: rusqlite::Error) -> LedgerError {

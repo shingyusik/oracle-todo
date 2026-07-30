@@ -8,6 +8,10 @@ mod master_policy_review;
 mod mutation_boundary;
 #[path = "integration/pagination_review.rs"]
 mod pagination_review;
+#[path = "integration/queries.rs"]
+mod queries;
+#[path = "integration/reports.rs"]
+mod reports;
 #[path = "integration/schema.rs"]
 mod schema;
 #[path = "integration/service_policy.rs"]

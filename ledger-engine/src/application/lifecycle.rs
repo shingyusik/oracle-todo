@@ -309,7 +309,7 @@ fn lifecycle_entries(
     }
 }
 
-fn validate_transfer_pair(group_id: &str, entries: &[LedgerEntry]) -> LedgerResult<()> {
+pub(crate) fn validate_transfer_pair(group_id: &str, entries: &[LedgerEntry]) -> LedgerResult<()> {
     validate_engine_uuid(group_id, "group identity is not an engine UUID")?;
     if entries.len() != 2 {
         return Err(invalid_transfer_pair(

@@ -1,5 +1,7 @@
 use crate::application::error::{LedgerError, LedgerResult};
-use crate::application::ports::{AuditEvent, EntryQuery, LedgerRepository, Page, Paged};
+use crate::application::ports::{
+    AuditEvent, EntryQuery, LedgerRepository, MAX_PAGE_LIMIT, Page, Paged,
+};
 use crate::domain::{Account, AccountCategory, Currency, LedgerEntry, TransactionCategory};
 
 pub struct LedgerService<R> {
@@ -75,10 +77,10 @@ fn paged<T>(
     page: Page,
     mut fetch: impl FnMut(Page) -> LedgerResult<Vec<T>>,
 ) -> LedgerResult<Paged<T>> {
-    if page.limit == 0 {
+    if page.limit == 0 || page.limit > MAX_PAGE_LIMIT {
         return Err(LedgerError::Validation {
             field: "page",
-            message: "page limit must be greater than zero".to_string(),
+            message: format!("page limit must be between 1 and {MAX_PAGE_LIMIT}"),
         });
     }
     let items = fetch(page)?;

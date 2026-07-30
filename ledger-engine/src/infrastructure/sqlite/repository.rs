@@ -1,10 +1,14 @@
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{
+    Connection, OptionalExtension, Transaction, TransactionBehavior, params, params_from_iter,
+    types::Value,
+};
 use time::OffsetDateTime;
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
-    AuditEvent, CandidateMatch, EntryQuery, LedgerMutationRepository, LedgerRepository,
-    LedgerTransaction, Page, TransferOperationRecord,
+    AuditEvent, CandidateMatch, DatabaseHealth, DiagnosticEntry, DiagnosticTransferOperation,
+    EntryQuery, ForeignKeyViolation, LedgerMutationRepository, LedgerRepository, LedgerTransaction,
+    Page, TransferOperationRecord,
 };
 use crate::domain::{
     Account, AccountCategory, Currency, LedgerEntry, TransactionCategory, TransactionCategoryKind,
@@ -62,24 +66,96 @@ impl LedgerRepository for SqliteLedgerRepository {
         list_active_transaction_categories_on(&self.connection, page)
     }
 
+    fn list_currencies(&self, include_archived: bool, page: Page) -> LedgerResult<Vec<Currency>> {
+        list_currencies_on(&self.connection, include_archived, page)
+    }
+
+    fn list_account_categories(
+        &self,
+        include_archived: bool,
+        page: Page,
+    ) -> LedgerResult<Vec<AccountCategory>> {
+        list_account_categories_on(&self.connection, include_archived, page)
+    }
+
+    fn list_accounts(&self, include_archived: bool, page: Page) -> LedgerResult<Vec<Account>> {
+        list_accounts_on(&self.connection, include_archived, page)
+    }
+
+    fn list_transaction_categories(
+        &self,
+        include_archived: bool,
+        page: Page,
+    ) -> LedgerResult<Vec<TransactionCategory>> {
+        list_transaction_categories_on(&self.connection, include_archived, page)
+    }
+
     fn list_entries(&self, query: &EntryQuery) -> LedgerResult<Vec<LedgerEntry>> {
-        let visibility = if query.include_archived {
-            ""
+        let mut clauses = Vec::new();
+        let mut values = Vec::<Value>::new();
+        if !query.include_archived {
+            clauses.push("deleted_at IS NULL".to_string());
+        }
+        push_entry_filter(
+            &mut clauses,
+            &mut values,
+            "date >= ",
+            query.date_from.map(|date| date.to_string()),
+        );
+        push_entry_filter(
+            &mut clauses,
+            &mut values,
+            "date <= ",
+            query.date_to.map(|date| date.to_string()),
+        );
+        push_entry_filter(
+            &mut clauses,
+            &mut values,
+            "entry_type = ",
+            query.entry_type.map(|kind| kind.as_str().to_string()),
+        );
+        push_entry_filter(
+            &mut clauses,
+            &mut values,
+            "account_id = ",
+            query.account.clone(),
+        );
+        push_entry_filter(
+            &mut clauses,
+            &mut values,
+            "transaction_category_id = ",
+            query.category.clone(),
+        );
+        push_entry_filter(
+            &mut clauses,
+            &mut values,
+            "currency_id = ",
+            query.currency.clone(),
+        );
+        if let Some(content) = query.content.as_deref() {
+            values.push(Value::Text(content.to_string()));
+            clauses.push(format!(
+                "ledger_content_contains(content, ?{}) = 1",
+                values.len()
+            ));
+        }
+        let where_clause = if clauses.is_empty() {
+            String::new()
         } else {
-            "WHERE deleted_at IS NULL"
+            format!("WHERE {}", clauses.join(" AND "))
         };
+        values.push(Value::Integer(i64::from(query.limit)));
+        let limit_parameter = values.len();
+        values.push(Value::Integer(i64::from(query.offset)));
+        let offset_parameter = values.len();
         let sql = format!(
             "SELECT {ENTRY_COLUMNS}
              FROM ledger_entries
-             {visibility}
+             {where_clause}
              ORDER BY date, written_at, id
-             LIMIT ?1 OFFSET ?2"
+             LIMIT ?{limit_parameter} OFFSET ?{offset_parameter}"
         );
-        collect_entries(
-            &self.connection,
-            &sql,
-            params![i64::from(query.limit), i64::from(query.offset)],
-        )
+        collect_entries(&self.connection, &sql, params_from_iter(values.iter()))
     }
 
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>> {
@@ -132,6 +208,92 @@ impl LedgerRepository for SqliteLedgerRepository {
             events.push(row_to_audit_event(row)?);
         }
         Ok(events)
+    }
+
+    fn list_all_audit_events(&self, page: Page) -> LedgerResult<Vec<AuditEvent>> {
+        collect_rows(
+            &self.connection,
+            &format!(
+                "SELECT {AUDIT_COLUMNS}
+                 FROM audit_events
+                 ORDER BY occurred_at, id
+                 LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_audit_event,
+        )
+    }
+
+    fn database_health(&self) -> LedgerResult<DatabaseHealth> {
+        const MAX_HEALTH_ISSUES: usize = 500;
+        let mut integrity_messages = self
+            .connection
+            .prepare("PRAGMA integrity_check(501)")
+            .map_err(storage_error)?
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        let integrity_truncated = integrity_messages.len() > MAX_HEALTH_ISSUES;
+        integrity_messages.truncate(MAX_HEALTH_ISSUES);
+        let mut foreign_key_violations = self
+            .connection
+            .prepare(
+                "SELECT \"table\", rowid, parent, fkid
+                 FROM pragma_foreign_key_check
+                 ORDER BY \"table\", rowid, parent, fkid
+                 LIMIT 501",
+            )
+            .map_err(storage_error)?
+            .query_map([], |row| {
+                Ok(ForeignKeyViolation {
+                    table: row.get(0)?,
+                    row_id: row.get(1)?,
+                    parent_table: row.get(2)?,
+                    foreign_key_index: row.get(3)?,
+                })
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        let foreign_key_truncated = foreign_key_violations.len() > MAX_HEALTH_ISSUES;
+        foreign_key_violations.truncate(MAX_HEALTH_ISSUES);
+        Ok(DatabaseHealth {
+            integrity_messages,
+            integrity_truncated,
+            foreign_key_violations,
+            foreign_key_truncated,
+        })
+    }
+
+    fn list_diagnostic_entries(&self, page: Page) -> LedgerResult<Vec<DiagnosticEntry>> {
+        collect_rows(
+            &self.connection,
+            "SELECT
+                id, date, written_at, content, transaction_category_id, account_id,
+                entry_type, amount_minor, currency_id, transfer_group_id, source, notes,
+                created_at, updated_at, deleted_at
+             FROM ledger_entries
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+            page_params(page),
+            row_to_diagnostic_entry,
+        )
+    }
+
+    fn list_diagnostic_transfer_operations(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<DiagnosticTransferOperation>> {
+        collect_rows(
+            &self.connection,
+            "SELECT operation_key, payload_json, result_json
+             FROM transfer_operations
+             ORDER BY operation_key
+             LIMIT ?1 OFFSET ?2",
+            page_params(page),
+            row_to_diagnostic_transfer_operation,
+        )
     }
 }
 
@@ -694,6 +856,18 @@ where
     Ok(values)
 }
 
+fn push_entry_filter(
+    clauses: &mut Vec<String>,
+    values: &mut Vec<Value>,
+    expression: &str,
+    value: Option<String>,
+) {
+    if let Some(value) = value {
+        values.push(Value::Text(value));
+        clauses.push(format!("{expression}?{}", values.len()));
+    }
+}
+
 fn candidate_query<T, P>(
     connection: &Connection,
     sql: &str,
@@ -796,6 +970,94 @@ fn list_active_transaction_categories_on(
         page_params(page),
         row_to_transaction_category,
     )
+}
+
+fn list_currencies_on(
+    connection: &Connection,
+    include_archived: bool,
+    page: Page,
+) -> LedgerResult<Vec<Currency>> {
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {CURRENCY_COLUMNS}
+             FROM currencies
+             {}
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+            master_visibility(include_archived)
+        ),
+        page_params(page),
+        row_to_currency,
+    )
+}
+
+fn list_account_categories_on(
+    connection: &Connection,
+    include_archived: bool,
+    page: Page,
+) -> LedgerResult<Vec<AccountCategory>> {
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {ACCOUNT_CATEGORY_COLUMNS}
+             FROM account_categories
+             {}
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+            master_visibility(include_archived)
+        ),
+        page_params(page),
+        row_to_account_category,
+    )
+}
+
+fn list_accounts_on(
+    connection: &Connection,
+    include_archived: bool,
+    page: Page,
+) -> LedgerResult<Vec<Account>> {
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {ACCOUNT_COLUMNS}
+             FROM accounts
+             {}
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+            master_visibility(include_archived)
+        ),
+        page_params(page),
+        row_to_account,
+    )
+}
+
+fn list_transaction_categories_on(
+    connection: &Connection,
+    include_archived: bool,
+    page: Page,
+) -> LedgerResult<Vec<TransactionCategory>> {
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {TRANSACTION_CATEGORY_COLUMNS}
+             FROM transaction_categories
+             {}
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+            master_visibility(include_archived)
+        ),
+        page_params(page),
+        row_to_transaction_category,
+    )
+}
+
+fn master_visibility(include_archived: bool) -> &'static str {
+    if include_archived {
+        ""
+    } else {
+        "WHERE deleted_at IS NULL"
+    }
 }
 
 fn page_params(page: Page) -> [i64; 2] {
@@ -908,4 +1170,34 @@ fn transaction_category_kind_value(kind: TransactionCategoryKind) -> &'static st
         TransactionCategoryKind::Expense => "expense",
         TransactionCategoryKind::Income => "income",
     }
+}
+
+fn row_to_diagnostic_entry(row: &rusqlite::Row<'_>) -> LedgerResult<DiagnosticEntry> {
+    Ok(DiagnosticEntry {
+        id: row.get(0).map_err(storage_error)?,
+        date: row.get(1).map_err(storage_error)?,
+        written_at: row.get(2).map_err(storage_error)?,
+        content: row.get(3).map_err(storage_error)?,
+        transaction_category_id: row.get(4).map_err(storage_error)?,
+        account_id: row.get(5).map_err(storage_error)?,
+        entry_type: row.get(6).map_err(storage_error)?,
+        amount_minor: row.get(7).map_err(storage_error)?,
+        currency_id: row.get(8).map_err(storage_error)?,
+        transfer_group_id: row.get(9).map_err(storage_error)?,
+        source: row.get(10).map_err(storage_error)?,
+        notes: row.get(11).map_err(storage_error)?,
+        created_at: row.get(12).map_err(storage_error)?,
+        updated_at: row.get(13).map_err(storage_error)?,
+        deleted_at: row.get(14).map_err(storage_error)?,
+    })
+}
+
+fn row_to_diagnostic_transfer_operation(
+    row: &rusqlite::Row<'_>,
+) -> LedgerResult<DiagnosticTransferOperation> {
+    Ok(DiagnosticTransferOperation {
+        operation_key: row.get(0).map_err(storage_error)?,
+        payload_json: row.get(1).map_err(storage_error)?,
+        result_json: row.get(2).map_err(storage_error)?,
+    })
 }

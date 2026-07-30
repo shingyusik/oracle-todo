@@ -1,0 +1,16 @@
+[
+  {
+    "id": "assetcat_cash",
+    "name": "Cash",
+    "parent_id": null,
+    "liability": false,
+    "active": true
+  },
+  {
+    "id": "assetcat_bank",
+    "name": "Bank",
+    "parent_id": null,
+    "liability": false,
+    "active": true
+  }
+]

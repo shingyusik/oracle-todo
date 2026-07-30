@@ -1,0 +1,9 @@
+{
+  "date": "2026-05-31",
+  "content": "coffee",
+  "account": "Cash",
+  "category": "Food",
+  "type": "expense",
+  "amount_minor": 4500,
+  "currency": "cur_bad"
+}

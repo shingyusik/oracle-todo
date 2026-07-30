@@ -1,0 +1,18 @@
+[
+  {
+    "id": "cur_krw",
+    "code": "KRW",
+    "name": "Korean Won",
+    "symbol": "₩",
+    "decimal_places": 0,
+    "active": true
+  },
+  {
+    "id": "cur_inactive",
+    "code": "ZZZ",
+    "name": "Inactive Currency",
+    "symbol": "Z",
+    "decimal_places": 0,
+    "active": false
+  }
+]
