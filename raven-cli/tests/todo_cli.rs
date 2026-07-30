@@ -1,4 +1,26 @@
-use crate::support::TestHome;
+use std::path::{Path, PathBuf};
+
+struct TestHome {
+    dir: tempfile::TempDir,
+}
+
+impl TestHome {
+    fn new() -> Self {
+        Self {
+            dir: tempfile::tempdir().expect("create test home"),
+        }
+    }
+    fn path(&self) -> &Path {
+        self.dir.path()
+    }
+    fn db_path(&self) -> PathBuf {
+        self.path().join("todo.sqlite")
+    }
+}
+
+fn raven() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_raven"))
+}
 use assert_cmd::Command;
 use predicates::str::contains;
 use time::{Date, format_description::parse};
@@ -18,9 +40,8 @@ fn format_day(day: Date) -> String {
 fn init_creates_sqlite_database() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success()
         .stdout(contains("initialized"));
@@ -38,13 +59,12 @@ fn run_at_executes_today_against_the_explicit_home() {
 }
 
 #[test]
-fn init_uses_todo_engine_home_environment() {
+fn init_uses_raven_home_environment() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .env("TODO_ENGINE_HOME", home.path())
-        .arg("init")
+    raven()
+        .env("RAVEN_HOME", home.path())
+        .args(["todo", "init"])
         .assert()
         .success()
         .stdout(contains("initialized"));
@@ -53,7 +73,7 @@ fn init_uses_todo_engine_home_environment() {
 }
 
 #[test]
-fn init_loads_todo_engine_home_from_dotenv() {
+fn init_loads_raven_home_from_dotenv() {
     let home = TestHome::new();
     let cwd = tempfile::tempdir().expect("create dotenv cwd");
     let fallback_home = tempfile::tempdir().expect("create fallback home");
@@ -61,27 +81,21 @@ fn init_loads_todo_engine_home_from_dotenv() {
     // not survive an unquoted value.
     std::fs::write(
         cwd.path().join(".env"),
-        format!("TODO_ENGINE_HOME='{}'\n", home.path().display()),
+        format!("RAVEN_HOME='{}'\n", home.path().display()),
     )
     .expect("write .env");
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .current_dir(cwd.path())
-        .env_remove("TODO_ENGINE_HOME")
+        .env_remove("RAVEN_HOME")
         .env("HOME", fallback_home.path())
-        .arg("init")
+        .args(["todo", "init"])
         .assert()
         .success()
         .stdout(contains(home.db_path().to_string_lossy().as_ref()));
 
     assert!(home.db_path().exists());
-    assert!(
-        !fallback_home
-            .path()
-            .join(".todo-engine/todo.sqlite")
-            .exists()
-    );
+    assert!(!fallback_home.path().join(".raven/todo.sqlite").exists());
 }
 
 #[test]
@@ -93,53 +107,36 @@ fn init_reports_an_unparsable_dotenv_instead_of_falling_back() {
     // that the .env was dropped.
     std::fs::write(
         cwd.path().join(".env"),
-        "TODO_ENGINE_HOME=C:\\Users\\someone\\todo-home\n",
+        "RAVEN_HOME=C:\\Users\\someone\\todo-home\n",
     )
     .expect("write .env");
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .current_dir(cwd.path())
-        .env_remove("TODO_ENGINE_HOME")
+        .env_remove("RAVEN_HOME")
         .env("HOME", fallback_home.path())
-        .arg("init")
+        .args(["todo", "init"])
         .assert()
         .failure()
         .stderr(contains("failed to parse .env"));
 
-    assert!(
-        !fallback_home
-            .path()
-            .join(".todo-engine/todo.sqlite")
-            .exists()
-    );
-}
-
-#[test]
-fn api_command_exposes_default_port() {
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["api", "--help"])
-        .assert()
-        .success()
-        .stdout(contains("3002"));
+    assert!(!fallback_home.path().join(".raven/todo.sqlite").exists());
 }
 
 #[test]
 fn task_propose_prints_json_item() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "MoneyManager 앱 열고 DB 생성 여부 확인",
@@ -153,194 +150,19 @@ fn task_propose_prints_json_item() {
 }
 
 #[test]
-fn cli_writes_info_to_stderr_and_debug_to_file_without_changing_stdout() {
-    let home = TestHome::new();
-
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
-        .assert()
-        .success()
-        .stdout(contains("initialized"))
-        .get_output()
-        .clone();
-
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("todo.sqlite"));
-
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("INFO"));
-    assert!(stderr.contains("command started"));
-    assert!(stderr.contains("command completed"));
-    assert!(!stderr.contains("DEBUG"));
-
-    let records = read_jsonl_records(home.path().join("logs/todo-engine.log.jsonl"));
-    assert_jsonl_event(&records, "INFO", "command_started");
-    assert_jsonl_event(&records, "INFO", "command_completed");
-    assert_jsonl_event(&records, "DEBUG", "home_resolved");
-    assert_jsonl_event(&records, "DEBUG", "database_opened");
-}
-
-#[test]
-fn cli_logs_error_event_with_exit_code_to_file() {
-    let home = TestHome::new();
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
-        .assert()
-        .success();
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "task",
-            "propose",
-            "실패할 일",
-            "--area",
-            "없는영역",
-        ])
-        .assert()
-        .code(4)
-        .stderr(contains("ERROR"))
-        .stderr(contains("Item not found: 없는영역"));
-
-    let records = read_jsonl_records(home.path().join("logs/todo-engine.log.jsonl"));
-    let error = find_jsonl_event(&records, "command_failed");
-    assert_eq!(error["level"], "ERROR");
-    assert_eq!(error["fields"]["command"], "task propose");
-    assert_eq!(error["fields"]["exit_code"], 4);
-    assert!(
-        error["fields"]["error"]
-            .as_str()
-            .unwrap()
-            .contains("Item not found: 없는영역")
-    );
-}
-
-#[test]
-fn cli_rotates_tracing_jsonl_logs_with_configurable_backup_count() {
-    let home = TestHome::new();
-
-    for _ in 0..8 {
-        Command::cargo_bin("todo-engine")
-            .unwrap()
-            .env("TODO_ENGINE_LOG_MAX_BYTES", "520")
-            .env("TODO_ENGINE_LOG_MAX_FILES", "2")
-            .args(["--home", home.path().to_str().unwrap(), "init"])
-            .assert()
-            .success();
-    }
-
-    let log_path = home.path().join("logs/todo-engine.log.jsonl");
-    let rotated_path = home.path().join("logs/todo-engine.log.jsonl.1");
-    let second_rotated_path = home.path().join("logs/todo-engine.log.jsonl.2");
-    let third_rotated_path = home.path().join("logs/todo-engine.log.jsonl.3");
-    assert!(log_path.exists());
-    assert!(rotated_path.exists());
-    assert!(second_rotated_path.exists());
-    assert!(!third_rotated_path.exists());
-
-    let records = read_jsonl_records(&log_path)
-        .into_iter()
-        .chain(read_jsonl_records(rotated_path))
-        .chain(read_jsonl_records(second_rotated_path))
-        .collect::<Vec<_>>();
-    assert_jsonl_event(&records, "INFO", "log_rotated");
-    assert!(
-        records
-            .iter()
-            .any(|record| record["fields"]["event"] == "command_completed")
-    );
-}
-
-#[test]
-fn cli_file_log_error_filters_debug_info_and_rotation_records() {
-    let home = TestHome::new();
-    let log_path = home.path().join("logs/todo-engine.log.jsonl");
-    std::fs::create_dir_all(log_path.parent().unwrap()).unwrap();
-    std::fs::write(&log_path, "old log large enough to rotate\n").unwrap();
-
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .env("TODO_ENGINE_FILE_LOG", "error")
-        .env("TODO_ENGINE_LOG_MAX_BYTES", "1")
-        .env("TODO_ENGINE_LOG_MAX_FILES", "1")
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "task",
-            "propose",
-            "실패할 일",
-            "--area",
-            "없는영역",
-        ])
-        .assert()
-        .code(4);
-
-    let records = read_jsonl_records(&log_path);
-    assert_jsonl_event(&records, "ERROR", "command_failed");
-    assert!(
-        records.iter().all(|record| record["level"] == "ERROR"),
-        "expected only ERROR records in active log, got {records:#?}"
-    );
-    assert!(
-        records
-            .iter()
-            .all(|record| record["fields"]["event"] != "log_rotated"),
-        "log_rotated should be filtered when TODO_ENGINE_FILE_LOG=error: {records:#?}"
-    );
-    assert!(
-        records
-            .iter()
-            .all(|record| record["fields"]["event"] != "home_resolved"),
-        "DEBUG events should be filtered when TODO_ENGINE_FILE_LOG=error: {records:#?}"
-    );
-    assert!(
-        records
-            .iter()
-            .all(|record| record["fields"]["event"] != "command_started"),
-        "INFO events should be filtered when TODO_ENGINE_FILE_LOG=error: {records:#?}"
-    );
-}
-
-fn read_jsonl_records(path: impl AsRef<std::path::Path>) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
-}
-
-fn find_jsonl_event<'a>(records: &'a [serde_json::Value], event: &str) -> &'a serde_json::Value {
-    records
-        .iter()
-        .find(|record| record["fields"]["event"] == event)
-        .unwrap_or_else(|| panic!("{event} event in {records:#?}"))
-}
-
-fn assert_jsonl_event(records: &[serde_json::Value], level: &str, event: &str) {
-    let record = find_jsonl_event(records, event);
-    assert_eq!(record["level"], level);
-}
-
-#[test]
 fn area_create_and_pending_show_current_cli_behavior() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "area",
             "create",
             "재정",
@@ -352,11 +174,11 @@ fn area_create_and_pending_show_current_cli_behavior() {
         .stdout(contains("\"type\":\"area\""))
         .stdout(contains("\"status\":\"active\""));
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "DB 확인",
@@ -364,11 +186,11 @@ fn area_create_and_pending_show_current_cli_behavior() {
         .assert()
         .success();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "직접 승인된 일",
@@ -378,9 +200,8 @@ fn area_create_and_pending_show_current_cli_behavior() {
         .assert()
         .success();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "pending"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "pending"])
         .assert()
         .success()
         .stdout(contains("DB 확인"))
@@ -391,17 +212,16 @@ fn area_create_and_pending_show_current_cli_behavior() {
 fn today_materializes_active_routines() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "routine",
             "propose",
             "매일 스트레칭",
@@ -422,9 +242,8 @@ fn today_materializes_active_routines() {
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(routine["future_occurrences"], 2);
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "today"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "today"])
         .assert()
         .success()
         .stdout(contains("매일 스트레칭"));
@@ -434,11 +253,11 @@ fn today_materializes_active_routines() {
 fn routine_propose_preserves_task_template_fields() {
     let home = TestHome::new();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "project",
             "propose",
             "수분 섭취",
@@ -453,11 +272,11 @@ fn routine_propose_preserves_task_template_fields() {
     let project: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let project_id = project["id"].as_str().unwrap();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "routine",
             "propose",
             "물 마시기",
@@ -494,9 +313,8 @@ fn routine_propose_preserves_task_template_fields() {
 fn export_subcommand_is_not_available() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "export"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "export"])
         .assert()
         .failure()
         .stderr(contains("unrecognized subcommand 'export'"));
@@ -505,9 +323,8 @@ fn export_subcommand_is_not_available() {
 #[test]
 fn approval_subcommands_are_not_available() {
     for command in ["approve", "activate"] {
-        Command::cargo_bin("todo-engine")
-            .unwrap()
-            .arg(command)
+        raven()
+            .args(["todo", command])
             .assert()
             .failure()
             .stderr(contains("unrecognized subcommand"));
@@ -518,17 +335,16 @@ fn approval_subcommands_are_not_available() {
 fn event_propose_prints_external_commitment_metadata() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "event",
             "propose",
             "병원 예약",
@@ -544,11 +360,11 @@ fn event_propose_prints_external_commitment_metadata() {
         .stdout(contains("\"commitment_type\":\"appointment\""))
         .stdout(contains("서울대병원"));
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "event",
             "propose",
             "컨설팅",
@@ -565,17 +381,16 @@ fn event_propose_prints_external_commitment_metadata() {
 fn list_project_propose_and_update_cover_cli_surface() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "area",
             "create",
             "운영",
@@ -583,11 +398,11 @@ fn list_project_propose_and_update_cover_cli_surface() {
         .assert()
         .success();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "project",
             "propose",
             "Rust cutover",
@@ -612,11 +427,11 @@ fn list_project_propose_and_update_cover_cli_surface() {
     let project: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let project_id = project["id"].as_str().unwrap();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "update",
             project_id,
             "--title",
@@ -631,11 +446,11 @@ fn list_project_propose_and_update_cover_cli_surface() {
         .stdout(contains("Rust cutover ready"))
         .stdout(contains("smoke tests pass"));
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "list",
             "--type",
             "project",
@@ -650,17 +465,16 @@ fn list_project_propose_and_update_cover_cli_surface() {
 fn lifecycle_commands_emit_json_status_changes() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    let active = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let active = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "승인할 일",
@@ -673,11 +487,11 @@ fn lifecycle_commands_emit_json_status_changes() {
     let active: serde_json::Value = serde_json::from_slice(&active).unwrap();
     let active_id = active["id"].as_str().unwrap();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "complete",
             active_id,
         ])
@@ -690,11 +504,11 @@ fn lifecycle_commands_emit_json_status_changes() {
         ("버릴 일", "drop", "dropped"),
         ("취소할 일", "cancel", "cancelled"),
     ] {
-        let output = Command::cargo_bin("todo-engine")
-            .unwrap()
+        let output = raven()
             .args([
                 "--home",
                 home.path().to_str().unwrap(),
+                "todo",
                 "task",
                 "propose",
                 title,
@@ -709,19 +523,24 @@ fn lifecycle_commands_emit_json_status_changes() {
         let item: serde_json::Value = serde_json::from_slice(&output).unwrap();
         let item_id = item["id"].as_str().unwrap();
 
-        Command::cargo_bin("todo-engine")
-            .unwrap()
-            .args(["--home", home.path().to_str().unwrap(), command, item_id])
+        raven()
+            .args([
+                "--home",
+                home.path().to_str().unwrap(),
+                "todo",
+                command,
+                item_id,
+            ])
             .assert()
             .success()
             .stdout(contains(format!("\"status\":\"{status}\"")));
     }
 
-    let pause_output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let pause_output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "일시정지할 일",
@@ -736,16 +555,26 @@ fn lifecycle_commands_emit_json_status_changes() {
     let pause_item: serde_json::Value = serde_json::from_slice(&pause_output).unwrap();
     let pause_id = pause_item["id"].as_str().unwrap();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "pause", pause_id])
+    raven()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "todo",
+            "pause",
+            pause_id,
+        ])
         .assert()
         .success()
         .stdout(contains("\"status\":\"paused\""));
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "resume", pause_id])
+    raven()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "todo",
+            "resume",
+            pause_id,
+        ])
         .assert()
         .success()
         .stdout(contains("\"status\":\"active\""));
@@ -755,17 +584,16 @@ fn lifecycle_commands_emit_json_status_changes() {
 fn postpone_prints_source_and_follow_up_json() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "미룰 일",
@@ -780,11 +608,11 @@ fn postpone_prints_source_and_follow_up_json() {
     let task: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let task_id = task["id"].as_str().unwrap();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "postpone",
             task_id,
             "--scheduled",
@@ -809,17 +637,16 @@ fn postpone_prints_source_and_follow_up_json() {
 fn miss_prints_the_missed_source_json() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "놓친 일",
@@ -834,11 +661,11 @@ fn miss_prints_the_missed_source_json() {
     let task: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let task_id = task["id"].as_str().unwrap();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "miss",
             task_id,
             "--reason",
@@ -859,17 +686,16 @@ fn miss_prints_the_missed_source_json() {
 fn postpone_without_scheduled_defaults_to_cli_local_tomorrow() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "내일 처리",
@@ -883,9 +709,14 @@ fn postpone_without_scheduled_defaults_to_cli_local_tomorrow() {
     let task_id = task["id"].as_str().unwrap();
     let tomorrow = format_day(local_day().next_day().unwrap());
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "postpone", task_id])
+    let output = raven()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "todo",
+            "postpone",
+            task_id,
+        ])
         .assert()
         .success()
         .get_output()
@@ -898,9 +729,8 @@ fn postpone_without_scheduled_defaults_to_cli_local_tomorrow() {
 
 #[test]
 fn postpone_help_documents_the_scheduled_option() {
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["postpone", "--help"])
+    raven()
+        .args(["todo", "postpone", "--help"])
         .assert()
         .success()
         .stdout(contains("--scheduled"));
@@ -910,17 +740,16 @@ fn postpone_help_documents_the_scheduled_option() {
 fn archive_list_shows_terminal_items() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "보관 목록 확인",
@@ -935,15 +764,24 @@ fn archive_list_shows_terminal_items() {
     let item: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let item_id = item["id"].as_str().unwrap();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "archive", item_id])
+    raven()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "todo",
+            "archive",
+            item_id,
+        ])
         .assert()
         .success();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "archive-list"])
+    raven()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "todo",
+            "archive-list",
+        ])
         .assert()
         .success()
         .stdout(contains("보관 목록 확인"));
@@ -953,17 +791,16 @@ fn archive_list_shows_terminal_items() {
 fn goal_propose_prints_active_json() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "goal",
             "propose",
             "Q3 OKR",
@@ -983,18 +820,17 @@ fn goal_propose_prints_active_json() {
 fn agenda_date_range_period_emit_json() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
     // agenda <date> emits a JSON array (not a Markdown table) — D-01.
-    let agenda = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let agenda = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "agenda",
             "2026-06-26",
         ])
@@ -1007,11 +843,11 @@ fn agenda_date_range_period_emit_json() {
     assert!(agenda.is_array(), "agenda stdout must be a JSON array");
 
     // date-range <from> <to> emits a JSON array.
-    let range = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let range = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "date-range",
             "2026-06-01",
             "2026-06-30",
@@ -1025,11 +861,11 @@ fn agenda_date_range_period_emit_json() {
     assert!(range.is_array(), "date-range stdout must be a JSON array");
 
     // period --horizon --period emits a PeriodView JSON object with period_key + roots.
-    let period = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let period = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "period",
             "--horizon",
             "month",
@@ -1056,17 +892,16 @@ fn agenda_date_range_period_emit_json() {
 fn update_parent_id_links_task_to_goal() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    let goal = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let goal = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "goal",
             "propose",
             "분기 목표",
@@ -1083,11 +918,11 @@ fn update_parent_id_links_task_to_goal() {
     let goal: serde_json::Value = serde_json::from_slice(&goal).unwrap();
     let goal_id = goal["id"].as_str().unwrap();
 
-    let task = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let task = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "task",
             "propose",
             "목표에 연결할 일",
@@ -1100,11 +935,11 @@ fn update_parent_id_links_task_to_goal() {
     let task: serde_json::Value = serde_json::from_slice(&task).unwrap();
     let task_id = task["id"].as_str().unwrap();
 
-    let linked = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let linked = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "update",
             task_id,
             "--parent-id",
@@ -1126,19 +961,18 @@ fn update_parent_id_links_task_to_goal() {
 fn period_bad_horizon_exits_two() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
     // Present-but-invalid horizon => TodoError::Validation => exit code 2.
     // This is the CLI half of the SC3 rejection-parity pair (API half: HTTP 400).
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "period",
             "--horizon",
             "bogus",
@@ -1154,17 +988,16 @@ fn period_bad_horizon_exits_two() {
 fn routine_materialize_covers_cli_intent() {
     let home = TestHome::new();
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
-        .args(["--home", home.path().to_str().unwrap(), "init"])
+    raven()
+        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
         .assert()
         .success();
 
-    let output = Command::cargo_bin("todo-engine")
-        .unwrap()
+    let output = raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "routine",
             "propose",
             "매일 호환성 점검",
@@ -1185,11 +1018,11 @@ fn routine_materialize_covers_cli_intent() {
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(routine["future_occurrences"], 2);
 
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "routine",
             "materialize",
         ])
@@ -1198,11 +1031,11 @@ fn routine_materialize_covers_cli_intent() {
         .stdout(contains("\"status\":\"active\""));
 
     // The target cap is shared service policy.
-    Command::cargo_bin("todo-engine")
-        .unwrap()
+    raven()
         .args([
             "--home",
             home.path().to_str().unwrap(),
+            "todo",
             "routine",
             "propose",
             "잘못된 루틴",

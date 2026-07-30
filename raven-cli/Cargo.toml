@@ -28,6 +28,8 @@ name = "raven"
 path = "src/main.rs"
 
 [dev-dependencies]
+assert_cmd = "2"
 axum = "0.7"
 http-body-util = "0.1"
+predicates = "3"
 tower = { version = "0.5", features = ["util"] }

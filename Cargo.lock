@@ -930,6 +930,7 @@ name = "raven-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assert_cmd",
  "axum",
  "clap",
  "dotenvy",
@@ -937,6 +938,7 @@ dependencies = [
  "http-body-util",
  "infer",
  "ledger-engine",
+ "predicates",
  "raven-api",
  "rusqlite",
  "serde",

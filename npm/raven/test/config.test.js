@@ -7,7 +7,7 @@ const { cacheDir, DEFAULT_CACHE_DIR, GITHUB_REPOSITORY, PACKAGE_NAME } = require
 
 test("uses the published package name and source GitHub repository", () => {
   assert.equal(PACKAGE_NAME, "@shings/raven");
-  assert.equal(GITHUB_REPOSITORY, "shingyusik/raven");
+  assert.equal(GITHUB_REPOSITORY, "shingyusik/oracle-todo");
 });
 
 test("uses the Raven cache namespace and override", () => {

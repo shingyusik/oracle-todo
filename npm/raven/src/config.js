@@ -4,7 +4,7 @@ const os = require("node:os");
 const PACKAGE_NAME = "@shings/raven";
 const COMMAND_NAME = "raven";
 const ENGINE_BINARY = "raven";
-const GITHUB_REPOSITORY = "shingyusik/raven";
+const GITHUB_REPOSITORY = "shingyusik/oracle-todo";
 const DEFAULT_CACHE_DIR = path.join(os.homedir(), ".local", "share", "raven");
 
 function cacheDir(env = process.env) {

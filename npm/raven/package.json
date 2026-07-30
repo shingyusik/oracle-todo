@@ -6,7 +6,7 @@
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shingyusik/raven.git",
+    "url": "git+https://github.com/shingyusik/oracle-todo.git",
     "directory": "npm/raven"
   },
   "bin": {
