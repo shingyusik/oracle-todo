@@ -152,6 +152,8 @@ fn media_references_require_canonical_uuid_v4_metadata_ids() {
     assert!(serde_json::from_value::<MediaReference>(json!(" \n ")).is_err());
     assert!(MediaReference::new("../media/health/evil.webp").is_err());
     assert!(HealthRecordId::parse("11111111-1111-1111-8111-111111111111").is_err());
+    assert!(HealthRecordId::parse("11111111-1111-4111-0111-111111111111").is_err());
+    assert!(HealthRecordId::parse("11111111-1111-4111-c111-111111111111").is_err());
     assert!(HealthRecordId::parse("11111111111141118111111111111111").is_err());
     assert!(HealthRecordId::parse("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA").is_err());
 }

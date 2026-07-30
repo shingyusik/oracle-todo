@@ -1,5 +1,5 @@
 use serde::{Deserialize, Deserializer, Serialize};
-use uuid::{Uuid, Version};
+use uuid::{Uuid, Variant, Version};
 
 use super::ValidationError;
 
@@ -10,7 +10,10 @@ pub struct HealthRecordId(String);
 impl HealthRecordId {
     pub fn parse(value: &str) -> Result<Self, ValidationError> {
         let uuid = Uuid::parse_str(value).map_err(|_| ValidationError::InvalidRecordId)?;
-        if uuid.get_version() != Some(Version::Random) || uuid.to_string() != value {
+        if uuid.get_version() != Some(Version::Random)
+            || uuid.get_variant() != Variant::RFC4122
+            || uuid.to_string() != value
+        {
             return Err(ValidationError::InvalidRecordId);
         }
         Ok(Self(value.to_string()))
