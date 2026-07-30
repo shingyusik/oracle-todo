@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Pencil } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -38,71 +39,72 @@ export function MarkdownNoteEditor({ value, onChange }: MarkdownNoteEditorProps)
             onBlur={() => setEditingLine(null)}
             onChange={(event) => updateLine(index, event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 insertLineAfter(index);
               }
             }}
           />
         ) : (
-          <div
-            key={index}
-            className={`markdown-note-line${
-              /^- \[[xX]\](?:\s|$)/.test(line) ? " markdown-note-line--checked" : ""
-            }`}
-            role="button"
-            tabIndex={0}
-            onClick={() => setEditingLine(index)}
-            onKeyDown={(event) => {
-              if (
-                event.target === event.currentTarget &&
-                (event.key === "Enter" || event.key === " ")
-              ) {
-                event.preventDefault();
-                setEditingLine(index);
-              }
-            }}
-          >
-            {(() => {
-              const markerOnlyTask = /^- \[([ xX])\]$/.exec(line);
-              if (markerOnlyTask) {
+          <div key={index} className="markdown-note-line-shell">
+            <div
+              className={`markdown-note-line${
+                /^- \[[xX]\](?:\s|$)/.test(line) ? " markdown-note-line--checked" : ""
+              }`}
+              onClick={() => setEditingLine(index)}
+            >
+              {(() => {
+                const markerOnlyTask = /^- \[([ xX])\]$/.exec(line);
+                if (markerOnlyTask) {
+                  return (
+                    <input
+                      type="checkbox"
+                      checked={markerOnlyTask[1].toLowerCase() === "x"}
+                      readOnly
+                      aria-disabled="true"
+                      tabIndex={-1}
+                      onClick={(event) => event.preventDefault()}
+                    />
+                  );
+                }
+                if (!line) {
+                  return (
+                    <p className="markdown-note-placeholder">Write a note with Markdown…</p>
+                  );
+                }
                 return (
-                  <input
-                    type="checkbox"
-                    checked={markerOnlyTask[1].toLowerCase() === "x"}
-                    disabled
-                  />
+                  <ReactMarkdown
+                    skipHtml
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a({ node: _node, onClick, ...props }) {
+                        return (
+                          <a
+                            {...props}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onClick?.(event);
+                            }}
+                          />
+                        );
+                      },
+                    }}
+                  >
+                    {line}
+                  </ReactMarkdown>
                 );
-              }
-              if (!line) {
-                return (
-                  <p className="markdown-note-placeholder">Write a note with Markdown…</p>
-                );
-              }
-              return (
-                <ReactMarkdown
-                  skipHtml
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    a({ node: _node, onClick, ...props }) {
-                      return (
-                        <a
-                          {...props}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onClick?.(event);
-                          }}
-                        />
-                      );
-                    },
-                  }}
-                >
-                  {line}
-                </ReactMarkdown>
-              );
-            })()}
+              })()}
+            </div>
+            <button
+              type="button"
+              className="markdown-note-line-edit-button"
+              aria-label={`Edit Markdown note line ${index + 1}`}
+              onClick={() => setEditingLine(index)}
+            >
+              <Pencil aria-hidden="true" size={14} />
+            </button>
           </div>
         ),
       )}

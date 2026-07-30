@@ -199,7 +199,6 @@ describe("design system boundaries", () => {
     const css = await readSource("src/styles/globals.css");
 
     expect(css).toContain(".detail-note {\n  display: grid;");
-    expect(css).toContain(".markdown-note-edit-button:focus-visible");
     expect(css).toContain(
       ".markdown-note-surface hr {\n  margin: 1.5em 0;\n  border: 0;\n  border-top: 1px solid var(--color-hairline-light);",
     );

@@ -1771,8 +1771,14 @@ button {
   background: transparent;
   color: var(--color-ink);
   min-height: 180px;
-  padding: 18px 44px 18px 0;
+  padding: 18px 0;
   cursor: text;
+}
+
+.markdown-note-line-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
 }
 
 .markdown-note-line,
@@ -1786,21 +1792,21 @@ button {
   line-height: 1.65;
 }
 
+.markdown-note-line {
+  cursor: text;
+}
+
 .markdown-note-surface:hover {
   background: var(--color-canvas-light);
 }
 
-.markdown-note-edit-button:focus-visible,
-.markdown-note-line:focus-visible,
+.markdown-note-line-edit-button:focus-visible,
 .markdown-note-line-input:focus-visible {
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
 }
 
-.markdown-note-edit-button {
-  position: absolute;
-  top: 10px;
-  right: 0;
+.markdown-note-line-edit-button {
   display: inline-grid;
   width: 32px;
   min-height: 32px;
@@ -1811,7 +1817,7 @@ button {
   color: var(--color-shade-50);
 }
 
-.markdown-note-edit-button:hover {
+.markdown-note-line-edit-button:hover {
   border-color: var(--color-hairline-light);
   background: var(--color-canvas-light);
   color: var(--color-ink);
@@ -1826,11 +1832,11 @@ button {
   color: var(--color-shade-50);
 }
 
-.markdown-note-surface > :first-child {
+.markdown-note-line > :first-child {
   margin-top: 0;
 }
 
-.markdown-note-surface > :last-child {
+.markdown-note-line > :last-child {
   margin-bottom: 0;
 }
 

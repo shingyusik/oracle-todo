@@ -6145,7 +6145,7 @@ describe("WorkbenchPageClient", () => {
     expect(saveButton.textContent).toBe("");
     expect(saveButton).toBeDisabled();
     expect(detailView.querySelector(".detail-header")?.contains(saveButton)).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Old note" }));
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note line 1" }));
     const note = screen.getByRole("textbox", { name: "Markdown note line 1" });
     await user.clear(note);
     await user.type(note, "Saved note");
@@ -6501,7 +6501,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(await screen.findByRole("cell", { name: "Secondary active goal" }));
 
     expect(screen.getByLabelText("Status for Secondary active goal")).toHaveValue("active");
-    await user.click(screen.getByRole("button", { name: "Old note" }));
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note line 1" }));
     const note = screen.getByRole("textbox", { name: "Markdown note line 1" });
     await user.clear(note);
     await user.type(note, "Saved note");
@@ -6634,7 +6634,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("Type")).toBeNull();
     expectFieldBefore("Status for One", "Area for One");
 
-    await user.click(screen.getByRole("button", { name: "Original note" }));
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note line 1" }));
     const note = screen.getByRole("textbox", { name: "Markdown note line 1" });
     await user.clear(note);
     await user.type(note, "Draft detail text");
@@ -6956,7 +6956,7 @@ describe("WorkbenchPageClient", () => {
     expectFieldBeforeProperty("Priority", "Created");
     expectPropertyImmediatelyBeforeProperty("Created", "Updated");
 
-    await user.click(screen.getByRole("button", { name: "Original note" }));
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note line 1" }));
     const note = screen.getByRole("textbox", { name: "Markdown note line 1" });
     await user.clear(note);
     await user.type(note, "Updated note");
@@ -6999,7 +6999,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("heading", { name: "Checklist" })).toBeInTheDocument();
 
     const layout = screen.getByRole("heading", { name: "Write release notes" }).closest(".detail-layout");
-    const note = screen.getByRole("button", { name: "Checklist" }).closest(".detail-note");
+    const note = screen.getByLabelText("Markdown note editor");
     expect(layout?.lastElementChild).toBe(note);
   });
 
@@ -7037,7 +7037,7 @@ describe("WorkbenchPageClient", () => {
     expectPropertyImmediatelyBeforeProperty("Created", "Updated");
     expect(screen.getByText("Monthly close")).toBeInTheDocument();
     const layout = screen.getByRole("heading", { name: "Finance" }).closest(".detail-layout");
-    const note = screen.getByRole("button", { name: "Monthly close" }).closest(".detail-note");
+    const note = screen.getByLabelText("Markdown note editor");
     expect(layout?.lastElementChild).toBe(note);
   });
 
@@ -7160,7 +7160,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByLabelText("Horizon")).toBeNull();
     expect(screen.queryByLabelText("Scheduled")).toBeNull();
     expect(screen.getByLabelText("Parent")).toHaveValue("goal-root");
-    await user.click(screen.getByRole("button", { name: "Ship the monthly target" }));
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note line 1" }));
     expect(screen.getByRole("textbox", { name: "Markdown note line 1" })).toHaveValue(
       "Ship the monthly target",
     );
@@ -8136,7 +8136,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Frequency")).toHaveValue("weekly");
     expect(screen.getByLabelText("Monday")).toBeChecked();
 
-    await user.click(screen.getByRole("button", { name: "Write a note with Markdown…" }));
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note line 1" }));
     await user.type(
       screen.getByRole("textbox", { name: "Markdown note line 1" }),
       "Keep this stretch",
@@ -8219,7 +8219,7 @@ describe("WorkbenchPageClient", () => {
     expectPropertyImmediatelyBeforeProperty("Updated", "Last Materialized");
     expect(screen.getByText("After coffee")).toBeInTheDocument();
     const layout = screen.getByRole("heading", { name: "Stretch" }).closest(".detail-layout");
-    const note = screen.getByRole("button", { name: "After coffee" }).closest(".detail-note");
+    const note = screen.getByLabelText("Markdown note editor");
     expect(layout?.lastElementChild).toBe(note);
   });
 
@@ -8282,9 +8282,7 @@ describe("WorkbenchPageClient", () => {
     expectFieldBeforeProperty("Commitment Type", "Created");
     expectPropertyImmediatelyBeforeProperty("Created", "Updated");
     const layout = screen.getByRole("heading", { name: "Review" }).closest(".detail-layout");
-    const note = screen
-      .getByRole("button", { name: "Write a note with Markdown…" })
-      .closest(".detail-note");
+    const note = screen.getByLabelText("Markdown note editor");
     expect(layout?.lastElementChild).toBe(note);
     await user.clear(screen.getByLabelText("Location"));
     await user.type(screen.getByLabelText("Location"), "Office");
