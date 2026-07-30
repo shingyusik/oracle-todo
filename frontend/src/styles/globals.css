@@ -2845,7 +2845,7 @@ button {
 .dashboard-status-skeleton-grid {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 760px), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -3465,5 +3465,10 @@ button {
   .dashboard-status-grid,
   .dashboard-status-skeleton-grid {
     grid-column: 1;
+  }
+
+  .dashboard-status-grid,
+  .dashboard-status-skeleton-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
