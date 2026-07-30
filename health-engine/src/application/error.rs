@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::application::media::MediaRecovery;
 use crate::domain::ValidationError;
 
 pub type HealthResult<T> = Result<T, HealthError>;
@@ -29,6 +30,8 @@ pub enum HealthError {
     Cleanup {
         primary: Box<HealthError>,
         cleanup: String,
+        recovery: Option<Box<MediaRecovery>>,
+        cleanup_path: Option<Box<std::path::PathBuf>>,
     },
     #[error(
         "health mutation committed for {record_id}, but media cleanup remains pending: {message}"

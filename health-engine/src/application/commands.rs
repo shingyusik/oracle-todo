@@ -10,10 +10,10 @@ pub struct MediaUpload {
 }
 
 impl MediaUpload {
-    pub fn new(content_type: impl Into<String>, bytes: impl AsRef<[u8]>) -> Self {
+    pub fn new(content_type: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
         Self {
             content_type: content_type.into(),
-            bytes: bytes.as_ref().to_vec(),
+            bytes: bytes.into(),
         }
     }
 }

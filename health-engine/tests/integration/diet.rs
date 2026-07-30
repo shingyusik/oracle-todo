@@ -11,6 +11,9 @@ use health_engine::domain::MealType;
 use health_engine::infrastructure::media::LocalMediaStore;
 use health_engine::infrastructure::sqlite::SqliteHealthRepository;
 use rusqlite::Connection;
+use time::OffsetDateTime;
+use time::UtcOffset;
+use time::format_description::well_known::Rfc3339;
 use time::macros::datetime;
 
 const PNG: &[u8] = &[
@@ -287,6 +290,59 @@ fn media_replacement_removes_old_bytes_only_after_the_diet_commit() {
 }
 
 #[test]
+fn media_remove_accepts_task_two_nested_canonical_paths_from_sqlite() {
+    let fixture = Fixture::new();
+    let mut service = fixture.service();
+    let before = service
+        .create_diet(CreateDietEntry {
+            media: Some(MediaUpload::new("image/png", PNG)),
+            ..create_without_media(vec!["wheat"])
+        })
+        .unwrap();
+    let media = service
+        .get_media(before.media_id().unwrap().as_str())
+        .unwrap();
+    let nested_relative = format!("2026/07/{}", media.relative_path().display());
+    let nested_file = fixture.media.join(&nested_relative);
+    fs::create_dir_all(nested_file.parent().unwrap()).unwrap();
+    fs::rename(fixture.media.join(media.relative_path()), &nested_file).unwrap();
+    Connection::open(&fixture.database)
+        .unwrap()
+        .execute(
+            "UPDATE media_files SET relative_path = ?2 WHERE id = ?1",
+            rusqlite::params![media.id(), nested_relative],
+        )
+        .unwrap();
+
+    let after = service
+        .update_diet(
+            before.id().as_str(),
+            UpdateDietEntry {
+                media: DietMediaUpdate::Remove,
+                expected_updated_at: Some(before.updated_at()),
+                actor: "integration-test".to_string(),
+                ..UpdateDietEntry::default()
+            },
+        )
+        .unwrap();
+
+    assert!(after.media_id().is_none());
+    assert!(!nested_file.exists());
+    let connection = Connection::open(&fixture.database).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT cleanup_pending, deleted_at IS NOT NULL
+                 FROM media_files WHERE id = ?1",
+                [media.id()],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .unwrap(),
+        (0, 1)
+    );
+}
+
+#[test]
 fn failed_replacement_commit_removes_new_bytes_and_keeps_old_media_and_diet() {
     let fixture = Fixture::new();
     let mut service = fixture.service();
@@ -338,6 +394,157 @@ fn failed_replacement_commit_removes_new_bytes_and_keeps_old_media_and_diet() {
         .map(|entry| entry.unwrap().file_name())
         .collect::<Vec<_>>();
     assert_eq!(paths, vec![old_media.relative_path().as_os_str()]);
+}
+
+#[test]
+fn deferred_foreign_key_commit_failure_removes_new_media_and_preserves_old_state() {
+    let fixture = Fixture::new();
+    let mut service = fixture.service();
+    let before = service
+        .create_diet(CreateDietEntry {
+            media: Some(MediaUpload::new("image/png", PNG)),
+            ..create_without_media(vec!["wheat"])
+        })
+        .unwrap();
+    let old_media = service
+        .get_media(before.media_id().unwrap().as_str())
+        .unwrap();
+    let connection = Connection::open(&fixture.database).unwrap();
+    install_deferred_audit_commit_failure(
+        &connection,
+        "fail_diet_update_commit",
+        "NEW.record_type = 'diet_entry' AND NEW.action = 'update'",
+    );
+
+    let result = service.update_diet(
+        before.id().as_str(),
+        UpdateDietEntry {
+            media: DietMediaUpdate::Replace(MediaUpload::new("image/png", PNG)),
+            expected_updated_at: Some(before.updated_at()),
+            actor: "integration-test".to_string(),
+            ..UpdateDietEntry::default()
+        },
+    );
+
+    assert!(matches!(result, Err(HealthError::Storage(_))));
+    assert_eq!(service.get_diet(before.id().as_str()).unwrap(), before);
+    let paths = visible_media_files(&fixture.media);
+    assert_eq!(paths, vec![old_media.relative_path().to_path_buf()]);
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM media_files", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM audit_events", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn actual_remove_failure_returns_committed_cleanup_pending_state() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new();
+    let mut service = fixture.service();
+    let before = service
+        .create_diet(CreateDietEntry {
+            media: Some(MediaUpload::new("image/png", PNG)),
+            ..create_without_media(vec!["wheat"])
+        })
+        .unwrap();
+    let old_media = service
+        .get_media(before.media_id().unwrap().as_str())
+        .unwrap();
+    fs::set_permissions(&fixture.media, fs::Permissions::from_mode(0o500)).unwrap();
+
+    let result = service.update_diet(
+        before.id().as_str(),
+        UpdateDietEntry {
+            media: DietMediaUpdate::Remove,
+            expected_updated_at: Some(before.updated_at()),
+            actor: "integration-test".to_string(),
+            ..UpdateDietEntry::default()
+        },
+    );
+
+    fs::set_permissions(&fixture.media, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(matches!(
+        result,
+        Err(HealthError::CleanupPending { ref record_id, .. })
+            if record_id == before.id().as_str()
+    ));
+    assert!(
+        service
+            .get_diet(before.id().as_str())
+            .unwrap()
+            .media_id()
+            .is_none()
+    );
+    assert!(fixture.media.join(old_media.relative_path()).is_file());
+    let connection = Connection::open(&fixture.database).unwrap();
+    assert_eq!(media_cleanup_state(&connection, old_media.id()), (1, 1));
+    assert_latest_detach_and_diet_update_share_request(&connection, &before, old_media.id());
+}
+
+#[test]
+fn post_remove_cleanup_commit_failure_preserves_retryable_tombstone() {
+    let fixture = Fixture::new();
+    let mut service = fixture.service();
+    let before = service
+        .create_diet(CreateDietEntry {
+            media: Some(MediaUpload::new("image/png", PNG)),
+            ..create_without_media(vec!["wheat"])
+        })
+        .unwrap();
+    let old_media = service
+        .get_media(before.media_id().unwrap().as_str())
+        .unwrap();
+    let connection = Connection::open(&fixture.database).unwrap();
+    install_deferred_audit_commit_failure(
+        &connection,
+        "fail_cleanup_commit",
+        "NEW.record_type = 'media_file' AND NEW.action = 'cleanup'",
+    );
+
+    let result = service.update_diet(
+        before.id().as_str(),
+        UpdateDietEntry {
+            media: DietMediaUpdate::Remove,
+            expected_updated_at: Some(before.updated_at()),
+            actor: "integration-test".to_string(),
+            ..UpdateDietEntry::default()
+        },
+    );
+
+    assert!(matches!(result, Err(HealthError::CleanupPending { .. })));
+    assert!(!fixture.media.join(old_media.relative_path()).exists());
+    assert!(
+        service
+            .get_diet(before.id().as_str())
+            .unwrap()
+            .media_id()
+            .is_none()
+    );
+    assert_eq!(media_cleanup_state(&connection, old_media.id()), (1, 1));
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM audit_events
+                 WHERE record_type = 'media_file' AND record_id = ?1 AND action = 'cleanup'",
+                [old_media.id()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        0
+    );
+    assert_latest_detach_and_diet_update_share_request(&connection, &before, old_media.id());
 }
 
 #[test]
@@ -395,6 +602,63 @@ fn standalone_media_database_failure_removes_the_finalized_file() {
     assert_directory_empty(&fixture.media);
 }
 
+#[cfg(unix)]
+#[test]
+fn database_and_compensation_remove_failure_keeps_durable_recovery_identity() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::mpsc;
+    use std::time::Duration as StdDuration;
+
+    let fixture = Fixture::new();
+    let mut service = fixture.service();
+    let lock = Connection::open(&fixture.database).unwrap();
+    lock.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    let media_directory = fixture.media.clone();
+    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let watcher = std::thread::spawn(move || {
+        for _ in 0..100 {
+            let published = fs::read_dir(&media_directory)
+                .unwrap()
+                .filter_map(Result::ok)
+                .any(|entry| {
+                    entry
+                        .path()
+                        .extension()
+                        .is_some_and(|extension| extension == "png")
+                });
+            if published {
+                fs::set_permissions(&media_directory, fs::Permissions::from_mode(0o500)).unwrap();
+                ready_tx.send(()).unwrap();
+                return media_directory;
+            }
+            std::thread::sleep(StdDuration::from_millis(5));
+        }
+        panic!("media was not published before the database lock timed out");
+    });
+
+    let result = service.store_media("image/png", PNG);
+    ready_rx.recv_timeout(StdDuration::from_secs(2)).unwrap();
+    let media_directory = watcher.join().unwrap();
+    lock.execute_batch("ROLLBACK;").unwrap();
+    fs::set_permissions(&media_directory, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let recovery = match result.unwrap_err() {
+        HealthError::Cleanup {
+            primary,
+            recovery: Some(recovery),
+            ..
+        } => {
+            assert!(matches!(*primary, HealthError::Busy(_)));
+            *recovery
+        }
+        error => panic!("expected recoverable cleanup failure, got {error:?}"),
+    };
+    assert!(!recovery.relative_path().is_absolute());
+    assert!(!recovery.journal_name().is_absolute());
+    let store = LocalMediaStore::new(&fixture.media).unwrap();
+    assert_eq!(store.list_recoveries().unwrap(), vec![recovery]);
+}
+
 #[test]
 fn rejects_unbounded_audit_text_without_writing_diet_or_media() {
     let fixture = Fixture::new();
@@ -418,6 +682,136 @@ fn rejects_unbounded_audit_text_without_writing_diet_or_media() {
         0
     );
     assert_directory_empty(&fixture.media);
+}
+
+#[test]
+fn rejects_positive_offset_overflow_before_finalizing_create_media() {
+    let fixture = Fixture::new();
+    let mut service = fixture.service();
+    let occurred_at = OffsetDateTime::parse("9999-12-31T20:00:00Z", &Rfc3339).unwrap();
+
+    let result = service.create_diet(CreateDietEntry {
+        occurred_at,
+        media: Some(MediaUpload::new("image/png", PNG.to_vec())),
+        ..create_without_media(vec!["wheat"])
+    });
+
+    assert!(matches!(
+        result,
+        Err(HealthError::Validation {
+            field: "occurred_at",
+            ..
+        })
+    ));
+    assert_database_and_media_empty(&fixture);
+}
+
+#[test]
+fn rejects_negative_offset_underflow_before_finalizing_update_media() {
+    let fixture = Fixture::new();
+    let mut service = fixture
+        .service()
+        .with_local_offset(UtcOffset::from_hms(-9, 0, 0).unwrap());
+    let before = service
+        .create_diet(create_without_media(vec!["wheat"]))
+        .unwrap();
+    let occurred_at = OffsetDateTime::parse("0000-01-01T04:00:00Z", &Rfc3339).unwrap();
+
+    let result = service.update_diet(
+        before.id().as_str(),
+        UpdateDietEntry {
+            occurred_at: Some(occurred_at),
+            media: DietMediaUpdate::Replace(MediaUpload::new("image/png", PNG.to_vec())),
+            expected_updated_at: Some(before.updated_at()),
+            actor: "integration-test".to_string(),
+            ..UpdateDietEntry::default()
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(HealthError::Validation {
+            field: "occurred_at",
+            ..
+        })
+    ));
+    assert_eq!(service.get_diet(before.id().as_str()).unwrap(), before);
+    assert_directory_empty(&fixture.media);
+}
+
+#[test]
+fn rejects_unadvanceable_update_clock_before_finalizing_replacement_media() {
+    let fixture = Fixture::new();
+    let mut service = fixture.service();
+    let before = service
+        .create_diet(create_without_media(vec!["wheat"]))
+        .unwrap();
+    Connection::open(&fixture.database)
+        .unwrap()
+        .execute(
+            "UPDATE diet_entries
+             SET updated_at = '9999-12-31T23:59:59.999999999Z'
+             WHERE id = ?1",
+            [before.id().as_str()],
+        )
+        .unwrap();
+    let before = service.get_diet(before.id().as_str()).unwrap();
+
+    let result = service.update_diet(
+        before.id().as_str(),
+        UpdateDietEntry {
+            media: DietMediaUpdate::Replace(MediaUpload::new("image/png", PNG)),
+            expected_updated_at: Some(before.updated_at()),
+            actor: "integration-test".to_string(),
+            ..UpdateDietEntry::default()
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(HealthError::Conflict(_) | HealthError::Validation { .. })
+    ));
+    assert!(visible_media_files(&fixture.media).is_empty());
+    assert!(
+        LocalMediaStore::new(&fixture.media)
+            .unwrap()
+            .list_recoveries()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn diet_read_and_update_reject_noncanonical_identifiers_before_querying() {
+    let fixture = Fixture::new();
+    let mut service = fixture.service();
+
+    assert!(matches!(
+        service.get_diet("not-a-uuid"),
+        Err(HealthError::Validation { .. })
+    ));
+    assert!(matches!(
+        service.update_diet(
+            "abcdef00-0000-4000-8000-000000000001"
+                .to_uppercase()
+                .as_str(),
+            UpdateDietEntry {
+                actor: "integration-test".to_string(),
+                ..UpdateDietEntry::default()
+            }
+        ),
+        Err(HealthError::Validation { .. })
+    ));
+}
+
+#[test]
+fn media_upload_owned_constructor_preserves_the_allocation() {
+    let bytes = PNG.to_vec();
+    let allocation = bytes.as_ptr();
+
+    let upload = MediaUpload::new("image/png", bytes);
+
+    assert_eq!(upload.bytes.as_ptr(), allocation);
 }
 
 fn create_without_media(tags: Vec<&str>) -> CreateDietEntry {
@@ -447,6 +841,98 @@ fn assert_media_file(fixture: &Fixture, media: &StoredMedia) {
 
 fn assert_directory_empty(path: &std::path::Path) {
     assert_eq!(fs::read_dir(path).unwrap().count(), 0);
+}
+
+fn assert_database_and_media_empty(fixture: &Fixture) {
+    let connection = Connection::open(&fixture.database).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM diet_entries", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM media_files", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_directory_empty(&fixture.media);
+}
+
+fn install_deferred_audit_commit_failure(
+    connection: &Connection,
+    trigger_name: &str,
+    condition: &str,
+) {
+    connection
+        .execute_batch(&format!(
+            "CREATE TABLE IF NOT EXISTS test_commit_parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE IF NOT EXISTS test_commit_guard (
+                 id INTEGER PRIMARY KEY,
+                 parent_id INTEGER REFERENCES test_commit_parent(id)
+                     DEFERRABLE INITIALLY DEFERRED
+             );
+             CREATE TRIGGER {trigger_name}
+             AFTER INSERT ON audit_events
+             WHEN {condition}
+             BEGIN
+                 INSERT INTO test_commit_guard (parent_id) VALUES (999);
+             END;"
+        ))
+        .unwrap();
+}
+
+fn visible_media_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut paths = fs::read_dir(root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| matches!(extension.to_str(), Some("jpg" | "png" | "webp")))
+        })
+        .map(|path| path.strip_prefix(root).unwrap().to_path_buf())
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+}
+
+fn media_cleanup_state(connection: &Connection, media_id: &str) -> (i64, i64) {
+    connection
+        .query_row(
+            "SELECT cleanup_pending, deleted_at IS NOT NULL
+             FROM media_files WHERE id = ?1",
+            [media_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+}
+
+fn assert_latest_detach_and_diet_update_share_request(
+    connection: &Connection,
+    diet: &health_engine::domain::DietEntry,
+    media_id: &str,
+) {
+    let diet_request = connection
+        .query_row(
+            "SELECT request_id FROM audit_events
+             WHERE record_type = 'diet_entry' AND record_id = ?1 AND action = 'update'",
+            [diet.id().as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let media_request = connection
+        .query_row(
+            "SELECT request_id FROM audit_events
+             WHERE record_type = 'media_file' AND record_id = ?1 AND action = 'detach'",
+            [media_id],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(diet_request, media_request);
 }
 
 struct Fixture {

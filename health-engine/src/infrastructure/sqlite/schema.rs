@@ -26,7 +26,22 @@ pub(super) fn init_schema(connection: &Connection) -> HealthResult<()> {
         return Err(newer_schema(version));
     }
     if version == SCHEMA_VERSION {
-        return check_schema(connection);
+        let guards_present = TRIGGERS.iter().try_fold(true, |present, trigger| {
+            Ok::<bool, HealthError>(
+                present && trigger_definition(connection, trigger.name)?.is_some(),
+            )
+        })?;
+        if guards_present {
+            return check_schema(connection);
+        }
+        connection
+            .execute_batch("BEGIN IMMEDIATE;")
+            .map_err(migration_error)?;
+        let result = (|| {
+            create_missing_triggers(connection)?;
+            validate_current_schema(connection)
+        })();
+        return finish_transaction(connection, result);
     }
 
     connection
@@ -42,6 +57,7 @@ pub(super) fn init_schema(connection: &Connection) -> HealthResult<()> {
         }
         create_missing_tables(connection)?;
         create_missing_indexes(connection)?;
+        create_missing_triggers(connection)?;
         validate_schema_objects(connection)?;
         validate_persisted_rows(connection)?;
         connection
@@ -180,12 +196,26 @@ fn create_missing_indexes(connection: &Connection) -> HealthResult<()> {
     Ok(())
 }
 
+fn create_missing_triggers(connection: &Connection) -> HealthResult<()> {
+    for trigger in TRIGGERS {
+        if trigger_definition(connection, trigger.name)?.is_none() {
+            connection
+                .execute_batch(trigger.create_sql)
+                .map_err(migration_error)?;
+        }
+    }
+    Ok(())
+}
+
 fn validate_schema_objects(connection: &Connection) -> HealthResult<()> {
     for table in TABLES {
         validate_table(connection, table)?;
     }
     for index in INDEXES {
         validate_index(connection, index)?;
+    }
+    for trigger in TRIGGERS {
+        validate_trigger(connection, trigger)?;
     }
     let foreign_key_violation: bool = connection
         .query_row(
@@ -198,6 +228,30 @@ fn validate_schema_objects(connection: &Connection) -> HealthResult<()> {
         return Err(HealthError::Migration(
             "health database contains broken foreign-key references".to_string(),
         ));
+    }
+    Ok(())
+}
+
+fn trigger_definition(connection: &Connection, name: &str) -> HealthResult<Option<String>> {
+    connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
+            [name],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(migration_error)
+}
+
+fn validate_trigger(connection: &Connection, expected: &TriggerSpec) -> HealthResult<()> {
+    let actual = trigger_definition(connection, expected.name)?.ok_or_else(|| {
+        HealthError::Migration(format!("required trigger {} is missing", expected.name))
+    })?;
+    if sql_tokens(&actual)? != sql_tokens(expected.create_sql)? {
+        return Err(HealthError::Migration(format!(
+            "trigger {} has an incompatible definition",
+            expected.name
+        )));
     }
     Ok(())
 }
@@ -1030,6 +1084,11 @@ struct IndexSpec {
     predicate: Option<&'static str>,
 }
 
+struct TriggerSpec {
+    name: &'static str,
+    create_sql: &'static str,
+}
+
 struct IndexMetadata {
     unique: bool,
     origin: String,
@@ -1202,6 +1261,75 @@ const TABLES: &[TableSpec] = &[
     },
 ];
 
+const TRIGGERS: &[TriggerSpec] = &[
+    TriggerSpec {
+        name: "health_media_lifecycle_insert",
+        create_sql: "
+            CREATE TRIGGER health_media_lifecycle_insert
+            BEFORE INSERT ON media_files
+            WHEN NEW.cleanup_pending = 1 AND NEW.deleted_at IS NULL
+            BEGIN
+                SELECT RAISE(ABORT, 'cleanup pending media must be tombstoned');
+            END;",
+    },
+    TriggerSpec {
+        name: "health_media_lifecycle_update",
+        create_sql: "
+            CREATE TRIGGER health_media_lifecycle_update
+            BEFORE UPDATE OF cleanup_pending, deleted_at ON media_files
+            WHEN NEW.cleanup_pending = 1 AND NEW.deleted_at IS NULL
+            BEGIN
+                SELECT RAISE(ABORT, 'cleanup pending media must be tombstoned');
+            END;",
+    },
+    TriggerSpec {
+        name: "health_diet_active_media_insert",
+        create_sql: "
+            CREATE TRIGGER health_diet_active_media_insert
+            BEFORE INSERT ON diet_entries
+            WHEN NEW.deleted_at IS NULL AND NEW.media_id IS NOT NULL
+                 AND NOT EXISTS (
+                    SELECT 1 FROM media_files
+                    WHERE id = NEW.media_id
+                      AND deleted_at IS NULL
+                      AND cleanup_pending = 0
+                 )
+            BEGIN
+                SELECT RAISE(ABORT, 'active diet must reference active media');
+            END;",
+    },
+    TriggerSpec {
+        name: "health_diet_active_media_update",
+        create_sql: "
+            CREATE TRIGGER health_diet_active_media_update
+            BEFORE UPDATE OF media_id, deleted_at ON diet_entries
+            WHEN NEW.deleted_at IS NULL AND NEW.media_id IS NOT NULL
+                 AND NOT EXISTS (
+                    SELECT 1 FROM media_files
+                    WHERE id = NEW.media_id
+                      AND deleted_at IS NULL
+                      AND cleanup_pending = 0
+                 )
+            BEGIN
+                SELECT RAISE(ABORT, 'active diet must reference active media');
+            END;",
+    },
+    TriggerSpec {
+        name: "health_media_tombstone_unreferenced",
+        create_sql: "
+            CREATE TRIGGER health_media_tombstone_unreferenced
+            BEFORE UPDATE OF cleanup_pending, deleted_at ON media_files
+            WHEN (NEW.deleted_at IS NOT NULL OR NEW.cleanup_pending = 1)
+                 AND EXISTS (
+                    SELECT 1 FROM diet_entries
+                    WHERE media_id = NEW.id AND deleted_at IS NULL
+                 )
+            BEGIN
+                SELECT RAISE(ABORT, 'referenced media cannot be tombstoned');
+            END;",
+    },
+];
+
 const INDEXES: &[IndexSpec] = &[
     index(
         "idx_diet_entries_occurred_at",
@@ -1323,6 +1451,7 @@ const SCALAR_CHECKS: &[ScalarCheck] = &[
             OR typeof(byte_size) <> 'integer' OR byte_size < 0
             OR typeof(checksum_sha256) <> 'text' OR length(checksum_sha256) <> 64
             OR typeof(cleanup_pending) <> 'integer' OR cleanup_pending NOT IN (0, 1)
+            OR (cleanup_pending = 1 AND deleted_at IS NULL)
             OR typeof(created_at) <> 'text' OR typeof(updated_at) <> 'text'
             OR (deleted_at IS NOT NULL AND typeof(deleted_at) <> 'text')
         ",

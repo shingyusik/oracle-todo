@@ -84,6 +84,54 @@ fn media_insert_persists_checksum_and_cleanup_state() {
 }
 
 #[test]
+fn media_lifecycle_rejects_pending_without_tombstone() {
+    let mut repository = SqliteHealthRepository::open_in_memory().unwrap();
+    let mut media = media_file();
+    media.deleted_at = None;
+    let mut transaction = repository.begin_transaction().unwrap();
+
+    assert!(matches!(
+        transaction.insert_media(&media),
+        Err(crate::application::error::HealthError::Validation {
+            field: "media.lifecycle",
+            ..
+        })
+    ));
+    transaction.rollback().unwrap();
+}
+
+#[test]
+fn media_lifecycle_accepts_active_cleaned_and_deleted_pending_states() {
+    for (suffix, cleanup_pending, deleted_at) in [
+        ("1", false, None),
+        ("2", false, Some(datetime!(2026-07-30 00:00:00 UTC))),
+        ("3", true, Some(datetime!(2026-07-30 00:00:00 UTC))),
+    ] {
+        let mut repository = SqliteHealthRepository::open_in_memory().unwrap();
+        let mut media = media_file();
+        media.id = format!("30000000-0000-4000-8000-00000000000{suffix}");
+        media.relative_path = format!("2026/07/{}.webp", media.id);
+        media.cleanup_pending = cleanup_pending;
+        media.deleted_at = deleted_at;
+        let mut transaction = repository.begin_transaction().unwrap();
+        transaction.insert_media(&media).unwrap();
+        transaction.commit().unwrap();
+
+        assert_eq!(
+            repository.get_media(&media.id, false).unwrap().is_some(),
+            deleted_at.is_none()
+        );
+        assert_eq!(
+            repository
+                .list_pending_media(Default::default())
+                .unwrap()
+                .contains(&media),
+            cleanup_pending
+        );
+    }
+}
+
+#[test]
 fn media_write_rejects_unsafe_relative_paths() {
     for relative_path in [
         "../outside.webp",
@@ -300,6 +348,6 @@ fn media_file() -> MediaFileRecord {
         cleanup_pending: true,
         created_at: datetime!(2026-07-30 00:00:00 UTC),
         updated_at: datetime!(2026-07-30 00:00:00 UTC),
-        deleted_at: None,
+        deleted_at: Some(datetime!(2026-07-30 00:00:00 UTC)),
     }
 }

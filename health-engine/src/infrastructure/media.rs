@@ -1,13 +1,16 @@
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
-use uuid::{Uuid, Variant, Version};
+use uuid::Uuid;
 
 use crate::application::error::{HealthError, HealthResult};
-use crate::application::media::{DEFAULT_MAX_MEDIA_BYTES, MediaStore, StoredMedia};
+use crate::application::media::{
+    DEFAULT_MAX_MEDIA_BYTES, MediaRecovery, MediaStore, StoredMedia, invalid_media_relative_path,
+    validate_media_relative_path,
+};
 
 const MAX_TEMP_NAME_ATTEMPTS: usize = 8;
 
@@ -27,11 +30,12 @@ impl LocalMediaStore {
 
     pub fn with_limit(root: impl AsRef<Path>, max_bytes: u64) -> HealthResult<Self> {
         validate_max_bytes(max_bytes)?;
-        let root = prepare_root(root.as_ref())?;
         #[cfg(unix)]
-        let directory = Arc::new(File::open(&root).map_err(|error| {
-            media_storage_error("could not open the configured media directory", &error)
-        })?);
+        let (root, directory) = prepare_root_unix_with_hook(root.as_ref(), |_| {})?;
+        #[cfg(unix)]
+        let directory = Arc::new(directory);
+        #[cfg(not(unix))]
+        let root = prepare_root_portable(root.as_ref())?;
         Ok(Self {
             root,
             max_bytes,
@@ -42,6 +46,45 @@ impl LocalMediaStore {
 
     pub const fn max_bytes(&self) -> u64 {
         self.max_bytes
+    }
+
+    pub fn list_recoveries(&self) -> HealthResult<Vec<MediaRecovery>> {
+        let mut recoveries = Vec::new();
+        for entry in fs::read_dir(&self.root)
+            .map_err(|error| media_storage_error("could not list media recoveries", &error))?
+        {
+            let entry = entry
+                .map_err(|error| media_storage_error("could not read media recovery", &error))?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if !name.starts_with(".raven-recovery-") || !name.ends_with(".json") {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(entry.path())
+                .map_err(|error| media_storage_error("could not inspect media recovery", &error))?;
+            if !metadata.file_type().is_file() {
+                return Err(HealthError::Storage(
+                    "media recovery journal must be a regular file".to_string(),
+                ));
+            }
+            let mut bytes = Vec::new();
+            File::open(entry.path())
+                .and_then(|mut file| file.read_to_end(&mut bytes))
+                .map_err(|error| media_storage_error("could not read media recovery", &error))?;
+            let recovery: MediaRecovery = serde_json::from_slice(&bytes)
+                .map_err(|_| HealthError::Storage("invalid media recovery journal".to_string()))?;
+            recovery.validate()?;
+            if recovery.journal_name() != Path::new(name) {
+                return Err(HealthError::Storage(
+                    "media recovery journal name does not match its contents".to_string(),
+                ));
+            }
+            recoveries.push(recovery);
+        }
+        recoveries.sort_by(|left, right| left.media_id().cmp(right.media_id()));
+        Ok(recoveries)
     }
 }
 
@@ -107,10 +150,15 @@ impl MediaStore for LocalMediaStore {
         #[cfg(unix)]
         {
             if !Arc::ptr_eq(&self.directory, &staged.directory) {
-                return Err(HealthError::Validation {
+                let primary = HealthError::Validation {
                     field: "media.staged",
                     message: "belongs to a different media store".to_string(),
-                });
+                };
+                return Err(cleanup_staged_unix(&mut staged, primary, None));
+            }
+            let recovery = MediaRecovery::for_media(&staged.stored);
+            if let Err(primary) = write_recovery_unix(&self.directory, &recovery) {
+                return Err(cleanup_staged_unix(&mut staged, primary, None));
             }
             let result = atomic_finalize_unix(
                 &self.directory,
@@ -120,22 +168,15 @@ impl MediaStore for LocalMediaStore {
                     .relative_path
                     .to_str()
                     .ok_or_else(invalid_relative_path)?,
+                &recovery,
             );
-            if let Err(error) = result {
-                let primary = if error == rustix::io::Errno::EXIST {
-                    HealthError::Conflict("generated media path already exists".to_string())
-                } else {
-                    media_storage_error(
-                        "could not atomically finalize staged media",
-                        &std::io::Error::from(error),
-                    )
-                };
-                return Err(primary);
+            if let Err(primary) = result {
+                return Err(cleanup_staged_unix(&mut staged, primary, Some(&recovery)));
             }
             staged.finalized = true;
             if let Err(error) = self.directory.sync_all() {
                 let primary = media_storage_error("could not sync the media directory", &error);
-                return Err(cleanup_finalized_unix(&staged, primary));
+                return Err(cleanup_finalized_unix(&staged, primary, &recovery));
             }
             Ok(staged.stored.clone())
         }
@@ -146,6 +187,27 @@ impl MediaStore for LocalMediaStore {
                 return Err(HealthError::Validation {
                     field: "media.staged",
                     message: "belongs to a different media store".to_string(),
+                });
+            }
+            let recovery = MediaRecovery::for_media(&staged.stored);
+            if let Err(primary) = write_recovery_portable(&self.root, &recovery) {
+                let cleanup = staged
+                    .temporary
+                    .take()
+                    .ok_or_else(|| HealthError::Storage("staged media is unavailable".to_string()))
+                    .and_then(|file| {
+                        file.close().map_err(|error| {
+                            media_storage_error("could not remove staged media", &error)
+                        })
+                    });
+                return Err(match cleanup {
+                    Ok(()) => primary,
+                    Err(cleanup) => HealthError::Cleanup {
+                        primary: Box::new(primary),
+                        cleanup: safe_error_text(&cleanup),
+                        recovery: None,
+                        cleanup_path: None,
+                    },
                 });
             }
             let target = self.root.join(&staged.stored.relative_path);
@@ -166,6 +228,8 @@ impl MediaStore for LocalMediaStore {
                             Err(cleanup) => HealthError::Cleanup {
                                 primary: Box::new(primary),
                                 cleanup: safe_io_summary(&cleanup),
+                                recovery: Some(Box::new(recovery.clone())),
+                                cleanup_path: Some(Box::new(staged.stored.relative_path.clone())),
                             },
                         });
                     }
@@ -183,6 +247,11 @@ impl MediaStore for LocalMediaStore {
                         Err(cleanup) => Err(HealthError::Cleanup {
                             primary: Box::new(primary),
                             cleanup: safe_io_summary(&cleanup),
+                            recovery: Some(Box::new(recovery.clone())),
+                            cleanup_path: staged
+                                .temporary
+                                .as_ref()
+                                .map(|file| Box::new(file.path().to_path_buf())),
                         }),
                     }
                 }
@@ -190,16 +259,60 @@ impl MediaStore for LocalMediaStore {
         }
     }
 
-    fn remove(&self, relative_path: &Path) -> HealthResult<()> {
-        validate_relative_path(relative_path)?;
+    fn confirm(&self, stored: &StoredMedia) -> HealthResult<()> {
+        let recovery = MediaRecovery::for_media(stored);
         #[cfg(unix)]
         {
-            match rustix::fs::statat(
-                &*self.directory,
-                relative_path.to_str().ok_or_else(invalid_relative_path)?,
-                rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
-            ) {
-                Err(rustix::io::Errno::NOENT) => return Ok(()),
+            unlink_recovery_unix(&self.directory, &recovery)?;
+            self.directory.sync_all().map_err(|error| {
+                media_storage_error("could not sync confirmed media ownership", &error)
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            remove_recovery_portable(&self.root, &recovery)
+        }
+    }
+
+    fn remove(&self, relative_path: &Path) -> HealthResult<()> {
+        validate_media_relative_path(relative_path)?;
+        #[cfg(unix)]
+        {
+            let relative = relative_path
+                .to_str()
+                .ok_or_else(invalid_media_relative_path)?;
+            let mut components = relative.split('/').collect::<Vec<_>>();
+            let file_name = components.pop().ok_or_else(invalid_media_relative_path)?;
+            let mut opened_parent = None;
+            for component in components {
+                let parent = opened_parent.as_ref().unwrap_or(&self.directory);
+                let descriptor = match rustix::fs::openat(
+                    &**parent,
+                    component,
+                    rustix::fs::OFlags::RDONLY
+                        | rustix::fs::OFlags::DIRECTORY
+                        | rustix::fs::OFlags::NOFOLLOW
+                        | rustix::fs::OFlags::CLOEXEC,
+                    rustix::fs::Mode::empty(),
+                ) {
+                    Ok(descriptor) => descriptor,
+                    Err(rustix::io::Errno::NOENT) => {
+                        return remove_recovery_for_path_unix(&self.directory, relative_path);
+                    }
+                    Err(error) => {
+                        return Err(media_storage_error(
+                            "could not safely traverse media path",
+                            &std::io::Error::from(error),
+                        ));
+                    }
+                };
+                opened_parent = Some(Arc::new(File::from(descriptor)));
+            }
+            let parent = opened_parent.as_ref().unwrap_or(&self.directory);
+            match rustix::fs::statat(&**parent, file_name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
+                Err(rustix::io::Errno::NOENT) => {
+                    return remove_recovery_for_path_unix(&self.directory, relative_path);
+                }
                 Err(error) => {
                     return Err(media_storage_error(
                         "could not inspect media before removal",
@@ -216,12 +329,10 @@ impl MediaStore for LocalMediaStore {
                 }
                 Ok(_) => {}
             }
-            match rustix::fs::unlinkat(
-                &*self.directory,
-                relative_path.to_str().ok_or_else(invalid_relative_path)?,
-                rustix::fs::AtFlags::empty(),
-            ) {
-                Ok(()) | Err(rustix::io::Errno::NOENT) => Ok(()),
+            match rustix::fs::unlinkat(&**parent, file_name, rustix::fs::AtFlags::empty()) {
+                Ok(()) | Err(rustix::io::Errno::NOENT) => {
+                    remove_recovery_for_path_unix(&self.directory, relative_path)
+                }
                 Err(error) => Err(media_storage_error(
                     "could not remove media",
                     &std::io::Error::from(error),
@@ -233,7 +344,9 @@ impl MediaStore for LocalMediaStore {
         {
             let target = self.root.join(relative_path);
             match fs::symlink_metadata(&target) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return remove_recovery_for_path_portable(&self.root, relative_path);
+                }
                 Err(error) => {
                     return Err(media_storage_error(
                         "could not inspect media before removal",
@@ -248,8 +361,10 @@ impl MediaStore for LocalMediaStore {
                 Ok(_) => {}
             }
             match fs::remove_file(target) {
-                Ok(()) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Ok(()) => remove_recovery_for_path_portable(&self.root, relative_path),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    remove_recovery_for_path_portable(&self.root, relative_path)
+                }
                 Err(error) => Err(media_storage_error("could not remove media", &error)),
             }
         }
@@ -294,6 +409,8 @@ impl LocalMediaStore {
                     Err(cleanup) => HealthError::Cleanup {
                         primary: Box::new(primary),
                         cleanup: safe_io_summary(&std::io::Error::from(cleanup)),
+                        recovery: None,
+                        cleanup_path: Some(Box::new(PathBuf::from(&temporary_name))),
                     },
                 });
             }
@@ -326,11 +443,50 @@ impl LocalMediaStore {
 }
 
 #[cfg(unix)]
-fn cleanup_finalized_unix(staged: &LocalStagedMedia, primary: HealthError) -> HealthError {
+fn cleanup_staged_unix(
+    staged: &mut LocalStagedMedia,
+    primary: HealthError,
+    recovery: Option<&MediaRecovery>,
+) -> HealthError {
+    let temporary = rustix::fs::unlinkat(
+        &*staged.directory,
+        staged.temporary_name.as_str(),
+        rustix::fs::AtFlags::empty(),
+    );
+    if matches!(temporary, Ok(()) | Err(rustix::io::Errno::NOENT)) {
+        staged.finalized = true;
+        if let Some(recovery) = recovery {
+            if let Err(cleanup) = unlink_recovery_unix(&staged.directory, recovery) {
+                return HealthError::Cleanup {
+                    primary: Box::new(primary),
+                    cleanup: safe_error_text(&cleanup),
+                    recovery: Some(Box::new(recovery.clone())),
+                    cleanup_path: Some(Box::new(staged.stored.relative_path.clone())),
+                };
+            }
+        }
+        return primary;
+    }
+    HealthError::Cleanup {
+        primary: Box::new(primary),
+        cleanup: safe_io_summary(&std::io::Error::from(temporary.unwrap_err())),
+        recovery: recovery.cloned().map(Box::new),
+        cleanup_path: Some(Box::new(PathBuf::from(&staged.temporary_name))),
+    }
+}
+
+#[cfg(unix)]
+fn cleanup_finalized_unix(
+    staged: &LocalStagedMedia,
+    primary: HealthError,
+    recovery: &MediaRecovery,
+) -> HealthError {
     let Some(relative_path) = staged.stored.relative_path.to_str() else {
         return HealthError::Cleanup {
             primary: Box::new(primary),
             cleanup: "finalized media path was not valid Unicode".to_string(),
+            recovery: Some(Box::new(recovery.clone())),
+            cleanup_path: Some(Box::new(staged.stored.relative_path.clone())),
         };
     };
     match rustix::fs::unlinkat(
@@ -338,11 +494,135 @@ fn cleanup_finalized_unix(staged: &LocalStagedMedia, primary: HealthError) -> He
         relative_path,
         rustix::fs::AtFlags::empty(),
     ) {
-        Ok(()) | Err(rustix::io::Errno::NOENT) => primary,
+        Ok(()) | Err(rustix::io::Errno::NOENT) => {
+            match unlink_recovery_unix(&staged.directory, recovery) {
+                Ok(()) => primary,
+                Err(cleanup) => HealthError::Cleanup {
+                    primary: Box::new(primary),
+                    cleanup: safe_error_text(&cleanup),
+                    recovery: Some(Box::new(recovery.clone())),
+                    cleanup_path: Some(Box::new(staged.stored.relative_path.clone())),
+                },
+            }
+        }
         Err(cleanup) => HealthError::Cleanup {
             primary: Box::new(primary),
             cleanup: safe_io_summary(&std::io::Error::from(cleanup)),
+            recovery: Some(Box::new(recovery.clone())),
+            cleanup_path: Some(Box::new(staged.stored.relative_path.clone())),
         },
+    }
+}
+
+#[cfg(unix)]
+fn write_recovery_unix(directory: &File, recovery: &MediaRecovery) -> HealthResult<()> {
+    let bytes = serde_json::to_vec(recovery)
+        .map_err(|_| HealthError::Storage("could not encode media recovery journal".to_string()))?;
+    let name = recovery
+        .journal_name()
+        .to_str()
+        .ok_or_else(invalid_media_relative_path)?;
+    let descriptor = rustix::fs::openat(
+        directory,
+        name,
+        rustix::fs::OFlags::WRONLY
+            | rustix::fs::OFlags::CREATE
+            | rustix::fs::OFlags::EXCL
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+    )
+    .map_err(|error| {
+        media_storage_error(
+            "could not create media recovery journal",
+            &std::io::Error::from(error),
+        )
+    })?;
+    let mut file = File::from(descriptor);
+    file.write_all(&bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| media_storage_error("could not persist media recovery journal", &error))?;
+    directory
+        .sync_all()
+        .map_err(|error| media_storage_error("could not sync media recovery journal", &error))
+}
+
+#[cfg(unix)]
+fn unlink_recovery_unix(directory: &File, recovery: &MediaRecovery) -> HealthResult<()> {
+    let name = recovery
+        .journal_name()
+        .to_str()
+        .ok_or_else(invalid_media_relative_path)?;
+    match rustix::fs::unlinkat(directory, name, rustix::fs::AtFlags::empty()) {
+        Ok(()) | Err(rustix::io::Errno::NOENT) => Ok(()),
+        Err(error) => Err(media_storage_error(
+            "could not remove media recovery journal",
+            &std::io::Error::from(error),
+        )),
+    }
+}
+
+#[cfg(unix)]
+fn remove_recovery_for_path_unix(directory: &File, relative_path: &Path) -> HealthResult<()> {
+    let recovery = recovery_for_path(relative_path)?;
+    unlink_recovery_unix(directory, &recovery)
+}
+
+#[cfg(not(unix))]
+fn write_recovery_portable(root: &Path, recovery: &MediaRecovery) -> HealthResult<()> {
+    let path = root.join(recovery.journal_name());
+    let bytes = serde_json::to_vec(recovery)
+        .map_err(|_| HealthError::Storage("could not encode media recovery journal".to_string()))?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    let mut file = options
+        .open(path)
+        .map_err(|error| media_storage_error("could not create media recovery journal", &error))?;
+    file.write_all(&bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| media_storage_error("could not persist media recovery journal", &error))
+}
+
+#[cfg(not(unix))]
+fn remove_recovery_portable(root: &Path, recovery: &MediaRecovery) -> HealthResult<()> {
+    match fs::remove_file(root.join(recovery.journal_name())) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(media_storage_error(
+            "could not remove media recovery journal",
+            &error,
+        )),
+    }
+}
+
+#[cfg(not(unix))]
+fn remove_recovery_for_path_portable(root: &Path, relative_path: &Path) -> HealthResult<()> {
+    remove_recovery_portable(root, &recovery_for_path(relative_path)?)
+}
+
+fn recovery_for_path(relative_path: &Path) -> HealthResult<MediaRecovery> {
+    validate_media_relative_path(relative_path)?;
+    let file_name = relative_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(invalid_media_relative_path)?;
+    let (id, _) = file_name
+        .rsplit_once('.')
+        .ok_or_else(invalid_media_relative_path)?;
+    let stored = StoredMedia {
+        id: id.to_string(),
+        relative_path: relative_path.to_path_buf(),
+        mime_type: String::new(),
+        byte_size: 0,
+        checksum_sha256: "0".repeat(64),
+    };
+    Ok(MediaRecovery::for_media(&stored))
+}
+
+fn safe_error_text(error: &HealthError) -> String {
+    match error {
+        HealthError::Storage(_) => "media storage operation failed".to_string(),
+        _ => "media cleanup failed".to_string(),
     }
 }
 
@@ -359,7 +639,8 @@ fn atomic_finalize_unix(
     directory: &File,
     temporary_name: &str,
     final_name: &str,
-) -> Result<(), rustix::io::Errno> {
+    _recovery: &MediaRecovery,
+) -> HealthResult<()> {
     rustix::fs::renameat_with(
         directory,
         temporary_name,
@@ -367,6 +648,16 @@ fn atomic_finalize_unix(
         final_name,
         rustix::fs::RenameFlags::NOREPLACE,
     )
+    .map_err(|error| {
+        if error == rustix::io::Errno::EXIST {
+            HealthError::Conflict("generated media path already exists".to_string())
+        } else {
+            media_storage_error(
+                "could not atomically finalize staged media",
+                &std::io::Error::from(error),
+            )
+        }
+    })
 }
 
 #[cfg(all(
@@ -382,64 +673,212 @@ fn atomic_finalize_unix(
     directory: &File,
     temporary_name: &str,
     final_name: &str,
-) -> Result<(), rustix::io::Errno> {
+    recovery: &MediaRecovery,
+) -> HealthResult<()> {
     rustix::fs::linkat(
         directory,
         temporary_name,
         directory,
         final_name,
         rustix::fs::AtFlags::empty(),
-    )?;
+    )
+    .map_err(|error| {
+        if error == rustix::io::Errno::EXIST {
+            HealthError::Conflict("generated media path already exists".to_string())
+        } else {
+            media_storage_error(
+                "could not publish staged media",
+                &std::io::Error::from(error),
+            )
+        }
+    })?;
     if let Err(error) =
         rustix::fs::unlinkat(directory, temporary_name, rustix::fs::AtFlags::empty())
     {
-        let _ = rustix::fs::unlinkat(directory, final_name, rustix::fs::AtFlags::empty());
-        return Err(error);
+        let primary = media_storage_error(
+            "could not remove staged media after publishing",
+            &std::io::Error::from(error),
+        );
+        return Err(
+            match rustix::fs::unlinkat(directory, final_name, rustix::fs::AtFlags::empty()) {
+                Ok(()) | Err(rustix::io::Errno::NOENT) => primary,
+                Err(cleanup) => HealthError::Cleanup {
+                    primary: Box::new(primary),
+                    cleanup: safe_io_summary(&std::io::Error::from(cleanup)),
+                    recovery: Some(Box::new(recovery.clone())),
+                    cleanup_path: Some(Box::new(PathBuf::from(final_name))),
+                },
+            },
+        );
     }
     Ok(())
 }
 
-fn prepare_root(root: &Path) -> HealthResult<PathBuf> {
-    match fs::symlink_metadata(root) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err(HealthError::Storage(
-                "configured media directory must not be a symlink".to_string(),
-            ));
-        }
-        Ok(metadata) if !metadata.is_dir() => {
-            return Err(HealthError::Storage(
-                "configured media path is not a directory".to_string(),
-            ));
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir_all(root).map_err(|error| {
-                media_storage_error("could not create the configured media directory", &error)
-            })?;
-        }
-        Err(error) => {
-            return Err(media_storage_error(
-                "could not inspect the configured media directory",
-                &error,
-            ));
-        }
-    }
-    let metadata = fs::symlink_metadata(root).map_err(|error| {
-        media_storage_error("could not verify the configured media directory", &error)
-    })?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+#[cfg(unix)]
+fn prepare_root_unix_with_hook(
+    root: &Path,
+    mut before_open: impl FnMut(bool),
+) -> HealthResult<(PathBuf, File)> {
+    if fs::symlink_metadata(root).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(HealthError::Storage(
-            "configured media path is not a safe directory".to_string(),
+            "configured media directory must not be a symlink".to_string(),
         ));
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(root, fs::Permissions::from_mode(0o700));
+    let root = normalize_root_anchor(root)?;
+    let mut names = Vec::new();
+    for component in root.components() {
+        match component {
+            Component::RootDir | Component::CurDir => {}
+            Component::Normal(name) => names.push(name.to_os_string()),
+            Component::ParentDir | Component::Prefix(_) => {
+                return Err(HealthError::Validation {
+                    field: "media.root",
+                    message: "must not contain parent traversal".to_string(),
+                });
+            }
+        }
     }
-    root.canonicalize().map_err(|error| {
-        media_storage_error("could not resolve the configured media directory", &error)
-    })
+    if names.is_empty() {
+        return Err(HealthError::Validation {
+            field: "media.root",
+            message: "must name a media directory".to_string(),
+        });
+    }
+    let start = if root.is_absolute() { "/" } else { "." };
+    let descriptor = rustix::fs::open(
+        start,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )
+    .map_err(|error| {
+        media_storage_error(
+            "could not open the media root anchor",
+            &std::io::Error::from(error),
+        )
+    })?;
+    let mut current = File::from(descriptor);
+    let count = names.len();
+    for (index, name) in names.into_iter().enumerate() {
+        let is_final = index + 1 == count;
+        before_open(is_final);
+        let flags = rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC;
+        let descriptor = match rustix::fs::openat(&current, &name, flags, rustix::fs::Mode::empty())
+        {
+            Ok(descriptor) => descriptor,
+            Err(rustix::io::Errno::NOENT) => {
+                match rustix::fs::mkdirat(
+                    &current,
+                    &name,
+                    rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR | rustix::fs::Mode::XUSR,
+                ) {
+                    Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+                    Err(error) => {
+                        return Err(media_storage_error(
+                            "could not create the configured media directory",
+                            &std::io::Error::from(error),
+                        ));
+                    }
+                }
+                rustix::fs::openat(&current, &name, flags, rustix::fs::Mode::empty()).map_err(
+                    |error| {
+                        media_storage_error(
+                            "could not safely open the configured media directory",
+                            &std::io::Error::from(error),
+                        )
+                    },
+                )?
+            }
+            Err(error) => {
+                return Err(media_storage_error(
+                    "could not safely open the configured media directory",
+                    &std::io::Error::from(error),
+                ));
+            }
+        };
+        current = File::from(descriptor);
+    }
+    rustix::fs::fchmod(
+        &current,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR | rustix::fs::Mode::XUSR,
+    )
+    .map_err(|error| {
+        media_storage_error(
+            "could not secure the configured media directory",
+            &std::io::Error::from(error),
+        )
+    })?;
+    Ok((root, current))
+}
+
+#[cfg(unix)]
+fn normalize_root_anchor(root: &Path) -> HealthResult<PathBuf> {
+    let absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| media_storage_error("could not resolve current directory", &error))?
+            .join(root)
+    };
+    let mut missing = vec![
+        absolute
+            .file_name()
+            .ok_or_else(|| {
+                HealthError::Storage("configured media path has no directory name".to_string())
+            })?
+            .to_os_string(),
+    ];
+    let mut ancestor = absolute.parent().ok_or_else(|| {
+        HealthError::Storage("configured media path has no directory anchor".to_string())
+    })?;
+    loop {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.is_dir() => break,
+            Ok(_) => {
+                return Err(HealthError::Storage(
+                    "configured media path crosses a non-directory".to_string(),
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = ancestor.file_name().ok_or_else(|| {
+                    HealthError::Storage(
+                        "configured media path has no directory anchor".to_string(),
+                    )
+                })?;
+                missing.push(name.to_os_string());
+                ancestor = ancestor.parent().ok_or_else(|| {
+                    HealthError::Storage(
+                        "configured media path has no directory anchor".to_string(),
+                    )
+                })?;
+            }
+            Err(error) => {
+                return Err(media_storage_error(
+                    "could not inspect the configured media directory",
+                    &error,
+                ));
+            }
+        }
+    }
+    let mut normalized = ancestor
+        .canonicalize()
+        .map_err(|error| media_storage_error("could not resolve the media root anchor", &error))?;
+    for component in missing.into_iter().rev() {
+        normalized.push(component);
+    }
+    Ok(normalized)
+}
+
+#[cfg(not(unix))]
+fn prepare_root_portable(_root: &Path) -> HealthResult<PathBuf> {
+    Err(HealthError::Storage(
+        "secure media storage requires directory-handle support on this platform".to_string(),
+    ))
 }
 
 fn validate_max_bytes(max_bytes: u64) -> HealthResult<()> {
@@ -454,36 +893,8 @@ fn validate_max_bytes(max_bytes: u64) -> HealthResult<()> {
     Ok(())
 }
 
-fn validate_relative_path(path: &Path) -> HealthResult<()> {
-    let mut components = path.components();
-    let Some(Component::Normal(name)) = components.next() else {
-        return Err(invalid_relative_path());
-    };
-    if components.next().is_some() {
-        return Err(invalid_relative_path());
-    }
-    let Some(name) = name.to_str() else {
-        return Err(invalid_relative_path());
-    };
-    let Some((id, extension)) = name.rsplit_once('.') else {
-        return Err(invalid_relative_path());
-    };
-    let uuid = Uuid::parse_str(id).map_err(|_| invalid_relative_path())?;
-    if uuid.get_version() != Some(Version::Random)
-        || uuid.get_variant() != Variant::RFC4122
-        || uuid.to_string() != id
-        || !matches!(extension, "jpg" | "png" | "webp")
-    {
-        return Err(invalid_relative_path());
-    }
-    Ok(())
-}
-
 fn invalid_relative_path() -> HealthError {
-    HealthError::Validation {
-        field: "media.relative_path",
-        message: "must be one generated UUID v4 image filename".to_string(),
-    }
+    invalid_media_relative_path()
 }
 
 fn media_storage_error(context: &str, error: &std::io::Error) -> HealthError {
@@ -693,4 +1104,31 @@ fn complete_jpeg(bytes: &[u8]) -> bool {
         }
     }
     false
+}
+
+#[cfg(all(test, unix))]
+mod root_race_tests {
+    use super::*;
+
+    #[test]
+    fn root_swap_barrier_cannot_redirect_the_opened_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("media");
+        fs::create_dir(&root).unwrap();
+        let moved = directory.path().join("moved");
+        let outside = directory.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        let mut swapped = false;
+
+        let result = prepare_root_unix_with_hook(&root, |is_final| {
+            if is_final && !swapped {
+                fs::rename(&root, &moved).unwrap();
+                std::os::unix::fs::symlink(&outside, &root).unwrap();
+                swapped = true;
+            }
+        });
+
+        assert!(matches!(result, Err(HealthError::Storage(_))));
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    }
 }

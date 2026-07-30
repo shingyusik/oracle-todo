@@ -1,5 +1,5 @@
 use serde::Serialize;
-use time::{Duration, OffsetDateTime};
+use time::{Date, Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::application::commands::{
@@ -14,11 +14,12 @@ use crate::application::service::{
     AuditMutation, HealthService, audit_event, cleanup_with_primary, media_record,
     rollback_with_primary, safe_error_summary, validate_actor, validate_reason,
 };
-use crate::domain::{DietEntry, DietEntryRehydration, NewDietEntry};
+use crate::domain::{DietEntry, DietEntryRehydration, HealthRecordId, NewDietEntry};
 
 #[allow(private_bounds)]
 impl<R: HealthReadRepository, M: MediaStore> HealthService<R, M> {
     pub fn get_diet(&self, id: &str) -> HealthResult<DietEntry> {
+        HealthRecordId::parse(id)?;
         self.repository
             .get_diet(id, false)?
             .ok_or_else(|| HealthError::NotFound(format!("diet entry {id}")))
@@ -50,6 +51,7 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
             tags,
             None,
         )?;
+        let local_date = checked_local_date(validated.occurred_at(), self.local_offset)?;
         let finalized = self.finalize_upload(media.as_ref())?;
         let now = OffsetDateTime::now_utc();
         let entry = rehydrate_diet(
@@ -61,20 +63,30 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
         )?;
         let request_id = Uuid::new_v4().to_string();
 
-        let persistence =
-            self.persist_new_diet(&entry, finalized.as_ref(), now, &request_id, &actor);
+        let persistence = self.persist_new_diet(
+            &entry,
+            finalized.as_ref(),
+            local_date,
+            now,
+            &request_id,
+            &actor,
+        );
         match persistence {
-            Ok(()) => Ok(entry),
-            Err(primary) => Err(match finalized {
-                Some(media) => {
-                    cleanup_with_primary(&self.media_store, media.relative_path(), primary)
+            Ok(()) => {
+                if let Some(media) = finalized.as_ref() {
+                    self.confirm_media(media, entry.id().as_str())?;
                 }
+                Ok(entry)
+            }
+            Err(primary) => Err(match finalized {
+                Some(media) => cleanup_with_primary(&self.media_store, &media, primary),
                 None => primary,
             }),
         }
     }
 
     pub fn update_diet(&mut self, id: &str, command: UpdateDietEntry) -> HealthResult<DietEntry> {
+        HealthRecordId::parse(id)?;
         validate_actor(&command.actor)?;
         validate_reason(command.reason.as_deref())?;
         let before = self
@@ -100,6 +112,8 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
             tags,
             None,
         )?;
+        let local_date = checked_local_date(validated.occurred_at(), self.local_offset)?;
+        let now = next_update_time(before.updated_at())?;
         let finalized = match &command.media {
             DietMediaUpdate::Replace(upload) => self.finalize_upload(Some(upload))?,
             DietMediaUpdate::Preserve | DietMediaUpdate::Remove => None,
@@ -108,7 +122,6 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
             DietMediaUpdate::Preserve => before.media_id().map(|media| media.as_str()),
             DietMediaUpdate::Remove | DietMediaUpdate::Replace(_) => None,
         };
-        let now = next_update_time(before.updated_at())?;
         let after = rehydrate_updated_diet(
             &before,
             &validated,
@@ -130,6 +143,7 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
             &after,
             finalized.as_ref(),
             old_media_id.as_deref(),
+            local_date,
             now,
             &request_id,
             &actor,
@@ -139,13 +153,14 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
             Ok(old_pending) => old_pending,
             Err(primary) => {
                 return Err(match finalized {
-                    Some(media) => {
-                        cleanup_with_primary(&self.media_store, media.relative_path(), primary)
-                    }
+                    Some(media) => cleanup_with_primary(&self.media_store, &media, primary),
                     None => primary,
                 });
             }
         };
+        if let Some(media) = finalized.as_ref() {
+            self.confirm_media(media, after.id().as_str())?;
+        }
         if let Some(old_pending) = old_pending {
             self.complete_replaced_media_cleanup(&after, old_pending, &actor, &request_id)?;
         }
@@ -162,15 +177,24 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
             .transpose()
     }
 
+    fn confirm_media(&self, media: &StoredMedia, record_id: &str) -> HealthResult<()> {
+        self.media_store
+            .confirm(media)
+            .map_err(|error| HealthError::CleanupPending {
+                record_id: record_id.to_string(),
+                message: safe_error_summary(&error),
+            })
+    }
+
     fn persist_new_diet(
         &mut self,
         entry: &DietEntry,
         media: Option<&StoredMedia>,
+        local_date: Date,
         now: OffsetDateTime,
         request_id: &str,
         actor: &str,
     ) -> HealthResult<()> {
-        let local_date = entry.occurred_at().to_offset(self.local_offset).date();
         let mut transaction = self.repository.begin_transaction()?;
         let result = (|| {
             if let Some(media) = media {
@@ -216,12 +240,12 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
         after: &DietEntry,
         new_media: Option<&StoredMedia>,
         old_media_id: Option<&str>,
+        local_date: Date,
         now: OffsetDateTime,
         request_id: &str,
         actor: &str,
         reason: Option<&str>,
     ) -> HealthResult<Option<MediaFileRecord>> {
-        let local_date = after.occurred_at().to_offset(self.local_offset).date();
         let mut transaction = self.repository.begin_transaction()?;
         let result = (|| {
             let current = transaction
@@ -252,6 +276,9 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
                 })?)?;
             }
 
+            transaction.update_diet(after, local_date)?;
+            transaction.replace_diet_tags(after)?;
+
             let old_pending = old_media_id
                 .map(|old_media_id| {
                     let old = transaction.get_media(old_media_id, true)?.ok_or_else(|| {
@@ -279,8 +306,6 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
                 })
                 .transpose()?;
 
-            transaction.update_diet(after, local_date)?;
-            transaction.replace_diet_tags(after)?;
             transaction.insert_audit_event(&audit_event(AuditMutation {
                 request_id,
                 occurred_at: now,
@@ -419,14 +444,35 @@ fn ensure_expected_version(
     Ok(())
 }
 
+fn checked_local_date(occurred_at: OffsetDateTime, offset: time::UtcOffset) -> HealthResult<Date> {
+    let local = occurred_at
+        .checked_to_offset(offset)
+        .ok_or_else(|| HealthError::Validation {
+            field: "occurred_at",
+            message: "cannot be represented in the configured local offset".to_string(),
+        })?;
+    if !(0..=9999).contains(&local.year()) {
+        return Err(HealthError::Validation {
+            field: "occurred_at",
+            message: "local date must remain RFC3339 representable".to_string(),
+        });
+    }
+    Ok(local.date())
+}
+
 fn next_update_time(previous: OffsetDateTime) -> HealthResult<OffsetDateTime> {
     let now = OffsetDateTime::now_utc();
-    if now > previous {
-        return Ok(now);
-    }
-    previous
-        .checked_add(Duration::nanoseconds(1))
-        .ok_or_else(|| HealthError::Conflict("diet timestamp cannot advance".to_string()))
+    let candidate = if now > previous {
+        now
+    } else {
+        previous
+            .checked_add(Duration::nanoseconds(1))
+            .ok_or_else(|| HealthError::Conflict("diet timestamp cannot advance".to_string()))?
+    };
+    candidate
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|_| HealthError::Conflict("diet timestamp cannot advance".to_string()))?;
+    Ok(candidate)
 }
 
 #[derive(Serialize)]
@@ -464,11 +510,7 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
         let mut transaction = match self.repository.begin_transaction() {
             Ok(transaction) => transaction,
             Err(primary) => {
-                return Err(cleanup_with_primary(
-                    &self.media_store,
-                    stored.relative_path(),
-                    primary,
-                ));
+                return Err(cleanup_with_primary(&self.media_store, &stored, primary));
             }
         };
         let result = (|| {
@@ -488,19 +530,12 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
         })();
         if let Err(primary) = result {
             let primary = rollback_with_primary(transaction, primary);
-            return Err(cleanup_with_primary(
-                &self.media_store,
-                stored.relative_path(),
-                primary,
-            ));
+            return Err(cleanup_with_primary(&self.media_store, &stored, primary));
         }
         if let Err(primary) = transaction.commit() {
-            return Err(cleanup_with_primary(
-                &self.media_store,
-                stored.relative_path(),
-                primary,
-            ));
+            return Err(cleanup_with_primary(&self.media_store, &stored, primary));
         }
+        self.confirm_media(&stored, stored.id())?;
         Ok(stored)
     }
 }

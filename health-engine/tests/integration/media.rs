@@ -88,6 +88,26 @@ fn accepts_bounded_multi_chunk_webp_containers() {
 }
 
 #[test]
+fn finalized_media_remains_recoverable_until_database_ownership_is_confirmed() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = LocalMediaStore::new(directory.path()).unwrap();
+    let stored = store
+        .finalize(store.stage("image/png", PNG).unwrap())
+        .unwrap();
+
+    let recoveries = store.list_recoveries().unwrap();
+    assert_eq!(recoveries.len(), 1);
+    assert_eq!(recoveries[0].media_id(), stored.id());
+    assert_eq!(recoveries[0].relative_path(), stored.relative_path());
+    assert!(!recoveries[0].journal_name().is_absolute());
+
+    store.confirm(&stored).unwrap();
+
+    assert!(store.list_recoveries().unwrap().is_empty());
+    assert!(directory.path().join(stored.relative_path()).is_file());
+}
+
+#[test]
 fn enforces_exact_size_boundary_and_rejects_zero_or_overflowing_limits() {
     let exact_directory = tempfile::tempdir().unwrap();
     let exact = LocalMediaStore::with_limit(exact_directory.path(), PNG.len() as u64).unwrap();
@@ -146,6 +166,50 @@ fn finalize_is_atomic_no_clobber_and_cleans_the_temporary_file_on_collision() {
         .map(|entry| entry.unwrap().file_name())
         .collect::<Vec<_>>();
     assert_eq!(names, vec![target.file_name().unwrap()]);
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_finalize_cleanup_failure_reports_the_generated_temporary_path() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let first_directory = tempfile::tempdir().unwrap();
+    let second_directory = tempfile::tempdir().unwrap();
+    let first = LocalMediaStore::new(first_directory.path()).unwrap();
+    let second = LocalMediaStore::new(second_directory.path()).unwrap();
+    let staged = first.stage("image/png", PNG).unwrap();
+    fs::set_permissions(first_directory.path(), fs::Permissions::from_mode(0o500)).unwrap();
+
+    let error = second.finalize(staged).unwrap_err();
+
+    fs::set_permissions(first_directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let cleanup_path = match error {
+        HealthError::Cleanup {
+            primary,
+            cleanup_path: Some(path),
+            ..
+        } => {
+            assert!(matches!(
+                *primary,
+                HealthError::Validation {
+                    field: "media.staged",
+                    ..
+                }
+            ));
+            *path
+        }
+        error => panic!("expected explicit staged cleanup failure, got {error:?}"),
+    };
+    assert!(!cleanup_path.is_absolute());
+    assert!(
+        cleanup_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".raven-upload-")
+    );
+    assert!(first_directory.path().join(&cleanup_path).is_file());
+    fs::remove_file(first_directory.path().join(cleanup_path)).unwrap();
 }
 
 #[test]

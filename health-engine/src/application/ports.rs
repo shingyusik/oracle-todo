@@ -1,8 +1,8 @@
 use serde_json::Value;
-use std::path::Path;
 use time::{Date, OffsetDateTime};
 
 use crate::application::error::{HealthError, HealthResult};
+use crate::application::media::validate_media_relative_path;
 use crate::domain::{DietEntry, HealthEvent, HealthRecordId};
 
 pub const DEFAULT_PAGE_LIMIT: u16 = 100;
@@ -155,22 +155,7 @@ pub(crate) struct MediaFileRecord {
 impl MediaFileRecord {
     pub(crate) fn validate(&self) -> HealthResult<()> {
         HealthRecordId::parse(&self.id)?;
-        let path = Path::new(&self.relative_path);
-        if self.relative_path.contains('\\')
-            || self.relative_path.contains('\0')
-            || path.is_absolute()
-            || self.relative_path.trim() != self.relative_path
-            || self.relative_path.is_empty()
-            || self
-                .relative_path
-                .split('/')
-                .any(|segment| segment.is_empty() || matches!(segment, "." | ".."))
-        {
-            return Err(HealthError::Validation {
-                field: "media.relative_path",
-                message: "must be a normalized relative path without traversal".to_string(),
-            });
-        }
+        validate_media_relative_path(std::path::Path::new(&self.relative_path))?;
         if !matches!(
             self.mime_type.as_str(),
             "image/jpeg" | "image/png" | "image/webp"
@@ -195,10 +180,12 @@ impl MediaFileRecord {
             || self.deleted_at.is_some_and(|deleted_at| {
                 deleted_at < self.created_at || deleted_at > self.updated_at
             })
+            || self.cleanup_pending && self.deleted_at.is_none()
         {
             return Err(HealthError::Validation {
                 field: "media.lifecycle",
-                message: "timestamps are out of order".to_string(),
+                message: "timestamps must be ordered and cleanup pending media must be tombstoned"
+                    .to_string(),
             });
         }
         Ok(())

@@ -131,20 +131,26 @@ pub(super) fn rollback_with_primary(
         Err(cleanup) => HealthError::Cleanup {
             primary: Box::new(primary),
             cleanup: safe_error_summary(&cleanup),
+            recovery: None,
+            cleanup_path: None,
         },
     }
 }
 
 pub(super) fn cleanup_with_primary(
     media_store: &impl MediaStore,
-    relative_path: &std::path::Path,
+    media: &StoredMedia,
     primary: HealthError,
 ) -> HealthError {
-    match media_store.remove(relative_path) {
+    match media_store.remove(media.relative_path()) {
         Ok(()) => primary,
         Err(cleanup) => HealthError::Cleanup {
             primary: Box::new(primary),
             cleanup: safe_error_summary(&cleanup),
+            recovery: Some(Box::new(
+                crate::application::media::MediaRecovery::for_media(media),
+            )),
+            cleanup_path: Some(Box::new(media.relative_path().to_path_buf())),
         },
     }
 }

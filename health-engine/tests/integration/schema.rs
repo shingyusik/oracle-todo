@@ -59,6 +59,31 @@ fn creates_health_tables_indexes_and_foreign_keys() {
 }
 
 #[test]
+fn sqlite_rejects_cleanup_pending_media_without_a_tombstone() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    SqliteHealthRepository::open(&database).unwrap();
+    let connection = Connection::open(&database).unwrap();
+
+    let result = connection.execute(
+        "INSERT INTO media_files (
+            id, relative_path, mime_type, byte_size, checksum_sha256,
+            cleanup_pending, created_at, updated_at, deleted_at
+         ) VALUES (
+            '30000000-0000-4000-8000-000000000001',
+            '2026/07/30000000-0000-4000-8000-000000000001.webp',
+            'image/webp', 42, ?1, 1,
+            '2026-07-30T00:00:00.000000000Z',
+            '2026-07-30T00:00:00.000000000Z',
+            NULL
+         )",
+        ["a".repeat(64)],
+    );
+
+    assert!(result.is_err());
+}
+
+#[test]
 fn schema_initialization_is_additive_and_idempotent() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("health.sqlite");
