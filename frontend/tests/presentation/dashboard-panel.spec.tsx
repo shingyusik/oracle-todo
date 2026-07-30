@@ -9,6 +9,7 @@ import type { DashboardChartSpec } from "@/features/dashboard/model/dashboard-wi
 import type { RavenDashboard } from "@/features/dashboard/api/dashboard-api";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import { RecentActivityCard } from "@/features/dashboard/ui/RecentActivityCard";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
@@ -298,6 +299,32 @@ describe("DashboardPanel", () => {
     expect(screen.getByRole("region", { name: "Today's Plan" })).toBeVisible();
     expect(screen.getByRole("region", { name: "Cash Flow" })).toBeVisible();
     expect(screen.getByText("Health data unavailable")).toBeVisible();
+  });
+
+  it("keeps same-time activity actions as distinct React rows", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <RecentActivityCard activity={[
+        {
+          domain: "ledger",
+          domainLabel: "Ledger",
+          action: "create",
+          recordId: "entry-1",
+          timestamp: "2026-07-31T02:00:00Z",
+        },
+        {
+          domain: "ledger",
+          domainLabel: "Ledger",
+          action: "archive",
+          recordId: "entry-1",
+          timestamp: "2026-07-31T02:00:00Z",
+        },
+      ]} />,
+    );
+
+    expect(screen.getByText("create", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("archive", { exact: false })).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("renders four card-shaped skeletons while Dashboard items load", () => {

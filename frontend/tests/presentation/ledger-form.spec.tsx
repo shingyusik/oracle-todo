@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -96,6 +96,40 @@ function controller(
 }
 
 describe("TransactionForm", () => {
+  it("reports pending until the controller mutation and refresh boundary resolves", async () => {
+    const user = userEvent.setup();
+    let resolveSave!: () => void;
+    const save = new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    });
+    const ledger = controller({
+      createEntry: vi.fn().mockReturnValue(save),
+    });
+    const onPendingChange = vi.fn();
+    const onSaved = vi.fn();
+    render(
+      <TransactionForm
+        controller={ledger}
+        onPendingChange={onPendingChange}
+        onSaved={onSaved}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.type(screen.getByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(onPendingChange).toHaveBeenLastCalledWith(true);
+    expect(onSaved).not.toHaveBeenCalled();
+
+    await act(async () => resolveSave());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(onPendingChange.mock.calls).toEqual([[true], [false]]);
+  });
+
   it("submits only structured transaction fields", async () => {
     const user = userEvent.setup();
     const ledger = controller();

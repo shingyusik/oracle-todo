@@ -60,6 +60,52 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Dashboard");
   });
 
+  it("opens Task creation only after navigation reaches the Tasks leaf", async () => {
+    vi.stubGlobal("fetch", vi.fn(() =>
+      Promise.resolve({ ok: true, json: async () => [] })));
+    const { result } = renderHook(() => useWorkbenchController());
+
+    act(() => result.current.openTaskCreation());
+
+    await waitFor(() => {
+      expect(result.current.selection.leafTabId).toBe("tasks");
+      expect(result.current.creationDialogOpen).toBe(true);
+    });
+  });
+
+  it("keeps Task creation pending through dirty navigation confirmation", async () => {
+    vi.stubGlobal("fetch", vi.fn(() =>
+      Promise.resolve({ ok: true, json: async () => [] })));
+    const { result } = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+
+    act(() => result.current.selectTab("projects"));
+    await waitFor(() => expect(result.current.selection.leafTabId).toBe("projects"));
+    act(() => {
+      expect(
+        result.current.createWorkspaceTableTab("workspace.project", "Focus"),
+      ).toBe(true);
+      result.current.updateWorkspaceTableSettings(
+        "workspace.project",
+        (settings) => ({ ...settings, filterMode: "or" }),
+      );
+      result.current.openTaskCreation();
+    });
+
+    expect(result.current.selection.leafTabId).toBe("projects");
+    expect(result.current.creationDialogOpen).toBe(false);
+    expect(result.current.tableViewTabConfirmation).toMatchObject({
+      kind: "navigate",
+      targetSelection: { leafTabId: "tasks" },
+    });
+
+    act(() => result.current.confirmTableViewTabAction());
+    await waitFor(() => {
+      expect(result.current.selection.leafTabId).toBe("tasks");
+      expect(result.current.creationDialogOpen).toBe(true);
+    });
+  });
+
   it("loads all items when the initial Dashboard is selected", async () => {
     vi.stubGlobal(
       "fetch",

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import type { DailyMetricInput } from "@/features/health/api/health-api";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
@@ -29,7 +29,17 @@ const medicationUnits: MedicationUnit[] = [
   "dose",
 ];
 
-export function DietForm({ controller }: { controller: HealthController }) {
+type HealthFormProps = {
+  controller: HealthController;
+  onSaved?: () => void;
+  onPendingChange?: (pending: boolean) => void;
+};
+
+export function DietForm({
+  controller,
+  onSaved,
+  onPendingChange,
+}: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [mealType, setMealType] = useState<MealType>("breakfast");
   const [foodName, setFoodName] = useState("");
@@ -37,7 +47,7 @@ export function DietForm({ controller }: { controller: HealthController }) {
   const [tags, setTags] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const imageInput = useRef<HTMLInputElement | null>(null);
-  const action = useFormAction();
+  const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,11 +63,13 @@ export function DietForm({ controller }: { controller: HealthController }) {
         tags: uniqueCommaList(tags),
       };
       await controller.createDiet(input, image ?? undefined);
+      if (!action.isMounted()) return;
       setFoodName("");
       setNote("");
       setTags("");
       setImage(null);
       if (imageInput.current) imageInput.current.value = "";
+      onSaved?.();
     });
   }
 
@@ -119,12 +131,16 @@ export function DietForm({ controller }: { controller: HealthController }) {
   );
 }
 
-export function BowelForm({ controller }: { controller: HealthController }) {
+export function BowelForm({
+  controller,
+  onSaved,
+  onPendingChange,
+}: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [bristol, setBristol] = useState("4");
   const [bloodVisible, setBloodVisible] = useState(false);
   const [note, setNote] = useState("");
-  const action = useFormAction();
+  const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -139,8 +155,10 @@ export function BowelForm({ controller }: { controller: HealthController }) {
         note: nullable(note),
       };
       await controller.createBowel(input);
+      if (!action.isMounted()) return;
       setNote("");
       setBloodVisible(false);
+      onSaved?.();
     });
   }
 
@@ -181,13 +199,17 @@ export function BowelForm({ controller }: { controller: HealthController }) {
   );
 }
 
-export function MedicationForm({ controller }: { controller: HealthController }) {
+export function MedicationForm({
+  controller,
+  onSaved,
+  onPendingChange,
+}: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [name, setName] = useState("");
   const [dose, setDose] = useState("");
   const [unit, setUnit] = useState<MedicationUnit>("tablet");
   const [note, setNote] = useState("");
-  const action = useFormAction();
+  const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -206,9 +228,11 @@ export function MedicationForm({ controller }: { controller: HealthController })
         note: nullable(note),
       };
       await controller.createMedication(input);
+      if (!action.isMounted()) return;
       setName("");
       setDose("");
       setNote("");
+      onSaved?.();
     });
   }
 
@@ -263,7 +287,11 @@ export function MedicationForm({ controller }: { controller: HealthController })
   );
 }
 
-export function MetricsForm({ controller }: { controller: HealthController }) {
+export function MetricsForm({
+  controller,
+  onSaved,
+  onPendingChange,
+}: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [weight, setWeight] = useState("");
   const [sleep, setSleep] = useState("");
@@ -273,7 +301,7 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
   const [labName, setLabName] = useState("");
   const [labValue, setLabValue] = useState("");
   const [labUnit, setLabUnit] = useState("");
-  const action = useFormAction();
+  const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -338,6 +366,7 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
       }
       if (metrics.length === 0) throw new Error("Enter at least one daily metric");
       await controller.upsertMetrics(metrics);
+      if (!action.isMounted()) return;
       setWeight("");
       setSleep("");
       setConditionScore("");
@@ -346,6 +375,7 @@ export function MetricsForm({ controller }: { controller: HealthController }) {
       setLabName("");
       setLabValue("");
       setLabUnit("");
+      onSaved?.();
     });
   }
 
@@ -454,27 +484,38 @@ function FormResult({ action }: { action: FormAction }) {
   return <p role="alert" className="items-message">{action.error}</p>;
 }
 
-function useFormAction() {
+function useFormAction(onPendingChange?: (pending: boolean) => void) {
   const active = useRef(false);
+  const mounted = useRef(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => () => {
+    mounted.current = false;
+  }, []);
 
   async function run(operation: () => Promise<void>) {
     if (active.current) return;
     active.current = true;
     setPending(true);
+    onPendingChange?.(true);
     setError(null);
     try {
       await operation();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Health request failed");
+      if (mounted.current) {
+        setError(cause instanceof Error ? cause.message : "Health request failed");
+      }
     } finally {
       active.current = false;
-      setPending(false);
+      if (mounted.current) {
+        setPending(false);
+        onPendingChange?.(false);
+      }
     }
   }
 
-  return { pending, error, run };
+  return { pending, error, run, isMounted: () => mounted.current };
 }
 
 function uniqueCommaList(value: string): string[] {

@@ -72,7 +72,12 @@ describe("dashboard model", () => {
             value: 7.5,
             unit: "hours",
           },
-          latestBowel: null,
+          latestBowel: {
+            timestamp: "2026-07-31T01:30:00Z",
+            name: "Bowel",
+            value: 4,
+            unit: null,
+          },
           latestMedication: null,
           recentDietTags: ["vegetable"],
         },
@@ -101,8 +106,9 @@ describe("dashboard model", () => {
       status: "ok",
       data: {
         metrics: [
-          { name: "Overall condition", displayValue: "8", unitLabel: "Unit not provided" },
+          { name: "Overall condition", displayValue: "8", unitLabel: "score out of 10" },
           { name: "Sleep", displayValue: "7.5", unitLabel: "hours" },
+          { name: "Bowel", displayValue: "4", unitLabel: "Bristol scale" },
         ],
       },
     });

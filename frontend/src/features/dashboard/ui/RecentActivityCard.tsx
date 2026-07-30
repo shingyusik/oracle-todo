@@ -22,7 +22,9 @@ export function RecentActivityCard({
       ) : (
         <ol>
           {activity.map((item) => (
-            <li key={`${item.domain}-${item.recordId}-${item.timestamp}`}>
+            <li
+              key={`${item.domain}-${item.recordId}-${item.timestamp}-${item.action}`}
+            >
               <strong>{item.domainLabel}</strong>
               {" · "}
               {item.action}

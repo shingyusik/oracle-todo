@@ -810,6 +810,7 @@ export function useWorkbenchController(): WorkbenchController {
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const [dashboardReload, setDashboardReload] = useState(0);
   const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
+  const pendingTaskCreation = useRef(false);
   const workspaceRequestId = useRef(0);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
   const initialPlannerTableTabs = useRef(planner.tableTabs);
@@ -987,6 +988,13 @@ export function useWorkbenchController(): WorkbenchController {
     setCreationDialogOpen(false);
     setPlannerCreationContext(null);
     setDetailItem(null);
+    if (
+      selection.leafTabId === "tasks"
+      && pendingTaskCreation.current
+    ) {
+      pendingTaskCreation.current = false;
+      setCreationDialogOpen(true);
+    }
   }, [selection.leafTabId]);
 
   useEffect(() => {
@@ -1143,6 +1151,7 @@ export function useWorkbenchController(): WorkbenchController {
   };
 
   const navigateDashboard = (destination: DashboardDestination): void => {
+    pendingTaskCreation.current = false;
     switch (destination.kind) {
       case "areas":
         pendingDashboardDetail.current = null;
@@ -1298,6 +1307,9 @@ export function useWorkbenchController(): WorkbenchController {
         });
       }
 
+      if (confirmation.targetSelection.leafTabId !== "tasks") {
+        pendingTaskCreation.current = false;
+      }
       setSelection(confirmation.targetSelection);
       setTableViewTabConfirmation(null);
       return;
@@ -1380,6 +1392,25 @@ export function useWorkbenchController(): WorkbenchController {
     tableViewTabConfirmation,
   );
 
+  const openTaskCreation = (): void => {
+    setPlannerCreationContext(null);
+    const currentSelection = selectionStateRef.current;
+    if (currentSelection.leafTabId === "tasks") {
+      pendingTaskCreation.current = false;
+      setCreationDialogOpen(true);
+      return;
+    }
+    pendingTaskCreation.current = true;
+    requestSelection(resolveSelection("tasks", currentSelection));
+  };
+
+  const cancelTableViewTabAction = (): void => {
+    if (tableViewTabConfirmation?.kind === "navigate") {
+      pendingTaskCreation.current = false;
+    }
+    setTableViewTabConfirmation(null);
+  };
+
   return {
     selection,
     panel,
@@ -1394,6 +1425,7 @@ export function useWorkbenchController(): WorkbenchController {
     plannerCreationAnalysis,
     detailItem,
     selectTab: (tabId: WorkbenchTabId) => {
+      pendingTaskCreation.current = false;
       const currentSelection = selectionStateRef.current;
       const nextSelection =
         tabId === "workspace" || tabId === "planner"
@@ -1471,6 +1503,7 @@ export function useWorkbenchController(): WorkbenchController {
       setPlannerCreationContext(null);
       setCreationDialogOpen(true);
     },
+    openTaskCreation,
     openPlannerCreationDialog: (context) => {
       setPlannerCreationContext(canonicalPlannerCreationContext(context, activePlanner));
       setCreationDialogOpen(true);
@@ -1704,9 +1737,9 @@ export function useWorkbenchController(): WorkbenchController {
       });
     },
     confirmTableViewTabAction,
-    cancelTableViewTabAction: () => setTableViewTabConfirmation(null),
+    cancelTableViewTabAction,
     confirmPlannerTabAction: confirmTableViewTabAction,
-    cancelPlannerTabAction: () => setTableViewTabConfirmation(null),
+    cancelPlannerTabAction: cancelTableViewTabAction,
     transitionWorkspaceItem: (
       itemId: string,
       action: WorkspaceItemTransitionAction,

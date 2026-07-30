@@ -126,16 +126,11 @@ export function toUnifiedDashboardModel(
     })),
     health: mapProjection(response.health, (health) => ({
       metrics: [
-        health.latestCondition,
-        health.latestSleep,
-        health.latestBowel,
-        health.latestMedication,
-      ].filter((metric) => metric !== null).map((metric) => ({
-        timestamp: metric.timestamp,
-        name: metric.name,
-        displayValue: String(metric.value),
-        unitLabel: metric.unit || "Unit not provided",
-      })),
+        dashboardHealthMetric(health.latestCondition, "score out of 10"),
+        dashboardHealthMetric(health.latestSleep),
+        dashboardHealthMetric(health.latestBowel, "Bristol scale"),
+        dashboardHealthMetric(health.latestMedication),
+      ].filter((metric) => metric !== null),
       recentDietTags: health.recentDietTags,
     })),
     recentActivity: response.recentActivity.map((activity) => ({
@@ -146,6 +141,23 @@ export function toUnifiedDashboardModel(
           ? "Ledger"
           : "Health Journal",
     })),
+  };
+}
+
+function dashboardHealthMetric(
+  metric: {
+    timestamp: string;
+    name: string;
+    value: number;
+    unit: string | null;
+  } | null,
+  semanticUnit?: string,
+): UnifiedHealthSummary["metrics"][number] | null {
+  return metric === null ? null : {
+    timestamp: metric.timestamp,
+    name: metric.name,
+    displayValue: String(metric.value),
+    unitLabel: metric.unit || semanticUnit || "Unit not provided",
   };
 }
 

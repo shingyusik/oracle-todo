@@ -28,9 +28,8 @@ export function QuickAddDialog({
   controller: WorkbenchController;
   onClose: () => void;
 }) {
-  const ledgerController = useLedgerController();
-  const healthController = useHealthController();
   const [kind, setKind] = React.useState<QuickAddKind>("select");
+  const [pending, setPending] = React.useState(false);
   const dialog = React.useRef<HTMLDivElement | null>(null);
   const returnFocus = React.useRef<HTMLElement | null>(null);
 
@@ -51,14 +50,14 @@ export function QuickAddDialog({
   }, [kind]);
 
   function addTodo() {
-    controller.selectTab("tasks");
-    controller.openCreationDialog();
+    controller.openTaskCreation();
     onClose();
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
+      if (pending) return;
       onClose();
       return;
     }
@@ -88,7 +87,12 @@ export function QuickAddDialog({
       >
         <header className="dashboard-widget-header">
           <h2>{dialogLabel(kind)}</h2>
-          <button type="button" onClick={onClose} aria-label="Close Quick Add">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close Quick Add"
+            disabled={pending}
+          >
             Close
           </button>
         </header>
@@ -109,28 +113,87 @@ export function QuickAddDialog({
           </div>
         ) : (
           <>
-            <button type="button" onClick={() => setKind("select")}>
+            <button
+              type="button"
+              onClick={() => setKind("select")}
+              disabled={pending}
+            >
               Back to Quick Add
             </button>
+            {pending ? (
+              <p role="status">
+                Saving in progress. Close is disabled until saving finishes.
+              </p>
+            ) : null}
             {kind === "ledger" ? (
-              <TransactionForm
-                controller={ledgerController}
+              <LedgerQuickAdd
                 onSaved={onClose}
+                onPendingChange={setPending}
               />
             ) : null}
-            {kind === "diet" ? <DietForm controller={healthController} /> : null}
-            {kind === "bowel" ? <BowelForm controller={healthController} /> : null}
-            {kind === "medication" ? (
-              <MedicationForm controller={healthController} />
-            ) : null}
-            {kind === "metrics" ? (
-              <MetricsForm controller={healthController} />
+            {kind !== "ledger" ? (
+              <HealthQuickAdd
+                kind={kind}
+                onSaved={onClose}
+                onPendingChange={setPending}
+              />
             ) : null}
           </>
         )}
       </div>
     </div>
   );
+}
+
+type QuickAddFormProps = {
+  onSaved: () => void;
+  onPendingChange: (pending: boolean) => void;
+};
+
+function LedgerQuickAdd({
+  onSaved,
+  onPendingChange,
+}: QuickAddFormProps) {
+  const controller = useLedgerController();
+
+  if (controller.state.status === "loading") {
+    return <p role="status">Loading Ledger references…</p>;
+  }
+  if (controller.state.error) {
+    return (
+      <>
+        <p role="alert" className="items-message">{controller.state.error}</p>
+        <button type="button" onClick={() => void controller.refresh()}>
+          Retry Ledger
+        </button>
+      </>
+    );
+  }
+  return (
+    <TransactionForm
+      controller={controller}
+      onSaved={onSaved}
+      onPendingChange={onPendingChange}
+    />
+  );
+}
+
+function HealthQuickAdd({
+  kind,
+  onSaved,
+  onPendingChange,
+}: QuickAddFormProps & {
+  kind: Exclude<QuickAddKind, "select" | "ledger">;
+}) {
+  const controller = useHealthController();
+  const props = { controller, onSaved, onPendingChange };
+
+  switch (kind) {
+    case "diet": return <DietForm {...props} />;
+    case "bowel": return <BowelForm {...props} />;
+    case "medication": return <MedicationForm {...props} />;
+    case "metrics": return <MetricsForm {...props} />;
+  }
 }
 
 function dialogLabel(kind: QuickAddKind): string {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type {
@@ -20,6 +20,7 @@ type TransactionFormProps = {
   controller: LedgerController;
   entry?: LedgerEntryView | null;
   onSaved?: () => void;
+  onPendingChange?: (pending: boolean) => void;
 };
 
 type FormMode = "entry" | "transfer";
@@ -28,12 +29,18 @@ export function TransactionForm({
   controller,
   entry = null,
   onSaved,
+  onPendingChange,
 }: TransactionFormProps) {
   const initial = transactionDraft(entry, controller.state.currencies);
   const [mode, setMode] = useState<FormMode>("entry");
   const [draft, setDraft] = useState(initial);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => () => {
+    mounted.current = false;
+  }, []);
 
   function field(name: keyof typeof draft, value: string) {
     setDraft((current) => ({ ...current, [name]: value }));
@@ -41,8 +48,11 @@ export function TransactionForm({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (pending) return;
     setPending(true);
+    onPendingChange?.(true);
     setError(null);
+    let saved = false;
     try {
       if (mode === "transfer") {
         const input: TransferInput = {
@@ -73,12 +83,18 @@ export function TransactionForm({
         if (entry) await controller.updateEntry(entry.entry.id, input);
         else await controller.createEntry(input);
       }
-      setDraft(transactionDraft(null, controller.state.currencies));
-      onSaved?.();
+      saved = true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save transaction");
+      if (mounted.current) {
+        setError(cause instanceof Error ? cause.message : "Could not save transaction");
+      }
     } finally {
-      setPending(false);
+      if (mounted.current) {
+        if (saved) setDraft(transactionDraft(null, controller.state.currencies));
+        setPending(false);
+        onPendingChange?.(false);
+        if (saved) onSaved?.();
+      }
     }
   }
 

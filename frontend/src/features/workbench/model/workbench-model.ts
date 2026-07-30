@@ -317,6 +317,7 @@ export type WorkbenchController = {
   cancelArchiveSelected: () => void;
   confirmArchiveSelected: () => Promise<void>;
   openCreationDialog: () => void;
+  openTaskCreation: () => void;
   openPlannerCreationDialog: (context: PlannerCreationContext) => void;
   closeCreationDialog: () => void;
   createWorkspaceItem: (form: CreateWorkspaceItemForm) => Promise<void>;
