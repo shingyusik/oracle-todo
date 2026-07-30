@@ -150,22 +150,9 @@ pub(crate) struct StoredTransferOperation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ExportEstimate {
-    pub record_count: u64,
-    pub byte_count: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct EntryScanCursor {
-    pub date: String,
-    pub written_at: String,
-    pub id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AuditScanCursor {
-    pub occurred_at: String,
-    pub id: String,
+pub(crate) struct StoredAuditEvent {
+    pub sequence: i64,
+    pub event: AuditEvent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -403,51 +390,11 @@ pub(crate) trait LedgerReadRepository: LedgerRepository {
         start: Date,
         end: Date,
     ) -> LedgerResult<Vec<ReportAggregateRecord>>;
-    fn export_estimate(&self, include_archived: bool) -> LedgerResult<ExportEstimate>;
-    fn export_currencies_after(
-        &self,
-        include_archived: bool,
-        after_id: Option<&str>,
-        limit: u16,
-    ) -> LedgerResult<Vec<StoredRecord<Currency>>>;
-    fn export_account_categories_after(
-        &self,
-        include_archived: bool,
-        after_id: Option<&str>,
-        limit: u16,
-    ) -> LedgerResult<Vec<StoredRecord<AccountCategory>>>;
-    fn export_accounts_after(
-        &self,
-        include_archived: bool,
-        after_id: Option<&str>,
-        limit: u16,
-    ) -> LedgerResult<Vec<StoredRecord<Account>>>;
-    fn export_transaction_categories_after(
-        &self,
-        include_archived: bool,
-        after_id: Option<&str>,
-        limit: u16,
-    ) -> LedgerResult<Vec<StoredRecord<TransactionCategory>>>;
-    fn export_entries_after(
-        &self,
-        include_archived: bool,
-        after: Option<&EntryScanCursor>,
-        limit: u16,
-    ) -> LedgerResult<Vec<EntryViewRecord>>;
-    fn export_audits_after(
-        &self,
-        after: Option<&AuditScanCursor>,
-        limit: u16,
-    ) -> LedgerResult<Vec<AuditEvent>>;
-    fn export_transfer_operations_after(
-        &self,
-        after_key: Option<&str>,
-        limit: u16,
-    ) -> LedgerResult<Vec<StoredTransferOperation>>;
+    fn begin_export_snapshot(&self) -> LedgerResult<Box<dyn LedgerExportSnapshot + '_>>;
     fn scan_diagnostic_rows(
         &self,
         table: DiagnosticTable,
-        after_rowid: i64,
+        after_rowid: Option<i64>,
         max_rows: u16,
         max_bytes: usize,
     ) -> LedgerResult<DiagnosticBatch>;
@@ -458,6 +405,42 @@ pub(crate) trait LedgerReadRepository: LedgerRepository {
         page: Page,
     ) -> LedgerResult<Vec<AuditEvent>>;
     fn database_health(&self) -> LedgerResult<DatabaseHealth>;
+}
+
+pub(crate) trait LedgerExportSnapshot {
+    fn stream_currencies(
+        &self,
+        include_archived: bool,
+        visitor: &mut dyn FnMut(StoredRecord<Currency>) -> LedgerResult<()>,
+    ) -> LedgerResult<()>;
+    fn stream_account_categories(
+        &self,
+        include_archived: bool,
+        visitor: &mut dyn FnMut(StoredRecord<AccountCategory>) -> LedgerResult<()>,
+    ) -> LedgerResult<()>;
+    fn stream_accounts(
+        &self,
+        include_archived: bool,
+        visitor: &mut dyn FnMut(StoredRecord<Account>) -> LedgerResult<()>,
+    ) -> LedgerResult<()>;
+    fn stream_transaction_categories(
+        &self,
+        include_archived: bool,
+        visitor: &mut dyn FnMut(StoredRecord<TransactionCategory>) -> LedgerResult<()>,
+    ) -> LedgerResult<()>;
+    fn stream_entries(
+        &self,
+        include_archived: bool,
+        visitor: &mut dyn FnMut(EntryViewRecord) -> LedgerResult<()>,
+    ) -> LedgerResult<()>;
+    fn stream_audits(
+        &self,
+        visitor: &mut dyn FnMut(StoredAuditEvent) -> LedgerResult<()>,
+    ) -> LedgerResult<()>;
+    fn stream_transfer_operations(
+        &self,
+        visitor: &mut dyn FnMut(StoredTransferOperation) -> LedgerResult<()>,
+    ) -> LedgerResult<()>;
 }
 
 /// Internal mutation capability. External callers use the service read surface;

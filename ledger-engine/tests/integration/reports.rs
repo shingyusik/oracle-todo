@@ -1,5 +1,6 @@
 use ledger_engine::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
+    UpdateAccount,
 };
 use ledger_engine::application::doctor::{DoctorOptions, DoctorSeverity};
 use ledger_engine::application::export::ExportOptions;
@@ -10,6 +11,7 @@ use ledger_engine::application::transfers::{TransferCommand, TransferOperationKe
 use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
+use time::format_description::well_known::Rfc3339;
 use time::macros::{date, datetime};
 
 type TestService = LedgerService<SqliteLedgerRepository>;
@@ -476,6 +478,302 @@ fn doctor_has_no_false_positives_for_valid_mutation_history() {
 }
 
 #[test]
+fn doctor_accepts_renamed_transfer_and_service_lifecycle_through_terminal_purge() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let transfer = seeded
+        .service
+        .transfer(TransferCommand {
+            operation_key: TransferOperationKey::parse("61000000-0000-4000-8000-000000000001")
+                .unwrap(),
+            date: "2026-07-02".to_string(),
+            written_at: datetime!(2026-07-02 12:00 UTC),
+            content: "lifecycle transfer".to_string(),
+            from_account: "Wallet".to_string(),
+            to_account: "Bank".to_string(),
+            amount: Money::from_minor_units(200),
+            currency: "KRW".to_string(),
+            source: "test".to_string(),
+            notes: None,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+    let wallet = seeded
+        .service
+        .accounts_page(Page::default())
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|account| account.name() == "Wallet")
+        .unwrap();
+    seeded
+        .service
+        .update_account(
+            wallet.id(),
+            UpdateAccount {
+                name: Some("Renamed wallet".to_string()),
+                actor: "test".to_string(),
+                ..UpdateAccount::default()
+            },
+        )
+        .unwrap();
+
+    let renamed = seeded.service.doctor().unwrap();
+    assert!(renamed.healthy, "{:#?}", renamed.issues);
+
+    seeded
+        .service
+        .archive_entry(&transfer.out_entry_id)
+        .unwrap();
+    let archived = seeded.service.doctor().unwrap();
+    assert!(archived.healthy, "{:#?}", archived.issues);
+
+    seeded
+        .service
+        .restore_entry(&transfer.out_entry_id)
+        .unwrap();
+    let restored = seeded.service.doctor().unwrap();
+    assert!(restored.healthy, "{:#?}", restored.issues);
+
+    seeded
+        .service
+        .purge_entry(&transfer.out_entry_id, &transfer.transfer_group_id)
+        .unwrap();
+    let purged = seeded.service.doctor().unwrap();
+    assert!(purged.healthy, "{:#?}", purged.issues);
+}
+
+#[test]
+fn doctor_rejects_update_before_create_and_terminal_action_violations() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let seeded = seeded_service_at(&database);
+    let connection = Connection::open(&database).unwrap();
+    let (currency_id, snapshot): (String, String) = connection
+        .query_row(
+            "SELECT record_id, after_json
+             FROM audit_events
+             WHERE record_type = 'currency' AND action = 'create'
+             ORDER BY rowid LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO audit_events (
+                 id, occurred_at, actor, action, record_type, record_id,
+                 before_json, after_json, reason
+             ) VALUES (
+                 'forged-update-before-create', '2000-01-01T00:00:00Z', 'fixture',
+                 'update', 'currency', ?1, ?2, ?2, NULL
+             )",
+            rusqlite::params![currency_id, snapshot],
+        )
+        .unwrap();
+    drop(connection);
+
+    let report = seeded.service.doctor().unwrap();
+
+    assert!(report.issues.iter().any(|issue| {
+        issue.code == "audit_transition_invalid"
+            && issue.record_id.as_deref() == Some(currency_id.as_str())
+    }));
+}
+
+#[test]
+fn doctor_rejects_forged_entry_category_kind_and_hierarchy_kind() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let entry = create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "forged category",
+        "Wallet",
+        Some("Food"),
+        EntryType::Expense,
+        100,
+        "KRW",
+    );
+    let connection = Connection::open(&database).unwrap();
+    drop_audit_mutation_triggers(&connection);
+    let income_id: String = connection
+        .query_row(
+            "SELECT id FROM transaction_categories WHERE name = 'Salary'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let expense_id: String = connection
+        .query_row(
+            "SELECT id FROM transaction_categories WHERE name = 'Food'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE ledger_entries SET transaction_category_id = ?1 WHERE id = ?2",
+            [&income_id, entry.id()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE audit_events
+             SET after_json = json_set(after_json, '$.transaction_category_id', ?1)
+             WHERE record_type = 'ledger_entry' AND record_id = ?2",
+            [&income_id, entry.id()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE transaction_categories SET parent_id = ?1 WHERE id = ?2",
+            [&income_id, &expense_id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE audit_events
+             SET after_json = json_set(after_json, '$.parent_id', ?1)
+             WHERE record_type = 'transaction_category' AND record_id = ?2",
+            [&income_id, &expense_id],
+        )
+        .unwrap();
+    drop(connection);
+
+    let report = seeded.service.doctor().unwrap();
+
+    assert!(report.issues.iter().any(|issue| {
+        issue.code == "entry_category_invalid" && issue.record_id.as_deref() == Some(entry.id())
+    }));
+    assert!(report.issues.iter().any(|issue| {
+        issue.code == "hierarchy_kind_mismatch"
+            && issue.record_id.as_deref() == Some(expense_id.as_str())
+    }));
+}
+
+#[test]
+fn doctor_reports_missing_and_non_terminal_orphan_audit_histories() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let seeded = seeded_service_at(&database);
+    let connection = Connection::open(&database).unwrap();
+    drop_audit_mutation_triggers(&connection);
+    let missing_id: String = connection
+        .query_row("SELECT id FROM currencies WHERE code = 'USD'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    connection
+        .execute(
+            "DELETE FROM audit_events
+             WHERE record_type = 'currency' AND record_id = ?1",
+            [&missing_id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO audit_events (
+                 id, occurred_at, actor, action, record_type, record_id,
+                 before_json, after_json, reason
+             ) VALUES (
+                 'orphan-create', '2026-07-30T12:00:00Z', 'fixture', 'create',
+                 'currency', 'missing-currency', NULL,
+                 '{\"id\":\"missing-currency\",\"code\":\"XXX\",\"name\":\"Missing\",\"symbol\":\"?\",\"decimal_places\":0,\"active\":true}',
+                 NULL
+             )",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    let report = seeded.service.doctor().unwrap();
+
+    assert!(report.issues.iter().any(|issue| {
+        issue.code == "audit_missing" && issue.record_id.as_deref() == Some(missing_id.as_str())
+    }));
+    assert!(report.issues.iter().any(|issue| {
+        issue.code == "audit_orphan" && issue.record_id.as_deref() == Some("missing-currency")
+    }));
+}
+
+#[test]
+fn doctor_scans_every_signed_rowid_including_i64_minimum() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let seeded = seeded_service_at(&database);
+    let connection = Connection::open(&database).unwrap();
+    for (rowid, id, code) in [
+        (i64::MIN, "negative-min-currency", "NMN"),
+        (-1, "negative-currency", "NEG"),
+        (0, "zero-currency", "ZER"),
+    ] {
+        connection
+            .execute(
+                "INSERT INTO currencies (
+                     rowid, id, code, name, symbol, decimal_places, active,
+                     created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?3, '?', 0, 1, ?4, ?4)",
+                rusqlite::params![rowid, id, code, "2026-07-30T12:00:00Z"],
+            )
+            .unwrap();
+    }
+    drop(connection);
+
+    let report = seeded.service.doctor().unwrap();
+    let currency_scan = report
+        .scans
+        .iter()
+        .find(|scan| scan.table == "currencies")
+        .unwrap();
+
+    assert_eq!(currency_scan.scanned_records, 5);
+    for id in [
+        "negative-min-currency",
+        "negative-currency",
+        "zero-currency",
+    ] {
+        assert!(report.issues.iter().any(|issue| {
+            issue.code == "audit_missing" && issue.record_id.as_deref() == Some(id)
+        }));
+    }
+}
+
+#[test]
+fn doctor_tiny_budgets_report_unknown_coverage_without_false_corruption() {
+    for options in [
+        DoctorOptions {
+            max_records: 1,
+            max_bytes: 8 * 1024 * 1024,
+        },
+        DoctorOptions {
+            max_records: 10_000,
+            max_bytes: 1,
+        },
+    ] {
+        let seeded = seeded_service();
+        let report = seeded.service.doctor_with_options(options).unwrap();
+
+        assert!(report.issues.iter().any(|issue| {
+            matches!(
+                issue.code.as_str(),
+                "doctor_scan_truncated" | "doctor_coverage_incomplete"
+            )
+        }));
+        assert!(
+            report
+                .issues
+                .iter()
+                .all(|issue| issue.severity != DoctorSeverity::Error),
+            "{:#?}",
+            report.issues
+        );
+    }
+}
+
+#[test]
 fn doctor_reports_malformed_master_and_audit_json_without_aborting() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
@@ -591,7 +889,7 @@ fn doctor_truncates_large_keyset_scan_with_cursor_and_counts() {
 
     assert_eq!(report.scanned_records, 1_000);
     assert!(entries_scan.truncated);
-    assert!(entries_scan.cursor > 0);
+    assert!(entries_scan.cursor.is_some_and(|cursor| cursor > 0));
     assert!(entries_scan.next_unscanned_rowid.is_some());
     assert!(report.issues.iter().any(|issue| {
         issue.code == "doctor_scan_truncated" && issue.record_type == "ledger_entries"
@@ -795,7 +1093,7 @@ fn deterministic_export_is_repeatable_ordered_and_bounded() {
     let second_json = serde_json::to_string(&second).unwrap();
 
     assert_eq!(first_json, second_json);
-    assert_eq!(first.schema_version, 2);
+    assert_eq!(first.schema_version, 3);
     assert!(!first.restore_capable);
     assert_eq!(first.entries.len(), 4);
     assert_eq!(first.entries[0].entry.content(), "earlier");
@@ -818,6 +1116,12 @@ fn deterministic_export_is_repeatable_ordered_and_bounded() {
     assert!(!first.transfer_operations[0].created_at.is_empty());
     assert!(!first.currencies[0].created_at.is_empty());
     assert!(!first.currencies[0].updated_at.is_empty());
+    let audit_order = first
+        .audit_events
+        .iter()
+        .map(|event| (event.occurred_at.format(&Rfc3339).unwrap(), event.sequence))
+        .collect::<Vec<_>>();
+    assert!(audit_order.windows(2).all(|pair| pair[0] <= pair[1]));
     assert!(
         first
             .currencies
@@ -852,6 +1156,115 @@ fn deterministic_export_is_repeatable_ordered_and_bounded() {
         })
         .unwrap_err();
     assert!(byte_error.to_string().contains("export byte limit"));
+}
+
+#[test]
+fn export_accepts_the_exact_emitted_byte_cap_and_rejects_cap_minus_one() {
+    let mut seeded = seeded_service();
+    create_entry(
+        &mut seeded.service,
+        "2026-07-02",
+        "exact byte budget",
+        "Wallet",
+        Some("Food"),
+        EntryType::Expense,
+        200,
+        "KRW",
+    );
+    let baseline = seeded
+        .service
+        .export(ExportOptions {
+            include_archived: true,
+            ..ExportOptions::default()
+        })
+        .unwrap();
+    let exact_bytes = serde_json::to_vec(&baseline).unwrap().len();
+
+    let exact = seeded
+        .service
+        .export(ExportOptions {
+            include_archived: true,
+            max_bytes: exact_bytes,
+            ..ExportOptions::default()
+        })
+        .unwrap();
+    assert_eq!(serde_json::to_vec(&exact).unwrap().len(), exact_bytes);
+
+    let error = seeded
+        .service
+        .export(ExportOptions {
+            include_archived: true,
+            max_bytes: exact_bytes - 1,
+            ..ExportOptions::default()
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("export byte limit"));
+}
+
+#[test]
+fn export_exact_cap_includes_repeated_resolved_labels() {
+    let mut seeded = seeded_service();
+    let wallet = seeded
+        .service
+        .accounts_page(Page::default())
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|account| account.name() == "Wallet")
+        .unwrap();
+    seeded
+        .service
+        .update_account(
+            wallet.id(),
+            UpdateAccount {
+                name: Some("L".repeat(64 * 1024)),
+                actor: "test".to_string(),
+                ..UpdateAccount::default()
+            },
+        )
+        .unwrap();
+    for number in 0..100 {
+        create_entry(
+            &mut seeded.service,
+            "2026-07-02",
+            &format!("shared label {number}"),
+            wallet.id(),
+            Some("Food"),
+            EntryType::Expense,
+            1,
+            "KRW",
+        );
+    }
+    let baseline = seeded
+        .service
+        .export(ExportOptions {
+            include_archived: true,
+            ..ExportOptions::default()
+        })
+        .unwrap();
+    let exact_bytes = serde_json::to_vec(&baseline).unwrap().len();
+
+    assert!(exact_bytes > 6 * 1024 * 1024);
+    assert!(
+        seeded
+            .service
+            .export(ExportOptions {
+                include_archived: true,
+                max_bytes: exact_bytes,
+                ..ExportOptions::default()
+            })
+            .is_ok()
+    );
+    assert!(
+        seeded
+            .service
+            .export(ExportOptions {
+                include_archived: true,
+                max_bytes: exact_bytes - 1,
+                ..ExportOptions::default()
+            })
+            .is_err()
+    );
 }
 
 struct Seeded {
@@ -959,4 +1372,25 @@ fn create_entry(
             actor: "test".to_string(),
         })
         .unwrap()
+}
+
+fn drop_audit_mutation_triggers(connection: &Connection) {
+    let triggers = connection
+        .prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'trigger' AND tbl_name = 'audit_events'",
+        )
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    for trigger in triggers {
+        connection
+            .execute_batch(&format!(
+                "DROP TRIGGER \"{}\"",
+                trigger.replace('"', "\"\"")
+            ))
+            .unwrap();
+    }
 }

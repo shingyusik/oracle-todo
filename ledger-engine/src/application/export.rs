@@ -1,16 +1,17 @@
+use std::io::{self, Write};
+
 use serde::Serialize;
-use time::format_description::well_known::Rfc3339;
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
-    AuditEvent, AuditScanCursor, EntryScanCursor, LedgerReadRepository, MAX_PAGE_LIMIT,
-    StoredRecord, StoredTransferOperation,
+    AuditEvent, LedgerExportSnapshot, LedgerReadRepository, StoredAuditEvent, StoredRecord,
+    StoredTransferOperation,
 };
 use crate::application::queries::{EntryView, entry_view_from_record};
 use crate::application::service::LedgerService;
 use crate::domain::{Account, AccountCategory, Currency, TransactionCategory};
 
-pub const EXPORT_SCHEMA_VERSION: u32 = 2;
+pub const EXPORT_SCHEMA_VERSION: u32 = 3;
 pub const DEFAULT_EXPORT_MAX_BYTES: usize = 64 * 1024 * 1024;
 pub const DEFAULT_EXPORT_MAX_RECORDS: usize = 1_000_000;
 
@@ -49,6 +50,21 @@ impl<T> std::ops::Deref for ExportRecord<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExportAuditEvent {
+    pub sequence: i64,
+    #[serde(flatten)]
+    pub event: AuditEvent,
+}
+
+impl std::ops::Deref for ExportAuditEvent {
+    type Target = AuditEvent;
+
+    fn deref(&self) -> &Self::Target {
+        &self.event
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExportTransferOperation {
     pub operation_key: String,
     pub payload_json: String,
@@ -66,7 +82,7 @@ pub struct ExportView {
     pub accounts: Vec<ExportRecord<Account>>,
     pub transaction_categories: Vec<ExportRecord<TransactionCategory>>,
     pub entries: Vec<EntryView>,
-    pub audit_events: Vec<AuditEvent>,
+    pub audit_events: Vec<ExportAuditEvent>,
     pub transfer_operations: Vec<ExportTransferOperation>,
 }
 
@@ -74,125 +90,18 @@ pub struct ExportView {
 impl<R: LedgerReadRepository> LedgerService<R> {
     /// Returns a deterministic, bounded structured export.
     ///
+    /// Both passes use one SQLite read snapshot. The first pass serializes one
+    /// row at a time into a counting writer, so no full intermediate payload is
+    /// allocated before the exact byte and record limits pass. The second pass
+    /// materializes the returned view from that unchanged snapshot.
+    ///
     /// `include_archived = true` includes every durable row and marks the
     /// result restore-capable. Filtered exports are explicitly analytical.
     pub fn export(&self, options: ExportOptions) -> LedgerResult<ExportView> {
         validate_options(options)?;
-        let estimate = self.repository.export_estimate(options.include_archived)?;
-        if estimate.record_count > options.max_records as u64 {
-            return Err(LedgerError::Storage(format!(
-                "export record limit {} exceeded by estimated {} records",
-                options.max_records, estimate.record_count
-            )));
-        }
-        if estimate.byte_count > options.max_bytes as u64 {
-            return Err(LedgerError::Storage(format!(
-                "export byte limit {} exceeded by estimated {} bytes",
-                options.max_bytes, estimate.byte_count
-            )));
-        }
-
-        let currencies = collect_by_id(|after| {
-            self.repository
-                .export_currencies_after(options.include_archived, after, MAX_PAGE_LIMIT)
-        })?;
-        let account_categories = collect_by_id(|after| {
-            self.repository.export_account_categories_after(
-                options.include_archived,
-                after,
-                MAX_PAGE_LIMIT,
-            )
-        })?;
-        let accounts = collect_by_id(|after| {
-            self.repository
-                .export_accounts_after(options.include_archived, after, MAX_PAGE_LIMIT)
-        })?;
-        let transaction_categories = collect_by_id(|after| {
-            self.repository.export_transaction_categories_after(
-                options.include_archived,
-                after,
-                MAX_PAGE_LIMIT,
-            )
-        })?;
-
-        let mut entries = Vec::new();
-        let mut entry_cursor = None;
-        loop {
-            let batch = self.repository.export_entries_after(
-                options.include_archived,
-                entry_cursor.as_ref(),
-                MAX_PAGE_LIMIT,
-            )?;
-            if batch.is_empty() {
-                break;
-            }
-            let last = batch.last().expect("non-empty export entry batch");
-            entry_cursor = Some(EntryScanCursor {
-                date: last.entry.date().to_string(),
-                written_at: last
-                    .entry
-                    .written_at()
-                    .format(&Rfc3339)
-                    .map_err(|error| LedgerError::Storage(error.to_string()))?,
-                id: last.entry.id().to_string(),
-            });
-            entries.extend(batch.into_iter().map(entry_view_from_record));
-        }
-
-        let mut audit_events = Vec::new();
-        let mut audit_cursor = None;
-        loop {
-            let batch = self
-                .repository
-                .export_audits_after(audit_cursor.as_ref(), MAX_PAGE_LIMIT)?;
-            if batch.is_empty() {
-                break;
-            }
-            let last = batch.last().expect("non-empty export audit batch");
-            audit_cursor = Some(AuditScanCursor {
-                occurred_at: last
-                    .occurred_at
-                    .format(&Rfc3339)
-                    .map_err(|error| LedgerError::Storage(error.to_string()))?,
-                id: last.id.clone(),
-            });
-            audit_events.extend(batch);
-        }
-
-        let transfer_operations = collect_operations(|after| {
-            self.repository
-                .export_transfer_operations_after(after, MAX_PAGE_LIMIT)
-        })?;
-        let view = ExportView {
-            schema_version: EXPORT_SCHEMA_VERSION,
-            restore_capable: options.include_archived,
-            currencies: currencies.into_iter().map(ExportRecord::from).collect(),
-            account_categories: account_categories
-                .into_iter()
-                .map(ExportRecord::from)
-                .collect(),
-            accounts: accounts.into_iter().map(ExportRecord::from).collect(),
-            transaction_categories: transaction_categories
-                .into_iter()
-                .map(ExportRecord::from)
-                .collect(),
-            entries,
-            audit_events,
-            transfer_operations: transfer_operations
-                .into_iter()
-                .map(ExportTransferOperation::from)
-                .collect(),
-        };
-        let exact_bytes = serde_json::to_vec(&view)
-            .map_err(|error| LedgerError::Storage(error.to_string()))?
-            .len();
-        if exact_bytes > options.max_bytes {
-            return Err(LedgerError::Storage(format!(
-                "export byte limit {} exceeded by {exact_bytes} serialized bytes",
-                options.max_bytes
-            )));
-        }
-        Ok(view)
+        let snapshot = self.repository.begin_export_snapshot()?;
+        validate_snapshot_size(&*snapshot, options)?;
+        collect_snapshot(&*snapshot, options)
     }
 }
 
@@ -203,6 +112,15 @@ impl<T> From<StoredRecord<T>> for ExportRecord<T> {
             created_at: value.created_at,
             updated_at: value.updated_at,
             deleted_at: value.deleted_at,
+        }
+    }
+}
+
+impl From<StoredAuditEvent> for ExportAuditEvent {
+    fn from(value: StoredAuditEvent) -> Self {
+        Self {
+            sequence: value.sequence,
+            event: value.event,
         }
     }
 }
@@ -234,78 +152,222 @@ fn validate_options(options: ExportOptions) -> LedgerResult<()> {
     Ok(())
 }
 
-fn collect_by_id<T>(
-    mut fetch: impl FnMut(Option<&str>) -> LedgerResult<Vec<StoredRecord<T>>>,
-) -> LedgerResult<Vec<StoredRecord<T>>>
+fn validate_snapshot_size(
+    snapshot: &dyn LedgerExportSnapshot,
+    options: ExportOptions,
+) -> LedgerResult<()> {
+    let mut writer = BoundedCounter::new(options.max_bytes);
+    let mut budget = ExportBudget::new(options.max_records);
+
+    write_bytes(&mut writer, br#"{"schema_version":3,"restore_capable":"#)?;
+    write_bytes(
+        &mut writer,
+        if options.include_archived {
+            b"true"
+        } else {
+            b"false"
+        },
+    )?;
+
+    write_bytes(&mut writer, br#","currencies":"#)?;
+    write_array(
+        &mut writer,
+        &mut budget,
+        |visitor| snapshot.stream_currencies(options.include_archived, visitor),
+        ExportRecord::from,
+    )?;
+    write_bytes(&mut writer, br#","account_categories":"#)?;
+    write_array(
+        &mut writer,
+        &mut budget,
+        |visitor| snapshot.stream_account_categories(options.include_archived, visitor),
+        ExportRecord::from,
+    )?;
+    write_bytes(&mut writer, br#","accounts":"#)?;
+    write_array(
+        &mut writer,
+        &mut budget,
+        |visitor| snapshot.stream_accounts(options.include_archived, visitor),
+        ExportRecord::from,
+    )?;
+    write_bytes(&mut writer, br#","transaction_categories":"#)?;
+    write_array(
+        &mut writer,
+        &mut budget,
+        |visitor| snapshot.stream_transaction_categories(options.include_archived, visitor),
+        ExportRecord::from,
+    )?;
+    write_bytes(&mut writer, br#","entries":"#)?;
+    write_array(
+        &mut writer,
+        &mut budget,
+        |visitor| snapshot.stream_entries(options.include_archived, visitor),
+        entry_view_from_record,
+    )?;
+    write_bytes(&mut writer, br#","audit_events":"#)?;
+    write_array(
+        &mut writer,
+        &mut budget,
+        |visitor| snapshot.stream_audits(visitor),
+        ExportAuditEvent::from,
+    )?;
+    write_bytes(&mut writer, br#","transfer_operations":"#)?;
+    write_array(
+        &mut writer,
+        &mut budget,
+        |visitor| snapshot.stream_transfer_operations(visitor),
+        ExportTransferOperation::from,
+    )?;
+    write_bytes(&mut writer, b"}")
+}
+
+fn write_array<T, U>(
+    writer: &mut BoundedCounter,
+    budget: &mut ExportBudget,
+    stream: impl FnOnce(&mut dyn FnMut(T) -> LedgerResult<()>) -> LedgerResult<()>,
+    mut map: impl FnMut(T) -> U,
+) -> LedgerResult<()>
 where
-    T: RecordId,
+    U: Serialize,
 {
-    let mut records = Vec::new();
-    let mut after_id = None;
-    loop {
-        let batch = fetch(after_id.as_deref())?;
-        if batch.is_empty() {
-            break;
+    write_bytes(writer, b"[")?;
+    let mut first = true;
+    stream(&mut |record| {
+        budget.record()?;
+        if first {
+            first = false;
+        } else {
+            write_bytes(writer, b",")?;
         }
-        after_id = Some(
-            batch
-                .last()
-                .expect("non-empty export master batch")
-                .record
-                .record_id()
-                .to_string(),
-        );
-        records.extend(batch);
-    }
-    Ok(records)
+        write_json(writer, &map(record))
+    })?;
+    write_bytes(writer, b"]")
 }
 
-fn collect_operations(
-    mut fetch: impl FnMut(Option<&str>) -> LedgerResult<Vec<StoredTransferOperation>>,
-) -> LedgerResult<Vec<StoredTransferOperation>> {
-    let mut records = Vec::new();
-    let mut after_key = None;
-    loop {
-        let batch = fetch(after_key.as_deref())?;
-        if batch.is_empty() {
-            break;
+fn write_json(writer: &mut BoundedCounter, value: &impl Serialize) -> LedgerResult<()> {
+    serde_json::to_writer(&mut *writer, value).map_err(|_| writer.limit_error())
+}
+
+fn write_bytes(writer: &mut BoundedCounter, bytes: &[u8]) -> LedgerResult<()> {
+    writer.write_all(bytes).map_err(|_| writer.limit_error())
+}
+
+fn collect_snapshot(
+    snapshot: &dyn LedgerExportSnapshot,
+    options: ExportOptions,
+) -> LedgerResult<ExportView> {
+    let mut currencies = Vec::new();
+    snapshot.stream_currencies(options.include_archived, &mut |record| {
+        currencies.push(ExportRecord::from(record));
+        Ok(())
+    })?;
+
+    let mut account_categories = Vec::new();
+    snapshot.stream_account_categories(options.include_archived, &mut |record| {
+        account_categories.push(ExportRecord::from(record));
+        Ok(())
+    })?;
+
+    let mut accounts = Vec::new();
+    snapshot.stream_accounts(options.include_archived, &mut |record| {
+        accounts.push(ExportRecord::from(record));
+        Ok(())
+    })?;
+
+    let mut transaction_categories = Vec::new();
+    snapshot.stream_transaction_categories(options.include_archived, &mut |record| {
+        transaction_categories.push(ExportRecord::from(record));
+        Ok(())
+    })?;
+
+    let mut entries = Vec::new();
+    snapshot.stream_entries(options.include_archived, &mut |record| {
+        entries.push(entry_view_from_record(record));
+        Ok(())
+    })?;
+
+    let mut audit_events = Vec::new();
+    snapshot.stream_audits(&mut |event| {
+        audit_events.push(ExportAuditEvent::from(event));
+        Ok(())
+    })?;
+
+    let mut transfer_operations = Vec::new();
+    snapshot.stream_transfer_operations(&mut |operation| {
+        transfer_operations.push(ExportTransferOperation::from(operation));
+        Ok(())
+    })?;
+
+    Ok(ExportView {
+        schema_version: EXPORT_SCHEMA_VERSION,
+        restore_capable: options.include_archived,
+        currencies,
+        account_categories,
+        accounts,
+        transaction_categories,
+        entries,
+        audit_events,
+        transfer_operations,
+    })
+}
+
+struct ExportBudget {
+    count: usize,
+    limit: usize,
+}
+
+impl ExportBudget {
+    const fn new(limit: usize) -> Self {
+        Self { count: 0, limit }
+    }
+
+    fn record(&mut self) -> LedgerResult<()> {
+        self.count = self
+            .count
+            .checked_add(1)
+            .ok_or_else(|| LedgerError::Storage("export record count overflow".to_string()))?;
+        if self.count > self.limit {
+            return Err(LedgerError::Storage(format!(
+                "export record limit {} exceeded at record {}",
+                self.limit, self.count
+            )));
         }
-        after_key = Some(
-            batch
-                .last()
-                .expect("non-empty export operation batch")
-                .operation_key
-                .clone(),
-        );
-        records.extend(batch);
-    }
-    Ok(records)
-}
-
-trait RecordId {
-    fn record_id(&self) -> &str;
-}
-
-impl RecordId for Currency {
-    fn record_id(&self) -> &str {
-        self.id()
+        Ok(())
     }
 }
 
-impl RecordId for AccountCategory {
-    fn record_id(&self) -> &str {
-        self.id()
+struct BoundedCounter {
+    written: usize,
+    limit: usize,
+}
+
+impl BoundedCounter {
+    const fn new(limit: usize) -> Self {
+        Self { written: 0, limit }
+    }
+
+    fn limit_error(&self) -> LedgerError {
+        LedgerError::Storage(format!(
+            "export byte limit {} exceeded after {} serialized bytes",
+            self.limit, self.written
+        ))
     }
 }
 
-impl RecordId for Account {
-    fn record_id(&self) -> &str {
-        self.id()
+impl Write for BoundedCounter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let next = self
+            .written
+            .checked_add(buffer.len())
+            .ok_or_else(|| io::Error::other("export byte count overflow"))?;
+        if next > self.limit {
+            return Err(io::Error::other("export byte limit exceeded"));
+        }
+        self.written = next;
+        Ok(buffer.len())
     }
-}
 
-impl RecordId for TransactionCategory {
-    fn record_id(&self) -> &str {
-        self.id()
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }

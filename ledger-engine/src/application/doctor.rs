@@ -14,10 +14,13 @@ use crate::application::service::LedgerService;
 
 pub const DEFAULT_DOCTOR_MAX_RECORDS: usize = 100_000;
 pub const DEFAULT_DOCTOR_MAX_BYTES: usize = 32 * 1024 * 1024;
+/// Conservative ceiling for compact indexes plus one transient decoded JSON value.
+pub const DOCTOR_SCAN_HEAP_MULTIPLIER: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DoctorOptions {
     pub max_records: usize,
+    /// Maximum raw SQLite bytes admitted to the diagnostic scan.
     pub max_bytes: usize,
 }
 
@@ -53,7 +56,7 @@ pub struct DoctorScanProgress {
     pub scanned_records: usize,
     pub scanned_bytes: usize,
     /// Last fully scanned SQLite rowid.
-    pub cursor: i64,
+    pub cursor: Option<i64>,
     /// First rowid not scanned because a configured budget was reached.
     pub next_unscanned_rowid: Option<i64>,
     pub truncated: bool,
@@ -90,10 +93,20 @@ impl<R: LedgerReadRepository> LedgerService<R> {
                 "doctor byte limit must be positive",
             ));
         }
+        options
+            .max_bytes
+            .checked_mul(DOCTOR_SCAN_HEAP_MULTIPLIER)
+            .ok_or_else(|| {
+                validation(
+                    "max_bytes",
+                    "doctor byte limit exceeds the supported heap ceiling",
+                )
+            })?;
 
         let health = self.repository.database_health()?;
         let mut issues = database_issues(health);
-        let mut rows_by_table = BTreeMap::<DiagnosticTable, Vec<DiagnosticRow>>::new();
+        let mut state = DoctorState::default();
+        let mut complete_tables = BTreeSet::new();
         let mut scans = Vec::new();
         let mut remaining_records = options.max_records;
         let mut remaining_bytes = options.max_bytes;
@@ -101,13 +114,11 @@ impl<R: LedgerReadRepository> LedgerService<R> {
         let mut total_bytes = 0_usize;
 
         for table in DiagnosticTable::ALL {
-            let mut cursor = 0_i64;
+            let mut cursor = None;
             let mut table_records = 0_usize;
             let mut table_bytes = 0_usize;
             let mut next_unscanned_rowid = None;
             let mut truncated = false;
-            let mut table_rows = Vec::new();
-
             loop {
                 if remaining_records == 0 || remaining_bytes == 0 {
                     let probe = self.repository.scan_diagnostic_rows(table, cursor, 1, 0)?;
@@ -126,7 +137,7 @@ impl<R: LedgerReadRepository> LedgerService<R> {
                     break;
                 }
                 let batch_records = batch.rows.len();
-                cursor = batch.next_cursor.unwrap_or(cursor);
+                cursor = batch.next_cursor.or(cursor);
                 table_records += batch_records;
                 table_bytes = table_bytes.checked_add(batch.byte_count).ok_or_else(|| {
                     LedgerError::Storage("doctor byte count overflow".to_string())
@@ -137,7 +148,7 @@ impl<R: LedgerReadRepository> LedgerService<R> {
                 })?;
                 remaining_records -= batch_records;
                 remaining_bytes -= batch.byte_count;
-                table_rows.extend(batch.rows);
+                state.ingest(table, &batch.rows, &mut issues);
                 if batch.truncated {
                     next_unscanned_rowid = batch.next_unscanned_rowid;
                     truncated = true;
@@ -156,7 +167,7 @@ impl<R: LedgerReadRepository> LedgerService<R> {
                     next_unscanned_rowid.map(|rowid| rowid.to_string()),
                     format!(
                         "scan stopped after {table_records} records and {table_bytes} bytes; \
-                         last cursor {cursor}"
+                         last cursor {cursor:?}"
                     ),
                 ));
             }
@@ -168,15 +179,28 @@ impl<R: LedgerReadRepository> LedgerService<R> {
                 next_unscanned_rowid,
                 truncated,
             });
-            rows_by_table.insert(table, table_rows);
+            if !truncated {
+                complete_tables.insert(table);
+            }
         }
 
-        validate_rows(&rows_by_table, &mut issues);
+        if complete_tables.len() != DiagnosticTable::ALL.len() {
+            issues.push(issue(
+                DoctorSeverity::Warning,
+                "doctor_coverage_incomplete",
+                "database",
+                None,
+                "cross-table and audit conclusions were skipped where scan coverage was incomplete"
+                    .to_string(),
+            ));
+        }
+        validate_state(&state, &complete_tables, &mut issues);
         issues.sort();
         issues.dedup();
-        let scanned_entries = rows_by_table
-            .get(&DiagnosticTable::LedgerEntries)
-            .map_or(0, Vec::len);
+        let scanned_entries = scans
+            .iter()
+            .find(|scan| scan.table == DiagnosticTable::LedgerEntries.name())
+            .map_or(0, |scan| scan.scanned_records);
         Ok(DoctorReport {
             healthy: issues.is_empty(),
             scanned_entries,
@@ -200,20 +224,18 @@ struct AccountRecord {
     durable: DurableRecord,
     category_id: String,
     currency_id: String,
-    name: String,
 }
 
 #[derive(Debug, Clone)]
 struct CategoryRecord {
     durable: DurableRecord,
     parent_id: Option<String>,
+    kind: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 struct CurrencyRecord {
     durable: DurableRecord,
-    code: String,
-    name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -244,86 +266,157 @@ struct AuditRecord {
     action: String,
     record_type: String,
     record_id: String,
-    before: Option<Value>,
-    after: Option<Value>,
+    before: Option<String>,
+    after: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 struct OperationRecord {
     operation_key: String,
-    payload: Option<Map<String, Value>>,
-    result: Option<Map<String, Value>>,
+    payload: Option<String>,
+    result: Option<String>,
 }
 
-fn validate_rows(
-    rows_by_table: &BTreeMap<DiagnosticTable, Vec<DiagnosticRow>>,
+#[derive(Debug, Default)]
+struct DoctorState {
+    currencies: BTreeMap<String, CurrencyRecord>,
+    account_categories: BTreeMap<String, CategoryRecord>,
+    accounts: BTreeMap<String, AccountRecord>,
+    transaction_categories: BTreeMap<String, CategoryRecord>,
+    entries: BTreeMap<String, EntryRecord>,
+    audits: Vec<AuditRecord>,
+    operations: Vec<OperationRecord>,
+}
+
+impl DoctorState {
+    fn ingest(
+        &mut self,
+        table: DiagnosticTable,
+        rows: &[DiagnosticRow],
+        issues: &mut Vec<DoctorIssue>,
+    ) {
+        match table {
+            DiagnosticTable::Currencies => {
+                self.currencies.extend(parse_currencies(rows, issues));
+            }
+            DiagnosticTable::AccountCategories => {
+                self.account_categories
+                    .extend(parse_account_categories(rows, issues));
+            }
+            DiagnosticTable::Accounts => {
+                self.accounts.extend(parse_accounts(rows, issues));
+            }
+            DiagnosticTable::TransactionCategories => {
+                self.transaction_categories
+                    .extend(parse_transaction_categories(rows, issues));
+            }
+            DiagnosticTable::LedgerEntries => {
+                self.entries.extend(parse_entries(rows, issues));
+            }
+            DiagnosticTable::AuditEvents => self.audits.extend(parse_audits(rows, issues)),
+            DiagnosticTable::TransferOperations => {
+                self.operations.extend(parse_operations(rows, issues));
+            }
+        }
+    }
+}
+
+fn validate_state(
+    state: &DoctorState,
+    complete: &BTreeSet<DiagnosticTable>,
     issues: &mut Vec<DoctorIssue>,
 ) {
-    let currencies = parse_currencies(rows(rows_by_table, DiagnosticTable::Currencies), issues);
-    let account_categories = parse_account_categories(
-        rows(rows_by_table, DiagnosticTable::AccountCategories),
-        issues,
-    );
-    let accounts = parse_accounts(rows(rows_by_table, DiagnosticTable::Accounts), issues);
-    let transaction_categories = parse_transaction_categories(
-        rows(rows_by_table, DiagnosticTable::TransactionCategories),
-        issues,
-    );
-    let audits = parse_audits(rows(rows_by_table, DiagnosticTable::AuditEvents), issues);
-    let operations = parse_operations(
-        rows(rows_by_table, DiagnosticTable::TransferOperations),
-        issues,
-    );
-    let entries = parse_entries(rows(rows_by_table, DiagnosticTable::LedgerEntries), issues);
-
-    validate_references(
-        &currencies,
-        &account_categories,
-        &accounts,
-        &transaction_categories,
-        &entries,
-        issues,
-    );
-    hierarchy_issues(
-        "account_category",
-        account_categories
-            .values()
-            .map(|record| (record.durable.id.as_str(), record.parent_id.as_deref())),
-        issues,
-    );
-    hierarchy_issues(
-        "transaction_category",
-        transaction_categories
-            .values()
-            .map(|record| (record.durable.id.as_str(), record.parent_id.as_deref())),
-        issues,
-    );
-    let transfer_groups = validate_transfer_pairs(&entries, issues);
-    validate_audits(
-        &currencies,
-        &account_categories,
-        &accounts,
-        &transaction_categories,
-        &entries,
-        &transfer_groups,
-        &audits,
-        issues,
-    );
-    validate_operations(
-        &currencies,
-        &accounts,
-        &transfer_groups,
-        &audits,
-        &operations,
-        issues,
-    );
+    if tables_complete(
+        complete,
+        &[
+            DiagnosticTable::Currencies,
+            DiagnosticTable::AccountCategories,
+            DiagnosticTable::Accounts,
+            DiagnosticTable::TransactionCategories,
+            DiagnosticTable::LedgerEntries,
+        ],
+    ) {
+        validate_references(
+            &state.currencies,
+            &state.account_categories,
+            &state.accounts,
+            &state.transaction_categories,
+            &state.entries,
+            issues,
+        );
+        validate_entry_category_policy(&state.entries, &state.transaction_categories, issues);
+    }
+    if complete.contains(&DiagnosticTable::AccountCategories) {
+        hierarchy_issues(
+            "account_category",
+            state
+                .account_categories
+                .values()
+                .map(|record| (record.durable.id.as_str(), record.parent_id.as_deref())),
+            issues,
+        );
+    }
+    if complete.contains(&DiagnosticTable::TransactionCategories) {
+        hierarchy_issues(
+            "transaction_category",
+            state
+                .transaction_categories
+                .values()
+                .map(|record| (record.durable.id.as_str(), record.parent_id.as_deref())),
+            issues,
+        );
+        hierarchy_kind_issues(&state.transaction_categories, issues);
+    }
+    let transfer_groups = if complete.contains(&DiagnosticTable::LedgerEntries) {
+        validate_transfer_pairs(&state.entries, issues)
+    } else {
+        BTreeMap::new()
+    };
+    if tables_complete(
+        complete,
+        &[
+            DiagnosticTable::Currencies,
+            DiagnosticTable::AccountCategories,
+            DiagnosticTable::Accounts,
+            DiagnosticTable::TransactionCategories,
+            DiagnosticTable::LedgerEntries,
+            DiagnosticTable::AuditEvents,
+        ],
+    ) {
+        validate_audits(
+            &state.currencies,
+            &state.account_categories,
+            &state.accounts,
+            &state.transaction_categories,
+            &state.entries,
+            &transfer_groups,
+            &state.audits,
+            issues,
+        );
+    }
+    if tables_complete(
+        complete,
+        &[
+            DiagnosticTable::Currencies,
+            DiagnosticTable::Accounts,
+            DiagnosticTable::LedgerEntries,
+            DiagnosticTable::AuditEvents,
+            DiagnosticTable::TransferOperations,
+        ],
+    ) {
+        validate_operations(
+            &state.currencies,
+            &state.accounts,
+            &transfer_groups,
+            &state.audits,
+            &state.operations,
+            issues,
+        );
+    }
 }
 
-fn rows(
-    rows_by_table: &BTreeMap<DiagnosticTable, Vec<DiagnosticRow>>,
-    table: DiagnosticTable,
-) -> &[DiagnosticRow] {
-    rows_by_table.get(&table).map_or(&[], Vec::as_slice)
+fn tables_complete(complete: &BTreeSet<DiagnosticTable>, required: &[DiagnosticTable]) -> bool {
+    required.iter().all(|table| complete.contains(table))
 }
 
 fn parse_currencies(
@@ -377,8 +470,6 @@ fn parse_currencies(
                     id,
                     snapshot,
                 },
-                code,
-                name,
             },
         );
     }
@@ -423,6 +514,7 @@ fn parse_account_categories(
                     snapshot,
                 },
                 parent_id,
+                kind: None,
             },
         );
     }
@@ -476,7 +568,6 @@ fn parse_accounts(
                 },
                 category_id,
                 currency_id,
-                name,
             },
         );
     }
@@ -528,6 +619,7 @@ fn parse_transaction_categories(
                     snapshot,
                 },
                 parent_id,
+                kind: Some(kind),
             },
         );
     }
@@ -714,8 +806,8 @@ fn parse_audits(rows: &[DiagnosticRow], issues: &mut Vec<DoctorIssue>) -> Vec<Au
                 "occurred_at is not RFC 3339".to_string(),
             ));
         }
-        let before = optional_json(row, "before_json", &id, issues);
-        let after = optional_json(row, "after_json", &id, issues);
+        let before = optional_json_text(row, "before_json", &id, issues);
+        let after = optional_json_text(row, "after_json", &id, issues);
         let _ = optional_text(row, "reason", "audit_event", &id, issues);
         records.push(AuditRecord {
             rowid: row.rowid,
@@ -752,8 +844,8 @@ fn parse_operations(rows: &[DiagnosticRow], issues: &mut Vec<DoctorIssue>) -> Ve
                 "operation key is not a canonical UUID v4",
             );
         }
-        let payload = required_json_object(row, "payload_json", &operation_key, issues);
-        let result = required_json_object(row, "result_json", &operation_key, issues);
+        let payload = required_json_object_text(row, "payload_json", &operation_key, issues);
+        let result = required_json_object_text(row, "result_json", &operation_key, issues);
         if let Some(created_at) = required_text(
             row,
             "created_at",
@@ -842,6 +934,68 @@ fn validate_references(
                 "ledger_entry",
                 Some(entry.durable.id.clone()),
                 "entry currency differs from its account currency".to_string(),
+            ));
+        }
+    }
+}
+
+fn validate_entry_category_policy(
+    entries: &BTreeMap<String, EntryRecord>,
+    categories: &BTreeMap<String, CategoryRecord>,
+    issues: &mut Vec<DoctorIssue>,
+) {
+    for entry in entries.values() {
+        let expected_kind = match entry.entry_type.as_str() {
+            "expense" | "adjustment_out" => Some("expense"),
+            "income" | "adjustment_in" => Some("income"),
+            "transfer_out" | "transfer_in" => None,
+            _ => continue,
+        };
+        let category_required = matches!(entry.entry_type.as_str(), "expense" | "income");
+        let transfer = matches!(entry.entry_type.as_str(), "transfer_out" | "transfer_in");
+        let category_kind = entry
+            .category_id
+            .as_deref()
+            .and_then(|id| categories.get(id))
+            .and_then(|category| category.kind.as_deref());
+        let category_invalid = (category_required && entry.category_id.is_none())
+            || (transfer && entry.category_id.is_some())
+            || entry.category_id.is_some()
+                && expected_kind.is_some()
+                && category_kind != expected_kind;
+        let group_invalid = (transfer && entry.transfer_group_id.is_none())
+            || (!transfer && entry.transfer_group_id.is_some());
+        if category_invalid || group_invalid {
+            issues.push(issue(
+                DoctorSeverity::Error,
+                "entry_category_invalid",
+                "ledger_entry",
+                Some(entry.durable.id.clone()),
+                "entry category kind/presence or transfer group shape violates service policy"
+                    .to_string(),
+            ));
+        }
+    }
+}
+
+fn hierarchy_kind_issues(
+    categories: &BTreeMap<String, CategoryRecord>,
+    issues: &mut Vec<DoctorIssue>,
+) {
+    for category in categories.values() {
+        let Some(parent_id) = category.parent_id.as_deref() else {
+            continue;
+        };
+        let Some(parent) = categories.get(parent_id) else {
+            continue;
+        };
+        if category.kind != parent.kind {
+            issues.push(issue(
+                DoctorSeverity::Error,
+                "hierarchy_kind_mismatch",
+                "transaction_category",
+                Some(category.durable.id.clone()),
+                "parent category kind differs from child category kind".to_string(),
             ));
         }
     }
@@ -1074,8 +1228,12 @@ fn validate_audit_chain(history: &[&AuditRecord], issues: &mut Vec<DoctorIssue>)
             format!("audit history contains {create_count} create events"),
         ));
     }
-    let mut previous_after: Option<&Value> = None;
-    for audit in history {
+    if first.action != "create" {
+        audit_transition_issue(first, "audit history must begin with create", issues);
+    }
+    let mut previous_after: Option<Value> = None;
+    let mut previous_action: Option<&str> = None;
+    for (index, audit) in history.iter().enumerate() {
         let valid_shape = match audit.action.as_str() {
             "create" => audit.before.is_none() && audit.after.is_some(),
             "update" | "archive" | "restore" => audit.before.is_some() && audit.after.is_some(),
@@ -1091,8 +1249,29 @@ fn validate_audit_chain(history: &[&AuditRecord], issues: &mut Vec<DoctorIssue>)
                 format!("action {} has invalid before/after snapshots", audit.action),
             ));
         }
-        if let (Some(previous), Some(before)) = (previous_after, audit.before.as_ref()) {
-            if previous != before {
+        if index != 0
+            && !allowed_audit_transition(
+                &audit.record_type,
+                previous_action.expect("non-first audit has a predecessor"),
+                &audit.action,
+            )
+        {
+            audit_transition_issue(
+                audit,
+                &format!(
+                    "action {} cannot follow {}",
+                    audit.action,
+                    previous_action.expect("checked predecessor")
+                ),
+                issues,
+            );
+        }
+        if audit.action == "purge" && index + 1 != history.len() {
+            audit_transition_issue(audit, "purge must be the terminal audit action", issues);
+        }
+        let before = audit.before.as_deref().map(validated_json);
+        if let (Some(previous), Some(before)) = (previous_after.as_ref(), before.as_ref()) {
+            if !audit_snapshots_equal(&audit.record_type, previous, before) {
                 issues.push(issue(
                     DoctorSeverity::Error,
                     "audit_history_discontinuous",
@@ -1102,8 +1281,46 @@ fn validate_audit_chain(history: &[&AuditRecord], issues: &mut Vec<DoctorIssue>)
                 ));
             }
         }
-        previous_after = audit.after.as_ref();
+        previous_after = audit.after.as_deref().map(validated_json);
+        previous_action = Some(&audit.action);
     }
+}
+
+fn allowed_audit_transition(record_type: &str, previous: &str, next: &str) -> bool {
+    if previous == "purge" || next == "create" {
+        return false;
+    }
+    match (previous, next) {
+        ("create" | "update" | "restore", "archive" | "purge") => true,
+        ("archive", "restore" | "purge") => true,
+        ("create" | "update" | "restore", "update") => !matches!(record_type, "transfer"),
+        _ => false,
+    }
+}
+
+fn audit_snapshots_equal(record_type: &str, left: &Value, right: &Value) -> bool {
+    if record_type != "transfer" {
+        return left == right;
+    }
+    let mut left = left.clone();
+    let mut right = right.clone();
+    if let Some(object) = left.as_object_mut() {
+        object.remove("operation_id");
+    }
+    if let Some(object) = right.as_object_mut() {
+        object.remove("operation_id");
+    }
+    left == right
+}
+
+fn audit_transition_issue(audit: &AuditRecord, message: &str, issues: &mut Vec<DoctorIssue>) {
+    issues.push(issue(
+        DoctorSeverity::Error,
+        "audit_transition_invalid",
+        &audit.record_type,
+        Some(audit.record_id.clone()),
+        message.to_string(),
+    ));
 }
 
 fn validate_current_history(
@@ -1144,7 +1361,7 @@ fn validate_current_history(
             Some(record.id.clone()),
             "current record has a terminal purge audit".to_string(),
         ));
-    } else if latest.after.as_ref() != Some(&record.snapshot) {
+    } else if latest.after.as_deref().map(validated_json).as_ref() != Some(&record.snapshot) {
         issues.push(issue(
             DoctorSeverity::Error,
             "audit_snapshot_mismatch",
@@ -1155,8 +1372,8 @@ fn validate_current_history(
     }
 }
 
-fn transfer_snapshot_matches(snapshot: Option<&Value>, pair: &[&EntryRecord]) -> bool {
-    let Some(snapshot) = snapshot else {
+fn transfer_snapshot_matches(snapshot: Option<&String>, pair: &[&EntryRecord]) -> bool {
+    let Some(snapshot) = snapshot.map(|snapshot| validated_json(snapshot)) else {
         return false;
     };
     let out = pair.iter().find(|entry| entry.entry_type == "transfer_out");
@@ -1173,31 +1390,53 @@ fn transfer_snapshot_matches(snapshot: Option<&Value>, pair: &[&EntryRecord]) ->
 }
 
 fn validate_operations(
-    currencies: &BTreeMap<String, CurrencyRecord>,
-    accounts: &BTreeMap<String, AccountRecord>,
+    _currencies: &BTreeMap<String, CurrencyRecord>,
+    _accounts: &BTreeMap<String, AccountRecord>,
     transfer_groups: &BTreeMap<String, Vec<&EntryRecord>>,
     audits: &[AuditRecord],
     operations: &[OperationRecord],
     issues: &mut Vec<DoctorIssue>,
 ) {
     let mut create_audits = BTreeMap::<String, Vec<&AuditRecord>>::new();
+    let mut transfer_histories = BTreeMap::<String, Vec<&AuditRecord>>::new();
     for audit in audits
         .iter()
-        .filter(|audit| audit.record_type == "transfer" && audit.action == "create")
+        .filter(|audit| audit.record_type == "transfer")
     {
-        create_audits
+        transfer_histories
             .entry(audit.record_id.clone())
             .or_default()
             .push(audit);
+        if audit.action == "create" {
+            create_audits
+                .entry(audit.record_id.clone())
+                .or_default()
+                .push(audit);
+        }
+    }
+    for history in transfer_histories.values_mut() {
+        history.sort_by(|left, right| {
+            left.occurred_at
+                .cmp(&right.occurred_at)
+                .then_with(|| left.rowid.cmp(&right.rowid))
+        });
     }
     let mut operations_by_group = BTreeMap::<String, Vec<&OperationRecord>>::new();
     for operation in operations {
-        let Some(payload) = operation.payload.as_ref() else {
+        let Some(payload_raw) = operation.payload.as_ref() else {
             continue;
         };
-        let Some(result) = operation.result.as_ref() else {
+        let Some(result_raw) = operation.result.as_ref() else {
             continue;
         };
+        let payload_value = validated_json(payload_raw);
+        let result_value = validated_json(result_raw);
+        let payload = payload_value
+            .as_object()
+            .expect("validated transfer payload is an object");
+        let result = result_value
+            .as_object()
+            .expect("validated transfer result is an object");
         if !exact_keys(
             payload,
             &[
@@ -1241,32 +1480,6 @@ fn validate_operations(
             .entry(group_id.to_string())
             .or_default()
             .push(operation);
-        let pair = transfer_groups.get(group_id).map_or(&[][..], Vec::as_slice);
-        let Some(out) = pair.iter().find(|entry| entry.entry_type == "transfer_out") else {
-            operation_issue(
-                issues,
-                &operation.operation_key,
-                "operation result has no persisted transfer-out entry",
-            );
-            continue;
-        };
-        let Some(input) = pair.iter().find(|entry| entry.entry_type == "transfer_in") else {
-            operation_issue(
-                issues,
-                &operation.operation_key,
-                "operation result has no persisted transfer-in entry",
-            );
-            continue;
-        };
-        if json_string(result, "out_entry_id") != Some(out.durable.id.as_str())
-            || json_string(result, "in_entry_id") != Some(input.durable.id.as_str())
-        {
-            operation_issue(
-                issues,
-                &operation.operation_key,
-                "operation result does not identify its persisted pair",
-            );
-        }
         let group_audits = create_audits.get(group_id).map_or(&[][..], Vec::as_slice);
         if group_audits.len() != 1 {
             operation_issue(
@@ -1277,11 +1490,23 @@ fn validate_operations(
             continue;
         }
         let audit = group_audits[0];
-        if audit
-            .after
-            .as_ref()
-            .and_then(|after| after.get("operation_id"))
-            .and_then(Value::as_str)
+        let Some(after_value) = audit.after.as_deref().map(validated_json) else {
+            operation_issue(
+                issues,
+                &operation.operation_key,
+                "transfer create audit has no object snapshot",
+            );
+            continue;
+        };
+        let Some(after) = after_value.as_object() else {
+            operation_issue(
+                issues,
+                &operation.operation_key,
+                "transfer create audit has no object snapshot",
+            );
+            continue;
+        };
+        if after.get("operation_id").and_then(Value::as_str)
             != Some(operation.operation_key.as_str())
         {
             operation_issue(
@@ -1297,34 +1522,69 @@ fn validate_operations(
                 "operation actor does not match the create audit",
             );
         }
-        validate_operation_payload(operation, payload, out, input, currencies, accounts, issues);
-        if let Some(after) = audit.after.as_ref().and_then(Value::as_object) {
-            if !exact_keys(
-                after,
-                &["operation_id", "transfer_group_id", "out_entry", "in_entry"],
-            ) || after.get("transfer_group_id").and_then(Value::as_str) != Some(group_id)
-                || after
-                    .get("out_entry")
-                    .and_then(|entry| entry.get("id"))
-                    .and_then(Value::as_str)
-                    != Some(out.durable.id.as_str())
-                || after
-                    .get("in_entry")
-                    .and_then(|entry| entry.get("id"))
-                    .and_then(Value::as_str)
-                    != Some(input.durable.id.as_str())
-            {
+        let out = after.get("out_entry");
+        let input = after.get("in_entry");
+        let snapshot_ids_match = out
+            .and_then(|entry| entry.get("id"))
+            .and_then(Value::as_str)
+            == json_string(result, "out_entry_id")
+            && input
+                .and_then(|entry| entry.get("id"))
+                .and_then(Value::as_str)
+                == json_string(result, "in_entry_id");
+        if !exact_keys(
+            after,
+            &["operation_id", "transfer_group_id", "out_entry", "in_entry"],
+        ) || after.get("transfer_group_id").and_then(Value::as_str) != Some(group_id)
+            || !snapshot_ids_match
+        {
+            operation_issue(
+                issues,
+                &operation.operation_key,
+                "transfer create audit does not exactly match the operation result",
+            );
+        }
+        if let (Some(out), Some(input)) = (out, input) {
+            validate_operation_payload(operation, payload, out, input, audit, audits, issues);
+        }
+
+        if let Some(pair) = transfer_groups.get(group_id) {
+            let current_ids: BTreeSet<_> =
+                pair.iter().map(|entry| entry.durable.id.as_str()).collect();
+            let result_ids: BTreeSet<_> = [
+                json_string(result, "out_entry_id"),
+                json_string(result, "in_entry_id"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if current_ids != result_ids {
                 operation_issue(
                     issues,
                     &operation.operation_key,
-                    "transfer create audit does not exactly match the operation result",
+                    "operation result does not identify its persisted pair",
                 );
             }
+        } else if transfer_histories
+            .get(group_id)
+            .and_then(|history| history.last())
+            .is_none_or(|audit| audit.action != "purge")
+        {
+            operation_issue(
+                issues,
+                &operation.operation_key,
+                "operation has neither a persisted pair nor terminal purge history",
+            );
         }
     }
 
-    for group in transfer_groups.keys() {
-        let count = operations_by_group.get(group).map_or(0, Vec::len);
+    let groups: BTreeSet<_> = transfer_groups
+        .keys()
+        .chain(transfer_histories.keys())
+        .cloned()
+        .collect();
+    for group in groups {
+        let count = operations_by_group.get(&group).map_or(0, Vec::len);
         if count != 1 {
             issues.push(issue(
                 DoctorSeverity::Error,
@@ -1334,7 +1594,7 @@ fn validate_operations(
                 format!("persisted transfer pair has {count} operations"),
             ));
         }
-        let audit_count = create_audits.get(group).map_or(0, Vec::len);
+        let audit_count = create_audits.get(&group).map_or(0, Vec::len);
         if audit_count != 1 {
             issues.push(issue(
                 DoctorSeverity::Error,
@@ -1345,9 +1605,12 @@ fn validate_operations(
             ));
         }
     }
-    for (group, group_audits) in create_audits {
+    for (group, _group_audits) in create_audits {
         if !transfer_groups.contains_key(&group)
-            && group_audits.iter().all(|audit| audit.action != "purge")
+            && transfer_histories
+                .get(&group)
+                .and_then(|history| history.last())
+                .is_none_or(|audit| audit.action != "purge")
         {
             issues.push(issue(
                 DoctorSeverity::Error,
@@ -1364,41 +1627,43 @@ fn validate_operations(
 fn validate_operation_payload(
     operation: &OperationRecord,
     payload: &Map<String, Value>,
-    out: &EntryRecord,
-    input: &EntryRecord,
-    currencies: &BTreeMap<String, CurrencyRecord>,
-    accounts: &BTreeMap<String, AccountRecord>,
+    out: &Value,
+    input: &Value,
+    create_audit: &AuditRecord,
+    audits: &[AuditRecord],
     issues: &mut Vec<DoctorIssue>,
 ) {
-    let scalar_match = json_string(payload, "date") == Some(out.date.as_str())
-        && json_string(payload, "written_at") == Some(out.written_at.as_str())
-        && json_string(payload, "content") == Some(out.content.as_str())
-        && payload.get("amount").and_then(Value::as_i64) == Some(out.amount_minor)
-        && json_string(payload, "source") == Some(out.source.as_str())
-        && payload.get("notes")
-            == Some(
-                &out.notes
-                    .as_ref()
-                    .map_or(Value::Null, |notes| Value::String(notes.clone())),
-            );
-    let from_matches = json_string(payload, "from_account").is_some_and(|reference| {
-        reference == out.account_id
-            || accounts
-                .get(&out.account_id)
-                .is_some_and(|account| reference == account.name)
-    });
-    let to_matches = json_string(payload, "to_account").is_some_and(|reference| {
-        reference == input.account_id
-            || accounts
-                .get(&input.account_id)
-                .is_some_and(|account| reference == account.name)
-    });
-    let currency_matches = json_string(payload, "currency").is_some_and(|reference| {
-        reference == out.currency_id
-            || currencies
-                .get(&out.currency_id)
-                .is_some_and(|currency| reference == currency.code || reference == currency.name)
-    });
+    let scalar_match = json_string(payload, "date") == value_string(out, "date")
+        && json_string(payload, "written_at") == value_string(out, "written_at")
+        && json_string(payload, "content") == value_string(out, "content")
+        && payload.get("amount").and_then(Value::as_i64)
+            == out.get("amount").and_then(Value::as_i64)
+        && json_string(payload, "source") == value_string(out, "source")
+        && payload.get("notes") == out.get("notes");
+    let from_matches = reference_matches_at_create(
+        json_string(payload, "from_account"),
+        "account",
+        value_string(out, "account_id"),
+        &["name"],
+        create_audit,
+        audits,
+    );
+    let to_matches = reference_matches_at_create(
+        json_string(payload, "to_account"),
+        "account",
+        value_string(input, "account_id"),
+        &["name"],
+        create_audit,
+        audits,
+    );
+    let currency_matches = reference_matches_at_create(
+        json_string(payload, "currency"),
+        "currency",
+        value_string(out, "currency_id"),
+        &["code", "name"],
+        create_audit,
+        audits,
+    );
     if !scalar_match || !from_matches || !to_matches || !currency_matches {
         operation_issue(
             issues,
@@ -1406,6 +1671,49 @@ fn validate_operation_payload(
             "operation payload does not match the persisted pair",
         );
     }
+}
+
+fn value_string<'value>(value: &'value Value, field: &str) -> Option<&'value str> {
+    value.get(field).and_then(Value::as_str)
+}
+
+fn validated_json(value: &str) -> Value {
+    serde_json::from_str(value).expect("doctor retains only validated JSON text")
+}
+
+fn reference_matches_at_create(
+    reference: Option<&str>,
+    record_type: &str,
+    stable_id: Option<&str>,
+    label_fields: &[&str],
+    create_audit: &AuditRecord,
+    audits: &[AuditRecord],
+) -> bool {
+    let (Some(reference), Some(stable_id)) = (reference, stable_id) else {
+        return false;
+    };
+    if reference == stable_id {
+        return true;
+    }
+    audits
+        .iter()
+        .filter(|audit| audit.record_type == record_type && audit.record_id == stable_id)
+        .filter(|audit| {
+            audit.occurred_at < create_audit.occurred_at
+                || audit.occurred_at == create_audit.occurred_at && audit.rowid < create_audit.rowid
+        })
+        .max_by(|left, right| {
+            left.occurred_at
+                .cmp(&right.occurred_at)
+                .then_with(|| left.rowid.cmp(&right.rowid))
+        })
+        .and_then(|audit| audit.after.as_deref())
+        .map(validated_json)
+        .is_some_and(|snapshot| {
+            label_fields
+                .iter()
+                .any(|field| value_string(&snapshot, field) == Some(reference))
+        })
 }
 
 fn exact_keys(object: &Map<String, Value>, expected: &[&str]) -> bool {
@@ -1418,15 +1726,15 @@ fn json_string<'value>(object: &'value Map<String, Value>, field: &str) -> Optio
     object.get(field).and_then(Value::as_str)
 }
 
-fn required_json_object(
+fn required_json_object_text(
     row: &DiagnosticRow,
     field: &str,
     operation_key: &str,
     issues: &mut Vec<DoctorIssue>,
-) -> Option<Map<String, Value>> {
+) -> Option<String> {
     let text = required_text(row, field, "transfer_operation", operation_key, issues)?;
     match serde_json::from_str::<Value>(&text) {
-        Ok(Value::Object(object)) => Some(object),
+        Ok(Value::Object(_)) => Some(text),
         _ => {
             operation_issue(
                 issues,
@@ -1438,18 +1746,18 @@ fn required_json_object(
     }
 }
 
-fn optional_json(
+fn optional_json_text(
     row: &DiagnosticRow,
     field: &str,
     audit_id: &str,
     issues: &mut Vec<DoctorIssue>,
-) -> Option<Value> {
+) -> Option<String> {
     match row.values.get(field) {
         Some(DiagnosticValue::Null) | None => None,
         Some(DiagnosticValue::Text {
             value: Some(value), ..
-        }) => match serde_json::from_str(value) {
-            Ok(value) => Some(value),
+        }) => match serde_json::from_str::<Value>(value) {
+            Ok(_) => Some(value.clone()),
             Err(_) => {
                 issues.push(issue(
                     DoctorSeverity::Error,

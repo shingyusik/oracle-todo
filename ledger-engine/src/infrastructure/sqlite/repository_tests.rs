@@ -24,6 +24,40 @@ fn repository_port_is_object_safe() {
 }
 
 #[test]
+fn export_snapshot_excludes_writer_commits_between_collections() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut repository = SqliteLedgerRepository::open(&database).unwrap();
+    seed_references_for_commit(repository.begin_transaction().unwrap());
+    repository
+        .connection
+        .execute_batch("PRAGMA journal_mode = WAL")
+        .unwrap();
+
+    let snapshot = repository.begin_export_snapshot().unwrap();
+    snapshot.stream_currencies(true, &mut |_| Ok(())).unwrap();
+
+    let writer = Connection::open(&database).unwrap();
+    writer
+        .execute(
+            "UPDATE accounts SET name = 'Changed after snapshot' WHERE id = 'account-cash'",
+            [],
+        )
+        .unwrap();
+    drop(writer);
+
+    let mut names = Vec::new();
+    snapshot
+        .stream_accounts(true, &mut |record| {
+            names.push(record.record.name().to_string());
+            Ok(())
+        })
+        .unwrap();
+
+    assert_eq!(names, vec!["Wallet"]);
+}
+
+#[test]
 fn committed_entry_round_trips_through_validated_domain_mapping() {
     let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
     let entry = entry("entry-1", None);
