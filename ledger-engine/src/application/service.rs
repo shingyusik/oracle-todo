@@ -1,6 +1,6 @@
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
-    AuditEvent, EntryQuery, LedgerReadRepository, MAX_PAGE_LIMIT, Page, Paged,
+    AuditActivity, AuditEvent, EntryQuery, LedgerReadRepository, MAX_PAGE_LIMIT, Page, Paged,
 };
 use crate::application::queries::{EntryView, entry_view_from_record};
 use crate::domain::{Account, AccountCategory, Currency, TransactionCategory};
@@ -68,6 +68,16 @@ impl<R: LedgerReadRepository> LedgerService<R> {
             self.repository
                 .list_audit_events(record_type, record_id, page)
         })
+    }
+
+    pub fn recent_audit_activity(&self, limit: u16) -> LedgerResult<Vec<AuditActivity>> {
+        if limit == 0 || limit > MAX_PAGE_LIMIT {
+            return Err(LedgerError::Validation {
+                field: "page",
+                message: format!("page limit must be between 1 and {MAX_PAGE_LIMIT}"),
+            });
+        }
+        self.repository.list_recent_audit_activity(limit)
     }
 
     pub fn currencies_page(&self, page: Page) -> LedgerResult<Paged<Currency>> {

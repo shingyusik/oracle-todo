@@ -90,6 +90,13 @@ pub struct AuditEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditActivity {
+    pub occurred_at: OffsetDateTime,
+    pub action: String,
+    pub record_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatabaseHealth {
     pub integrity_messages: Vec<String>,
     pub integrity_truncated: bool,
@@ -404,6 +411,7 @@ pub(crate) trait LedgerReadRepository: LedgerRepository {
         record_id: &str,
         page: Page,
     ) -> LedgerResult<Vec<AuditEvent>>;
+    fn list_recent_audit_activity(&self, limit: u16) -> LedgerResult<Vec<AuditActivity>>;
     fn database_health(&self) -> LedgerResult<DatabaseHealth>;
 }
 

@@ -13,6 +13,8 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 use crate::application::error::{HealthError, HealthResult};
+use crate::application::ports::{AuditActivity, HealthReadRepository, Page};
+use crate::application::queries::{HealthQuery, TimelineItem};
 
 pub use schema::SCHEMA_VERSION;
 
@@ -61,7 +63,7 @@ impl SqliteHealthRepository {
             Ok(_) => {}
         }
 
-        let Ok(repository) = Self::open_read_only(path) else {
+        let Ok(repository) = Self::open_read_only_connection(path) else {
             return HealthStorageHealth::Unavailable;
         };
         let Ok(user_version) = repository.schema_version() else {
@@ -139,13 +141,34 @@ impl SqliteHealthRepository {
             .map_err(storage_error)
     }
 
-    fn open_read_only(path: &Path) -> HealthResult<Self> {
+    pub fn open_read_only(path: impl AsRef<Path>) -> HealthResult<Self> {
+        let repository = Self::open_read_only_connection(path.as_ref())?;
+        repository.check_schema()?;
+        Ok(repository)
+    }
+
+    fn open_read_only_connection(path: &Path) -> HealthResult<Self> {
         let repository = Self {
             connection: Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
                 .map_err(storage_error)?,
         };
         repository.configure_connection()?;
         Ok(repository)
+    }
+
+    pub fn dashboard_timeline(&self, limit: u16) -> HealthResult<Vec<TimelineItem>> {
+        let page = Page::new(0, limit)?;
+        self.timeline(&HealthQuery::new(page))
+    }
+
+    pub fn recent_audit_activity(&self, limit: u16) -> HealthResult<Vec<AuditActivity>> {
+        if limit == 0 || limit > crate::application::ports::MAX_PAGE_LIMIT {
+            return Err(HealthError::Validation {
+                field: "limit",
+                message: "must be within the supported page range".to_string(),
+            });
+        }
+        self.list_recent_audit_activity(limit)
     }
 }
 

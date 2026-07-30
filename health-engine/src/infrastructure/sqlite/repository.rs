@@ -11,8 +11,8 @@ use super::mapping::{
 use super::storage_error;
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::ports::{
-    AuditEvent, EventClass, EventQuery, HealthMutationRepository, HealthReadRepository,
-    HealthRepository, HealthTransaction, MediaFileRecord, Page,
+    AuditActivity, AuditEvent, EventClass, EventQuery, HealthMutationRepository,
+    HealthReadRepository, HealthRepository, HealthTransaction, MediaFileRecord, Page,
 };
 use crate::application::queries::{HealthQuery, TimelineItem};
 use crate::application::trends::TrendRecords;
@@ -69,6 +69,29 @@ impl HealthReadRepository for SqliteHealthRepository {
             ],
             row_to_audit_event,
         )
+    }
+
+    fn list_recent_audit_activity(&self, limit: u16) -> HealthResult<Vec<AuditActivity>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT occurred_at, action, record_id
+                 FROM audit_events
+                 ORDER BY occurred_at DESC, record_id, action, rowid
+                 LIMIT ?1",
+            )
+            .map_err(storage_error)?;
+        let mut rows = statement.query([i64::from(limit)]).map_err(storage_error)?;
+        let mut activity = Vec::new();
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            let timestamp: String = row.get(0).map_err(storage_error)?;
+            activity.push(AuditActivity {
+                occurred_at: super::schema::parse_utc_time(&timestamp)?,
+                action: row.get(1).map_err(storage_error)?,
+                record_id: row.get(2).map_err(storage_error)?,
+            });
+        }
+        Ok(activity)
     }
 
     fn list_pending_media(&self, page: Page) -> HealthResult<Vec<MediaFileRecord>> {

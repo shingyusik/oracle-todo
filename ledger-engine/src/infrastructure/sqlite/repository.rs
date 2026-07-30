@@ -6,8 +6,8 @@ use time::OffsetDateTime;
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
-    AccountBalanceRecord, AuditEvent, CandidateMatch, DatabaseHealth, DiagnosticBatch,
-    DiagnosticRow, DiagnosticTable, DiagnosticValue, EntryQuery, EntryViewRecord,
+    AccountBalanceRecord, AuditActivity, AuditEvent, CandidateMatch, DatabaseHealth,
+    DiagnosticBatch, DiagnosticRow, DiagnosticTable, DiagnosticValue, EntryQuery, EntryViewRecord,
     ForeignKeyViolation, LedgerExportSnapshot, LedgerMutationRepository, LedgerReadRepository,
     LedgerRepository, LedgerTransaction, Page, ReportAggregateRecord, StoredAuditEvent,
     StoredRecord, StoredTransferOperation, TransferOperationRecord,
@@ -335,6 +335,32 @@ impl LedgerReadRepository for SqliteLedgerRepository {
             events.push(row_to_audit_event(row)?);
         }
         Ok(events)
+    }
+
+    fn list_recent_audit_activity(&self, limit: u16) -> LedgerResult<Vec<AuditActivity>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT occurred_at, action, record_id
+                 FROM audit_events
+                 ORDER BY occurred_at DESC, record_id, action, rowid
+                 LIMIT ?1",
+            )
+            .map_err(storage_error)?;
+        let mut rows = statement.query([i64::from(limit)]).map_err(storage_error)?;
+        let mut activity = Vec::new();
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            let timestamp = row.get::<_, String>(0).map_err(storage_error)?;
+            let occurred_at =
+                OffsetDateTime::parse(&timestamp, &time::format_description::well_known::Rfc3339)
+                    .map_err(|_| LedgerError::Storage("invalid audit timestamp".to_string()))?;
+            activity.push(AuditActivity {
+                occurred_at,
+                action: row.get(1).map_err(storage_error)?,
+                record_id: row.get(2).map_err(storage_error)?,
+            });
+        }
+        Ok(activity)
     }
 
     fn database_health(&self) -> LedgerResult<DatabaseHealth> {

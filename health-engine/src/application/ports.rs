@@ -120,6 +120,13 @@ pub struct AuditEvent {
     pub(crate) reason: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditActivity {
+    pub occurred_at: OffsetDateTime,
+    pub action: String,
+    pub record_id: String,
+}
+
 impl AuditEvent {
     pub fn id(&self) -> &str {
         &self.id
@@ -310,6 +317,7 @@ pub(crate) trait HealthReadRepository: HealthRepository {
         record_id: &str,
         page: Page,
     ) -> HealthResult<Vec<AuditEvent>>;
+    fn list_recent_audit_activity(&self, limit: u16) -> HealthResult<Vec<AuditActivity>>;
     fn list_pending_media(&self, page: Page) -> HealthResult<Vec<MediaFileRecord>>;
     fn timeline(&self, query: &HealthQuery) -> HealthResult<Vec<TimelineItem>>;
     fn trend_records(

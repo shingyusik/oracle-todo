@@ -133,6 +133,12 @@ impl SqliteLedgerRepository {
             .map_err(storage_error)
     }
 
+    pub fn open_read_only(path: impl AsRef<Path>) -> LedgerResult<Self> {
+        let repository = Self::open_read_only_connection(path.as_ref())?;
+        repository.check_schema()?;
+        Ok(repository)
+    }
+
     fn open_read_only_connection(path: &Path) -> LedgerResult<Self> {
         let repository = Self {
             connection: Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)

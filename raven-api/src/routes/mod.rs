@@ -4,6 +4,7 @@ use axum::response::{IntoResponse, Response};
 
 use crate::ApiError;
 
+pub mod dashboard;
 pub mod health;
 pub mod ledger;
 pub mod todo;
