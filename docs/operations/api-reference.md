@@ -100,6 +100,10 @@ The existing ToDo router is mounted below `/api/v1/todo`:
 
 Example full route: `GET /api/v1/todo/items`.
 
+The standalone ToDo API command is not part of Raven's supported surface:
+`raven todo api` is rejected. Use `raven api` or `raven ui`, both of which apply Raven
+authentication and bind policy.
+
 ToDo preserves its service policies: direct-active creation, required project
 `definition_of_done`, required routine RRULE, canonical goal anchors, status-machine
 transitions, and an audit event for every mutation.
@@ -122,8 +126,10 @@ JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defa
 offset `0`, limit `100`; limits are bounded. Report queries accept either `from`+`to` or
 `year`+`month` where supported.
 
-Purge `GET` returns a confirmation preview. Purge `DELETE` requires a JSON confirmation
-matching the preview; audit events survive.
+Entry and master-data purge `GET` routes return confirmation previews. Purge `DELETE`
+requires `{"confirmation":"<confirmation-id>"}` matching the preview; audit events survive.
+Only entries expose archive/restore. Currency, account-category, account, and transaction
+category lifecycle uses the `active` field on update.
 
 ## Health routes
 
@@ -132,21 +138,50 @@ All routes below use prefix `/api/v1/health`.
 | Resource | Routes |
 | --- | --- |
 | Diet | `GET/POST /diet`, `GET/PATCH /diet/:id`, lifecycle `POST /diet/:id/archive|restore`, `DELETE /diet/:id/purge` |
-| Diet image upload | `POST /diet/with-image` |
+| Diet image upload | `POST /diet/with-image` with raw image bytes |
 | Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore`, `DELETE /events/:id/purge` |
 | Metrics | `POST /metrics/daily` |
 | Reads | `GET /timeline`, `/trends`, `/audit/:record_type/:record_id` |
 
-JSON bodies are limited to 128 KiB. Diet multipart/image input is limited to 10 MiB;
-metadata headers are separately bounded. Accepted image content is JPEG, PNG, or WebP and
-must agree with detected bytes.
+JSON bodies are limited to 128 KiB. `POST /diet/with-image` is not multipart:
+
+- Body: raw JPEG, PNG, or WebP bytes, at most 10 MiB
+- `Content-Type`: exactly `image/jpeg`, `image/png`, or `image/webp`
+- `X-Raven-Diet-Metadata`: required strict, HTTP-header-safe ASCII JSON
+  `CreateDietBody`, at most 8 KiB; escape non-ASCII text in the JSON header value
+
+The metadata object is:
+
+```json
+{
+  "occurred_at": "2026-07-31T12:00:00+09:00",
+  "meal_type": "lunch",
+  "food_name": "Rice bowl",
+  "note": null,
+  "tags": ["rice", "vegetables"],
+  "actor": "raven-api"
+}
+```
+
+`note` is optional, `tags` defaults to `[]`, and `actor` defaults to `raven-api`. Unknown
+metadata fields are rejected. Declared content type must agree with detected image bytes.
+
+```bash
+curl -X POST http://127.0.0.1:3002/api/v1/health/diet/with-image \
+  -H "Authorization: Bearer $RAVEN_API_TOKEN" \
+  -H "Content-Type: image/jpeg" \
+  -H 'X-Raven-Diet-Metadata: {"occurred_at":"2026-07-31T12:00:00+09:00","meal_type":"lunch","food_name":"Rice bowl","tags":["rice"]}' \
+  --data-binary @meal.jpg
+```
 
 Event category plus attributes determine bowel, medication, weight, sleep, lab, or symptom
 validation. Daily metric input is bounded to 366 objects. Timeline supports range,
 category, archive, and page filters; trends defaults to 30 days and has a bounded window.
 
-Archive and restore support optimistic timestamps. Purge requires exact record confirmation,
-physically removes the record and associated unreferenced media, and preserves audit events.
+Archive and restore support optimistic timestamps. Health API has no purge-preview route.
+`DELETE /diet/:id/purge` and `DELETE /events/:id/purge` require
+`{"confirmation":"<record-id>"}`. Purge removes the confirmed record and associated
+unreferenced media and preserves audit events.
 
 ## UI static boundary
 

@@ -27,6 +27,21 @@ cargo run -p raven-cli -- ui --ui-path frontend/out --no-open
 The static client calls relative `/api/v1/*` routes. `raven ui` provides the session-cookie
 bootstrap, API, static files, and SPA fallback on one loopback origin.
 
+## Development
+
+Run frontend tests or the Next.js development server from this directory:
+
+```bash
+npm run test
+npm run typecheck
+npm run dev
+```
+
+`npm run dev` is suitable for frontend-only work. The configured `/api/*` rewrite targets
+`RAVEN_API_URL` or `http://127.0.0.1:3002`, but standalone `raven api` requires a bearer
+header that browser fetches do not inject. Use the production-artifact command above for
+authenticated browser integration through the Raven UI session.
+
 ## Source layout
 
 - `src/app` — thin Next.js entries
@@ -37,7 +52,3 @@ bootstrap, API, static files, and SPA fallback on one loopback origin.
 - `src/features/ledger` — entries, master data, and reports
 - `src/features/health` — timeline, diet, events, metrics, and trends
 - `tests` — architecture, model, controller, and presentation checks
-
-`npm run dev:with-api` remains a ToDo-focused development helper for the legacy
-`/todo-engine/*` rewrite. Use the production-artifact command above when exercising all
-three Raven domains together.

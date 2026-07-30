@@ -15,9 +15,10 @@ npx @shings/raven health-check
 npx @shings/raven ui
 ```
 
-The wrapper installs the matching native `raven` archive and `raven-ui` archive from the
-Raven GitHub Release into `RAVEN_CACHE_DIR` or `~/.local/share/raven`. User data remains
-under `RAVEN_HOME`; the release cache is not a data backup.
+The wrapper installs the matching native `raven` archive and `raven-ui` archive from
+`shingyusik/oracle-todo` GitHub Releases into `RAVEN_CACHE_DIR` or
+`~/.local/share/raven`. User data remains under `RAVEN_HOME`; the release cache is not a
+data backup.
 
 Wrapper-only commands:
 

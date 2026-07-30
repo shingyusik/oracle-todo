@@ -1,61 +1,55 @@
 # Code Style
 
-## Language and edition
+## Language and workspace
 
-Rust 2024. The crate is `todo_engine` (package `todo-engine`), built as both a library and a
-binary (`todo-engine`). It lives under `todo-engine/` in the Cargo workspace, alongside a
-reserved `frontend/` sibling package slot.
+Raven uses Rust 2024. `raven-cli` builds the only shipped binary, `raven`. `todo-engine`,
+`ledger-engine`, `health-engine`, `raven-api`, and `backend` are library packages.
 
-## The gate (must pass before every commit)
+Engine dependencies point inward:
+
+```text
+interfaces / infrastructure → application → domain
+```
+
+Domain code performs no I/O and does not depend on another engine.
+
+## Gate
 
 ```bash
 cargo fmt --check
+cargo test --workspace
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test
 ```
 
-`-D warnings` makes warnings hard errors. In practice this means **a stray unused import or
-dead helper fails the build** — every file must `use` only what it references. When you move
-code between modules, trim the imports to exactly what the moved code needs.
+Warnings are errors. Keep imports and helpers limited to actual use.
 
-## File size and "split by responsibility"
+## Modules and visibility
 
-Keep source files focused — roughly **under ~400 lines**. When a file outgrows that, split it
-into a directory module whose submodules each own one responsibility, rather than letting one
-file accumulate unrelated concerns. The refactored tree is the worked example: `service.rs`
-became `application/service/{creation,transitions,update,materialization,queries}.rs`;
-`sqlite.rs` became `infrastructure/sqlite/{schema,mapping,repo}.rs`; `cli.rs`
-and `api.rs` were split the same way. See [../architecture/layers.md](../architecture/layers.md).
+- Split files by responsibility when unrelated concerns accumulate.
+- Prefer private items and `pub(super)` for sibling-module collaboration.
+- Use `pub(crate)` only across a crate boundary.
+- Reserve `pub` for the intentional composition surface.
+- Do not widen visibility only to make a split compile.
 
-## Visibility: prefer `pub(super)` over `pub`
+The current package and module map is in [../architecture/layers.md](../architecture/layers.md).
 
-Rust privacy is module-scoped, so splitting an `impl` block across sibling files breaks their
-mutual visibility. The convention is:
+## Naming and wire forms
 
-- Promote shared fields, helper methods, and free functions that only need to cross a
-  sibling-module boundary to **`pub(super)`** (or `pub(crate)` if they must cross further) —
-  this is crate-internal and does **not** widen the public API.
-- Keep `pub` only for items that are genuinely part of the public crate surface (request
-  structs like `ProposeTask`, entrypoints like `router`/`run`, the re-exported domain types).
-- **Never widen something to `pub` just to make a split compile.** If the compiler complains
-  that a sibling can't see a helper, the fix is `pub(super)`, not `pub`.
-
-## Naming
-
-- Use the real, established symbol names — e.g. the repository struct is
-  `SqliteTodoRepository` (not `SqliteRepository`). Do not rename public symbols.
-- Enum string forms are canonical lowercase (`ItemStatus`, `Actor` lowercase; `ItemType`
-  snake_case with `archive_item`). `FromStr` impls are case-sensitive and trim whitespace.
+- Executable and top-level command name: `raven`.
+- Rust package names remain `todo-engine`, `ledger-engine`, `health-engine`, `raven-api`,
+  and `raven-cli`.
+- Serialized enums use their documented lowercase or snake-case forms.
+- IDs, dates, timestamps, amounts, and strict JSON are validated at adapter and service
+  boundaries; do not silently coerce invalid input.
 
 ## Errors and logging
 
-Error handling and logging have their own conventions — see
-[error-handling.md](error-handling.md) and [logging.md](logging.md).
+Return typed errors for expected failures and map them once at CLI/API boundaries. Keep
+stdout parseable, redact secrets and record payloads, and use stable tracing event fields.
+See [error-handling.md](error-handling.md) and [logging.md](logging.md).
 
 ## Behavior preservation
 
-When refactoring, move code verbatim where possible: keep raw SQL string literals
-byte-for-byte, preserve documented `.expect()` invariant sites, and do not reorder the
-deterministic ID/clock helper calls that tests assert exactly. Behavior is locked by the
-test layers (see [testing.md](testing.md)); if a change cannot preserve behavior, surface it
-rather than silently changing output.
+Repository SQL, service policy, transaction boundaries, audit events, and deterministic
+output are behavior contracts. Refactors must keep them unless the user-facing contract and
+tests change together.

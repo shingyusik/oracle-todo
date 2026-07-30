@@ -33,8 +33,9 @@ ToDo router is mounted by `raven-api` below `/api/v1/todo`.
 
 ### Ledger
 
-`LedgerService` owns master-data references, integer-minor-unit money policy, atomic
-transfer pairs, archive/restore/purge, audit, reports, doctor checks, and export.
+`LedgerService` owns master-data references and activation, integer-minor-unit money policy,
+atomic transfer pairs, entry archive/restore, confirmation-gated purge, audit, reports,
+doctor checks, and export.
 
 ### Health Journal
 

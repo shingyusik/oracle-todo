@@ -26,17 +26,17 @@ command.
 
 ## ToDo
 
-`raven todo` forwards the remaining arguments unchanged to the reusable ToDo CLI:
+`raven todo` delegates domain commands to the reusable ToDo CLI:
 
 ```text
-init, health, api, list,
+init, health, list,
 area create,
 project propose,
 goal propose,
 task propose,
 routine propose|materialize,
 event propose,
-pause, miss, postpone, resume, complete, reopen,
+pause, miss, postpone, resume, complete,
 archive, drop, cancel, update,
 archive-list, pending, today, agenda, date-range, period
 ```
@@ -54,6 +54,8 @@ raven todo complete <item-id>
 
 Projects require a non-blank `definition_of_done`; routines require a non-blank RRULE;
 events require `scheduled`. ToDo uses its status lifecycle and does not expose purge.
+`raven todo api` is explicitly unsupported; use authenticated `raven api` or `raven ui`.
+Reopening a completed task or event is available through the ToDo HTTP API, not the CLI.
 Run `raven todo --help` and `raven todo <command> --help` for the complete existing flags.
 
 ## Ledger
@@ -113,7 +115,9 @@ raven ledger entry purge <id> --confirm <confirmation-id>
 
 The first purge invocation prints a preview and exits `2`. Master-data purge follows the
 same preview/confirm contract. Confirmation must match exactly. Purge removes the record but
-not its audit events; transfer entry preview/purge covers the linked pair.
+not its audit events; transfer entry preview/purge covers the linked pair. Archive and
+restore apply only to entries. Ledger master data uses `update --active <true|false>` and
+preview/confirmed purge.
 
 ## Health Journal
 
@@ -141,7 +145,8 @@ raven health timeline --limit 50 --format json
 ```
 
 Health archive/restore accept optional `--expected-updated-at <RFC3339>` for optimistic
-concurrency. Purge uses the same two-step exact confirmation contract:
+concurrency. Health CLI purge prints `{"confirmation_id":"<id>"}` without `--confirm`, exits
+`2`, and succeeds only when the same ID is repeated:
 
 ```bash
 raven health diet purge <id>

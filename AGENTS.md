@@ -69,8 +69,9 @@ npm --prefix npm/raven test
 ## Gotchas
 
 - Never run destructive smoke, import, migration, or purge probes against a live home.
-- ToDo uses status lifecycle and no hard delete; Ledger/Health use archive/restore and
-  confirmation-gated purge.
+- ToDo uses status lifecycle and no hard delete. Ledger entries and Health records use
+  archive/restore; Ledger master data uses activation. Ledger/Health purge is confirmed.
+- `raven todo api` is unsupported; all HTTP access uses authenticated Raven API/UI routes.
 - Health database and `media/health` must be backed up together.
 - Dashboard reads must not create or migrate missing stores; domain failures stay isolated.
 - Do not expose API token/session values, image bytes, paths, SQL, or raw storage errors.

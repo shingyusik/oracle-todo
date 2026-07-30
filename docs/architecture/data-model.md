@@ -52,8 +52,10 @@ User decimals are parsed using the referenced currency precision.
 Transfers create `transfer_out` and `transfer_in` rows with one transfer-group ID. The
 operation key makes retries idempotent, and all transfer rows/audit state commit atomically.
 
-Archive sets `deleted_at`; restore clears it. Purge physically removes the record after
-confirmation but preserves audit history. A transfer-pair purge covers the pair.
+Ledger entry archive sets `deleted_at`; entry restore clears it. Currency, account-category,
+account, and transaction-category records use an `active` flag rather than archive/restore.
+Entry and master-data purge physically remove confirmed records while preserving audit
+history. A transfer-pair purge covers the pair.
 
 ## Health database and media
 

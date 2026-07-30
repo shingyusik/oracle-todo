@@ -1,79 +1,71 @@
 # Testing
 
-Tests are organized into three layers, each a separate cargo test binary, plus a shared
-support module. The layers are behavior-locks: they prove the public CLI/API surface and
-the policy invariants are unchanged across refactors.
+Raven tests domain policy in-process and tests shipped process behavior through the
+`raven` binary. `todo-engine` is library-only and has no subprocess binary contract.
 
-## The three layers
+## Workspace layers
 
-| Layer | Binary | Directory | What belongs here |
-| --- | --- | --- | --- |
-| **unit** | `tests/unit.rs` | `tests/unit/` | Pure, no-I/O logic exercised through the crate's *public* API: recurrence, status, model, list filter, error mapping, the local-date clock helper, and the architecture boundary guard. |
-| **integration** | `tests/integration.rs` | `tests/integration/` | The library wired in-process: `TodoService` policy, the audit-event invariant, the SQLite repository, and routine materialization. |
-| **e2e** | `tests/e2e.rs` | `tests/e2e/` | The delivered interfaces end-to-end: the real `todo-engine` binary via `assert_cmd` (`cli.rs`), and the full `axum` HTTP stack via `tower`'s `oneshot` (`api.rs`). |
+| Package | Coverage |
+| --- | --- |
+| `todo-engine` | Unit policy, service/repository integration, in-process ToDo API |
+| `ledger-engine` | Money/model unit tests, service/repository/transfer/report integration |
+| `health-engine` | Diet/event unit tests, service/repository/media/lifecycle/trend integration |
+| `raven-api` | Authentication, safe errors, Dashboard, preferences, all domain routes, UI session |
+| `raven-cli` | Real `raven` subprocess, config, ToDo delegation, Ledger/Health CLI, API/UI startup, import |
+| `frontend` | Architecture, model, controller, API mapping, and presentation behavior |
+| `npm/raven` | Platform assets, cache/install/update, forwarding, and native UI delegation |
 
-## The dispatcher pattern (and the cargo subfolder gotcha)
+## Rust commands
 
-Cargo compiles only **top-level `tests/*.rs`** files as test binaries. Files placed under a
-subdirectory like `tests/unit/` are **not** compiled on their own — they must be declared as
-modules of a top-level binary. So each layer has a one-file **dispatcher** at the top level
-that `mod`s its subfolder files:
-
-```rust
-// tests/unit.rs
-mod architecture;
-mod clock;
-mod error_mapping;
-mod filter;
-mod model;
-mod recurrence;
-mod status;
+```bash
+cargo test --workspace
+cargo test -p todo-engine --test unit
+cargo test -p todo-engine --test integration
+cargo test -p todo-engine --test e2e
+cargo test -p raven-api
+cargo test -p raven-cli
 ```
 
-The integration and e2e dispatchers additionally pull in the shared support module with an
-explicit `#[path]` attribute (because `tests/support/` is itself a subfolder, not a sibling
-of the dispatcher's own modules):
+`todo-engine/tests/e2e.rs` exercises its reusable Axum adapter in-process. Shipped CLI
+subprocess tests live under `raven-cli/tests/` and execute
+`env!("CARGO_BIN_EXE_raven")`, including `raven todo ...`.
+
+## Dispatcher pattern
+
+Cargo compiles top-level `tests/*.rs` files as integration-test binaries. Engine suites use
+those files as dispatchers for focused files under `tests/unit/` or
+`tests/integration/`:
 
 ```rust
-// tests/integration.rs  (and tests/e2e.rs)
-#[path = "support/mod.rs"]
-mod support;
-
-mod events;
-mod materialization;
-mod repository;
+#[path = "integration/service_policy.rs"]
 mod service_policy;
 ```
 
-Without the dispatcher + `#[path]`, the subfolder files silently never run. When you add a
-test file under a layer directory, remember to add a `mod` line to that layer's dispatcher.
+Add a dispatcher entry whenever adding a nested test file; an unreferenced nested file does
+not run.
 
-## Running one layer
+## Cross-surface checks
+
+- CLI and API mutations must agree with the owning service policy.
+- ToDo frontend calls use authenticated `/api/v1/todo`; preferences use
+  `/api/v1/preferences`.
+- `raven todo api` must remain rejected so no unauthenticated secondary HTTP surface exists.
+- UI-session tests exercise production router paths, cookies, authority validation, and API
+  namespace fallback.
+- Ledger/Health purge tests cover confirmation mismatch and audit retention.
+- Health media tests cover type detection, size bounds, cleanup, and database/file
+  consistency.
+
+## Frontend and npm
 
 ```bash
-cargo test                       # all three binaries
-cargo test --test unit           # only the unit layer
-cargo test --test integration    # only the integration layer
-cargo test --test e2e            # only the e2e layer
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+npm --prefix npm/raven test
 ```
-
-## Shared support module
-
-`tests/support/mod.rs` holds helpers shared across binaries — notably a `TestHome` temp data
-home and a `memory_service()` factory (`TodoService::in_memory()`). Because each test binary
-that `mod`s the support file uses a different subset of its helpers, support items carry
-`#[allow(dead_code)]` so the unused-in-this-binary ones do not trip the `-D warnings` gate.
-
-## The architecture boundary guard
-
-`tests/unit/architecture.rs` is a test, not a doc: it reads every `.rs` file under
-`todo-engine/src/domain/` and fails if any references `crate::application`, `crate::infrastructure`,
-`crate::interfaces`, `rusqlite`, or `axum`. This is how the inward-dependency rule is enforced
-mechanically — see [../architecture/layers.md](../architecture/layers.md).
 
 ## Coverage
 
-Target **≥80% line coverage**. Measure with `cargo llvm-cov --summary-only` or
-`cargo tarpaulin --out Stdout` if the tooling is installed. Do not install coverage tooling
-without approval; if neither tool is available, record that coverage was not measured (see
-[../operations/verification-and-smoke.md](../operations/verification-and-smoke.md)).
+Use `cargo llvm-cov --summary-only` or `cargo tarpaulin --out Stdout` when already
+installed. Do not install coverage tooling without approval.

@@ -36,7 +36,7 @@ the single Dashboard:
 
 - Rust 2024, `clap`, `axum`, `rusqlite`
 - Next.js 14 and React 18, exported as a static UI artifact
-- Node.js 18+ npm launcher, published as `@shings/raven`
+- Node.js 18+ npm launcher package `@shings/raven`
 
 ## Current status
 
@@ -51,7 +51,7 @@ raven-cli
 └── raven-api
 ```
 
-`frontend/` is the single Raven UI. `backend/` supplies the existing preference adapter
+`frontend/` is the single Raven UI. `backend/` supplies the preference adapter
 used by the composed API.
 
 ## Setup
@@ -104,7 +104,7 @@ RAVEN_HOME='C:\Users\me\raven-data'
 
 ## Quick usage
 
-ToDo retains its structured command surface behind `raven todo`:
+ToDo commands are namespaced below `raven todo`:
 
 ```bash
 raven todo area create "Finance"
@@ -189,10 +189,12 @@ More detail is in [the data-model reference](docs/architecture/data-model.md).
 
 - **ToDo:** lifecycle status is canonical. Terminal items remain auditable; there is no
   hard-delete command.
-- **Ledger and Health:** archive sets `deleted_at`; restore clears it. Normal lists omit
-  archived rows.
-- **Purge:** permanently removes a Ledger or Health record only after the caller repeats the
-  exact confirmation ID returned by the preview. Audit events remain.
+- **Ledger entries and Health records:** archive sets `deleted_at`; restore clears it.
+  Normal lists omit archived rows. Ledger master data uses an `active` flag instead.
+- **CLI purge:** Ledger and Health CLI commands print a preview first and require its exact
+  confirmation ID on the second invocation.
+- **API purge:** Ledger exposes preview routes before confirmed deletion. Health has no
+  preview route; its `DELETE` body confirms the record ID directly. Audit events remain.
 - **Health media:** image metadata and files follow the owning diet record lifecycle.
   Cleanup failures are surfaced; committed mutations are never reported as rolled back.
 
@@ -211,6 +213,9 @@ curl -H "Authorization: Bearer $RAVEN_API_TOKEN" \
 `RAVEN_API_TOKEN_FILE` is the file-based alternative. `RAVEN_API_BIND_HOST` and
 `RAVEN_API_BIND_PORT` set the listener. Non-loopback cleartext binding is rejected unless
 `RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true` is set exactly.
+
+`raven todo api` is rejected. ToDo HTTP access is supported only through authenticated
+`raven api` or `raven ui` at `/api/v1/todo`.
 
 `raven ui` serves the static UI and API from one loopback origin. It generates a fresh
 per-launch session, opens `/__raven/session`, sets an HTTP-only `SameSite=Strict` cookie,
