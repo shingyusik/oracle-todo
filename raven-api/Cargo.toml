@@ -7,6 +7,7 @@ description = "Unified HTTP API composition for Raven"
 [dependencies]
 anyhow = "1.0"
 axum = "0.7"
+backend = { path = "../backend" }
 health-engine = { path = "../health-engine" }
 ledger-engine = { path = "../ledger-engine" }
 serde = { version = "1", features = ["derive"] }

@@ -904,6 +904,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "backend",
  "health-engine",
  "http-body-util",
  "ledger-engine",
@@ -927,9 +928,11 @@ name = "raven-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "dotenvy",
  "health-engine",
+ "http-body-util",
  "infer",
  "ledger-engine",
  "raven-api",
@@ -941,6 +944,7 @@ dependencies = [
  "time",
  "todo-engine",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

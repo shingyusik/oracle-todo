@@ -25,3 +25,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 [[bin]]
 name = "raven"
 path = "src/main.rs"
+
+[dev-dependencies]
+axum = "0.7"
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

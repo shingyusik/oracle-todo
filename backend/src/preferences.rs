@@ -7,6 +7,8 @@ pub enum PreferencesError {
     Database(#[from] rusqlite::Error),
     #[error("invalid preference JSON: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("preference storage I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 pub fn init_schema(connection: &Connection) -> Result<(), PreferencesError> {

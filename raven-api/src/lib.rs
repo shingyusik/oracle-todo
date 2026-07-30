@@ -28,7 +28,16 @@ pub fn router(config: RavenApiConfig) -> anyhow::Result<Router> {
     let state = RavenApiState::new(config);
     Ok(Router::new()
         .route("/healthz", get(healthz))
+        .route(
+            "/api/v1/preferences",
+            get(routes::preferences::invalid_route).put(routes::preferences::invalid_route),
+        )
+        .route(
+            "/api/v1/preferences/",
+            get(routes::preferences::invalid_route).put(routes::preferences::invalid_route),
+        )
         .nest("/api/v1/dashboard", routes::dashboard::router())
+        .nest("/api/v1/preferences", routes::preferences::router())
         .nest("/api/v1/todo", routes::todo::router(&state)?)
         .nest("/api/v1/ledger", routes::ledger::router())
         .nest("/api/v1/health", routes::health::router())
