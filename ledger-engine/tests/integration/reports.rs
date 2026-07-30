@@ -1,6 +1,6 @@
 use ledger_engine::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
-    UpdateAccount,
+    UpdateAccount, UpdateEntry,
 };
 use ledger_engine::application::doctor::{DoctorOptions, DoctorSeverity};
 use ledger_engine::application::export::ExportOptions;
@@ -580,6 +580,373 @@ fn doctor_rejects_update_before_create_and_terminal_action_violations() {
         issue.code == "audit_transition_invalid"
             && issue.record_id.as_deref() == Some(currency_id.as_str())
     }));
+}
+
+#[test]
+fn doctor_rejects_master_archive_and_restore_actions() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let seeded = seeded_service_at(&database);
+    let connection = Connection::open(&database).unwrap();
+    let (currency_id, snapshot): (String, String) = connection
+        .query_row(
+            "SELECT record_id, after_json
+             FROM audit_events
+             WHERE record_type = 'currency' AND action = 'create'
+             ORDER BY rowid LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let snapshot = serde_json::from_str(&snapshot).unwrap();
+    insert_raw_audit(
+        &connection,
+        "forged-master-archive",
+        "2099-01-01T00:00:00Z",
+        "archive",
+        "currency",
+        &currency_id,
+        Some(&snapshot),
+        Some(&snapshot),
+    );
+    insert_raw_audit(
+        &connection,
+        "forged-master-restore",
+        "2099-01-02T00:00:00Z",
+        "restore",
+        "currency",
+        &currency_id,
+        Some(&snapshot),
+        Some(&snapshot),
+    );
+    drop(connection);
+
+    let report = seeded.service.doctor().unwrap();
+    let transition_messages = report
+        .issues
+        .iter()
+        .filter(|issue| {
+            issue.code == "audit_transition_invalid"
+                && issue.record_id.as_deref() == Some(currency_id.as_str())
+        })
+        .map(|issue| issue.message.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        transition_messages
+            .iter()
+            .any(|message| message.contains("archive")),
+        "{:#?}",
+        report.issues
+    );
+    assert!(
+        transition_messages
+            .iter()
+            .any(|message| message.contains("restore")),
+        "{:#?}",
+        report.issues
+    );
+}
+
+#[test]
+fn doctor_rejects_entry_lifecycle_noops_and_reverse_directions() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+
+    let no_op_archive = create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "no-op archive",
+        "Wallet",
+        Some("Food"),
+        EntryType::Expense,
+        100,
+        "KRW",
+    );
+    let no_op_restore = create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "no-op restore",
+        "Wallet",
+        Some("Food"),
+        EntryType::Expense,
+        100,
+        "KRW",
+    );
+    seeded.service.archive_entry(no_op_restore.id()).unwrap();
+    let reverse_restore = create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "reverse restore",
+        "Wallet",
+        Some("Food"),
+        EntryType::Expense,
+        100,
+        "KRW",
+    );
+    let reverse_archive = create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "reverse archive",
+        "Wallet",
+        Some("Food"),
+        EntryType::Expense,
+        100,
+        "KRW",
+    );
+
+    let connection = Connection::open(&database).unwrap();
+    let active_no_op = latest_audit_after(&connection, "ledger_entry", no_op_archive.id());
+    insert_raw_audit(
+        &connection,
+        "forged-entry-no-op-archive",
+        "2099-01-01T00:00:00Z",
+        "archive",
+        "ledger_entry",
+        no_op_archive.id(),
+        Some(&active_no_op),
+        Some(&active_no_op),
+    );
+
+    let archived_no_op = latest_audit_after(&connection, "ledger_entry", no_op_restore.id());
+    insert_raw_audit(
+        &connection,
+        "forged-entry-no-op-restore",
+        "2099-01-01T00:00:01Z",
+        "restore",
+        "ledger_entry",
+        no_op_restore.id(),
+        Some(&archived_no_op),
+        Some(&archived_no_op),
+    );
+
+    let reverse_restore_active =
+        latest_audit_after(&connection, "ledger_entry", reverse_restore.id());
+    let mut reverse_restore_archived = reverse_restore_active.clone();
+    reverse_restore_archived["updated_at"] =
+        serde_json::Value::String("2099-01-02T00:00:00Z".to_string());
+    reverse_restore_archived["deleted_at"] =
+        serde_json::Value::String("2099-01-02T00:00:00Z".to_string());
+    connection
+        .execute(
+            "UPDATE ledger_entries
+             SET updated_at = '2099-01-02T00:00:00Z',
+                 deleted_at = '2099-01-02T00:00:00Z'
+             WHERE id = ?1",
+            [reverse_restore.id()],
+        )
+        .unwrap();
+    insert_raw_audit(
+        &connection,
+        "forged-entry-pre-reverse-restore",
+        "2099-01-01T23:59:59Z",
+        "archive",
+        "ledger_entry",
+        reverse_restore.id(),
+        Some(&reverse_restore_active),
+        Some(&reverse_restore_active),
+    );
+    insert_raw_audit(
+        &connection,
+        "forged-entry-reverse-restore",
+        "2099-01-02T00:00:00Z",
+        "restore",
+        "ledger_entry",
+        reverse_restore.id(),
+        Some(&reverse_restore_active),
+        Some(&reverse_restore_archived),
+    );
+
+    let reverse_archive_active =
+        latest_audit_after(&connection, "ledger_entry", reverse_archive.id());
+    let mut reverse_archive_archived = reverse_archive_active.clone();
+    reverse_archive_archived["updated_at"] =
+        serde_json::Value::String("2099-01-03T00:00:00Z".to_string());
+    reverse_archive_archived["deleted_at"] =
+        serde_json::Value::String("2099-01-03T00:00:00Z".to_string());
+    let mut reverse_archive_final = reverse_archive_active.clone();
+    reverse_archive_final["updated_at"] =
+        serde_json::Value::String("2099-01-05T00:00:00Z".to_string());
+    connection
+        .execute(
+            "UPDATE ledger_entries
+             SET updated_at = '2099-01-05T00:00:00Z', deleted_at = NULL
+             WHERE id = ?1",
+            [reverse_archive.id()],
+        )
+        .unwrap();
+    insert_raw_audit(
+        &connection,
+        "forged-entry-valid-archive-before-reverse",
+        "2099-01-03T00:00:00Z",
+        "archive",
+        "ledger_entry",
+        reverse_archive.id(),
+        Some(&reverse_archive_active),
+        Some(&reverse_archive_archived),
+    );
+    insert_raw_audit(
+        &connection,
+        "forged-entry-no-op-restore-before-reverse",
+        "2099-01-04T00:00:00Z",
+        "restore",
+        "ledger_entry",
+        reverse_archive.id(),
+        Some(&reverse_archive_archived),
+        Some(&reverse_archive_archived),
+    );
+    insert_raw_audit(
+        &connection,
+        "forged-entry-reverse-archive",
+        "2099-01-05T00:00:00Z",
+        "archive",
+        "ledger_entry",
+        reverse_archive.id(),
+        Some(&reverse_archive_archived),
+        Some(&reverse_archive_final),
+    );
+    drop(connection);
+
+    let report = seeded.service.doctor().unwrap();
+    for id in [
+        no_op_archive.id(),
+        no_op_restore.id(),
+        reverse_restore.id(),
+        reverse_archive.id(),
+    ] {
+        assert!(
+            report.issues.iter().any(|issue| {
+                issue.code == "audit_transition_invalid" && issue.record_id.as_deref() == Some(id)
+            }),
+            "missing lifecycle transition issue for {id}: {:#?}",
+            report.issues
+        );
+    }
+}
+
+#[test]
+fn doctor_accepts_service_entry_update_archive_restore_and_purge() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let entry = create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "valid entry lifecycle",
+        "Wallet",
+        Some("Food"),
+        EntryType::Expense,
+        100,
+        "KRW",
+    );
+    seeded
+        .service
+        .update_entry(
+            entry.id(),
+            UpdateEntry {
+                content: Some("updated entry lifecycle".to_string()),
+                actor: "test".to_string(),
+                ..UpdateEntry::default()
+            },
+        )
+        .unwrap();
+    seeded.service.archive_entry(entry.id()).unwrap();
+    seeded.service.restore_entry(entry.id()).unwrap();
+    seeded.service.purge_entry(entry.id(), entry.id()).unwrap();
+
+    let report = seeded.service.doctor().unwrap();
+
+    assert!(report.healthy, "{:#?}", report.issues);
+    assert!(report.issues.is_empty());
+}
+
+#[test]
+fn doctor_rejects_transfer_noop_and_single_side_lifecycle_snapshots() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let no_op = seeded
+        .service
+        .transfer(TransferCommand {
+            operation_key: TransferOperationKey::parse("62000000-0000-4000-8000-000000000001")
+                .unwrap(),
+            date: "2026-07-02".to_string(),
+            written_at: datetime!(2026-07-02 12:00 UTC),
+            content: "no-op transfer lifecycle".to_string(),
+            from_account: "Wallet".to_string(),
+            to_account: "Bank".to_string(),
+            amount: Money::from_minor_units(200),
+            currency: "KRW".to_string(),
+            source: "test".to_string(),
+            notes: None,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+    let single_side = seeded
+        .service
+        .transfer(TransferCommand {
+            operation_key: TransferOperationKey::parse("62000000-0000-4000-8000-000000000002")
+                .unwrap(),
+            date: "2026-07-03".to_string(),
+            written_at: datetime!(2026-07-03 12:00 UTC),
+            content: "single-side transfer lifecycle".to_string(),
+            from_account: "Wallet".to_string(),
+            to_account: "Bank".to_string(),
+            amount: Money::from_minor_units(300),
+            currency: "KRW".to_string(),
+            source: "test".to_string(),
+            notes: None,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+
+    let connection = Connection::open(&database).unwrap();
+    let no_op_snapshot = latest_audit_after(&connection, "transfer", &no_op.transfer_group_id);
+    insert_raw_audit(
+        &connection,
+        "forged-transfer-no-op-archive",
+        "2099-01-01T00:00:00Z",
+        "archive",
+        "transfer",
+        &no_op.transfer_group_id,
+        Some(&no_op_snapshot),
+        Some(&no_op_snapshot),
+    );
+
+    let single_side_before =
+        latest_audit_after(&connection, "transfer", &single_side.transfer_group_id);
+    let mut single_side_after = single_side_before.clone();
+    single_side_after["out_entry"]["updated_at"] =
+        serde_json::Value::String("2099-01-02T00:00:00Z".to_string());
+    single_side_after["out_entry"]["deleted_at"] =
+        serde_json::Value::String("2099-01-02T00:00:00Z".to_string());
+    insert_raw_audit(
+        &connection,
+        "forged-transfer-single-side-archive",
+        "2099-01-02T00:00:00Z",
+        "archive",
+        "transfer",
+        &single_side.transfer_group_id,
+        Some(&single_side_before),
+        Some(&single_side_after),
+    );
+    drop(connection);
+
+    let report = seeded.service.doctor().unwrap();
+    for group_id in [
+        no_op.transfer_group_id.as_str(),
+        single_side.transfer_group_id.as_str(),
+    ] {
+        assert!(
+            report.issues.iter().any(|issue| {
+                issue.code == "audit_transition_invalid"
+                    && issue.record_id.as_deref() == Some(group_id)
+            }),
+            "missing transfer lifecycle issue for {group_id}: {:#?}",
+            report.issues
+        );
+    }
 }
 
 #[test]
@@ -1393,4 +1760,55 @@ fn drop_audit_mutation_triggers(connection: &Connection) {
             ))
             .unwrap();
     }
+}
+
+fn latest_audit_after(
+    connection: &Connection,
+    record_type: &str,
+    record_id: &str,
+) -> serde_json::Value {
+    let snapshot: String = connection
+        .query_row(
+            "SELECT after_json
+             FROM audit_events
+             WHERE record_type = ?1 AND record_id = ?2 AND after_json IS NOT NULL
+             ORDER BY occurred_at DESC, rowid DESC
+             LIMIT 1",
+            [record_type, record_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    serde_json::from_str(&snapshot).unwrap()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn insert_raw_audit(
+    connection: &Connection,
+    id: &str,
+    occurred_at: &str,
+    action: &str,
+    record_type: &str,
+    record_id: &str,
+    before: Option<&serde_json::Value>,
+    after: Option<&serde_json::Value>,
+) {
+    let before = before.map(serde_json::to_string).transpose().unwrap();
+    let after = after.map(serde_json::to_string).transpose().unwrap();
+    connection
+        .execute(
+            "INSERT INTO audit_events (
+                 id, occurred_at, actor, action, record_type, record_id,
+                 before_json, after_json, reason
+             ) VALUES (?1, ?2, 'fixture', ?3, ?4, ?5, ?6, ?7, NULL)",
+            rusqlite::params![
+                id,
+                occurred_at,
+                action,
+                record_type,
+                record_id,
+                before,
+                after
+            ],
+        )
+        .unwrap();
 }

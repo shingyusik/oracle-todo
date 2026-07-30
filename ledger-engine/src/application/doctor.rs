@@ -1232,7 +1232,6 @@ fn validate_audit_chain(history: &[&AuditRecord], issues: &mut Vec<DoctorIssue>)
         audit_transition_issue(first, "audit history must begin with create", issues);
     }
     let mut previous_after: Option<Value> = None;
-    let mut previous_action: Option<&str> = None;
     for (index, audit) in history.iter().enumerate() {
         let valid_shape = match audit.action.as_str() {
             "create" => audit.before.is_none() && audit.after.is_some(),
@@ -1249,27 +1248,12 @@ fn validate_audit_chain(history: &[&AuditRecord], issues: &mut Vec<DoctorIssue>)
                 format!("action {} has invalid before/after snapshots", audit.action),
             ));
         }
-        if index != 0
-            && !allowed_audit_transition(
-                &audit.record_type,
-                previous_action.expect("non-first audit has a predecessor"),
-                &audit.action,
-            )
-        {
-            audit_transition_issue(
-                audit,
-                &format!(
-                    "action {} cannot follow {}",
-                    audit.action,
-                    previous_action.expect("checked predecessor")
-                ),
-                issues,
-            );
-        }
         if audit.action == "purge" && index + 1 != history.len() {
             audit_transition_issue(audit, "purge must be the terminal audit action", issues);
         }
         let before = audit.before.as_deref().map(validated_json);
+        let after = audit.after.as_deref().map(validated_json);
+        validate_audit_semantics(audit, before.as_ref(), after.as_ref(), issues);
         if let (Some(previous), Some(before)) = (previous_after.as_ref(), before.as_ref()) {
             if !audit_snapshots_equal(&audit.record_type, previous, before) {
                 issues.push(issue(
@@ -1281,21 +1265,394 @@ fn validate_audit_chain(history: &[&AuditRecord], issues: &mut Vec<DoctorIssue>)
                 ));
             }
         }
-        previous_after = audit.after.as_deref().map(validated_json);
-        previous_action = Some(&audit.action);
+        previous_after = after;
     }
 }
 
-fn allowed_audit_transition(record_type: &str, previous: &str, next: &str) -> bool {
-    if previous == "purge" || next == "create" {
-        return false;
+enum AuditSemanticError {
+    Snapshot(String),
+    Transition(String),
+}
+
+fn validate_audit_semantics(
+    audit: &AuditRecord,
+    before: Option<&Value>,
+    after: Option<&Value>,
+    issues: &mut Vec<DoctorIssue>,
+) {
+    let result = match audit.record_type.as_str() {
+        "currency" | "account_category" | "account" | "transaction_category" => {
+            validate_master_audit(audit, before, after)
+        }
+        "ledger_entry" => validate_entry_audit(audit, before, after),
+        "transfer" => validate_transfer_audit(audit, before, after),
+        _ => Err(AuditSemanticError::Transition(format!(
+            "record type {} has no supported audit lifecycle",
+            audit.record_type
+        ))),
+    };
+    match result {
+        Ok(()) => {}
+        Err(AuditSemanticError::Snapshot(message)) => {
+            issues.push(issue(
+                DoctorSeverity::Error,
+                "audit_snapshot_invalid",
+                "audit_event",
+                Some(audit.id.clone()),
+                message,
+            ));
+        }
+        Err(AuditSemanticError::Transition(message)) => {
+            audit_transition_issue(audit, &message, issues);
+        }
     }
-    match (previous, next) {
-        ("create" | "update" | "restore", "archive" | "purge") => true,
-        ("archive", "restore" | "purge") => true,
-        ("create" | "update" | "restore", "update") => !matches!(record_type, "transfer"),
-        _ => false,
+}
+
+fn validate_master_audit(
+    audit: &AuditRecord,
+    before: Option<&Value>,
+    after: Option<&Value>,
+) -> Result<(), AuditSemanticError> {
+    if !matches!(audit.action.as_str(), "create" | "update" | "purge") {
+        return Err(AuditSemanticError::Transition(format!(
+            "master record action {} is not allowed",
+            audit.action
+        )));
     }
+    for snapshot in before.into_iter().chain(after) {
+        let object = snapshot_object(snapshot, "master audit snapshot")?;
+        if object.get("id").and_then(Value::as_str) != Some(audit.record_id.as_str()) {
+            return Err(AuditSemanticError::Snapshot(
+                "master audit snapshot ID does not match record_id".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone)]
+struct EntryAuditState {
+    id: String,
+    created_at: OffsetDateTime,
+    updated_at: OffsetDateTime,
+    deleted_at: Option<OffsetDateTime>,
+}
+
+fn validate_entry_audit(
+    audit: &AuditRecord,
+    before: Option<&Value>,
+    after: Option<&Value>,
+) -> Result<(), AuditSemanticError> {
+    if !matches!(
+        audit.action.as_str(),
+        "create" | "update" | "archive" | "restore" | "purge"
+    ) {
+        return Err(AuditSemanticError::Transition(format!(
+            "ledger_entry action {} is not allowed",
+            audit.action
+        )));
+    }
+    let before_state = before
+        .map(|snapshot| parse_entry_audit_state(snapshot, Some(&audit.record_id)))
+        .transpose()?;
+    let after_state = after
+        .map(|snapshot| parse_entry_audit_state(snapshot, Some(&audit.record_id)))
+        .transpose()?;
+    match (
+        audit.action.as_str(),
+        before,
+        before_state.as_ref(),
+        after,
+        after_state.as_ref(),
+    ) {
+        ("create", _, _, Some(_), Some(after)) => {
+            if after.deleted_at.is_some() || after.created_at != after.updated_at {
+                return Err(AuditSemanticError::Transition(
+                    "ledger_entry create must produce an active snapshot with equal created_at \
+                     and updated_at"
+                        .to_string(),
+                ));
+            }
+        }
+        ("update", Some(_), Some(before), Some(_), Some(after)) => {
+            if before.deleted_at.is_some()
+                || after.deleted_at.is_some()
+                || before.id != after.id
+                || before.created_at != after.created_at
+                || before.updated_at == after.updated_at
+            {
+                return Err(AuditSemanticError::Transition(
+                    "ledger_entry update requires active snapshots, stable id/created_at, and \
+                     a changed updated_at"
+                        .to_string(),
+                ));
+            }
+        }
+        ("archive", Some(before_value), Some(before), Some(after_value), Some(after)) => {
+            if before.deleted_at.is_some()
+                || after.deleted_at != Some(after.updated_at)
+                || before.updated_at == after.updated_at
+                || !entry_lifecycle_payload_equal(before_value, after_value)
+            {
+                return Err(AuditSemanticError::Transition(
+                    "ledger_entry archive must change deleted_at from null to updated_at and \
+                     update only lifecycle fields"
+                        .to_string(),
+                ));
+            }
+        }
+        ("restore", Some(before_value), Some(before), Some(after_value), Some(after)) => {
+            if before.deleted_at.is_none()
+                || after.deleted_at.is_some()
+                || before.updated_at == after.updated_at
+                || !entry_lifecycle_payload_equal(before_value, after_value)
+            {
+                return Err(AuditSemanticError::Transition(
+                    "ledger_entry restore must change deleted_at from a timestamp to null and \
+                     update only lifecycle fields"
+                        .to_string(),
+                ));
+            }
+        }
+        ("purge", Some(_), Some(_), _, _) => {}
+        _ => {}
+    }
+    Ok(())
+}
+
+fn validate_transfer_audit(
+    audit: &AuditRecord,
+    before: Option<&Value>,
+    after: Option<&Value>,
+) -> Result<(), AuditSemanticError> {
+    if !matches!(
+        audit.action.as_str(),
+        "create" | "archive" | "restore" | "purge"
+    ) {
+        return Err(AuditSemanticError::Transition(format!(
+            "transfer action {} is not allowed",
+            audit.action
+        )));
+    }
+    let before_state = before
+        .map(|snapshot| parse_transfer_audit_state(snapshot, &audit.record_id))
+        .transpose()?;
+    let after_state = after
+        .map(|snapshot| parse_transfer_audit_state(snapshot, &audit.record_id))
+        .transpose()?;
+    match (
+        audit.action.as_str(),
+        before,
+        before_state.as_ref(),
+        after,
+        after_state.as_ref(),
+    ) {
+        ("create", _, _, Some(_), Some(after)) => {
+            if !after.has_consistent_pair_state()
+                || after.out.deleted_at.is_some()
+                || after.out.created_at != after.out.updated_at
+            {
+                return Err(AuditSemanticError::Transition(
+                    "transfer create must produce two active entries with matching lifecycle \
+                     timestamps"
+                        .to_string(),
+                ));
+            }
+        }
+        ("archive", Some(before_value), Some(before), Some(after_value), Some(after)) => {
+            if !before.has_consistent_pair_state()
+                || !after.has_consistent_pair_state()
+                || before.out.deleted_at.is_some()
+                || after.out.deleted_at != Some(after.out.updated_at)
+                || before.out.updated_at == after.out.updated_at
+                || before.operation_id != after.operation_id
+                || !transfer_lifecycle_payload_equal(before_value, after_value)
+            {
+                return Err(AuditSemanticError::Transition(
+                    "transfer archive must move both entries from active to archived together and \
+                     update only lifecycle fields"
+                        .to_string(),
+                ));
+            }
+        }
+        ("restore", Some(before_value), Some(before), Some(after_value), Some(after)) => {
+            if !before.has_consistent_pair_state()
+                || !after.has_consistent_pair_state()
+                || before.out.deleted_at.is_none()
+                || after.out.deleted_at.is_some()
+                || before.out.updated_at == after.out.updated_at
+                || before.operation_id != after.operation_id
+                || !transfer_lifecycle_payload_equal(before_value, after_value)
+            {
+                return Err(AuditSemanticError::Transition(
+                    "transfer restore must move both entries from archived to active together and \
+                     update only lifecycle fields"
+                        .to_string(),
+                ));
+            }
+        }
+        ("purge", Some(_), Some(before), _, _) => {
+            if !before.has_consistent_pair_state() {
+                return Err(AuditSemanticError::Transition(
+                    "transfer purge requires a lifecycle-consistent pair snapshot".to_string(),
+                ));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+#[derive(Clone)]
+struct TransferAuditState {
+    operation_id: String,
+    out: EntryAuditState,
+    input: EntryAuditState,
+}
+
+impl TransferAuditState {
+    fn has_consistent_pair_state(&self) -> bool {
+        self.out.id != self.input.id
+            && self.out.created_at == self.input.created_at
+            && self.out.updated_at == self.input.updated_at
+            && self.out.deleted_at == self.input.deleted_at
+    }
+}
+
+fn parse_transfer_audit_state(
+    snapshot: &Value,
+    record_id: &str,
+) -> Result<TransferAuditState, AuditSemanticError> {
+    let object = snapshot_object(snapshot, "transfer audit snapshot")?;
+    let operation_id = required_snapshot_string(object, "operation_id", "transfer audit snapshot")?;
+    if object.get("transfer_group_id").and_then(Value::as_str) != Some(record_id) {
+        return Err(AuditSemanticError::Snapshot(
+            "transfer audit snapshot group ID does not match record_id".to_string(),
+        ));
+    }
+    let out_value = object
+        .get("out_entry")
+        .ok_or_else(|| snapshot_error("transfer audit snapshot has no out_entry"))?;
+    let input_value = object
+        .get("in_entry")
+        .ok_or_else(|| snapshot_error("transfer audit snapshot has no in_entry"))?;
+    let out = parse_entry_audit_state(out_value, None)?;
+    let input = parse_entry_audit_state(input_value, None)?;
+    if out_value.get("entry_type").and_then(Value::as_str) != Some("transfer_out")
+        || input_value.get("entry_type").and_then(Value::as_str) != Some("transfer_in")
+        || out_value.get("transfer_group_id").and_then(Value::as_str) != Some(record_id)
+        || input_value.get("transfer_group_id").and_then(Value::as_str) != Some(record_id)
+    {
+        return Err(AuditSemanticError::Snapshot(
+            "transfer audit entries do not identify the expected pair".to_string(),
+        ));
+    }
+    Ok(TransferAuditState {
+        operation_id,
+        out,
+        input,
+    })
+}
+
+fn parse_entry_audit_state(
+    snapshot: &Value,
+    expected_id: Option<&str>,
+) -> Result<EntryAuditState, AuditSemanticError> {
+    let object = snapshot_object(snapshot, "ledger entry audit snapshot")?;
+    let id = required_snapshot_string(object, "id", "ledger entry audit snapshot")?;
+    if expected_id.is_some_and(|expected| id != expected) {
+        return Err(AuditSemanticError::Snapshot(
+            "ledger entry audit snapshot ID does not match record_id".to_string(),
+        ));
+    }
+    let created_at = required_snapshot_time(object, "created_at")?;
+    let updated_at = required_snapshot_time(object, "updated_at")?;
+    let deleted_at = optional_snapshot_time(object, "deleted_at")?;
+    Ok(EntryAuditState {
+        id,
+        created_at,
+        updated_at,
+        deleted_at,
+    })
+}
+
+fn snapshot_object<'value>(
+    snapshot: &'value Value,
+    context: &str,
+) -> Result<&'value Map<String, Value>, AuditSemanticError> {
+    snapshot
+        .as_object()
+        .ok_or_else(|| snapshot_error(&format!("{context} is not an object")))
+}
+
+fn required_snapshot_string(
+    object: &Map<String, Value>,
+    field: &str,
+    context: &str,
+) -> Result<String, AuditSemanticError> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| snapshot_error(&format!("{context} has no valid {field}")))
+}
+
+fn required_snapshot_time(
+    object: &Map<String, Value>,
+    field: &str,
+) -> Result<OffsetDateTime, AuditSemanticError> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .and_then(|value| OffsetDateTime::parse(value, &Rfc3339).ok())
+        .ok_or_else(|| snapshot_error(&format!("audit snapshot has no valid {field}")))
+}
+
+fn optional_snapshot_time(
+    object: &Map<String, Value>,
+    field: &str,
+) -> Result<Option<OffsetDateTime>, AuditSemanticError> {
+    match object.get(field) {
+        Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => OffsetDateTime::parse(value, &Rfc3339)
+            .map(Some)
+            .map_err(|_| snapshot_error(&format!("audit snapshot has invalid {field}"))),
+        _ => Err(snapshot_error(&format!(
+            "audit snapshot has no valid {field}"
+        ))),
+    }
+}
+
+fn entry_lifecycle_payload_equal(before: &Value, after: &Value) -> bool {
+    lifecycle_payload(before, false) == lifecycle_payload(after, false)
+}
+
+fn transfer_lifecycle_payload_equal(before: &Value, after: &Value) -> bool {
+    lifecycle_payload(before, true) == lifecycle_payload(after, true)
+}
+
+fn lifecycle_payload(snapshot: &Value, transfer: bool) -> Value {
+    let mut snapshot = snapshot.clone();
+    if transfer {
+        if let Some(object) = snapshot.as_object_mut() {
+            object.remove("operation_id");
+            for field in ["out_entry", "in_entry"] {
+                if let Some(entry) = object.get_mut(field).and_then(Value::as_object_mut) {
+                    entry.remove("updated_at");
+                    entry.remove("deleted_at");
+                }
+            }
+        }
+    } else if let Some(object) = snapshot.as_object_mut() {
+        object.remove("updated_at");
+        object.remove("deleted_at");
+    }
+    snapshot
+}
+
+fn snapshot_error(message: &str) -> AuditSemanticError {
+    AuditSemanticError::Snapshot(message.to_string())
 }
 
 fn audit_snapshots_equal(record_type: &str, left: &Value, right: &Value) -> bool {
