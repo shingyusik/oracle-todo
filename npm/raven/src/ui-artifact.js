@@ -30,7 +30,7 @@ async function findIndexRoot(directory) {
 async function installUiArtifact(options) {
   const expectedAsset = uiAssetName(options.version);
   const asset = selectAsset(options.release, expectedAsset);
-  const checksumAsset = (options.release.assets || []).find((candidate) => candidate.name === "SHA256SUMS");
+  const checksumAsset = selectAsset(options.release, "SHA256SUMS");
   const paths = uiPathsFor(options.cacheRoot, options.version);
   const archivePath = path.join(paths.uiVersionDir, expectedAsset);
   const checksumPath = path.join(paths.uiVersionDir, "SHA256SUMS");
@@ -38,10 +38,8 @@ async function installUiArtifact(options) {
   await fs.rm(paths.uiVersionDir, { recursive: true, force: true });
   await fs.mkdir(paths.uiVersionDir, { recursive: true });
   await (options.downloadFileImpl || downloadFile)(asset.browser_download_url, archivePath, { fetchImpl: options.fetchImpl });
-  if (checksumAsset) {
-    await (options.downloadFileImpl || downloadFile)(checksumAsset.browser_download_url, checksumPath, { fetchImpl: options.fetchImpl });
-    await verifyChecksum(archivePath, await fs.readFile(checksumPath, "utf8"), expectedAsset);
-  }
+  await (options.downloadFileImpl || downloadFile)(checksumAsset.browser_download_url, checksumPath, { fetchImpl: options.fetchImpl });
+  await verifyChecksum(archivePath, await fs.readFile(checksumPath, "utf8"), expectedAsset);
   await (options.extractArchiveImpl || extractArchive)(archivePath, paths.uiVersionDir, { platform: process.platform });
 
   const root = await findIndexRoot(paths.uiVersionDir);

@@ -1,8 +1,9 @@
 const { runEngine } = require("./runner");
+const { topLevelCommandIndex } = require("./command-index");
 
 async function runUi(args, options = {}) {
-  const uiIndex = args.indexOf("ui");
-  if (uiIndex < 0) throw new Error("Expected native raven ui command");
+  const uiIndex = topLevelCommandIndex(args);
+  if (args[uiIndex] !== "ui") throw new Error("Expected native raven ui command");
 
   const installed = await options.installBundle({ env: options.env || process.env });
   const uiArgs = args.slice(uiIndex + 1);

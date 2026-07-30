@@ -7,6 +7,16 @@ const test = require("node:test");
 
 const { installUiArtifact, uiAssetName } = require("../src/ui-artifact");
 
+const ARCHIVE_BYTES = Buffer.from("archive");
+const ARCHIVE_DIGEST = crypto.createHash("sha256").update(ARCHIVE_BYTES).digest("hex");
+
+async function fakeDownload(url, destination) {
+  const content = url.endsWith("SHA256SUMS")
+    ? `${ARCHIVE_DIGEST}  raven-ui-0.3.0.tar.gz\n`
+    : ARCHIVE_BYTES;
+  return fs.writeFile(destination, content);
+}
+
 async function fakeUiExtractor(_archivePath, destination) {
   const root = path.join(destination, "raven-ui-0.3.0");
   await fs.mkdir(path.join(root, "_next"), { recursive: true });
@@ -18,15 +28,56 @@ test("builds ui release asset names", () => {
   assert.equal(uiAssetName("0.3.0"), "raven-ui-0.3.0.tar.gz");
 });
 
+test("rejects UI releases without SHA256SUMS", async () => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-ui-"));
+  await assert.rejects(
+    () => installUiArtifact({
+      cacheRoot,
+      version: "0.3.0",
+      release: {
+        assets: [{ name: "raven-ui-0.3.0.tar.gz", browser_download_url: "https://example.test/ui" }],
+      },
+      downloadFileImpl: async (_url, destination) => fs.writeFile(destination, "archive"),
+      extractArchiveImpl: fakeUiExtractor,
+    }),
+    /Release asset not found: SHA256SUMS/
+  );
+});
+
+test("rejects SHA256SUMS without the exact UI asset", async () => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-ui-"));
+  await assert.rejects(
+    () => installUiArtifact({
+      cacheRoot,
+      version: "0.3.0",
+      release: {
+        assets: [
+          { name: "raven-ui-0.3.0.tar.gz", browser_download_url: "https://example.test/ui" },
+          { name: "SHA256SUMS", browser_download_url: "https://example.test/SHA256SUMS" },
+        ],
+      },
+      downloadFileImpl: async (url, destination) => fs.writeFile(
+        destination,
+        url.endsWith("SHA256SUMS") ? `${"0".repeat(64)}  other.tar.gz\n` : "archive"
+      ),
+      extractArchiveImpl: fakeUiExtractor,
+    }),
+    /Checksum entry not found for raven-ui-0\.3\.0\.tar\.gz/
+  );
+});
+
 test("installs ui artifacts extracted under an archive root", async () => {
   const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-ui-"));
   const result = await installUiArtifact({
     cacheRoot,
     version: "0.3.0",
     release: {
-      assets: [{ name: "raven-ui-0.3.0.tar.gz", browser_download_url: "https://example.test/ui" }],
+      assets: [
+        { name: "raven-ui-0.3.0.tar.gz", browser_download_url: "https://example.test/ui" },
+        { name: "SHA256SUMS", browser_download_url: "https://example.test/SHA256SUMS" },
+      ],
     },
-    downloadFileImpl: async (_url, destination) => fs.writeFile(destination, "archive"),
+    downloadFileImpl: fakeDownload,
     extractArchiveImpl: fakeUiExtractor,
   });
 

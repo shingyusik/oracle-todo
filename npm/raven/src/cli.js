@@ -1,4 +1,7 @@
-const { readMetadata } = require("./cache");
+const path = require("node:path");
+
+const { isUsableFile, readMetadata } = require("./cache");
+const { topLevelCommandIndex } = require("./command-index");
 const { cacheDir, PACKAGE_NAME } = require("./config");
 const { installBundle, installEngine, updateBundle } = require("./install");
 const { runEngine } = require("./runner");
@@ -12,7 +15,7 @@ async function main(args, options = {}) {
   const updateAll = options.updateBundle || updateBundle;
   const run = options.runEngine || runEngine;
   const ui = options.runUi || runUi;
-  const command = wrapperCommand(args);
+  const command = args[topLevelCommandIndex(args)];
 
   if (command === "install") {
     const result = await installAll({ env });
@@ -41,7 +44,13 @@ async function main(args, options = {}) {
   if (command === "doctor") {
     const metadata = await readMetadata(cacheDir(env));
     if (!metadata) throw new Error("raven is not installed; run install first");
+    if (!(await isUsableFile(metadata.binaryPath, true))) {
+      throw new Error("raven binary is missing or unusable; run install first");
+    }
     if (!metadata.uiPath) throw new Error("raven-ui is not installed; run install first");
+    if (!(await isUsableFile(path.join(metadata.uiPath, "index.html")))) {
+      throw new Error("raven-ui is missing or unusable; run install first");
+    }
     log(`cache ok: ${metadata.binaryPath}`);
     log(`ui ok: ${metadata.uiPath}`);
     return 0;
@@ -51,14 +60,6 @@ async function main(args, options = {}) {
   const binaryPath = installed.binaryPath;
   const exitCode = await run(args, { binaryPath });
   return exitCode;
-}
-
-function wrapperCommand(args) {
-  let index = 0;
-  while (args[index] === "--home" || args[index]?.startsWith("--home=")) {
-    index += args[index] === "--home" ? 2 : 1;
-  }
-  return args[index];
 }
 
 module.exports = { main };

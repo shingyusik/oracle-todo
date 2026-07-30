@@ -39,6 +39,22 @@ test("preserves an explicit native UI artifact path", async () => {
   assert.deepEqual(calls, [["ui", "--ui-path=/tmp/custom-ui", "--port", "3102"]]);
 });
 
+test("does not mistake a spaced home value named ui for the subcommand", async () => {
+  const calls = [];
+  await runUi(["--home", "ui", "ui", "--no-open"], {
+    installBundle: async () => ({
+      binaryPath: "/tmp/raven",
+      uiPath: "/tmp/raven-ui",
+    }),
+    runEngine: async (args) => {
+      calls.push(args);
+      return 0;
+    },
+  });
+
+  assert.deepEqual(calls, [["--home", "ui", "ui", "--ui-path", "/tmp/raven-ui", "--no-open"]]);
+});
+
 test("requires a native ui subcommand", async () => {
   await assert.rejects(
     () => runUi(["ledger", "entry", "list"], {

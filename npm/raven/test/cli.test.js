@@ -61,6 +61,10 @@ test("doctor reports the active binary path", async () => {
   const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
   const binaryPath = path.join(cacheRoot, "bin", "raven");
   const uiPath = path.join(cacheRoot, "ui");
+  await fs.mkdir(path.dirname(binaryPath), { recursive: true });
+  await fs.writeFile(binaryPath, "#!/bin/sh\n", { mode: 0o755 });
+  await fs.mkdir(uiPath, { recursive: true });
+  await fs.writeFile(path.join(uiPath, "index.html"), "<!doctype html>");
   await writeMetadata(cacheRoot, {
     installedVersion: "0.2.0",
     binaryPath,
@@ -92,9 +96,12 @@ test("doctor requires an installed engine", async () => {
 
 test("doctor requires an installed ui", async () => {
   const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
+  const binaryPath = path.join(cacheRoot, "bin", "raven");
+  await fs.mkdir(path.dirname(binaryPath), { recursive: true });
+  await fs.writeFile(binaryPath, "#!/bin/sh\n", { mode: 0o755 });
   await writeMetadata(cacheRoot, {
     installedVersion: "0.2.0",
-    binaryPath: path.join(cacheRoot, "bin", "raven"),
+    binaryPath,
   });
 
   await assert.rejects(
@@ -104,6 +111,50 @@ test("doctor requires an installed ui", async () => {
         log: () => {},
       }),
     /raven-ui is not installed; run install first/
+  );
+});
+
+test("doctor rejects stale binary metadata", async () => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
+  const uiPath = path.join(cacheRoot, "ui");
+  await fs.mkdir(uiPath, { recursive: true });
+  await fs.writeFile(path.join(uiPath, "index.html"), "<!doctype html>");
+  await writeMetadata(cacheRoot, {
+    installedVersion: "0.2.0",
+    binaryPath: path.join(cacheRoot, "bin", "missing-raven"),
+    uiVersion: "0.2.0",
+    uiPath,
+  });
+
+  await assert.rejects(
+    () => main(["doctor"], {
+      env: { RAVEN_CACHE_DIR: cacheRoot },
+      log: () => {},
+    }),
+    /raven binary is missing or unusable; run install first/
+  );
+});
+
+test("doctor rejects a missing UI index", async () => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
+  const binaryPath = path.join(cacheRoot, "bin", "raven");
+  const uiPath = path.join(cacheRoot, "ui");
+  await fs.mkdir(path.dirname(binaryPath), { recursive: true });
+  await fs.writeFile(binaryPath, "#!/bin/sh\n", { mode: 0o755 });
+  await fs.mkdir(uiPath, { recursive: true });
+  await writeMetadata(cacheRoot, {
+    installedVersion: "0.2.0",
+    binaryPath,
+    uiVersion: "0.2.0",
+    uiPath,
+  });
+
+  await assert.rejects(
+    () => main(["doctor"], {
+      env: { RAVEN_CACHE_DIR: cacheRoot },
+      log: () => {},
+    }),
+    /raven-ui is missing or unusable; run install first/
   );
 });
 

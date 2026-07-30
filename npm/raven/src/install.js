@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 
 const { downloadFile, extractArchive, activateBinary, verifyChecksum } = require("./archive");
-const { pathsFor, readMetadata, writeMetadata } = require("./cache");
+const { isUsableFile, pathsFor, readMetadata, writeMetadata } = require("./cache");
 const { cacheDir, GITHUB_REPOSITORY } = require("./config");
 const { fetchRelease, selectAsset } = require("./github");
 const { assetName, resolvePlatform } = require("./platform");
@@ -26,7 +26,13 @@ async function installBundle(options = {}) {
   const release = await fetchRequestedRelease(options, env);
   const version = normalizeVersion(release.tag_name);
 
-  if (metadata && metadata.installedVersion === version && metadata.uiVersion === version) {
+  if (
+    metadata
+    && metadata.installedVersion === version
+    && metadata.uiVersion === version
+    && await isUsableFile(metadata.binaryPath, true)
+    && await isUsableFile(metadata.uiPath && path.join(metadata.uiPath, "index.html"))
+  ) {
     return { status: "already-installed", ...metadata };
   }
 
@@ -62,7 +68,7 @@ async function installEngine(options = {}) {
   const metadata = await readMetadata(cacheRoot);
   const requestedVersion = env.RAVEN_VERSION;
 
-  if (metadata && !requestedVersion) {
+  if (metadata && !requestedVersion && await isUsableFile(metadata.binaryPath, true)) {
     return { status: "already-installed", ...metadata };
   }
 
@@ -74,7 +80,7 @@ async function installEngine(options = {}) {
   });
 
   const version = normalizeVersion(release.tag_name);
-  if (metadata && metadata.installedVersion === version) {
+  if (metadata && metadata.installedVersion === version && await isUsableFile(metadata.binaryPath, true)) {
     return { status: "already-installed", ...metadata };
   }
 
@@ -94,7 +100,11 @@ async function updateEngine(options = {}) {
   });
   const version = normalizeVersion(release.tag_name);
 
-  if (metadata && compareVersions(version, metadata.installedVersion) <= 0) {
+  if (
+    metadata
+    && compareVersions(version, metadata.installedVersion) <= 0
+    && await isUsableFile(metadata.binaryPath, true)
+  ) {
     return { status: "up-to-date", ...metadata };
   }
 
@@ -104,7 +114,7 @@ async function updateEngine(options = {}) {
 async function installRelease(options) {
   const expectedAsset = assetName(options.version, options.platformInfo.target);
   const asset = selectAsset(options.release, expectedAsset);
-  const checksumAsset = (options.release.assets || []).find((candidate) => candidate.name === "SHA256SUMS");
+  const checksumAsset = selectAsset(options.release, "SHA256SUMS");
   const paths = pathsFor(options.cacheRoot, options.version, options.platformInfo.binaryName);
   const archivePath = path.join(paths.versionDir, expectedAsset);
   const checksumPath = path.join(paths.versionDir, "SHA256SUMS");
@@ -112,10 +122,8 @@ async function installRelease(options) {
   await fs.rm(paths.versionDir, { recursive: true, force: true });
   await fs.mkdir(paths.versionDir, { recursive: true });
   await (options.downloadFileImpl || downloadFile)(asset.browser_download_url, archivePath, { fetchImpl: options.fetchImpl });
-  if (checksumAsset) {
-    await (options.downloadFileImpl || downloadFile)(checksumAsset.browser_download_url, checksumPath, { fetchImpl: options.fetchImpl });
-    await verifyChecksum(archivePath, await fs.readFile(checksumPath, "utf8"), expectedAsset);
-  }
+  await (options.downloadFileImpl || downloadFile)(checksumAsset.browser_download_url, checksumPath, { fetchImpl: options.fetchImpl });
+  await verifyChecksum(archivePath, await fs.readFile(checksumPath, "utf8"), expectedAsset);
   await (options.extractArchiveImpl || extractArchive)(archivePath, paths.versionDir, { platform: process.platform });
   if (options.activate !== false) {
     await activateBinary(paths, options.platformInfo.binaryName);

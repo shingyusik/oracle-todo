@@ -40,7 +40,21 @@ async function writeMetadata(root, metadata) {
   await fs.writeFile(path.join(root, "metadata.json"), `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
+async function isUsableFile(filePath, executable = false) {
+  if (!filePath) return false;
+  try {
+    if (!(await fs.stat(filePath)).isFile()) return false;
+    const mode = fs.constants.R_OK | (executable && process.platform !== "win32" ? fs.constants.X_OK : 0);
+    await fs.access(filePath, mode);
+    return true;
+  } catch (error) {
+    if (["EACCES", "ENOENT", "ENOTDIR"].includes(error.code)) return false;
+    throw error;
+  }
+}
+
 module.exports = {
+  isUsableFile,
   pathsFor,
   readMetadata,
   uiPathsFor,
