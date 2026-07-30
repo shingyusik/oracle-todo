@@ -241,6 +241,17 @@ describe("design system boundaries", () => {
     expect(source).toContain("@media (max-width: 767px)");
   });
 
+  it("keeps Dashboard status cards on one row until the mobile breakpoint", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toContain(
+      ".dashboard-status-grid,\n.dashboard-status-skeleton-grid {\n  grid-column: 1 / -1;\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));",
+    );
+    expect(source).toMatch(
+      /@media \(max-width: 767px\)[\s\S]*?\.dashboard-status-grid,\n  \.dashboard-status-skeleton-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/,
+    );
+  });
+
   it("keeps planner period cards motion-safe and dependency-free", async () => {
     const css = await readSource("src/styles/globals.css");
 
