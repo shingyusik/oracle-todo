@@ -207,6 +207,120 @@ fn missing_ambiguous_inactive_and_deleted_references_are_distinct() {
 }
 
 #[test]
+fn active_currency_precision_projection_preserves_reference_policy() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut service = seed_repository(SqliteLedgerRepository::open(&database).unwrap());
+    let primary = service
+        .create_currency(CreateCurrency {
+            code: "PRC".to_string(),
+            name: "Primary precision".to_string(),
+            symbol: "P".to_string(),
+            decimal_places: 3,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+    service
+        .create_currency(CreateCurrency {
+            code: "ALT".to_string(),
+            name: "PRC".to_string(),
+            symbol: "A".to_string(),
+            decimal_places: 2,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+    for code in ["AM1", "AM2"] {
+        service
+            .create_currency(CreateCurrency {
+                code: code.to_string(),
+                name: "Ambiguous precision".to_string(),
+                symbol: code.to_string(),
+                decimal_places: 4,
+                actor: "test".to_string(),
+            })
+            .unwrap();
+    }
+    let inactive = service
+        .create_currency(CreateCurrency {
+            code: "INA".to_string(),
+            name: "Inactive precision".to_string(),
+            symbol: "I".to_string(),
+            decimal_places: 5,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+    service
+        .update_currency(
+            inactive.id(),
+            UpdateCurrency {
+                active: Some(false),
+                actor: "test".to_string(),
+                ..UpdateCurrency::default()
+            },
+        )
+        .unwrap();
+    let deleted = service
+        .create_currency(CreateCurrency {
+            code: "DEL".to_string(),
+            name: "Deleted precision".to_string(),
+            symbol: "D".to_string(),
+            decimal_places: 6,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+    let deleted_id = deleted.id().to_string();
+    drop(service);
+
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE currencies
+             SET active = 0,
+                 updated_at = '2099-07-30T00:00:00Z',
+                 deleted_at = '2099-07-30T00:00:00Z'
+             WHERE id = ?1",
+            [&deleted_id],
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+    assert_eq!(
+        service
+            .resolve_active_currency_precision(primary.id())
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        service.resolve_active_currency_precision("PRC").unwrap(),
+        3,
+        "code resolution must precede active-name resolution"
+    );
+    assert_eq!(
+        service
+            .resolve_active_currency_precision("Primary precision")
+            .unwrap(),
+        3
+    );
+    assert!(matches!(
+        service.resolve_active_currency_precision(inactive.id()),
+        Err(LedgerError::Conflict(message)) if message.contains("inactive")
+    ));
+    assert!(matches!(
+        service.resolve_active_currency_precision(&deleted_id),
+        Err(LedgerError::NotFound(message)) if message.contains("deleted")
+    ));
+    assert!(matches!(
+        service.resolve_active_currency_precision("missing"),
+        Err(LedgerError::NotFound(_))
+    ));
+    assert!(matches!(
+        service.resolve_active_currency_precision("Ambiguous precision"),
+        Err(LedgerError::Conflict(message)) if message.contains("ambiguous")
+    ));
+}
+
+#[test]
 fn deleted_reference_is_not_resolved_by_id_or_name() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");

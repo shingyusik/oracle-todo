@@ -178,7 +178,7 @@ pub enum ReportBy {
 #[derive(Debug, Args)]
 #[command(
     long_about = "Create one Ledger entry from either a strict JSON object or mutation flags.",
-    after_help = "Input modes:\n  --json <OBJECT>\n  or the complete flag set: --date, --type, --amount, --currency, --account, --content.\n\nFormats:\n  --date YYYY-MM-DD\n  --written-at RFC3339\n\nExamples:\n  raven ledger entry add --date 2024-02-29 --type expense --amount 12.34 --currency USD --account cash --content Lunch\n  raven ledger entry add --json '{\"date\":\"2024-02-29\",\"entry_type\":\"expense\",\"amount\":\"12.34\",\"currency\":\"USD\",\"account\":\"cash\",\"content\":\"Lunch\"}'"
+    after_help = "Input modes:\n  --json <OBJECT>\n  or the complete flag set: --date, --type, --amount, --currency, --account, --content.\n  Expense and income entries also require --category; adjustment entries may omit it.\n\nFormats:\n  --date YYYY-MM-DD\n  --written-at RFC3339\n\nExamples:\n  raven ledger entry add --date 2024-02-29 --type expense --amount 12.34 --currency USD --account cash --category food --content Lunch\n  raven ledger entry add --json '{\"date\":\"2024-02-29\",\"entry_type\":\"expense\",\"amount\":\"12.34\",\"currency\":\"USD\",\"account\":\"cash\",\"category\":\"food\",\"content\":\"Lunch\"}'"
 )]
 pub struct EntryAddArgs {
     #[arg(long)]

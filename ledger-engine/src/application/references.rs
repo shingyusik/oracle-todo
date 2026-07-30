@@ -17,6 +17,18 @@ const MAX_HIERARCHY_DEPTH: usize = 1024;
 
 #[allow(private_bounds)]
 impl<R: LedgerMutationRepository> LedgerService<R> {
+    /// Resolves an explicitly supplied active currency reference and returns its precision.
+    ///
+    /// This uses the same ID, code, and unique active-name policy as mutations so
+    /// adapters can parse money without changing inactive, deleted, missing, or
+    /// ambiguous reference semantics.
+    pub fn resolve_active_currency_precision(&mut self, reference: &str) -> LedgerResult<u8> {
+        let transaction = self.repository.begin_transaction()?;
+        let precision = resolve_currency(&*transaction, reference)?.decimal_places();
+        transaction.rollback()?;
+        Ok(precision)
+    }
+
     pub fn create_currency(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
         validate_actor(&command.actor)?;
         let now = time::OffsetDateTime::now_utc();

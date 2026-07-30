@@ -77,7 +77,7 @@ fn entry(service: &mut Service, command: LedgerEntryCommand) -> LedgerResult<()>
 fn add_entry(service: &mut Service, args: EntryAddArgs) -> LedgerResult<()> {
     let input = entry_add_input(args)?;
     let date = parse_date(&input.date, "date")?;
-    let precision = currency_precision(service, &input.currency)?;
+    let precision = service.resolve_active_currency_precision(&input.currency)?;
     let amount = parse_money(&input.amount, precision, "amount")?;
     let entry_type = parse_entry_type(&input.entry_type)?;
     let created = service.create_entry(CreateEntry {
@@ -104,7 +104,7 @@ fn update_entry(service: &mut Service, args: EntryUpdateArgs) -> LedgerResult<()
     let amount = match input.amount.as_deref() {
         Some(value) => {
             let precision = match input.currency.as_deref() {
-                Some(reference) => currency_precision(service, reference)?,
+                Some(reference) => service.resolve_active_currency_precision(reference)?,
                 None => service.entry_currency_precision(&id)?,
             };
             Some(parse_money(value, precision, "amount")?)
@@ -245,7 +245,7 @@ fn transfer(service: &mut Service, args: TransferArgs) -> LedgerResult<()> {
     let input = transfer_input(args)?;
     let operation_key = TransferOperationKey::parse(&input.operation_key)?;
     let date = parse_date(&input.date, "date")?;
-    let precision = currency_precision(service, &input.currency)?;
+    let precision = service.resolve_active_currency_precision(&input.currency)?;
     let result = service.transfer(TransferCommand {
         operation_key,
         date: date.to_string(),
@@ -376,7 +376,7 @@ fn account(service: &mut Service, command: AccountCommand) -> LedgerResult<()> {
     match command {
         AccountCommand::Create(args) => {
             let input = account_create_input(args)?;
-            let precision = currency_precision(service, &input.currency)?;
+            let precision = service.resolve_active_currency_precision(&input.currency)?;
             let account = service.create_account(CreateAccount {
                 name: input.name,
                 category: input.category,
@@ -392,7 +392,7 @@ fn account(service: &mut Service, command: AccountCommand) -> LedgerResult<()> {
             let opening_balance = match input.opening_balance.as_deref() {
                 Some(value) => {
                     let precision = match input.currency.as_deref() {
-                        Some(reference) => currency_precision(service, reference)?,
+                        Some(reference) => service.resolve_active_currency_precision(reference)?,
                         None => service.account_currency_precision(&id)?,
                     };
                     Some(parse_money(value, precision, "opening_balance")?)
@@ -660,7 +660,26 @@ fn briefing(service: &Service, args: ReportRangeArgs) -> LedgerResult<()> {
     match args.format {
         OutputFormat::Json => print_json(&BriefingOutput::from(report)),
         OutputFormat::Table => {
-            println!("{}", report.markdown);
+            println!("FROM\tTO\tCURRENCY\tINCOME_MINOR\tEXPENSE_MINOR\tNET_CHANGE_MINOR\tENTRIES");
+            if report.summary.currencies.is_empty() {
+                println!(
+                    "{}\t{}\t-\t0\t0\t0\t0",
+                    report.summary.range.start, report.summary.range.end
+                );
+            } else {
+                for row in &report.summary.currencies {
+                    println!(
+                        "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                        report.summary.range.start,
+                        report.summary.range.end,
+                        table_cell(&row.currency_code),
+                        row.income_minor,
+                        row.expense_minor,
+                        row.net_change_minor,
+                        row.entry_count
+                    );
+                }
+            }
             Ok(())
         }
     }
@@ -846,54 +865,6 @@ fn page(args: &PageReadArgs) -> Page {
     Page {
         offset: args.offset,
         limit: args.limit,
-    }
-}
-
-fn currency_precision(service: &Service, reference: &str) -> LedgerResult<u8> {
-    let reference = reference.trim();
-    if reference.is_empty() {
-        return Err(validation("currency", "reference must not be blank"));
-    }
-    let values = all_currencies(service)?;
-    if let Some(currency) = values.iter().find(|currency| currency.id() == reference) {
-        return Ok(currency.decimal_places());
-    }
-    let by_code: Vec<_> = values
-        .iter()
-        .filter(|currency| currency.code() == reference)
-        .collect();
-    match by_code.as_slice() {
-        [currency] => return Ok(currency.decimal_places()),
-        [_, _, ..] => {
-            return Err(LedgerError::Conflict(format!(
-                "currency reference {reference} is ambiguous"
-            )));
-        }
-        [] => {}
-    }
-    let by_name: Vec<_> = values
-        .iter()
-        .filter(|currency| currency.name() == reference)
-        .collect();
-    match by_name.as_slice() {
-        [currency] => Ok(currency.decimal_places()),
-        [_, _, ..] => Err(LedgerError::Conflict(format!(
-            "currency reference {reference} is ambiguous"
-        ))),
-        [] => Err(LedgerError::NotFound(format!("currency {reference}"))),
-    }
-}
-
-fn all_currencies(service: &Service) -> LedgerResult<Vec<Currency>> {
-    let mut values = Vec::new();
-    let mut page = Page::default();
-    loop {
-        let result = service.currencies_page(page)?;
-        values.extend(result.items);
-        match result.next {
-            Some(next) => page = next,
-            None => return Ok(values),
-        }
     }
 }
 

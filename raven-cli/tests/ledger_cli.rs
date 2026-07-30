@@ -48,6 +48,18 @@ fn assert_exit(home: &Path, args: &[&str], expected: i32) -> Output {
     output
 }
 
+fn assert_exit_owned(home: &Path, args: &[String], expected: i32) -> Output {
+    let output = raven(home).args(args).output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(expected),
+        "wrong exit for {args:?}\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
 fn init_and_seed(home: &Path) {
     success(home, &["init"]);
     json_success(
@@ -1360,6 +1372,7 @@ fn mutation_help_documents_input_modes_and_canonical_formats() {
         "--amount",
         "--currency",
         "--account",
+        "--category",
         "--content",
     ] {
         assert!(
@@ -1367,6 +1380,9 @@ fn mutation_help_documents_input_modes_and_canonical_formats() {
             "missing {required:?} in:\n{entry}"
         );
     }
+    assert!(entry.contains("Expense and income entries also require --category"));
+    assert!(entry.contains("--account cash --category food --content Lunch"));
+    assert!(entry.contains(r#""account":"cash","category":"food","content":"Lunch""#));
 
     let transfer =
         String::from_utf8(success(home.path(), &["ledger", "transfer", "--help"]).stdout).unwrap();
@@ -1477,4 +1493,468 @@ fn export_max_bytes_caps_exact_stdout_document_bytes() {
         ],
         1,
     );
+}
+
+#[test]
+fn explicit_currency_precision_matches_service_policy_across_mutations() {
+    use ledger_engine::application::error::LedgerError;
+    use ledger_engine::application::service::LedgerService;
+    use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
+
+    let home = tempfile::tempdir().unwrap();
+    init_and_seed(home.path());
+    let entry = add_lunch(home.path());
+    let entry_id = entry["id"].as_str().unwrap().to_string();
+    let candidate = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "create",
+            "--name",
+            "candidate",
+            "--category",
+            "Cash",
+            "--currency",
+            "KRW",
+            "--opening-balance",
+            "0",
+        ],
+    );
+    let candidate_id = candidate["id"].as_str().unwrap().to_string();
+
+    for index in 0..101 {
+        let code = format!("P{index:03}");
+        json_success(
+            home.path(),
+            &[
+                "ledger",
+                "currency",
+                "create",
+                "--code",
+                &code,
+                "--name",
+                &format!("Paged currency {index:03}"),
+                "--symbol",
+                &code,
+                "--decimal-places",
+                "3",
+            ],
+        );
+    }
+    let target = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "create",
+            "--code",
+            "ZZZ",
+            "--name",
+            "Zed target",
+            "--symbol",
+            "Z",
+            "--decimal-places",
+            "3",
+        ],
+    );
+    let target_id = target["id"].as_str().unwrap();
+    let target_account = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "create",
+            "--name",
+            "target one",
+            "--category",
+            "Cash",
+            "--currency",
+            "Zed target",
+            "--opening-balance",
+            "1.234",
+        ],
+    );
+    let target_account_id = target_account["id"].as_str().unwrap();
+    let target_account_two = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "create",
+            "--name",
+            "target two",
+            "--category",
+            "Cash",
+            "--currency",
+            target_id,
+            "--opening-balance",
+            "0.000",
+        ],
+    );
+    let target_account_two_id = target_account_two["id"].as_str().unwrap();
+    let target_entry = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "entry",
+            "add",
+            "--date",
+            "2026-07-30",
+            "--type",
+            "expense",
+            "--amount",
+            "1.234",
+            "--currency",
+            target_id,
+            "--account",
+            target_account_id,
+            "--category",
+            "food",
+            "--content",
+            "Paged precision",
+        ],
+    );
+    let target_entry_id = target_entry["id"].as_str().unwrap();
+    assert_eq!(
+        json_success(
+            home.path(),
+            &[
+                "ledger",
+                "entry",
+                "update",
+                target_entry_id,
+                "--currency",
+                "ZZZ",
+                "--amount",
+                "2.345",
+            ],
+        )["amount_minor"],
+        2345
+    );
+    assert_eq!(
+        json_success(
+            home.path(),
+            &[
+                "ledger",
+                "account",
+                "update",
+                &candidate_id,
+                "--currency",
+                "Zed target",
+                "--opening-balance",
+                "3.456",
+            ],
+        )["opening_balance_minor"],
+        3456
+    );
+    let transfer = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "transfer",
+            "--operation-key",
+            "018f31c0-5c2a-4e75-9c18-a14d7bddb2a2",
+            "--date",
+            "2026-07-30",
+            "--amount",
+            "0.111",
+            "--currency",
+            "ZZZ",
+            "--from-account",
+            target_account_id,
+            "--to-account",
+            target_account_two_id,
+            "--content",
+            "Paged transfer",
+        ],
+    );
+    assert!(transfer["transfer_group_id"].is_string());
+
+    let inactive = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "create",
+            "--code",
+            "INA",
+            "--name",
+            "Inactive precision",
+            "--symbol",
+            "I",
+            "--decimal-places",
+            "3",
+        ],
+    );
+    let inactive_id = inactive["id"].as_str().unwrap().to_string();
+    json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "update",
+            &inactive_id,
+            "--active",
+            "false",
+        ],
+    );
+    let deleted = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "create",
+            "--code",
+            "DEL",
+            "--name",
+            "Deleted precision",
+            "--symbol",
+            "D",
+            "--decimal-places",
+            "3",
+        ],
+    );
+    let deleted_id = deleted["id"].as_str().unwrap().to_string();
+    for code in ["AM1", "AM2"] {
+        json_success(
+            home.path(),
+            &[
+                "ledger",
+                "currency",
+                "create",
+                "--code",
+                code,
+                "--name",
+                "Ambiguous precision",
+                "--symbol",
+                code,
+                "--decimal-places",
+                "3",
+            ],
+        );
+    }
+    let connection = rusqlite::Connection::open(home.path().join("ledger.sqlite")).unwrap();
+    connection
+        .execute(
+            "UPDATE currencies
+             SET active = 0,
+                 updated_at = '2099-07-30T00:00:00Z',
+                 deleted_at = '2099-07-30T00:00:00Z'
+             WHERE id = ?1",
+            [&deleted_id],
+        )
+        .unwrap();
+    drop(connection);
+
+    let references = [
+        (inactive_id.as_str(), 2),
+        (deleted_id.as_str(), 4),
+        ("00000000-0000-4000-8000-000000000000", 4),
+        ("Ambiguous precision", 2),
+    ];
+    for (reference, expected) in references {
+        let mut service = LedgerService::new(
+            SqliteLedgerRepository::open(home.path().join("ledger.sqlite")).unwrap(),
+        );
+        let service_exit = match service.resolve_active_currency_precision(reference) {
+            Ok(_) => 0,
+            Err(LedgerError::Validation { .. } | LedgerError::Conflict(_)) => 2,
+            Err(LedgerError::NotFound(_)) => 4,
+            Err(_) => 1,
+        };
+        assert_eq!(service_exit, expected);
+
+        let commands = [
+            vec![
+                "ledger".to_string(),
+                "entry".to_string(),
+                "add".to_string(),
+                "--date".to_string(),
+                "2026-07-30".to_string(),
+                "--type".to_string(),
+                "expense".to_string(),
+                "--amount".to_string(),
+                "1.000".to_string(),
+                "--currency".to_string(),
+                reference.to_string(),
+                "--account".to_string(),
+                "card".to_string(),
+                "--category".to_string(),
+                "food".to_string(),
+                "--content".to_string(),
+                "Policy matrix".to_string(),
+            ],
+            vec![
+                "ledger".to_string(),
+                "entry".to_string(),
+                "update".to_string(),
+                entry_id.clone(),
+                "--currency".to_string(),
+                reference.to_string(),
+                "--amount".to_string(),
+                "1.000".to_string(),
+            ],
+            vec![
+                "ledger".to_string(),
+                "account".to_string(),
+                "create".to_string(),
+                "--name".to_string(),
+                "policy matrix".to_string(),
+                "--category".to_string(),
+                "Cash".to_string(),
+                "--currency".to_string(),
+                reference.to_string(),
+                "--opening-balance".to_string(),
+                "1.000".to_string(),
+            ],
+            vec![
+                "ledger".to_string(),
+                "account".to_string(),
+                "update".to_string(),
+                candidate_id.clone(),
+                "--currency".to_string(),
+                reference.to_string(),
+                "--opening-balance".to_string(),
+                "1.000".to_string(),
+            ],
+            vec![
+                "ledger".to_string(),
+                "transfer".to_string(),
+                "--operation-key".to_string(),
+                "018f31c0-5c2a-4e75-9c18-a14d7bddb2a3".to_string(),
+                "--date".to_string(),
+                "2026-07-30".to_string(),
+                "--amount".to_string(),
+                "1.000".to_string(),
+                "--currency".to_string(),
+                reference.to_string(),
+                "--from-account".to_string(),
+                "bank".to_string(),
+                "--to-account".to_string(),
+                "card".to_string(),
+                "--content".to_string(),
+                "Policy matrix".to_string(),
+            ],
+        ];
+        for command in commands {
+            let output = assert_exit_owned(home.path(), &command, service_exit);
+            assert!(output.stdout.is_empty());
+        }
+    }
+}
+
+#[test]
+fn briefing_table_escapes_currency_controls_without_changing_json() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"]);
+    let code = "B\tR\r\n\u{1b}[31m";
+    let currency = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "currency",
+            "create",
+            "--code",
+            code,
+            "--name",
+            "Briefing control",
+            "--symbol",
+            "B",
+            "--decimal-places",
+            "2",
+        ],
+    );
+    let currency_id = currency["id"].as_str().unwrap();
+    json_success(
+        home.path(),
+        &["ledger", "account-category", "create", "--name", "Cash"],
+    );
+    let account = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "create",
+            "--name",
+            "briefing account",
+            "--category",
+            "Cash",
+            "--currency",
+            currency_id,
+            "--opening-balance",
+            "0.00",
+        ],
+    );
+    let account_id = account["id"].as_str().unwrap();
+    json_success(
+        home.path(),
+        &[
+            "ledger",
+            "category",
+            "create",
+            "--name",
+            "briefing expense",
+            "--kind",
+            "expense",
+        ],
+    );
+    json_success(
+        home.path(),
+        &[
+            "ledger",
+            "entry",
+            "add",
+            "--date",
+            "2024-02-29",
+            "--type",
+            "expense",
+            "--amount",
+            "1.23",
+            "--currency",
+            currency_id,
+            "--account",
+            account_id,
+            "--category",
+            "briefing expense",
+            "--content",
+            "Control",
+        ],
+    );
+
+    let table = success(
+        home.path(),
+        &[
+            "ledger",
+            "briefing",
+            "--from",
+            "2024-02-29",
+            "--to",
+            "2024-02-29",
+            "--format",
+            "table",
+        ],
+    );
+    let table = String::from_utf8(table.stdout).unwrap();
+    assert_eq!(table.lines().count(), 2);
+    assert!(table.lines().all(|line| line.matches('\t').count() == 6));
+    assert!(!table.contains('\r'));
+    assert!(!table.contains('\u{1b}'));
+    assert!(table.contains(r"B\tR\r\n\u{001b}[31m"));
+
+    let briefing = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "briefing",
+            "--from",
+            "2024-02-29",
+            "--to",
+            "2024-02-29",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(briefing["summary"]["currencies"][0]["currency_code"], code);
+    assert!(briefing["markdown"].as_str().unwrap().contains(code));
 }
