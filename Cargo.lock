@@ -442,8 +442,10 @@ dependencies = [
 name = "health-engine"
 version = "0.1.0"
 dependencies = [
+ "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "time",
  "unicode-casefold",

@@ -5,10 +5,14 @@ edition = "2024"
 description = "Policy-enforced Raven Health Journal domain"
 
 [dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
 unicode-casefold = "0.2"
 unicode-normalization = "0.1"
-uuid = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
