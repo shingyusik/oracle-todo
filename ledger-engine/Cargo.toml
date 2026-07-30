@@ -5,9 +5,11 @@ edition = "2024"
 description = "Policy-enforced Raven Ledger engine"
 
 [dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
 
 [dev-dependencies]
-serde_json = "1"
+tempfile = "3"
