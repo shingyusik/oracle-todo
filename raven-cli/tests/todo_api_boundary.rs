@@ -26,34 +26,69 @@ fn raven_todo_rejects_the_legacy_api_after_the_option_delimiter() {
 
 #[test]
 fn raven_todo_help_describes_only_the_raven_delegated_surface() {
-    let output = raven().args(["todo", "--help"]).output().unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("Policy-enforced personal ToDo engine"));
-    assert!(stdout.contains("Usage: raven todo <COMMAND>"));
-    assert!(stdout.contains("init"));
-    assert!(stdout.contains("period"));
-    for legacy in [
-        "todo-engine",
-        "TODO_ENGINE_HOME",
-        "~/.todo-engine",
-        "Serve the HTTP API",
-        "\n  api ",
+    for args in [
+        vec!["todo", "--help"],
+        vec!["todo", "-h"],
+        vec!["todo", "help"],
     ] {
-        assert!(!stdout.contains(legacy), "{legacy}");
+        let output = raven().args(args).output().unwrap();
+
+        assert!(output.status.success());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("Policy-enforced personal ToDo engine"));
+        assert!(stdout.contains("Usage: raven todo <COMMAND>"));
+        assert!(stdout.contains("init"));
+        assert!(stdout.contains("period"));
+        for legacy in [
+            "todo-engine",
+            "TODO_ENGINE_HOME",
+            "~/.todo-engine",
+            "Serve the HTTP API",
+            "\n  api ",
+        ] {
+            assert!(!stdout.contains(legacy), "{legacy}");
+        }
     }
 }
 
 #[test]
 fn nested_todo_help_keeps_the_raven_program_name() {
-    for args in [["todo", "task", "--help"], ["todo", "postpone", "--help"]] {
+    for (args, usage, option) in [
+        (
+            &["todo", "task", "--help"][..],
+            "Usage: raven todo task <COMMAND>",
+            "propose",
+        ),
+        (
+            &["todo", "postpone", "--help"][..],
+            "Usage: raven todo postpone [OPTIONS] <ITEM_ID>",
+            "--scheduled",
+        ),
+        (
+            &["todo", "help", "task"][..],
+            "Usage: raven todo task <COMMAND>",
+            "propose",
+        ),
+        (
+            &["todo", "help", "postpone"][..],
+            "Usage: raven todo postpone [OPTIONS] <ITEM_ID>",
+            "--scheduled",
+        ),
+    ] {
         let output = raven().args(args).output().unwrap();
 
         assert!(output.status.success());
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains("Usage: raven todo"));
-        assert!(!stdout.contains("todo-engine"));
+        assert!(stdout.contains(usage), "{stdout}");
+        assert!(stdout.contains(option), "{stdout}");
+        for legacy in [
+            "todo-engine",
+            "TODO_ENGINE_HOME",
+            "~/.todo-engine",
+            "\n  api ",
+        ] {
+            assert!(!stdout.contains(legacy), "{legacy}");
+        }
     }
 }
 

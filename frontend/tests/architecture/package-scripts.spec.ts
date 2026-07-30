@@ -20,6 +20,10 @@ describe("frontend package scripts", () => {
 
     expect(example).toContain("RAVEN_HOME=/path/to/raven-data");
     expect(example).toContain("RAVEN_CONSOLE_LOG=info");
+    expect(example).toContain(
+      "# Set RAVEN_API_TOKEN to a freshly generated secret",
+    );
+    expect(example).not.toMatch(/^\s*RAVEN_API_TOKEN=/m);
     expect(example).not.toContain("TODO_ENGINE_");
     expect(example).not.toContain("DEV_UI_PORT");
     expect(example).not.toContain("DEV_API_PORT");

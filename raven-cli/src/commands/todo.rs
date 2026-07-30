@@ -54,11 +54,16 @@ where
         .into());
     }
     let command = forwarded_command(&args);
-    if command.is_some_and(|command| command == "--help" || command == "-h" || command == "help") {
+    let help_target = forwarded_help_target(&args);
+    if command.is_some_and(|command| command == "--help" || command == "-h")
+        || (command.is_some_and(|command| command == "help") && help_target.is_none())
+    {
         print!("{HELP}");
         return Ok(());
     }
-    if command.is_some_and(|command| command == "api") {
+    if command.is_some_and(|command| command == "api")
+        || help_target.is_some_and(|command| command == "api")
+    {
         return Err(clap::Error::raw(
             clap::error::ErrorKind::InvalidSubcommand,
             "`raven todo api` is unsupported; use `raven api` or `raven ui`",
@@ -82,4 +87,13 @@ fn forwarded_command(args: &[OsString]) -> Option<&std::ffi::OsStr> {
     args.iter()
         .find(|arg| arg.as_os_str() != "--")
         .map(OsString::as_os_str)
+}
+
+fn forwarded_help_target(args: &[OsString]) -> Option<&std::ffi::OsStr> {
+    let mut args = args.iter().filter(|arg| arg.as_os_str() != "--");
+    if args.next().is_some_and(|command| command == "help") {
+        args.next().map(OsString::as_os_str)
+    } else {
+        None
+    }
 }
