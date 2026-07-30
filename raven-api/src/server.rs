@@ -1,17 +1,24 @@
-use std::io::ErrorKind;
+use std::collections::BTreeMap;
+use std::io::Read;
 use std::net::SocketAddr;
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::body::Body;
-use axum::extract::Request;
+use axum::body::{Body, Bytes};
+use axum::extract::{Request, State};
 use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::get;
 use thiserror::Error;
 
 use crate::{RavenApiConfig, ServerBind, UiSessionToken};
+
+const MAX_UI_FILE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_UI_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_UI_ENTRIES: usize = 10_000;
+const MAX_UI_DEPTH: usize = 64;
 
 #[derive(Debug, Error)]
 #[error("non-loopback cleartext bind requires RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true")]
@@ -44,10 +51,14 @@ pub async fn serve_listener(
 
 pub fn ui_router(
     config: RavenApiConfig,
-    ui_path: impl AsRef<Path>,
+    artifact: UiArtifact,
     session: UiSessionToken,
+    authority: SocketAddr,
 ) -> anyhow::Result<Router> {
-    let root = StaticRoot::new(ui_path.as_ref())?;
+    if !authority.ip().is_loopback() {
+        anyhow::bail!("Raven UI authority must be loopback");
+    }
+    let expected = ExpectedAuthority::new(authority);
     let cookie = HeaderValue::from_str(&format!(
         "raven_session={}; HttpOnly; SameSite=Strict; Path=/",
         session.cookie_value()
@@ -62,115 +73,270 @@ pub fn ui_router(
                 .headers_mut()
                 .insert(header::LOCATION, HeaderValue::from_static("/"));
             response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
         }
     };
-    let root = Arc::new(root);
-    let static_files = move |request: Request| serve_static(root.clone(), request);
+    let static_files = move |request: Request| serve_static(artifact.clone(), request);
 
     Ok(Router::new()
         .merge(crate::router(config)?)
         .route("/__raven/session", get(bootstrap))
-        .fallback(static_files))
+        .fallback(static_files)
+        .layer(middleware::from_fn_with_state(
+            expected,
+            validate_ui_authority,
+        )))
 }
 
-#[derive(Debug)]
-struct StaticRoot {
-    canonical: PathBuf,
-    index: PathBuf,
+#[derive(Clone)]
+pub struct UiArtifact(Arc<StaticSnapshot>);
+
+struct StaticSnapshot {
+    files: BTreeMap<String, StaticAsset>,
 }
 
-impl StaticRoot {
-    fn new(path: &Path) -> anyhow::Result<Self> {
+#[derive(Clone)]
+struct StaticAsset {
+    bytes: Bytes,
+    content_type: &'static str,
+}
+
+impl UiArtifact {
+    pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let path = path.as_ref();
         let metadata = std::fs::symlink_metadata(path)
             .map_err(|_| anyhow::anyhow!("UI artifact is missing"))?;
         if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
             anyhow::bail!("UI artifact must be a regular directory");
         }
-        let canonical = path
+        let root = path
             .canonicalize()
             .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
-        let index = canonical.join("index.html");
-        let index_metadata = std::fs::symlink_metadata(&index)
-            .map_err(|_| anyhow::anyhow!("UI artifact does not contain index.html"))?;
-        if !index_metadata.file_type().is_file() || index_metadata.file_type().is_symlink() {
-            anyhow::bail!("UI artifact index.html must be a regular file");
+        let mut files = BTreeMap::new();
+        let mut total_bytes = 0_u64;
+        let mut entries = 0_usize;
+        load_directory(
+            &root,
+            &root,
+            "",
+            0,
+            &mut entries,
+            &mut total_bytes,
+            &mut files,
+        )?;
+        if !files.contains_key("index.html") {
+            anyhow::bail!("UI artifact does not contain index.html");
         }
-        Ok(Self { canonical, index })
+        Ok(Self(Arc::new(StaticSnapshot { files })))
     }
 }
 
-async fn serve_static(root: Arc<StaticRoot>, request: Request) -> Response {
+fn load_directory(
+    root: &Path,
+    directory: &Path,
+    prefix: &str,
+    depth: usize,
+    entries: &mut usize,
+    total_bytes: &mut u64,
+    files: &mut BTreeMap<String, StaticAsset>,
+) -> anyhow::Result<()> {
+    if depth > MAX_UI_DEPTH {
+        anyhow::bail!("UI artifact directory depth exceeds the limit");
+    }
+    let mut children = std::fs::read_dir(directory)
+        .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
+    children.sort_by_key(std::fs::DirEntry::file_name);
+
+    for child in children {
+        *entries += 1;
+        if *entries > MAX_UI_ENTRIES {
+            anyhow::bail!("UI artifact contains too many entries");
+        }
+        let name = child
+            .file_name()
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("UI artifact contains a non-UTF-8 name"))?;
+        if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+            anyhow::bail!("UI artifact contains an invalid name");
+        }
+        let key = if prefix.is_empty() {
+            name
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let path = child.path();
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!("UI artifact must not contain symlinks");
+        }
+        let canonical = path
+            .canonicalize()
+            .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
+        if !canonical.starts_with(root) {
+            anyhow::bail!("UI artifact entry escapes its root");
+        }
+        if metadata.is_dir() {
+            load_directory(
+                root,
+                &canonical,
+                &key,
+                depth + 1,
+                entries,
+                total_bytes,
+                files,
+            )?;
+        } else if metadata.is_file() {
+            let length = metadata.len();
+            if length > MAX_UI_FILE_BYTES {
+                anyhow::bail!("UI artifact file exceeds the size limit");
+            }
+            let next_total = total_bytes
+                .checked_add(length)
+                .filter(|value| *value <= MAX_UI_TOTAL_BYTES)
+                .ok_or_else(|| anyhow::anyhow!("UI artifact exceeds the total size limit"))?;
+            let mut bytes = Vec::with_capacity(length as usize);
+            std::fs::File::open(&canonical)
+                .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?
+                .take(MAX_UI_FILE_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|_| anyhow::anyhow!("UI artifact is unreadable"))?;
+            let after = std::fs::symlink_metadata(&path)
+                .map_err(|_| anyhow::anyhow!("UI artifact changed while loading"))?;
+            if !after.is_file()
+                || after.file_type().is_symlink()
+                || after.len() != length
+                || bytes.len() as u64 != length
+            {
+                anyhow::bail!("UI artifact changed while loading");
+            }
+            *total_bytes = next_total;
+            files.insert(
+                key.clone(),
+                StaticAsset {
+                    bytes: Bytes::from(bytes),
+                    content_type: content_type(Path::new(&key)),
+                },
+            );
+        } else {
+            anyhow::bail!("UI artifact contains a non-regular entry");
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone)]
+struct ExpectedAuthority {
+    host: HeaderValue,
+    origin: HeaderValue,
+}
+
+impl ExpectedAuthority {
+    fn new(authority: SocketAddr) -> Self {
+        let authority = authority.to_string();
+        Self {
+            host: HeaderValue::from_str(&authority).expect("socket authority is a valid header"),
+            origin: HeaderValue::from_str(&format!("http://{authority}"))
+                .expect("socket origin is a valid header"),
+        }
+    }
+}
+
+async fn validate_ui_authority(
+    State(expected): State<ExpectedAuthority>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let headers = request.headers();
+    if exact_header(headers, header::HOST) != Some(expected.host.as_bytes()) {
+        return status(StatusCode::MISDIRECTED_REQUEST);
+    }
+    if let Some(origin) = optional_exact_header(headers, header::ORIGIN) {
+        if origin != Some(expected.origin.as_bytes()) {
+            return status(StatusCode::MISDIRECTED_REQUEST);
+        }
+    }
+    next.run(request).await
+}
+
+fn exact_header(headers: &axum::http::HeaderMap, name: axum::http::HeaderName) -> Option<&[u8]> {
+    let mut values = headers.get_all(name).iter();
+    let value = values.next()?;
+    values.next().is_none().then_some(value.as_bytes())
+}
+
+fn optional_exact_header(
+    headers: &axum::http::HeaderMap,
+    name: axum::http::HeaderName,
+) -> Option<Option<&[u8]>> {
+    let mut values = headers.get_all(name).iter();
+    let first = values.next();
+    if values.next().is_some() {
+        return Some(None);
+    }
+    first.map(|value| Some(value.as_bytes()))
+}
+
+async fn serve_static(artifact: UiArtifact, request: Request) -> Response {
     if request.method() != Method::GET && request.method() != Method::HEAD {
         return status(StatusCode::METHOD_NOT_ALLOWED);
     }
     let path = request.uri().path();
-    if path.starts_with("/api/") || path.starts_with("/__raven/") || path == "/healthz" {
+    if reserved(path, "/api") || reserved(path, "/__raven") || reserved(path, "/healthz") {
         return status(StatusCode::NOT_FOUND);
     }
     if path.as_bytes().contains(&b'%') || path.as_bytes().contains(&b'\\') {
         return status(StatusCode::BAD_REQUEST);
     }
 
-    let relative = path.trim_start_matches('/');
-    let relative = if relative.is_empty() {
-        Path::new("index.html")
-    } else {
-        Path::new(relative)
-    };
-    if relative.components().any(|component| {
-        !matches!(component, Component::Normal(_))
-            || component.as_os_str().is_empty()
-            || component.as_os_str() == "."
-            || component.as_os_str() == ".."
-    }) {
+    let key = path.trim_start_matches('/');
+    let key = if key.is_empty() { "index.html" } else { key };
+    if key
+        .split('/')
+        .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
         return status(StatusCode::BAD_REQUEST);
     }
 
-    let requested = root.canonical.join(relative);
-    let file = match regular_file_within(&root.canonical, &requested).await {
-        Ok(Some(path)) => path,
-        Ok(None) if relative.extension().is_none() => root.index.clone(),
-        Ok(None) => return status(StatusCode::NOT_FOUND),
-        Err(()) => return status(StatusCode::FORBIDDEN),
+    let asset = match artifact.0.files.get(key) {
+        Some(asset) => asset.clone(),
+        None if Path::new(key).extension().is_none() => artifact
+            .0
+            .files
+            .get("index.html")
+            .expect("validated UI artifact has index.html")
+            .clone(),
+        None => return status(StatusCode::NOT_FOUND),
     };
-    let body = match tokio::fs::read(&file).await {
-        Ok(body) => body,
-        Err(_) => return status(StatusCode::NOT_FOUND),
-    };
-    let content_type = HeaderValue::from_static(content_type(&file));
     let mut response = if request.method() == Method::HEAD {
         Response::new(Body::empty())
     } else {
-        Response::new(Body::from(body))
+        Response::new(Body::from(asset.bytes.clone()))
     };
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(asset.content_type),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&asset.bytes.len().to_string())
+            .expect("asset length is a valid header"),
+    );
     response
         .headers_mut()
-        .insert(header::CONTENT_TYPE, content_type);
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
-async fn regular_file_within(root: &Path, path: &Path) -> Result<Option<PathBuf>, ()> {
-    let relative = path.strip_prefix(root).map_err(|_| ())?;
-    let mut current = root.to_path_buf();
-    for component in relative.components() {
-        current.push(component);
-        match tokio::fs::symlink_metadata(&current).await {
-            Ok(metadata) if metadata.file_type().is_symlink() => return Err(()),
-            Ok(_) => {}
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(()),
-        }
-    }
-    let metadata = tokio::fs::metadata(path).await.map_err(|_| ())?;
-    if !metadata.is_file() {
-        return Ok(None);
-    }
-    let canonical = tokio::fs::canonicalize(path).await.map_err(|_| ())?;
-    canonical
-        .starts_with(root)
-        .then_some(canonical)
-        .ok_or(())
-        .map(Some)
+fn reserved(path: &str, namespace: &str) -> bool {
+    path == namespace
+        || path
+            .strip_prefix(namespace)
+            .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn status(value: StatusCode) -> Response {

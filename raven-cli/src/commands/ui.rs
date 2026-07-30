@@ -1,6 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus};
+use std::thread::JoinHandle;
 
 use raven_api::{AuthMode, RavenApiConfig};
 use time::macros::offset;
@@ -10,6 +11,7 @@ use crate::config::RavenPaths;
 
 pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
     let ui_path = resolve_ui_path(args.ui_path)?;
+    let artifact = raven_api::UiArtifact::load(ui_path)?;
     let session =
         raven_api::UiSessionToken::generate().map_err(|_| anyhow::anyhow!("UI session failed"))?;
     let config = RavenApiConfig {
@@ -20,12 +22,12 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
         local_offset: offset!(+9),
         auth: AuthMode::ui_session(&session),
     };
-    let app = raven_api::ui_router(config, ui_path, session)?;
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual = listener.local_addr()?;
+        let app = raven_api::ui_router(config, artifact, session, actual)?;
         let url = format!("http://{actual}");
         println!("Raven UI listening on {url}");
         if !args.no_open {
@@ -69,5 +71,30 @@ fn open_browser(url: &str) -> std::io::Result<()> {
         command.arg(url);
         command
     };
-    command.spawn().map(|_| ())
+    let child = command.spawn()?;
+    reap_child(child);
+    Ok(())
+}
+
+fn reap_child(mut child: Child) -> JoinHandle<std::io::Result<ExitStatus>> {
+    std::thread::spawn(move || child.wait())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_child_is_reaped_off_the_server_thread() {
+        #[cfg(unix)]
+        let child = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
+        #[cfg(windows)]
+        let child = Command::new("cmd")
+            .args(["/C", "exit", "0"])
+            .spawn()
+            .unwrap();
+
+        let status = reap_child(child).join().unwrap().unwrap();
+        assert!(status.success());
+    }
 }
