@@ -26,40 +26,40 @@ test("dispatches update", async () => {
 });
 
 test("prints wrapper and installed engine version", async () => {
-  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-cli-"));
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
   await writeMetadata(cacheRoot, {
     installedVersion: "0.2.0",
-    binaryPath: path.join(cacheRoot, "bin", "todo-engine"),
+    binaryPath: path.join(cacheRoot, "bin", "raven"),
     uiVersion: "0.2.0",
     uiPath: path.join(cacheRoot, "ui"),
   });
   const lines = [];
 
   const code = await main(["version"], {
-    env: { ORACLE_TODO_CACHE_DIR: cacheRoot },
+    env: { RAVEN_CACHE_DIR: cacheRoot },
     log: (line) => lines.push(line),
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(lines, ["@shings/oracle-todo wrapper", "todo-engine 0.2.0", "oracle-todo-ui 0.2.0"]);
+  assert.deepEqual(lines, ["@shings/raven wrapper", "raven 0.2.0", "raven-ui 0.2.0"]);
 });
 
 test("reports not installed version state", async () => {
-  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-cli-"));
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
   const lines = [];
 
   const code = await main(["version"], {
-    env: { ORACLE_TODO_CACHE_DIR: cacheRoot },
+    env: { RAVEN_CACHE_DIR: cacheRoot },
     log: (line) => lines.push(line),
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(lines, ["@shings/oracle-todo wrapper", "todo-engine not installed", "oracle-todo-ui not installed"]);
+  assert.deepEqual(lines, ["@shings/raven wrapper", "raven not installed", "raven-ui not installed"]);
 });
 
 test("doctor reports the active binary path", async () => {
-  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-cli-"));
-  const binaryPath = path.join(cacheRoot, "bin", "todo-engine");
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
+  const binaryPath = path.join(cacheRoot, "bin", "raven");
   const uiPath = path.join(cacheRoot, "ui");
   await writeMetadata(cacheRoot, {
     installedVersion: "0.2.0",
@@ -69,7 +69,7 @@ test("doctor reports the active binary path", async () => {
   const lines = [];
 
   const code = await main(["doctor"], {
-    env: { ORACLE_TODO_CACHE_DIR: cacheRoot },
+    env: { RAVEN_CACHE_DIR: cacheRoot },
     log: (line) => lines.push(line),
   });
 
@@ -78,41 +78,41 @@ test("doctor reports the active binary path", async () => {
 });
 
 test("doctor requires an installed engine", async () => {
-  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-cli-"));
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
 
   await assert.rejects(
     () =>
       main(["doctor"], {
-        env: { ORACLE_TODO_CACHE_DIR: cacheRoot },
+        env: { RAVEN_CACHE_DIR: cacheRoot },
         log: () => {},
       }),
-    /todo-engine is not installed; run install first/
+    /raven is not installed; run install first/
   );
 });
 
 test("doctor requires an installed ui", async () => {
-  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-cli-"));
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-cli-"));
   await writeMetadata(cacheRoot, {
     installedVersion: "0.2.0",
-    binaryPath: path.join(cacheRoot, "bin", "todo-engine"),
+    binaryPath: path.join(cacheRoot, "bin", "raven"),
   });
 
   await assert.rejects(
     () =>
       main(["doctor"], {
-        env: { ORACLE_TODO_CACHE_DIR: cacheRoot },
+        env: { RAVEN_CACHE_DIR: cacheRoot },
         log: () => {},
       }),
-    /oracle-todo-ui is not installed; run install first/
+    /raven-ui is not installed; run install first/
   );
 });
 
-test("dispatches ui without forwarding to the engine command runner", async () => {
+test("dispatches ui to the native Raven UI launcher", async () => {
   const calls = [];
   const code = await main(["--home", "/tmp/todo", "ui", "--no-open"], {
     installBundle: async () => {
       calls.push(["installBundle"]);
-      return { binaryPath: "/tmp/todo-engine", uiPath: "/tmp/ui", installedVersion: "0.3.0", uiVersion: "0.3.0" };
+      return { binaryPath: "/tmp/raven", uiPath: "/tmp/ui", installedVersion: "0.3.0", uiVersion: "0.3.0" };
     },
     runUi: async (args) => {
       calls.push(["ui", args]);
@@ -128,12 +128,12 @@ test("dispatches ui without forwarding to the engine command runner", async () =
   assert.deepEqual(calls, [["ui", ["--home", "/tmp/todo", "ui", "--no-open"]]]);
 });
 
-test("forwards ui titles in engine commands without starting the UI", async () => {
+test("forwards ui values in domain commands without starting the UI", async () => {
   const calls = [];
-  const code = await main(["task", "propose", "ui"], {
+  const code = await main(["todo", "task", "create", "--title", "ui"], {
     installEngine: async () => {
       calls.push(["install"]);
-      return { binaryPath: "/tmp/todo-engine" };
+      return { binaryPath: "/tmp/raven" };
     },
     runUi: async () => {
       throw new Error("UI runtime should not be called");
@@ -146,12 +146,12 @@ test("forwards ui titles in engine commands without starting the UI", async () =
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(calls, [["install"], ["run", ["task", "propose", "ui"], "/tmp/todo-engine"]]);
+  assert.deepEqual(calls, [["install"], ["run", ["todo", "task", "create", "--title", "ui"], "/tmp/raven"]]);
 });
 
-test("forwards normal engine commands after ensuring install", async () => {
+test("forwards Raven domain arguments unchanged after ensuring install", async () => {
   const calls = [];
-  const code = await main(["today"], {
+  const code = await main(["ledger", "entry", "list"], {
     installEngine: async () => calls.push(["install"]),
     runEngine: async (args) => {
       calls.push(["run", args]);
@@ -161,5 +161,5 @@ test("forwards normal engine commands after ensuring install", async () => {
   });
 
   assert.equal(code, 4);
-  assert.deepEqual(calls, [["install"], ["run", ["today"]]]);
+  assert.deepEqual(calls, [["install"], ["run", ["ledger", "entry", "list"]]]);
 });

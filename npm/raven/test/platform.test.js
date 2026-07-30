@@ -9,7 +9,7 @@ test("resolves supported Node platforms to Rust targets", () => {
     arch: "arm64",
     target: "aarch64-apple-darwin",
     extension: ".tar.gz",
-    binaryName: "todo-engine",
+    binaryName: "raven",
   });
   assert.deepEqual(resolvePlatform({ platform: "darwin", arch: "x64" }).target, "x86_64-apple-darwin");
   assert.deepEqual(resolvePlatform({ platform: "linux", arch: "x64" }).target, "x86_64-unknown-linux-gnu");
@@ -18,7 +18,7 @@ test("resolves supported Node platforms to Rust targets", () => {
     arch: "x64",
     target: "x86_64-pc-windows-msvc",
     extension: ".zip",
-    binaryName: "todo-engine.exe",
+    binaryName: "raven.exe",
   });
 });
 
@@ -32,11 +32,11 @@ test("rejects unsupported platforms with a useful message", () => {
 test("builds release asset names", () => {
   assert.equal(
     assetName("0.2.0", "aarch64-apple-darwin"),
-    "todo-engine-0.2.0-aarch64-apple-darwin.tar.gz"
+    "raven-0.2.0-aarch64-apple-darwin.tar.gz"
   );
   assert.equal(
     assetName("v0.2.0", "x86_64-pc-windows-msvc"),
-    "todo-engine-0.2.0-x86_64-pc-windows-msvc.zip"
+    "raven-0.2.0-x86_64-pc-windows-msvc.zip"
   );
 });
 

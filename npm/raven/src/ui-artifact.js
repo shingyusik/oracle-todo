@@ -6,7 +6,7 @@ const { uiPathsFor } = require("./cache");
 const { selectAsset } = require("./github");
 
 function uiAssetName(version) {
-  return `oracle-todo-ui-${version}.tar.gz`;
+  return `raven-ui-${version}.tar.gz`;
 }
 
 async function findIndexRoot(directory) {

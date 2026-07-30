@@ -6,10 +6,10 @@ const SUPPORTED_TARGETS = [
 ];
 
 const TARGETS = {
-  "darwin/arm64": { target: "aarch64-apple-darwin", extension: ".tar.gz", binaryName: "todo-engine" },
-  "darwin/x64": { target: "x86_64-apple-darwin", extension: ".tar.gz", binaryName: "todo-engine" },
-  "linux/x64": { target: "x86_64-unknown-linux-gnu", extension: ".tar.gz", binaryName: "todo-engine" },
-  "win32/x64": { target: "x86_64-pc-windows-msvc", extension: ".zip", binaryName: "todo-engine.exe" },
+  "darwin/arm64": { target: "aarch64-apple-darwin", extension: ".tar.gz", binaryName: "raven" },
+  "darwin/x64": { target: "x86_64-apple-darwin", extension: ".tar.gz", binaryName: "raven" },
+  "linux/x64": { target: "x86_64-unknown-linux-gnu", extension: ".tar.gz", binaryName: "raven" },
+  "win32/x64": { target: "x86_64-pc-windows-msvc", extension: ".zip", binaryName: "raven.exe" },
 };
 
 function normalizeVersion(version) {
@@ -27,7 +27,7 @@ function resolvePlatform({ platform = process.platform, arch = process.arch } = 
 
 function assetName(version, target) {
   const extension = target === "x86_64-pc-windows-msvc" ? ".zip" : ".tar.gz";
-  return `todo-engine-${normalizeVersion(version)}-${target}${extension}`;
+  return `raven-${normalizeVersion(version)}-${target}${extension}`;
 }
 
 module.exports = {

@@ -41,12 +41,12 @@ test("selects matching release assets", () => {
   const release = {
     assets: [
       { name: "other.tar.gz", browser_download_url: "https://example.test/other" },
-      { name: "todo-engine-0.2.0-aarch64-apple-darwin.tar.gz", browser_download_url: "https://example.test/match" },
+      { name: "raven-0.2.0-aarch64-apple-darwin.tar.gz", browser_download_url: "https://example.test/match" },
     ],
   };
 
   assert.equal(
-    selectAsset(release, "todo-engine-0.2.0-aarch64-apple-darwin.tar.gz").browser_download_url,
+    selectAsset(release, "raven-0.2.0-aarch64-apple-darwin.tar.gz").browser_download_url,
     "https://example.test/match"
   );
 });

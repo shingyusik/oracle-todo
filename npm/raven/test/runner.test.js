@@ -7,8 +7,8 @@ const test = require("node:test");
 const { runEngine } = require("../src/runner");
 
 test("forwards arguments to an engine binary and returns its exit code", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-todo-runner-"));
-  const engine = path.join(dir, "todo-engine");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "raven-runner-"));
+  const engine = path.join(dir, "raven");
   const output = path.join(dir, "args.txt");
   await fs.writeFile(engine, `#!/bin/sh\necho "$@" > "${output}"\nexit 7\n`, { mode: 0o755 });
 

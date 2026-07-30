@@ -12,8 +12,8 @@ const { compareVersions, normalizeVersion } = require("./version");
 async function fetchRequestedRelease(options, env) {
   return (options.fetchReleaseImpl || fetchRelease)({
     repository: options.repository || GITHUB_REPOSITORY,
-    version: env.ORACLE_TODO_VERSION,
-    token: env.ORACLE_TODO_GITHUB_TOKEN,
+    version: env.RAVEN_VERSION,
+    token: env.RAVEN_GITHUB_TOKEN,
     fetchImpl: options.fetchImpl,
   });
 }
@@ -60,7 +60,7 @@ async function installEngine(options = {}) {
   const cacheRoot = options.cacheRoot || cacheDir(env);
   const platformInfo = options.platformInfo || resolvePlatform();
   const metadata = await readMetadata(cacheRoot);
-  const requestedVersion = env.ORACLE_TODO_VERSION;
+  const requestedVersion = env.RAVEN_VERSION;
 
   if (metadata && !requestedVersion) {
     return { status: "already-installed", ...metadata };
@@ -69,7 +69,7 @@ async function installEngine(options = {}) {
   const release = await (options.fetchReleaseImpl || fetchRelease)({
     repository: options.repository || GITHUB_REPOSITORY,
     version: requestedVersion,
-    token: env.ORACLE_TODO_GITHUB_TOKEN,
+    token: env.RAVEN_GITHUB_TOKEN,
     fetchImpl: options.fetchImpl,
   });
 
@@ -88,8 +88,8 @@ async function updateEngine(options = {}) {
   const metadata = await readMetadata(cacheRoot);
   const release = await (options.fetchReleaseImpl || fetchRelease)({
     repository: options.repository || GITHUB_REPOSITORY,
-    version: env.ORACLE_TODO_VERSION,
-    token: env.ORACLE_TODO_GITHUB_TOKEN,
+    version: env.RAVEN_VERSION,
+    token: env.RAVEN_GITHUB_TOKEN,
     fetchImpl: options.fetchImpl,
   });
   const version = normalizeVersion(release.tag_name);

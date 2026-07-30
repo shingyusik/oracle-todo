@@ -33,15 +33,15 @@ async function main(args, options = {}) {
   if (command === "version") {
     const metadata = await readMetadata(cacheDir(env));
     log(`${PACKAGE_NAME} wrapper`);
-    log(`todo-engine ${metadata ? metadata.installedVersion : "not installed"}`);
-    log(`oracle-todo-ui ${metadata && metadata.uiVersion ? metadata.uiVersion : "not installed"}`);
+    log(`raven ${metadata ? metadata.installedVersion : "not installed"}`);
+    log(`raven-ui ${metadata && metadata.uiVersion ? metadata.uiVersion : "not installed"}`);
     return 0;
   }
 
   if (command === "doctor") {
     const metadata = await readMetadata(cacheDir(env));
-    if (!metadata) throw new Error("todo-engine is not installed; run install first");
-    if (!metadata.uiPath) throw new Error("oracle-todo-ui is not installed; run install first");
+    if (!metadata) throw new Error("raven is not installed; run install first");
+    if (!metadata.uiPath) throw new Error("raven-ui is not installed; run install first");
     log(`cache ok: ${metadata.binaryPath}`);
     log(`ui ok: ${metadata.uiPath}`);
     return 0;
