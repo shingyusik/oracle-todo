@@ -50,6 +50,25 @@ impl LedgerRepository for SqliteLedgerRepository {
         get_transaction_category_on(&self.connection, id, include_archived)
     }
 
+    fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>> {
+        list_active_currencies_on(&self.connection, page)
+    }
+
+    fn list_active_account_categories(&self, page: Page) -> LedgerResult<Vec<AccountCategory>> {
+        list_active_account_categories_on(&self.connection, page)
+    }
+
+    fn list_active_accounts(&self, page: Page) -> LedgerResult<Vec<Account>> {
+        list_active_accounts_on(&self.connection, page)
+    }
+
+    fn list_active_transaction_categories(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<TransactionCategory>> {
+        list_active_transaction_categories_on(&self.connection, page)
+    }
+
     fn list_entries(&self, query: &EntryQuery) -> LedgerResult<Vec<LedgerEntry>> {
         let visibility = if query.include_archived {
             ""
@@ -230,66 +249,22 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
     }
 
     fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>> {
-        collect_rows(
-            &self.transaction,
-            &format!(
-                "SELECT {CURRENCY_COLUMNS}
-                 FROM currencies
-                 WHERE active = 1 AND deleted_at IS NULL
-                 ORDER BY name, id
-                 LIMIT ?1 OFFSET ?2"
-            ),
-            page_params(page),
-            row_to_currency,
-        )
+        list_active_currencies_on(&self.transaction, page)
     }
 
     fn list_active_account_categories(&self, page: Page) -> LedgerResult<Vec<AccountCategory>> {
-        collect_rows(
-            &self.transaction,
-            &format!(
-                "SELECT {ACCOUNT_CATEGORY_COLUMNS}
-                 FROM account_categories
-                 WHERE active = 1 AND deleted_at IS NULL
-                 ORDER BY name, id
-                 LIMIT ?1 OFFSET ?2"
-            ),
-            page_params(page),
-            row_to_account_category,
-        )
+        list_active_account_categories_on(&self.transaction, page)
     }
 
     fn list_active_accounts(&self, page: Page) -> LedgerResult<Vec<Account>> {
-        collect_rows(
-            &self.transaction,
-            &format!(
-                "SELECT {ACCOUNT_COLUMNS}
-                 FROM accounts
-                 WHERE active = 1 AND deleted_at IS NULL
-                 ORDER BY name, id
-                 LIMIT ?1 OFFSET ?2"
-            ),
-            page_params(page),
-            row_to_account,
-        )
+        list_active_accounts_on(&self.transaction, page)
     }
 
     fn list_active_transaction_categories(
         &self,
         page: Page,
     ) -> LedgerResult<Vec<TransactionCategory>> {
-        collect_rows(
-            &self.transaction,
-            &format!(
-                "SELECT {TRANSACTION_CATEGORY_COLUMNS}
-                 FROM transaction_categories
-                 WHERE active = 1 AND deleted_at IS NULL
-                 ORDER BY name, id
-                 LIMIT ?1 OFFSET ?2"
-            ),
-            page_params(page),
-            row_to_transaction_category,
-        )
+        list_active_transaction_categories_on(&self.transaction, page)
     }
 
     fn upsert_currency(
@@ -580,6 +555,72 @@ where
         1 => CandidateMatch::One(values.remove(0)),
         _ => CandidateMatch::Ambiguous,
     })
+}
+
+fn list_active_currencies_on(connection: &Connection, page: Page) -> LedgerResult<Vec<Currency>> {
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {CURRENCY_COLUMNS}
+             FROM currencies
+             WHERE active = 1 AND deleted_at IS NULL
+             ORDER BY name, id
+             LIMIT ?1 OFFSET ?2"
+        ),
+        page_params(page),
+        row_to_currency,
+    )
+}
+
+fn list_active_account_categories_on(
+    connection: &Connection,
+    page: Page,
+) -> LedgerResult<Vec<AccountCategory>> {
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {ACCOUNT_CATEGORY_COLUMNS}
+             FROM account_categories
+             WHERE active = 1 AND deleted_at IS NULL
+             ORDER BY name, id
+             LIMIT ?1 OFFSET ?2"
+        ),
+        page_params(page),
+        row_to_account_category,
+    )
+}
+
+fn list_active_accounts_on(connection: &Connection, page: Page) -> LedgerResult<Vec<Account>> {
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {ACCOUNT_COLUMNS}
+             FROM accounts
+             WHERE active = 1 AND deleted_at IS NULL
+             ORDER BY name, id
+             LIMIT ?1 OFFSET ?2"
+        ),
+        page_params(page),
+        row_to_account,
+    )
+}
+
+fn list_active_transaction_categories_on(
+    connection: &Connection,
+    page: Page,
+) -> LedgerResult<Vec<TransactionCategory>> {
+    collect_rows(
+        connection,
+        &format!(
+            "SELECT {TRANSACTION_CATEGORY_COLUMNS}
+             FROM transaction_categories
+             WHERE active = 1 AND deleted_at IS NULL
+             ORDER BY name, id
+             LIMIT ?1 OFFSET ?2"
+        ),
+        page_params(page),
+        row_to_transaction_category,
+    )
 }
 
 fn page_params(page: Page) -> [i64; 2] {

@@ -137,6 +137,13 @@ pub trait LedgerRepository: Send {
         id: &str,
         include_archived: bool,
     ) -> LedgerResult<Option<TransactionCategory>>;
+    fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>>;
+    fn list_active_account_categories(&self, page: Page) -> LedgerResult<Vec<AccountCategory>>;
+    fn list_active_accounts(&self, page: Page) -> LedgerResult<Vec<Account>>;
+    fn list_active_transaction_categories(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<TransactionCategory>>;
     fn list_entries(&self, query: &EntryQuery) -> LedgerResult<Vec<LedgerEntry>>;
     fn get_entry(&self, id: &str, include_archived: bool) -> LedgerResult<Option<LedgerEntry>>;
     fn list_audit_events(
