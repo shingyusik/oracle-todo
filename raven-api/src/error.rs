@@ -25,6 +25,8 @@ pub struct ApiErrorBody {
 enum ErrorKind {
     Validation { field: Option<&'static str> },
     PayloadTooLarge,
+    UriTooLong,
+    HeaderTooLarge,
     UnsupportedMediaType,
     Conflict,
     NotFound,
@@ -63,6 +65,18 @@ impl ApiError {
         }
     }
 
+    pub fn uri_too_long() -> Self {
+        Self {
+            kind: ErrorKind::UriTooLong,
+        }
+    }
+
+    pub fn header_too_large() -> Self {
+        Self {
+            kind: ErrorKind::HeaderTooLarge,
+        }
+    }
+
     pub fn not_found() -> Self {
         Self {
             kind: ErrorKind::NotFound,
@@ -90,6 +104,18 @@ impl IntoResponse for ApiError {
             ErrorKind::PayloadTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
+                INVALID_REQUEST,
+                Map::new(),
+            ),
+            ErrorKind::UriTooLong => (
+                StatusCode::URI_TOO_LONG,
+                "uri_too_long",
+                INVALID_REQUEST,
+                Map::new(),
+            ),
+            ErrorKind::HeaderTooLarge => (
+                StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+                "header_too_large",
                 INVALID_REQUEST,
                 Map::new(),
             ),
@@ -161,9 +187,9 @@ impl From<HealthError> for ApiError {
     fn from(error: HealthError) -> Self {
         match error {
             HealthError::Validation { field, .. } => Self::validation(Some(field)),
-            HealthError::UnsupportedMedia
-            | HealthError::MediaTooLarge
-            | HealthError::ConfirmationMismatch => Self::validation(None),
+            HealthError::UnsupportedMedia => Self::unsupported_media_type(),
+            HealthError::MediaTooLarge => Self::payload_too_large(),
+            HealthError::ConfirmationMismatch => Self::validation(None),
             HealthError::NotFound(_) => Self::not_found(),
             HealthError::Conflict(_) | HealthError::Busy(_) => Self::conflict(),
             HealthError::Storage(_)

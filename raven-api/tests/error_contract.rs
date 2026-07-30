@@ -62,6 +62,22 @@ async fn engine_errors_use_stable_safe_envelopes() {
     )
     .await;
     assert_error(
+        HealthError::UnsupportedMedia.into(),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "unsupported_media_type",
+        "The request is invalid.",
+        None,
+    )
+    .await;
+    assert_error(
+        HealthError::MediaTooLarge.into(),
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "payload_too_large",
+        "The request is invalid.",
+        None,
+    )
+    .await;
+    assert_error(
         TodoError::NotFound("/Users/private/todo.sqlite".into()).into(),
         StatusCode::NOT_FOUND,
         "not_found",

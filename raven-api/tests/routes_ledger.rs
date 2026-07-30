@@ -50,6 +50,14 @@ fn app() -> (tempfile::TempDir, axum::Router) {
             actor: "test".into(),
         })
         .unwrap();
+    service
+        .create_category(CreateTransactionCategory {
+            name: "Salary".into(),
+            parent: None,
+            kind: TransactionCategoryKind::Income,
+            actor: "test".into(),
+        })
+        .unwrap();
     SqliteHealthRepository::open(temp.path().join("health.sqlite")).unwrap();
     let config = RavenApiConfig {
         todo_db: temp.path().join("todo.sqlite"),
@@ -185,4 +193,157 @@ async fn sqlite_requests_complete_concurrently_off_the_async_executor() {
     );
     assert_eq!(left.unwrap().status(), StatusCode::OK);
     assert_eq!(right.unwrap().status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn reserved_transfer_row_types_are_rejected_at_create_and_update_boundaries() {
+    let (_temp, app) = app();
+    for entry_type in ["transfer_in", "transfer_out"] {
+        let create = Request::post("/api/v1/ledger/entries")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({
+                    "date": "2026-07-31",
+                    "written_at": "2026-07-31T01:00:00Z",
+                    "content": "hostile",
+                    "account": "Wallet",
+                    "entry_type": entry_type,
+                    "amount": "1",
+                    "currency": "KRW"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(create).await.unwrap().status(),
+            StatusCode::BAD_REQUEST
+        );
+        let update = Request::patch("/api/v1/ledger/entries/not-an-id")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({"entry_type": entry_type}).to_string()))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(update).await.unwrap().status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+}
+
+#[tokio::test]
+async fn raw_query_is_bounded_before_percent_decoding() {
+    let (_temp, app) = app();
+    let query = "%41".repeat(3_000);
+    let response = app
+        .oneshot(
+            Request::get(format!("/api/v1/ledger/entries?content={query}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::URI_TOO_LONG);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+    let error = body(response).await;
+    assert_eq!(error["code"], "uri_too_long");
+    assert!(error["request_id"].is_string());
+}
+
+#[tokio::test]
+async fn summary_rejects_mixed_incomplete_and_invalid_selectors() {
+    let (_temp, app) = app();
+    for path in [
+        "/api/v1/ledger/reports/summary?year=2026&month=7&from=2026-07-01&to=2026-07-31",
+        "/api/v1/ledger/reports/summary?year=2026",
+        "/api/v1/ledger/reports/summary?from=2026-07-01",
+        "/api/v1/ledger/reports/summary?from=not-a-date&to=2026-07-31",
+    ] {
+        assert_eq!(
+            app.clone()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+}
+
+#[tokio::test]
+async fn entry_update_preserves_explicit_null_clear_semantics() {
+    let (_temp, app) = app();
+    let create = Request::post("/api/v1/ledger/entries")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "date": "2026-07-31",
+                "written_at": "2026-07-31T01:00:00Z",
+                "content": "Salary",
+                "category": "Salary",
+                "account": "Wallet",
+                "entry_type": "income",
+                "amount": "1",
+                "currency": "KRW",
+                "notes": "clear me"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let id = body(app.clone().oneshot(create).await.unwrap()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let update = Request::patch(format!("/api/v1/ledger/entries/{id}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"notes":null}"#))
+        .unwrap();
+    let response = app.oneshot(update).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body(response).await["notes"].is_null());
+}
+
+#[tokio::test]
+async fn reference_update_preview_and_purge_roundtrip() {
+    let (_temp, app) = app();
+    let create = Request::post("/api/v1/ledger/currencies")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "code": "USD",
+                "name": "US Dollar",
+                "symbol": "$",
+                "decimal_places": 2
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let id = body(app.clone().oneshot(create).await.unwrap()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let update = Request::patch(format!("/api/v1/ledger/currencies/{id}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"active":false}"#))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(update).await.unwrap().status(),
+        StatusCode::OK
+    );
+    let preview = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/v1/ledger/currencies/{id}/purge"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(body(preview).await["confirmation_id"], id);
+    let purge = Request::delete(format!("/api/v1/ledger/currencies/{id}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(json!({"confirmation": id}).to_string()))
+        .unwrap();
+    assert_eq!(
+        app.oneshot(purge).await.unwrap().status(),
+        StatusCode::NO_CONTENT
+    );
 }

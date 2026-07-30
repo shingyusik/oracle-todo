@@ -11,7 +11,7 @@ pub struct CreateEntryBody {
     pub content: String,
     pub category: Option<String>,
     pub account: String,
-    pub entry_type: EntryType,
+    pub entry_type: PublicEntryType,
     pub amount: String,
     pub currency: String,
     #[serde(default = "default_source")]
@@ -30,7 +30,7 @@ pub struct UpdateEntryBody {
     #[serde(default)]
     pub category: Patch<String>,
     pub account: Option<String>,
-    pub entry_type: Option<EntryType>,
+    pub entry_type: Option<PublicEntryType>,
     pub amount: Option<String>,
     pub currency: Option<String>,
     #[serde(default)]
@@ -39,6 +39,26 @@ pub struct UpdateEntryBody {
     #[serde(default = "default_actor")]
     pub actor: String,
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicEntryType {
+    Expense,
+    Income,
+    AdjustmentOut,
+    AdjustmentIn,
+}
+
+impl From<PublicEntryType> for EntryType {
+    fn from(value: PublicEntryType) -> Self {
+        match value {
+            PublicEntryType::Expense => Self::Expense,
+            PublicEntryType::Income => Self::Income,
+            PublicEntryType::AdjustmentOut => Self::AdjustmentOut,
+            PublicEntryType::AdjustmentIn => Self::AdjustmentIn,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

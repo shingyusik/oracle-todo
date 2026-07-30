@@ -25,6 +25,7 @@ use crate::{ApiError, RavenApiState};
 
 const MAX_JSON_BYTES: usize = 128 * 1024;
 const MAX_MEDIA_BYTES: usize = 10 * 1024 * 1024;
+const MAX_METADATA_BYTES: usize = 8 * 1024;
 const MAX_DAILY_METRICS: usize = 366;
 
 pub fn router() -> Router<RavenApiState> {
@@ -386,8 +387,13 @@ async fn create_diet_with_image(
     }
     let metadata = headers
         .get("x-raven-diet-metadata")
-        .and_then(|value| value.to_str().ok())
         .ok_or_else(|| ApiError::validation(Some("metadata")))?;
+    if metadata.as_bytes().len() > MAX_METADATA_BYTES {
+        return Err(ApiError::header_too_large());
+    }
+    let metadata = metadata
+        .to_str()
+        .map_err(|_| ApiError::validation(Some("metadata")))?;
     let metadata: CreateDietBody =
         serde_json::from_str(metadata).map_err(|_| ApiError::validation(Some("metadata")))?;
     let occurred_at = parse_time(&metadata.occurred_at, "occurred_at")?;

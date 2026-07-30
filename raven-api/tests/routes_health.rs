@@ -113,3 +113,85 @@ async fn diet_image_metadata_rejects_unknown_fields() {
         StatusCode::BAD_REQUEST
     );
 }
+
+#[tokio::test]
+async fn diet_metadata_header_is_bounded_before_json_parsing() {
+    let (_temp, app) = app();
+    let request = Request::post("/api/v1/health/diet/with-image")
+        .header(header::CONTENT_TYPE, "image/png")
+        .header("x-raven-diet-metadata", "x".repeat(8 * 1024 + 1))
+        .body(Body::from(PNG))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE
+    );
+    let error = body(response).await;
+    assert_eq!(error["code"], "header_too_large");
+    assert!(error["request_id"].is_string());
+}
+
+#[tokio::test]
+async fn service_detected_media_mismatch_is_unsupported_media() {
+    let (_temp, app) = app();
+    let metadata = json!({
+        "occurred_at": "2026-07-31T01:00:00Z",
+        "meal_type": "lunch",
+        "food_name": "Salad"
+    })
+    .to_string();
+    let request = Request::post("/api/v1/health/diet/with-image")
+        .header(header::CONTENT_TYPE, "image/jpeg")
+        .header("x-raven-diet-metadata", metadata)
+        .body(Body::from(PNG))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+    let error = body(response).await;
+    assert_eq!(error["code"], "unsupported_media_type");
+    assert!(error["request_id"].is_string());
+}
+
+#[tokio::test]
+async fn health_event_lifecycle_roundtrip_uses_service_policy() {
+    let (_temp, app) = app();
+    let create = Request::post("/api/v1/health/events")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "occurred_at": "2026-07-31T01:00:00Z",
+                "details": {
+                    "kind": "bowel",
+                    "bristol_scale": 4
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let id = body(app.clone().oneshot(create).await.unwrap()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for action in ["archive", "restore", "archive"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/api/v1/health/events/{id}/{action}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    let purge = Request::delete(format!("/api/v1/health/events/{id}/purge"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(json!({"confirmation": id}).to_string()))
+        .unwrap();
+    assert_eq!(
+        app.oneshot(purge).await.unwrap().status(),
+        StatusCode::NO_CONTENT
+    );
+}

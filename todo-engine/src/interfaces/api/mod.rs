@@ -160,13 +160,20 @@ pub(super) fn parse_bool(value: &str) -> std::result::Result<bool, String> {
     }
 }
 
-pub(super) fn validation_rejection(error: JsonRejection) -> TodoError {
-    TodoError::Validation(error.body_text())
+pub(super) fn validation_rejection(error: JsonRejection) -> ApiError {
+    if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        return ApiError(anyhow::Error::new(PayloadTooLarge));
+    }
+    TodoError::Validation(error.body_text()).into()
 }
 
 pub(super) type ApiResult<T> = std::result::Result<T, ApiError>;
 
 pub(super) struct ApiError(anyhow::Error);
+
+#[derive(Debug, thiserror::Error)]
+#[error("request payload is too large")]
+struct PayloadTooLarge;
 
 #[derive(Serialize)]
 struct ApiErrorBody {
@@ -224,6 +231,18 @@ impl IntoResponse for ApiError {
                 StatusCode::from_u16(error.http_status_code())
                     .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                 ApiErrorBody::from_todo_error(error),
+            ),
+            None if self.0.downcast_ref::<PayloadTooLarge>().is_some() => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                ApiErrorBody {
+                    code: "payload_too_large".to_string(),
+                    detail: "The request payload is too large.".to_string(),
+                    parent_horizon: None,
+                    child_horizon: None,
+                    horizon: None,
+                    scheduled: None,
+                    parent_id: None,
+                },
             ),
             None => (
                 StatusCode::INTERNAL_SERVER_ERROR,

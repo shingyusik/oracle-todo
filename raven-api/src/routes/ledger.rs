@@ -117,6 +117,30 @@ struct ReportQuery {
     month: Option<u8>,
 }
 
+enum ReportSelector {
+    Month(YearMonth),
+    Range(ReportRange),
+}
+
+impl ReportQuery {
+    fn selector(self) -> Result<ReportSelector, ApiError> {
+        match (self.year, self.month, self.from, self.to) {
+            (Some(year), Some(month), None, None) => {
+                Ok(ReportSelector::Month(YearMonth::new(year, month)?))
+            }
+            (None, None, Some(from), Some(to)) => Ok(ReportSelector::Range(range(&from, &to)?)),
+            _ => Err(ApiError::validation(None)),
+        }
+    }
+
+    fn range(self) -> Result<ReportRange, ApiError> {
+        match self.selector()? {
+            ReportSelector::Range(range) => Ok(range),
+            ReportSelector::Month(_) => Err(ApiError::validation(None)),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CompareQuery {
@@ -173,7 +197,7 @@ async fn create_entry(
             content: body.content,
             category: body.category,
             account: body.account,
-            entry_type: body.entry_type,
+            entry_type: body.entry_type.into(),
             amount,
             currency: body.currency,
             transfer_group: None,
@@ -217,7 +241,7 @@ async fn update_entry(
                 content: body.content,
                 category: body.category.optional(),
                 account: body.account,
-                entry_type: body.entry_type,
+                entry_type: body.entry_type.map(Into::into),
                 amount,
                 currency: body.currency,
                 transfer_group: None,
@@ -575,24 +599,21 @@ async fn report_summary(
     State(state): State<RavenApiState>,
     query: Result<Query<ReportQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let query = query_value(query)?;
-    if let (Some(year), Some(month)) = (query.year, query.month) {
-        let month = YearMonth::new(year, month)?;
-        return Ok(Json(json!(
+    match query_value(query)?.selector()? {
+        ReportSelector::Month(month) => Ok(Json(json!(
             ledger(&state, move |service| service.monthly_summary(month)).await?
-        )));
+        ))),
+        ReportSelector::Range(range) => Ok(Json(json!(
+            ledger(&state, move |service| service.summary(range)).await?
+        ))),
     }
-    let range = report_range(query)?;
-    Ok(Json(json!(
-        ledger(&state, move |service| service.summary(range)).await?
-    )))
 }
 
 async fn report_accounts(
     State(state): State<RavenApiState>,
     query: Result<Query<ReportQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let range = report_range(query_value(query)?)?;
+    let range = query_value(query)?.range()?;
     Ok(Json(json!(
         ledger(&state, move |service| service.account_breakdown(range)).await?
     )))
@@ -602,7 +623,7 @@ async fn report_categories(
     State(state): State<RavenApiState>,
     query: Result<Query<ReportQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let range = report_range(query_value(query)?)?;
+    let range = query_value(query)?.range()?;
     Ok(Json(json!(
         ledger(&state, move |service| service.category_breakdown(range)).await?
     )))
@@ -624,7 +645,7 @@ async fn report_briefing(
     State(state): State<RavenApiState>,
     query: Result<Query<ReportQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let range = report_range(query_value(query)?)?;
+    let range = query_value(query)?.range()?;
     Ok(Json(json!(
         ledger(&state, move |service| service.briefing(range)).await?
     )))
@@ -695,17 +716,6 @@ fn checked_page(offset: u32, limit: u16) -> Result<Page, ApiError> {
         return Err(ApiError::validation(Some("limit")));
     }
     Ok(Page { offset, limit })
-}
-
-fn report_range(query: ReportQuery) -> Result<ReportRange, ApiError> {
-    if query.year.is_some() || query.month.is_some() {
-        return Err(ApiError::validation(None));
-    }
-    let from = parse_optional_date(query.from.as_deref(), "from")?
-        .ok_or_else(|| ApiError::validation(Some("from")))?;
-    let to = parse_optional_date(query.to.as_deref(), "to")?
-        .ok_or_else(|| ApiError::validation(Some("to")))?;
-    ReportRange::new(from, to).map_err(Into::into)
 }
 
 fn range(from: &str, to: &str) -> Result<ReportRange, ApiError> {
