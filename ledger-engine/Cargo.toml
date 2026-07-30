@@ -7,4 +7,7 @@ description = "Policy-enforced Raven Ledger engine"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-time = { version = "0.3", features = ["macros", "parsing", "serde"] }
+time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
+
+[dev-dependencies]
+serde_json = "1"

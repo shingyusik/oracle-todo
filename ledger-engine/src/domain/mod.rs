@@ -2,7 +2,7 @@ mod entry;
 mod money;
 mod refs;
 
-pub use entry::{EntryType, LedgerEntry, LedgerEntryDraft};
+pub use entry::{EntryType, LedgerEntry, LedgerEntryRehydration};
 pub use money::{Money, MoneyError};
 pub use refs::{Account, AccountCategory, Currency, TransactionCategory, TransactionCategoryKind};
 use thiserror::Error;

@@ -22,9 +22,10 @@ impl Money {
             return Err(MoneyError::InvalidDecimal);
         }
 
-        let (negative, unsigned) = match value.strip_prefix('-') {
-            Some(unsigned) => (true, unsigned),
-            None => (false, value),
+        let (negative, unsigned) = match value.as_bytes().first() {
+            Some(b'-') => (true, &value[1..]),
+            Some(b'+') => (false, &value[1..]),
+            _ => (false, value),
         };
         let (whole, fraction) = match unsigned.split_once('.') {
             Some((whole, fraction)) => (whole, Some(fraction)),
