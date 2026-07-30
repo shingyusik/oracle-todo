@@ -814,7 +814,12 @@ function matchesPlannerFilterRule(
   const value = plannerFilterValue(item, relatedItems, rule.field);
   if (rule.operator === "is_empty") return isFilterEmpty(value);
   if (rule.operator === "is_not_empty") return !isFilterEmpty(value);
-  if (isFilterEmpty(value)) return false;
+  if (isFilterEmpty(value)) {
+    return (
+      rule.operator === "is_not" ||
+      rule.operator === "does_not_contain"
+    );
+  }
   if (rule.type === "date") return matchesDateFilter(String(value ?? ""), rule, today);
   if (rule.type === "number") return matchesNumberFilter(value, rule);
   if (Array.isArray(value)) return matchesArrayFilter(value, rule);

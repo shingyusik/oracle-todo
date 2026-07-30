@@ -663,6 +663,41 @@ describe("planner model", () => {
     ).toBe(true);
   });
 
+  it("keeps an empty relation when a relation filter excludes selected values", () => {
+    const itemWithoutArea = item("no-area", { area_id: null });
+
+    expect(
+      matchesPlannerFilterRules(
+        itemWithoutArea,
+        relatedItems,
+        [{
+          id: "not-work",
+          field: "area",
+          type: "relation",
+          operator: "is_not",
+          value: ["area-1"],
+        }],
+        "and",
+        "2026-07-08",
+      ),
+    ).toBe(true);
+    expect(
+      matchesPlannerFilterRules(
+        itemWithoutArea,
+        relatedItems,
+        [{
+          id: "does-not-contain-work",
+          field: "area",
+          type: "relation",
+          operator: "does_not_contain",
+          value: ["area-1"],
+        }],
+        "and",
+        "2026-07-08",
+      ),
+    ).toBe(true);
+  });
+
   it("filters planner item lists through advanced rules", () => {
     const result = filterPlannerItemsByRules(
       [
