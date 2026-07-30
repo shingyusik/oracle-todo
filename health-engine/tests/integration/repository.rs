@@ -95,10 +95,11 @@ fn concurrent_daily_writers_are_serialized_then_unique_index_wins() {
             id, occurred_at, local_date, category, metric_key, name, value_num,
             unit, attributes_json, daily_upsert, created_at, updated_at
          ) VALUES (
-            ?1, '2026-07-30T00:00:00Z', '2026-07-30', 'weight',
+            ?1, '2026-07-30T00:00:00.000000000Z', '2026-07-30', 'weight',
             'body_weight', 'Weight', 67.9, 'kg',
             '{\"metric_key\":\"body_weight\",\"name\":\"Weight\",\"value\":67.9,\"unit\":\"kg\"}',
-            1, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+            1, '2026-07-30T00:00:00.000000000Z',
+            '2026-07-30T00:00:00.000000000Z'
          )",
         [EVENT_ID_2],
     );
@@ -172,6 +173,74 @@ fn current_schema_rejects_invalid_persisted_local_dates() {
 }
 
 #[test]
+fn current_schema_rejects_noncanonical_local_date_spellings() {
+    for noncanonical_date in ["20260730", "+002026-07-30"] {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("health.sqlite");
+        drop(SqliteHealthRepository::open(&database).unwrap());
+        let connection = Connection::open(&database).unwrap();
+        insert_event(
+            &connection,
+            EVENT_ID,
+            "2026-07-30",
+            true,
+            None,
+            r#"{"metric_key":"body_weight","name":"Weight","value":68.2,"unit":"kg"}"#,
+        )
+        .unwrap();
+        insert_event(
+            &connection,
+            EVENT_ID_2,
+            noncanonical_date,
+            true,
+            None,
+            r#"{"metric_key":"body_weight","name":"Weight","value":68.2,"unit":"kg"}"#,
+        )
+        .unwrap();
+        drop(connection);
+
+        assert!(
+            matches!(
+                SqliteHealthRepository::open(&database),
+                Err(HealthError::Migration(_))
+            ),
+            "accepted noncanonical local date {noncanonical_date}"
+        );
+    }
+}
+
+#[test]
+fn current_schema_rejects_variable_width_persisted_timestamps() {
+    for occurred_at in ["2026-07-30T00:00:00Z", "2026-07-30T00:00:00.5Z"] {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("health.sqlite");
+        drop(SqliteHealthRepository::open(&database).unwrap());
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute(
+                "INSERT INTO audit_events (
+                    id, request_id, occurred_at, actor, action, record_type, record_id
+                 ) VALUES (
+                    '40000000-0000-4000-8000-000000000001',
+                    '50000000-0000-4000-8000-000000000001',
+                    ?1, 'test', 'create', 'health_event', ?2
+                 )",
+                params![occurred_at, EVENT_ID],
+            )
+            .unwrap();
+        drop(connection);
+
+        assert!(
+            matches!(
+                SqliteHealthRepository::open(&database),
+                Err(HealthError::Migration(_))
+            ),
+            "accepted variable-width timestamp {occurred_at}"
+        );
+    }
+}
+
+#[test]
 fn current_schema_rejects_category_attribute_mismatches() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("health.sqlite");
@@ -208,7 +277,8 @@ fn current_schema_rejects_unsafe_persisted_media_paths() {
              ) VALUES (
                 '30000000-0000-4000-8000-000000000001',
                 '../outside.webp', 'image/webp', 42, ?1, 0,
-                '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+                '2026-07-30T00:00:00.000000000Z',
+                '2026-07-30T00:00:00.000000000Z'
              )",
             ["a".repeat(64)],
         )
@@ -219,6 +289,43 @@ fn current_schema_rejects_unsafe_persisted_media_paths() {
         SqliteHealthRepository::open(&database),
         Err(HealthError::Migration(_))
     ));
+}
+
+#[test]
+fn current_schema_rejects_persisted_media_path_aliases() {
+    for relative_path in [
+        "2026//07/image.webp",
+        "2026/./07/image.webp",
+        "2026/07/\0image.webp",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("health.sqlite");
+        drop(SqliteHealthRepository::open(&database).unwrap());
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute(
+                "INSERT INTO media_files (
+                    id, relative_path, mime_type, byte_size, checksum_sha256,
+                    cleanup_pending, created_at, updated_at
+                 ) VALUES (
+                    '30000000-0000-4000-8000-000000000001',
+                    ?1, 'image/webp', 42, ?2, 0,
+                    '2026-07-30T00:00:00.000000000Z',
+                    '2026-07-30T00:00:00.000000000Z'
+                 )",
+                params![relative_path, "a".repeat(64)],
+            )
+            .unwrap();
+        drop(connection);
+
+        assert!(
+            matches!(
+                SqliteHealthRepository::open(&database),
+                Err(HealthError::Migration(_))
+            ),
+            "accepted aliased media path {relative_path:?}"
+        );
+    }
 }
 
 #[test]
@@ -233,10 +340,12 @@ fn current_schema_rejects_noncanonical_event_metric_keys() {
                 id, occurred_at, local_date, category, metric_key, name, value_num,
                 unit, attributes_json, daily_upsert, created_at, updated_at
              ) VALUES (
-                ?1, '2026-07-30T00:00:00Z', '2026-07-30', 'weight',
+                ?1, '2026-07-30T00:00:00.000000000Z',
+                '2026-07-30', 'weight',
                 'BODY_WEIGHT', 'Weight', 68.2, 'kg',
                 '{\"metric_key\":\"BODY_WEIGHT\",\"name\":\"Weight\",\"value\":68.2,\"unit\":\"kg\"}',
-                0, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+                0, '2026-07-30T00:00:00.000000000Z',
+                '2026-07-30T00:00:00.000000000Z'
              )",
             [EVENT_ID],
         )
@@ -262,8 +371,10 @@ fn current_schema_rejects_noncanonical_persisted_diet_tags() {
                 id, occurred_at, local_date, meal_type, food_name, created_at, updated_at
              ) VALUES (
                 '20000000-0000-4000-8000-000000000001',
-                '2026-07-30T03:00:00Z', '2026-07-30', 'lunch', 'Bibimbap',
-                '2026-07-30T03:00:00Z', '2026-07-30T03:00:00Z'
+                '2026-07-30T03:00:00.000000000Z',
+                '2026-07-30', 'lunch', 'Bibimbap',
+                '2026-07-30T03:00:00.000000000Z',
+                '2026-07-30T03:00:00.000000000Z'
              );
              INSERT INTO diet_tags (
                 id, name
@@ -287,6 +398,34 @@ fn current_schema_rejects_noncanonical_persisted_diet_tags() {
 }
 
 #[test]
+fn current_schema_rejects_invalid_orphan_diet_tags() {
+    for (id, name) in [
+        ("not-a-uuid", "coffee"),
+        ("60000000-0000-4000-8000-000000000001", " Coffee "),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("health.sqlite");
+        drop(SqliteHealthRepository::open(&database).unwrap());
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute(
+                "INSERT INTO diet_tags (id, name) VALUES (?1, ?2)",
+                [id, name],
+            )
+            .unwrap();
+        drop(connection);
+
+        assert!(
+            matches!(
+                SqliteHealthRepository::open(&database),
+                Err(HealthError::Migration(_))
+            ),
+            "accepted invalid orphan tag ({id:?}, {name:?})"
+        );
+    }
+}
+
+#[test]
 fn current_schema_rejects_non_uuid_audit_identifiers() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("health.sqlite");
@@ -299,7 +438,7 @@ fn current_schema_rejects_non_uuid_audit_identifiers() {
              ) VALUES (
                 'not-a-uuid',
                 '50000000-0000-4000-8000-000000000001',
-                '2026-07-30T00:00:00Z',
+                '2026-07-30T00:00:00.000000000Z',
                 'test', 'create', 'health_event', ?1
              )",
             [EVENT_ID],
@@ -325,9 +464,11 @@ fn readability_checks_include_negative_rowids() {
                 rowid, id, occurred_at, local_date, category, metric_key, name,
                 value_num, unit, attributes_json, daily_upsert, created_at, updated_at
              ) VALUES (
-                -1, ?1, '2026-07-30T00:00:00Z', '2026-07-30', 'weight',
+                -1, ?1, '2026-07-30T00:00:00.000000000Z',
+                '2026-07-30', 'weight',
                 'body_weight', 'Weight', 68.2, 'kg', 'not-json', 0,
-                '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+                '2026-07-30T00:00:00.000000000Z',
+                '2026-07-30T00:00:00.000000000Z'
              )",
             [EVENT_ID],
         )
@@ -356,9 +497,11 @@ fn foreign_keys_prevent_dangling_diet_media_links() {
                 created_at, updated_at
              ) VALUES (
                 '20000000-0000-4000-8000-000000000001',
-                '2026-07-30T03:00:00Z', '2026-07-30', 'lunch', 'Bibimbap',
+                '2026-07-30T03:00:00.000000000Z',
+                '2026-07-30', 'lunch', 'Bibimbap',
                 '30000000-0000-4000-8000-000000000001',
-                '2026-07-30T03:00:00Z', '2026-07-30T03:00:00Z'
+                '2026-07-30T03:00:00.000000000Z',
+                '2026-07-30T03:00:00.000000000Z'
              )",
             [],
         )
@@ -382,9 +525,11 @@ fn insert_event(
             id, occurred_at, local_date, category, metric_key, name, value_num,
             unit, attributes_json, daily_upsert, created_at, updated_at, deleted_at
          ) VALUES (
-            ?1, '2026-07-30T00:00:00Z', ?2, 'weight', 'body_weight',
+            ?1, '2026-07-30T00:00:00.000000000Z', ?2,
+            'weight', 'body_weight',
             'Weight', 68.2, 'kg', ?3, ?4,
-            '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z', ?5
+            '2026-07-30T00:00:00.000000000Z',
+            '2026-07-30T00:00:00.000000000Z', ?5
          )",
         params![id, local_date, attributes_json, daily_upsert, deleted_at],
     )

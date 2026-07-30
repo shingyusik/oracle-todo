@@ -1,6 +1,8 @@
 use rusqlite::{Connection, OptionalExtension, params};
-use time::format_description::well_known::{Iso8601, Rfc3339};
-use time::{Date, OffsetDateTime, UtcOffset};
+use time::format_description::FormatItem;
+use time::format_description::well_known::Iso8601;
+use time::macros::format_description;
+use time::{Date, OffsetDateTime, PrimitiveDateTime, UtcOffset};
 
 use super::mapping::{
     AUDIT_COLUMNS as AUDIT_SELECT_COLUMNS, DIET_COLUMNS as DIET_SELECT_COLUMNS,
@@ -8,9 +10,12 @@ use super::mapping::{
     row_to_audit_event, row_to_diet, row_to_event, row_to_media,
 };
 use crate::application::error::{HealthError, HealthResult};
+use crate::domain::{HealthRecordId, normalize_tags};
 
 pub const SCHEMA_VERSION: i64 = 1;
 const VALIDATION_BATCH_SIZE: i64 = 256;
+const UTC_TIMESTAMP_FORMAT: &[FormatItem<'static>] =
+    format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:9]Z");
 
 pub(super) fn init_schema(connection: &Connection) -> HealthResult<()> {
     connection
@@ -209,17 +214,28 @@ fn validate_table(connection: &Connection, expected: &TableSpec) -> HealthResult
         .ok_or_else(|| {
             HealthError::Migration(format!("required table {} is missing", expected.name))
         })?;
-    let normalized = normalize_sql(&create_sql);
-    if !normalized.ends_with("strict") {
+    let strict = connection
+        .query_row(
+            "SELECT strict
+             FROM pragma_table_list
+             WHERE schema = 'main' AND name = ?1",
+            [expected.name],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(migration_error)?;
+    if strict != Some(1) {
         return Err(HealthError::Migration(format!(
             "table {} must use SQLite STRICT storage",
             expected.name
         )));
     }
-    for fragment in expected.required_sql {
-        if !normalized.contains(fragment) {
+    let actual_checks = check_expression_tokens(&create_sql)?;
+    for required_check in expected.checks {
+        let required_check = canonical_expression_tokens(sql_tokens(required_check)?);
+        if !actual_checks.contains(&required_check) {
             return Err(HealthError::Migration(format!(
-                "table {} is missing required constraint {fragment}",
+                "table {} is missing a required check constraint",
                 expected.name
             )));
         }
@@ -262,6 +278,50 @@ fn validate_table(connection: &Connection, expected: &TableSpec) -> HealthResult
             )));
         }
     }
+    validate_foreign_keys(connection, expected)
+}
+
+fn validate_foreign_keys(connection: &Connection, expected: &TableSpec) -> HealthResult<()> {
+    let mut statement = connection
+        .prepare(
+            "SELECT \"from\", \"table\", \"to\", on_update, on_delete, match
+             FROM pragma_foreign_key_list(?1)",
+        )
+        .map_err(migration_error)?;
+    let mut actual = statement
+        .query_map([expected.name], |row| {
+            Ok(ForeignKeyDefinition {
+                from: row.get(0)?,
+                table: row.get(1)?,
+                to: row.get(2)?,
+                on_update: row.get(3)?,
+                on_delete: row.get(4)?,
+                match_clause: row.get(5)?,
+            })
+        })
+        .map_err(migration_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(migration_error)?;
+    actual.sort();
+    let mut required = expected
+        .foreign_keys
+        .iter()
+        .map(|foreign_key| ForeignKeyDefinition {
+            from: foreign_key.from.to_string(),
+            table: foreign_key.table.to_string(),
+            to: foreign_key.to.to_string(),
+            on_update: foreign_key.on_update.to_string(),
+            on_delete: foreign_key.on_delete.to_string(),
+            match_clause: "NONE".to_string(),
+        })
+        .collect::<Vec<_>>();
+    required.sort();
+    if actual != required {
+        return Err(HealthError::Migration(format!(
+            "table {} has incompatible foreign-key constraints",
+            expected.name
+        )));
+    }
     Ok(())
 }
 
@@ -269,12 +329,66 @@ fn validate_index(connection: &Connection, expected: &IndexSpec) -> HealthResult
     let (table, sql) = index_definition(connection, expected.name)?.ok_or_else(|| {
         HealthError::Migration(format!("required index {} is missing", expected.name))
     })?;
-    let normalized = normalize_sql(&sql);
-    if table != expected.table
-        || expected
-            .required_sql
+    let metadata = connection
+        .query_row(
+            "SELECT \"unique\", origin, partial
+             FROM pragma_index_list(?1)
+             WHERE name = ?2",
+            params![expected.table, expected.name],
+            |row| {
+                Ok(IndexMetadata {
+                    unique: row.get::<_, i64>(0)? != 0,
+                    origin: row.get(1)?,
+                    partial: row.get::<_, i64>(2)? != 0,
+                })
+            },
+        )
+        .optional()
+        .map_err(migration_error)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT name, \"desc\", coll
+             FROM pragma_index_xinfo(?1)
+             WHERE key = 1
+             ORDER BY seqno",
+        )
+        .map_err(migration_error)?;
+    let columns = statement
+        .query_map([expected.name], |row| {
+            Ok(IndexColumn {
+                name: row.get(0)?,
+                descending: row.get::<_, i64>(1)? != 0,
+                collation: row.get(2)?,
+            })
+        })
+        .map_err(migration_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(migration_error)?;
+    let predicate = index_predicate_tokens(&sql)?;
+    let expected_predicate = expected
+        .predicate
+        .map(sql_tokens)
+        .transpose()?
+        .map(canonical_expression_tokens)
+        .unwrap_or_default();
+    let columns_match = columns.len() == expected.columns.len()
+        && columns
             .iter()
-            .any(|fragment| !normalized.contains(fragment))
+            .zip(expected.columns)
+            .all(|(actual, expected_name)| {
+                actual.name.as_deref() == Some(*expected_name)
+                    && !actual.descending
+                    && actual.collation.eq_ignore_ascii_case("BINARY")
+            });
+    let metadata_matches = metadata.is_some_and(|metadata| {
+        metadata.unique == expected.unique
+            && metadata.origin == "c"
+            && metadata.partial == expected.predicate.is_some()
+    });
+    if table != expected.table
+        || !metadata_matches
+        || !columns_match
+        || predicate != expected_predicate
     {
         return Err(HealthError::Migration(format!(
             "index {} has an incompatible definition",
@@ -319,10 +433,55 @@ fn validate_persisted_rows(connection: &Connection) -> HealthResult<()> {
         }
     }
     validate_dates_and_timestamps(connection)?;
+    validate_diet_tags(connection)?;
     validate_diet_records(connection)?;
     validate_health_json(connection)?;
     validate_media_records(connection)?;
     validate_audit_json(connection)
+}
+
+fn validate_diet_tags(connection: &Connection) -> HealthResult<()> {
+    let mut after_rowid = None::<i64>;
+    loop {
+        let mut statement = connection
+            .prepare(
+                "SELECT rowid, id, name
+                 FROM diet_tags
+                 WHERE (?1 IS NULL OR rowid > ?1)
+                 ORDER BY rowid
+                 LIMIT ?2",
+            )
+            .map_err(migration_error)?;
+        let rows = statement
+            .query_map(params![after_rowid, VALIDATION_BATCH_SIZE], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(migration_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(migration_error)?;
+        if rows.is_empty() {
+            break;
+        }
+        for (rowid, id, name) in &rows {
+            HealthRecordId::parse(id).map_err(|error| {
+                HealthError::Migration(format!(
+                    "diet tag row {rowid} has an invalid identifier: {error}"
+                ))
+            })?;
+            let normalized = normalize_tags([name.as_str()]);
+            if normalized.len() != 1 || normalized[0] != *name {
+                return Err(HealthError::Migration(format!(
+                    "diet tag row {rowid} has a noncanonical name"
+                )));
+            }
+        }
+        after_rowid = rows.last().map(|row| row.0);
+    }
+    Ok(())
 }
 
 fn validate_diet_records(connection: &Connection) -> HealthResult<()> {
@@ -524,19 +683,33 @@ fn validate_audit_json(connection: &Connection) -> HealthResult<()> {
 }
 
 pub(super) fn parse_local_date(value: &str) -> HealthResult<Date> {
-    Date::parse(value, &Iso8601::DATE)
-        .map_err(|error| HealthError::Storage(format!("invalid persisted local date: {error}")))
+    let date = Date::parse(value, &Iso8601::DATE)
+        .map_err(|error| HealthError::Storage(format!("invalid persisted local date: {error}")))?;
+    if date.to_string() != value {
+        return Err(HealthError::Storage(
+            "persisted local dates must use canonical YYYY-MM-DD notation".to_string(),
+        ));
+    }
+    Ok(date)
 }
 
 pub(super) fn parse_utc_time(value: &str) -> HealthResult<OffsetDateTime> {
-    let timestamp = OffsetDateTime::parse(value, &Rfc3339)
+    let timestamp = PrimitiveDateTime::parse(value, UTC_TIMESTAMP_FORMAT)
         .map_err(|error| HealthError::Storage(format!("invalid persisted timestamp: {error}")))?;
-    if timestamp.offset() != UtcOffset::UTC || !value.ends_with('Z') {
+    let timestamp = timestamp.assume_utc();
+    if format_utc_time(timestamp)? != value {
         return Err(HealthError::Storage(
-            "persisted timestamps must use UTC Z notation".to_string(),
+            "persisted timestamps must use fixed-width UTC notation".to_string(),
         ));
     }
     Ok(timestamp)
+}
+
+pub(super) fn format_utc_time(value: OffsetDateTime) -> HealthResult<String> {
+    value
+        .to_offset(UtcOffset::UTC)
+        .format(UTC_TIMESTAMP_FORMAT)
+        .map_err(|error| HealthError::Storage(error.to_string()))
 }
 
 fn finish_transaction(connection: &Connection, result: HealthResult<()>) -> HealthResult<()> {
@@ -566,11 +739,195 @@ fn migration_error(error: rusqlite::Error) -> HealthError {
     HealthError::Migration(error.to_string())
 }
 
-fn normalize_sql(sql: &str) -> String {
-    sql.chars()
-        .filter(|character| !character.is_whitespace() && *character != ';')
-        .flat_map(char::to_lowercase)
-        .collect()
+fn index_predicate_tokens(sql: &str) -> HealthResult<Vec<String>> {
+    let tokens = sql_tokens(sql)?;
+    Ok(tokens
+        .iter()
+        .position(|token| token == "where")
+        .map_or_else(Vec::new, |index| {
+            canonical_expression_tokens(tokens[index + 1..].to_vec())
+        }))
+}
+
+fn check_expression_tokens(sql: &str) -> HealthResult<Vec<Vec<String>>> {
+    let tokens = sql_tokens(sql)?;
+    let mut checks = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        if tokens[index] != "check" {
+            index += 1;
+            continue;
+        }
+        if tokens.get(index + 1).map(String::as_str) != Some("(") {
+            return Err(HealthError::Migration(
+                "CHECK constraint is missing its expression".to_string(),
+            ));
+        }
+        let mut depth = 1_u32;
+        let start = index + 2;
+        index = start;
+        while index < tokens.len() && depth > 0 {
+            match tokens[index].as_str() {
+                "(" => depth += 1,
+                ")" => depth -= 1,
+                _ => {}
+            }
+            index += 1;
+        }
+        if depth != 0 {
+            return Err(HealthError::Migration(
+                "unterminated CHECK constraint".to_string(),
+            ));
+        }
+        checks.push(canonical_expression_tokens(
+            tokens[start..index - 1].to_vec(),
+        ));
+    }
+    Ok(checks)
+}
+
+fn canonical_expression_tokens(mut tokens: Vec<String>) -> Vec<String> {
+    while tokens.first().is_some_and(|token| token == "(")
+        && tokens.last().is_some_and(|token| token == ")")
+        && outer_parentheses_enclose_all(&tokens)
+    {
+        tokens.remove(0);
+        tokens.pop();
+    }
+    tokens
+}
+
+fn outer_parentheses_enclose_all(tokens: &[String]) -> bool {
+    let mut depth = 0_u32;
+    for (index, token) in tokens.iter().enumerate() {
+        match token.as_str() {
+            "(" => depth += 1,
+            ")" => {
+                let Some(next_depth) = depth.checked_sub(1) else {
+                    return false;
+                };
+                depth = next_depth;
+                if depth == 0 && index + 1 != tokens.len() {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+fn sql_tokens(sql: &str) -> HealthResult<Vec<String>> {
+    let characters = sql.as_bytes();
+    let mut tokens = Vec::new();
+    let mut index = 0;
+    while index < characters.len() {
+        let byte = characters[index];
+        if byte.is_ascii_whitespace() || byte == b';' {
+            index += 1;
+            continue;
+        }
+        if byte == b'-' && characters.get(index + 1) == Some(&b'-') {
+            index += 2;
+            while index < characters.len() && characters[index] != b'\n' {
+                index += 1;
+            }
+            continue;
+        }
+        if byte == b'/' && characters.get(index + 1) == Some(&b'*') {
+            index += 2;
+            while index + 1 < characters.len()
+                && !(characters[index] == b'*' && characters[index + 1] == b'/')
+            {
+                index += 1;
+            }
+            if index + 1 >= characters.len() {
+                return Err(HealthError::Migration(
+                    "unterminated SQL block comment".to_string(),
+                ));
+            }
+            index += 2;
+            continue;
+        }
+        if byte.is_ascii_alphanumeric() || byte == b'_' {
+            let start = index;
+            index += 1;
+            while index < characters.len()
+                && (characters[index].is_ascii_alphanumeric() || characters[index] == b'_')
+            {
+                index += 1;
+            }
+            tokens.push(sql[start..index].to_ascii_lowercase());
+            continue;
+        }
+        if matches!(byte, b'"' | b'`' | b'[') {
+            let closing = if byte == b'[' { b']' } else { byte };
+            index += 1;
+            let mut identifier = String::new();
+            loop {
+                let Some(&current) = characters.get(index) else {
+                    return Err(HealthError::Migration(
+                        "unterminated quoted SQL identifier".to_string(),
+                    ));
+                };
+                if current == closing {
+                    if characters.get(index + 1) == Some(&closing) && closing != b']' {
+                        identifier.push(char::from(closing));
+                        index += 2;
+                        continue;
+                    }
+                    index += 1;
+                    break;
+                }
+                identifier.push(char::from(current));
+                index += 1;
+            }
+            tokens.push(identifier.to_ascii_lowercase());
+            continue;
+        }
+        if byte == b'\'' {
+            index += 1;
+            let mut literal = String::new();
+            loop {
+                let Some(&current) = characters.get(index) else {
+                    return Err(HealthError::Migration(
+                        "unterminated SQL string literal".to_string(),
+                    ));
+                };
+                if current == b'\'' {
+                    if characters.get(index + 1) == Some(&b'\'') {
+                        literal.push('\'');
+                        index += 2;
+                        continue;
+                    }
+                    index += 1;
+                    break;
+                }
+                literal.push(char::from(current));
+                index += 1;
+            }
+            tokens.push(format!("'{literal}'"));
+            continue;
+        }
+        if let Some(next) = characters.get(index + 1) {
+            let pair = [byte, *next];
+            if matches!(
+                pair,
+                [b'<', b'='] | [b'>', b'='] | [b'<', b'>'] | [b'!', b'='] | [b'=', b'=']
+            ) {
+                tokens.push(if pair == [b'=', b'='] {
+                    "=".to_string()
+                } else {
+                    String::from_utf8_lossy(&pair).to_string()
+                });
+                index += 2;
+                continue;
+            }
+        }
+        tokens.push(char::from(byte).to_string());
+        index += 1;
+    }
+    Ok(tokens)
 }
 
 #[derive(Debug)]
@@ -591,14 +948,47 @@ struct ColumnSpec {
 struct TableSpec {
     name: &'static str,
     columns: &'static [ColumnSpec],
-    required_sql: &'static [&'static str],
+    checks: &'static [&'static str],
+    foreign_keys: &'static [ForeignKeySpec],
 }
 
 struct IndexSpec {
     name: &'static str,
     table: &'static str,
     create_sql: &'static str,
-    required_sql: &'static [&'static str],
+    unique: bool,
+    columns: &'static [&'static str],
+    predicate: Option<&'static str>,
+}
+
+struct IndexMetadata {
+    unique: bool,
+    origin: String,
+    partial: bool,
+}
+
+struct IndexColumn {
+    name: Option<String>,
+    descending: bool,
+    collation: String,
+}
+
+struct ForeignKeySpec {
+    from: &'static str,
+    table: &'static str,
+    to: &'static str,
+    on_update: &'static str,
+    on_delete: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ForeignKeyDefinition {
+    from: String,
+    table: String,
+    to: String,
+    on_update: String,
+    on_delete: String,
+    match_clause: String,
 }
 
 struct ScalarCheck {
@@ -675,35 +1065,60 @@ const TABLES: &[TableSpec] = &[
     TableSpec {
         name: "media_files",
         columns: MEDIA_COLUMNS,
-        required_sql: &["cleanup_pendingin(0,1)"],
+        checks: &[
+            "mime_type IN ('image/jpeg', 'image/png', 'image/webp')",
+            "typeof(byte_size) = 'integer' AND byte_size >= 0",
+            "typeof(cleanup_pending) = 'integer' AND cleanup_pending IN (0, 1)",
+        ],
+        foreign_keys: &[],
     },
     TableSpec {
         name: "diet_entries",
         columns: DIET_COLUMNS,
-        required_sql: &["media_idtextreferencesmedia_files(id)"],
+        checks: &["meal_type IN ('breakfast', 'lunch', 'dinner', 'snack', 'late_night')"],
+        foreign_keys: &[foreign_key(
+            "media_id",
+            "media_files",
+            "id",
+            "NO ACTION",
+            "NO ACTION",
+        )],
     },
     TableSpec {
         name: "diet_tags",
         columns: TAG_COLUMNS,
-        required_sql: &[],
+        checks: &[],
+        foreign_keys: &[],
     },
     TableSpec {
         name: "diet_entry_tags",
         columns: DIET_TAG_COLUMNS,
-        required_sql: &[
-            "referencesdiet_entries(id)ondeletecascade",
-            "referencesdiet_tags(id)",
+        checks: &[],
+        foreign_keys: &[
+            foreign_key(
+                "diet_entry_id",
+                "diet_entries",
+                "id",
+                "NO ACTION",
+                "CASCADE",
+            ),
+            foreign_key("tag_id", "diet_tags", "id", "NO ACTION", "NO ACTION"),
         ],
     },
     TableSpec {
         name: "health_events",
         columns: EVENT_COLUMNS,
-        required_sql: &["daily_upsertin(0,1)"],
+        checks: &[
+            "category IN ('weight', 'bowel', 'sleep', 'lab', 'symptom', 'medication')",
+            "typeof(daily_upsert) = 'integer' AND daily_upsert IN (0, 1)",
+        ],
+        foreign_keys: &[],
     },
     TableSpec {
         name: "audit_events",
         columns: AUDIT_COLUMNS,
-        required_sql: &[],
+        checks: &[],
+        foreign_keys: &[],
     },
 ];
 
@@ -713,55 +1128,71 @@ const INDEXES: &[IndexSpec] = &[
         "diet_entries",
         "CREATE INDEX IF NOT EXISTS idx_diet_entries_occurred_at
          ON diet_entries(occurred_at, id);",
-        &["ondiet_entries(occurred_at,id)"],
+        false,
+        &["occurred_at", "id"],
+        None,
     ),
     index(
         "idx_diet_entries_deleted_at",
         "diet_entries",
         "CREATE INDEX IF NOT EXISTS idx_diet_entries_deleted_at
          ON diet_entries(deleted_at, occurred_at);",
-        &["ondiet_entries(deleted_at,occurred_at)"],
+        false,
+        &["deleted_at", "occurred_at"],
+        None,
     ),
     index(
         "uq_diet_tags_name",
         "diet_tags",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_diet_tags_name ON diet_tags(name);",
-        &["createuniqueindex", "ondiet_tags(name)"],
+        true,
+        &["name"],
+        None,
     ),
     index(
         "idx_diet_entry_tags_tag",
         "diet_entry_tags",
         "CREATE INDEX IF NOT EXISTS idx_diet_entry_tags_tag
          ON diet_entry_tags(tag_id, diet_entry_id);",
-        &["ondiet_entry_tags(tag_id,diet_entry_id)"],
+        false,
+        &["tag_id", "diet_entry_id"],
+        None,
     ),
     index(
         "idx_health_events_occurred_at",
         "health_events",
         "CREATE INDEX IF NOT EXISTS idx_health_events_occurred_at
          ON health_events(occurred_at, id);",
-        &["onhealth_events(occurred_at,id)"],
+        false,
+        &["occurred_at", "id"],
+        None,
     ),
     index(
         "idx_health_events_category",
         "health_events",
         "CREATE INDEX IF NOT EXISTS idx_health_events_category
          ON health_events(category, occurred_at);",
-        &["onhealth_events(category,occurred_at)"],
+        false,
+        &["category", "occurred_at"],
+        None,
     ),
     index(
         "idx_health_events_metric_key",
         "health_events",
         "CREATE INDEX IF NOT EXISTS idx_health_events_metric_key
          ON health_events(metric_key, occurred_at);",
-        &["onhealth_events(metric_key,occurred_at)"],
+        false,
+        &["metric_key", "occurred_at"],
+        None,
     ),
     index(
         "idx_health_events_deleted_at",
         "health_events",
         "CREATE INDEX IF NOT EXISTS idx_health_events_deleted_at
          ON health_events(deleted_at, occurred_at);",
-        &["onhealth_events(deleted_at,occurred_at)"],
+        false,
+        &["deleted_at", "occurred_at"],
+        None,
     ),
     index(
         "uq_health_daily_metric",
@@ -769,32 +1200,36 @@ const INDEXES: &[IndexSpec] = &[
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_health_daily_metric
          ON health_events(local_date, category, metric_key)
          WHERE deleted_at IS NULL AND daily_upsert = 1;",
-        &[
-            "createuniqueindex",
-            "onhealth_events(local_date,category,metric_key)",
-            "wheredeleted_atisnullanddaily_upsert=1",
-        ],
+        true,
+        &["local_date", "category", "metric_key"],
+        Some("deleted_at IS NULL AND daily_upsert = 1"),
     ),
     index(
         "idx_media_files_checksum",
         "media_files",
         "CREATE INDEX IF NOT EXISTS idx_media_files_checksum
          ON media_files(checksum_sha256);",
-        &["onmedia_files(checksum_sha256)"],
+        false,
+        &["checksum_sha256"],
+        None,
     ),
     index(
         "idx_media_files_cleanup_pending",
         "media_files",
         "CREATE INDEX IF NOT EXISTS idx_media_files_cleanup_pending
          ON media_files(cleanup_pending, id);",
-        &["onmedia_files(cleanup_pending,id)"],
+        false,
+        &["cleanup_pending", "id"],
+        None,
     ),
     index(
         "idx_audit_events_record",
         "audit_events",
         "CREATE INDEX IF NOT EXISTS idx_audit_events_record
          ON audit_events(record_type, record_id, occurred_at);",
-        &["onaudit_events(record_type,record_id,occurred_at)"],
+        false,
+        &["record_type", "record_id", "occurred_at"],
+        None,
     ),
 ];
 
@@ -917,16 +1352,36 @@ const fn column(
     }
 }
 
+const fn foreign_key(
+    from: &'static str,
+    table: &'static str,
+    to: &'static str,
+    on_update: &'static str,
+    on_delete: &'static str,
+) -> ForeignKeySpec {
+    ForeignKeySpec {
+        from,
+        table,
+        to,
+        on_update,
+        on_delete,
+    }
+}
+
 const fn index(
     name: &'static str,
     table: &'static str,
     create_sql: &'static str,
-    required_sql: &'static [&'static str],
+    unique: bool,
+    columns: &'static [&'static str],
+    predicate: Option<&'static str>,
 ) -> IndexSpec {
     IndexSpec {
         name,
         table,
         create_sql,
-        required_sql,
+        unique,
+        columns,
+        predicate,
     }
 }

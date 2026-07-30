@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::path::{Component, Path};
+use std::path::Path;
 use time::{Date, OffsetDateTime};
 
 use crate::application::error::{HealthError, HealthResult};
@@ -117,12 +117,14 @@ impl MediaFileRecord {
         HealthRecordId::parse(&self.id)?;
         let path = Path::new(&self.relative_path);
         if self.relative_path.contains('\\')
+            || self.relative_path.contains('\0')
             || path.is_absolute()
             || self.relative_path.trim() != self.relative_path
             || self.relative_path.is_empty()
-            || path
-                .components()
-                .any(|component| !matches!(component, Component::Normal(_)))
+            || self
+                .relative_path
+                .split('/')
+                .any(|segment| segment.is_empty() || matches!(segment, "." | ".."))
         {
             return Err(HealthError::Validation {
                 field: "media.relative_path",

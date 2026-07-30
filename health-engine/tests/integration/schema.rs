@@ -103,8 +103,9 @@ fn compatible_extra_columns_and_values_are_preserved() {
             created_at, updated_at, legacy_source
          ) VALUES (
             '20000000-0000-4000-8000-000000000001',
-            '2026-07-30T03:00:00Z', '2026-07-30', 'lunch', 'Bibimbap',
-            '2026-07-30T03:00:00Z', '2026-07-30T03:00:00Z', 'import-v0'
+            '2026-07-30T03:00:00.000000000Z', '2026-07-30', 'lunch', 'Bibimbap',
+            '2026-07-30T03:00:00.000000000Z',
+            '2026-07-30T03:00:00.000000000Z', 'import-v0'
          );",
     );
 
@@ -197,6 +198,136 @@ fn failed_migration_rolls_back_all_schema_changes() {
             .unwrap(),
         "keep"
     );
+}
+
+#[test]
+fn migration_rejects_extended_daily_index_predicates_without_advancing_version() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "PRAGMA user_version = 0;
+         DROP INDEX uq_health_daily_metric;
+         CREATE UNIQUE INDEX uq_health_daily_metric
+         ON health_events(local_date, category, metric_key)
+         WHERE deleted_at IS NULL AND daily_upsert = 1 OR 1 = 1;",
+    );
+
+    assert!(matches!(
+        SqliteHealthRepository::open(&database),
+        Err(HealthError::Migration(_))
+    ));
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn migration_accepts_equivalent_daily_index_sql_variations() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "PRAGMA user_version = 0;
+         DROP INDEX uq_health_daily_metric;
+         CREATE UNIQUE INDEX \"uq_health_daily_metric\"
+         ON \"health_events\" (
+             \"local_date\" COLLATE BINARY ASC,
+             \"category\" COLLATE BINARY ASC,
+             \"metric_key\" COLLATE BINARY ASC
+         )
+         WHERE (
+             \"deleted_at\" IS NULL
+             AND \"daily_upsert\" == 1
+         );",
+    );
+
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    assert_eq!(user_version(&database), SCHEMA_VERSION);
+}
+
+#[test]
+fn migration_rejects_textually_faked_foreign_keys_without_advancing_version() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "PRAGMA foreign_keys = OFF;
+         DROP TABLE diet_entry_tags;
+         DROP TABLE diet_entries;
+         CREATE TABLE diet_entries (
+             id TEXT NOT NULL PRIMARY KEY,
+             occurred_at TEXT NOT NULL,
+             local_date TEXT NOT NULL,
+             meal_type TEXT NOT NULL CHECK (
+                 meal_type IN ('breakfast', 'lunch', 'dinner', 'snack', 'late_night')
+             ),
+             food_name TEXT NOT NULL,
+             note TEXT,
+             media_id TEXT CHECK (
+                 'media_id TEXT REFERENCES media_files(id)' <> ''
+             ),
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL,
+             deleted_at TEXT
+         ) STRICT;
+         CREATE TABLE diet_entry_tags (
+             diet_entry_id TEXT NOT NULL
+                 REFERENCES diet_entries(id) ON DELETE CASCADE,
+             tag_id TEXT NOT NULL REFERENCES diet_tags(id),
+             PRIMARY KEY (diet_entry_id, tag_id)
+         ) STRICT;
+         PRAGMA user_version = 0;",
+    );
+
+    assert!(matches!(
+        SqliteHealthRepository::open(&database),
+        Err(HealthError::Migration(_))
+    ));
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn migration_rejects_extended_check_constraints_without_advancing_version() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    drop(SqliteHealthRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "PRAGMA foreign_keys = OFF;
+         DROP TABLE health_events;
+         CREATE TABLE health_events (
+             id TEXT NOT NULL PRIMARY KEY,
+             occurred_at TEXT NOT NULL,
+             local_date TEXT NOT NULL,
+             category TEXT NOT NULL CHECK (
+                 category IN (
+                     'weight', 'bowel', 'sleep', 'lab', 'symptom', 'medication'
+                 )
+             ),
+             metric_key TEXT NOT NULL,
+             name TEXT NOT NULL,
+             value_num REAL,
+             unit TEXT,
+             note TEXT,
+             attributes_json TEXT NOT NULL,
+             daily_upsert INTEGER NOT NULL DEFAULT 0 CHECK (
+                 typeof(daily_upsert) = 'integer'
+                 AND daily_upsert IN (0, 1) OR 1 = 1
+             ),
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL,
+             deleted_at TEXT
+         ) STRICT;
+         PRAGMA user_version = 0;",
+    );
+
+    assert!(matches!(
+        SqliteHealthRepository::open(&database),
+        Err(HealthError::Migration(_))
+    ));
+    assert_eq!(user_version(&database), 0);
 }
 
 #[test]

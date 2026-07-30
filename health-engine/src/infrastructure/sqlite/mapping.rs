@@ -1,11 +1,10 @@
 use rusqlite::Row;
 use rusqlite::types::ValueRef;
 use serde_json::Value;
-use time::format_description::well_known::Rfc3339;
-use time::{Date, OffsetDateTime, UtcOffset};
+use time::{Date, OffsetDateTime};
 
 use super::audit_json;
-use super::schema::{parse_local_date, parse_utc_time};
+use super::schema::{format_utc_time, parse_local_date, parse_utc_time};
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::ports::{AuditEvent, MediaFileRecord};
 use crate::domain::{
@@ -162,10 +161,7 @@ pub(super) fn row_to_audit_event(row: &Row<'_>) -> HealthResult<AuditEvent> {
 }
 
 pub(super) fn format_time(value: OffsetDateTime) -> HealthResult<String> {
-    value
-        .to_offset(UtcOffset::UTC)
-        .format(&Rfc3339)
-        .map_err(|error| HealthError::Storage(error.to_string()))
+    format_utc_time(value)
 }
 
 pub(super) fn format_date(value: Date) -> String {
