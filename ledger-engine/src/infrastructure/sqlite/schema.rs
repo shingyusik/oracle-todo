@@ -4,12 +4,14 @@ use rusqlite::{Connection, OptionalExtension, params};
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
+use super::audit_json::{self, AUDIT_JSON_MAX_BYTES};
 use super::is_busy_error;
 use crate::application::error::{LedgerError, LedgerResult};
 
 pub(super) const SCHEMA_VERSION: i64 = 1;
 const LEGACY_UNKNOWN_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
 const TIMESTAMP_MIGRATION_BATCH_SIZE: i64 = 256;
+const AUDIT_JSON_VALIDATION_BATCH_SIZE: i64 = 256;
 
 pub(super) fn init_schema(connection: &Connection) -> LedgerResult<()> {
     connection
@@ -475,6 +477,7 @@ fn validate_persisted_integrity(connection: &Connection) -> LedgerResult<()> {
     for table in PERSISTED_TABLES {
         validate_persisted_table(connection, table)?;
     }
+    validate_audit_json_integrity(connection)?;
 
     let broken_foreign_key: bool = connection
         .query_row(
@@ -488,6 +491,79 @@ fn validate_persisted_integrity(connection: &Connection) -> LedgerResult<()> {
             "ledger database contains broken foreign-key references".to_string(),
         ));
     }
+    Ok(())
+}
+
+fn validate_audit_json_integrity(connection: &Connection) -> LedgerResult<()> {
+    let oversized: bool = connection
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM audit_events
+                WHERE (
+                    before_json IS NOT NULL
+                    AND length(CAST(before_json AS BLOB)) > ?1
+                ) OR (
+                    after_json IS NOT NULL
+                    AND length(CAST(after_json AS BLOB)) > ?1
+                )
+                LIMIT 1
+            )",
+            [AUDIT_JSON_MAX_BYTES as i64],
+            |row| row.get(0),
+        )
+        .map_err(migration_error)?;
+    if oversized {
+        return Err(LedgerError::Migration(format!(
+            "audit JSON exceeds the maximum size of {AUDIT_JSON_MAX_BYTES} bytes"
+        )));
+    }
+
+    let mut after_id = None;
+    loop {
+        let Some(next_after_id) = validate_audit_json_batch(connection, after_id.as_deref())?
+        else {
+            break;
+        };
+        after_id = Some(next_after_id);
+    }
+    Ok(())
+}
+
+fn validate_audit_json_batch(
+    connection: &Connection,
+    after_id: Option<&str>,
+) -> LedgerResult<Option<String>> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, before_json, after_json
+             FROM audit_events
+             WHERE ?1 IS NULL OR id > ?1
+             ORDER BY id
+             LIMIT ?2",
+        )
+        .map_err(migration_error)?;
+    let mut rows = statement
+        .query(params![after_id, AUDIT_JSON_VALIDATION_BATCH_SIZE])
+        .map_err(migration_error)?;
+    let mut last_id = None;
+    while let Some(row) = rows.next().map_err(migration_error)? {
+        let id: String = row.get(0).map_err(migration_error)?;
+        let before: Option<String> = row.get(1).map_err(migration_error)?;
+        let after: Option<String> = row.get(2).map_err(migration_error)?;
+        validate_audit_json_value(&id, "before_json", before.as_deref())?;
+        validate_audit_json_value(&id, "after_json", after.as_deref())?;
+        last_id = Some(id);
+    }
+    Ok(last_id)
+}
+
+fn validate_audit_json_value(id: &str, column: &str, value: Option<&str>) -> LedgerResult<()> {
+    audit_json::decode_optional(value).map_err(|error| {
+        LedgerError::Migration(format!(
+            "audit JSON in audit_events.{column} for record {id} cannot be decoded safely: {error}"
+        ))
+    })?;
     Ok(())
 }
 
@@ -1365,15 +1441,10 @@ const PERSISTED_TABLES: &[PersistedTableSpec] = &[
         required_nonblank_text: &[],
         optional_nonblank_text: &[],
         required_text: &["id", "actor", "action", "record_type", "record_id"],
-        optional_text: &["reason"],
+        optional_text: &["before_json", "after_json", "reason"],
         booleans: &[],
         timestamps: AUDIT_TIMESTAMPS,
-        extra_invalid: &[
-            "before_json IS NOT NULL
-             AND (typeof(before_json) <> 'text' OR json_valid(before_json) = 0)",
-            "after_json IS NOT NULL
-             AND (typeof(after_json) <> 'text' OR json_valid(after_json) = 0)",
-        ],
+        extra_invalid: &[],
     },
 ];
 

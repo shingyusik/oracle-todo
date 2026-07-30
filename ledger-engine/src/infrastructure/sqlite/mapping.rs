@@ -9,7 +9,7 @@ use crate::domain::{
     TransactionCategory, TransactionCategoryKind,
 };
 
-use super::storage_error;
+use super::{audit_json, storage_error};
 
 pub(super) const ENTRY_COLUMNS: &str = "
     id, date, written_at, content, transaction_category_id, account_id,
@@ -129,8 +129,8 @@ pub(super) fn row_to_audit_event(row: &Row<'_>) -> LedgerResult<AuditEvent> {
         action: row_value(row, 3)?,
         record_type: row_value(row, 4)?,
         record_id: row_value(row, 5)?,
-        before: parse_optional_json(before.as_deref())?,
-        after: parse_optional_json(after.as_deref())?,
+        before: audit_json::decode_optional(before.as_deref()).map_err(LedgerError::Storage)?,
+        after: audit_json::decode_optional(after.as_deref()).map_err(LedgerError::Storage)?,
         reason: row_value(row, 8)?,
     })
 }
@@ -168,13 +168,6 @@ fn parse_transaction_category_kind(value: &str) -> LedgerResult<TransactionCateg
             "unknown transaction category kind {value}"
         ))),
     }
-}
-
-fn parse_optional_json(value: Option<&str>) -> LedgerResult<Option<serde_json::Value>> {
-    value
-        .map(serde_json::from_str)
-        .transpose()
-        .map_err(|error| LedgerError::Storage(error.to_string()))
 }
 
 fn row_value<T: rusqlite::types::FromSql>(row: &Row<'_>, index: usize) -> LedgerResult<T> {

@@ -1,8 +1,8 @@
 use ledger_engine::application::error::LedgerError;
-use ledger_engine::application::ports::LedgerRepository;
+use ledger_engine::application::ports::{LedgerRepository, Page};
 use ledger_engine::domain::{Account, Currency, Money};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use std::path::Path;
 use time::macros::datetime;
 
@@ -626,11 +626,6 @@ fn health_rejects_each_persisted_scalar_that_mapping_cannot_read() {
             "UPDATE ledger_entries SET updated_at = '2026-07-30T24:00:00Z'
              WHERE id = 'entry-health';",
         ),
-        (
-            "invalid audit JSON",
-            "UPDATE audit_events SET after_json = '{invalid'
-             WHERE id = 'audit-health';",
-        ),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("ledger.sqlite");
@@ -652,6 +647,140 @@ fn health_rejects_each_persisted_scalar_that_mapping_cannot_read() {
             "health accepted {case}"
         );
     }
+}
+
+#[test]
+fn health_rejects_audit_json_that_the_repository_decoder_rejects() {
+    for (case, column, payload) in [
+        ("invalid syntax", "before_json", "{invalid".to_string()),
+        (
+            "SQLite-valid out-of-range number",
+            "before_json",
+            "1e10000".to_string(),
+        ),
+        (
+            "SQLite-valid 200-level nesting",
+            "after_json",
+            format!("{}0{}", "[".repeat(200), "]".repeat(200)),
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("ledger.sqlite");
+        seed_valid_scalar_rows(&database);
+        let repository = SqliteLedgerRepository::open(&database).unwrap();
+
+        let sqlite_valid = replace_audit_json(&database, column, &payload);
+        if case.starts_with("SQLite-valid") {
+            assert!(sqlite_valid, "fixture must be accepted by SQLite: {case}");
+        }
+
+        assert_audit_json_health_rejected(repository.check_schema(), case);
+        drop(repository);
+        assert_audit_json_health_rejected(SqliteLedgerRepository::open(&database), case);
+    }
+}
+
+#[test]
+fn health_rejects_audit_json_above_the_bounded_resource_policy() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    seed_valid_scalar_rows(&database);
+    let repository = SqliteLedgerRepository::open(&database).unwrap();
+    let oversized = format!("\"{}\"", "x".repeat(2 * 1024 * 1024));
+
+    assert!(replace_audit_json(&database, "after_json", &oversized));
+    assert_audit_json_health_rejected(repository.check_schema(), "oversized JSON");
+    drop(repository);
+    assert_audit_json_health_rejected(SqliteLedgerRepository::open(&database), "oversized JSON");
+}
+
+#[test]
+fn health_and_repository_mapping_accept_the_same_normal_nested_audit_json() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    seed_valid_scalar_rows(&database);
+    let before = r#"{"account":{"tags":["cash",{"region":"KR"}]},"active":true}"#;
+    let after = r#"[{"entry":{"amount":1250,"metadata":{"source":"manual"}}},null]"#;
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE audit_events
+             SET before_json = ?1, after_json = ?2
+             WHERE id = 'audit-health'",
+            params![before, after],
+        )
+        .unwrap();
+    drop(connection);
+
+    let repository = SqliteLedgerRepository::open(&database).unwrap();
+    repository.check_schema().unwrap();
+    let events = repository
+        .list_audit_events("ledger_entry", "entry-health", Page::default())
+        .unwrap();
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].before,
+        Some(serde_json::json!({
+            "account": {
+                "tags": ["cash", {"region": "KR"}]
+            },
+            "active": true
+        }))
+    );
+    assert_eq!(
+        events[0].after,
+        Some(serde_json::json!([
+            {
+                "entry": {
+                    "amount": 1250,
+                    "metadata": {"source": "manual"}
+                }
+            },
+            null
+        ]))
+    );
+}
+
+#[test]
+fn audit_json_health_uses_keyset_batches_beyond_the_first_page() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+    execute(
+        &database,
+        r#"WITH RECURSIVE sequence(value) AS (
+             SELECT 1
+             UNION ALL
+             SELECT value + 1 FROM sequence WHERE value < 600
+         )
+         INSERT INTO audit_events (
+             id, occurred_at, actor, action, record_type, record_id, after_json
+         )
+         SELECT
+             printf('audit-json-page-%04d', value),
+             '2026-07-30T00:00:00Z',
+             'json-page-test',
+             'inspect',
+             'json-page',
+             printf('record-%04d', value),
+             printf('{"sequence":%d,"nested":{"ok":true}}', value)
+         FROM sequence;"#,
+    );
+
+    let repository = SqliteLedgerRepository::open(&database).unwrap();
+    repository.check_schema().unwrap();
+    assert!(replace_audit_json(&database, "after_json", "1e10000"));
+
+    assert_audit_json_health_rejected(
+        repository.check_schema(),
+        "invalid JSON beyond the first keyset batch",
+    );
+    drop(repository);
+    assert_audit_json_health_rejected(
+        SqliteLedgerRepository::open(&database),
+        "invalid JSON beyond the first keyset batch",
+    );
 }
 
 #[test]
@@ -804,6 +933,32 @@ fn open_error(path: &Path) -> LedgerError {
     match SqliteLedgerRepository::open(path) {
         Ok(_) => panic!("opening an incompatible schema must fail"),
         Err(error) => error,
+    }
+}
+
+fn replace_audit_json(path: &Path, column: &str, payload: &str) -> bool {
+    assert!(matches!(column, "before_json" | "after_json"));
+    let connection = Connection::open(path).unwrap();
+    connection
+        .execute(
+            &format!(
+                "UPDATE audit_events SET {column} = ?1 WHERE id = (
+                    SELECT id FROM audit_events ORDER BY id DESC LIMIT 1
+                )"
+            ),
+            [payload],
+        )
+        .unwrap();
+    connection
+        .query_row("SELECT json_valid(?1)", [payload], |row| row.get(0))
+        .unwrap()
+}
+
+fn assert_audit_json_health_rejected<T>(result: Result<T, LedgerError>, case: &str) {
+    match result {
+        Err(LedgerError::Migration(message)) if message.contains("audit JSON") => {}
+        Err(error) => panic!("health rejected {case} with the wrong error: {error:?}"),
+        Ok(_) => panic!("health accepted {case}"),
     }
 }
 

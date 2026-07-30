@@ -1,3 +1,4 @@
+mod audit_json;
 mod mapping;
 mod repository;
 mod schema;

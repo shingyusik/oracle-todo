@@ -1,5 +1,4 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior, params};
-use serde_json::Value;
 use time::OffsetDateTime;
 
 use crate::application::error::{LedgerError, LedgerResult};
@@ -10,6 +9,7 @@ use crate::domain::{
     Account, AccountCategory, Currency, LedgerEntry, TransactionCategory, TransactionCategoryKind,
 };
 
+use super::audit_json;
 use super::mapping::{
     ACCOUNT_CATEGORY_COLUMNS, ACCOUNT_COLUMNS, AUDIT_COLUMNS, CURRENCY_COLUMNS, ENTRY_COLUMNS,
     TRANSACTION_CATEGORY_COLUMNS, format_time, row_to_account, row_to_account_category,
@@ -493,8 +493,10 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
     }
 
     fn insert_audit_event(&mut self, event: &AuditEvent) -> LedgerResult<()> {
-        let before = serialize_optional_json(event.before.as_ref())?;
-        let after = serialize_optional_json(event.after.as_ref())?;
+        let before =
+            audit_json::encode_optional(event.before.as_ref()).map_err(LedgerError::Storage)?;
+        let after =
+            audit_json::encode_optional(event.after.as_ref()).map_err(LedgerError::Storage)?;
         self.transaction
             .execute(
                 "INSERT INTO audit_events (
@@ -661,13 +663,6 @@ fn query_optional<T>(
         ));
     }
     Ok(result)
-}
-
-fn serialize_optional_json(value: Option<&Value>) -> LedgerResult<Option<String>> {
-    value
-        .map(serde_json::to_string)
-        .transpose()
-        .map_err(|error| LedgerError::Storage(error.to_string()))
 }
 
 fn transaction_category_kind_value(kind: TransactionCategoryKind) -> &'static str {

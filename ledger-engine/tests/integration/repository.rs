@@ -608,6 +608,22 @@ fn audit_lookup_uses_full_record_identity_and_bounded_page() {
 }
 
 #[test]
+fn audit_write_rejects_json_above_the_health_resource_limit() {
+    let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
+    let mut oversized = audit("audit-oversized", "entry-oversized");
+    oversized.after = Some(json!("x".repeat(2 * 1024 * 1024)));
+
+    let mut transaction = repository.begin_transaction().unwrap();
+    let error = transaction.insert_audit_event(&oversized).unwrap_err();
+    transaction.rollback().unwrap();
+
+    assert!(
+        matches!(error, LedgerError::Storage(message) if message.contains("audit JSON")),
+        "oversized audit JSON must be rejected before persistence"
+    );
+}
+
+#[test]
 fn entry_query_applies_bounded_offset_and_limit_in_sql() {
     let mut repository = SqliteLedgerRepository::open_in_memory().unwrap();
     let mut transaction = repository.begin_transaction().unwrap();
