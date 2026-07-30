@@ -448,6 +448,7 @@ dependencies = [
  "time",
  "unicode-casefold",
  "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]

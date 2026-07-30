@@ -1,10 +1,17 @@
+//! Health numeric values use IEEE-754 `f64`. Accepted values must be finite and no greater than
+//! `2^53 - 1` in magnitude; accepted negative zero is canonicalized to positive zero. Decimal
+//! precision beyond what `f64` preserves before validation is outside this domain contract.
+
 use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
 
-use super::{ValidationError, as_utc, finite, optional, required, validate_lifecycle};
+use super::{
+    HealthRecordId, MetricKey, ValidationError, as_utc, finite, optional, required,
+    validate_lifecycle, validated_timestamp,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -164,7 +171,7 @@ impl<'de> Deserialize<'de> for BowelAttributes {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WeightAttributes {
-    metric_key: String,
+    metric_key: MetricKey,
     name: String,
     value: WeightValue,
     unit: String,
@@ -178,14 +185,22 @@ impl WeightAttributes {
         unit: impl Into<String>,
     ) -> Result<Self, ValidationError> {
         Ok(Self {
-            metric_key: required(metric_key, "weight.metric_key")?,
+            metric_key: MetricKey::new(metric_key.into())?,
             name: required(name, "weight.name")?,
             value: WeightValue::new(value)?,
             unit: required(unit, "weight.unit")?,
         })
     }
 
-    pub fn metric_key(&self) -> &str {
+    pub fn body_weight(
+        name: impl Into<String>,
+        value: f64,
+        unit: impl Into<String>,
+    ) -> Result<Self, ValidationError> {
+        Self::new(MetricKey::body_weight().as_str(), name, value, unit)
+    }
+
+    pub fn metric_key(&self) -> &MetricKey {
         &self.metric_key
     }
 
@@ -224,7 +239,7 @@ impl<'de> Deserialize<'de> for WeightAttributes {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SleepAttributes {
-    metric_key: String,
+    metric_key: MetricKey,
     name: String,
     hours: SleepValue,
 }
@@ -236,13 +251,20 @@ impl SleepAttributes {
         hours: SleepValue,
     ) -> Result<Self, ValidationError> {
         Ok(Self {
-            metric_key: required(metric_key, "sleep.metric_key")?,
+            metric_key: MetricKey::new(metric_key.into())?,
             name: required(name, "sleep.name")?,
             hours,
         })
     }
 
-    pub fn metric_key(&self) -> &str {
+    pub fn sleep_duration(
+        name: impl Into<String>,
+        hours: SleepValue,
+    ) -> Result<Self, ValidationError> {
+        Self::new(MetricKey::sleep_duration().as_str(), name, hours)
+    }
+
+    pub fn metric_key(&self) -> &MetricKey {
         &self.metric_key
     }
 
@@ -275,10 +297,11 @@ impl<'de> Deserialize<'de> for SleepAttributes {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LabAttributes {
-    metric_key: String,
+    metric_key: MetricKey,
     name: String,
     value: f64,
-    unit: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unit: Option<String>,
 }
 
 impl LabAttributes {
@@ -286,17 +309,17 @@ impl LabAttributes {
         metric_key: impl Into<String>,
         name: impl Into<String>,
         value: f64,
-        unit: impl Into<String>,
+        unit: Option<&str>,
     ) -> Result<Self, ValidationError> {
         Ok(Self {
-            metric_key: required(metric_key, "lab.metric_key")?,
+            metric_key: MetricKey::new(metric_key.into())?,
             name: required(name, "lab.name")?,
             value: finite(value, "lab value")?,
-            unit: required(unit, "lab.unit")?,
+            unit: optional(unit.map(str::to_owned), "lab.unit")?,
         })
     }
 
-    pub fn metric_key(&self) -> &str {
+    pub fn metric_key(&self) -> &MetricKey {
         &self.metric_key
     }
 
@@ -308,8 +331,8 @@ impl LabAttributes {
         self.value
     }
 
-    pub fn unit(&self) -> &str {
-        &self.unit
+    pub fn unit(&self) -> Option<&str> {
+        self.unit.as_deref()
     }
 }
 
@@ -319,7 +342,8 @@ struct LabAttributesInput {
     metric_key: String,
     name: String,
     value: f64,
-    unit: String,
+    #[serde(default)]
+    unit: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for LabAttributes {
@@ -328,14 +352,19 @@ impl<'de> Deserialize<'de> for LabAttributes {
         D: Deserializer<'de>,
     {
         let input = LabAttributesInput::deserialize(deserializer)?;
-        Self::new(input.metric_key, input.name, input.value, input.unit)
-            .map_err(serde::de::Error::custom)
+        Self::new(
+            input.metric_key,
+            input.name,
+            input.value,
+            input.unit.as_deref(),
+        )
+        .map_err(serde::de::Error::custom)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SymptomAttributes {
-    metric_key: String,
+    metric_key: MetricKey,
     name: String,
     score: u8,
     condition_note: Option<String>,
@@ -352,14 +381,27 @@ impl SymptomAttributes {
             return Err(ValidationError::InvalidSymptomScore);
         }
         Ok(Self {
-            metric_key: required(metric_key, "symptom.metric_key")?,
+            metric_key: MetricKey::new(metric_key.into())?,
             name: required(name, "symptom.name")?,
             score,
             condition_note: optional(condition_note.map(str::to_owned), "symptom.condition_note")?,
         })
     }
 
-    pub fn metric_key(&self) -> &str {
+    pub fn overall_condition(
+        name: impl Into<String>,
+        score: u8,
+        condition_note: Option<&str>,
+    ) -> Result<Self, ValidationError> {
+        Self::new(
+            MetricKey::overall_condition().as_str(),
+            name,
+            score,
+            condition_note,
+        )
+    }
+
+    pub fn metric_key(&self) -> &MetricKey {
         &self.metric_key
     }
 
@@ -478,14 +520,14 @@ impl HealthEventDetails {
         }
     }
 
-    fn metric_key(&self) -> &str {
+    fn metric_key(&self) -> MetricKey {
         match self {
-            Self::Weight(attributes) => &attributes.metric_key,
-            Self::Bowel(_) => "bowel",
-            Self::Sleep(attributes) => &attributes.metric_key,
-            Self::Lab(attributes) => &attributes.metric_key,
-            Self::Symptom(attributes) => &attributes.metric_key,
-            Self::Medication(_) => "medication",
+            Self::Weight(attributes) => attributes.metric_key.clone(),
+            Self::Bowel(_) => MetricKey::bowel(),
+            Self::Sleep(attributes) => attributes.metric_key.clone(),
+            Self::Lab(attributes) => attributes.metric_key.clone(),
+            Self::Symptom(attributes) => attributes.metric_key.clone(),
+            Self::Medication(_) => MetricKey::medication(),
         }
     }
 
@@ -516,7 +558,7 @@ impl HealthEventDetails {
             Self::Weight(attributes) => Some(attributes.unit.clone()),
             Self::Bowel(_) => None,
             Self::Sleep(_) => Some("hours".to_string()),
-            Self::Lab(attributes) => Some(attributes.unit.clone()),
+            Self::Lab(attributes) => attributes.unit.clone(),
             Self::Symptom(_) => Some("score".to_string()),
             Self::Medication(attributes) => Some(attributes.unit.to_string()),
         }
@@ -559,7 +601,7 @@ pub struct NewHealthEvent {
     #[serde(with = "time::serde::rfc3339")]
     occurred_at: OffsetDateTime,
     category: HealthCategory,
-    metric_key: String,
+    metric_key: MetricKey,
     name: String,
     value_num: Option<f64>,
     unit: Option<String>,
@@ -574,9 +616,9 @@ impl NewHealthEvent {
         note: Option<&str>,
     ) -> Result<Self, ValidationError> {
         Ok(Self {
-            occurred_at: as_utc(occurred_at),
+            occurred_at: validated_timestamp(occurred_at, "health_event.occurred_at")?,
             category: details.category(),
-            metric_key: details.metric_key().to_string(),
+            metric_key: details.metric_key(),
             name: details.name().to_string(),
             value_num: Some(details.value_num()),
             unit: details.unit(),
@@ -586,7 +628,7 @@ impl NewHealthEvent {
     }
 
     fn from_input(input: NewHealthEventInput) -> Result<Self, ValidationError> {
-        let metric_key = required(input.metric_key, "health_event.metric_key")?;
+        let metric_key = MetricKey::new(&input.metric_key)?;
         let name = required(input.name, "health_event.name")?;
         let value_num = input
             .value_num
@@ -616,7 +658,7 @@ impl NewHealthEvent {
         self.category
     }
 
-    pub fn metric_key(&self) -> &str {
+    pub fn metric_key(&self) -> &MetricKey {
         &self.metric_key
     }
 
@@ -699,11 +741,11 @@ pub struct HealthEventRehydration {
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HealthEvent {
-    id: String,
+    id: HealthRecordId,
     #[serde(with = "time::serde::rfc3339")]
     occurred_at: OffsetDateTime,
     category: HealthCategory,
-    metric_key: String,
+    metric_key: MetricKey,
     name: String,
     value_num: Option<f64>,
     unit: Option<String>,
@@ -732,7 +774,7 @@ impl HealthEvent {
         })?;
 
         Ok(Self {
-            id: required(record.id, "health_event.id")?,
+            id: HealthRecordId::parse(&record.id)?,
             occurred_at: input.occurred_at,
             category: input.category,
             metric_key: input.metric_key,
@@ -747,7 +789,7 @@ impl HealthEvent {
         })
     }
 
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &HealthRecordId {
         &self.id
     }
 
@@ -759,7 +801,7 @@ impl HealthEvent {
         self.category
     }
 
-    pub fn metric_key(&self) -> &str {
+    pub fn metric_key(&self) -> &MetricKey {
         &self.metric_key
     }
 

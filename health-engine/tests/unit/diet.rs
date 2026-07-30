@@ -1,9 +1,12 @@
 use health_engine::domain::{
-    DietEntry, DietEntryRehydration, MealType, MediaReference, NewDietEntry, ValidationError,
-    normalize_tags,
+    DietEntry, DietEntryRehydration, HealthRecordId, MealType, MediaReference, NewDietEntry,
+    ValidationError, normalize_tags,
 };
 use serde_json::json;
 use time::{OffsetDateTime, macros::datetime};
+
+const DIET_ID: &str = "11111111-1111-4111-8111-111111111111";
+const MEDIA_ID: &str = "22222222-2222-4222-8222-222222222222";
 
 #[test]
 fn meal_types_and_tags_use_canonical_deterministic_contracts() {
@@ -30,7 +33,7 @@ fn new_diet_input_trims_content_normalizes_utc_and_owns_no_id() {
         "  Bibimbap  ",
         Some("  family dinner  "),
         [" Spicy ", "SPICY", "채소"],
-        Some(MediaReference::new(" media-1 ").unwrap()),
+        Some(MediaReference::new(MEDIA_ID).unwrap()),
     )
     .unwrap();
 
@@ -38,10 +41,7 @@ fn new_diet_input_trims_content_normalizes_utc_and_owns_no_id() {
     assert_eq!(input.food_name(), "Bibimbap");
     assert_eq!(input.note(), Some("family dinner"));
     assert_eq!(input.tags(), ["spicy", "채소"]);
-    assert_eq!(
-        input.media_id().map(MediaReference::as_str),
-        Some("media-1")
-    );
+    assert_eq!(input.media_id().map(MediaReference::as_str), Some(MEDIA_ID));
     assert_eq!(
         serde_json::to_value(&input).unwrap(),
         json!({
@@ -50,7 +50,7 @@ fn new_diet_input_trims_content_normalizes_utc_and_owns_no_id() {
             "food_name": "Bibimbap",
             "note": "family dinner",
             "tags": ["spicy", "채소"],
-            "media_id": "media-1"
+            "media_id": MEDIA_ID
         })
     );
 }
@@ -103,11 +103,57 @@ fn new_diet_json_cannot_bypass_required_fields_or_tag_bounds() {
 }
 
 #[test]
-fn media_references_are_trimmed_and_invalid_json_is_rejected() {
-    let media = serde_json::from_value::<MediaReference>(json!(" media-7 ")).unwrap();
-    assert_eq!(media.as_str(), "media-7");
-    assert_eq!(serde_json::to_value(media).unwrap(), json!("media-7"));
+fn diet_limits_apply_to_raw_input_before_canonicalization() {
+    let at = datetime!(2026-07-30 12:30:00 UTC);
+    assert!(NewDietEntry::new(at, MealType::Lunch, "한".repeat(120), None, ["tag"], None,).is_ok());
+    assert!(
+        NewDietEntry::new(at, MealType::Lunch, "한".repeat(121), None, ["tag"], None,).is_err()
+    );
+
+    assert!(NewDietEntry::new(at, MealType::Lunch, "Rice", None, vec!["same"; 21], None,).is_err());
+    assert!(
+        NewDietEntry::new(
+            at,
+            MealType::Lunch,
+            "Rice",
+            None,
+            [format!(" {} ", "x".repeat(40))],
+            None,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn omitted_diet_tags_deserialize_as_an_empty_list() {
+    let input: NewDietEntry = serde_json::from_value(json!({
+        "occurred_at": "2026-07-30T12:30:00Z",
+        "meal_type": "lunch",
+        "food_name": "Rice",
+        "note": null,
+        "media_id": null
+    }))
+    .unwrap();
+
+    assert!(input.tags().is_empty());
+    assert_eq!(serde_json::to_value(input).unwrap()["tags"], json!([]));
+}
+
+#[test]
+fn media_references_require_canonical_uuid_v4_metadata_ids() {
+    let id = HealthRecordId::parse(MEDIA_ID).unwrap();
+    assert_eq!(id.as_str(), MEDIA_ID);
+    assert_eq!(serde_json::to_value(&id).unwrap(), json!(MEDIA_ID));
+    let media = serde_json::from_value::<MediaReference>(json!(MEDIA_ID)).unwrap();
+    assert_eq!(media.as_str(), MEDIA_ID);
+    assert_eq!(serde_json::to_value(media).unwrap(), json!(MEDIA_ID));
+
+    assert!(MediaReference::new(format!(" {MEDIA_ID}")).is_err());
     assert!(serde_json::from_value::<MediaReference>(json!(" \n ")).is_err());
+    assert!(MediaReference::new("../media/health/evil.webp").is_err());
+    assert!(HealthRecordId::parse("11111111-1111-1111-8111-111111111111").is_err());
+    assert!(HealthRecordId::parse("11111111111141118111111111111111").is_err());
+    assert!(HealthRecordId::parse("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA").is_err());
 }
 
 #[test]
@@ -118,7 +164,7 @@ fn diet_rehydration_normalizes_timestamps_and_exposes_deleted_state() {
 
     let entry = DietEntry::rehydrate(record).unwrap();
 
-    assert_eq!(entry.id(), "diet-1");
+    assert_eq!(entry.id().as_str(), DIET_ID);
     assert_eq!(entry.occurred_at(), datetime!(2026-07-30 12:30:00 UTC));
     assert_eq!(entry.created_at(), datetime!(2026-07-30 12:31:00 UTC));
     assert_eq!(entry.updated_at(), datetime!(2026-07-31 01:00:00 UTC));
@@ -127,13 +173,13 @@ fn diet_rehydration_normalizes_timestamps_and_exposes_deleted_state() {
     assert_eq!(
         serde_json::to_value(&entry).unwrap(),
         json!({
-            "id": "diet-1",
+            "id": DIET_ID,
             "occurred_at": "2026-07-30T12:30:00Z",
             "meal_type": "dinner",
             "food_name": "Bibimbap",
             "note": null,
             "tags": ["spicy", "채소"],
-            "media_id": "media-1",
+            "media_id": MEDIA_ID,
             "created_at": "2026-07-30T12:31:00Z",
             "updated_at": "2026-07-31T01:00:00Z",
             "deleted_at": "2026-07-31T01:00:00Z"
@@ -158,9 +204,33 @@ fn diet_rehydration_rejects_impossible_lifecycle_order() {
     );
 }
 
+#[test]
+fn diet_rejects_programmatic_timestamps_that_rfc3339_cannot_format() {
+    let extreme = datetime!(-9999-01-01 0:00 UTC);
+    assert!(NewDietEntry::new(extreme, MealType::Lunch, "Rice", None, ["plain"], None,).is_err());
+
+    let mut record = diet_record();
+    record.created_at = extreme;
+    assert!(DietEntry::rehydrate(record).is_err());
+}
+
+#[test]
+fn diet_rehydration_rejects_noncanonical_or_non_v4_identity() {
+    for invalid in [
+        "not-a-uuid",
+        "11111111-1111-1111-8111-111111111111",
+        "11111111111141118111111111111111",
+        "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+    ] {
+        let mut record = diet_record();
+        record.id = invalid.to_string();
+        assert!(DietEntry::rehydrate(record).is_err());
+    }
+}
+
 fn diet_record() -> DietEntryRehydration {
     DietEntryRehydration {
-        id: " diet-1 ".to_string(),
+        id: DIET_ID.to_string(),
         occurred_at: parse_timestamp("2026-07-30T21:30:00+09:00"),
         meal_type: MealType::Dinner,
         food_name: " Bibimbap ".to_string(),
@@ -170,7 +240,7 @@ fn diet_record() -> DietEntryRehydration {
             " SPICY ".to_string(),
             "spicy".to_string(),
         ],
-        media_id: Some(" media-1 ".to_string()),
+        media_id: Some(MEDIA_ID.to_string()),
         created_at: parse_timestamp("2026-07-30T21:31:00+09:00"),
         updated_at: parse_timestamp("2026-07-30T21:31:00+09:00"),
         deleted_at: None,

@@ -11,3 +11,4 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
 unicode-casefold = "0.2"
 unicode-normalization = "0.1"
+uuid = "1"

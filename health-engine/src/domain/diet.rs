@@ -5,10 +5,14 @@ use time::OffsetDateTime;
 use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
-use super::{MediaReference, ValidationError, as_utc, optional, required, validate_lifecycle};
+use super::{
+    HealthRecordId, MediaReference, ValidationError, as_utc, optional, required,
+    validate_lifecycle, validated_timestamp,
+};
 
 const MAX_TAGS: usize = 20;
 const MAX_TAG_CHARACTERS: usize = 40;
+const MAX_FOOD_NAME_CHARACTERS: usize = 120;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -87,10 +91,29 @@ impl NewDietEntry {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let tags = normalize_tags(tags);
-        if tags.len() > MAX_TAGS {
+        let food_name = food_name.into();
+        if food_name.chars().count() > MAX_FOOD_NAME_CHARACTERS {
+            return Err(ValidationError::FoodNameTooLong {
+                maximum: MAX_FOOD_NAME_CHARACTERS,
+            });
+        }
+
+        let raw_tags: Vec<String> = tags
+            .into_iter()
+            .map(|tag| tag.as_ref().to_string())
+            .collect();
+        if raw_tags.len() > MAX_TAGS {
             return Err(ValidationError::TooManyTags { maximum: MAX_TAGS });
         }
+        if raw_tags
+            .iter()
+            .any(|tag| tag.chars().count() > MAX_TAG_CHARACTERS)
+        {
+            return Err(ValidationError::TagTooLong {
+                maximum: MAX_TAG_CHARACTERS,
+            });
+        }
+        let tags = normalize_tags(&raw_tags);
         if tags
             .iter()
             .any(|tag| tag.chars().count() > MAX_TAG_CHARACTERS)
@@ -101,7 +124,7 @@ impl NewDietEntry {
         }
 
         Ok(Self {
-            occurred_at: as_utc(occurred_at),
+            occurred_at: validated_timestamp(occurred_at, "diet_entry.occurred_at")?,
             meal_type,
             food_name: required(food_name, "diet_entry.food_name")?,
             note: optional(note.map(str::to_owned), "diet_entry.note")?,
@@ -143,6 +166,7 @@ struct NewDietEntryInput {
     meal_type: MealType,
     food_name: String,
     note: Option<String>,
+    #[serde(default)]
     tags: Vec<String>,
     media_id: Option<MediaReference>,
 }
@@ -197,7 +221,7 @@ pub struct DietEntryRehydration {
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DietEntry {
-    id: String,
+    id: HealthRecordId,
     #[serde(with = "time::serde::rfc3339")]
     occurred_at: OffsetDateTime,
     meal_type: MealType,
@@ -226,7 +250,7 @@ impl DietEntry {
         )?;
 
         Ok(Self {
-            id: required(record.id, "diet_entry.id")?,
+            id: HealthRecordId::parse(&record.id)?,
             occurred_at: input.occurred_at,
             meal_type: input.meal_type,
             food_name: input.food_name,
@@ -239,7 +263,7 @@ impl DietEntry {
         })
     }
 
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &HealthRecordId {
         &self.id
     }
 
