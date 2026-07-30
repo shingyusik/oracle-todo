@@ -137,3 +137,36 @@
   `GetFinalPathNameByHandleW` compiled for `x86_64-pc-windows-gnu`.
 - `cargo fmt --all --check`, clippy for Raven API/CLI with all targets,
   features, and warnings denied, plus `git diff --check`: passed.
+
+## Filesystem Anchor Follow-up
+
+- Extended capability traversal above the artifact root. Unix now resolves
+  relative inputs against `current_dir`, lexically normalizes components,
+  rejects a parent component that remains unresolved above `/`, opens `/` as
+  the immutable anchor, and opens every artifact-path component with
+  descriptor-relative `openat`, `O_DIRECTORY`, and `O_NOFOLLOW`.
+- Retains the complete Unix anchor-to-artifact descriptor chain. The
+  synchronized ancestor test keeps a replacement `container` symlink active
+  while the walker attempts to open that component; the external artifact is
+  rejected even though the final `ui` component itself is a regular directory.
+- Windows accepts only absolute local-drive paths after resolving relative
+  inputs against `current_dir`; UNC, device/verbatim, missing-drive, and
+  drive-root escape forms are rejected. It opens the drive root first, then
+  opens and validates one directory component at a time while retaining every
+  no-delete-share ancestor handle.
+- Every Windows intermediate and final component rejects reparse points and
+  non-directories, records handle identity, and verifies final-path containment
+  under the drive-root handle. The final component handle becomes the artifact
+  root.
+- Windows final-path comparison normalizes separators, case, and trailing
+  separators, then requires exact equality or a separator-bounded descendant.
+  Pure tests cover `\\?\C:\` to its first child, case-insensitive and nested
+  containment, and `foo` versus sibling `foobar` rejection.
+- Unix capability/normalization tests: 6 passed. Cross-platform final-path
+  containment tests: 4 passed. Focused UI security: 9 passed.
+- Raven API full suite excluding the sandbox-blocked real socket test and Raven
+  CLI full suite passed. Formatting, clippy with warnings denied, and diff
+  checks passed.
+- The dependency-minimal Windows cfg crate was extended with the exact
+  local-drive component walker and final-path containment helpers and compiled
+  successfully for `x86_64-pc-windows-gnu`.

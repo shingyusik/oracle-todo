@@ -168,10 +168,27 @@ fn validate_name(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(any(windows, test))]
+fn normalize_windows_final_path(path: &str) -> String {
+    path.replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_lowercase()
+}
+
+#[cfg(any(windows, test))]
+fn windows_path_is_contained(root: &str, candidate: &str) -> bool {
+    let root = normalize_windows_final_path(root);
+    let candidate = normalize_windows_final_path(candidate);
+    candidate == root
+        || candidate
+            .strip_prefix(&root)
+            .is_some_and(|remainder| remainder.starts_with('\\'))
+}
+
 #[cfg(unix)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum UnixLoadPhase {
-    RootOpening,
+    PathComponentOpening(String),
     ChildOpening(String),
     FileOpened(String),
 }
@@ -187,18 +204,77 @@ fn load_artifact_unix_with_hook(
     mut hook: impl FnMut(UnixLoadPhase),
 ) -> anyhow::Result<BTreeMap<String, StaticAsset>> {
     use rustix::fs::{Mode, OFlags};
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
 
-    hook(UnixLoadPhase::RootOpening);
-    let root = rustix::fs::open(
-        path,
+    let components = normalized_unix_components(path)?;
+    let anchor = rustix::fs::open(
+        Path::new("/"),
         OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::empty(),
     )
     .map(std::fs::File::from)
     .map_err(|_| anyhow::anyhow!("UI artifact must be a regular directory"))?;
+    let mut capability_chain = vec![anchor];
+    for component in components {
+        let display = component
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("UI artifact contains a non-UTF-8 name"))?
+            .to_owned();
+        validate_name(&display)?;
+        hook(UnixLoadPhase::PathComponentOpening(display));
+        let os_name = CString::new(component.as_bytes())
+            .map_err(|_| anyhow::anyhow!("UI artifact contains an invalid name"))?;
+        let directory = rustix::fs::openat(
+            capability_chain
+                .last()
+                .expect("filesystem anchor is always retained"),
+            os_name.as_c_str(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map(std::fs::File::from)
+        .map_err(|_| anyhow::anyhow!("UI artifact must be a regular directory"))?;
+        capability_chain.push(directory);
+    }
+    let root = capability_chain
+        .last()
+        .expect("filesystem anchor is always retained");
     let mut builder = SnapshotBuilder::new();
-    load_directory_unix(&root, "", 0, &mut builder, &mut hook)?;
+    load_directory_unix(root, "", 0, &mut builder, &mut hook)?;
     Ok(builder.files)
+}
+
+#[cfg(unix)]
+fn normalized_unix_components(path: &Path) -> anyhow::Result<Vec<std::ffi::OsString>> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|_| anyhow::anyhow!("UI artifact path is unreadable"))?
+            .join(path)
+    };
+    let mut normalized = Vec::new();
+    let mut rooted = false;
+    for component in absolute.components() {
+        match component {
+            std::path::Component::RootDir => rooted = true,
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(value) => normalized.push(value.to_os_string()),
+            std::path::Component::ParentDir => {
+                if normalized.pop().is_none() {
+                    anyhow::bail!("UI artifact path escapes the filesystem root");
+                }
+            }
+            std::path::Component::Prefix(_) => {
+                anyhow::bail!("UI artifact path has an unsupported prefix");
+            }
+        }
+    }
+    if !rooted {
+        anyhow::bail!("UI artifact path is not absolute");
+    }
+    Ok(normalized)
 }
 
 #[cfg(unix)]
@@ -292,12 +368,66 @@ fn read_opened_unix_file(mut file: std::fs::File, opened: FileStamp) -> anyhow::
 
 #[cfg(windows)]
 fn load_artifact_windows(path: &Path) -> anyhow::Result<BTreeMap<String, StaticAsset>> {
-    let root = open_windows_entry(path)?;
-    ensure_windows_directory(&root)?;
+    let (mut current_path, components) = normalized_windows_components(path)?;
+    let anchor = open_windows_entry(&current_path)?;
+    ensure_windows_directory(&anchor)?;
+    let anchor_final_path = final_windows_path(&anchor)?;
+    let mut capability_chain = vec![anchor];
+    for component in components {
+        current_path.push(component);
+        let directory = open_windows_entry(&current_path)?;
+        ensure_windows_directory(&directory)?;
+        ensure_windows_contained(&directory, &anchor_final_path)?;
+        let _identity = opened_windows_handle_stamp(&directory)?;
+        capability_chain.push(directory);
+    }
+    let root = capability_chain
+        .last()
+        .expect("drive root anchor is always retained");
     let root_path = final_windows_path(&root)?;
     let mut builder = SnapshotBuilder::new();
-    load_directory_windows(path, &root, &root_path, "", 0, &mut builder)?;
+    load_directory_windows(&current_path, root, &root_path, "", 0, &mut builder)?;
     Ok(builder.files)
+}
+
+#[cfg(windows)]
+fn normalized_windows_components(
+    path: &Path,
+) -> anyhow::Result<(std::path::PathBuf, Vec<std::ffi::OsString>)> {
+    use std::path::{Component, Prefix};
+
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|_| anyhow::anyhow!("UI artifact path is unreadable"))?
+            .join(path)
+    };
+    let mut drive = None;
+    let mut rooted = false;
+    let mut normalized = Vec::new();
+    for component in absolute.components() {
+        match component {
+            Component::Prefix(prefix) => match prefix.kind() {
+                Prefix::Disk(value) if drive.is_none() => drive = Some(value),
+                _ => anyhow::bail!("UI artifact path has an unsupported Windows prefix"),
+            },
+            Component::RootDir => rooted = true,
+            Component::CurDir => {}
+            Component::Normal(value) => normalized.push(value.to_os_string()),
+            Component::ParentDir => {
+                if normalized.pop().is_none() {
+                    anyhow::bail!("UI artifact path escapes the drive root");
+                }
+            }
+        }
+    }
+    let drive = drive.ok_or_else(|| anyhow::anyhow!("UI artifact path has no local drive"))?;
+    if !rooted {
+        anyhow::bail!("UI artifact path is not drive-absolute");
+    }
+    let drive_root = std::path::PathBuf::from(format!("{}:\\", char::from(drive)));
+    Ok((drive_root, normalized))
 }
 
 #[cfg(windows)]
@@ -429,7 +559,8 @@ fn final_windows_path(file: &std::fs::File) -> anyhow::Result<String> {
             anyhow::bail!("UI artifact changed while loading");
         }
         if length < buffer.len() as u32 {
-            return Ok(String::from_utf16_lossy(&buffer[..length as usize]).to_lowercase());
+            let path = String::from_utf16_lossy(&buffer[..length as usize]);
+            return Ok(normalize_windows_final_path(&path));
         }
         buffer.resize(length as usize + 1, 0);
     }
@@ -438,10 +569,7 @@ fn final_windows_path(file: &std::fs::File) -> anyhow::Result<String> {
 #[cfg(windows)]
 fn ensure_windows_contained(file: &std::fs::File, root: &str) -> anyhow::Result<()> {
     let child = final_windows_path(file)?;
-    let remainder = child
-        .strip_prefix(root)
-        .ok_or_else(|| anyhow::anyhow!("UI artifact entry escapes its root"))?;
-    if !remainder.starts_with('\\') {
+    if !windows_path_is_contained(root, &child) {
         anyhow::bail!("UI artifact entry escapes its root");
     }
     Ok(())
@@ -687,10 +815,23 @@ mod tests {
 
     fn artifact_fixture() -> (tempfile::TempDir, std::path::PathBuf) {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("ui");
+        let root = temp.path().canonicalize().unwrap().join("ui");
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("index.html"), b"trusted").unwrap();
         (temp, root)
+    }
+
+    #[test]
+    fn unix_component_normalization_resolves_relative_parent_components() {
+        let current = std::env::current_dir().unwrap();
+        let expected = normalized_unix_components(&current.join("nested/../ui")).unwrap();
+        let actual = normalized_unix_components(Path::new("./ui")).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn unix_component_normalization_rejects_parent_above_root() {
+        assert!(normalized_unix_components(Path::new("/../../ui")).is_err());
     }
 
     #[test]
@@ -703,9 +844,33 @@ mod tests {
         std::fs::create_dir(&victim).unwrap();
         std::fs::write(victim.join("index.html"), b"foreign").unwrap();
         let result = load_artifact_unix_with_hook(&root, |phase| {
-            if phase == UnixLoadPhase::RootOpening {
+            if phase == UnixLoadPhase::PathComponentOpening("ui".into()) {
                 std::fs::rename(&root, &original).unwrap();
                 symlink(&victim, &root).unwrap();
+            }
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ancestor_symlink_swap_is_rejected_during_capability_walk() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let temp_path = temp.path().canonicalize().unwrap();
+        let container = temp_path.join("container");
+        let root = container.join("ui");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("index.html"), b"trusted").unwrap();
+        let original = temp_path.join("container-original");
+        let victim = temp_path.join("victim");
+        std::fs::create_dir_all(victim.join("ui")).unwrap();
+        std::fs::write(victim.join("ui/index.html"), b"foreign").unwrap();
+
+        let result = load_artifact_unix_with_hook(&root, |phase| {
+            if phase == UnixLoadPhase::PathComponentOpening("container".into()) {
+                std::fs::rename(&container, &original).unwrap();
+                symlink(&victim, &container).unwrap();
             }
         });
         assert!(result.is_err());
@@ -743,5 +908,67 @@ mod tests {
             }
         });
         assert!(result.is_err());
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_path_tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn local_drive_components_are_lexically_normalized() {
+        let (root, components) =
+            normalized_windows_components(Path::new(r"C:\safe\.\nested\..\ui")).unwrap();
+        assert_eq!(root, Path::new(r"C:\"));
+        assert_eq!(
+            components,
+            vec![OsString::from("safe"), OsString::from("ui")]
+        );
+    }
+
+    #[test]
+    fn unc_device_and_parent_escape_paths_are_rejected() {
+        assert!(normalized_windows_components(Path::new(r"\\server\share\ui")).is_err());
+        assert!(normalized_windows_components(Path::new(r"\\?\C:\ui")).is_err());
+        assert!(normalized_windows_components(Path::new(r"C:\..\ui")).is_err());
+    }
+
+    #[test]
+    fn relative_paths_resolve_from_a_local_drive_current_directory() {
+        let (root, components) = normalized_windows_components(Path::new(r".\ui")).unwrap();
+        assert!(root.has_root());
+        assert_eq!(components.last(), Some(&OsString::from("ui")));
+    }
+}
+
+#[cfg(test)]
+mod windows_containment_tests {
+    use super::*;
+
+    #[test]
+    fn volume_root_contains_its_first_component() {
+        assert!(windows_path_is_contained(r"\\?\C:\", r"\\?\C:\Users"));
+    }
+
+    #[test]
+    fn sibling_prefix_is_not_contained() {
+        assert!(!windows_path_is_contained(r"\\?\C:\foo", r"\\?\C:\foobar"));
+    }
+
+    #[test]
+    fn containment_is_case_insensitive() {
+        assert!(windows_path_is_contained(
+            r"\\?\C:\USERS",
+            r"\\?\c:\users\Raven"
+        ));
+    }
+
+    #[test]
+    fn nested_child_is_contained() {
+        assert!(windows_path_is_contained(
+            r"\\?\C:\Users",
+            r"\\?\C:\Users\Raven\ui"
+        ));
     }
 }

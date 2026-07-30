@@ -21,7 +21,7 @@ fn config(token: &UiSessionToken, home: &std::path::Path) -> RavenApiConfig {
 
 fn fixture() -> (tempfile::TempDir, axum::Router) {
     let temp = tempfile::tempdir().unwrap();
-    let ui = temp.path().join("ui");
+    let ui = temp.path().canonicalize().unwrap().join("ui");
     fs::create_dir(&ui).unwrap();
     fs::write(ui.join("index.html"), "<main>Raven</main>").unwrap();
     fs::write(ui.join("app.js"), "export const raven = true;").unwrap();
@@ -345,7 +345,7 @@ fn artifact_snapshot_rejects_symlinks_and_oversized_files() {
 #[test]
 fn ui_router_rejects_a_non_loopback_authority() {
     let temp = tempfile::tempdir().unwrap();
-    let ui = temp.path().join("ui");
+    let ui = temp.path().canonicalize().unwrap().join("ui");
     fs::create_dir(&ui).unwrap();
     fs::write(ui.join("index.html"), "Raven").unwrap();
     let artifact = UiArtifact::load(ui).unwrap();
