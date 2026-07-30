@@ -16,6 +16,7 @@ if (-not $DataHome) { $DataHome = $defaultHome }
 
 $DataHome = [System.IO.Path]::GetFullPath($DataHome)
 $dbPath = Join-Path $DataHome 'todo.sqlite'
+$mediaHealthPath = Join-Path $DataHome 'media/health'
 
 function Test-SamePath {
     param([string]$Left, [string]$Right)
@@ -106,6 +107,14 @@ for ($i = 0; $i -lt $dayNames.Count; $i++) {
 }
 
 Invoke-Raven init | Out-Null
+Invoke-Todo today | Out-Null
+
+if (-not (Test-Path -LiteralPath $dbPath -PathType Leaf)) {
+    throw 'Raven smoke failed: todo.sqlite was not created as a file.'
+}
+if (-not (Test-Path -LiteralPath $mediaHealthPath -PathType Container)) {
+    throw 'Raven smoke failed: media/health was not created as a directory.'
+}
 
 $devArea = Get-ItemId (Invoke-Todo area create '개발' `
         --review-cycle weekly `
