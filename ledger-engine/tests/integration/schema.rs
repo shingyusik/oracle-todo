@@ -78,6 +78,85 @@ fn schema_initialization_is_idempotent_and_additive() {
 }
 
 #[test]
+fn version_one_open_stays_read_only_under_a_concurrent_writer() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "WITH RECURSIVE sequence(value) AS (
+             SELECT 1
+             UNION ALL
+             SELECT value + 1 FROM sequence WHERE value < 2000
+         )
+         INSERT INTO audit_events (
+             id, occurred_at, actor, action, record_type, record_id
+         )
+         SELECT
+             printf('audit-scale-%04d', value),
+             '2026-07-30T00:00:00Z',
+             'scale-test',
+             'inspect',
+             'scale',
+             printf('record-%04d', value)
+         FROM sequence;",
+    );
+    let writer = Connection::open(&database).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE;").unwrap();
+
+    let reopened = SqliteLedgerRepository::open(&database);
+
+    writer.execute_batch("ROLLBACK;").unwrap();
+    assert!(
+        reopened.is_ok(),
+        "version 1 health unexpectedly requested a writer lock: {:?}",
+        reopened.err()
+    );
+}
+
+#[test]
+fn version_zero_timestamp_migration_processes_multiple_bounded_batches() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+    execute(
+        &database,
+        "WITH RECURSIVE sequence(value) AS (
+             SELECT 1
+             UNION ALL
+             SELECT value + 1 FROM sequence WHERE value < 600
+         )
+         INSERT INTO audit_events (
+             id, occurred_at, actor, action, record_type, record_id
+         )
+         SELECT
+             printf('audit-migration-%04d', value),
+             '2026-07-30T09:00:00+09:00',
+             'migration-test',
+             'normalize',
+             'migration',
+             printf('record-%04d', value)
+         FROM sequence;
+         PRAGMA user_version = 0;",
+    );
+
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+
+    let connection = Connection::open(&database).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM audit_events
+                 WHERE occurred_at = '2026-07-30T00:00:00Z'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        600
+    );
+}
+
+#[test]
 fn migration_backfills_compatible_partial_table_without_losing_rows() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
@@ -125,6 +204,56 @@ fn migration_backfills_compatible_partial_table_without_losing_rows() {
             "updated_at",
             "deleted_at",
         ]
+    );
+}
+
+#[test]
+fn migration_backfills_missing_updated_at_from_existing_created_at() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    create_partial_currency_with_created_at(&database);
+
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+
+    let connection = Connection::open(&database).unwrap();
+    let timestamps = connection
+        .query_row(
+            "SELECT created_at, updated_at
+             FROM currencies
+             WHERE id = 'currency-created-only'",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        timestamps,
+        (
+            "2026-07-30T03:04:05Z".to_string(),
+            "2026-07-30T03:04:05Z".to_string(),
+        )
+    );
+}
+
+#[test]
+fn migrated_timestamp_columns_reject_future_omitted_values() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    create_partial_currency_with_created_at(&database);
+    drop(SqliteLedgerRepository::open(&database).unwrap());
+
+    let result = Connection::open(&database).unwrap().execute(
+        "INSERT INTO currencies (
+            id, code, name, symbol, decimal_places, active, created_at
+         ) VALUES (
+            'currency-omitted-updated', 'OMT', 'Omitted updated', 'O', 0, 1,
+            '2026-07-30T04:05:06Z'
+         )",
+        [],
+    );
+
+    assert!(
+        result.is_err(),
+        "migrated schema accepted omitted updated_at"
     );
 }
 
@@ -412,8 +541,117 @@ fn migration_fails_closed_when_legacy_money_uses_non_integer_storage() {
 
     let error = open_error(&database);
 
-    assert!(matches!(error, LedgerError::Migration(message) if message.contains("non-integer")));
+    assert!(
+        matches!(error, LedgerError::Migration(message) if message.contains("persisted scalar"))
+    );
     assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn migration_rejects_real_currency_precision_before_repository_reads() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    execute(
+        &database,
+        "CREATE TABLE currencies (
+            id TEXT NOT NULL PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            decimal_places INTEGER NOT NULL
+                CHECK (decimal_places >= 0 AND decimal_places <= 18),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        INSERT INTO currencies (
+            id, code, name, symbol, decimal_places, active, created_at, updated_at
+        ) VALUES (
+            'currency-real-precision', 'BAD', 'Bad precision', 'B', 1.5, 1,
+            '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+        );",
+    );
+
+    let error = open_error(&database);
+
+    assert!(
+        matches!(error, LedgerError::Migration(message) if message.contains("persisted scalar"))
+    );
+    assert_eq!(user_version(&database), 0);
+}
+
+#[test]
+fn health_rejects_nonpositive_entry_amount_before_repository_reads() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    seed_valid_scalar_rows(&database);
+    execute(
+        &database,
+        "PRAGMA ignore_check_constraints = ON;
+         UPDATE ledger_entries SET amount_minor = 0 WHERE id = 'entry-health';
+         PRAGMA ignore_check_constraints = OFF;",
+    );
+
+    let error = open_error(&database);
+
+    assert!(
+        matches!(error, LedgerError::Migration(message) if message.contains("persisted scalar"))
+    );
+    assert_eq!(user_version(&database), 1);
+}
+
+#[test]
+fn health_rejects_each_persisted_scalar_that_mapping_cannot_read() {
+    for (case, mutation) in [
+        (
+            "invalid boolean",
+            "UPDATE currencies SET active = 2 WHERE id = 'currency-health';",
+        ),
+        (
+            "invalid category enum",
+            "UPDATE transaction_categories SET kind = 'refund'
+             WHERE id = 'transaction-health';",
+        ),
+        (
+            "invalid calendar date",
+            "UPDATE ledger_entries SET date = '2026-02-30' WHERE id = 'entry-health';",
+        ),
+        (
+            "blank required domain string",
+            "UPDATE ledger_entries SET content = '   ' WHERE id = 'entry-health';",
+        ),
+        (
+            "timestamp SQLite accepts but RFC3339 rejects",
+            "UPDATE ledger_entries SET updated_at = '2026-07-30T24:00:00Z'
+             WHERE id = 'entry-health';",
+        ),
+        (
+            "invalid audit JSON",
+            "UPDATE audit_events SET after_json = '{invalid'
+             WHERE id = 'audit-health';",
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("ledger.sqlite");
+        seed_valid_scalar_rows(&database);
+        execute(
+            &database,
+            &format!(
+                "PRAGMA ignore_check_constraints = ON;
+                 {mutation}
+                 PRAGMA ignore_check_constraints = OFF;"
+            ),
+        );
+
+        assert!(
+            matches!(
+                SqliteLedgerRepository::open(&database),
+                Err(LedgerError::Migration(message)) if message.contains("persisted scalar")
+            ),
+            "health accepted {case}"
+        );
+    }
 }
 
 #[test]
@@ -599,4 +837,75 @@ fn column_names(path: &Path, table: &str) -> Vec<String> {
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap()
+}
+
+fn create_partial_currency_with_created_at(path: &Path) {
+    execute(
+        path,
+        "CREATE TABLE currencies (
+            id TEXT NOT NULL PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            decimal_places INTEGER NOT NULL
+                CHECK (decimal_places >= 0 AND decimal_places <= 18),
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL
+        ) STRICT;
+        INSERT INTO currencies (
+            id, code, name, symbol, decimal_places, active, created_at
+        ) VALUES (
+            'currency-created-only', 'CRT', 'Created only', 'C', 0, 1,
+            '2026-07-30T03:04:05Z'
+        );",
+    );
+}
+
+fn seed_valid_scalar_rows(path: &Path) {
+    drop(SqliteLedgerRepository::open(path).unwrap());
+    execute(
+        path,
+        "PRAGMA foreign_keys = ON;
+         INSERT INTO currencies (
+             id, code, name, symbol, decimal_places, active, created_at, updated_at
+         ) VALUES (
+             'currency-health', 'HLT', 'Health currency', 'H', 2, 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO account_categories (
+             id, name, liability, active, created_at, updated_at
+         ) VALUES (
+             'account-category-health', 'Health accounts', 0, 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO accounts (
+             id, name, account_category_id, currency_id, opening_balance_minor,
+             active, created_at, updated_at
+         ) VALUES (
+             'account-health', 'Health account', 'account-category-health',
+             'currency-health', 0, 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO transaction_categories (
+             id, name, kind, active, created_at, updated_at
+         ) VALUES (
+             'transaction-health', 'Health category', 'expense', 1,
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO ledger_entries (
+             id, date, written_at, content, transaction_category_id, account_id,
+             entry_type, amount_minor, currency_id, source, created_at, updated_at
+         ) VALUES (
+             'entry-health', '2026-07-30', '2026-07-30T00:00:00Z',
+             'Health entry', 'transaction-health', 'account-health', 'expense',
+             1250, 'currency-health', 'health-test',
+             '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+         );
+         INSERT INTO audit_events (
+             id, occurred_at, actor, action, record_type, record_id, after_json
+         ) VALUES (
+             'audit-health', '2026-07-30T00:00:01Z', 'tester', 'create',
+             'ledger_entry', 'entry-health', '{\"id\":\"entry-health\"}'
+         );",
+    );
 }

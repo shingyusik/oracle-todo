@@ -429,7 +429,7 @@ fn persistence_normalizes_master_and_audit_timestamps_to_utc() {
 }
 
 #[test]
-fn opening_normalizes_legacy_offset_timestamps_to_utc() {
+fn version_zero_migration_normalizes_legacy_offset_timestamps_to_utc() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
     let mut repository = SqliteLedgerRepository::open(&database).unwrap();
@@ -457,7 +457,8 @@ fn opening_normalizes_legacy_offset_timestamps_to_utc() {
              WHERE id = 'currency-legacy-offset';
              UPDATE audit_events
              SET occurred_at = '2026-07-29T20:30:00-04:00'
-             WHERE id = 'audit-legacy-offset';",
+             WHERE id = 'audit-legacy-offset';
+             PRAGMA user_version = 0;",
         )
         .unwrap();
     drop(connection);
@@ -484,6 +485,47 @@ fn opening_normalizes_legacy_offset_timestamps_to_utc() {
             )
             .unwrap(),
         "2026-07-30T00:30:00Z"
+    );
+}
+
+#[test]
+fn version_one_health_rejects_non_utc_timestamps_without_rewriting_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut repository = SqliteLedgerRepository::open(&database).unwrap();
+    let currency = Currency::new("currency-non-utc", "NUT", "Non UTC", "N", 0).unwrap();
+    let mut transaction = repository.begin_transaction().unwrap();
+    transaction
+        .upsert_currency(&currency, datetime!(2026-07-30 00:00:00 UTC))
+        .unwrap();
+    transaction.commit().unwrap();
+    drop(repository);
+
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE currencies
+             SET updated_at = '2026-07-30T09:00:00+09:00'
+             WHERE id = 'currency-non-utc'",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    assert!(matches!(
+        SqliteLedgerRepository::open(&database),
+        Err(LedgerError::Migration(_))
+    ));
+    assert_eq!(
+        Connection::open(&database)
+            .unwrap()
+            .query_row(
+                "SELECT updated_at FROM currencies WHERE id = 'currency-non-utc'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "2026-07-30T09:00:00+09:00"
     );
 }
 
@@ -594,7 +636,12 @@ fn writer_lock_expiry_is_reported_as_retryable_busy() {
     let database = directory.path().join("ledger.sqlite");
     drop(SqliteLedgerRepository::open(&database).unwrap());
     let locker = Connection::open(&database).unwrap();
-    locker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    locker
+        .execute_batch(
+            "PRAGMA user_version = 0;
+             BEGIN IMMEDIATE;",
+        )
+        .unwrap();
 
     let started = Instant::now();
     let error = match SqliteLedgerRepository::open(&database) {
@@ -612,7 +659,7 @@ fn writer_lock_expiry_is_reported_as_retryable_busy() {
 }
 
 #[test]
-fn invalid_persisted_master_is_rejected_by_domain_rehydration() {
+fn invalid_persisted_master_is_rejected_during_health_check() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
     drop(SqliteLedgerRepository::open(&database).unwrap());
@@ -631,15 +678,14 @@ fn invalid_persisted_master_is_rejected_by_domain_rehydration() {
         .unwrap();
     drop(connection);
 
-    let repository = SqliteLedgerRepository::open(&database).unwrap();
-    let error = repository
-        .get_currency("currency-invalid", true)
-        .unwrap_err();
-    assert!(matches!(error, LedgerError::Storage(message) if message.contains("domain invariant")));
+    assert!(matches!(
+        SqliteLedgerRepository::open(&database),
+        Err(LedgerError::Migration(message)) if message.contains("persisted scalar")
+    ));
 }
 
 #[test]
-fn invalid_persisted_entry_is_rejected_by_domain_rehydration() {
+fn invalid_persisted_entry_is_rejected_during_health_check() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
     let mut repository = SqliteLedgerRepository::open(&database).unwrap();
@@ -665,9 +711,10 @@ fn invalid_persisted_entry_is_rejected_by_domain_rehydration() {
         .unwrap();
     drop(connection);
 
-    let repository = SqliteLedgerRepository::open(&database).unwrap();
-    let error = repository.get_entry("entry-invalid", true).unwrap_err();
-    assert!(matches!(error, LedgerError::Storage(message) if message.contains("domain invariant")));
+    assert!(matches!(
+        SqliteLedgerRepository::open(&database),
+        Err(LedgerError::Migration(message)) if message.contains("persisted scalar")
+    ));
 }
 
 #[test]
