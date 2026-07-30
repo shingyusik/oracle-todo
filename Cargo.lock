@@ -899,6 +899,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "raven-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "health-engine",
+ "http-body-util",
+ "ledger-engine",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "todo-engine",
+ "tokio",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "raven-cli"
 version = "0.1.0"
 dependencies = [
@@ -1427,6 +1446,7 @@ checksum = "d258b83ceec21034727ecee8c382cfa6c3e133699b0742c64571814fb420c9f7"
 dependencies = [
  "getrandom",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 
