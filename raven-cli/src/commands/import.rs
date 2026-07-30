@@ -25,6 +25,22 @@ pub enum ImportTodoError {
     UnsupportedSchemaVersion(i64),
     #[error("imported database failed ToDo schema health validation")]
     SchemaHealth,
+    #[error(
+        "imported database WAL checkpoint incomplete: busy={busy}, log={log}, checkpointed={checkpointed}"
+    )]
+    WalCheckpoint {
+        busy: i64,
+        log: i64,
+        checkpointed: i64,
+    },
+    #[error("imported database journal mode remained {0}")]
+    JournalMode(String),
+    #[error("import-owned WAL remained non-empty after close: {0} bytes")]
+    NonEmptyWal(u64),
+    #[error("import-owned {0} sidecar was not a regular file")]
+    SidecarOwnership(&'static str),
+    #[error("import-owned sidecar cleanup failed: {0}")]
+    SidecarCleanup(std::io::Error),
     #[error("{primary}; temporary import cleanup also failed: {cleanup}")]
     Cleanup {
         primary: Box<ImportTodoError>,
@@ -46,6 +62,11 @@ impl ImportTodoError {
             Self::Integrity(_)
             | Self::UnsupportedSchemaVersion(_)
             | Self::SchemaHealth
+            | Self::WalCheckpoint { .. }
+            | Self::JournalMode(_)
+            | Self::NonEmptyWal(_)
+            | Self::SidecarOwnership(_)
+            | Self::SidecarCleanup(_)
             | Self::Io(_)
             | Self::Sqlite(_)
             | Self::Todo(_) => 1,
@@ -87,6 +108,9 @@ fn import_todo_before_publish(
             return Err(cleanup_after_error(temporary, error));
         }
     };
+    if let Err(error) = remove_empty_owned_sidecars(temporary.path()) {
+        return Err(cleanup_after_error(temporary, error));
+    }
     before_publish();
 
     match temporary.persist_noclobber(&destination_path) {
@@ -111,12 +135,91 @@ fn import_todo_before_publish(
 }
 
 fn cleanup_after_error(temporary: NamedTempFile, primary: ImportTodoError) -> ImportTodoError {
-    match temporary.close() {
-        Ok(()) => primary,
-        Err(cleanup) => ImportTodoError::Cleanup {
+    let mut failures = Vec::new();
+    if let Err(error) = remove_owned_sidecars(temporary.path()) {
+        failures.push(safe_io_summary("sidecars", &error));
+    }
+    if let Err(error) = temporary.close() {
+        failures.push(safe_io_summary("temporary main", &error));
+    }
+    if failures.is_empty() {
+        primary
+    } else {
+        ImportTodoError::Cleanup {
             primary: Box::new(primary),
-            cleanup,
-        },
+            cleanup: std::io::Error::other(failures.join("; ")),
+        }
+    }
+}
+
+fn safe_io_summary(label: &str, error: &std::io::Error) -> String {
+    format!(
+        "{label} cleanup failed (kind={:?}, os_error={:?})",
+        error.kind(),
+        error.raw_os_error()
+    )
+}
+
+fn sidecar_path(main: &Path, suffix: &str) -> PathBuf {
+    let mut path = main.as_os_str().to_os_string();
+    path.push(suffix);
+    PathBuf::from(path)
+}
+
+fn sidecar_metadata(
+    path: &Path,
+    label: &'static str,
+) -> Result<Option<std::fs::Metadata>, ImportTodoError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(Some(metadata)),
+        Ok(_) => Err(ImportTodoError::SidecarOwnership(label)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(ImportTodoError::SidecarCleanup(error)),
+    }
+}
+
+fn remove_empty_owned_sidecars(main: &Path) -> Result<(), ImportTodoError> {
+    let wal = sidecar_path(main, "-wal");
+    if let Some(metadata) = sidecar_metadata(&wal, "WAL")? {
+        if metadata.len() != 0 {
+            return Err(ImportTodoError::NonEmptyWal(metadata.len()));
+        }
+    }
+    remove_owned_sidecars(main).map_err(ImportTodoError::SidecarCleanup)?;
+    for (label, path) in [
+        ("WAL", sidecar_path(main, "-wal")),
+        ("SHM", sidecar_path(main, "-shm")),
+    ] {
+        if sidecar_metadata(&path, label)?.is_some() {
+            return Err(ImportTodoError::SidecarCleanup(std::io::Error::other(
+                format!("{label} sidecar remained after cleanup"),
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn remove_owned_sidecars(main: &Path) -> std::io::Result<()> {
+    let mut failures = Vec::new();
+    for (label, path) in [
+        ("WAL", sidecar_path(main, "-wal")),
+        ("SHM", sidecar_path(main, "-shm")),
+    ] {
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                if let Err(error) = std::fs::remove_file(&path) {
+                    failures.push(safe_io_summary(label, &error));
+                }
+            }
+            Ok(_) => failures.push(format!("{label} sidecar was not a regular file")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => failures.push(safe_io_summary(label, &error)),
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(failures.join("; ")))
     }
 }
 
@@ -138,6 +241,7 @@ fn copy_and_validate(
         ));
     }
     todo_engine::infrastructure::sqlite::init_schema(&destination)?;
+    normalize_to_self_contained_main(&destination)?;
     let integrity_check = destination.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity_check != "ok" {
         return Err(ImportTodoError::Integrity(integrity_check));
@@ -151,6 +255,26 @@ fn copy_and_validate(
         return Err(ImportTodoError::SchemaHealth);
     }
     Ok(integrity_check)
+}
+
+fn normalize_to_self_contained_main(destination: &Connection) -> Result<(), ImportTodoError> {
+    let (busy, log, checkpointed) =
+        destination.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+    if busy != 0 || log != checkpointed {
+        return Err(ImportTodoError::WalCheckpoint {
+            busy,
+            log,
+            checkpointed,
+        });
+    }
+    let journal_mode: String =
+        destination.query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0))?;
+    if !journal_mode.eq_ignore_ascii_case("delete") {
+        return Err(ImportTodoError::JournalMode(journal_mode));
+    }
+    Ok(())
 }
 
 pub fn run(paths: &RavenPaths, source_home: Option<PathBuf>) -> Result<()> {
@@ -170,6 +294,34 @@ pub fn run(paths: &RavenPaths, source_home: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleanup_preserves_primary_error_and_does_not_remove_unowned_sidecar() {
+        let home = tempfile::tempdir().unwrap();
+        let temporary = NamedTempFile::new_in(home.path()).unwrap();
+        let temporary_path = temporary.path().to_path_buf();
+        let unowned_wal = sidecar_path(&temporary_path, "-wal");
+        std::fs::create_dir(&unowned_wal).unwrap();
+        let marker = unowned_wal.join("protected");
+        std::fs::write(&marker, b"protected sidecar data").unwrap();
+
+        let error = cleanup_after_error(temporary, ImportTodoError::UnsupportedSchemaVersion(999));
+
+        let ImportTodoError::Cleanup { primary, cleanup } = error else {
+            panic!("cleanup failure must retain the primary error");
+        };
+        assert!(matches!(
+            *primary,
+            ImportTodoError::UnsupportedSchemaVersion(999)
+        ));
+        assert!(cleanup.to_string().contains("sidecars cleanup failed"));
+        assert_eq!(
+            std::fs::read(marker).unwrap(),
+            b"protected sidecar data",
+            "non-regular sidecars are not import-owned cleanup targets"
+        );
+        assert!(!temporary_path.exists());
+    }
 
     #[test]
     fn publication_conflict_preserves_intervening_destination_file() {

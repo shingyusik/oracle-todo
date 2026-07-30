@@ -153,12 +153,47 @@ fn import_copies_committed_live_wal_data_without_changing_durable_source_data() 
 
     let report = import_todo(source.path(), &RavenPaths::from_home(destination.path())).unwrap();
 
+    let destination_entries: Vec<std::ffi::OsString> = std::fs::read_dir(destination.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        destination_entries,
+        [std::ffi::OsString::from("todo.sqlite")],
+        "no import-owned temporary main or sidecar may remain after publication"
+    );
+
+    let isolated = tempfile::tempdir().unwrap();
+    let isolated_db = isolated.path().join("todo.sqlite");
+    std::fs::copy(&report.destination, &isolated_db).unwrap();
     let imported =
-        todo_engine::infrastructure::sqlite::connect(report.destination.to_str().unwrap()).unwrap();
+        todo_engine::infrastructure::sqlite::connect(isolated_db.to_str().unwrap()).unwrap();
     let imported_value: String = imported
         .query_row("SELECT value FROM wal_probe", [], |row| row.get(0))
         .unwrap();
     assert_eq!(imported_value, "committed-in-wal");
+    let imported_version: i64 = imported
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        imported_version,
+        todo_engine::interfaces::cli::TODO_SCHEMA_VERSION
+    );
+    let imported_integrity: String = imported
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(imported_integrity, "ok");
+    let imported_journal_mode: String = imported
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(imported_journal_mode, "delete");
+    drop(imported);
+    assert_eq!(
+        todo_engine::interfaces::cli::health_at(isolated.path()),
+        todo_engine::interfaces::cli::TodoHealth::Healthy {
+            user_version: todo_engine::interfaces::cli::TODO_SCHEMA_VERSION,
+        }
+    );
     let source_value: String = source_connection
         .query_row("SELECT value FROM wal_probe", [], |row| row.get(0))
         .unwrap();
