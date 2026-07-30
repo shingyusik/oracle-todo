@@ -219,7 +219,9 @@ impl Drop for LocalStagedMedia {
             return;
         };
         if temporary.close().is_ok() {
-            let _ = remove_recovery_portable(&self.root, &self.recovery);
+            if let Ok(root) = staged_root_portable(self) {
+                let _ = remove_recovery_portable(&root, &self.recovery);
+            }
         }
     }
 }
@@ -251,6 +253,8 @@ fn remove_staged_unix(staged: &mut LocalStagedMedia) -> HealthResult<()> {
 #[derive(Debug)]
 pub struct LocalStagedMedia {
     root: PathBuf,
+    #[cfg(windows)]
+    directory: Arc<File>,
     temporary: Option<tempfile::NamedTempFile>,
     stored: StoredMedia,
     recovery: MediaRecovery,
@@ -314,6 +318,16 @@ impl MediaStore for LocalMediaStore {
 
         #[cfg(not(unix))]
         {
+            #[cfg(windows)]
+            if !Arc::ptr_eq(&self.directory, &staged.directory) {
+                return Err(cleanup_staged_portable(
+                    &mut staged,
+                    HealthError::Validation {
+                        field: "media.staged",
+                        message: "belongs to a different media store".to_string(),
+                    },
+                ));
+            }
             #[cfg(windows)]
             let _root_guard = lock_root_windows(&self.root, &self.directory)?;
             if self.root != staged.root {
@@ -397,6 +411,16 @@ impl MediaStore for LocalMediaStore {
         #[cfg(not(unix))]
         {
             #[cfg(windows)]
+            if !Arc::ptr_eq(&self.directory, &staged.directory) {
+                return Err(cleanup_staged_portable(
+                    &mut staged,
+                    HealthError::Validation {
+                        field: "media.staged",
+                        message: "belongs to a different media store".to_string(),
+                    },
+                ));
+            }
+            #[cfg(windows)]
             let _root_guard = lock_root_windows(&self.root, &self.directory)?;
             if self.root != staged.root {
                 return Err(HealthError::Validation {
@@ -410,7 +434,9 @@ impl MediaStore for LocalMediaStore {
                 .ok_or_else(|| HealthError::Storage("staged media is unavailable".to_string()))?;
             let cleanup_path = temporary.path().to_path_buf();
             match temporary.close() {
-                Ok(()) => remove_recovery_portable(&self.root, &staged.recovery),
+                Ok(()) => {
+                    remove_recovery_portable(&staged_root_portable(&staged)?, &staged.recovery)
+                }
                 Err(error) => Err(HealthError::Cleanup {
                     primary: Box::new(HealthError::Storage(
                         "could not cancel staged media".to_string(),
@@ -624,6 +650,8 @@ impl LocalMediaStore {
         let recovery = MediaRecovery::for_media(&stored);
         let mut staged = LocalStagedMedia {
             root: self.root.clone(),
+            #[cfg(windows)]
+            directory: Arc::clone(&self.directory),
             temporary: Some(temporary),
             stored,
             recovery,
@@ -688,7 +716,8 @@ fn cleanup_staged_portable(staged: &mut LocalStagedMedia, primary: HealthError) 
             file.close()
                 .map_err(|error| media_storage_error("could not remove staged media", &error))
         });
-    let journal = remove_recovery_portable(&staged.root, &staged.recovery);
+    let journal = staged_root_portable(staged)
+        .and_then(|root| remove_recovery_portable(&root, &staged.recovery));
     match (temporary, journal) {
         (Ok(()), Ok(())) => primary,
         (temporary, journal) => HealthError::Cleanup {
@@ -1243,6 +1272,45 @@ fn windows_file_identity(file: &File) -> HealthResult<(u32, u64)> {
         information.dwVolumeSerialNumber,
         u64::from(information.nFileIndexHigh) << 32 | u64::from(information.nFileIndexLow),
     ))
+}
+
+#[cfg(windows)]
+fn staged_root_portable(staged: &LocalStagedMedia) -> HealthResult<PathBuf> {
+    root_path_windows(&staged.directory)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn staged_root_portable(staged: &LocalStagedMedia) -> HealthResult<PathBuf> {
+    Ok(staged.root.clone())
+}
+
+#[cfg(windows)]
+fn root_path_windows(directory: &File) -> HealthResult<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
+    };
+
+    let mut buffer = vec![0_u16; 32_768];
+    // SAFETY: `directory` owns a valid handle and `buffer` is writable for the
+    // supplied length.
+    let length = unsafe {
+        GetFinalPathNameByHandleW(
+            directory.as_raw_handle() as HANDLE,
+            buffer.as_mut_ptr(),
+            u32::try_from(buffer.len()).expect("Windows path buffer length fits u32"),
+            FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
+        )
+    };
+    if length == 0 || length as usize >= buffer.len() {
+        return Err(media_storage_error(
+            "could not resolve opened media directory",
+            &std::io::Error::last_os_error(),
+        ));
+    }
+    Ok(std::ffi::OsString::from_wide(&buffer[..length as usize]).into())
 }
 
 #[cfg(windows)]

@@ -323,6 +323,43 @@ fn explicit_abort_removes_staged_bytes() {
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_staged_media_keeps_the_original_root_locked_after_store_drop() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("media");
+    let moved = directory.path().join("moved");
+    let staged = {
+        let store = LocalMediaStore::new(&root).unwrap();
+        store.stage("image/png", PNG).unwrap()
+    };
+
+    assert!(fs::rename(&root, &moved).is_err());
+
+    drop(staged);
+    fs::rename(&root, &moved).unwrap();
+    assert_eq!(fs::read_dir(&moved).unwrap().count(), 0);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_new_store_at_the_same_path_rejects_old_staged_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("media");
+    let first = LocalMediaStore::new(&root).unwrap();
+    let staged = first.stage("image/png", PNG).unwrap();
+    let second = LocalMediaStore::new(&root).unwrap();
+
+    assert!(matches!(
+        second.finalize(staged),
+        Err(HealthError::Validation {
+            field: "media.staged",
+            ..
+        })
+    ));
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+}
+
 #[test]
 fn rejects_symlink_roots_traversal_and_symlink_removal_targets() {
     let directory = tempfile::tempdir().unwrap();
