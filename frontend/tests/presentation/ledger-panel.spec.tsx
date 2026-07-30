@@ -1,14 +1,17 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen, within } from "@testing-library/react";
+import { render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ledgerApi } from "@/features/ledger/api/ledger-api";
+import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import type {
   LedgerController,
   LedgerState,
 } from "@/features/ledger/hooks/useLedgerController";
+import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 
 const loadedState: LedgerState = {
@@ -21,6 +24,13 @@ const loadedState: LedgerState = {
     name: "Korean won",
     symbol: "₩",
     decimalPlaces: 0,
+    active: true,
+  }, {
+    id: "currency-usd",
+    code: "USD",
+    name: "US dollar",
+    symbol: "$",
+    decimalPlaces: 2,
     active: true,
   }],
   accountCategories: [{
@@ -85,7 +95,36 @@ function controller(state: LedgerState = loadedState): LedgerController {
   };
 }
 
+function entryView(id: string, content: string): LedgerEntryView {
+  return {
+    accountName: "Cash",
+    categoryName: "Food",
+    currencyCode: "KRW",
+    entry: {
+      id,
+      date: "2026-07-30",
+      writtenAt: "2026-07-30T00:00:00Z",
+      content,
+      transactionCategoryId: "category-food",
+      accountId: "account-cash",
+      entryType: "expense",
+      amountMinor: 12000,
+      currencyId: "currency-krw",
+      transferGroupId: null,
+      source: "ui",
+      notes: null,
+      createdAt: "2026-07-30T00:00:00Z",
+      updatedAt: "2026-07-30T00:00:00Z",
+      deletedAt: null,
+    },
+  };
+}
+
 describe("LedgerPanel", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("uses Transactions as the default leaf and has no Overview", () => {
     render(<LedgerPanel controller={controller()} />);
 
@@ -203,5 +242,223 @@ describe("LedgerPanel", () => {
       from: "2026-07-01",
       to: "2026-07-31",
     });
+  });
+
+  it("formats two-decimal transaction, balance, and report minor units exactly", () => {
+    const ledger = controller({
+      ...loadedState,
+      entries: [{
+        accountName: "Cash",
+        categoryName: "Food",
+        currencyCode: "USD",
+        entry: {
+          id: "entry-usd",
+          date: "2026-07-30",
+          writtenAt: "2026-07-30T00:00:00Z",
+          content: "Coffee",
+          transactionCategoryId: "category-food",
+          accountId: "account-cash",
+          entryType: "expense",
+          amountMinor: 1234,
+          currencyId: "currency-usd",
+          transferGroupId: null,
+          source: "ui",
+          notes: null,
+          createdAt: "2026-07-30T00:00:00Z",
+          updatedAt: "2026-07-30T00:00:00Z",
+          deletedAt: null,
+        },
+      }],
+    });
+    const { rerender } = render(<LedgerPanel controller={ledger} />);
+    expect(screen.getByText("12.34 USD")).toBeInTheDocument();
+
+    rerender(
+      <LedgerPanel
+        leafTabId="accounts"
+        controller={controller({
+          ...loadedState,
+          accounts: [{
+            ...loadedState.accounts[0],
+            currencyId: "currency-usd",
+            openingBalanceMinor: 1234,
+          }],
+          balances: [{
+            account: {
+              ...loadedState.accounts[0],
+              currencyId: "currency-usd",
+              openingBalanceMinor: 1234,
+            },
+            currencyCode: "USD",
+            currentBalanceMinor: 5678,
+          }],
+        })}
+      />,
+    );
+    expect(screen.getByText("12.34 USD")).toBeInTheDocument();
+    expect(screen.getByText("56.78 USD")).toBeInTheDocument();
+
+    rerender(
+      <LedgerPanel
+        leafTabId="reports"
+        controller={controller({
+          ...loadedState,
+          reportStatus: "loaded",
+          summary: {
+            range: { start: "2026-07-01", end: "2026-07-31" },
+            currencies: [{
+              currencyId: "currency-usd",
+              currencyCode: "USD",
+              incomeMinor: 1234,
+              expenseMinor: 200,
+              netChangeMinor: 1034,
+              entryCount: 2,
+            }],
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("12.34 USD")).toBeInTheDocument();
+    expect(screen.getByText("2.00 USD")).toBeInTheDocument();
+    expect(screen.getByText("10.34 USD")).toBeInTheDocument();
+  });
+
+  it("reports purge preview failures and re-enables only the active transaction action", async () => {
+    const user = userEvent.setup();
+    let rejectPreview: (reason: Error) => void = () => undefined;
+    const preview = new Promise<never>((_, reject) => {
+      rejectPreview = reject;
+    });
+    const ledger = controller({
+      ...loadedState,
+      entries: [{
+        accountName: "Cash",
+        categoryName: "Food",
+        currencyCode: "KRW",
+        entry: {
+          id: "entry-1",
+          date: "2026-07-30",
+          writtenAt: "2026-07-30T00:00:00Z",
+          content: "Lunch",
+          transactionCategoryId: "category-food",
+          accountId: "account-cash",
+          entryType: "expense",
+          amountMinor: 12000,
+          currencyId: "currency-krw",
+          transferGroupId: null,
+          source: "ui",
+          notes: null,
+          createdAt: "2026-07-30T00:00:00Z",
+          updatedAt: "2026-07-30T00:00:00Z",
+          deletedAt: null,
+        },
+      }],
+    });
+    ledger.previewPurge = vi.fn(() => preview);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<LedgerPanel controller={ledger} />);
+
+    const purge = screen.getByRole("button", { name: "Purge Lunch" });
+    const archive = screen.getByRole("button", { name: "Archive Lunch" });
+    await user.click(purge);
+    expect(purge).toBeDisabled();
+    expect(archive).not.toBeDisabled();
+    rejectPreview(new Error("Preview expired"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Preview expired");
+    expect(purge).not.toBeDisabled();
+
+    ledger.archive = vi.fn().mockRejectedValue(new Error("Archive conflict"));
+    await user.click(archive);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Archive conflict");
+  });
+
+  it("reports account and category lifecycle action failures", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const accountController = controller();
+    accountController.archiveAccount = vi.fn().mockRejectedValue(new Error("Account conflict"));
+    const { rerender } = render(
+      <LedgerPanel leafTabId="accounts" controller={accountController} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Archive Cash" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Account conflict");
+
+    const categoryController = controller();
+    categoryController.archiveCategory =
+      vi.fn().mockRejectedValue(new Error("Category conflict"));
+    rerender(<LedgerPanel leafTabId="categories" controller={categoryController} />);
+    await user.click(screen.getByRole("button", { name: "Archive Food" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Category conflict");
+  });
+
+  it("reports account and category purge preview failures", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const accountController = controller();
+    accountController.previewAccountPurge =
+      vi.fn().mockRejectedValue(new Error("Account preview failed"));
+    const { rerender } = render(
+      <LedgerPanel leafTabId="accounts" controller={accountController} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Purge Cash" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Account preview failed");
+
+    const categoryController = controller();
+    categoryController.previewCategoryPurge =
+      vi.fn().mockRejectedValue(new Error("Category preview failed"));
+    rerender(<LedgerPanel leafTabId="categories" controller={categoryController} />);
+    await user.click(screen.getByRole("button", { name: "Purge Food" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Category preview failed");
+  });
+
+  it("edits a two-decimal account opening balance without changing its value", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      accounts: [{
+        ...loadedState.accounts[0],
+        currencyId: "currency-usd",
+        openingBalanceMinor: 1234,
+      }],
+    });
+    render(<LedgerPanel leafTabId="accounts" controller={ledger} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit Cash" }));
+    expect(screen.getByLabelText("Opening balance")).toHaveValue("12.34");
+    await user.click(screen.getByRole("button", { name: "Update account" }));
+    expect(ledger.updateAccount).toHaveBeenCalledWith(
+      "account-cash",
+      expect.objectContaining({ openingBalance: "12.34" }),
+    );
+  });
+
+  it("retains all controller records across subsequent pages", async () => {
+    const secondAccount = { ...loadedState.accounts[0], id: "account-bank", name: "Bank" };
+    vi.spyOn(ledgerApi, "listEntries")
+      .mockResolvedValueOnce({ items: [entryView("entry-1", "Lunch")], nextOffset: 100 })
+      .mockResolvedValueOnce({ items: [entryView("entry-2", "Dinner")], nextOffset: null });
+    vi.spyOn(ledgerApi, "listCurrencies")
+      .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountCategories")
+      .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccounts")
+      .mockResolvedValueOnce({ items: loadedState.accounts, nextOffset: 200 })
+      .mockResolvedValueOnce({ items: [secondAccount], nextOffset: null });
+    vi.spyOn(ledgerApi, "listTransactionCategories")
+      .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountBalances")
+      .mockResolvedValue({ items: [], nextOffset: null });
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+
+    expect(result.current.state.accounts.map((account) => account.name))
+      .toEqual(["Cash", "Bank"]);
+    expect(result.current.state.entries.map((entry) => entry.entry.content))
+      .toEqual(["Lunch", "Dinner"]);
+    expect(ledgerApi.listAccounts).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ offset: 200 }),
+    );
   });
 });

@@ -4,6 +4,7 @@ import React from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import { formatMoney, useLifecycleAction } from "@/features/ledger/ui/ledger-ui";
 
 type TransactionsTableProps = {
   controller: LedgerController;
@@ -12,19 +13,23 @@ type TransactionsTableProps = {
 
 export function TransactionsTable({ controller, onEdit }: TransactionsTableProps) {
   const { entries } = controller.state;
+  const actions = useLifecycleAction();
 
   if (entries.length === 0) {
     return <p className="items-message">No transactions yet.</p>;
   }
 
-  async function purge(entry: LedgerEntryView) {
+  function purge(entry: LedgerEntryView) {
     if (!window.confirm(`Permanently purge ${entry.entry.content}?`)) return;
-    const preview = await controller.previewPurge(entry.entry.id);
-    await controller.purge(entry.entry.id, preview.confirmationId);
+    void actions.run(`purge:${entry.entry.id}`, async () => {
+      const preview = await controller.previewPurge(entry.entry.id);
+      await controller.purge(entry.entry.id, preview.confirmationId);
+    });
   }
 
   return (
     <section className="items-section" aria-label="Transactions">
+      {actions.error && <p role="alert" className="items-message">{actions.error}</p>}
       <table className="items-table">
         <thead>
           <tr>
@@ -47,7 +52,15 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
                 <td>{entry.entry.entryType.replaceAll("_", " ")}</td>
                 <td>{entry.accountName ?? "—"}</td>
                 <td>{entry.categoryName ?? "—"}</td>
-                <td>{entry.entry.amountMinor} {entry.currencyCode ?? ""}</td>
+                <td>
+                  {formatMoney(
+                    entry.entry.amountMinor,
+                    controller.state.currencies.find(
+                      (currency) => currency.id === entry.entry.currencyId,
+                    ),
+                    entry.currencyCode ?? "",
+                  )}
+                </td>
                 <td>
                   <button type="button" onClick={() => onEdit(entry)}>
                     Edit {entry.entry.content}
@@ -55,9 +68,13 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
                   {archived ? (
                     <button
                       type="button"
+                      disabled={actions.isPending(`restore:${entry.entry.id}`)}
                       onClick={() => {
                         if (window.confirm(`Restore ${entry.entry.content}?`)) {
-                          void controller.restore(entry.entry.id);
+                          void actions.run(
+                            `restore:${entry.entry.id}`,
+                            () => controller.restore(entry.entry.id),
+                          );
                         }
                       }}
                     >
@@ -66,16 +83,24 @@ export function TransactionsTable({ controller, onEdit }: TransactionsTableProps
                   ) : (
                     <button
                       type="button"
+                      disabled={actions.isPending(`archive:${entry.entry.id}`)}
                       onClick={() => {
                         if (window.confirm(`Archive ${entry.entry.content}?`)) {
-                          void controller.archive(entry.entry.id);
+                          void actions.run(
+                            `archive:${entry.entry.id}`,
+                            () => controller.archive(entry.entry.id),
+                          );
                         }
                       }}
                     >
                       Archive {entry.entry.content}
                     </button>
                   )}
-                  <button type="button" onClick={() => void purge(entry)}>
+                  <button
+                    type="button"
+                    disabled={actions.isPending(`purge:${entry.entry.id}`)}
+                    onClick={() => purge(entry)}
+                  >
                     Purge {entry.entry.content}
                   </button>
                 </td>

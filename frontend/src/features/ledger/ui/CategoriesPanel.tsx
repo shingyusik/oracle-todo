@@ -7,11 +7,13 @@ import type {
   TransactionCategory,
   TransactionCategoryKind,
 } from "@/features/ledger/model/ledger-model";
+import { useLifecycleAction } from "@/features/ledger/ui/ledger-ui";
 
 export function CategoriesPanel({ controller }: { controller: LedgerController }) {
   const [editing, setEditing] = useState<TransactionCategory | null>(null);
   const [draft, setDraft] = useState(categoryDraft(null));
   const [error, setError] = useState<string | null>(null);
+  const actions = useLifecycleAction();
 
   function edit(category: TransactionCategory | null) {
     setEditing(category);
@@ -36,10 +38,12 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
     }
   }
 
-  async function purge(category: TransactionCategory) {
+  function purge(category: TransactionCategory) {
     if (!window.confirm(`Permanently purge ${category.name}?`)) return;
-    const preview = await controller.previewCategoryPurge(category.id);
-    await controller.purgeCategory(category.id, preview.confirmationId);
+    void actions.run(`purge:${category.id}`, async () => {
+      const preview = await controller.previewCategoryPurge(category.id);
+      await controller.purgeCategory(category.id, preview.confirmationId);
+    });
   }
 
   const names = new Map(
@@ -95,6 +99,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         <button type="submit">{editing ? "Update category" : "Add category"}</button>
         {editing && <button type="button" onClick={() => edit(null)}>Cancel edit</button>}
       </form>
+      {actions.error && <p role="alert" className="items-message">{actions.error}</p>}
       {controller.state.categories.length === 0 ? (
         <p className="items-message">No transaction categories yet.</p>
       ) : (
@@ -123,9 +128,13 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
                     {category.active ? (
                       <button
                         type="button"
+                        disabled={actions.isPending(`archive:${category.id}`)}
                         onClick={() => {
                           if (window.confirm(`Archive ${category.name}?`)) {
-                            void controller.archiveCategory(category.id);
+                            void actions.run(
+                              `archive:${category.id}`,
+                              () => controller.archiveCategory(category.id),
+                            );
                           }
                         }}
                       >
@@ -134,16 +143,24 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
                     ) : (
                       <button
                         type="button"
+                        disabled={actions.isPending(`restore:${category.id}`)}
                         onClick={() => {
                           if (window.confirm(`Restore ${category.name}?`)) {
-                            void controller.restoreCategory(category.id);
+                            void actions.run(
+                              `restore:${category.id}`,
+                              () => controller.restoreCategory(category.id),
+                            );
                           }
                         }}
                       >
                         Restore {category.name}
                       </button>
                     )}
-                    <button type="button" onClick={() => void purge(category)}>
+                    <button
+                      type="button"
+                      disabled={actions.isPending(`purge:${category.id}`)}
+                      onClick={() => purge(category)}
+                    >
                       Purge {category.name}
                     </button>
                   </td>

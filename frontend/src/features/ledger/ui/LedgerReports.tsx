@@ -3,11 +3,17 @@
 import React, { useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
+import { formatMoney } from "@/features/ledger/ui/ledger-ui";
 
 export function LedgerReports({ controller }: { controller: LedgerController }) {
   const [range, setRange] = useState({ from: "", to: "" });
   const [formError, setFormError] = useState<string | null>(null);
   const { state } = controller;
+  const currencies = new Map(
+    state.currencies.map((currency) => [currency.id, currency]),
+  );
+  const money = (value: number, currencyId: string, currencyCode: string) =>
+    formatMoney(value, currencies.get(currencyId), currencyCode);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -62,9 +68,9 @@ export function LedgerReports({ controller }: { controller: LedgerController }) 
             rows={state.summary.currencies.map((row) => ({
               key: row.currencyId,
               name: row.currencyCode,
-              income: row.incomeMinor,
-              expense: row.expenseMinor,
-              net: row.netChangeMinor,
+              income: money(row.incomeMinor, row.currencyId, row.currencyCode),
+              expense: money(row.expenseMinor, row.currencyId, row.currencyCode),
+              net: money(row.netChangeMinor, row.currencyId, row.currencyCode),
             }))}
           />
           <ReportTable
@@ -72,9 +78,9 @@ export function LedgerReports({ controller }: { controller: LedgerController }) 
             rows={state.accountBreakdown.map((row) => ({
               key: `${row.currencyId}-${row.referenceId ?? row.name}`,
               name: row.name,
-              income: row.incomeMinor,
-              expense: row.expenseMinor,
-              net: row.netChangeMinor,
+              income: money(row.incomeMinor, row.currencyId, row.currencyCode),
+              expense: money(row.expenseMinor, row.currencyId, row.currencyCode),
+              net: money(row.netChangeMinor, row.currencyId, row.currencyCode),
             }))}
           />
           <ReportTable
@@ -82,9 +88,9 @@ export function LedgerReports({ controller }: { controller: LedgerController }) 
             rows={state.categoryBreakdown.map((row) => ({
               key: `${row.currencyId}-${row.referenceId ?? row.name}`,
               name: row.name,
-              income: row.incomeMinor,
-              expense: row.expenseMinor,
-              net: row.netChangeMinor,
+              income: money(row.incomeMinor, row.currencyId, row.currencyCode),
+              expense: money(row.expenseMinor, row.currencyId, row.currencyCode),
+              net: money(row.netChangeMinor, row.currencyId, row.currencyCode),
             }))}
           />
           {state.briefing?.markdown && (
@@ -102,9 +108,9 @@ export function LedgerReports({ controller }: { controller: LedgerController }) 
 type ReportRow = {
   key: string;
   name: string;
-  income: number;
-  expense: number;
-  net: number;
+  income: string;
+  expense: string;
+  net: string;
 };
 
 function ReportTable({ heading, rows }: { heading: string; rows: ReportRow[] }) {

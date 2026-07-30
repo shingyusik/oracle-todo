@@ -3,16 +3,22 @@
 import React, { useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
-import type { Account } from "@/features/ledger/model/ledger-model";
+import type { Account, Currency } from "@/features/ledger/model/ledger-model";
+import {
+  formatMinorUnits,
+  formatMoney,
+  useLifecycleAction,
+} from "@/features/ledger/ui/ledger-ui";
 
 export function AccountsPanel({ controller }: { controller: LedgerController }) {
   const [editing, setEditing] = useState<Account | null>(null);
-  const [draft, setDraft] = useState(accountDraft(null));
+  const [draft, setDraft] = useState(accountDraft(null, controller.state.currencies));
   const [error, setError] = useState<string | null>(null);
+  const actions = useLifecycleAction();
 
   function edit(account: Account | null) {
     setEditing(account);
-    setDraft(accountDraft(account));
+    setDraft(accountDraft(account, controller.state.currencies));
     setError(null);
   }
 
@@ -28,10 +34,12 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
     }
   }
 
-  async function purge(account: Account) {
+  function purge(account: Account) {
     if (!window.confirm(`Permanently purge ${account.name}?`)) return;
-    const preview = await controller.previewAccountPurge(account.id);
-    await controller.purgeAccount(account.id, preview.confirmationId);
+    void actions.run(`purge:${account.id}`, async () => {
+      const preview = await controller.previewAccountPurge(account.id);
+      await controller.purgeAccount(account.id, preview.confirmationId);
+    });
   }
 
   const categories = new Map(
@@ -41,10 +49,13 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
     controller.state.currencies.map((currency) => [currency.id, currency]),
   );
   const balances = new Map(
-    controller.state.balances.map((balance) => [
-      balance.account.id,
-      `${balance.currentBalanceMinor} ${balance.currencyCode}`,
-    ]),
+    controller.state.balances.map((balance) => {
+      const currency = currencies.get(balance.account.currencyId);
+      return [
+        balance.account.id,
+        formatMoney(balance.currentBalanceMinor, currency, balance.currencyCode),
+      ];
+    }),
   );
 
   return (
@@ -107,6 +118,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         <button type="submit">{editing ? "Update account" : "Add account"}</button>
         {editing && <button type="button" onClick={() => edit(null)}>Cancel edit</button>}
       </form>
+      {actions.error && <p role="alert" className="items-message">{actions.error}</p>}
       {controller.state.accounts.length === 0 ? (
         <p className="items-message">No accounts yet.</p>
       ) : (
@@ -131,7 +143,12 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
                   <td>
                     {currencies.get(account.currencyId)?.name ?? "—"}
                   </td>
-                  <td>{account.openingBalanceMinor}</td>
+                  <td>
+                    {formatMoney(
+                      account.openingBalanceMinor,
+                      currencies.get(account.currencyId),
+                    )}
+                  </td>
                   <td>{balances.get(account.id) ?? "—"}</td>
                   <td>{account.active ? "Active" : "Archived"}</td>
                   <td>
@@ -141,9 +158,13 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
                     {account.active ? (
                       <button
                         type="button"
+                        disabled={actions.isPending(`archive:${account.id}`)}
                         onClick={() => {
                           if (window.confirm(`Archive ${account.name}?`)) {
-                            void controller.archiveAccount(account.id);
+                            void actions.run(
+                              `archive:${account.id}`,
+                              () => controller.archiveAccount(account.id),
+                            );
                           }
                         }}
                       >
@@ -152,16 +173,24 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
                     ) : (
                       <button
                         type="button"
+                        disabled={actions.isPending(`restore:${account.id}`)}
                         onClick={() => {
                           if (window.confirm(`Restore ${account.name}?`)) {
-                            void controller.restoreAccount(account.id);
+                            void actions.run(
+                              `restore:${account.id}`,
+                              () => controller.restoreAccount(account.id),
+                            );
                           }
                         }}
                       >
                         Restore {account.name}
                       </button>
                     )}
-                    <button type="button" onClick={() => void purge(account)}>
+                    <button
+                      type="button"
+                      disabled={actions.isPending(`purge:${account.id}`)}
+                      onClick={() => purge(account)}
+                    >
                       Purge {account.name}
                     </button>
                   </td>
@@ -175,11 +204,14 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
   );
 }
 
-function accountDraft(account: Account | null) {
+function accountDraft(account: Account | null, currencies: Currency[]) {
+  const currency = currencies.find((item) => item.id === account?.currencyId);
   return {
     name: account?.name ?? "",
     category: account?.categoryId ?? "",
     currency: account?.currencyId ?? "",
-    openingBalance: account ? String(account.openingBalanceMinor) : "0",
+    openingBalance: account
+      ? formatMinorUnits(account.openingBalanceMinor, currency?.decimalPlaces ?? 0)
+      : "0",
   };
 }

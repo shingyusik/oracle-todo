@@ -4,11 +4,17 @@ import React, { useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type {
+  Currency,
   LedgerEntryInput,
   LedgerEntryView,
   PublicLedgerEntryType,
   TransferInput,
 } from "@/features/ledger/model/ledger-model";
+import {
+  formatMinorUnits,
+  localDateTime,
+  utcDateTime,
+} from "@/features/ledger/ui/ledger-ui";
 
 type TransactionFormProps = {
   controller: LedgerController;
@@ -23,7 +29,7 @@ export function TransactionForm({
   entry = null,
   onSaved,
 }: TransactionFormProps) {
-  const initial = transactionDraft(entry);
+  const initial = transactionDraft(entry, controller.state.currencies);
   const [mode, setMode] = useState<FormMode>("entry");
   const [draft, setDraft] = useState(initial);
   const [pending, setPending] = useState(false);
@@ -41,7 +47,7 @@ export function TransactionForm({
       if (mode === "transfer") {
         const input: TransferInput = {
           date: draft.date,
-          writtenAt: timestamp(draft.writtenAt),
+          writtenAt: utcDateTime(draft.writtenAt),
           content: draft.content,
           fromAccount: draft.fromAccount,
           toAccount: draft.toAccount,
@@ -54,7 +60,7 @@ export function TransactionForm({
       } else {
         const input: LedgerEntryInput = {
           date: draft.date,
-          writtenAt: timestamp(draft.writtenAt),
+          writtenAt: utcDateTime(draft.writtenAt),
           content: draft.content,
           category: draft.category || null,
           account: draft.account,
@@ -67,7 +73,7 @@ export function TransactionForm({
         if (entry) await controller.updateEntry(entry.entry.id, input);
         else await controller.createEntry(input);
       }
-      setDraft(transactionDraft(null));
+      setDraft(transactionDraft(null, controller.state.currencies));
       onSaved?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save transaction");
@@ -244,11 +250,12 @@ export function TransactionForm({
   );
 }
 
-function transactionDraft(entry: LedgerEntryView | null) {
+function transactionDraft(entry: LedgerEntryView | null, currencies: Currency[]) {
   const now = new Date().toISOString();
+  const currency = currencies.find((item) => item.id === entry?.entry.currencyId);
   return {
     date: entry?.entry.date ?? now.slice(0, 10),
-    writtenAt: entry?.entry.writtenAt.slice(0, 16) ?? now.slice(0, 16),
+    writtenAt: localDateTime(entry?.entry.writtenAt ?? now),
     entryType: (entry?.entry.entryType === "transfer_in" ||
       entry?.entry.entryType === "transfer_out"
       ? "expense"
@@ -257,7 +264,9 @@ function transactionDraft(entry: LedgerEntryView | null) {
     category: entry?.entry.transactionCategoryId ?? "",
     fromAccount: "",
     toAccount: "",
-    amount: entry ? String(entry.entry.amountMinor) : "",
+    amount: entry
+      ? formatMinorUnits(entry.entry.amountMinor, currency?.decimalPlaces ?? 0)
+      : "",
     currency: entry?.entry.currencyId ?? "",
     content: entry?.entry.content ?? "",
     notes: entry?.entry.notes ?? "",
@@ -266,8 +275,4 @@ function transactionDraft(entry: LedgerEntryView | null) {
 
 function categoryKind(type: PublicLedgerEntryType): "expense" | "income" {
   return type === "income" || type === "adjustment_in" ? "income" : "expense";
-}
-
-function timestamp(value: string): string {
-  return value.length === 16 ? `${value}:00Z` : value;
 }

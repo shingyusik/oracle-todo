@@ -25,6 +25,14 @@ function controller(
           decimalPlaces: 0,
           active: true,
         },
+        {
+          id: "currency-usd",
+          code: "USD",
+          name: "US dollar",
+          symbol: "$",
+          decimalPlaces: 2,
+          active: true,
+        },
       ],
       accountCategories: [],
       accounts: [
@@ -149,5 +157,90 @@ describe("TransactionForm", () => {
     expect(screen.getByLabelText("Amount")).toHaveValue("bad");
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
     expect(screen.getByRole("alert")).toHaveTextContent("Amount is invalid");
+  });
+
+  it("edits two-decimal minor units without changing their value", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(
+      <TransactionForm
+        controller={ledger}
+        entry={{
+          accountName: "Cash",
+          categoryName: "Food",
+          currencyCode: "USD",
+          entry: {
+            id: "entry-usd",
+            date: "2026-07-30",
+            writtenAt: "2026-07-30T00:00:00Z",
+            content: "Coffee",
+            transactionCategoryId: "category-food",
+            accountId: "account-cash",
+            entryType: "expense",
+            amountMinor: 1234,
+            currencyId: "currency-usd",
+            transferGroupId: null,
+            source: "ui",
+            notes: null,
+            createdAt: "2026-07-30T00:00:00Z",
+            updatedAt: "2026-07-30T00:00:00Z",
+            deletedAt: null,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Amount")).toHaveValue("12.34");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    expect(ledger.updateEntry).toHaveBeenCalledWith(
+      "entry-usd",
+      expect.objectContaining({ amount: "12.34" }),
+    );
+  });
+
+  it("round-trips RFC3339 through a non-UTC browser-local datetime", async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "Asia/Seoul";
+    try {
+      const user = userEvent.setup();
+      const ledger = controller();
+      render(
+        <TransactionForm
+          controller={ledger}
+          entry={{
+            accountName: "Cash",
+            categoryName: "Food",
+            currencyCode: "KRW",
+            entry: {
+              id: "entry-time",
+              date: "2026-07-30",
+              writtenAt: "2026-07-30T00:00:00Z",
+              content: "Breakfast",
+              transactionCategoryId: "category-food",
+              accountId: "account-cash",
+              entryType: "expense",
+              amountMinor: 12000,
+              currencyId: "currency-krw",
+              transferGroupId: null,
+              source: "ui",
+              notes: null,
+              createdAt: "2026-07-30T00:00:00Z",
+              updatedAt: "2026-07-30T00:00:00Z",
+              deletedAt: null,
+            },
+          }}
+        />,
+      );
+
+      expect(screen.getByLabelText("Written at")).toHaveValue("2026-07-30T09:00");
+      await user.click(screen.getByRole("button", { name: "Save transaction" }));
+      expect(ledger.updateEntry).toHaveBeenCalledWith(
+        "entry-time",
+        expect.objectContaining({ writtenAt: "2026-07-30T00:00:00.000Z" }),
+      );
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
   });
 });

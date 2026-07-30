@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ledgerApi,
   type AccountInput,
+  type Page,
   type ReportRangeInput,
   type TransactionCategoryInput,
 } from "@/features/ledger/api/ledger-api";
@@ -95,23 +96,27 @@ export function useLedgerController(): LedgerController {
     try {
       const [entries, currencies, accountCategories, accounts, categories, balances] =
         await Promise.all([
-          ledgerApi.listEntries({ includeArchived: true }),
-          ledgerApi.listCurrencies({ limit: 200 }),
-          ledgerApi.listAccountCategories({ limit: 200 }),
-          ledgerApi.listAccounts({ limit: 200 }),
-          ledgerApi.listTransactionCategories({ limit: 200 }),
-          ledgerApi.listAccountBalances({ limit: 200 }),
+          drainPages((offset) =>
+            ledgerApi.listEntries({ includeArchived: true, limit: 200, offset })),
+          drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
+          drainPages((offset) =>
+            ledgerApi.listAccountCategories({ limit: 200, offset })),
+          drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
+          drainPages((offset) =>
+            ledgerApi.listTransactionCategories({ limit: 200, offset })),
+          drainPages((offset) =>
+            ledgerApi.listAccountBalances({ limit: 200, offset })),
         ]);
       setState((current) => ({
         ...current,
         status: "loaded",
         error: null,
-        entries: entries.items,
-        currencies: currencies.items,
-        accountCategories: accountCategories.items,
-        accounts: accounts.items,
-        categories: categories.items,
-        balances: balances.items,
+        entries,
+        currencies,
+        accountCategories,
+        accounts,
+        categories,
+        balances,
       }));
     } catch (error) {
       setState((current) => ({
@@ -204,4 +209,17 @@ export function useLedgerController(): LedgerController {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Ledger request failed";
+}
+
+async function drainPages<T>(
+  load: (offset?: number) => Promise<Page<T>>,
+): Promise<T[]> {
+  const items: T[] = [];
+  let offset: number | undefined;
+  do {
+    const page = await load(offset);
+    items.push(...page.items);
+    offset = page.nextOffset ?? undefined;
+  } while (offset !== undefined);
+  return items;
 }
