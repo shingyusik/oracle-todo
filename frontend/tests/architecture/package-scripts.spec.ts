@@ -8,6 +8,7 @@ describe("frontend package scripts", () => {
     expect(packageJson.name).toBe("raven-frontend");
     expect(packageJson.scripts).toMatchObject({
       dev: "next dev",
+      ui: "npm run build && cargo run --manifest-path ../Cargo.toml -p raven-cli -- ui --ui-path out",
       build: "next build",
       test: "vitest run --no-file-parallelism",
       typecheck: "tsc --noEmit",

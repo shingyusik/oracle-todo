@@ -37,6 +37,14 @@ npm run typecheck
 npm run dev
 ```
 
+Run the built frontend with browser session authentication:
+
+```bash
+npm run ui
+```
+
+`npm run ui` builds the static frontend before Raven starts.
+
 `npm run dev` is suitable for frontend-only work. The configured `/api/*` rewrite targets
 `RAVEN_API_URL` or `http://127.0.0.1:3002`, but standalone `raven api` requires a bearer
 header that browser fetches do not inject. Use the production-artifact command above for
