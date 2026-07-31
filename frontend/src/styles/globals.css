@@ -3579,7 +3579,7 @@ button {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 767px) {
   .main-panel:has(.dashboard-panel),
   .main-panel:has(.dashboard-state) {
     padding: 68px 16px 20px;
