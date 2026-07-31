@@ -1,0 +1,26 @@
+[
+  {
+    "id": "asset_cash",
+    "name": "Cash",
+    "account_category_id": "assetcat_cash",
+    "currency_id": "cur_krw",
+    "opening_balance_minor": 0,
+    "active": true
+  },
+  {
+    "id": "asset_bank",
+    "name": "Bank",
+    "account_category_id": "assetcat_bank",
+    "currency_id": "cur_krw",
+    "opening_balance_minor": 0,
+    "active": true
+  },
+  {
+    "id": "asset_inactive",
+    "name": "Inactive Asset",
+    "account_category_id": "assetcat_cash",
+    "currency_id": "cur_krw",
+    "opening_balance_minor": 0,
+    "active": false
+  }
+]

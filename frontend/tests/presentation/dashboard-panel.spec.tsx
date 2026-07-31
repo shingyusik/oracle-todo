@@ -6,8 +6,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DashboardChartSpec } from "@/features/dashboard/model/dashboard-widgets";
+import type { RavenDashboard } from "@/features/dashboard/api/dashboard-api";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import { RecentActivityCard } from "@/features/dashboard/ui/RecentActivityCard";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 
@@ -34,13 +36,58 @@ function jsonResponse(value: unknown = []): Response {
   } as Response;
 }
 
+function ravenDashboardResponse() {
+  return {
+    request_id: "00000000-0000-4000-8000-000000000001",
+    todo: {
+      status: "ok",
+      data: {
+        active: 0,
+        today_completed: 0,
+        today_incomplete: 0,
+        today_missed: 0,
+        today_total: 0,
+        overdue: 0,
+      },
+    },
+    ledger: {
+      status: "ok",
+      data: {
+        period_start: "2026-07-01",
+        period_end: "2026-07-31",
+        currencies: [],
+      },
+    },
+    health: {
+      status: "ok",
+      data: {
+        latest_condition: null,
+        latest_sleep: null,
+        latest_bowel: null,
+        latest_medication: null,
+        recent_diet_tags: [],
+      },
+    },
+    recent_activity: [],
+  };
+}
+
+function ravenResponse(): Response {
+  return new Response(JSON.stringify(ravenDashboardResponse()), {
+    headers: { "content-type": "application/json" },
+  });
+}
+
 function installLoadedDashboard(items: TestItem[]) {
   const fetchMock = vi.fn((url: string) => {
-    if (url === "/todo-engine/settings/planner") {
+    if (url === "/api/v1/preferences/planner.v1") {
       return Promise.resolve(jsonResponse(null));
     }
-    if (url === "/todo-engine/items") {
+    if (url === "/api/v1/todo/items") {
       return Promise.resolve(jsonResponse(items));
+    }
+    if (url === "/api/v1/dashboard") {
+      return Promise.resolve(ravenResponse());
     }
 
     const itemType = new URL(url, "http://localhost").searchParams.get("type");
@@ -204,6 +251,80 @@ describe("DashboardPanel", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps successful domain cards visible when Health projection fails", () => {
+    const dashboard: RavenDashboard = {
+      requestId: "00000000-0000-4000-8000-000000000001",
+      todo: {
+        status: "ok",
+        data: {
+          active: 2,
+          todayCompleted: 1,
+          todayIncomplete: 1,
+          todayMissed: 0,
+          todayTotal: 2,
+          overdue: 0,
+        },
+      },
+      ledger: {
+        status: "ok",
+        data: {
+          periodStart: "2026-07-01",
+          periodEnd: "2026-07-31",
+          currencies: [{
+            currencyCode: "USD",
+            incomeMinor: 10000,
+            expenseMinor: 4000,
+            netChangeMinor: 6000,
+          }],
+        },
+      },
+      health: {
+        status: "error",
+        code: "domain_unavailable",
+        message: "This data is currently unavailable.",
+        requestId: "00000000-0000-4000-8000-000000000001",
+      },
+      recentActivity: [],
+    };
+
+    render(
+      <DashboardPanel
+        controller={dashboardPanelController([])}
+        initialDashboard={dashboard}
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Today's Plan" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Cash Flow" })).toBeVisible();
+    expect(screen.getByText("Health data unavailable")).toBeVisible();
+  });
+
+  it("keeps same-time activity actions as distinct React rows", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <RecentActivityCard activity={[
+        {
+          domain: "ledger",
+          domainLabel: "Ledger",
+          action: "create",
+          recordId: "entry-1",
+          timestamp: "2026-07-31T02:00:00Z",
+        },
+        {
+          domain: "ledger",
+          domainLabel: "Ledger",
+          action: "archive",
+          recordId: "entry-1",
+          timestamp: "2026-07-31T02:00:00Z",
+        },
+      ]} />,
+    );
+
+    expect(screen.getByText("create", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("archive", { exact: false })).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("renders four card-shaped skeletons while Dashboard items load", () => {
@@ -613,7 +734,10 @@ describe("DashboardPanel", () => {
     const user = setupUser();
     let dashboardAttempts = 0;
     const fetchMock = vi.fn((url: string) => {
-      if (url !== "/todo-engine/items") {
+      if (url === "/api/v1/dashboard") {
+        return Promise.resolve(ravenResponse());
+      }
+      if (url !== "/api/v1/todo/items") {
         return Promise.resolve(jsonResponse());
       }
 
@@ -638,7 +762,7 @@ describe("DashboardPanel", () => {
       screen.getByText("No Tasks or Events are scheduled or due today."),
     ).toBeInTheDocument();
     expect(
-      fetchMock.mock.calls.filter(([url]) => url === "/todo-engine/items"),
+      fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items"),
     ).toHaveLength(2);
   });
 

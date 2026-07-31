@@ -35,7 +35,7 @@ describe("design system boundaries", () => {
   it("exposes non-empty tokens, copy, and layout constants", () => {
     expect(designTokens.colors.aloe).toBe("#c1fbd4");
     expect(designTokens.colors.aloeStrong).toBe("#3fae6a");
-    expect(workbenchCopy.brandName).toBe("Todo Engine");
+    expect(workbenchCopy.brandName).toBe("Raven");
     expect(workbenchLayout.mainSidebarWidthPx).toBe(64);
   });
 
@@ -82,12 +82,31 @@ describe("design system boundaries", () => {
     expect(source).toContain('icon: "/merovingian-mark.png"');
   });
 
-  it("proxies todo-engine API requests to the Rust server port", async () => {
-    const source = await readSource("next.config.mjs");
+  it("proxies the unified API to an injectable Raven development server", () => {
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        'import config from "./next.config.mjs"; console.log(JSON.stringify(await config.rewrites()));',
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NODE_ENV: "development",
+          RAVEN_API_URL: "http://127.0.0.1:3999",
+        },
+      },
+    );
 
-    expect(source).toContain("/todo-engine/:path*");
-    expect(source).toContain("TODO_ENGINE_API_URL");
-    expect(source).toContain('?? "http://127.0.0.1:3002"');
+    expect(JSON.parse(output.trim())).toEqual([
+      {
+        source: "/api/:path*",
+        destination: "http://127.0.0.1:3999/api/:path*",
+      },
+    ]);
   });
 
   it("exports the workbench as static files for release artifacts", async () => {
@@ -95,7 +114,7 @@ describe("design system boundaries", () => {
 
     expect(source).toContain('output: "export"');
     expect(source).toContain("rewrites()");
-    expect(source).toContain("/todo-engine/:path*");
+    expect(source).not.toContain("/todo-engine/");
   });
 
   it("enables the API rewrite only for the development server", () => {
@@ -235,7 +254,9 @@ describe("design system boundaries", () => {
     expect(source).toMatch(
       /\.dashboard-donut-ring\s*\{[^}]*width:\s*min\(180px,\s*100%\);/s,
     );
-    expect(source).toContain("@media (max-width: 767px)");
+    expect(source).toContain(
+      `@media (max-width: ${workbenchLayout.mobileBreakpointPx - 1}px)`,
+    );
   });
 
   it("keeps Dashboard status cards on one row until the mobile breakpoint", async () => {
@@ -261,6 +282,22 @@ describe("design system boundaries", () => {
     expect(css).toContain(".period-carousel-card[data-position=\"selected\"] {\n    transform: none;");
     expect(css).toContain(".period-carousel-card[data-position=\"previous\"],\n  .period-carousel-card[data-position=\"next\"] {\n    transform: none;");
     expect(css).not.toContain("animation-library");
+  });
+
+  it("places the mobile drawer reduced-motion override after its transition", async () => {
+    const css = await readSource("src/styles/globals.css");
+    const transition = css.indexOf("transition: transform 160ms ease;");
+    const override = css.indexOf(
+      `@media (prefers-reduced-motion: reduce) and (max-width: ${
+        workbenchLayout.mobileBreakpointPx - 1
+      }px)`,
+    );
+
+    expect(transition).toBeGreaterThan(-1);
+    expect(override).toBeGreaterThan(transition);
+    expect(css.slice(override)).toMatch(
+      /\.workbench-nav\s*\{\s*transition:\s*none;/,
+    );
   });
 
   it("keeps planner group controls compact and headerless", async () => {

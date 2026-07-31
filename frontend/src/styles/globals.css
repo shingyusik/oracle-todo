@@ -49,6 +49,7 @@ html,
 body {
   min-height: 100%;
   margin: 0;
+  overflow-x: clip;
 }
 
 body {
@@ -85,6 +86,12 @@ button {
   grid-template-rows: 72px minmax(0, 1fr);
   border-right: 1px solid var(--color-hairline-light);
   background: var(--color-canvas-light);
+}
+
+.workbench-nav-toggle,
+.workbench-nav-close,
+.workbench-nav-overlay {
+  display: none;
 }
 
 .workbench-logo {
@@ -195,6 +202,11 @@ button {
 .main-panel {
   min-width: 0;
   padding: 32px;
+}
+
+.main-panel form {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .items-section {
@@ -1692,6 +1704,7 @@ button {
 .confirmation-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 100;
   display: grid;
   place-items: center;
   background: rgb(0 0 0 / 28%);
@@ -1701,6 +1714,7 @@ button {
   width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-md);
   background: var(--color-canvas-light);
@@ -1719,6 +1733,7 @@ button {
 .field-label select,
 .field-label textarea {
   width: 100%;
+  min-width: 0;
   min-height: 36px;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
@@ -2551,14 +2566,66 @@ button {
   gap: 8px;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 760px) {
   .workbench-shell {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .workbench-nav {
-    grid-template-rows: auto auto;
-    border-right: 0;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 90;
+    width: min(var(--workbench-total-sidebar-width), calc(100vw - 48px));
+    grid-template-rows: 72px minmax(0, 1fr) auto;
+    overflow-y: auto;
+    border-right: 1px solid var(--color-hairline-light);
+    box-shadow: 12px 0 30px rgb(0 0 0 / 18%);
+    transition: transform 160ms ease;
+  }
+
+  .workbench-nav[data-open="false"] {
+    visibility: hidden;
+    transform: translateX(-100%);
+  }
+
+  .workbench-nav-toggle,
+  .workbench-nav-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    border: 1px solid var(--color-hairline-light);
+    border-radius: var(--radius-xs);
+    background: var(--color-canvas-light);
+    color: var(--color-ink);
+  }
+
+  .workbench-nav-toggle {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 70;
+    padding: 0 12px;
+  }
+
+  .workbench-nav-close {
+    margin-left: auto;
+    padding: 0 8px;
+  }
+
+  .workbench-nav-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: block;
+    border: 0;
+    background: rgb(0 0 0 / 35%);
+  }
+
+  .workbench-nav-toggle:focus-visible,
+  .workbench-nav-close:focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
   }
 
   .recurrence-row {
@@ -2567,7 +2634,19 @@ button {
   }
 
   .main-panel {
-    padding: 20px;
+    padding: 68px 16px 20px;
+    overflow-x: hidden;
+  }
+
+  .items-section,
+  .dashboard-heatmap-scroll,
+  .main-panel form {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .confirmation-dialog {
+    max-height: calc(100dvh - 32px);
   }
 
   .detail-properties-list .field-label,
@@ -2591,6 +2670,12 @@ button {
 
   .markdown-note-surface {
     min-height: 140px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 760px) {
+  .workbench-nav {
+    transition: none;
   }
 }
 
@@ -3494,10 +3579,10 @@ button {
   }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 760px) {
   .main-panel:has(.dashboard-panel),
   .main-panel:has(.dashboard-state) {
-    padding: 20px 16px;
+    padding: 68px 16px 20px;
   }
 
   .dashboard-panel,

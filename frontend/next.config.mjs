@@ -1,5 +1,5 @@
 /** @type {import("next").NextConfig} */
-const todoEngineApiUrl = process.env.TODO_ENGINE_API_URL ?? "http://127.0.0.1:3002";
+const ravenApiUrl = process.env.RAVEN_API_URL ?? "http://127.0.0.1:3002";
 
 const nextConfig = {
   output: "export",
@@ -8,8 +8,8 @@ const nextConfig = {
         async rewrites() {
           return [
             {
-              source: "/todo-engine/:path*",
-              destination: `${todoEngineApiUrl}/:path*`,
+              source: "/api/:path*",
+              destination: `${ravenApiUrl}/api/:path*`,
             },
           ];
         },

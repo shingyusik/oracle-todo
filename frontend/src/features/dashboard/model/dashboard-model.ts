@@ -1,4 +1,8 @@
 import type { WorkspaceItemModel } from "@/features/workbench/model/workbench-model";
+import type {
+  DomainProjection,
+  RavenDashboard,
+} from "@/features/dashboard/api/dashboard-api";
 
 export type ProjectAttention = "normal" | "attention" | "risk";
 
@@ -48,8 +52,130 @@ export type DashboardSnapshot = {
   completionHistory: CompletionHistory;
 };
 
+export type UnifiedTodoSummary = {
+  active: number;
+  completed: number;
+  incomplete: number;
+  missed: number;
+  total: number;
+  overdue: number;
+};
+
+export type UnifiedLedgerSummary = {
+  periodStart: string;
+  periodEnd: string;
+  currencies: Array<{
+    currencyCode: string;
+    incomeMinor: string;
+    expenseMinor: string;
+    netChangeMinor: string;
+    unitLabel: string;
+  }>;
+};
+
+export type UnifiedHealthSummary = {
+  metrics: Array<{
+    timestamp: string;
+    name: string;
+    displayValue: string;
+    unitLabel: string;
+  }>;
+  recentDietTags: string[];
+};
+
+export type UnifiedDashboardModel = {
+  requestId: string;
+  todo: DomainProjection<UnifiedTodoSummary>;
+  ledger: DomainProjection<UnifiedLedgerSummary>;
+  health: DomainProjection<UnifiedHealthSummary>;
+  recentActivity: Array<{
+    domain: "todo" | "ledger" | "health";
+    domainLabel: "ToDo" | "Ledger" | "Health Journal";
+    action: string;
+    recordId: string;
+    timestamp: string;
+  }>;
+};
+
 const dashboardExecutionTypes = new Set(["task", "event"]);
 const incompleteStatuses = new Set(["active", "waiting", "paused"]);
+
+export function toUnifiedDashboardModel(
+  response: RavenDashboard,
+): UnifiedDashboardModel {
+  return {
+    requestId: response.requestId,
+    todo: mapProjection(response.todo, (todo) => ({
+      active: todo.active,
+      completed: todo.todayCompleted,
+      incomplete: todo.todayIncomplete,
+      missed: todo.todayMissed,
+      total: todo.todayTotal,
+      overdue: todo.overdue,
+    })),
+    ledger: mapProjection(response.ledger, (ledger) => ({
+      periodStart: ledger.periodStart,
+      periodEnd: ledger.periodEnd,
+      currencies: ledger.currencies.map((currency) => ({
+        currencyCode: currency.currencyCode,
+        incomeMinor: formatInteger(currency.incomeMinor),
+        expenseMinor: formatInteger(currency.expenseMinor),
+        netChangeMinor: formatInteger(currency.netChangeMinor),
+        unitLabel: `${currency.currencyCode} minor units`,
+      })),
+    })),
+    health: mapProjection(response.health, (health) => ({
+      metrics: [
+        dashboardHealthMetric(health.latestCondition, "score out of 10"),
+        dashboardHealthMetric(health.latestSleep),
+        dashboardHealthMetric(health.latestBowel, "Bristol scale"),
+        dashboardHealthMetric(health.latestMedication),
+      ].filter((metric) => metric !== null),
+      recentDietTags: health.recentDietTags,
+    })),
+    recentActivity: response.recentActivity.map((activity) => ({
+      ...activity,
+      domainLabel: activity.domain === "todo"
+        ? "ToDo"
+        : activity.domain === "ledger"
+          ? "Ledger"
+          : "Health Journal",
+    })),
+  };
+}
+
+function dashboardHealthMetric(
+  metric: {
+    timestamp: string;
+    name: string;
+    value: number;
+    unit: string | null;
+  } | null,
+  semanticUnit?: string,
+): UnifiedHealthSummary["metrics"][number] | null {
+  return metric === null ? null : {
+    timestamp: metric.timestamp,
+    name: metric.name,
+    displayValue: String(metric.value),
+    unitLabel: metric.unit || semanticUnit || "Unit not provided",
+  };
+}
+
+function mapProjection<T, U>(
+  projection: DomainProjection<T>,
+  mapper: (value: T) => U,
+): DomainProjection<U> {
+  return projection.status === "ok"
+    ? { status: "ok", data: mapper(projection.data) }
+    : projection;
+}
+
+function formatInteger(value: number): string {
+  const [sign, digits] = value < 0
+    ? ["-", String(value).slice(1)]
+    : ["", String(value)];
+  return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+}
 
 export function buildDashboardSnapshot(
   items: WorkspaceItemModel[],

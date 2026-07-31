@@ -1,185 +1,190 @@
 # API Reference
 
-The HTTP surface is an `axum` router built by `router(db_path)` over the same `TodoService`
-and the same database as the CLI. This reference is verified against the route table in
-`todo-engine/src/interfaces/api/mod.rs` and the handlers/DTOs in `api/handlers.rs` / `api/dto.rs`.
+Raven serves one HTTP API below `/api/v1`. CLI and API adapters call the same domain
+services.
 
-Item-returning endpoints respond with the full `TodoItem` as JSON. Errors return
-`{"detail": "<message>"}` with a status derived from `TodoError`
-(see [../conventions/error-handling.md](../conventions/error-handling.md)).
+## Authentication and bind
 
-Run the local server with `cargo run -p todo-engine -- api`; it binds to
-`127.0.0.1:3002` by default. Use `--host` and `--port` to override that address.
+Standalone `raven api` requires exactly one:
 
-## Routes
+- `RAVEN_API_TOKEN`
+- `RAVEN_API_TOKEN_FILE`
 
-| Method | Path | Handler | Body / query |
-| --- | --- | --- | --- |
-| `GET` | `/health` | `health` | — (returns `{"ok": true}`) |
-| `POST` | `/areas` | `create_area` | `AreaBody` |
-| `POST` | `/projects/propose` | `propose_project` | `ProjectProposeBody` |
-| `POST` | `/goals/propose` | `propose_goal` | `GoalProposeBody` |
-| `POST` | `/routines/propose` | `propose_routine` | `RoutineProposeBody` |
-| `POST` | `/routines/:id/materialize` | `materialize_routine` | `RoutineMaterializeBody` |
-| `POST` | `/events/propose` | `propose_event` | `EventProposeBody` |
-| `POST` | `/tasks/propose` | `propose_task` | `TaskProposeBody` |
-| `GET` | `/items` | `list_items` | `ItemsQuery` (see below) |
-| `GET` | `/items/archive` | `archive_items` | — |
-| `GET` | `/settings/planner` | `get_planner` | — (returns the saved JSON document or `null`) |
-| `PUT` | `/settings/planner` | `put_planner` | `{ "value": { ... } }` |
-| `GET` | `/settings/workspace-views` | `get_workspace_views` | — (returns the saved JSON document or `null`) |
-| `PUT` | `/settings/workspace-views` | `put_workspace_views` | `{ "value": { ... } }` |
-| `GET` | `/views/agenda` | `view_agenda` | `AgendaQuery`: required `date` |
-| `GET` | `/views/date-range` | `view_date_range` | `DateRangeQuery`: required `from`, `to` |
-| `GET` | `/views/period` | `view_period` | `PeriodQuery`: required `horizon`, `period` |
-| `PATCH` | `/items/:id` | `update_item` | `UpdateBody` |
-| `POST` | `/items/:id/pause` | `pause_item` | optional `ReasonBody` |
-| `POST` | `/items/:id/miss` | `miss_item` | `MissBody` |
-| `POST` | `/items/:id/postpone` | `postpone_item` | `PostponeBody` |
-| `POST` | `/items/:id/resume` | `resume_item` | optional `ReasonBody` |
-| `POST` | `/items/:id/complete` | `complete_item` | — |
-| `POST` | `/items/:id/reopen` | `reopen_item` | — |
-| `POST` | `/items/:id/archive` | `archive_item` | optional `ReasonBody` |
-| `POST` | `/items/:id/drop` | `drop_item` | optional `ReasonBody` |
-| `POST` | `/items/:id/cancel` | `cancel_item` | optional `ReasonBody` |
+Send `Authorization: Bearer <token>`. Tokens are 16–4096 visible ASCII bytes; duplicate or
+malformed authorization headers are rejected. The token-file variant enforces
+platform-specific file permissions.
 
-### Saved table-view settings
+Default bind is `127.0.0.1:3002`. `RAVEN_API_BIND_HOST` must be an IP address and
+`RAVEN_API_BIND_PORT` must be `1..=65535`. A non-loopback cleartext bind is rejected unless
+`RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true` is set exactly.
 
-`GET /settings/planner` returns the `planner.v1` preference document stored in
-`workspace_preferences`, or JSON `null` when it has not been saved. `PUT /settings/planner`
-accepts `{ "value": { ... } }`, requires `value` to be a JSON object, and returns the saved
-object.
+`raven ui` instead issues a fresh HTTP-only `SameSite=Strict` `raven_session` cookie from
+`/__raven/session`. UI mode is loopback-only and validates the exact request authority.
 
-`GET /settings/workspace-views` and `PUT /settings/workspace-views` provide the same
-contract for the independent `workspace-views.v1` document. That document contains saved
-views for Workspace tables and detail linked-list scopes. Saving either key leaves the
-other key unchanged.
+Exact `GET /healthz` is the only unauthenticated route:
 
-Both preferences are workspace-wide: they are persisted in the local workspace's
-`todo.sqlite`, which has no user or profile identity. For either PUT endpoint, a missing,
-scalar, array, or otherwise non-object `value` returns HTTP `400`; storage failures return
-HTTP `500`.
+```json
+{"status":"ok"}
+```
 
-The frontend keeps in-memory defaults when a saved document is missing, malformed, or
-unavailable and sends writes on a best-effort basis. For a valid Workspace document, a
-malformed individual scope falls back to its default view without discarding valid sibling
-scopes.
+`/healthz/` and descendants are not health probes.
 
-### Reopen a completed task or event
+## Shared error contract
 
-`POST /items/{id}/reopen`
+Raven errors are:
 
-- Accepts only an item with `type=task` or `type=event` and `status=completed`.
-- Returns the item with `status=active` and `completed_at=null`.
-- Writes a `reopen` audit event.
-- Returns HTTP `400` with `code=policy_error` for another item type or source status.
+```json
+{
+  "code": "validation_error",
+  "message": "The request is invalid.",
+  "fields": {"amount": ["invalid"]},
+  "request_id": "uuid"
+}
+```
 
-### Mark a task or event missed
+| Status | Codes |
+| --- | --- |
+| `400` | `validation_error` |
+| `401` | `unauthorized` |
+| `404` | `not_found` |
+| `409` | `conflict` |
+| `413` | `payload_too_large` |
+| `414` | `uri_too_long` |
+| `415` | `unsupported_media_type` |
+| `431` | `header_too_large` |
+| `500` | `internal_error` |
 
-`POST /items/{id}/miss`
+Messages are intentionally generic. `request_id` correlates an internal failure without
+exposing database paths, SQL, record contents, or tokens.
 
-- Accepts an active task or event and a JSON object with optional `reason`.
-- Returns the source with `status=missed` and its original `scheduled` value.
-- The source remains present in ordinary list results and is explicitly filterable through
-  `GET /items?status=missed`; active-work views exclude it.
-- For a routine-generated task, the missed occurrence is recorded and the routine's configured
-  open-work target is replenished. No follow-up is created.
-- Another item type or source status returns HTTP `400` with `code=policy_error`; malformed or
-  missing JSON returns HTTP `400` with `code=validation_error`.
+## Dashboard and preferences
 
-### Mark a task or event missed and create a follow-up
-
-`POST /items/{id}/postpone`
-
-- Accepts an active task or event.
-- Requires a JSON object with browser- or automation-supplied `today` and `scheduled`; `reason`
-  is optional. A missing required value or malformed JSON returns HTTP `400` with
-  `code=validation_error`. The server does not derive either calendar date.
-- `today` and `scheduled` must use `YYYY-MM-DD`, and `scheduled` must be later than `today`.
-  An equal, earlier, or invalid date returns HTTP `400`.
-- Returns `{"source": TodoItem, "follow_up": TodoItem}`. The source has `status=missed` and
-  retains its original `scheduled` value; the follow-up has `status=active` and the requested
-  date. The source records `metadata.postponed_to=<follow_up.id>` and the follow-up records
-  `metadata.postponed_from=<source.id>`.
-- The source remains present in ordinary list results and is explicitly filterable through
-  `GET /items?status=missed`; active-work views exclude it.
-- For a routine-generated task, the missed occurrence is recorded, the routine's configured
-  open-work target is replenished, and the active follow-up is detached: `routine_id` and
-  `occurrence_key` are null and `metadata.generated_by` is absent.
-
-### Materialize one routine
-
-`POST /routines/{id}/materialize`
-
-Saves the routine's rolling target and fills any shortage, following its
-`materialization_policy`. Unlike the CLI's `routine materialize`, which sweeps every active
-routine using stored targets, this acts only on `{id}`.
-
-- Accepts only an item with `type=routine` and `status=active`; anything else is HTTP `400`
-  with `code=policy_error`.
-- Returns `{"routine": TodoItem, "created": [TodoItem]}` — the routine carries the refreshed
-  `last_materialized_at`, and `created` holds only the tasks this call generated. Occurrences
-  that already had a task are absent from `created`.
-- Reducing the target keeps existing tasks; increasing it creates the missing future tasks.
-- Repeating a call with the same target creates nothing and returns an empty `created`.
-- A malformed or missing target is rejected.
-
-## Request bodies
-
-- **`AreaBody`** — `title` (required), `review_cycle?`, `standard?`, `note?`, `tags?`.
-- **`TaskProposeBody`** — `title` (required), `area?`, `project_id?`, `due?`, `scheduled?`,
-  `priority?`, `description?`, `note?`, `tags?`, `actor?` (default `agent`). When supplied,
-  `project_id` must identify a non-terminal project; a non-project or terminal relation returns
-  HTTP `400`, and an unknown ID returns HTTP `404`.
-- **`ProjectProposeBody`** — `title` (required), `area?`, `definition_of_done` (required and non-blank), `outcome?`,
-  `due?`, `note?`, `tags?`, `actor?` (default `agent`).
-- **`GoalProposeBody`** — `title` (required), `horizon` (required: `year`, `month`, or `week`),
-  `scheduled` (required canonical period start date), `parent_id?`, `actor?`, `note?`, `tags?`.
-- **`RoutineProposeBody`** — `title` (required), `area?`, `project_id?`, `description?`, `priority?`,
-  `recurrence_rule` (required and non-blank), `materialization_policy?` (default `single_open`),
-  `future_occurrences?` (default `7`), `note?`, `tags?`, `actor?` (default `agent`).
-- **`RoutineMaterializeBody`** — `future_occurrences` (required integer `1..=365`). Values
-  outside that range return HTTP `400` with `code=validation_error`.
-- **`EventProposeBody`** — `title` (required), `scheduled` (required), `area?`, `project_id?`,
-  `due?`, `priority?`, `description?`, `note?`, `location?`, `participants?` (array),
-  `commitment_type?` (default `appointment`), `tags?`, `actor?` (default `agent`).
-- **`ReasonBody`** — `reason?`. Optional on the transition endpoints that accept it.
-- **`MissBody`** — `reason?`.
-- **`PostponeBody`** — `today` and `scheduled` (required ISO `YYYY-MM-DD` values, with
-  `scheduled > today`), `reason?`.
-- **`UpdateBody`** — all optional: `title`, `description`, `note`, `outcome`,
-  `definition_of_done`, `standard`, `review_cycle`, `recurrence_rule`,
-  `materialization_policy`, `future_occurrences`, `area`, `project_id`, `parent_id`, `routine_id`, `due`,
-  `scheduled`, `priority`, `tags`, `reason`.
-
-Common create/update fields:
-
-All creation routes return an item with `status: "active"`, regardless of actor. The
-compatible `/propose` route names remain for existing clients. Missing or blank project
-completion criteria returns HTTP `400` with detail `Project requires definition_of_done`;
-missing or blank routine recurrence returns HTTP `400` with detail
-`Routine requires recurrence_rule`.
-
-| Field | Type | Meaning |
+| Method | Route | Behavior |
 | --- | --- | --- |
-| `tags` | optional `string[]` | Common item tags. Empty strings are ignored and duplicates are removed. |
+| `GET` | `/api/v1/dashboard` | Combined ToDo, Ledger, Health, and recent activity |
+| `GET` | `/api/v1/preferences/:key` | Read namespaced presentation state |
+| `PUT` | `/api/v1/preferences/:key` | Store an object-valued preference |
 
-## Query: `GET /items`
+Preference keys must start with `planner.`, `workspace.`, `ledger.`, or `health.` and use
+bounded lowercase segments. Preferences live in `todo.sqlite` and cannot mutate domain
+tables.
 
-`ItemsQuery` parameters (all optional strings): `status`, `type` (the `item_type`, exposed on
-the wire as `type` via `#[serde(rename = "type")]`), `area_id`, `project_id`, `parent_id`,
-`routine_id`, `horizon`, `scheduled`, `query`, `include_archived`. Empty strings are ignored; `include_archived` accepts
-`true/1/yes/on` and `false/0/no/off`. Results are sorted by `created_at` descending, then by
-`id` descending.
+Dashboard returns HTTP `200` even when one domain cannot load. Each `todo`, `ledger`, and
+`health` member is independently:
 
-## Status mapping note
+```json
+{"status":"ok","data":{}}
+```
 
-The `axum` error boundary maps every `TodoError` through `http_status_code`:
-policy/validation → 400, not-found → 404, conflict → 409, storage/migration/internal → 500. See
-[../conventions/error-handling.md](../conventions/error-handling.md).
+or:
 
-## In-memory mode
+```json
+{
+  "status":"error",
+  "code":"domain_unavailable",
+  "message":"This data is currently unavailable.",
+  "request_id":"uuid"
+}
+```
 
-Passing `:memory:` as the `db_path` to `router(...)` spins up a shared-cache in-memory SQLite
-database (a `file:...?mode=memory&cache=shared` URI kept alive for the router's lifetime).
-This backs the `tests/e2e/api.rs` suite; production passes the real `todo.sqlite` path.
+## ToDo routes
+
+The existing ToDo router is mounted below `/api/v1/todo`:
+
+| Method | Relative route |
+| --- | --- |
+| `GET` | `/health`, `/items`, `/items/archive`, `/views/agenda`, `/views/date-range`, `/views/period` |
+| `POST` | `/areas`, `/goals/propose`, `/projects/propose`, `/routines/propose`, `/routines/:id/materialize`, `/events/propose`, `/tasks/propose` |
+| `PATCH` | `/items/:id` |
+| `POST` | `/items/:id/pause`, `/miss`, `/postpone`, `/resume`, `/complete`, `/reopen`, `/archive`, `/drop`, `/cancel` |
+
+Example full route: `GET /api/v1/todo/items`.
+
+The standalone ToDo API command is not part of Raven's supported surface:
+`raven todo api` is rejected. Use `raven api` or `raven ui`, both of which apply Raven
+authentication and bind policy.
+
+ToDo preserves its service policies: direct-active creation, required project
+`definition_of_done`, required routine RRULE, canonical goal anchors, status-machine
+transitions, and an audit event for every mutation.
+
+## Ledger routes
+
+All routes below use prefix `/api/v1/ledger`.
+
+| Resource | Routes |
+| --- | --- |
+| Entries | `GET/POST /entries`, `GET/PATCH /entries/:id`, `POST /entries/:id/archive`, `POST /entries/:id/restore`, `GET/DELETE /entries/:id/purge` |
+| Transfers | `POST /transfers`, `GET /transfers/:id` |
+| Currencies | `GET/POST /currencies`, `PATCH/DELETE /currencies/:id`, `GET /currencies/:id/purge` |
+| Account categories | `GET/POST /account-categories`, `PATCH/DELETE /account-categories/:id`, `GET /account-categories/:id/purge` |
+| Accounts | `GET/POST /accounts`, `PATCH/DELETE /accounts/:id`, `GET /accounts/:id/purge` |
+| Transaction categories | `GET/POST /transaction-categories`, `PATCH/DELETE /transaction-categories/:id`, `GET /transaction-categories/:id/purge` |
+| Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/accounts`, `/reports/categories`, `/reports/compare`, `/reports/briefing` |
+
+JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
+offset `0`, limit `100`; limits are bounded. Report queries accept either `from`+`to` or
+`year`+`month` where supported.
+
+Entry and master-data purge `GET` routes return confirmation previews. Purge `DELETE`
+requires `{"confirmation":"<confirmation-id>"}` matching the preview; audit events survive.
+Only entries expose archive/restore. Currency, account-category, account, and transaction
+category lifecycle uses the `active` field on update.
+
+## Health routes
+
+All routes below use prefix `/api/v1/health`.
+
+| Resource | Routes |
+| --- | --- |
+| Diet | `GET/POST /diet`, `GET/PATCH /diet/:id`, lifecycle `POST /diet/:id/archive|restore`, `DELETE /diet/:id/purge` |
+| Diet image upload | `POST /diet/with-image` with raw image bytes |
+| Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore`, `DELETE /events/:id/purge` |
+| Metrics | `POST /metrics/daily` |
+| Reads | `GET /timeline`, `/trends`, `/audit/:record_type/:record_id` |
+
+JSON bodies are limited to 128 KiB. `POST /diet/with-image` is not multipart:
+
+- Body: raw JPEG, PNG, or WebP bytes, at most 10 MiB
+- `Content-Type`: exactly `image/jpeg`, `image/png`, or `image/webp`
+- `X-Raven-Diet-Metadata`: required strict, HTTP-header-safe ASCII JSON
+  `CreateDietBody`, at most 8 KiB; escape non-ASCII text in the JSON header value
+
+The metadata object is:
+
+```json
+{
+  "occurred_at": "2026-07-31T12:00:00+09:00",
+  "meal_type": "lunch",
+  "food_name": "Rice bowl",
+  "note": null,
+  "tags": ["rice", "vegetables"],
+  "actor": "raven-api"
+}
+```
+
+`note` is optional, `tags` defaults to `[]`, and `actor` defaults to `raven-api`. Unknown
+metadata fields are rejected. Declared content type must agree with detected image bytes.
+
+```bash
+curl -X POST http://127.0.0.1:3002/api/v1/health/diet/with-image \
+  -H "Authorization: Bearer $RAVEN_API_TOKEN" \
+  -H "Content-Type: image/jpeg" \
+  -H 'X-Raven-Diet-Metadata: {"occurred_at":"2026-07-31T12:00:00+09:00","meal_type":"lunch","food_name":"Rice bowl","tags":["rice"]}' \
+  --data-binary @meal.jpg
+```
+
+Event category plus attributes determine bowel, medication, weight, sleep, lab, or symptom
+validation. Daily metric input is bounded to 366 objects. Timeline supports range,
+category, archive, and page filters; trends defaults to 30 days and has a bounded window.
+
+Archive and restore support optimistic timestamps. Health API has no purge-preview route.
+`DELETE /diet/:id/purge` and `DELETE /events/:id/purge` require
+`{"confirmation":"<record-id>"}`. Purge removes the confirmed record and associated
+unreferenced media and preserves audit events.
+
+## UI static boundary
+
+`raven ui` serves the startup snapshot of the static artifact. `/api`, `/__raven`, and
+`/healthz` namespaces never use SPA fallback. Static files have bounded count, depth,
+individual size, and total size; symlinks/reparse points are rejected during artifact load.

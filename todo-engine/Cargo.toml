@@ -3,6 +3,7 @@ name = "todo-engine"
 version = "0.2.0"
 edition = "2024"
 description = "Policy-enforced personal ToDo engine"
+autobins = false
 
 [dependencies]
 anyhow = "1.0"
@@ -10,7 +11,7 @@ axum = "0.7"
 backend = { path = "../backend" }
 clap = { version = "4.5", features = ["derive", "env"] }
 dotenvy = "0.15"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["backup", "bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -18,6 +19,7 @@ time = { version = "0.3", features = ["formatting", "parsing", "macros", "serde"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tower = { version = "0.5", features = ["util"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
@@ -26,4 +28,3 @@ http = "1"
 http-body-util = "0.1"
 predicates = "3"
 tempfile = "3.15"
-tower = { version = "0.5", features = ["util"] }

@@ -1,54 +1,71 @@
 # Architecture Overview
 
-`todo-engine` is a policy-enforced, local-first personal ToDo engine for agent
-workflows. It keeps areas, projects, tasks, routines, and events in one SQLite-backed
-item graph. Agents may interpret and create work through compatible `propose` surfaces, while the software
-itself enforces the operating system: creation validation, audit events, a status state
-machine, and read-only Second_Brain boundaries. Every external surface — CLI and HTTP API
-— is a thin view over the same Rust service layer and the same `todo.sqlite` database.
-The Rust crate lives in the `todo-engine/` workspace package (binary/lib `todo-engine`/`todo_engine`);
-`frontend/` is the Next.js workbench package. Its Dashboard derives Area,
-Project, and Planner analytics from the existing all-items API without adding
-server-side aggregation or another source of truth.
+Raven is one executable composed from three independent policy engines. Each engine owns
+its domain model, application service, repository contract, SQLite schema, and audit trail.
+The outer `raven-cli` and `raven-api` crates may depend on all engines; engines never depend
+on one another.
 
-## Pipeline
-
-All input paths converge on a single service; all output paths read back through it.
+## Runtime flows
 
 ```text
-Telegram / CLI / Dashboard / Agent
-                  ↓
-              TodoService
-                  ↓
-       Policy validation + state machine
-                  ↓
-        SQLite source of truth + events
-                  ↓
-        CLI Markdown / JSON / API responses
+raven command
+  → top-level parser
+  → owning service
+  → validation and policy
+  → SQLite record + audit event
+  → structured output
+
+Raven UI
+  → authenticated /api/v1/<domain>
+  → HTTP DTO validation
+  → owning service
+  → SQLite record + audit event
+  → typed JSON
 ```
 
-## Core principles
+Domain mutations do not originate in CLI handlers, HTTP handlers, Dashboard projection
+code, or preference storage.
 
-1. **SQLite is the single source of truth.** The CLI and the `axum` HTTP API are both
-   *views* over `todo.sqlite`. Nothing else holds canonical state. See
-   [decisions/adr-0001-sqlite-source-of-truth.md](decisions/adr-0001-sqlite-source-of-truth.md).
-2. **The service layer enforces policy.** Every mutation routes through `TodoService`,
-   which runs validation plus a status state machine before touching storage. CLI and API
-   never bypass it. See [decisions/adr-0002-service-layer-policy.md](decisions/adr-0002-service-layer-policy.md).
-3. **Creation is direct-active.** Every creator produces `active` work. `TodoService`
-   rejects projects without a non-blank `definition_of_done` and routines without a
-   non-blank `recurrence_rule` before persistence. Schema initialization normalizes legacy
-   `proposed` and `approved` rows to `active`.
-4. **Audit events are mandatory.** Every service-layer mutation writes a `TodoEvent` row
-   to the SQLite `events` table, with `before`/`after` JSON snapshots. There is no mutation
-   path that skips the event.
-5. **Second_Brain references are read-only.** `second_brain_refs` are stored as immutable
-   reference input from the ToDo side; the engine never writes back into Second_Brain.
+## Workspace composition
 
-## Where to go next
+```text
+raven-cli
+├── todo-engine
+├── ledger-engine
+├── health-engine
+└── raven-api
+    └── backend preference adapter
 
-- [layers.md](layers.md) — the clean/hexagonal layer map of the refactored `todo-engine/src/` tree,
-  the inward-dependency rule, and the `pub(super)` visibility convention.
-- [data-model.md](data-model.md) — item types, the `ItemStatus` lifecycle, and the
-  `events` audit contract (with links to the canonical column tables in `README.md`).
-- [decisions/](decisions/) — Architecture Decision Records for each locked policy.
+frontend → /api/v1
+```
+
+- `raven-cli` owns the executable, data-home resolution, logging, command routing, API
+  startup, UI startup, and ToDo import.
+- `raven-api` composes domain routers, authentication, error normalization, preferences,
+  and the read-only Dashboard.
+- `frontend` is one static Next.js application served with the API by `raven ui`.
+
+## Data isolation
+
+`todo.sqlite`, `ledger.sqlite`, and `health.sqlite` are separate sources of truth under one
+Raven home. Health image bytes live under `media/health`; its database stores metadata and
+relative paths. Presentation preferences live in `todo.sqlite` but cannot mutate domain
+records.
+
+The Dashboard queries all three stores independently and returns an `ok` or `error`
+projection per domain. A missing, corrupt, or unsupported database is isolated to its
+projection.
+
+## Security boundary
+
+- Standalone API mode requires one bearer token source.
+- Cleartext API binding is loopback-only unless the explicit unsafe override is set.
+- UI mode is loopback-only and creates an unpredictable session for each launch.
+- The bootstrap response sets an HTTP-only `SameSite=Strict` cookie.
+- UI requests must use the exact listener authority; API and health namespaces do not fall
+  through to static SPA content.
+- Error responses expose stable classifications and request IDs, not internal paths or
+  storage messages.
+
+See [layers.md](layers.md), [data-model.md](data-model.md), and the
+[API reference](../operations/api-reference.md).

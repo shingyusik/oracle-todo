@@ -1,94 +1,122 @@
 # Verification and Smoke
 
-## The verification gate
-
-All three must pass before committing any source change:
+## Full gate
 
 ```bash
 cargo fmt --check
-cargo test
+cargo test --workspace
 cargo clippy --all-targets --all-features -- -D warnings
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+npm --prefix npm/raven test
+cargo build --release -p raven-cli
 ```
 
-`-D warnings` makes warnings (including unused imports) hard errors. `cargo test` runs all
-three test binaries; you can run them individually:
+The release binary is `target/release/raven` (`raven.exe` on Windows). The UI artifact is
+`frontend/out`.
+
+## Throwaway-home rule
+
+Never run mutation, import, migration, archive/restore, or purge smoke checks against live
+Raven or source ToDo data.
 
 ```bash
-cargo test --test unit
-cargo test --test integration
-cargo test --test e2e
+smoke_home="$(mktemp -d)"
+raven_bin="$PWD/target/release/raven"
+"$raven_bin" --home "$smoke_home" init
+"$raven_bin" --home "$smoke_home" health-check
 ```
 
-See [../conventions/testing.md](../conventions/testing.md) for what each layer covers.
+Expected health output includes:
 
-## Coverage
+```text
+todo=ok user_version=1 ledger=ok user_version=2 health=ok user_version=1 media=ok
+```
 
-Target **≥80% line coverage**. If the tooling is installed, measure with (try in order):
+## Domain smoke
 
 ```bash
-cargo llvm-cov --summary-only
-# or
-cargo tarpaulin --out Stdout
+"$raven_bin" --home "$smoke_home" todo task propose "Smoke task"
+
+"$raven_bin" --home "$smoke_home" ledger currency create \
+  --code KRW --name "Korean Won" --symbol ₩ --decimal-places 0
+"$raven_bin" --home "$smoke_home" ledger account-category create --name Cash
+"$raven_bin" --home "$smoke_home" ledger account create \
+  --name Wallet --category Cash --currency KRW --opening-balance 0
+"$raven_bin" --home "$smoke_home" ledger category create --name Food --kind expense
+"$raven_bin" --home "$smoke_home" ledger entry add \
+  --date 2026-07-31 --type expense --amount 12000 --currency KRW \
+  --account Wallet --category Food --content Lunch
+
+"$raven_bin" --home "$smoke_home" health diet add \
+  --at 2026-07-31T12:00:00+09:00 --meal lunch --food "Smoke meal" --tags smoke
+"$raven_bin" --home "$smoke_home" health timeline --format json
 ```
 
-Do **not** install coverage tooling without approval. If neither tool is available, record
-that coverage was not measured rather than installing one.
+Confirm `todo.sqlite`, `ledger.sqlite`, `health.sqlite`, `media/health`, and
+`logs/raven.log.jsonl` exist only below the temporary home.
 
-## Copied-data smoke (never the live home)
+## Import smoke
 
-Run smoke checks only against a **copy** of the data home — never against the live
-`~/.todo-engine/todo.sqlite` (see [data-home.md](data-home.md)). With a real legacy
-database available:
+Create or copy a source ToDo home distinct from the empty Raven destination:
 
 ```bash
-tmp_home="$(mktemp -d)"
-cp ~/.todo-engine/todo.sqlite "$tmp_home/todo.sqlite"
-cargo run -p todo-engine -- --home "$tmp_home" pending
-cargo run -p todo-engine -- --home "$tmp_home" today
+source_home="$(mktemp -d)"
+import_home="$(mktemp -d)"
+cargo run -p raven-cli -- --home "$source_home" todo init
 ```
 
-Opening the copied database runs schema initialization, so legacy `proposed` and `approved`
-rows must appear as `active`. No missing project `definition_of_done` or routine
-`recurrence_rule` is synthesized.
-
-Without a legacy database, start from a fresh init in a temp home:
+For a real source, place its `todo.sqlite` under `source_home`, then:
 
 ```bash
-tmp_home="$(mktemp -d)"
-cargo run -p todo-engine -- --home "$tmp_home" init
-cargo run -p todo-engine -- --home "$tmp_home" task propose "Smoke task"
-cargo run -p todo-engine -- --home "$tmp_home" project propose "Smoke project" \
-  --definition-of-done "All smoke checks pass"
-cargo run -p todo-engine -- --home "$tmp_home" routine propose "Smoke routine" \
-  --recurrence-rule "RRULE:FREQ=DAILY"
-cargo run -p todo-engine -- --home "$tmp_home" pending
-cargo run -p todo-engine -- --home "$tmp_home" today
+"$raven_bin" --home "$import_home" import todo --source-home "$source_home"
+"$raven_bin" --home "$import_home" todo health
 ```
 
-Creation output and `pending` must show `active` items. Also verify the exact creation
-validation errors (both commands exit `2`):
+Repeat import and confirm it exits `2` without replacing the destination. Compare the source
+before/after hash when validating read-only behavior.
+
+## API smoke
+
+Use a fresh token and loopback port:
 
 ```bash
-cargo run -p todo-engine -- --home "$tmp_home" project propose "Missing DoD"
-# Project requires definition_of_done
-cargo run -p todo-engine -- --home "$tmp_home" routine propose "Missing recurrence"
-# Routine requires recurrence_rule
+RAVEN_HOME="$smoke_home" \
+RAVEN_API_TOKEN='smoke-token-0123456789' \
+RAVEN_API_BIND_PORT=39002 \
+"$raven_bin" api
 ```
 
-The automated smoke coverage exercises the remaining lifecycle paths without relying on
-shell JSON parsing:
+From another shell:
 
 ```bash
-cargo test --test integration init_schema_migrates_legacy_open_statuses
-cargo test --test integration generated_routine_task_is_active_and_returns_to_active_after_resume
-cargo test --test integration materialization_fills_the_default_future_occurrence_target
+curl http://127.0.0.1:39002/healthz
+curl -H 'Authorization: Bearer smoke-token-0123456789' \
+  http://127.0.0.1:39002/api/v1/dashboard
 ```
 
-The smoke passes when the normal commands exit `0`, both validation probes exit `2` with the
-exact messages shown above, and the live home remains untouched. `*.sqlite` is gitignored,
-so a temp copy is never committed.
+Verify an unauthenticated Dashboard request returns `401`, an authenticated request returns
+all three projection keys, and a deliberately unavailable copied domain becomes only that
+domain's `status:"error"`.
 
-## Structure checks
+## UI smoke
 
-After a refactor, confirm: no `todo-engine/src/**/*.rs` is much over ~400 lines and
-`docs/{architecture,conventions,operations}` are populated.
+```bash
+"$raven_bin" --home "$smoke_home" ui \
+  --ui-path frontend/out --port 39003 --no-open
+```
+
+Open `http://127.0.0.1:39003/__raven/session`. Confirm the redirect sets the strict
+HTTP-only cookie, Dashboard loads, and ToDo, Ledger, and Health Journal mutations round-trip.
+Unknown `/api/*` routes must return authenticated API `404`, never the SPA document.
+
+## Log checks
+
+- stdout contains only command results.
+- stderr contains diagnostics.
+- JSONL records do not contain API tokens, UI session values, Health image bytes, or raw
+  domain error details from the composed API.
+- Rotation honors `RAVEN_LOG_MAX_BYTES` and `RAVEN_LOG_MAX_FILES`.
+
+Temporary homes may be removed after the smoke evidence is recorded.

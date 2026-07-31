@@ -1,0 +1,23 @@
+[
+  {
+    "id": "cat_food",
+    "name": "Food",
+    "parent_id": null,
+    "kind": "expense",
+    "active": true
+  },
+  {
+    "id": "cat_transport",
+    "name": "Transport",
+    "parent_id": null,
+    "kind": "expense",
+    "active": true
+  },
+  {
+    "id": "cat_inactive",
+    "name": "Inactive Category",
+    "parent_id": null,
+    "kind": "expense",
+    "active": false
+  }
+]

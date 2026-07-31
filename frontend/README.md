@@ -1,55 +1,54 @@
-# frontend
+# Raven frontend
 
-Next.js workbench frontend for `todo-engine`. The Dashboard derives Area,
-Project, and current-week Planner analytics from the existing all-items API and
-links each summary or chart point to the corresponding workbench view.
+The Next.js frontend is Raven's single-screen workbench. It is exported as static files and
+served by `raven ui` from the same origin as the authenticated API.
 
-## Commands
+## Navigation
+
+- Dashboard: combined ToDo, Ledger, Health Journal, and recent-activity projections
+- ToDo: Workspace and Planner
+- Ledger: Transactions, Accounts, Categories, Reports
+- Health Journal: Timeline, Diet, Bowel, Medication, Health Metrics, Trends
+
+Dashboard is the only overview. Ledger and Health Journal start directly at their
+operational views. If one Dashboard domain is unavailable, its card shows an error while
+the other domain cards remain usable.
+
+## Production artifact
 
 ```bash
 npm install
-npm run dev
-npm run dev:with-api
 npm run test
 npm run typecheck
 npm run build
+cargo run -p raven-cli -- ui --ui-path frontend/out --no-open
 ```
 
-Run the frontend with the Rust API:
+The static client calls relative `/api/v1/*` routes. `raven ui` provides the session-cookie
+bootstrap, API, static files, and SPA fallback on one loopback origin.
+
+## Development
+
+Run frontend tests or the Next.js development server from this directory:
 
 ```bash
-npm run dev:with-api
+npm run test
+npm run typecheck
+npm run dev
 ```
 
-The frontend calls `/todo-engine/*`; `next.config.mjs` proxies those requests to
-the Rust API during development. `npm run dev:with-api` starts the Rust API from the
-workspace root on `127.0.0.1:3102` and the Next.js dev server on `127.0.0.1:3101`, so
-it can run alongside the packaged `oracle-todo ui` runtime on `3001`/`3002`. The root
-`.env` still selects the development SQLite data home through `TODO_ENGINE_HOME`.
+`npm run dev` is suitable for frontend-only work. The configured `/api/*` rewrite targets
+`RAVEN_API_URL` or `http://127.0.0.1:3002`, but standalone `raven api` requires a bearer
+header that browser fetches do not inject. Use the production-artifact command above for
+authenticated browser integration through the Raven UI session.
 
-Override the development ports in the workspace root `.env` when needed:
+## Source layout
 
-```env
-TODO_ENGINE_DEV_UI_PORT=3201
-TODO_ENGINE_DEV_API_PORT=3202
-```
-
-Shell variables also work and take precedence over `.env`:
-
-```bash
-TODO_ENGINE_DEV_UI_PORT=3201 TODO_ENGINE_DEV_API_PORT=3202 npm run dev:with-api
-```
-
-When running `npm run dev` by itself, set `TODO_ENGINE_API_URL` to choose the API target;
-otherwise the development rewrite falls back to `http://127.0.0.1:3002`.
-
-## Architecture
-
-- `src/app`: thin route entries.
-- `src/design`: tokens, copy, and layout constants.
-- `src/domain`: pure policy and navigation rules.
-- `src/features/dashboard`: local analytics model, declarative widgets, and
-  accessible chart UI.
-- `src/features/workbench`: workbench model, controller hooks, Planner, and
-  workspace UI.
-- `tests`: architecture, domain, and presentation tests.
+- `src/app` — thin Next.js entries
+- `src/design` — shared tokens and copy
+- `src/domain` — navigation and pure UI policy
+- `src/features/dashboard` — unified summaries and recent activity
+- `src/features/workbench` — ToDo Workspace and Planner
+- `src/features/ledger` — entries, master data, and reports
+- `src/features/health` — timeline, diet, events, metrics, and trends
+- `tests` — architecture, model, controller, and presentation checks

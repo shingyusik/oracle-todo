@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use crate::preferences;
@@ -44,22 +45,55 @@ async fn put_workspace_views(
     put_preference(&db_path, WORKSPACE_VIEWS_PREFERENCE_KEY, &body)
 }
 
-fn get_preference(db_path: &PathBuf, key: &str) -> Result<Json<Value>, StatusCode> {
-    let connection = open_preferences(db_path)?;
-    let value =
-        preferences::get(&connection, key).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+fn get_preference(db_path: &Path, key: &str) -> Result<Json<Value>, StatusCode> {
+    let value = read_preference(db_path, key).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(value.unwrap_or(Value::Null)))
 }
 
-fn put_preference(db_path: &PathBuf, key: &str, body: &Value) -> Result<Json<Value>, StatusCode> {
+fn put_preference(db_path: &Path, key: &str, body: &Value) -> Result<Json<Value>, StatusCode> {
     let Some(value) = body.get("value").filter(|value| value.is_object()) else {
         return Err(StatusCode::BAD_REQUEST);
     };
-    let mut connection = open_preferences(db_path)?;
-    preferences::put(&mut connection, key, value).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    write_preference(db_path, key, value).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(value.clone()))
 }
 
-fn open_preferences(db_path: &PathBuf) -> Result<Connection, StatusCode> {
-    Connection::open(db_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+pub fn read_preference(
+    db_path: &Path,
+    key: &str,
+) -> Result<Option<Value>, preferences::PreferencesError> {
+    match std::fs::metadata(db_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    }
+    let connection = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    connection.busy_timeout(Duration::from_secs(5))?;
+    let initialized: bool = connection.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'workspace_preferences'
+        )",
+        [],
+        |row| row.get(0),
+    )?;
+    if initialized {
+        preferences::get(&connection, key)
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn write_preference(
+    db_path: &Path,
+    key: &str,
+    value: &Value,
+) -> Result<(), preferences::PreferencesError> {
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut connection = Connection::open(db_path)?;
+    connection.busy_timeout(Duration::from_secs(5))?;
+    preferences::init_schema(&connection)?;
+    preferences::put(&mut connection, key, value)
 }

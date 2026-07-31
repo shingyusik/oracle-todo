@@ -9,8 +9,17 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    name: Test Raven CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p raven-cli
+
   build:
-    name: Build ${{ matrix.target }}
+    name: Build Raven (${{ matrix.target }})
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
@@ -33,33 +42,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: Build
-        run: cargo build -p todo-engine --release --target ${{ matrix.target }}
+      - name: Build Raven
+        run: cargo build -p raven-cli --release --target ${{ matrix.target }}
       - name: Package Unix
         if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          name="todo-engine-${version}-${{ matrix.target }}"
-          mkdir -p "dist/${name}"
-          cp "target/${{ matrix.target }}/release/todo-engine" "dist/${name}/todo-engine"
-          cp README.md "dist/${name}/README.md"
-          test ! -f LICENSE || cp LICENSE "dist/${name}/LICENSE"
-          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          name="raven-${version}-${{ matrix.target }}"
+          mkdir -p dist
+          tar -C "target/${{ matrix.target }}/release" -czf "dist/${name}.tar.gz" raven
       - name: Package Windows
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart("v")
-          $name = "todo-engine-$version-${{ matrix.target }}"
-          New-Item -ItemType Directory -Force -Path "dist/$name"
-          Copy-Item "target/${{ matrix.target }}/release/todo-engine.exe" "dist/$name/todo-engine.exe"
-          Copy-Item "README.md" "dist/$name/README.md"
-          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$name/LICENSE" }
-          Compress-Archive -Force -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
+          $name = "raven-$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path dist
+          Compress-Archive -Force -Path "target/${{ matrix.target }}/release/raven.exe" -DestinationPath "dist/$name.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: todo-engine-${{ matrix.target }}
+          name: raven-${{ matrix.target }}
           path: |
             dist/*.tar.gz
             dist/*.zip
@@ -89,14 +92,14 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          name="oracle-todo-ui-${version}"
+          name="raven-ui-${version}"
           mkdir -p "dist/${name}"
           cp -R frontend/out/. "dist/${name}/"
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
       - uses: actions/upload-artifact@v4
         with:
-          name: oracle-todo-ui
-          path: dist/oracle-todo-ui-*.tar.gz
+          name: raven-ui
+          path: dist/raven-ui-*.tar.gz
 
   publish:
     name: Publish Release
@@ -112,7 +115,10 @@ jobs:
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum *.tar.gz *.zip > SHA256SUMS
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sed 's#  \./#  #' > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: |

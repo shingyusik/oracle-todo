@@ -1,0 +1,25 @@
+{
+  "name": "@shings/raven",
+  "version": "0.1.12",
+  "description": "npx runner for the Raven engine and UI GitHub Release bundle",
+  "license": "MIT",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shingyusik/oracle-todo.git",
+    "directory": "npm/raven"
+  },
+  "bin": {
+    "raven": "bin/raven.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

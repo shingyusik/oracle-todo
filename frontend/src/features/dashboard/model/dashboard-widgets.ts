@@ -3,6 +3,7 @@ import type {
   DashboardSnapshot,
   DashboardStatusKey,
   ProjectAttention,
+  UnifiedTodoSummary,
 } from "@/features/dashboard/model/dashboard-model";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 
@@ -95,6 +96,18 @@ export type DashboardWidget = {
     | "project-status";
   build: (snapshot: DashboardSnapshot) => DashboardWidgetModel;
 };
+
+export function unifiedTodoStats(
+  summary: UnifiedTodoSummary,
+): Array<{ label: string; value: number }> {
+  return [
+    { label: "Active", value: summary.active },
+    { label: "Completed today", value: summary.completed },
+    { label: "Incomplete today", value: summary.incomplete },
+    { label: "Missed today", value: summary.missed },
+    { label: "Overdue", value: summary.overdue },
+  ];
+}
 
 const heatmapColumns = [
   { id: "completed", label: "Completed", tone: "success" },

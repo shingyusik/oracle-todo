@@ -1,0 +1,35 @@
+[package]
+name = "raven-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+axum = "0.7"
+clap = { version = "4.5", features = ["derive", "env"] }
+dotenvy = "0.15"
+health-engine = { path = "../health-engine" }
+infer = "0.19"
+ledger-engine = { path = "../ledger-engine" }
+raven-api = { path = "../raven-api" }
+rusqlite = "0.32"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3.15"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
+todo-engine = { path = "../todo-engine" }
+tokio = { version = "1", features = ["net", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+[[bin]]
+name = "raven"
+path = "src/main.rs"
+
+[dev-dependencies]
+assert_cmd = "2"
+axum = "0.7"
+http-body-util = "0.1"
+predicates = "3"
+tower = { version = "0.5", features = ["util"] }

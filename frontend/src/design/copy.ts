@@ -1,11 +1,14 @@
 export const workbenchCopy = {
-  brandName: "Todo Engine",
+  brandName: "Raven",
   logoLabel: "Logo",
   logoAlt: "Merovingian",
   logoWordmark: "MEROVINGIAN",
   logoTagline: "CONTROL. ANALYZE. OPTIMIZE.",
   navigation: {
-    shellLabel: "Workbench navigation",
+    shellLabel: "Raven navigation",
+    drawerLabel: "Raven navigation drawer",
+    openLabel: "Open Raven navigation",
+    closeLabel: "Close Raven navigation",
   },
   panels: {
     dashboard: {
@@ -13,6 +16,12 @@ export const workbenchCopy = {
     },
     todo: {
       title: "ToDo",
+    },
+    ledger: {
+      title: "Ledger",
+    },
+    health: {
+      title: "Health Journal",
     },
     areas: {
       title: "Areas",
@@ -43,6 +52,36 @@ export const workbenchCopy = {
     },
     daily: {
       title: "Daily",
+    },
+    transactions: {
+      title: "Transactions",
+    },
+    accounts: {
+      title: "Accounts",
+    },
+    categories: {
+      title: "Categories",
+    },
+    reports: {
+      title: "Reports",
+    },
+    timeline: {
+      title: "Timeline",
+    },
+    diet: {
+      title: "Diet",
+    },
+    bowel: {
+      title: "Bowel",
+    },
+    medication: {
+      title: "Medication",
+    },
+    "health-metrics": {
+      title: "Health Metrics",
+    },
+    trends: {
+      title: "Trends",
     },
   },
 } as const;

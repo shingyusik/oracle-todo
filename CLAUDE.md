@@ -2,83 +2,84 @@
 
 ## Project Overview
 
-`todo-engine` — a policy-enforced, local-first personal ToDo engine (Rust 2024) for agent workflows.
+`Raven` is a local-first personal engine written in Rust 2024.
 
-- **SQLite is the source of truth.** CLI and HTTP API are both views over `todo.sqlite`.
-- **The Rust service layer enforces policy.** Every mutation goes through `TodoService`: validation plus a status state machine. CLI and API never bypass it.
-- **Creation is direct-active.** Every creator produces `active` work. Projects require `definition_of_done`; routines require `recurrence_rule`.
-- **Audit events are mandatory.** Every service-layer mutation writes a `TodoEvent` row to the SQLite `events` table.
-- **Second_Brain refs are read-only.** `second_brain_refs` are reference input, never written back.
+- One `raven` executable exposes `todo`, `ledger`, `health`, `api`, and `ui`.
+- `todo.sqlite`, `ledger.sqlite`, and `health.sqlite` are independent sources of truth.
+- Every domain mutation goes through its application service and writes audit history.
+- CLI and HTTP are adapters; neither may bypass service policy.
+- The UI has one combined Dashboard. Ledger and Health Journal do not have duplicate Overview pages.
 
-The full data model (item types, columns, status lifecycle, CLI/API surface) lives in `README.md` — read it before changing the schema or service behavior.
+Read `README.md` and the relevant operations reference before changing schemas, commands,
+API behavior, or lifecycle policy.
 
 ## Architecture
 
-The Rust crate lives under `todo-engine/` (package/binary/lib `todo-engine`/`todo_engine`); `frontend/` is a reserved sibling package slot in the workspace. Clean/hexagonal layering under `todo-engine/src/`. Dependencies point inward — `interfaces` and `infrastructure` depend on `application` and `domain`, never the reverse; `domain` does no I/O.
+Dependencies point inward: interfaces/infrastructure → application → domain. Domain crates
+do no I/O and never depend on another engine.
 
-| Layer | Files | Responsibility |
-| --- | --- | --- |
-| `todo-engine/src/domain/` | `model.rs`, `status.rs`, `recurrence.rs` | Item types, `ItemStatus`, recurrence rules. Pure logic, no I/O. |
-| `todo-engine/src/application/` | `service/`, `ports.rs`, `error.rs` | `TodoService` policy + state machine, repository port trait, `TodoError`. |
-| `todo-engine/src/infrastructure/` | `sqlite/`, `paths.rs`, `system.rs` | `rusqlite` repository + schema, data-home resolution, clock/system. |
-| `todo-engine/src/interfaces/` | `cli/`, `api/` | `clap` CLI and `axum` HTTP router. Thin adapters over the service. |
-| `todo-engine/src/` (root) | `lib.rs`, `main.rs` | Crate wiring, binary entrypoint. |
-
-Each split layer (`service/`, `sqlite/`, `cli/`, `api/`) is a directory module; see `docs/architecture/layers.md` for the per-file breakdown and the `pub(super)` visibility convention.
+| Package | Responsibility |
+| --- | --- |
+| `raven-cli` | Native `raven` binary, paths, logging, dispatch, import, API/UI startup |
+| `raven-api` | Auth, `/api/v1` composition, safe errors, Dashboard, UI session/static serving |
+| `todo-engine` | ToDo item graph, recurrence, lifecycle, SQLite, reusable adapters |
+| `ledger-engine` | Money/master data, entries, transfers, reports, audit, SQLite |
+| `health-engine` | Diet/media, health events, timeline/trends, audit, SQLite |
+| `frontend` | Static unified Dashboard and ToDo/Ledger/Health workspaces |
+| `backend` | Namespaced presentation preferences stored in `todo.sqlite` |
 
 ## Docs Map
 
 | Need | Read |
 | --- | --- |
-| Data model, item types, columns, status lifecycle | `README.md` |
-| Full CLI/API surface | `docs/operations/cli-reference.md` + `docs/operations/api-reference.md` |
-| Design rationale, architecture, locked policies | `docs/architecture/overview.md`, `docs/architecture/layers.md`, `docs/architecture/decisions/` |
-| Engine guardrails, data-home safety, smoke + verification | `docs/operations/verification-and-smoke.md`, `docs/operations/data-home.md` |
+| Models and invariants | `docs/architecture/data-model.md` |
+| Layer boundaries | `docs/architecture/overview.md`, `docs/architecture/layers.md` |
+| CLI/API | `docs/operations/cli-reference.md`, `docs/operations/api-reference.md` |
+| Home, setup, logging | `docs/operations/{setup,data-home,logging-and-rotation}.md` |
+| Verification | `docs/operations/verification-and-smoke.md` |
 
 ## Commands
 
 ```bash
-cargo build                                              # build (workspace root)
-cargo run -p todo-engine -- init                         # create the SQLite DB at the data home
-cargo run -p todo-engine -- health                       # DB reachability + schema baseline
-cargo run -p todo-engine -- api                          # serve the HTTP API on 127.0.0.1:3002
-cargo run -p todo-engine -- pending                      # active work
-cargo run -p todo-engine -- today                        # today's materialized task view
-cargo test                                               # all tests (workspace root)
-cargo fmt --check                                        # format gate
-cargo clippy --all-targets --all-features -- -D warnings # lint gate (warnings are errors)
+cargo run -p raven-cli -- init
+cargo run -p raven-cli -- health-check
+cargo run -p raven-cli -- todo pending
+cargo run -p raven-cli -- ledger --help
+cargo run -p raven-cli -- health --help
+cargo run -p raven-cli -- ui --ui-path frontend/out --no-open
+cargo fmt --check
+cargo test --workspace
+cargo clippy --all-targets --all-features -- -D warnings
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+npm --prefix npm/raven test
 ```
-
-CLI subcommands: `init`, `health`, `api`, `list`, `area`, `project`, `goal`, `task`, `routine`, `event`, `pause`, `miss`, `postpone`, `resume`, `complete`, `archive`, `drop`, `cancel`, `update`, `archive-list`, `pending`, `today`, `agenda`, `date-range`, `period`.
 
 ## Data Home & Configuration
 
-- Data home: `--home <path>`, `TODO_ENGINE_HOME`, or `TODO_ENGINE_HOME` in `.env`; default `~/.todo-engine/`. `.env` treats `\` as an escape, so single-quote a Windows path; an unparsable `.env` aborts instead of falling back.
-- Layout: `todo.sqlite`, `logs/todo-engine.log.jsonl(.1-.3)`.
-- Log levels: `TODO_ENGINE_CONSOLE_LOG` (default `info`), `TODO_ENGINE_FILE_LOG` (default `debug`).
-- Log rotation: `TODO_ENGINE_LOG_MAX_BYTES` (default `1_048_576`), `TODO_ENGINE_LOG_MAX_FILES` (default `3`).
-- Exit codes / HTTP status: policy/validation → CLI `2` / HTTP `400`; not-found → CLI `4` / HTTP `404`; conflict → CLI `2` / HTTP `409`; storage/internal → CLI `1` / HTTP `500`.
+- Home: `--home`, `RAVEN_HOME`, then `~/.raven`.
+- Layout: three SQLite files, `media/health/`, `logs/raven.log.jsonl(.1-.3)`.
+- Logs: `RAVEN_CONSOLE_LOG`, `RAVEN_FILE_LOG`, `RAVEN_LOG_MAX_BYTES`, `RAVEN_LOG_MAX_FILES`.
+- API auth: exactly one of `RAVEN_API_TOKEN` or `RAVEN_API_TOKEN_FILE`.
+- API bind: `RAVEN_API_BIND_HOST`, `RAVEN_API_BIND_PORT`; non-loopback cleartext also
+  requires exact `RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true`.
+- UI artifact: `--ui-path` or `RAVEN_UI_PATH`.
 
 ## Gotchas
 
-- **Don't bypass `TodoService`.** Direct repository writes skip validation, the state machine, and the audit event — breaking the core invariant. All mutations route through the service layer.
-- **The live data home is canonical.** Never aim destructive experiments at `~/.todo-engine/todo.sqlite` without explicit approval. Copy it to a temp home for smoke checks (`*.sqlite` is gitignored).
-- **Schema init is additive.** `init_schema()` creates tables and backfills missing columns on older `items` tables. Don't drop or rewrite existing columns.
-- **Legacy status migration is automatic.** Schema initialization normalizes legacy `proposed` and `approved` rows to `active`; provenance columns remain for compatibility and history.
-- **Layered tests guard shared behavior.** `todo-engine/tests/{unit,integration,e2e}` are three test binaries (see `docs/conventions/testing.md`); the e2e (`tests/e2e/{cli,api}.rs`) and integration suites assert CLI/API behavior agrees with the service layer — keep them green when changing shared behavior.
+- Never run destructive smoke, import, migration, or purge probes against a live home.
+- ToDo uses status lifecycle and no hard delete. Ledger entries and Health records use
+  archive/restore; Ledger master data uses activation. Ledger/Health purge is confirmed.
+- `raven todo api` is unsupported; all HTTP access uses authenticated Raven API/UI routes.
+- Health database and `media/health` must be backed up together.
+- Dashboard reads must not create or migrate missing stores; domain failures stay isolated.
+- Do not expose API token/session values, image bytes, paths, SQL, or raw storage errors.
+- ToDo import is read-only source → temporary validated copy → no-clobber destination.
 
 ## Skills & Hooks
 
-Project-owned skills are authored under `.claude/plugins/` and mirrored for Codex under `.codex/skills/`. Treat `.claude/plugins/` as the source of truth and `.codex/skills/` as the local Codex runtime copy. Do not install these project skills into global Codex skill storage.
-
-Codex project hooks live in `.codex/hooks.json`. On `session_start` for `startup|clear|compact`, the hook (`.codex/hooks/run-hook.cmd session-start`) injects baseline guidelines (e.g. `karpathy-guidelines`, `using-superpowers`) into the session.
-
-| Skill group | Codex location | Source | Reach for it when |
-| --- | --- | --- | --- |
-| `docs-tools` | `.codex/skills/{docs-change-updater,readme-structure-guard,writing-final-state-docs}` | `.claude/plugins/docs-tools/skills/` | Touching `README.md` or `docs/`, or code changes need doc sync. |
-| `code-audits` | `.codex/skills/*-audit`, `.codex/skills/quality-audit` | `.claude/plugins/code-audits/skills/` | Auditing architecture boundaries, complexity, duplication, conventions, error/logging, constants, test quality, docs sync, or resource lifecycle. Use `quality-audit` for the full sweep. |
-| `code-cleanup` | `.codex/skills/deadcode-cleaner` | `.claude/plugins/code-cleanup/skills/` | Cleaning up dead code, legacy code, or unnecessary comments. |
-| `git-workflow` | `.codex/skills/structured-commit` | `.claude/plugins/git-workflow/skills/` | Committing changes or splitting them into structured commits. |
-| `dev-workflow` | `.codex/skills/{verify-todo-engine,release-oracle-todo}` | `.claude/plugins/dev-workflow/skills/` | Running the engine + frontend against a throwaway data home, or publishing validated tag-based npm and GitHub releases then updating the local bundle. |
-
-Workflow: docs follow code — after a change lands, sync docs with `docs-tools`, then commit with `git-workflow`.
+Project skills live under `.claude/plugins/` and are mirrored under `.codex/skills/`.
+Treat `.claude/plugins/` as source of truth. Use docs skills after code changes, verification
+skills before completion, and structured-commit rules when committing. Codex hooks are in
+`.codex/hooks.json`.

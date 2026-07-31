@@ -4,7 +4,9 @@ import {
   buildDashboardSnapshot,
   completionRangeEndingOn,
   isValidDashboardDateRange,
+  toUnifiedDashboardModel,
 } from "@/features/dashboard/model/dashboard-model";
+import type { RavenDashboard } from "@/features/dashboard/api/dashboard-api";
 
 const today = "2026-07-23";
 
@@ -28,6 +30,94 @@ function localDateOf(value: string): string {
 }
 
 describe("dashboard model", () => {
+  it("maps domain projections independently without rounding money or hiding units", () => {
+    const response: RavenDashboard = {
+      requestId: "00000000-0000-4000-8000-000000000001",
+      todo: {
+        status: "ok",
+        data: {
+          active: 4,
+          todayCompleted: 2,
+          todayIncomplete: 1,
+          todayMissed: 0,
+          todayTotal: 3,
+          overdue: 1,
+        },
+      },
+      ledger: {
+        status: "ok",
+        data: {
+          periodStart: "2026-07-01",
+          periodEnd: "2026-07-31",
+          currencies: [{
+            currencyCode: "KRW",
+            incomeMinor: 9007199254740991,
+            expenseMinor: 12000,
+            netChangeMinor: 9007199254728991,
+          }],
+        },
+      },
+      health: {
+        status: "ok",
+        data: {
+          latestCondition: {
+            timestamp: "2026-07-31T01:00:00Z",
+            name: "Overall condition",
+            value: 8,
+            unit: null,
+          },
+          latestSleep: {
+            timestamp: "2026-07-31T01:00:00Z",
+            name: "Sleep",
+            value: 7.5,
+            unit: "hours",
+          },
+          latestBowel: {
+            timestamp: "2026-07-31T01:30:00Z",
+            name: "Bowel",
+            value: 4,
+            unit: null,
+          },
+          latestMedication: null,
+          recentDietTags: ["vegetable"],
+        },
+      },
+      recentActivity: [{
+        domain: "ledger",
+        action: "create",
+        recordId: "entry-1",
+        timestamp: "2026-07-31T02:00:00Z",
+      }],
+    };
+
+    const model = toUnifiedDashboardModel(response);
+
+    expect(model.ledger).toMatchObject({
+      status: "ok",
+      data: {
+        currencies: [{
+          currencyCode: "KRW",
+          incomeMinor: "9,007,199,254,740,991",
+          unitLabel: "KRW minor units",
+        }],
+      },
+    });
+    expect(model.health).toMatchObject({
+      status: "ok",
+      data: {
+        metrics: [
+          { name: "Overall condition", displayValue: "8", unitLabel: "score out of 10" },
+          { name: "Sleep", displayValue: "7.5", unitLabel: "hours" },
+          { name: "Bowel", displayValue: "4", unitLabel: "Bristol scale" },
+        ],
+      },
+    });
+    expect(model.recentActivity[0]).toMatchObject({
+      domainLabel: "Ledger",
+      action: "create",
+    });
+  });
+
   it("builds Area heatmap rows from direct Task and Event work only", () => {
     const snapshot = buildDashboardSnapshot([
       { id: "area", type: "area", title: "Health", status: "active" },

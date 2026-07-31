@@ -1,0 +1,41 @@
+[package]
+name = "raven-api"
+version = "0.1.0"
+edition = "2024"
+description = "Unified HTTP API composition for Raven"
+
+[dependencies]
+anyhow = "1.0"
+axum = "0.7"
+backend = { path = "../backend" }
+health-engine = { path = "../health-engine" }
+getrandom = "0.4"
+ledger-engine = { path = "../ledger-engine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2.6"
+thiserror = "2"
+time = { version = "0.3", features = ["parsing", "serde"] }
+todo-engine = { path = "../todo-engine" }
+tokio = { version = "1", features = ["net", "rt-multi-thread"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["serde", "v4"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs", "process"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread"] }
+tower = { version = "0.5", features = ["util"] }

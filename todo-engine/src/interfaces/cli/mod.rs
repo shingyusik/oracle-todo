@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
+use rusqlite::{Connection, OpenFlags};
 use std::str::FromStr;
 
 use crate::application::error::TodoError;
@@ -365,9 +366,69 @@ struct PeriodArgs {
 
 pub fn run() -> Result<()> {
     load_dotenv()?;
-    let cli = Cli::parse();
-    let command_name = command_label(&cli.command);
+    run_from(std::env::args_os())
+}
+
+pub fn run_from<I, T>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let cli = Cli::parse_from(args);
     let home = todo_home(cli.home)?;
+    execute(home, cli.command)
+}
+
+pub fn run_at<I, T>(home: &Path, args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let cli = Cli::try_parse_from(args).map_err(anyhow::Error::new)?;
+    execute(home.to_path_buf(), cli.command)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoHealth {
+    Healthy { user_version: i64 },
+    NotInitialized,
+    Unavailable,
+}
+
+pub const TODO_SCHEMA_VERSION: i64 = 1;
+
+pub fn health_at(home: &Path) -> TodoHealth {
+    health_db_at(&db_path(home))
+}
+
+pub fn health_db_at(path: &Path) -> TodoHealth {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => return TodoHealth::Unavailable,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return TodoHealth::NotInitialized;
+        }
+        Err(_) => return TodoHealth::Unavailable,
+    }
+
+    let Some(path) = path.to_str() else {
+        return TodoHealth::Unavailable;
+    };
+    let Ok(connection) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+        return TodoHealth::Unavailable;
+    };
+
+    match user_version(&connection) {
+        Ok(0) => TodoHealth::NotInitialized,
+        Ok(user_version) if user_version == TODO_SCHEMA_VERSION => {
+            TodoHealth::Healthy { user_version }
+        }
+        Ok(_) | Err(_) => TodoHealth::Unavailable,
+    }
+}
+
+fn execute(home: PathBuf, command: Command) -> Result<()> {
+    let command_name = command_label(&command);
     init_tracing(&home);
     tracing::debug!(event = "home_resolved", home = %home.display());
     tracing::info!(
@@ -377,7 +438,7 @@ pub fn run() -> Result<()> {
     );
     let started_at = Instant::now();
 
-    let result = match cli.command {
+    let result = match command {
         Command::Init => init(&home),
         Command::Health => health(&home),
         Command::Api(args) => api(&home, args),

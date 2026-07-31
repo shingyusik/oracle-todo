@@ -1,0 +1,398 @@
+import "@testing-library/jest-dom/vitest";
+
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import React from "react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { healthApi } from "@/features/health/api/health-api";
+import type {
+  HealthController,
+  HealthState,
+} from "@/features/health/hooks/useHealthController";
+import { useHealthController } from "@/features/health/hooks/useHealthController";
+import type {
+  DietEntry,
+  HealthEvent,
+  HealthTrends,
+  TimelineItem,
+} from "@/features/health/model/health-model";
+import { HealthPanel } from "@/features/health/ui/HealthPanel";
+
+const diet: DietEntry = {
+  id: "diet-1",
+  occurredAt: "2026-07-30T03:00:00Z",
+  mealType: "lunch",
+  foodName: "Bibimbap",
+  note: null,
+  tags: ["rice"],
+  mediaId: null,
+  createdAt: "2026-07-30T03:00:00Z",
+  updatedAt: "2026-07-30T03:00:00Z",
+  deletedAt: null,
+};
+
+const bowel: HealthEvent = {
+  id: "event-1",
+  occurredAt: "2026-07-30T04:00:00Z",
+  category: "bowel",
+  metricKey: "bowel",
+  name: "Bowel",
+  value: 4,
+  unit: null,
+  note: null,
+  attributes: { kind: "bowel", bristolScale: 4, bloodVisible: false },
+  createdAt: "2026-07-30T04:00:00Z",
+  updatedAt: "2026-07-30T04:00:00Z",
+  deletedAt: null,
+};
+
+const trends: HealthTrends = {
+  days: 30,
+  topDietTags: [{ name: "rice", count: 2 }],
+  bowelAverageByDay: [{ localDate: "2026-07-30", average: 4, count: 1 }],
+  symptomFrequencies: [{ name: "Headache", count: 2 }],
+  medicationFrequencies: [{ name: "Vitamin D", count: 1 }],
+  numericSeries: [
+    {
+      category: "weight",
+      metricKey: "weight",
+      name: "Weight",
+      unit: "kg",
+      points: [{ occurredAt: "2026-07-30T00:00:00Z", value: 72.5 }],
+    },
+    {
+      category: "sleep",
+      metricKey: "sleep",
+      name: "Sleep",
+      unit: "hours",
+      points: [{ occurredAt: "2026-07-30T00:00:00Z", value: 7.25 }],
+    },
+    {
+      category: "lab",
+      metricKey: "fasting_glucose",
+      name: "Fasting glucose",
+      unit: "mg/dL",
+      points: [{ occurredAt: "2026-07-30T00:00:00Z", value: 92.4 }],
+    },
+  ],
+  possibleTagReactions: [{ tag: "rice", dietEntries: 2, eventsWithin24h: 1 }],
+  reactionDisclaimer: "Server-provided note.",
+};
+
+const loadedState: HealthState = {
+  timelineStatus: "loaded",
+  timelineError: null,
+  timeline: [
+    { kind: "diet", record: diet },
+    { kind: "health_event", record: bowel },
+  ],
+  timelineHasMore: false,
+  trendsStatus: "loaded",
+  trendsError: null,
+  trends,
+};
+
+function controller(state: HealthState = loadedState): HealthController {
+  return {
+    state,
+    refreshTimeline: vi.fn(),
+    loadMoreTimeline: vi.fn(),
+    refreshTrends: vi.fn(),
+    createDiet: vi.fn(),
+    createBowel: vi.fn(),
+    createMedication: vi.fn(),
+    upsertMetrics: vi.fn(),
+    archive: vi.fn(),
+    restore: vi.fn(),
+    purge: vi.fn(),
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("HealthPanel", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses Timeline as the default leaf and has no Overview", () => {
+    render(<HealthPanel controller={controller()} />);
+
+    expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(screen.getByText("Bibimbap")).toBeInTheDocument();
+    expect(screen.queryByText("Overview")).not.toBeInTheDocument();
+  });
+
+  it("keeps timeline and trends loading or error states independent", () => {
+    const health = controller({
+      ...loadedState,
+      timelineStatus: "error",
+      timelineError: "Timeline unavailable",
+      trendsStatus: "loaded",
+    });
+    const { rerender } = render(<HealthPanel controller={health} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Timeline unavailable");
+    expect(screen.getByText("Bibimbap")).toBeInTheDocument();
+
+    rerender(<HealthPanel controller={health} leafTabId="trends" />);
+    expect(screen.getByRole("heading", { name: "Trends" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Bowel Bristol average" }))
+      .toBeInTheDocument();
+  });
+
+  it("renders every required trend series and a fixed non-causal label", () => {
+    render(<HealthPanel controller={controller()} leafTabId="trends" />);
+
+    expect(screen.getByRole("group", { name: "Bowel Bristol average" }))
+      .toBeInTheDocument();
+    expect(screen.getByText("Headache")).toBeInTheDocument();
+    expect(screen.getByText("Vitamin D")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Weight (kg)" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Sleep (hours)" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Fasting glucose (mg/dL)" }))
+      .toBeInTheDocument();
+    expect(screen.getByText(/descriptive associations, not causal conclusions/i))
+      .toBeInTheDocument();
+  });
+
+  it("uses stable unique heading IDs for equal trend display labels", () => {
+    const duplicateLabels: HealthTrends = {
+      ...trends,
+      numericSeries: [
+        { ...trends.numericSeries[0], metricKey: "morning_weight", name: "Weight" },
+        { ...trends.numericSeries[0], metricKey: "evening_weight", name: "Weight" },
+      ],
+    };
+    render(
+      <HealthPanel
+        controller={controller({ ...loadedState, trends: duplicateLabels })}
+        leafTabId="trends"
+      />,
+    );
+
+    const headings = screen.getAllByRole("heading", { name: "Weight (kg)" });
+    expect(headings[0].id).not.toBe(headings[1].id);
+    expect(headings.map((heading) => heading.id)).toEqual([
+      "trend-weight-morning-weight",
+      "trend-weight-evening-weight",
+    ]);
+  });
+
+  it("offers explicit pagination and prevents concurrent duplicate page loads", async () => {
+    const firstPage: TimelineItem[] = Array.from({ length: 100 }, (_, index) => ({
+      kind: "diet",
+      record: { ...diet, id: `diet-${index}`, foodName: `Meal ${index}` },
+    }));
+    let releaseNextPage: ((items: TimelineItem[]) => void) | undefined;
+    vi.spyOn(healthApi, "timeline")
+      .mockResolvedValueOnce(firstPage)
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        releaseNextPage = resolve;
+      }));
+    vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
+
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.state.timelineStatus).toBe("loaded"));
+    expect(result.current.state.timelineHasMore).toBe(true);
+
+    let firstLoad!: Promise<void>;
+    await act(async () => {
+      firstLoad = result.current.loadMoreTimeline();
+      void result.current.loadMoreTimeline();
+      await Promise.resolve();
+    });
+    expect(healthApi.timeline).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      releaseNextPage?.([]);
+      await firstLoad;
+    });
+    expect(result.current.state.timelineHasMore).toBe(false);
+  });
+
+  it("ignores a stale page response after a newer timeline refresh", async () => {
+    const firstPage: TimelineItem[] = Array.from({ length: 100 }, (_, index) => ({
+      kind: "diet",
+      record: { ...diet, id: `diet-${index}`, foodName: `Meal ${index}` },
+    }));
+    const oldPage = deferred<TimelineItem[]>();
+    vi.spyOn(healthApi, "timeline")
+      .mockResolvedValueOnce(firstPage)
+      .mockImplementationOnce(() => oldPage.promise)
+      .mockResolvedValueOnce([{
+        kind: "diet",
+        record: { ...diet, id: "diet-fresh", foodName: "Fresh meal" },
+      }]);
+    vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
+
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.state.timelineHasMore).toBe(true));
+
+    let pageRequest!: Promise<void>;
+    await act(async () => {
+      pageRequest = result.current.loadMoreTimeline();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.refreshTimeline();
+    });
+    await act(async () => {
+      oldPage.resolve([{
+        kind: "diet",
+        record: { ...diet, id: "diet-stale", foodName: "Stale meal" },
+      }]);
+      await pageRequest;
+    });
+
+    expect(result.current.state.timeline.map((item) => item.record.id))
+      .toEqual(["diet-fresh"]);
+  });
+
+  it("retains timeline data and consumes a load-more failure", async () => {
+    const firstPage: TimelineItem[] = Array.from({ length: 100 }, (_, index) => ({
+      kind: "diet",
+      record: { ...diet, id: `diet-${index}`, foodName: `Meal ${index}` },
+    }));
+    vi.spyOn(healthApi, "timeline")
+      .mockResolvedValueOnce(firstPage)
+      .mockRejectedValueOnce(new Error("Next page unavailable"));
+    vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
+
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.state.timelineHasMore).toBe(true));
+    await act(async () => {
+      await expect(result.current.loadMoreTimeline()).resolves.toBeUndefined();
+    });
+
+    expect(result.current.state.timeline).toHaveLength(100);
+    expect(result.current.state.timelineStatus).toBe("loaded");
+    expect(result.current.state.timelineError).toBe("Next page unavailable");
+  });
+
+  it("keeps only the latest overlapping Trends response", async () => {
+    const older = deferred<HealthTrends>();
+    const latest = deferred<HealthTrends>();
+    vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
+    vi.spyOn(healthApi, "trends")
+      .mockResolvedValueOnce(trends)
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => latest.promise);
+
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.state.trendsStatus).toBe("loaded"));
+
+    let olderRequest!: Promise<void>;
+    let latestRequest!: Promise<void>;
+    await act(async () => {
+      olderRequest = result.current.refreshTrends(7);
+      latestRequest = result.current.refreshTrends(365);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      latest.resolve({ ...trends, days: 365 });
+      await latestRequest;
+    });
+    await act(async () => {
+      older.resolve({ ...trends, days: 7 });
+      await olderRequest;
+    });
+
+    expect(result.current.state.trends?.days).toBe(365);
+  });
+
+  it("locks lifecycle actions by record and recovers after a Diet failure", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const restore = deferred<void>();
+    const health = controller({
+      ...loadedState,
+      timeline: [{
+        kind: "diet",
+        record: { ...diet, deletedAt: "2026-07-30T05:00:00Z" },
+      }],
+    });
+    health.restore = vi.fn(() => restore.promise);
+    render(<HealthPanel controller={health} />);
+
+    const restoreButton = screen.getByRole("button", { name: /Restore Bibimbap.*diet-1/ });
+    const purgeButton = screen.getByRole("button", { name: /Purge Bibimbap.*diet-1/ });
+    await user.click(restoreButton);
+    expect(restoreButton).toBeDisabled();
+    expect(purgeButton).toBeDisabled();
+
+    await act(async () => restore.reject(new Error("Restore failed")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Restore failed");
+    expect(restoreButton).toBeEnabled();
+    expect(purgeButton).toBeEnabled();
+    await user.click(purgeButton);
+    await user.click(screen.getByRole("button", { name: "Purge permanently" }));
+    expect(health.purge).toHaveBeenCalledWith("diet", "diet-1", "diet-1");
+  });
+
+  it("locks lifecycle actions by record and recovers after an Event failure", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const purge = deferred<void>();
+    const health = controller({
+      ...loadedState,
+      timeline: [{
+        kind: "health_event",
+        record: { ...bowel, deletedAt: "2026-07-30T05:00:00Z" },
+      }],
+    });
+    health.purge = vi.fn(() => purge.promise);
+    render(<HealthPanel controller={health} />);
+
+    const restoreButton = screen.getByRole("button", { name: /Restore Bowel.*event-1/ });
+    const purgeButton = screen.getByRole("button", { name: /Purge Bowel.*event-1/ });
+    await user.click(purgeButton);
+    const dialog = screen.getByRole("dialog", { name: "Permanently purge Bowel?" });
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.click(within(dialog).getByRole("button", {
+      name: "Purge permanently",
+    }));
+    expect(restoreButton).toBeDisabled();
+    expect(purgeButton).toBeDisabled();
+
+    await act(async () => purge.reject(new Error("Purge failed")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Purge failed");
+    expect(restoreButton).toBeEnabled();
+    await user.click(restoreButton);
+    expect(health.restore).toHaveBeenCalledWith("event", "event-1");
+  });
+
+  it("gives duplicate record actions unique accessible names", () => {
+    const duplicate = { ...diet, id: "diet-2", occurredAt: "2026-07-31T03:00:00Z" };
+    render(
+      <HealthPanel
+        controller={controller({
+          ...loadedState,
+          timeline: [
+            { kind: "diet", record: diet },
+            { kind: "diet", record: duplicate },
+          ],
+        })}
+      />,
+    );
+
+    const actions = screen.getAllByRole("button", { name: /Archive Bibimbap/ });
+    expect(actions[0].getAttribute("aria-label"))
+      .not.toBe(actions[1].getAttribute("aria-label"));
+  });
+});

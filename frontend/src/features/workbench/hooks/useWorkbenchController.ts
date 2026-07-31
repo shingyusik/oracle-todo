@@ -82,6 +82,7 @@ import {
   type WorkspaceTableScopeId,
   type WorkspaceTableViewsState,
 } from "@/features/workbench/model/workspace-table-views";
+import { decodeApiError, RavenApiError } from "@/lib/raven-api";
 
 type WorkspaceItemType = "area" | "project" | "routine" | "task" | "event" | "goal";
 type DashboardDetailLeafTabId = "areas" | "projects";
@@ -98,22 +99,6 @@ type PendingWorkspaceViewCommand = {
   apply: (state: WorkspaceTableViewsState) => WorkspaceTableViewsState;
   persist: boolean;
 };
-
-export class TodoEngineApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    readonly detail: string,
-    readonly parentHorizon?: string,
-    readonly childHorizon?: string,
-    readonly horizon?: string,
-    readonly scheduled?: string,
-    readonly parentId?: string,
-  ) {
-    super(detail);
-    this.name = "TodoEngineApiError";
-  }
-}
 
 const workspaceItemTypes: Partial<Record<LeafTabId, string>> = {
   areas: "area",
@@ -170,7 +155,7 @@ let workspaceTabIdCounter = 0;
 
 async function loadPlannerSettings(): Promise<StoredPlannerSettings | null> {
   try {
-    const response = await fetch("/todo-engine/settings/planner");
+    const response = await fetch("/api/v1/preferences/planner.v1");
     if (!response.ok) return null;
     const value = await response.json();
     if (!value || typeof value !== "object") return null;
@@ -210,7 +195,7 @@ function persistPlannerSettings(planner: PlannerControls): void {
   });
   plannerSettingsWrite = plannerSettingsWrite
     .catch(() => undefined)
-    .then(() => fetch("/todo-engine/settings/planner", {
+    .then(() => fetch("/api/v1/preferences/planner.v1", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body,
@@ -221,7 +206,7 @@ function persistPlannerSettings(planner: PlannerControls): void {
 
 async function loadWorkspaceViews(): Promise<WorkspaceTableViewsState | null> {
   try {
-    const response = await fetch("/todo-engine/settings/workspace-views");
+    const response = await fetch("/api/v1/preferences/workspace.views.v1");
     if (!response.ok) return null;
     const value = await response.json();
     if (!isRecord(value)) return null;
@@ -251,7 +236,7 @@ function persistWorkspaceViews(state: WorkspaceTableViewsState): void {
   const body = JSON.stringify({ value });
   workspaceViewsWrite = workspaceViewsWrite
     .catch(() => undefined)
-    .then(() => fetch("/todo-engine/settings/workspace-views", {
+    .then(() => fetch("/api/v1/preferences/workspace.views.v1", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body,
@@ -810,6 +795,7 @@ export function useWorkbenchController(): WorkbenchController {
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const [dashboardReload, setDashboardReload] = useState(0);
   const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
+  const pendingTaskCreation = useRef(false);
   const workspaceRequestId = useRef(0);
   const itemTransitions = useRef(new Map<string, Promise<void>>());
   const initialPlannerTableTabs = useRef(planner.tableTabs);
@@ -987,6 +973,13 @@ export function useWorkbenchController(): WorkbenchController {
     setCreationDialogOpen(false);
     setPlannerCreationContext(null);
     setDetailItem(null);
+    if (
+      selection.leafTabId === "tasks"
+      && pendingTaskCreation.current
+    ) {
+      pendingTaskCreation.current = false;
+      setCreationDialogOpen(true);
+    }
   }, [selection.leafTabId]);
 
   useEffect(() => {
@@ -1143,6 +1136,7 @@ export function useWorkbenchController(): WorkbenchController {
   };
 
   const navigateDashboard = (destination: DashboardDestination): void => {
+    pendingTaskCreation.current = false;
     switch (destination.kind) {
       case "areas":
         pendingDashboardDetail.current = null;
@@ -1298,6 +1292,9 @@ export function useWorkbenchController(): WorkbenchController {
         });
       }
 
+      if (confirmation.targetSelection.leafTabId !== "tasks") {
+        pendingTaskCreation.current = false;
+      }
       setSelection(confirmation.targetSelection);
       setTableViewTabConfirmation(null);
       return;
@@ -1380,6 +1377,25 @@ export function useWorkbenchController(): WorkbenchController {
     tableViewTabConfirmation,
   );
 
+  const openTaskCreation = (): void => {
+    setPlannerCreationContext(null);
+    const currentSelection = selectionStateRef.current;
+    if (currentSelection.leafTabId === "tasks") {
+      pendingTaskCreation.current = false;
+      setCreationDialogOpen(true);
+      return;
+    }
+    pendingTaskCreation.current = true;
+    requestSelection(resolveSelection("tasks", currentSelection));
+  };
+
+  const cancelTableViewTabAction = (): void => {
+    if (tableViewTabConfirmation?.kind === "navigate") {
+      pendingTaskCreation.current = false;
+    }
+    setTableViewTabConfirmation(null);
+  };
+
   return {
     selection,
     panel,
@@ -1394,6 +1410,7 @@ export function useWorkbenchController(): WorkbenchController {
     plannerCreationAnalysis,
     detailItem,
     selectTab: (tabId: WorkbenchTabId) => {
+      pendingTaskCreation.current = false;
       const currentSelection = selectionStateRef.current;
       const nextSelection =
         tabId === "workspace" || tabId === "planner"
@@ -1471,6 +1488,7 @@ export function useWorkbenchController(): WorkbenchController {
       setPlannerCreationContext(null);
       setCreationDialogOpen(true);
     },
+    openTaskCreation,
     openPlannerCreationDialog: (context) => {
       setPlannerCreationContext(canonicalPlannerCreationContext(context, activePlanner));
       setCreationDialogOpen(true);
@@ -1494,10 +1512,12 @@ export function useWorkbenchController(): WorkbenchController {
           const label = requestedItemType
             ? requestedItemType[0].toUpperCase() + requestedItemType.slice(1)
             : "Item";
-          throw new TodoEngineApiError(
-            400,
+          throw new RavenApiError(
             "validation_error",
             `${label} is not allowed for ${canonicalContext.tableId}.`,
+            {},
+            "",
+            400,
           );
         }
         contextualForm = {
@@ -1704,9 +1724,9 @@ export function useWorkbenchController(): WorkbenchController {
       });
     },
     confirmTableViewTabAction,
-    cancelTableViewTabAction: () => setTableViewTabConfirmation(null),
+    cancelTableViewTabAction,
     confirmPlannerTabAction: confirmTableViewTabAction,
-    cancelPlannerTabAction: () => setTableViewTabConfirmation(null),
+    cancelPlannerTabAction: cancelTableViewTabAction,
     transitionWorkspaceItem: (
       itemId: string,
       action: WorkspaceItemTransitionAction,
@@ -1715,7 +1735,7 @@ export function useWorkbenchController(): WorkbenchController {
       if (existing) return existing;
 
       const transition = (async () => {
-        const updated = await postJson(`/todo-engine/items/${itemId}/${action}`, {});
+        const updated = await postJson(`/api/v1/todo/items/${itemId}/${action}`, {});
         setDetailItem((current) => (current?.id === updated.id ? updated : current));
         setWorkspaceItems((current) => ({
           ...current,
@@ -1744,8 +1764,8 @@ export function useWorkbenchController(): WorkbenchController {
       void transition.then(
         () => clearTransition(null),
         (cause) => clearTransition(
-          cause instanceof TodoEngineApiError
-            ? cause.detail
+          cause instanceof RavenApiError
+            ? cause.message
             : "Could not update item.",
         ),
       );
@@ -1793,8 +1813,8 @@ export function useWorkbenchController(): WorkbenchController {
       void transition.then(
         () => clearTransition(null),
         (cause) => clearTransition(
-          cause instanceof TodoEngineApiError
-            ? cause.detail
+          cause instanceof RavenApiError
+            ? cause.message
             : "Could not update item.",
         ),
       );
@@ -1848,8 +1868,8 @@ export function useWorkbenchController(): WorkbenchController {
       void transition.then(
         () => clearTransition(null),
         (cause) => clearTransition(
-          cause instanceof TodoEngineApiError
-            ? cause.detail
+          cause instanceof RavenApiError
+            ? cause.message
             : "Could not update item.",
         ),
       );
@@ -1901,9 +1921,9 @@ export function useWorkbenchController(): WorkbenchController {
 function fetchWorkspaceItems(
   itemType: WorkspaceItemType | string,
 ): Promise<WorkspaceItemModel[]> {
-  return fetch(`/todo-engine/items?type=${itemType}`).then((response) => {
+  return fetch(`/api/v1/todo/items?type=${itemType}`).then((response) => {
     if (!response.ok) {
-      throw new Error(`todo-engine returned ${response.status}`);
+      throw new Error(`Raven ToDo API returned ${response.status}`);
     }
 
     return response.json();
@@ -1911,9 +1931,9 @@ function fetchWorkspaceItems(
 }
 
 function fetchAllWorkspaceItems(): Promise<WorkspaceItemModel[]> {
-  return fetch("/todo-engine/items").then((response) => {
+  return fetch("/api/v1/todo/items").then((response) => {
     if (!response.ok) {
-      throw new Error(`todo-engine returned ${response.status}`);
+      throw new Error(`Raven ToDo API returned ${response.status}`);
     }
 
     return response.json();
@@ -1934,7 +1954,7 @@ function mergeTagOptions(current: string[], tags: string[] | null | undefined): 
 }
 
 function postArchiveItem(itemId: string): Promise<WorkspaceItemModel> {
-  return fetch(`/todo-engine/items/${itemId}/archive`, {
+  return fetch(`/api/v1/todo/items/${itemId}/archive`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason: "Archived from workspace table" }),
@@ -1951,7 +1971,7 @@ function postMaterializeRoutine(
   itemId: string,
   target: MaterializeRoutineTarget,
 ): Promise<{ routine: WorkspaceItemModel; created: WorkspaceItemModel[] }> {
-  return fetch(`/todo-engine/routines/${itemId}/materialize`, {
+  return fetch(`/api/v1/todo/routines/${itemId}/materialize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(target),
@@ -1968,7 +1988,7 @@ function postPostponeItem(
   itemId: string,
   scheduled: string,
 ): Promise<PostponeResult> {
-  return fetch(`/todo-engine/items/${itemId}/postpone`, {
+  return fetch(`/api/v1/todo/items/${itemId}/postpone`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ today: todayDate(), scheduled }),
@@ -1982,7 +2002,7 @@ function postPostponeItem(
 }
 
 function postMissItem(itemId: string): Promise<WorkspaceItemModel> {
-  return fetch(`/todo-engine/items/${itemId}/miss`, {
+  return fetch(`/api/v1/todo/items/${itemId}/miss`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
@@ -1999,7 +2019,7 @@ function patchItem(
   itemId: string,
   patch: WorkspaceItemPatch,
 ): Promise<WorkspaceItemModel> {
-  return fetch(`/todo-engine/items/${itemId}`, {
+  return fetch(`/api/v1/todo/items/${itemId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -2013,29 +2033,9 @@ function patchItem(
 }
 
 async function throwApiError(response: Response): Promise<never> {
-  const body = (await response.json().catch(() => null)) as
-    | {
-        code?: unknown;
-        detail?: unknown;
-        parent_horizon?: unknown;
-        child_horizon?: unknown;
-        horizon?: unknown;
-        scheduled?: unknown;
-        parent_id?: unknown;
-      }
-    | null;
-
-  throw new TodoEngineApiError(
+  throw decodeApiError(
+    await response.json().catch(() => null),
     response.status,
-    typeof body?.code === "string" ? body.code : "internal_error",
-    typeof body?.detail === "string"
-      ? body.detail
-      : `todo-engine returned ${response.status}`,
-    typeof body?.parent_horizon === "string" ? body.parent_horizon : undefined,
-    typeof body?.child_horizon === "string" ? body.child_horizon : undefined,
-    typeof body?.horizon === "string" ? body.horizon : undefined,
-    typeof body?.scheduled === "string" ? body.scheduled : undefined,
-    typeof body?.parent_id === "string" ? body.parent_id : undefined,
   );
 }
 
@@ -2049,20 +2049,20 @@ function createItemRequest(
   const plannerType = plannerCreationType(panelId, form);
 
   if (panelId === "areas") {
-    return postJson("/todo-engine/areas", { title });
+    return postJson("/api/v1/todo/areas", { title });
   }
   if (panelId === "projects") {
-    return postJson("/todo-engine/projects/propose", {
+    return postJson("/api/v1/todo/projects/propose", {
       title,
       actor: "user",
       definition_of_done: form.definition_of_done,
     });
   }
   if (panelId === "tasks") {
-    return postJson("/todo-engine/tasks/propose", { title, actor: "user" });
+    return postJson("/api/v1/todo/tasks/propose", { title, actor: "user" });
   }
   if (panelId === "routines") {
-    return postJson("/todo-engine/routines/propose", {
+    return postJson("/api/v1/todo/routines/propose", {
       title,
       actor: "user",
       materialization_policy: "single_open",
@@ -2070,14 +2070,14 @@ function createItemRequest(
     });
   }
   if (panelId === "events") {
-    return postJson("/todo-engine/events/propose", {
+    return postJson("/api/v1/todo/events/propose", {
       title,
       scheduled: form.scheduled,
       actor: "user",
     });
   }
   if (panelId === "goals") {
-    return postJson("/todo-engine/goals/propose", {
+    return postJson("/api/v1/todo/goals/propose", {
       title,
       horizon: goalDefaults.horizon,
       scheduled: goalDefaults.scheduled,
@@ -2088,7 +2088,7 @@ function createItemRequest(
     plannerType === "goal" &&
     (panelId === "yearly" || panelId === "monthly" || panelId === "weekly")
   ) {
-    return postJson("/todo-engine/goals/propose", {
+    return postJson("/api/v1/todo/goals/propose", {
       title,
       horizon: goalDefaults.horizon,
       scheduled: goalDefaults.scheduled,
@@ -2098,7 +2098,7 @@ function createItemRequest(
   }
   if (panelId === "weekly" || panelId === "daily" || panelId === "monthly") {
     if (plannerType === "task") {
-      return postJson("/todo-engine/tasks/propose", {
+      return postJson("/api/v1/todo/tasks/propose", {
         title,
         scheduled: form.scheduled === undefined ? planner.date : form.scheduled || undefined,
         area: form.area_id,
@@ -2109,7 +2109,7 @@ function createItemRequest(
       });
     }
     if (plannerType === "event") {
-      return postJson("/todo-engine/events/propose", {
+      return postJson("/api/v1/todo/events/propose", {
         title,
         scheduled: form.scheduled || planner.date,
         area: form.area_id,

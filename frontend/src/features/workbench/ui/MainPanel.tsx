@@ -11,9 +11,18 @@ import {
   X,
 } from "lucide-react";
 
-import type { LeafTabId, WorkspaceChildTabId } from "@/domain/workbench/navigation";
+import type {
+  HealthTabId,
+  LeafTabId,
+  LedgerTabId,
+  WorkspaceChildTabId,
+} from "@/domain/workbench/navigation";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
-import { TodoEngineApiError } from "@/features/workbench/hooks/useWorkbenchController";
+import { useHealthController } from "@/features/health/hooks/useHealthController";
+import { HealthPanel } from "@/features/health/ui/HealthPanel";
+import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
+import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
+import { RavenApiError } from "@/lib/raven-api";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
   buildPlannerGroupCandidates,
@@ -129,6 +138,22 @@ export function MainPanel({ controller }: MainPanelProps) {
     );
   }
 
+  if (isLedgerPanel(controller.selection.leafTabId)) {
+    return (
+      <main className="main-panel">
+        <LedgerWorkspace leafTabId={controller.selection.leafTabId} />
+      </main>
+    );
+  }
+
+  if (isHealthPanel(controller.selection.leafTabId)) {
+    return (
+      <main className="main-panel">
+        <HealthWorkspace leafTabId={controller.selection.leafTabId} />
+      </main>
+    );
+  }
+
   if (isPlannerPanel(controller.selection.leafTabId)) {
     return (
       <main className="main-panel">
@@ -142,6 +167,16 @@ export function MainPanel({ controller }: MainPanelProps) {
       <WorkspaceItemsTable controller={controller} />
     </main>
   );
+}
+
+function LedgerWorkspace({ leafTabId }: { leafTabId: LedgerTabId }) {
+  const controller = useLedgerController();
+  return <LedgerPanel controller={controller} leafTabId={leafTabId} />;
+}
+
+function HealthWorkspace({ leafTabId }: { leafTabId: HealthTabId }) {
+  const controller = useHealthController();
+  return <HealthPanel controller={controller} leafTabId={leafTabId} />;
 }
 
 function DetailView({ controller }: MainPanelProps) {
@@ -510,6 +545,21 @@ function isPlannerPanel(leafTabId: LeafTabId): boolean {
   return ["yearly", "monthly", "weekly", "daily"].includes(leafTabId);
 }
 
+function isLedgerPanel(leafTabId: LeafTabId): leafTabId is LedgerTabId {
+  return ["transactions", "accounts", "categories", "reports"].includes(leafTabId);
+}
+
+function isHealthPanel(leafTabId: LeafTabId): leafTabId is HealthTabId {
+  return [
+    "timeline",
+    "diet",
+    "bowel",
+    "medication",
+    "health-metrics",
+    "trends",
+  ].includes(leafTabId);
+}
+
 function PlannerPanel({ controller }: MainPanelProps) {
   const { panel, workspaceItems } = controller;
 
@@ -531,7 +581,7 @@ function PlannerPanel({ controller }: MainPanelProps) {
     return (
       <section className="items-section" aria-label={`${panel.title} planner`}>
         <p className="items-message" role="alert">
-          Could not load todo-engine items.
+          Could not load ToDo items.
         </p>
       </section>
     );
@@ -2677,8 +2727,8 @@ function RoutineMaterializeField({
       );
     } catch (cause) {
       setError(
-        cause instanceof TodoEngineApiError
-          ? cause.detail
+        cause instanceof RavenApiError
+          ? cause.message
           : "Could not materialize routine.",
       );
     } finally {
@@ -2848,10 +2898,7 @@ type GoalPeriodControlProps = {
 };
 
 type GoalPeriodCommitError = {
-  code: string;
   attemptedHorizon: GoalHorizon;
-  parentHorizon?: GoalHorizon;
-  childHorizon?: GoalHorizon;
 };
 
 function GoalPeriodControl({
@@ -2968,17 +3015,10 @@ function GoalPeriodControl({
       });
       close(true);
     } catch (error) {
-      if (error instanceof TodoEngineApiError) {
+      if (error instanceof RavenApiError) {
         close(false);
         setCommitError({
-          code: error.code,
           attemptedHorizon: candidateHorizon,
-          parentHorizon: isGoalHorizon(error.parentHorizon)
-            ? error.parentHorizon
-            : undefined,
-          childHorizon: isGoalHorizon(error.childHorizon)
-            ? error.childHorizon
-            : undefined,
         });
         return;
       }
@@ -2987,7 +3027,7 @@ function GoalPeriodControl({
     }
   }
 
-  const requestedHorizon = commitError?.childHorizon ?? commitError?.attemptedHorizon;
+  const requestedHorizon = commitError?.attemptedHorizon;
   const commitErrorTitle = requestedHorizon
     ? `${goalHorizonLabel(requestedHorizon)}로 변경할 수 없음`
     : "";
@@ -3135,18 +3175,6 @@ function goalPeriodCommitErrorMessage(
 ): string {
   if (!commitError) {
     return "";
-  }
-
-  if (
-    commitError.code === "goal_parent_horizon_not_coarser" &&
-    commitError.parentHorizon &&
-    commitError.childHorizon
-  ) {
-    return `현재 Parent 기간은 ${goalHorizonLabel(commitError.parentHorizon)}이고, 요청한 Goal 기간은 ${goalHorizonLabel(commitError.childHorizon)}입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.`;
-  }
-
-  if (commitError.code === "goal_invalid_anchor") {
-    return "선택한 기간과 맞지 않는 날짜입니다. 다시 선택해 주세요.";
   }
 
   return "기간을 변경하지 못했습니다. 다시 시도해 주세요.";
@@ -3950,7 +3978,7 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
     return (
       <section className="items-section" aria-label={`${panel.title} items`}>
         <p className="items-message" role="alert">
-          Could not load todo-engine items.
+          Could not load ToDo items.
         </p>
       </section>
     );
@@ -4280,8 +4308,8 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
       });
     } catch (error) {
       setSubmitError(
-        error instanceof TodoEngineApiError
-          ? error.detail
+        error instanceof RavenApiError
+          ? error.message
           : "항목을 생성하지 못했습니다. 다시 시도해 주세요.",
       );
     } finally {
