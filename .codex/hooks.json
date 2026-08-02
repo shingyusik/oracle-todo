@@ -1,12 +1,12 @@
 {
   "hooks": {
-    "session_start": [
+    "SessionStart": [
       {
         "matcher": "startup|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": ".codex/hooks/run-hook.cmd session-start",
+            "command": "/bin/bash .codex/hooks/session-start",
             "commandWindows": ".codex\\hooks\\run-hook.cmd session-start",
             "async": false,
             "timeout": 30,
