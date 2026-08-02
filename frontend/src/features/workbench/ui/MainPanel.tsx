@@ -2892,6 +2892,7 @@ type GoalPeriodControlProps = {
   label: string;
   horizon: string | null | undefined;
   scheduled: string | null | undefined;
+  parentHorizon?: string | null;
   onCommit: (period: { horizon: GoalHorizon; scheduled: string }) => void | Promise<void>;
   editable?: boolean;
   lockHorizon?: boolean;
@@ -2899,12 +2900,14 @@ type GoalPeriodControlProps = {
 
 type GoalPeriodCommitError = {
   attemptedHorizon: GoalHorizon;
+  parentHorizon?: GoalHorizon;
 };
 
 function GoalPeriodControl({
   label,
   horizon,
   scheduled,
+  parentHorizon,
   onCommit,
   editable = true,
   lockHorizon = false,
@@ -3019,6 +3022,7 @@ function GoalPeriodControl({
         close(false);
         setCommitError({
           attemptedHorizon: candidateHorizon,
+          parentHorizon: isGoalHorizon(parentHorizon) ? parentHorizon : undefined,
         });
         return;
       }
@@ -3175,6 +3179,10 @@ function goalPeriodCommitErrorMessage(
 ): string {
   if (!commitError) {
     return "";
+  }
+
+  if (commitError.parentHorizon) {
+    return `현재 Parent 기간은 ${goalHorizonLabel(commitError.parentHorizon)}이고, 요청한 Goal 기간은 ${goalHorizonLabel(commitError.attemptedHorizon)}입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.`;
   }
 
   return "기간을 변경하지 못했습니다. 다시 시도해 주세요.";
@@ -5183,11 +5191,14 @@ function priorityColumn(): ItemColumn {
 function goalPeriodColumn(): ItemColumn {
   return {
     label: "Period",
-    value: (item, _items, controller) => (
+    value: (item, workspaceItems, controller) => (
       <GoalPeriodControl
         label={`Period for ${item.title}`}
         horizon={item.horizon}
         scheduled={item.scheduled}
+        parentHorizon={workspaceItems.allItems.find(
+          (candidate) => candidate.id === item.parent_id && candidate.type === "goal",
+        )?.horizon}
         onCommit={({ horizon, scheduled }) =>
           controller.patchWorkspaceItem(item.id, { horizon, scheduled })
         }

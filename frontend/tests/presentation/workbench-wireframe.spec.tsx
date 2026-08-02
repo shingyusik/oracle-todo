@@ -7937,7 +7937,9 @@ describe("WorkbenchPageClient", () => {
       await screen.findByRole("dialog", { name: "Year로 변경할 수 없음" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("기간을 변경하지 못했습니다. 다시 시도해 주세요."),
+      screen.getByText(
+        "현재 Parent 기간은 Month이고, 요청한 Goal 기간은 Year입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.",
+      ),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "확인" }));
@@ -7946,7 +7948,7 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("uses the requested horizon when normalized validation metadata is absent", async () => {
+  it("uses the loaded parent horizon when normalized validation metadata is absent", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
@@ -8008,7 +8010,9 @@ describe("WorkbenchPageClient", () => {
       await screen.findByRole("dialog", { name: "Month로 변경할 수 없음" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("기간을 변경하지 못했습니다. 다시 시도해 주세요."),
+      screen.getByText(
+        "현재 Parent 기간은 Month이고, 요청한 Goal 기간은 Month입니다. Goal은 Parent보다 더 작은 기간만 사용할 수 있습니다.",
+      ),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "확인" }));
