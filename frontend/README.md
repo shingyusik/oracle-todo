@@ -41,9 +41,12 @@ Run the built frontend with browser session authentication:
 
 ```bash
 npm run ui
+npm run ui:dev
 ```
 
 `npm run ui` builds the static frontend before Raven starts.
+`npm run ui:dev` does the same on port `3003`, avoiding a local service already using the
+default port `3002`.
 
 `npm run dev` is suitable for frontend-only work. The configured `/api/*` rewrite targets
 `RAVEN_API_URL` or `http://127.0.0.1:3002`, but standalone `raven api` requires a bearer

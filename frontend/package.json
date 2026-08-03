@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "ui": "npm run build && cargo run --manifest-path ../Cargo.toml -p raven-cli -- ui --ui-path out",
+    "ui:dev": "npm run ui -- --port 3003",
     "build": "next build",
     "test": "vitest run --no-file-parallelism",
     "typecheck": "tsc --noEmit"
