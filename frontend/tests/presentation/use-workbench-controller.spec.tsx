@@ -2547,7 +2547,7 @@ describe("useWorkbenchController", () => {
     });
     expect(requestBodies).toEqual([{
       title: "Monthly task",
-      scheduled: "2026-07-01",
+      scheduled: testMonthStart(),
       actor: "user",
     }]);
   });
