@@ -32,15 +32,22 @@ async fn todo_items_are_nested_under_v1_without_router_side_effects() {
     };
     let app = authenticated(router(config).unwrap());
     assert!(!home.exists());
-    let response = app
-        .oneshot(
-            Request::get("/api/v1/todo/items")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let mut requests = tokio::task::JoinSet::new();
+    for _ in 0..8 {
+        let app = app.clone();
+        requests.spawn(async move {
+            app.oneshot(
+                Request::get("/api/v1/todo/items")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+        });
+    }
+    while let Some(response) = requests.join_next().await {
+        assert_eq!(response.unwrap().status(), StatusCode::OK);
+    }
 }
 
 #[tokio::test]
