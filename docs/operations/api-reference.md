@@ -54,8 +54,9 @@ Raven errors are:
 | `431` | `header_too_large` |
 | `500` | `internal_error` |
 
-Messages are intentionally generic. `request_id` correlates an internal failure without
-exposing database paths, SQL, record contents, or tokens.
+Messages are intentionally generic except for the authenticated ToDo detail exception below.
+`request_id` correlates an internal failure without exposing database paths, SQL, record
+contents, tokens, sessions, or arbitrary metadata.
 
 ## Dashboard and preferences
 
@@ -107,6 +108,17 @@ authentication and bind policy.
 ToDo preserves its service policies: direct-active creation, required project
 `definition_of_done`, required routine RRULE, canonical goal anchors, status-machine
 transitions, and an audit event for every mutation.
+
+Authenticated ToDo routes have a narrow safe-detail exception within the shared error
+envelope. For `400`, they may preserve only `goal_invalid_anchor`,
+`goal_parent_horizon_not_coarser`, or `policy_error`; for `404`, they may preserve only
+`not_found`. These responses retain the corresponding safe message detail. Their `fields`
+object may contain only `parent_horizon`, `child_horizon`, `horizon`, `scheduled`, and
+`parent_id`, and each present value is a one-element string array.
+
+Malformed, oversized, status-mismatched, conflicting, payload-too-large, and internal ToDo
+errors use the generic shared contract. They do not expose paths, SQL, raw storage errors,
+tokens, sessions, or arbitrary metadata.
 
 ## Ledger routes
 
