@@ -2,7 +2,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use raven_api::{AuthMode, RavenApiConfig, router};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
 fn authenticated(app: axum::Router) -> axum::Router {
@@ -105,6 +105,49 @@ async fn todo_mutation_and_validation_error_remain_nested_and_normalized() {
         .await
         .unwrap();
     assert_eq!(created.status(), StatusCode::OK);
+
+    let parent = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/todo/goals/propose")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Parent","horizon":"month","scheduled":"2026-08-01"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(parent.status(), StatusCode::OK);
+    let bytes = parent.into_body().collect().await.unwrap().to_bytes();
+    let parent: Value = serde_json::from_slice(&bytes).unwrap();
+
+    let invalid_goal = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/todo/goals/propose")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "title": "Child",
+                        "horizon": "month",
+                        "scheduled": "2026-08-01",
+                        "parent_id": parent["id"],
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid_goal.status(), StatusCode::BAD_REQUEST);
+    let bytes = invalid_goal.into_body().collect().await.unwrap().to_bytes();
+    let error: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(error["code"], "goal_parent_horizon_not_coarser");
+    assert!(error["message"].as_str().unwrap().contains("horizon"));
+    assert_eq!(error["fields"]["parent_horizon"], json!(["month"]));
+    assert_eq!(error["fields"]["child_horizon"], json!(["month"]));
+    assert!(error["request_id"].is_string());
 
     let invalid = app
         .oneshot(
