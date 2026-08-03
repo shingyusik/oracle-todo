@@ -26,7 +26,7 @@ do no I/O and never depend on another engine.
 | `todo-engine` | ToDo item graph, recurrence, lifecycle, SQLite, reusable adapters |
 | `ledger-engine` | Money/master data, entries, transfers, reports, audit, SQLite |
 | `health-engine` | Diet/media, health events, timeline/trends, audit, SQLite |
-| `frontend` | Static unified Dashboard and ToDo/Ledger/Health workspaces |
+| `frontend` | Static ToDo Dashboard and ToDo/Ledger/Health workspaces |
 | `backend` | Namespaced presentation preferences stored in `todo.sqlite` |
 
 ## Docs Map

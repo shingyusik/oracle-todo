@@ -20,7 +20,7 @@ translate transport input and output only.
 | `ledger-engine` | `domain`, `application`, `infrastructure` | Money and master data, entries, transfers, reports, audit, SQLite |
 | `health-engine` | `domain`, `application`, `infrastructure` | Diet, media, health events, timeline/trends, audit, SQLite |
 | `backend` | `api` | Namespaced UI preferences stored in `todo.sqlite` |
-| `frontend` | `app`, `domain`, `features` | Static unified Dashboard and domain workspaces |
+| `frontend` | `app`, `domain`, `features` | Static ToDo Dashboard and domain workspaces |
 
 `todo-engine` is a library crate; `raven-cli` owns the only shipped native binary.
 

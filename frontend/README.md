@@ -5,14 +5,13 @@ served by `raven ui` from the same origin as the authenticated API.
 
 ## Navigation
 
-- Dashboard: combined ToDo, Ledger, Health Journal, and recent-activity projections
+- Dashboard: ToDo analytics for Today's work, Completion history, Area status, and Project status
 - ToDo: Workspace and Planner
 - Ledger: Transactions, Accounts, Categories, Reports
 - Health Journal: Timeline, Diet, Bowel, Medication, Health Metrics, Trends
 
-Dashboard is the only overview. Ledger and Health Journal start directly at their
-operational views. If one Dashboard domain is unavailable, its card shows an error while
-the other domain cards remain usable.
+Dashboard shows ToDo analytics only. Ledger and Health Journal start directly at their
+operational views.
 
 ## Production artifact
 
@@ -58,7 +57,8 @@ authenticated browser integration through the Raven UI session.
 - `src/app` — thin Next.js entries
 - `src/design` — shared tokens and copy
 - `src/domain` — navigation and pure UI policy
-- `src/features/dashboard` — unified summaries and recent activity
+- `src/features/dashboard` — active ToDo Dashboard presentation; reusable composed API,
+  unified models, and cards remain available but are not wired into `DashboardPanel`
 - `src/features/workbench` — ToDo Workspace and Planner
 - `src/features/ledger` — entries, master data, and reports
 - `src/features/health` — timeline, diet, events, metrics, and trends
