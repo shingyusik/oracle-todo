@@ -22,12 +22,11 @@ adapters call those services; they do not write domain tables directly.
   atomic transfers, balances, reports, briefing, diagnostics, and deterministic export.
 - **Health Journal** — diet and images, bowel and medication events, health metrics, daily
   metric upsert, a combined timeline, and bounded trends.
-- **Dashboard** — one read-only screen combining ToDo, Ledger, and Health projections plus
-  recent activity. Each projection can fail independently; a failed domain does not erase
-  the others.
+- **Dashboard** — a read-only ToDo analytics screen for today's work, completion history,
+  Area status, and Project status.
 
-Ledger and Health Journal do not repeat an Overview page. Their operational tabs sit under
-the single Dashboard:
+Ledger and Health Journal do not repeat an Overview page. Their operational tabs remain
+available in the main navigation:
 
 - Ledger: Transactions, Accounts, Categories, Reports
 - Health Journal: Timeline, Diet, Bowel, Medication, Health Metrics, Trends
