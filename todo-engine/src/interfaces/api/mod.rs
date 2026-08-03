@@ -67,25 +67,33 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
 /// so its synchronous SQLite service never runs on an async executor thread.
 pub fn raven_router(db_path: impl AsRef<Path>) -> Router {
     let db_path = db_path.as_ref().to_path_buf();
-    let legacy_router = Arc::new(tokio::sync::OnceCell::new());
+    let legacy_router = Arc::new(tokio::sync::OnceCell::<Router>::new());
     Router::new().fallback(move |request: Request<Body>| {
         let db_path = db_path.clone();
         let legacy_router = Arc::clone(&legacy_router);
         async move {
-            let router = legacy_router
-                .get_or_try_init(|| async move {
-                    tokio::task::spawn_blocking(move || -> ApiResult<Router> {
-                        if let Some(parent) = db_path.parent() {
-                            std::fs::create_dir_all(parent)
-                                .context("could not prepare ToDo database directory")?;
-                        }
-                        router(db_path).map_err(ApiError::from)
-                    })
-                    .await
-                    .map_err(|_| ApiError::from(anyhow::anyhow!("ToDo worker failed")))?
+            let router = if let Some(router) = legacy_router.get() {
+                router.clone()
+            } else {
+                tokio::spawn(async move {
+                    legacy_router
+                        .get_or_try_init(|| async move {
+                            tokio::task::spawn_blocking(move || -> ApiResult<Router> {
+                                if let Some(parent) = db_path.parent() {
+                                    std::fs::create_dir_all(parent)
+                                        .context("could not prepare ToDo database directory")?;
+                                }
+                                router(db_path).map_err(ApiError::from)
+                            })
+                            .await
+                            .map_err(|_| ApiError::from(anyhow::anyhow!("ToDo worker failed")))?
+                        })
+                        .await
+                        .cloned()
                 })
-                .await?
-                .clone();
+                .await
+                .map_err(|_| ApiError::from(anyhow::anyhow!("ToDo worker failed")))??
+            };
             let result: std::result::Result<Response, ApiError> =
                 tokio::task::spawn_blocking(move || -> ApiResult<Response> {
                     let handle = tokio::runtime::Handle::current();

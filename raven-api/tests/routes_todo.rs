@@ -16,6 +16,22 @@ fn authenticated(app: axum::Router) -> axum::Router {
     ))
 }
 
+fn hold_exclusive_todo_lock(
+    db_path: std::path::PathBuf,
+) -> (std::sync::mpsc::SyncSender<()>, std::thread::JoinHandle<()>) {
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+    let worker = std::thread::spawn(move || {
+        let connection =
+            todo_engine::infrastructure::sqlite::connect(db_path.to_str().unwrap()).unwrap();
+        connection.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        ready_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    });
+    ready_rx.recv().unwrap();
+    (release_tx, worker)
+}
+
 #[tokio::test]
 async fn todo_items_are_nested_under_v1_without_router_side_effects() {
     let temp = tempfile::tempdir().unwrap();
@@ -45,9 +61,118 @@ async fn todo_items_are_nested_under_v1_without_router_side_effects() {
             .unwrap()
         });
     }
-    while let Some(response) = requests.join_next().await {
-        assert_eq!(response.unwrap().status(), StatusCode::OK);
-    }
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while let Some(response) = requests.join_next().await {
+            assert_eq!(response.unwrap().status(), StatusCode::OK);
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn todo_memory_state_is_reused_across_cloned_raven_routers() {
+    let temp = tempfile::tempdir().unwrap();
+    let app = authenticated(
+        router(RavenApiConfig {
+            todo_db: ":memory:".into(),
+            ledger_db: temp.path().join("ledger.sqlite"),
+            health_db: temp.path().join("health.sqlite"),
+            health_media_dir: temp.path().join("media"),
+            local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
+            auth: AuthMode::UiSession {
+                token: "test".into(),
+            },
+        })
+        .unwrap(),
+    );
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/todo/areas")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"title":"Work","review_cycle":"weekly","standard":"Keep current"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+
+    let response = app
+        .oneshot(
+            Request::get("/api/v1/todo/items")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let items: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["title"], "Work");
+}
+
+#[tokio::test]
+async fn cancelled_first_todo_request_does_not_restart_initialization() {
+    let temp = tempfile::tempdir().unwrap();
+    let todo_db = temp.path().join("todo.sqlite");
+    let (release, lock) = hold_exclusive_todo_lock(todo_db.clone());
+    let app = authenticated(
+        router(RavenApiConfig {
+            todo_db: todo_db.clone(),
+            ledger_db: temp.path().join("ledger.sqlite"),
+            health_db: temp.path().join("health.sqlite"),
+            health_media_dir: temp.path().join("media"),
+            local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
+            auth: AuthMode::UiSession {
+                token: "test".into(),
+            },
+        })
+        .unwrap(),
+    );
+    let first = tokio::spawn(
+        app.clone().oneshot(
+            Request::get("/api/v1/todo/health")
+                .body(Body::empty())
+                .unwrap(),
+        ),
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!first.is_finished());
+    first.abort();
+    assert!(first.await.unwrap_err().is_cancelled());
+    release.send(()).unwrap();
+    lock.join().unwrap();
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if todo_engine::infrastructure::sqlite::connect_read_only(todo_db.to_str().unwrap())
+                .is_ok()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    let (release, lock) = hold_exclusive_todo_lock(todo_db);
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        app.oneshot(
+            Request::get("/api/v1/todo/health")
+                .body(Body::empty())
+                .unwrap(),
+        ),
+    )
+    .await;
+    release.send(()).unwrap();
+    lock.join().unwrap();
+    assert_eq!(response.unwrap().unwrap().status(), StatusCode::OK);
 }
 
 #[tokio::test]
