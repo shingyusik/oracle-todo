@@ -79,6 +79,41 @@ async fn required_namespaces_round_trip_exact_json_without_collisions() {
 }
 
 #[tokio::test]
+async fn workspace_views_reads_legacy_value_and_prefers_canonical_value() {
+    let (temp, app) = app();
+    let db = temp.path().join("todo.sqlite");
+    let legacy = json!({"view": "board"});
+    let canonical = json!({"view": "list"});
+
+    backend::api::write_preference(&db, "workspace-views.v1", &legacy).unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            "/api/v1/preferences/workspace.views.v1",
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json_body(response).await, legacy);
+
+    backend::api::write_preference(&db, "workspace.views.v1", &canonical).unwrap();
+
+    let response = app
+        .oneshot(request(
+            "GET",
+            "/api/v1/preferences/workspace.views.v1",
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json_body(response).await, canonical);
+}
+
+#[tokio::test]
 async fn missing_read_returns_null_without_creating_storage() {
     let (temp, app) = app();
     let db = temp.path().join("todo.sqlite");

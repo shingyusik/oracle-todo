@@ -11,6 +11,7 @@ use serde_json::Value;
 use crate::preferences;
 
 const PLANNER_PREFERENCE_KEY: &str = "planner.v1";
+const CANONICAL_WORKSPACE_VIEWS_PREFERENCE_KEY: &str = "workspace.views.v1";
 const WORKSPACE_VIEWS_PREFERENCE_KEY: &str = "workspace-views.v1";
 
 pub fn router(db_path: PathBuf) -> Router {
@@ -78,7 +79,12 @@ pub fn read_preference(
         |row| row.get(0),
     )?;
     if initialized {
-        preferences::get(&connection, key)
+        let value = preferences::get(&connection, key)?;
+        if value.is_none() && key == CANONICAL_WORKSPACE_VIEWS_PREFERENCE_KEY {
+            preferences::get(&connection, WORKSPACE_VIEWS_PREFERENCE_KEY)
+        } else {
+            Ok(value)
+        }
     } else {
         Ok(None)
     }
