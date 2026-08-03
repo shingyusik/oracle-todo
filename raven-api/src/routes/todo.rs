@@ -85,8 +85,8 @@ fn known_code(status: StatusCode, code: &str) -> bool {
         (status, code),
         (
             StatusCode::BAD_REQUEST,
-            "goal_invalid_anchor" | "goal_parent_horizon_not_coarser" | "policy_error"
-        ) | (StatusCode::NOT_FOUND, "not_found")
+            "goal_invalid_anchor" | "goal_parent_horizon_not_coarser"
+        )
     )
 }
 
@@ -159,6 +159,46 @@ mod tests {
                 "detail": "unsafe detail",
                 "horizon": "month",
                 "scheduled": "2026-08-02"
+            }),
+        );
+
+        assert_generic(
+            normalize_error(response).await,
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "The requested record was not found.",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn legacy_policy_detail_and_metadata_are_generic() {
+        let response = legacy_response(
+            StatusCode::BAD_REQUEST,
+            json!({
+                "code": "policy_error",
+                "detail": "Unsupported recurrence_rule: FREQ=DAILY;BYHOUR=3",
+                "parent_id": "private-parent-id"
+            }),
+        );
+
+        assert_generic(
+            normalize_error(response).await,
+            StatusCode::BAD_REQUEST,
+            "validation_error",
+            "The request is invalid.",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn legacy_not_found_detail_and_metadata_are_generic() {
+        let response = legacy_response(
+            StatusCode::NOT_FOUND,
+            json!({
+                "code": "not_found",
+                "detail": "Item not found: private-record-id",
+                "scheduled": "2030-01-02T03:04:05"
             }),
         );
 

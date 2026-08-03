@@ -42,7 +42,7 @@ Raven errors are:
 }
 ```
 
-| Status | Codes |
+| Status | Default/common code |
 | --- | --- |
 | `400` | `validation_error` |
 | `401` | `unauthorized` |
@@ -110,11 +110,13 @@ ToDo preserves its service policies: direct-active creation, required project
 transitions, and an audit event for every mutation.
 
 Authenticated ToDo routes have a narrow safe-detail exception within the shared error
-envelope. For `400`, they may preserve only `goal_invalid_anchor`,
-`goal_parent_horizon_not_coarser`, or `policy_error`; for `404`, they may preserve only
-`not_found`. These responses retain the corresponding safe message detail. Their `fields`
-object may contain only `parent_horizon`, `child_horizon`, `horizon`, `scheduled`, and
-`parent_id`, and each present value is a one-element string array.
+envelope. Only `400 goal_invalid_anchor` and `400 goal_parent_horizon_not_coarser` retain
+their corresponding safe message detail. For these two errors, the `fields` object may
+contain only `parent_horizon`, `child_horizon`, `horizon`, `scheduled`, and `parent_id`, and
+each present value is a one-element string array.
+
+ToDo `400 policy_error` uses the generic `validation_error` code and message, and ToDo
+`404 not_found` uses the generic `not_found` message. Both have an empty `fields` object.
 
 Malformed, oversized, status-mismatched, conflicting, payload-too-large, and internal ToDo
 errors use the generic shared contract. They do not expose paths, SQL, raw storage errors,
