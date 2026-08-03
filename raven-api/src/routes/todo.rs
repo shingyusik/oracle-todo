@@ -35,11 +35,10 @@ async fn normalize_error(response: Response) -> Response {
     let status = response.status();
     match status {
         status if status.is_success() => response,
-        StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND | StatusCode::CONFLICT => {
-            translate_legacy_error(response, status)
-                .await
-                .unwrap_or_else(|| generic_error(status))
-        }
+        StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND => translate_legacy_error(response, status)
+            .await
+            .unwrap_or_else(|| generic_error(status)),
+        StatusCode::CONFLICT => generic_error(status),
         StatusCode::PAYLOAD_TOO_LARGE => ApiError::payload_too_large().into_response(),
         _ => ApiError::internal(anyhow::anyhow!("todo request failed")).into_response(),
     }
@@ -88,7 +87,6 @@ fn known_code(status: StatusCode, code: &str) -> bool {
             StatusCode::BAD_REQUEST,
             "goal_invalid_anchor" | "goal_parent_horizon_not_coarser" | "policy_error"
         ) | (StatusCode::NOT_FOUND, "not_found")
-            | (StatusCode::CONFLICT, "conflict")
     )
 }
 
@@ -98,5 +96,136 @@ fn generic_error(status: StatusCode) -> Response {
         StatusCode::NOT_FOUND => ApiError::not_found().into_response(),
         StatusCode::CONFLICT => ApiError::conflict().into_response(),
         _ => unreachable!("generic ToDo errors are limited to 400, 404, and 409"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::header;
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn oversized_legacy_error_body_is_generic() {
+        let response = legacy_response(
+            StatusCode::BAD_REQUEST,
+            json!({
+                "code": "goal_invalid_anchor",
+                "detail": "storage detail".repeat(4096),
+                "horizon": "month",
+                "scheduled": "2026-08-02"
+            }),
+        );
+
+        assert_generic(
+            normalize_error(response).await,
+            StatusCode::BAD_REQUEST,
+            "validation_error",
+            "The request is invalid.",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn unknown_legacy_error_fields_are_generic() {
+        let response = legacy_response(
+            StatusCode::BAD_REQUEST,
+            json!({
+                "code": "goal_invalid_anchor",
+                "detail": "unsafe detail",
+                "horizon": "month",
+                "scheduled": "2026-08-02",
+                "storage_path": "/private/todo.sqlite"
+            }),
+        );
+
+        assert_generic(
+            normalize_error(response).await,
+            StatusCode::BAD_REQUEST,
+            "validation_error",
+            "The request is invalid.",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn legacy_status_code_mismatch_is_generic() {
+        let response = legacy_response(
+            StatusCode::NOT_FOUND,
+            json!({
+                "code": "goal_invalid_anchor",
+                "detail": "unsafe detail",
+                "horizon": "month",
+                "scheduled": "2026-08-02"
+            }),
+        );
+
+        assert_generic(
+            normalize_error(response).await,
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "The requested record was not found.",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn legacy_conflict_detail_is_generic() {
+        let response = legacy_response(
+            StatusCode::CONFLICT,
+            json!({
+                "code": "conflict",
+                "detail": "UNIQUE constraint failed: items.id"
+            }),
+        );
+
+        assert_generic(
+            normalize_error(response).await,
+            StatusCode::CONFLICT,
+            "conflict",
+            "The request conflicts with current state.",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn legacy_internal_detail_is_generic() {
+        let response = legacy_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({
+                "code": "internal_error",
+                "detail": "database /private/todo.sqlite is locked"
+            }),
+        );
+
+        assert_generic(
+            normalize_error(response).await,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal_error",
+            "An internal error occurred.",
+        )
+        .await;
+    }
+
+    fn legacy_response(status: StatusCode, body: Value) -> Response {
+        Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn assert_generic(response: Response, status: StatusCode, code: &str, message: &str) {
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+        let bytes = to_bytes(response.into_body(), 128 * 1024).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body.as_object().unwrap().len(), 4);
+        assert_eq!(body["code"], code);
+        assert_eq!(body["message"], message);
+        assert_eq!(body["fields"], json!({}));
+        Uuid::parse_str(body["request_id"].as_str().unwrap()).unwrap();
     }
 }
