@@ -1,6 +1,6 @@
 {
   "name": "@shings/raven",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "npx runner for the Raven engine and UI GitHub Release bundle",
   "license": "MIT",
   "type": "commonjs",
