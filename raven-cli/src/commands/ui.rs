@@ -12,6 +12,7 @@ use crate::config::RavenPaths;
 pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
     let ui_path = resolve_ui_path(args.ui_path)?;
     let artifact = raven_api::UiArtifact::load(ui_path)?;
+    let public_origin = public_origin_from_env()?;
     let session =
         raven_api::UiSessionToken::generate().map_err(|_| anyhow::anyhow!("UI session failed"))?;
     let config = RavenApiConfig {
@@ -27,7 +28,7 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual = listener.local_addr()?;
-        let app = raven_api::ui_router(config, artifact, session, actual, None)?;
+        let app = raven_api::ui_router(config, artifact, session, actual, public_origin.as_deref())?;
         let url = format!("http://{actual}");
         println!("Raven UI listening on {url}");
         if !args.no_open {
@@ -38,6 +39,16 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
         axum::serve(listener, app).await?;
         anyhow::Ok(())
     })
+}
+
+fn public_origin_from_env() -> anyhow::Result<Option<String>> {
+    std::env::var_os("RAVEN_UI_PUBLIC_ORIGIN")
+        .map(|value| {
+            value
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("invalid RAVEN_UI_PUBLIC_ORIGIN"))
+        })
+        .transpose()
 }
 
 fn resolve_ui_path(explicit: Option<PathBuf>) -> anyhow::Result<PathBuf> {
