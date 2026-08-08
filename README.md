@@ -228,10 +228,12 @@ RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
   raven ui --port 3001 --no-open
 ```
 
-Local UI behavior is unchanged. Public requests use the configured HTTPS Host and Origin and
-require the Access assertion verified and forwarded by `cloudflared`. Successful public HTML
-responses issue a `Secure`, HTTP-only Raven session cookie; `/api/v1/*` routes still require
-that cookie. API tokens, Access assertions, and Raven session cookies must not be logged.
+Local UI behavior is unchanged. Public requests use the configured HTTPS Host and require the
+Access assertion verified and forwarded by `cloudflared`. Top-level navigation may omit
+`Origin`; supplied origins and public API `POST`, `PUT`, `PATCH`, and `DELETE` requests must use
+the exact configured origin. The UI index and extensionless SPA routes issue a `Secure`,
+HTTP-only Raven session cookie; `/api/v1/*` routes still require that cookie. API tokens, Access
+assertions, and Raven session cookies must not be logged.
 
 Only exact `/healthz` is unauthenticated. API errors use a stable
 `{code,message,fields,request_id}` object and do not expose storage details.

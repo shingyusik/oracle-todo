@@ -120,12 +120,40 @@ RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
   --ui-path frontend/out --port 3001 --no-open
 ```
 
-Confirm through the deployed tunnel that the public Host and Origin are exact and that
-`cloudflared` requires Access, validates its JWT, and forwards exactly one non-empty
-`Cf-Access-Jwt-Assertion`. A successful HTML response must set a `Secure`, HTTP-only
-`SameSite=Strict` Raven cookie. Reuse that cookie for an `/api/v1/dashboard` request and confirm
-that a missing or stale cookie returns `401`. A missing, empty, or duplicate assertion and a
-mismatched Host or supplied Origin must return `421` without setting a Raven cookie.
+### External Access verification
+
+Verify the deployed hostname from outside the origin boundary. An unauthenticated request must
+receive the Cloudflare Access challenge or login redirect. After Access authentication, opening
+the root document must succeed without visiting `/__raven/session`, issue a `Secure`, HTTP-only
+`SameSite=Strict` Raven cookie, and allow an `/api/v1/dashboard` read with that cookie. A missing
+or stale Raven cookie still returns `401` after the request reaches Raven.
+
+Cloudflare Access rejection happens before the origin request. Do not treat its challenge or
+edge response as evidence for Raven's `421` policy, and do not expect a missing Access assertion
+to reach Raven through the protected public hostname.
+
+### Isolated Raven public-policy verification
+
+Test Raven's origin policy directly against the loopback listener, isolated from the Access
+edge. Use the configured public `Host`, the exact HTTPS `Origin` where required, and a synthetic
+non-secret `Cf-Access-Jwt-Assertion` placeholder; never copy a real Access JWT into the probe.
+Confirm that:
+
+- a top-level public `GET` may omit `Origin`, serves the UI entry, and sets the secure Raven
+  cookie;
+- the UI index and extensionless SPA fallback set the cookie, while arbitrary `.html` and other
+  static assets do not;
+- a missing, empty, or duplicate assertion returns Raven `421` without a cookie;
+- an unknown `Host`, mismatched or duplicate supplied `Origin`, or request-target authority that
+  conflicts with `Host` returns Raven `421` without a cookie;
+- public API `POST`, `PUT`, `PATCH`, and `DELETE` requests without the exact configured `Origin`
+  return Raven `421` before API session authentication.
+
+The focused automated origin-policy probe is:
+
+```bash
+cargo test -p raven-api --test ui_session
+```
 
 Keep cookie jars and captured headers in a permission-restricted temporary directory. Redact
 session values before saving evidence, and do not copy real Access JWTs or assertions into shell

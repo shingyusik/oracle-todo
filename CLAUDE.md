@@ -66,6 +66,7 @@ npm --prefix npm/raven test
 - API bind: `RAVEN_API_BIND_HOST`, `RAVEN_API_BIND_PORT`; non-loopback cleartext also
   requires exact `RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true`.
 - UI artifact: `--ui-path` or `RAVEN_UI_PATH`.
+- Public UI origin: optional canonical HTTPS `RAVEN_UI_PUBLIC_ORIGIN`; UI remains loopback-only.
 
 ## Gotchas
 

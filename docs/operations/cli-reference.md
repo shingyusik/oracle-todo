@@ -24,18 +24,24 @@ command.
 
 `RAVEN_UI_PATH` supplies the UI artifact when `--ui-path` is absent.
 
-`RAVEN_UI_PUBLIC_ORIGIN` enables the Cloudflare Access UI mode and must contain one exact HTTPS
-origin without credentials, a path, query, or fragment:
+`RAVEN_UI_PUBLIC_ORIGIN` enables the Cloudflare Access UI mode and must contain one canonical
+HTTPS origin. The host must be lowercase; an optional port must be decimal `1..=65535` without
+leading zeroes and must omit the default `443`. Credentials, paths, queries, fragments,
+malformed ports, and an authority that resolves to the active loopback listener are rejected:
 
 ```bash
 RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
   raven ui --port 3001 --no-open
 ```
 
-The UI listener remains loopback-bound, and local Host behavior is unchanged. Requests for the
-public Host require the `cloudflared`-verified Access assertion; supplied Origin headers must
-match the configured HTTPS origin exactly. Public HTML issues a secure Raven session cookie,
-which remains mandatory on API routes. Tokens, assertions, and cookies must not be logged.
+The value is validated before the listener binds; invalid public-origin configuration exits `2`
+without echoing the value. The UI listener remains loopback-bound, and local Host behavior is
+unchanged. Requests for the public Host require the `cloudflared`-verified Access assertion.
+Top-level navigation may omit `Origin`; every supplied Origin and public API `POST`, `PUT`,
+`PATCH`, or `DELETE` Origin must match exactly. The UI index and extensionless SPA fallback issue
+a secure Raven session cookie, which remains mandatory on API routes; arbitrary `.html` assets
+do not issue one. A request-target authority that conflicts with `Host` returns `421`. Tokens,
+assertions, and cookies must not be logged.
 
 ## ToDo
 

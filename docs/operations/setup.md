@@ -116,10 +116,17 @@ RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
   raven ui --port 3001 --no-open
 ```
 
-Local UI behavior is unchanged when `RAVEN_UI_PUBLIC_ORIGIN` is absent. Public mode accepts
-the configured public Host, validates a supplied Origin against the same exact HTTPS origin,
-and requires one non-empty `Cf-Access-Jwt-Assertion`. The origin must not contain credentials,
-a path, query, or fragment.
+Local UI behavior is unchanged when `RAVEN_UI_PUBLIC_ORIGIN` is absent. The value is validated
+before the listener binds. Its host must be lowercase; its optional decimal port must be
+`1..=65535` without leading zeroes and must omit the default `443`. Credentials, paths, queries,
+fragments, malformed ports, and an authority that resolves to the active loopback listener are
+rejected with validation exit `2` without echoing the value.
+
+Public mode accepts the configured public Host and requires one non-empty
+`Cf-Access-Jwt-Assertion`. Top-level document navigation may omit `Origin`; every supplied
+Origin and every public API `POST`, `PUT`, `PATCH`, or `DELETE` request must use the exact
+configured HTTPS origin. A request-target authority that conflicts with `Host` is rejected with
+`421`.
 
 Configure `cloudflared` to connect only to Raven's loopback listener and verify the Access JWT
 before forwarding its assertion:
@@ -135,11 +142,12 @@ before forwarding its assertion:
         - 5650a5c6613fcfd8d13652e94c82339a8cc68e311c93d241dcb6fc394c046de9
 ```
 
-Do not place another untrusted proxy or listener between `cloudflared` and Raven. Successful
-public HTML responses issue a `Secure`, HTTP-only `SameSite=Strict` Raven session cookie, and
-API routes require that cookie in addition to the Access assertion. API tokens, Access JWTs or
-assertions, and Raven session cookies must not appear in console output, JSONL logs, proxy
-logs, shell history, or saved verification evidence.
+Do not place another untrusted proxy or listener between `cloudflared` and Raven. The public UI
+index and extensionless SPA fallback issue a `Secure`, HTTP-only `SameSite=Strict` Raven session
+cookie; arbitrary `.html` and other static assets do not. API routes require that cookie in
+addition to the Access assertion. API tokens, Access JWTs or assertions, and Raven session
+cookies must not appear in console output, JSONL logs, proxy logs, shell history, or saved
+verification evidence.
 
 ## ToDo import
 

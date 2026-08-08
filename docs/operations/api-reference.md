@@ -30,12 +30,20 @@ RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
   raven ui --port 3001 --no-open
 ```
 
+The origin host must be lowercase. An optional port is decimal `1..=65535` without leading
+zeroes; explicit default port `443`, empty or malformed ports, and an authority that resolves to
+the active loopback listener are rejected before serving. Invalid configuration exits `2`
+without echoing the value.
+
 Public requests must use the configured Host and one non-empty `Cf-Access-Jwt-Assertion`
-validated and forwarded by `cloudflared`. If the browser supplies `Origin`, it must match the
-configured HTTPS origin exactly. Successful public HTML `GET` responses set a `Secure`,
-HTTP-only `SameSite=Strict` Raven cookie; static assets do not set it. `/api/v1/*` routes still
-require the current Raven cookie. API tokens, Access JWTs or assertions, and Raven session
-cookies must not be logged or included in error responses.
+validated and forwarded by `cloudflared`. Top-level document navigation may omit `Origin`, but
+every supplied Origin and every public API `POST`, `PUT`, `PATCH`, or `DELETE` request must match
+the configured HTTPS origin exactly. A request-target authority that conflicts with `Host`
+returns `421`. Successful public `GET` responses set a `Secure`, HTTP-only `SameSite=Strict`
+Raven cookie only for the UI index and extensionless SPA fallback; other static assets, including
+arbitrary `.html` files, do not set it. `/api/v1/*` routes still require the current Raven cookie.
+API tokens, Access JWTs or assertions, and Raven session cookies must not be logged or included
+in error responses.
 
 Exact `GET /healthz` is the only unauthenticated route:
 
