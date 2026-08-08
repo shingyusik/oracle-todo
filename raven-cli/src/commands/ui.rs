@@ -9,10 +9,26 @@ use time::macros::offset;
 use crate::cli::UiArgs;
 use crate::config::RavenPaths;
 
+#[derive(Debug, thiserror::Error)]
+pub enum UiCommandError {
+    #[error("invalid RAVEN_UI_PUBLIC_ORIGIN")]
+    PublicOrigin,
+}
+
+impl UiCommandError {
+    pub fn cli_exit_code(&self) -> i32 {
+        match self {
+            Self::PublicOrigin => 2,
+        }
+    }
+}
+
 pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
     let ui_path = resolve_ui_path(args.ui_path)?;
     let artifact = raven_api::UiArtifact::load(ui_path)?;
     let public_origin = public_origin_from_env()?;
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
+    validate_public_origin(public_origin.as_deref(), addr)?;
     let session =
         raven_api::UiSessionToken::generate().map_err(|_| anyhow::anyhow!("UI session failed"))?;
     let config = RavenApiConfig {
@@ -23,11 +39,11 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
         local_offset: offset!(+9),
         auth: AuthMode::ui_session(&session),
     };
-    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual = listener.local_addr()?;
+        validate_public_origin(public_origin.as_deref(), actual)?;
         let app = raven_api::ui_router(config, artifact, session, actual, public_origin.as_deref())?;
         let url = format!("http://{actual}");
         println!("Raven UI listening on {url}");
@@ -41,14 +57,25 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
     })
 }
 
-fn public_origin_from_env() -> anyhow::Result<Option<String>> {
+fn public_origin_from_env() -> Result<Option<String>, UiCommandError> {
     std::env::var_os("RAVEN_UI_PUBLIC_ORIGIN")
         .map(|value| {
             value
                 .into_string()
-                .map_err(|_| anyhow::anyhow!("invalid RAVEN_UI_PUBLIC_ORIGIN"))
+                .map_err(|_| UiCommandError::PublicOrigin)
         })
         .transpose()
+}
+
+fn validate_public_origin(
+    public_origin: Option<&str>,
+    authority: SocketAddr,
+) -> anyhow::Result<()> {
+    if let Some(public_origin) = public_origin {
+        raven_api::validate_ui_public_origin(public_origin, authority)
+            .map_err(|_| UiCommandError::PublicOrigin)?;
+    }
+    Ok(())
 }
 
 fn resolve_ui_path(explicit: Option<PathBuf>) -> anyhow::Result<PathBuf> {

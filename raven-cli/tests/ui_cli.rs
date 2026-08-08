@@ -74,7 +74,7 @@ fn ui_rejects_an_invalid_public_origin_without_echoing_it() {
         panic!("ui ignored invalid RAVEN_UI_PUBLIC_ORIGIN");
     }
     let output = child.wait_with_output().unwrap();
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("invalid RAVEN_UI_PUBLIC_ORIGIN"));
     assert!(!stderr.contains(invalid));
@@ -112,7 +112,37 @@ fn ui_rejects_a_non_unicode_public_origin_without_echoing_it() {
         panic!("ui ignored invalid RAVEN_UI_PUBLIC_ORIGIN");
     }
     let output = child.wait_with_output().unwrap();
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("invalid RAVEN_UI_PUBLIC_ORIGIN"));
+}
+
+#[test]
+fn ui_validates_public_origin_before_binding_the_listener() {
+    let _lock = ui_server_test_lock();
+    let occupied = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = occupied.local_addr().unwrap().port().to_string();
+    let home = tempfile::tempdir().unwrap();
+    let ui = home.path().canonicalize().unwrap().join("ui");
+    std::fs::create_dir(&ui).unwrap();
+    std::fs::write(ui.join("index.html"), "Raven").unwrap();
+    let invalid = "https://:8443";
+
+    let output = raven(home.path())
+        .env("RAVEN_UI_PUBLIC_ORIGIN", invalid)
+        .args([
+            "ui",
+            "--ui-path",
+            ui.to_str().unwrap(),
+            "--port",
+            &port,
+            "--no-open",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("invalid RAVEN_UI_PUBLIC_ORIGIN"));
+    assert!(!stderr.contains(invalid));
 }

@@ -78,6 +78,9 @@ pub fn exit_code(error: &anyhow::Error) -> i32 {
     if let Some(error) = error.downcast_ref::<commands::api::ApiCommandError>() {
         return error.cli_exit_code();
     }
+    if let Some(error) = error.downcast_ref::<commands::ui::UiCommandError>() {
+        return error.cli_exit_code();
+    }
     if let Some(error) = error.downcast_ref::<ledger_engine::application::error::LedgerError>() {
         return match error {
             ledger_engine::application::error::LedgerError::Validation { .. }
