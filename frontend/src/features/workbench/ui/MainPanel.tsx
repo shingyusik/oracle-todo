@@ -1966,6 +1966,7 @@ function PlannerItemRow({
   compact?: boolean;
 }) {
   const transitionState = controller.workspaceItemTransitionState(item.id);
+  const usesSingleLineTitle = tableId.startsWith("weekly.") && !compact;
 
   return (
     <div
@@ -1974,9 +1975,14 @@ function PlannerItemRow({
       <PlannerCompletionCheckbox controller={controller} item={item} />
       <PlannerMissButton controller={controller} item={item} tableId={tableId} />
       <button
-        className={compact ? "monthly-day-item" : "planner-item"}
+        className={`${compact ? "monthly-day-item" : "planner-item"}${
+          usesSingleLineTitle ? " weekly-single-line-title" : ""
+        }`}
         type="button"
         title={compact ? item.title : undefined}
+        onMouseEnter={usesSingleLineTitle
+          ? (event) => syncOverflowTitle(event, item.title)
+          : undefined}
         onClick={() => controller.openDetailView(item)}
       >
         {item.title}
@@ -1986,6 +1992,18 @@ function PlannerItemRow({
         : null}
     </div>
   );
+}
+
+function syncOverflowTitle(
+  event: React.MouseEvent<HTMLButtonElement>,
+  title: string,
+): void {
+  const button = event.currentTarget;
+  if (button.scrollWidth > button.clientWidth) {
+    button.title = title;
+  } else {
+    button.removeAttribute("title");
+  }
 }
 
 function PlannerCompletionCheckbox({

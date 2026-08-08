@@ -1929,7 +1929,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByText("No tasks found.")).toBeNull();
   });
 
-  it("renders weekly planner goals and seven day cards", async () => {
+  it("renders weekly goals and keeps day item titles on one line with overflow tooltips", async () => {
     const user = userEvent.setup();
     const today = testToday();
     const weekStart = testWeekStart(today);
@@ -1988,7 +1988,21 @@ describe("WorkbenchPageClient", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("July Goal")).toBeInTheDocument();
     expect(screen.getByText("Week Goal")).toBeInTheDocument();
-    expect(screen.getByText("Active task")).toBeInTheDocument();
+    const weeklyTask = screen.getByRole("button", { name: "Active task" });
+    expect(weeklyTask).toHaveClass("weekly-single-line-title");
+    Object.defineProperties(weeklyTask, {
+      clientWidth: { configurable: true, value: 100 },
+      scrollWidth: { configurable: true, value: 180 },
+    });
+    fireEvent.mouseEnter(weeklyTask);
+    expect(weeklyTask).toHaveAttribute("title", "Active task");
+
+    Object.defineProperty(weeklyTask, "scrollWidth", {
+      configurable: true,
+      value: 80,
+    });
+    fireEvent.mouseEnter(weeklyTask);
+    expect(weeklyTask).not.toHaveAttribute("title");
     expect(await screen.findByRole("checkbox", { name: "Complete Active task" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Reopen Completed task" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Complete Secondary active task" })).not.toBeChecked();
