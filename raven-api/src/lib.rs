@@ -21,7 +21,10 @@ pub use dto::dashboard::{
     TodoDashboard,
 };
 pub use error::{ApiError, ApiErrorBody};
-pub use server::{BindError, UiArtifact, serve, serve_listener, ui_router, validate_bind};
+pub use server::{
+    BindError, UiArtifact, UiPublicOriginError, serve, serve_listener, ui_router, validate_bind,
+    validate_ui_public_origin,
+};
 pub use state::RavenApiState;
 
 pub fn router(mut config: RavenApiConfig) -> anyhow::Result<Router> {

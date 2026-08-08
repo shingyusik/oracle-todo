@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
-use axum::extract::{Request, State};
+use axum::extract::{Extension, Request, State};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
@@ -25,12 +25,23 @@ const ACCESS_ASSERTION: HeaderName = HeaderName::from_static("cf-access-jwt-asse
 #[error("non-loopback cleartext bind requires RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true")]
 pub struct BindError;
 
+#[derive(Debug, Error)]
+#[error("invalid RAVEN_UI_PUBLIC_ORIGIN")]
+pub struct UiPublicOriginError;
+
 pub fn validate_bind(addr: SocketAddr, allow_unsafe: bool) -> Result<(), BindError> {
     if addr.ip().is_loopback() || allow_unsafe {
         Ok(())
     } else {
         Err(BindError)
     }
+}
+
+pub fn validate_ui_public_origin(
+    public_origin: &str,
+    authority: SocketAddr,
+) -> Result<(), UiPublicOriginError> {
+    parse_public_authority(public_origin)?.validate_for(authority)
 }
 
 pub async fn serve(config: RavenApiConfig, bind: ServerBind) -> anyhow::Result<()> {
@@ -63,17 +74,12 @@ pub fn ui_router(
     let expected = ExpectedAuthority::new(authority, public_origin)?;
     let local_cookie = session_cookie(&session, false)?;
     let public_cookie = session_cookie(&session, true)?;
-    let bootstrap_expected = expected.clone();
     let bootstrap_public_cookie = public_cookie.clone();
-    let bootstrap = move |headers: axum::http::HeaderMap| {
-        let cookie =
-            if bootstrap_expected.public.as_ref().is_some_and(|pair| {
-                exact_header(&headers, header::HOST) == Some(pair.host.as_bytes())
-            }) {
-                bootstrap_public_cookie.clone()
-            } else {
-                local_cookie.clone()
-            };
+    let bootstrap = move |Extension(authority): Extension<ResolvedUiAuthority>| {
+        let cookie = match authority.0 {
+            UiAuthorityKind::Local => local_cookie.clone(),
+            UiAuthorityKind::Public => bootstrap_public_cookie.clone(),
+        };
         async move {
             let mut response = Response::new(Body::empty());
             *response.status_mut() = StatusCode::SEE_OTHER;
@@ -693,11 +699,23 @@ fn filetime(value: windows_sys::Win32::Foundation::FILETIME) -> u64 {
     u64::from(value.dwHighDateTime) << 32 | u64::from(value.dwLowDateTime)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UiAuthorityKind {
+    Local,
+    Public,
+}
+
 #[derive(Clone)]
 struct AuthorityPair {
     host: HeaderValue,
     origin: HeaderValue,
-    public: bool,
+    kind: UiAuthorityKind,
+}
+
+struct PublicAuthority {
+    pair: AuthorityPair,
+    ip: Option<IpAddr>,
+    port: u16,
 }
 
 #[derive(Clone)]
@@ -712,22 +730,46 @@ struct UiAuthorityState {
     public_cookie: HeaderValue,
 }
 
+#[derive(Clone, Copy)]
+struct ResolvedUiAuthority(UiAuthorityKind);
+
+#[derive(Clone, Copy)]
+struct UiHtmlEntry;
+
 impl ExpectedAuthority {
     fn new(authority: SocketAddr, public_origin: Option<&str>) -> anyhow::Result<Self> {
+        let socket_authority = authority;
         let authority = authority.to_string();
         let local = AuthorityPair {
             host: HeaderValue::from_str(&authority).expect("socket authority is a valid header"),
             origin: HeaderValue::from_str(&format!("http://{authority}"))
                 .expect("socket origin is a valid header"),
-            public: false,
+            kind: UiAuthorityKind::Local,
         };
-        let public = public_origin.map(parse_public_authority).transpose()?;
+        let public = public_origin
+            .map(parse_public_authority)
+            .transpose()?
+            .map(|public| {
+                public.validate_for(socket_authority)?;
+                Ok::<_, UiPublicOriginError>(public.pair)
+            })
+            .transpose()?;
         Ok(Self { local, public })
     }
 }
 
-fn parse_public_authority(public_origin: &str) -> anyhow::Result<AuthorityPair> {
-    let invalid = || anyhow::anyhow!("invalid RAVEN_UI_PUBLIC_ORIGIN");
+impl PublicAuthority {
+    fn validate_for(&self, authority: SocketAddr) -> Result<(), UiPublicOriginError> {
+        if self.ip == Some(authority.ip()) && self.port == authority.port() {
+            Err(UiPublicOriginError)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn parse_public_authority(public_origin: &str) -> Result<PublicAuthority, UiPublicOriginError> {
+    let invalid = || UiPublicOriginError;
     if public_origin.contains('#') {
         return Err(invalid());
     }
@@ -740,11 +782,43 @@ fn parse_public_authority(public_origin: &str) -> anyhow::Result<AuthorityPair> 
     {
         return Err(invalid());
     }
-    let authority = authority.as_str();
-    Ok(AuthorityPair {
-        host: HeaderValue::from_str(authority).map_err(|_| invalid())?,
-        origin: HeaderValue::from_str(&format!("https://{authority}")).map_err(|_| invalid())?,
-        public: true,
+    let host = authority.host();
+    if host.is_empty() || host.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        return Err(invalid());
+    }
+    let suffix = authority.as_str().strip_prefix(host).ok_or_else(invalid)?;
+    let port = if suffix.is_empty() {
+        443
+    } else {
+        let value = suffix.strip_prefix(':').ok_or_else(invalid)?;
+        if value.is_empty()
+            || !value.bytes().all(|byte| byte.is_ascii_digit())
+            || (value.len() > 1 && value.starts_with('0'))
+        {
+            return Err(invalid());
+        }
+        value
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port != 0 && *port != 443)
+            .ok_or_else(invalid)?
+    };
+    let authority_value = authority.as_str();
+    let ip = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host)
+        .parse::<IpAddr>()
+        .ok();
+    Ok(PublicAuthority {
+        pair: AuthorityPair {
+            host: HeaderValue::from_str(authority_value).map_err(|_| invalid())?,
+            origin: HeaderValue::from_str(&format!("https://{authority_value}"))
+                .map_err(|_| invalid())?,
+            kind: UiAuthorityKind::Public,
+        },
+        ip,
+        port,
     })
 }
 
@@ -762,7 +836,7 @@ impl ExpectedAuthority {
 
 async fn validate_ui_authority(
     State(state): State<UiAuthorityState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let headers = request.headers();
@@ -771,22 +845,37 @@ async fn validate_ui_authority(
     else {
         return status(StatusCode::MISDIRECTED_REQUEST);
     };
-    if let Some(origin) = optional_exact_header(headers, header::ORIGIN) {
-        if origin != Some(authority.origin.as_bytes()) {
-            return status(StatusCode::MISDIRECTED_REQUEST);
-        }
+    if request
+        .uri()
+        .authority()
+        .is_some_and(|target| target.as_str().as_bytes() != authority.host.as_bytes())
+    {
+        return status(StatusCode::MISDIRECTED_REQUEST);
     }
-    if authority.public
+    let origin = optional_exact_header(headers, header::ORIGIN);
+    let exact_origin = origin == Some(Some(authority.origin.as_bytes()));
+    let public_state_change = authority.kind == UiAuthorityKind::Public
+        && reserved(request.uri().path(), "/api")
+        && matches!(
+            *request.method(),
+            Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+        );
+    if (public_state_change || origin.is_some()) && !exact_origin {
+        return status(StatusCode::MISDIRECTED_REQUEST);
+    }
+    if authority.kind == UiAuthorityKind::Public
         && !matches!(exact_header(headers, ACCESS_ASSERTION), Some(assertion) if !assertion.is_empty())
     {
         return status(StatusCode::MISDIRECTED_REQUEST);
     }
-    let public_html_get = authority.public && request.method() == Method::GET;
+    let public_get = authority.kind == UiAuthorityKind::Public && request.method() == Method::GET;
+    request
+        .extensions_mut()
+        .insert(ResolvedUiAuthority(authority.kind));
     let mut response = next.run(request).await;
-    if public_html_get
+    if public_get
         && response.status().is_success()
-        && response.headers().get(header::CONTENT_TYPE)
-            == Some(&HeaderValue::from_static("text/html; charset=utf-8"))
+        && response.extensions().get::<UiHtmlEntry>().is_some()
     {
         response
             .headers_mut()
@@ -834,14 +923,17 @@ async fn serve_static(artifact: UiArtifact, request: Request) -> Response {
         return status(StatusCode::BAD_REQUEST);
     }
 
-    let asset = match artifact.0.files.get(key) {
-        Some(asset) => asset.clone(),
-        None if Path::new(key).extension().is_none() => artifact
-            .0
-            .files
-            .get("index.html")
-            .expect("validated UI artifact has index.html")
-            .clone(),
+    let (asset, ui_entry) = match artifact.0.files.get(key) {
+        Some(asset) => (asset.clone(), key == "index.html"),
+        None if Path::new(key).extension().is_none() => (
+            artifact
+                .0
+                .files
+                .get("index.html")
+                .expect("validated UI artifact has index.html")
+                .clone(),
+            true,
+        ),
         None => return status(StatusCode::NOT_FOUND),
     };
     let mut response = if request.method() == Method::HEAD {
@@ -861,6 +953,9 @@ async fn serve_static(artifact: UiArtifact, request: Request) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if ui_entry {
+        response.extensions_mut().insert(UiHtmlEntry);
+    }
     response
 }
 
