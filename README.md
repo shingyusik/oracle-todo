@@ -268,6 +268,9 @@ storage/migration/internal failures exit `1`. Success exits `0`.
 
 ## Verification
 
+Frontend development and verification require Node.js 22.13 or newer. The npm release
+launcher remains compatible with Node.js 18 or newer.
+
 ```bash
 cargo fmt --check
 cargo test --workspace

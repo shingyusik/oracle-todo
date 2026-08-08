@@ -15,6 +15,8 @@ operational views.
 
 ## Production artifact
 
+Frontend source builds and tests require Node.js 22.13 or newer.
+
 ```bash
 npm install
 npm run test

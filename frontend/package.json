@@ -2,12 +2,15 @@
   "name": "raven-frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "next dev",
     "ui": "npm run build && cargo run --manifest-path ../Cargo.toml -p raven-cli -- ui --ui-path out",
     "ui:dev": "npm run ui -- --port 3003",
     "build": "next build",
-    "test": "vitest run --no-file-parallelism",
+    "test": "node --no-experimental-webstorage ./node_modules/vitest/vitest.mjs run --no-file-parallelism",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

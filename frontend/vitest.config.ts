@@ -5,6 +5,10 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    poolOptions: {
+      forks: { execArgv: ["--no-experimental-webstorage"] },
+      threads: { execArgv: ["--no-experimental-webstorage"] },
+    },
     setupFiles: [],
   },
   resolve: {

@@ -10,8 +10,11 @@ describe("frontend package scripts", () => {
       dev: "next dev",
       ui: "npm run build && cargo run --manifest-path ../Cargo.toml -p raven-cli -- ui --ui-path out",
       build: "next build",
-      test: "vitest run --no-file-parallelism",
+      test: "node --no-experimental-webstorage ./node_modules/vitest/vitest.mjs run --no-file-parallelism",
       typecheck: "tsc --noEmit",
+    });
+    expect(packageJson).toMatchObject({
+      engines: { node: ">=22.13.0" },
     });
     expect(packageJson.scripts).not.toHaveProperty("dev:with-api");
   });

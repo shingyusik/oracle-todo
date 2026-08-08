@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - Node.js 18+ for `npx @shings/raven`
+- Node.js 22.13+ for frontend source builds and tests
 - Rust 2024 toolchain for source builds
 
 SQLite is bundled through `rusqlite`.
