@@ -27,7 +27,7 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual = listener.local_addr()?;
-        let app = raven_api::ui_router(config, artifact, session, actual)?;
+        let app = raven_api::ui_router(config, artifact, session, actual, None)?;
         let url = format!("http://{actual}");
         println!("Raven UI listening on {url}");
         if !args.no_open {

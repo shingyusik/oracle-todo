@@ -7,6 +7,9 @@ use raven_api::{AuthMode, RavenApiConfig, UiArtifact, UiSessionToken, ui_router}
 use tower::ServiceExt;
 
 const AUTHORITY: &str = "127.0.0.1:3002";
+const PUBLIC_AUTHORITY: &str = "raven.b-sir.xyz";
+const PUBLIC_ORIGIN: &str = "https://raven.b-sir.xyz";
+const ACCESS_ASSERTION: &str = "validated-by-cloudflared";
 
 fn config(token: &UiSessionToken, home: &std::path::Path) -> RavenApiConfig {
     RavenApiConfig {
@@ -19,7 +22,7 @@ fn config(token: &UiSessionToken, home: &std::path::Path) -> RavenApiConfig {
     }
 }
 
-fn fixture() -> (tempfile::TempDir, axum::Router) {
+fn fixture_with_public_origin(public_origin: Option<&str>) -> (tempfile::TempDir, axum::Router) {
     let temp = tempfile::tempdir().unwrap();
     let ui = temp.path().canonicalize().unwrap().join("ui");
     fs::create_dir(&ui).unwrap();
@@ -28,9 +31,19 @@ fn fixture() -> (tempfile::TempDir, axum::Router) {
     fs::write(ui.join("mark.png"), b"\x89PNG\r\n\x1a\n").unwrap();
     let artifact = UiArtifact::load(&ui).unwrap();
     let token = UiSessionToken::generate().unwrap();
-    let config = config(&token, temp.path());
-    let app = ui_router(config, artifact, token, AUTHORITY.parse().unwrap()).unwrap();
+    let app = ui_router(
+        config(&token, temp.path()),
+        artifact,
+        token,
+        AUTHORITY.parse().unwrap(),
+        public_origin,
+    )
+    .unwrap();
     (temp, app)
+}
+
+fn fixture() -> (tempfile::TempDir, axum::Router) {
+    fixture_with_public_origin(None)
 }
 
 fn get(path: &str) -> Request<Body> {
@@ -38,6 +51,176 @@ fn get(path: &str) -> Request<Body> {
         .header(header::HOST, AUTHORITY)
         .body(Body::empty())
         .unwrap()
+}
+
+fn public_get(path: &str) -> Request<Body> {
+    Request::get(path)
+        .header(header::HOST, PUBLIC_AUTHORITY)
+        .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+        .body(Body::empty())
+        .unwrap()
+}
+
+#[tokio::test]
+async fn public_html_issues_a_secure_session_and_static_assets_do_not() {
+    let (_temp, app) = fixture_with_public_origin(Some(PUBLIC_ORIGIN));
+
+    for path in ["/", "/todo"] {
+        let response = app.clone().oneshot(public_get(path)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap();
+        assert!(cookie.starts_with("raven_session="));
+        assert!(cookie.contains("; HttpOnly"));
+        assert!(cookie.contains("; SameSite=Strict"));
+        assert!(cookie.contains("; Secure"));
+        assert!(cookie.contains("; Path=/"));
+        assert!(!cookie.contains("Domain="));
+    }
+
+    let asset = app.oneshot(public_get("/app.js")).await.unwrap();
+    assert_eq!(asset.status(), StatusCode::OK);
+    assert!(!asset.headers().contains_key(header::SET_COOKIE));
+}
+
+#[tokio::test]
+async fn public_requests_require_one_access_assertion_and_matching_origin() {
+    let (_temp, app) = fixture_with_public_origin(Some(PUBLIC_ORIGIN));
+    let cases = [
+        Request::get("/")
+            .header(header::HOST, PUBLIC_AUTHORITY)
+            .body(Body::empty())
+            .unwrap(),
+        Request::get("/")
+            .header(header::HOST, PUBLIC_AUTHORITY)
+            .header("cf-access-jwt-assertion", "")
+            .body(Body::empty())
+            .unwrap(),
+        Request::get("/")
+            .header(header::HOST, PUBLIC_AUTHORITY)
+            .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+            .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+            .body(Body::empty())
+            .unwrap(),
+        Request::get("/")
+            .header(header::HOST, PUBLIC_AUTHORITY)
+            .header(header::ORIGIN, format!("http://{AUTHORITY}"))
+            .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+            .body(Body::empty())
+            .unwrap(),
+        Request::get("/")
+            .header(header::HOST, AUTHORITY)
+            .header(header::ORIGIN, PUBLIC_ORIGIN)
+            .body(Body::empty())
+            .unwrap(),
+        Request::get("/")
+            .header(header::HOST, PUBLIC_AUTHORITY)
+            .header(header::ORIGIN, "https://attacker.example")
+            .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+            .body(Body::empty())
+            .unwrap(),
+    ];
+
+    for request in cases {
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::MISDIRECTED_REQUEST);
+        assert!(!response.headers().contains_key(header::SET_COOKIE));
+    }
+
+    let valid = app
+        .oneshot(
+            Request::get("/")
+                .header(header::HOST, PUBLIC_AUTHORITY)
+                .header(header::ORIGIN, PUBLIC_ORIGIN)
+                .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(valid.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn public_html_replaces_a_stale_session_used_by_the_api() {
+    let (_temp, app) = fixture_with_public_origin(Some(PUBLIC_ORIGIN));
+    let html = app
+        .clone()
+        .oneshot(
+            Request::get("/")
+                .header(header::HOST, PUBLIC_AUTHORITY)
+                .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+                .header(header::COOKIE, "raven_session=stale")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(html.status(), StatusCode::OK);
+    let cookie = html.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    assert_ne!(cookie, "raven_session=stale");
+
+    let authorized = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/dashboard")
+                .header(header::HOST, PUBLIC_AUTHORITY)
+                .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(authorized.status(), StatusCode::OK);
+
+    let stale = app
+        .oneshot(
+            Request::get("/api/v1/dashboard")
+                .header(header::HOST, PUBLIC_AUTHORITY)
+                .header("cf-access-jwt-assertion", ACCESS_ASSERTION)
+                .header(header::COOKIE, "raven_session=stale")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+fn ui_router_rejects_invalid_public_origins() {
+    for public_origin in [
+        "",
+        "http://raven.b-sir.xyz",
+        "https://user@raven.b-sir.xyz",
+        "https://raven.b-sir.xyz/path",
+        "https://raven.b-sir.xyz?query=1",
+        "https://raven.b-sir.xyz#fragment",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let ui = temp.path().canonicalize().unwrap().join("ui");
+        fs::create_dir(&ui).unwrap();
+        fs::write(ui.join("index.html"), "Raven").unwrap();
+        let artifact = UiArtifact::load(ui).unwrap();
+        let token = UiSessionToken::generate().unwrap();
+
+        let error = match ui_router(
+            config(&token, temp.path()),
+            artifact,
+            token,
+            AUTHORITY.parse().unwrap(),
+            Some(public_origin),
+        ) {
+            Ok(_) => panic!("accepted {public_origin}"),
+            Err(error) => error,
+        };
+        assert_eq!(error.to_string(), "invalid RAVEN_UI_PUBLIC_ORIGIN");
+    }
 }
 
 #[tokio::test]
@@ -429,5 +612,14 @@ fn ui_router_rejects_a_non_loopback_authority() {
     let token = UiSessionToken::generate().unwrap();
     let config = config(&token, temp.path());
 
-    assert!(ui_router(config, artifact, token, "0.0.0.0:3002".parse().unwrap()).is_err());
+    assert!(
+        ui_router(
+            config,
+            artifact,
+            token,
+            "0.0.0.0:3002".parse().unwrap(),
+            None,
+        )
+        .is_err()
+    );
 }

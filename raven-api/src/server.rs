@@ -7,7 +7,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
-use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::http::{HeaderName, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::get;
@@ -19,6 +19,7 @@ const MAX_UI_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_UI_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_UI_ENTRIES: usize = 10_000;
 const MAX_UI_DEPTH: usize = 64;
+const ACCESS_ASSERTION: HeaderName = HeaderName::from_static("cf-access-jwt-assertion");
 
 #[derive(Debug, Error)]
 #[error("non-loopback cleartext bind requires RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true")]
@@ -54,17 +55,25 @@ pub fn ui_router(
     artifact: UiArtifact,
     session: UiSessionToken,
     authority: SocketAddr,
+    public_origin: Option<&str>,
 ) -> anyhow::Result<Router> {
     if !authority.ip().is_loopback() {
         anyhow::bail!("Raven UI authority must be loopback");
     }
-    let expected = ExpectedAuthority::new(authority);
-    let cookie = HeaderValue::from_str(&format!(
-        "raven_session={}; HttpOnly; SameSite=Strict; Path=/",
-        session.cookie_value()
-    ))?;
-    let bootstrap = move || {
-        let cookie = cookie.clone();
+    let expected = ExpectedAuthority::new(authority, public_origin)?;
+    let local_cookie = session_cookie(&session, false)?;
+    let public_cookie = session_cookie(&session, true)?;
+    let bootstrap_expected = expected.clone();
+    let bootstrap_public_cookie = public_cookie.clone();
+    let bootstrap = move |headers: axum::http::HeaderMap| {
+        let cookie =
+            if bootstrap_expected.public.as_ref().is_some_and(|pair| {
+                exact_header(&headers, header::HOST) == Some(pair.host.as_bytes())
+            }) {
+                bootstrap_public_cookie.clone()
+            } else {
+                local_cookie.clone()
+            };
         async move {
             let mut response = Response::new(Body::empty());
             *response.status_mut() = StatusCode::SEE_OTHER;
@@ -85,9 +94,20 @@ pub fn ui_router(
         .route("/__raven/session", get(bootstrap))
         .fallback(static_files)
         .layer(middleware::from_fn_with_state(
-            expected,
+            UiAuthorityState {
+                expected,
+                public_cookie,
+            },
             validate_ui_authority,
         )))
+}
+
+fn session_cookie(session: &UiSessionToken, secure: bool) -> anyhow::Result<HeaderValue> {
+    let secure = if secure { "; Secure" } else { "" };
+    Ok(HeaderValue::from_str(&format!(
+        "raven_session={}; HttpOnly; SameSite=Strict{secure}; Path=/",
+        session.cookie_value()
+    ))?)
 }
 
 #[derive(Clone)]
@@ -674,37 +694,105 @@ fn filetime(value: windows_sys::Win32::Foundation::FILETIME) -> u64 {
 }
 
 #[derive(Clone)]
-struct ExpectedAuthority {
+struct AuthorityPair {
     host: HeaderValue,
     origin: HeaderValue,
+    public: bool,
+}
+
+#[derive(Clone)]
+struct ExpectedAuthority {
+    local: AuthorityPair,
+    public: Option<AuthorityPair>,
+}
+
+#[derive(Clone)]
+struct UiAuthorityState {
+    expected: ExpectedAuthority,
+    public_cookie: HeaderValue,
 }
 
 impl ExpectedAuthority {
-    fn new(authority: SocketAddr) -> Self {
+    fn new(authority: SocketAddr, public_origin: Option<&str>) -> anyhow::Result<Self> {
         let authority = authority.to_string();
-        Self {
+        let local = AuthorityPair {
             host: HeaderValue::from_str(&authority).expect("socket authority is a valid header"),
             origin: HeaderValue::from_str(&format!("http://{authority}"))
                 .expect("socket origin is a valid header"),
+            public: false,
+        };
+        let public = public_origin.map(parse_public_authority).transpose()?;
+        Ok(Self { local, public })
+    }
+}
+
+fn parse_public_authority(public_origin: &str) -> anyhow::Result<AuthorityPair> {
+    let invalid = || anyhow::anyhow!("invalid RAVEN_UI_PUBLIC_ORIGIN");
+    if public_origin.contains('#') {
+        return Err(invalid());
+    }
+    let uri: Uri = public_origin.parse().map_err(|_| invalid())?;
+    let authority = uri.authority().ok_or_else(invalid)?;
+    if uri.scheme_str() != Some("https")
+        || authority.as_str().contains('@')
+        || uri.path() != "/"
+        || uri.query().is_some()
+    {
+        return Err(invalid());
+    }
+    let authority = authority.as_str();
+    Ok(AuthorityPair {
+        host: HeaderValue::from_str(authority).map_err(|_| invalid())?,
+        origin: HeaderValue::from_str(&format!("https://{authority}")).map_err(|_| invalid())?,
+        public: true,
+    })
+}
+
+impl ExpectedAuthority {
+    fn resolve(&self, host: &[u8]) -> Option<&AuthorityPair> {
+        if host == self.local.host.as_bytes() {
+            Some(&self.local)
+        } else {
+            self.public
+                .as_ref()
+                .filter(|pair| host == pair.host.as_bytes())
         }
     }
 }
 
 async fn validate_ui_authority(
-    State(expected): State<ExpectedAuthority>,
+    State(state): State<UiAuthorityState>,
     request: Request,
     next: Next,
 ) -> Response {
     let headers = request.headers();
-    if exact_header(headers, header::HOST) != Some(expected.host.as_bytes()) {
+    let Some(authority) =
+        exact_header(headers, header::HOST).and_then(|host| state.expected.resolve(host))
+    else {
         return status(StatusCode::MISDIRECTED_REQUEST);
-    }
+    };
     if let Some(origin) = optional_exact_header(headers, header::ORIGIN) {
-        if origin != Some(expected.origin.as_bytes()) {
+        if origin != Some(authority.origin.as_bytes()) {
             return status(StatusCode::MISDIRECTED_REQUEST);
         }
     }
-    next.run(request).await
+    if authority.public
+        && !matches!(exact_header(headers, ACCESS_ASSERTION), Some(assertion) if !assertion.is_empty())
+    {
+        return status(StatusCode::MISDIRECTED_REQUEST);
+    }
+    let public_html_get = authority.public && request.method() == Method::GET;
+    let mut response = next.run(request).await;
+    if public_html_get
+        && response.status().is_success()
+        && response.headers().get(header::CONTENT_TYPE)
+            == Some(&HeaderValue::from_static("text/html; charset=utf-8"))
+    {
+        response
+            .headers_mut()
+            .insert(header::SET_COOKIE, state.public_cookie);
+    }
+    response
 }
 
 fn exact_header(headers: &axum::http::HeaderMap, name: axum::http::HeaderName) -> Option<&[u8]> {
