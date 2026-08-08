@@ -24,6 +24,19 @@ command.
 
 `RAVEN_UI_PATH` supplies the UI artifact when `--ui-path` is absent.
 
+`RAVEN_UI_PUBLIC_ORIGIN` enables the Cloudflare Access UI mode and must contain one exact HTTPS
+origin without credentials, a path, query, or fragment:
+
+```bash
+RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
+  raven ui --port 3001 --no-open
+```
+
+The UI listener remains loopback-bound, and local Host behavior is unchanged. Requests for the
+public Host require the `cloudflared`-verified Access assertion; supplied Origin headers must
+match the configured HTTPS origin exactly. Public HTML issues a secure Raven session cookie,
+which remains mandatory on API routes. Tokens, assertions, and cookies must not be logged.
+
 ## ToDo
 
 `raven todo` delegates domain commands to the reusable ToDo CLI:

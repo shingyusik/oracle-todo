@@ -19,7 +19,23 @@ Default bind is `127.0.0.1:3002`. `RAVEN_API_BIND_HOST` must be an IP address an
 `RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true` is set exactly.
 
 `raven ui` instead issues a fresh HTTP-only `SameSite=Strict` `raven_session` cookie from
-`/__raven/session`. UI mode is loopback-only and validates the exact request authority.
+`/__raven/session`. Its listener stays loopback-only and validates exact request authority.
+Without `RAVEN_UI_PUBLIC_ORIGIN`, local behavior is unchanged.
+
+Setting an exact HTTPS origin enables Cloudflare Access UI mode while preserving the loopback
+trust boundary:
+
+```bash
+RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
+  raven ui --port 3001 --no-open
+```
+
+Public requests must use the configured Host and one non-empty `Cf-Access-Jwt-Assertion`
+validated and forwarded by `cloudflared`. If the browser supplies `Origin`, it must match the
+configured HTTPS origin exactly. Successful public HTML `GET` responses set a `Secure`,
+HTTP-only `SameSite=Strict` Raven cookie; static assets do not set it. `/api/v1/*` routes still
+require the current Raven cookie. API tokens, Access JWTs or assertions, and Raven session
+cookies must not be logged or included in error responses.
 
 Exact `GET /healthz` is the only unauthenticated route:
 

@@ -221,6 +221,18 @@ per-launch session, opens `/__raven/session`, sets an HTTP-only `SameSite=Strict
 and redirects to the UI. Use `--no-open`, `--port`, or `--ui-path` as needed. `RAVEN_UI_PATH`
 is the environment alternative to `--ui-path`.
 
+Cloudflare Access can expose the same loopback-bound server through an authenticated tunnel:
+
+```bash
+RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
+  raven ui --port 3001 --no-open
+```
+
+Local UI behavior is unchanged. Public requests use the configured HTTPS Host and Origin and
+require the Access assertion verified and forwarded by `cloudflared`. Successful public HTML
+responses issue a `Secure`, HTTP-only Raven session cookie; `/api/v1/*` routes still require
+that cookie. API tokens, Access assertions, and Raven session cookies must not be logged.
+
 Only exact `/healthz` is unauthenticated. API errors use a stable
 `{code,message,fields,request_id}` object and do not expose storage details.
 

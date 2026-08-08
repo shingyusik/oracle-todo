@@ -107,6 +107,40 @@ cargo run -p raven-cli -- ui --ui-path frontend/out --no-open
 
 `RAVEN_UI_PATH` is the environment alternative to `--ui-path`.
 
+## Cloudflare Access UI
+
+Set the exact public HTTPS origin and keep Raven on its loopback listener:
+
+```bash
+RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
+  raven ui --port 3001 --no-open
+```
+
+Local UI behavior is unchanged when `RAVEN_UI_PUBLIC_ORIGIN` is absent. Public mode accepts
+the configured public Host, validates a supplied Origin against the same exact HTTPS origin,
+and requires one non-empty `Cf-Access-Jwt-Assertion`. The origin must not contain credentials,
+a path, query, or fragment.
+
+Configure `cloudflared` to connect only to Raven's loopback listener and verify the Access JWT
+before forwarding its assertion:
+
+```yaml
+- hostname: raven.b-sir.xyz
+  service: http://127.0.0.1:3001
+  originRequest:
+    access:
+      required: true
+      teamName: divine-hill-da47
+      audTag:
+        - 5650a5c6613fcfd8d13652e94c82339a8cc68e311c93d241dcb6fc394c046de9
+```
+
+Do not place another untrusted proxy or listener between `cloudflared` and Raven. Successful
+public HTML responses issue a `Secure`, HTTP-only `SameSite=Strict` Raven session cookie, and
+API routes require that cookie in addition to the Access assertion. API tokens, Access JWTs or
+assertions, and Raven session cookies must not appear in console output, JSONL logs, proxy
+logs, shell history, or saved verification evidence.
+
 ## ToDo import
 
 ```bash

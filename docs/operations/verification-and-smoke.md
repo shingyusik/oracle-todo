@@ -111,12 +111,32 @@ Open `http://127.0.0.1:39003/__raven/session`. Confirm the redirect sets the str
 HTTP-only cookie, Dashboard loads, and ToDo, Ledger, and Health Journal mutations round-trip.
 Unknown `/api/*` routes must return authenticated API `404`, never the SPA document.
 
+For the Cloudflare Access path, keep the server loopback-bound and use the deployment's exact
+public origin:
+
+```bash
+RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
+  "$raven_bin" --home "$smoke_home" ui \
+  --ui-path frontend/out --port 3001 --no-open
+```
+
+Confirm through the deployed tunnel that the public Host and Origin are exact and that
+`cloudflared` requires Access, validates its JWT, and forwards exactly one non-empty
+`Cf-Access-Jwt-Assertion`. A successful HTML response must set a `Secure`, HTTP-only
+`SameSite=Strict` Raven cookie. Reuse that cookie for an `/api/v1/dashboard` request and confirm
+that a missing or stale cookie returns `401`. A missing, empty, or duplicate assertion and a
+mismatched Host or supplied Origin must return `421` without setting a Raven cookie.
+
+Keep cookie jars and captured headers in a permission-restricted temporary directory. Redact
+session values before saving evidence, and do not copy real Access JWTs or assertions into shell
+history, command output, or test logs.
+
 ## Log checks
 
 - stdout contains only command results.
 - stderr contains diagnostics.
-- JSONL records do not contain API tokens, UI session values, Health image bytes, or raw
-  domain error details from the composed API.
+- JSONL records do not contain API tokens, Access JWTs or assertions, UI session values, Health
+  image bytes, or raw domain error details from the composed API.
 - Rotation honors `RAVEN_LOG_MAX_BYTES` and `RAVEN_LOG_MAX_FILES`.
 
 Temporary homes may be removed after the smoke evidence is recorded.
