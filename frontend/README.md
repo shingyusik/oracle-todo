@@ -13,6 +13,10 @@ served by `raven ui` from the same origin as the authenticated API.
 Dashboard shows ToDo analytics only. Ledger and Health Journal start directly at their
 operational views.
 
+Completion history reports the daily percentage of Tasks and Events scheduled or due on
+each browser-local calendar date. Its Y-axis is fixed at 0–100%, and dates without eligible
+work remain visible as zero-value points.
+
 ## Production artifact
 
 Frontend source builds and tests require Node.js 22.13 or newer.
