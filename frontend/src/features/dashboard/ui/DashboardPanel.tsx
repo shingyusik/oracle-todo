@@ -334,7 +334,7 @@ function isEmptyChart(chart: DashboardChartSpec): boolean {
     case "donut":
       return chart.total === 0;
     case "line":
-      return chart.points.every((point) => point.value === 0);
+      return chart.total === 0;
     case "heatmap":
       return chart.rows.length === 0;
   }

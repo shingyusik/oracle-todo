@@ -20,15 +20,6 @@ function addDays(date: string, days: number): string {
   ].join("-");
 }
 
-function localDateOf(value: string): string {
-  const date = new Date(value);
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
 describe("dashboard model", () => {
   it("maps domain projections independently without rounding money or hiding units", () => {
     const response: RavenDashboard = {
@@ -265,19 +256,20 @@ describe("dashboard model", () => {
     });
   });
 
-  it("builds a continuous inclusive completion history in browser-local dates", () => {
-    const completedAt = "2026-07-22T23:30:00-07:00";
-    const completionDate = localDateOf(completedAt);
-    const range = { start: addDays(completionDate, -1), end: addDays(completionDate, 1) };
+  it("builds daily scheduled-or-due completion percentages", () => {
+    const range = { start: "2026-07-22", end: "2026-07-24" };
     const snapshot = buildDashboardSnapshot([
-      { id: "task", type: "task", title: "Done", status: "completed", completed_at: completedAt },
-      { id: "routine", type: "routine", title: "Template", status: "completed", completed_at: completedAt },
+      { id: "done", type: "task", title: "Done", status: "completed", scheduled: "2026-07-23", due: "2026-07-23" },
+      { id: "active", type: "task", title: "Active", status: "active", due: "2026-07-23" },
+      { id: "missed", type: "event", title: "Missed", status: "missed", scheduled: "2026-07-23" },
+      { id: "cancelled", type: "event", title: "Cancelled", status: "cancelled", scheduled: "2026-07-23" },
+      { id: "other-day", type: "task", title: "Other", status: "completed", scheduled: "2026-07-24" },
     ], today, range);
 
     expect(snapshot.completionHistory.days).toEqual([
-      { date: range.start, completed: 0 },
-      { date: completionDate, completed: 1 },
-      { date: range.end, completed: 0 },
+      { date: "2026-07-22", completed: 0, total: 0, percentage: 0 },
+      { date: "2026-07-23", completed: 1, total: 3, percentage: 100 / 3 },
+      { date: "2026-07-24", completed: 1, total: 1, percentage: 100 },
     ]);
   });
 

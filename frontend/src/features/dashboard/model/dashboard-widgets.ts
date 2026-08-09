@@ -25,6 +25,7 @@ export type DonutChartSpec = {
 export type LineChartSpec = {
   kind: "line";
   ariaLabel: string;
+  total: number;
   points: Array<{
     id: string;
     label: string;
@@ -168,17 +169,24 @@ export const dashboardWidgets: DashboardWidget[] = [
       const points = snapshot.completionHistory.days.map((day) => ({
         id: day.date,
         label: day.date,
-        value: day.completed,
-        ariaLabel: `${day.date}: ${day.completed} completed`,
+        value: day.percentage,
+        ariaLabel:
+          `${day.date}: ${Math.round(day.percentage)}% completed (${day.completed}/${day.total})`,
       }));
+      const total = snapshot.completionHistory.days.reduce(
+        (sum, day) => sum + day.total,
+        0,
+      );
       return {
         id: "completion-history",
         title: "Completion history",
-        description: "Completed Tasks and Events by browser-local calendar date.",
-        emptyMessage: "No Tasks or Events were completed in this range.",
+        description:
+          "Completion rate for Tasks and Events scheduled or due by browser-local calendar date.",
+        emptyMessage: "No Tasks or Events are scheduled or due in this range.",
         chart: {
           kind: "line",
           ariaLabel: "Completion history",
+          total,
           points,
         },
       };

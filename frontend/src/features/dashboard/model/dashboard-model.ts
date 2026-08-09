@@ -17,7 +17,12 @@ export type TodayOutcomes = {
   total: number;
 };
 
-export type CompletionDay = { date: string; completed: number };
+export type CompletionDay = {
+  date: string;
+  completed: number;
+  total: number;
+  percentage: number;
+};
 
 export type CompletionHistory = {
   range: DashboardDateRange;
@@ -283,20 +288,18 @@ function buildCompletionHistory(
   work: WorkspaceItemModel[],
   range: DashboardDateRange,
 ): CompletionHistory {
-  const counts = new Map<string, number>();
-  for (const item of work) {
-    if (item.status !== "completed") continue;
-    const date = localCalendarDate(item.completed_at);
-    if (date !== null && date >= range.start && date <= range.end) {
-      counts.set(date, (counts.get(date) ?? 0) + 1);
-    }
-  }
   return {
     range,
-    days: dateRange(range).map((date) => ({
-      date,
-      completed: counts.get(date) ?? 0,
-    })),
+    days: dateRange(range).map((date) => {
+      const eligible = work.filter((item) =>
+        (localCalendarDate(item.scheduled) === date
+          || localCalendarDate(item.due) === date)
+        && statusKey(item.status) !== null,
+      );
+      const completed = countStatus(eligible, "completed");
+      const total = eligible.length;
+      return { date, completed, total, percentage: percent(completed, total) };
+    }),
   };
 }
 
@@ -359,7 +362,7 @@ function countStatus(items: WorkspaceItemModel[], status: string): number {
 }
 
 function percent(value: number, total: number): number {
-  return total === 0 ? 0 : (value / total) * 100;
+  return total === 0 ? 0 : (value * 100) / total;
 }
 
 function projectAttention(project: WorkspaceItemModel, today: string): ProjectAttention {

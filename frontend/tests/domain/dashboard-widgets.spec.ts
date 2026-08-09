@@ -30,8 +30,8 @@ const sampleDashboardSnapshot: DashboardSnapshot = {
   completionHistory: {
     range: { start: "2026-07-22", end: "2026-07-23" },
     days: [
-      { date: "2026-07-22", completed: 0 },
-      { date: "2026-07-23", completed: 2 },
+      { date: "2026-07-22", completed: 0, total: 0, percentage: 0 },
+      { date: "2026-07-23", completed: 2, total: 3, percentage: 200 / 3 },
     ],
   },
 };
@@ -127,26 +127,29 @@ describe("dashboard widget registry", () => {
     ]);
   });
 
-  it("maps every completion date to one informational line point", () => {
+  it("maps completion percentages and exact ratios to informational line points", () => {
     expect(widget("completion-history")).toMatchObject({
       id: "completion-history",
       title: "Completion history",
-      emptyMessage: "No Tasks or Events were completed in this range.",
+      description:
+        "Completion rate for Tasks and Events scheduled or due by browser-local calendar date.",
+      emptyMessage: "No Tasks or Events are scheduled or due in this range.",
       chart: {
         kind: "line",
         ariaLabel: "Completion history",
+        total: 3,
         points: [
           {
             id: "2026-07-22",
             label: "2026-07-22",
             value: 0,
-            ariaLabel: "2026-07-22: 0 completed",
+            ariaLabel: "2026-07-22: 0% completed (0/0)",
           },
           {
             id: "2026-07-23",
             label: "2026-07-23",
-            value: 2,
-            ariaLabel: "2026-07-23: 2 completed",
+            value: 200 / 3,
+            ariaLabel: "2026-07-23: 67% completed (2/3)",
           },
         ],
       },

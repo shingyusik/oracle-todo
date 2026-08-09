@@ -288,7 +288,7 @@ describe("DashboardPanel", () => {
       screen.getByText("No Tasks or Events are scheduled or due today."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("No Tasks or Events were completed in this range."),
+      screen.getByText("No Tasks or Events are scheduled or due in this range."),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -333,7 +333,7 @@ describe("DashboardPanel", () => {
       within(widget).getByRole("button", { name: "Miss: 1 (25%)" }),
     ).toHaveTextContent("1");
     expect(
-      screen.getByRole("img", { name: "2026-07-29: 1 completed" }),
+      screen.getByRole("img", { name: "2026-07-29: 25% completed (1/4)" }),
     ).toBeInTheDocument();
   });
 
@@ -350,7 +350,7 @@ describe("DashboardPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders a continuous zero line together with its explanation", async () => {
+  it("renders a continuous zero line together with its no-work explanation", async () => {
     await renderLoadedDashboard([
       {
         id: "area-health",
@@ -363,8 +363,27 @@ describe("DashboardPanel", () => {
     const chart = screen.getByRole("group", { name: "Completion history" });
     expect(within(chart).getAllByRole("img")).toHaveLength(14);
     expect(
-      screen.getByText("No Tasks or Events were completed in this range."),
+      screen.getByText("No Tasks or Events are scheduled or due in this range."),
     ).toBeInTheDocument();
+  });
+
+  it("renders scheduled or due work at zero percent without the no-work message", async () => {
+    await renderLoadedDashboard([
+      {
+        id: "task-open",
+        type: "task",
+        title: "Open",
+        status: "active",
+        scheduled: today,
+      },
+    ]);
+
+    expect(
+      screen.getByRole("img", { name: "2026-07-29: 0% completed (0/1)" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No Tasks or Events are scheduled or due in this range."),
+    ).toBeNull();
   });
 
   it("applies 7-day and 30-day completion presets", async () => {
@@ -388,10 +407,10 @@ describe("DashboardPanel", () => {
       screen.getByRole("button", { name: "7 days" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(
-      screen.getAllByRole("img", { name: /completed$/ }),
+      screen.getAllByRole("img", { name: /completed \(/ }),
     ).toHaveLength(7);
     expect(
-      screen.getByRole("img", { name: "2026-07-23: 0 completed" }),
+      screen.getByRole("img", { name: "2026-07-23: 0% completed (0/0)" }),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "30 days" }));
@@ -400,10 +419,10 @@ describe("DashboardPanel", () => {
       screen.getByRole("button", { name: "30 days" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(
-      screen.getAllByRole("img", { name: /completed$/ }),
+      screen.getAllByRole("img", { name: /completed \(/ }),
     ).toHaveLength(30);
     expect(
-      screen.getByRole("img", { name: "2026-06-30: 0 completed" }),
+      screen.getByRole("img", { name: "2026-06-30: 0% completed (0/0)" }),
     ).toBeInTheDocument();
   });
 
@@ -419,7 +438,7 @@ describe("DashboardPanel", () => {
     ]);
     await user.click(screen.getByRole("button", { name: "30 days" }));
     const lastValidPointCount = screen.getAllByRole("img", {
-      name: /completed$/,
+      name: /completed \(/,
     }).length;
 
     await user.click(screen.getByRole("button", { name: "Custom range" }));
@@ -441,7 +460,7 @@ describe("DashboardPanel", () => {
       "Start date must be on or before end date.",
     );
     expect(
-      screen.getAllByRole("img", { name: /completed$/ }),
+      screen.getAllByRole("img", { name: /completed \(/ }),
     ).toHaveLength(lastValidPointCount);
     expect(
       screen.getByRole("button", { name: "30 days" }),
@@ -479,10 +498,10 @@ describe("DashboardPanel", () => {
     ).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(
-      screen.getAllByRole("img", { name: /completed$/ }),
+      screen.getAllByRole("img", { name: /completed \(/ }),
     ).toHaveLength(3);
     expect(
-      screen.getByRole("img", { name: "2026-07-27: 0 completed" }),
+      screen.getByRole("img", { name: "2026-07-27: 0% completed (0/0)" }),
     ).toBeInTheDocument();
   });
 
@@ -505,7 +524,7 @@ describe("DashboardPanel", () => {
       screen.getByRole("button", { name: "Custom range" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(
-      screen.getAllByRole("img", { name: /completed$/ }),
+      screen.getAllByRole("img", { name: /completed \(/ }),
     ).toHaveLength(366);
   });
 
@@ -514,7 +533,7 @@ describe("DashboardPanel", () => {
     await renderLoadedDashboard([]);
     await user.click(screen.getByRole("button", { name: "30 days" }));
     const lastValidPointCount = screen.getAllByRole("img", {
-      name: /completed$/,
+      name: /completed \(/,
     }).length;
 
     await user.click(screen.getByRole("button", { name: "Custom range" }));
@@ -531,7 +550,7 @@ describe("DashboardPanel", () => {
       "Completion range must be 366 days or fewer.",
     );
     expect(
-      screen.getAllByRole("img", { name: /completed$/ }),
+      screen.getAllByRole("img", { name: /completed \(/ }),
     ).toHaveLength(lastValidPointCount);
     expect(
       screen.getByRole("button", { name: "30 days" }),
@@ -813,6 +832,7 @@ describe("DashboardPanel", () => {
     const chart: DashboardChartSpec = {
       kind: "line",
       ariaLabel: "Completion history",
+      total: 2,
       points: [{
         id: "2026-07-28",
         label: "2026-07-28",
@@ -850,6 +870,7 @@ describe("DashboardPanel", () => {
         chart={{
           kind: "line",
           ariaLabel: "Completion history",
+          total: 7,
           points,
         }}
         onNavigate={vi.fn()}
@@ -888,6 +909,7 @@ describe("DashboardPanel", () => {
         chart={{
           kind: "line",
           ariaLabel: "Completion history",
+          total: 0,
           points,
         }}
         onNavigate={vi.fn()}
@@ -916,6 +938,7 @@ describe("DashboardPanel", () => {
         chart={{
           kind: "line",
           ariaLabel: "Completion history",
+          total: 7,
           points: [
             {
               id: "2026-07-01",

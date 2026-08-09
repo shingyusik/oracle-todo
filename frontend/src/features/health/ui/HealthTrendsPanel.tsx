@@ -157,7 +157,9 @@ function TrendChart({
       {points.length === 0 ? (
         <p className="items-message">No {label.toLowerCase()} data.</p>
       ) : (
-        <DashboardLineChart chart={{ kind: "line", ariaLabel: label, points }} />
+        <DashboardLineChart
+          chart={{ kind: "line", ariaLabel: label, total: points.length, points }}
+        />
       )}
     </section>
   );
