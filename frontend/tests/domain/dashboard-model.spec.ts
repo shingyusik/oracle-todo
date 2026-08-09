@@ -20,6 +20,15 @@ function addDays(date: string, days: number): string {
   ].join("-");
 }
 
+function localCalendarDate(value: string): string {
+  const date = new Date(value);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
 describe("dashboard model", () => {
   it("maps domain projections independently without rounding money or hiding units", () => {
     const response: RavenDashboard = {
@@ -270,6 +279,22 @@ describe("dashboard model", () => {
       { date: "2026-07-22", completed: 0, total: 0, percentage: 0 },
       { date: "2026-07-23", completed: 1, total: 3, percentage: 100 / 3 },
       { date: "2026-07-24", completed: 1, total: 1, percentage: 100 },
+    ]);
+  });
+
+  it("attributes offset scheduled and due timestamps to their local calendar date", () => {
+    const timestamp = "2026-07-23T00:30:00+14:00";
+    const localDate = localCalendarDate(timestamp);
+    const range = { start: addDays(localDate, -1), end: addDays(localDate, 1) };
+    const snapshot = buildDashboardSnapshot([
+      { id: "scheduled-done", type: "task", title: "Scheduled", status: "completed", scheduled: timestamp },
+      { id: "due-open", type: "event", title: "Due", status: "active", due: timestamp },
+    ], today, range);
+
+    expect(snapshot.completionHistory.days).toEqual([
+      { date: range.start, completed: 0, total: 0, percentage: 0 },
+      { date: localDate, completed: 1, total: 2, percentage: 50 },
+      { date: range.end, completed: 0, total: 0, percentage: 0 },
     ]);
   });
 
