@@ -7,10 +7,7 @@ type DashboardLineChartProps = {
 };
 
 export function DashboardLineChart({ chart }: DashboardLineChartProps) {
-  const maximum = Math.max(
-    1,
-    ...chart.points.map((point) => point.value),
-  );
+  const maximum = 100;
   const coordinates = chart.points.map((point, index) => ({
     ...point,
     x:
@@ -31,14 +28,7 @@ export function DashboardLineChart({ chart }: DashboardLineChartProps) {
       index === coordinates.length - 1 ||
       index % xTickStep === 0,
   );
-  const yTickStep = Math.max(1, Math.ceil(maximum / 4));
-  const yTicks = [
-    ...Array.from(
-      { length: Math.ceil(maximum / yTickStep) },
-      (_, index) => index * yTickStep,
-    ),
-    maximum,
-  ].filter((tick, index, ticks) => ticks.indexOf(tick) === index).reverse();
+  const yTicks = [100, 75, 50, 25, 0];
 
   return (
     <div
@@ -54,7 +44,7 @@ export function DashboardLineChart({ chart }: DashboardLineChartProps) {
               className="dashboard-line-y-tick"
               style={{ top: `${94 - (tick / maximum) * 84}%` }}
             >
-              {tick}
+              {tick}%
             </span>
           ))}
         </div>

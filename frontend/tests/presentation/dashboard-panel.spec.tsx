@@ -932,25 +932,25 @@ describe("DashboardPanel", () => {
     ]);
   });
 
-  it("derives integer completion-count ticks from zero to the maximum", () => {
+  it("renders a fixed zero-to-one-hundred percentage axis", () => {
     const { container } = render(
       <DashboardChart
         chart={{
           kind: "line",
           ariaLabel: "Completion history",
-          total: 7,
+          total: 6,
           points: [
             {
               id: "2026-07-01",
               label: "2026-07-01",
               value: 0,
-              ariaLabel: "2026-07-01: 0 completed",
+              ariaLabel: "2026-07-01: 0% completed (0/2)",
             },
             {
               id: "2026-07-02",
               label: "2026-07-02",
-              value: 7,
-              ariaLabel: "2026-07-02: 7 completed",
+              value: 75,
+              ariaLabel: "2026-07-02: 75% completed (3/4)",
             },
           ],
         }}
@@ -961,9 +961,14 @@ describe("DashboardPanel", () => {
     expect(
       Array.from(
         container.querySelectorAll(".dashboard-line-y-tick"),
-        (tick) => Number(tick.textContent),
+        (tick) => tick.textContent,
       ),
-    ).toEqual([7, 6, 4, 2, 0]);
+    ).toEqual(["100%", "75%", "50%", "25%", "0%"]);
+    expect(
+      screen.getByRole("img", { name: "2026-07-02: 75% completed (3/4)" }),
+    ).toHaveStyle({ top: "31%" });
+    expect(screen.getByText("2026-07-02: 75% completed (3/4)"))
+      .toBeInTheDocument();
   });
 
   it("renders semantic heatmap row and cell buttons with typed destinations", async () => {
