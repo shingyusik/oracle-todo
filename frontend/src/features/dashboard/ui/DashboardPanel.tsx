@@ -18,6 +18,7 @@ import {
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { CompletionRangeControls } from "@/features/dashboard/ui/CompletionRangeControls";
 import type { DashboardHeatmapVisibility } from "@/features/dashboard/ui/DashboardHeatmap";
+import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 
 const DASHBOARD_STATUS_PREVIEW_LIMIT = 5;
@@ -305,11 +306,15 @@ function DashboardWidget({
         </div>
       ) : null}
       {model.chart && chartHasData ? (
-        <DashboardChart
-          chart={model.chart}
-          onNavigate={onNavigate}
-          heatmapVisibility={heatmapVisibility}
-        />
+        model.id === "completion-history" && model.chart.kind === "line" ? (
+          <DashboardLineChart chart={model.chart} scale="percentage" />
+        ) : (
+          <DashboardChart
+            chart={model.chart}
+            onNavigate={onNavigate}
+            heatmapVisibility={heatmapVisibility}
+          />
+        )
       ) : null}
       {model.chart && chartIsEmpty ? (
         <p className="dashboard-widget-empty">{model.emptyMessage}</p>

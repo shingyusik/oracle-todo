@@ -172,6 +172,37 @@ describe("HealthPanel", () => {
       .toBeInTheDocument();
   });
 
+  it("keeps raw Health trend values on an automatic scale", () => {
+    const rawValueTrends: HealthTrends = {
+      ...trends,
+      numericSeries: [{
+        ...trends.numericSeries[2],
+        points: [
+          { occurredAt: "2026-07-29T00:00:00Z", value: 100 },
+          { occurredAt: "2026-07-30T00:00:00Z", value: 150 },
+        ],
+      }],
+    };
+    render(
+      <HealthPanel
+        controller={controller({ ...loadedState, trends: rawValueTrends })}
+        leafTabId="trends"
+      />,
+    );
+
+    const chart = screen.getByRole("group", {
+      name: "Fasting glucose (mg/dL)",
+    });
+    expect(
+      Array.from(
+        chart.querySelectorAll(".dashboard-line-y-tick"),
+        (tick) => tick.textContent,
+      ),
+    ).toEqual(["150", "114", "76", "38", "0"]);
+    expect(within(chart).getByRole("img", { name: /150 mg\/dL/ }))
+      .toHaveStyle({ top: "10%" });
+  });
+
   it("uses stable unique heading IDs for equal trend display labels", () => {
     const duplicateLabels: HealthTrends = {
       ...trends,

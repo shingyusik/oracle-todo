@@ -933,41 +933,38 @@ describe("DashboardPanel", () => {
   });
 
   it("renders a fixed zero-to-one-hundred percentage axis", () => {
-    const { container } = render(
-      <DashboardChart
-        chart={{
-          kind: "line",
-          ariaLabel: "Completion history",
-          total: 6,
-          points: [
-            {
-              id: "2026-07-01",
-              label: "2026-07-01",
-              value: 0,
-              ariaLabel: "2026-07-01: 0% completed (0/2)",
-            },
-            {
-              id: "2026-07-02",
-              label: "2026-07-02",
-              value: 75,
-              ariaLabel: "2026-07-02: 75% completed (3/4)",
-            },
-          ],
-        }}
-        onNavigate={vi.fn()}
+    const completedItems = Array.from({ length: 3 }, (_, index) => ({
+      id: `completed-${index}`,
+      type: "task",
+      title: `Completed ${index}`,
+      status: "completed",
+      scheduled: today,
+      completed_at: `${today}T09:00:00`,
+    }));
+    const openItems = Array.from({ length: 3 }, (_, index) => ({
+      id: `open-${index}`,
+      type: "task",
+      title: `Open ${index}`,
+      status: "active",
+      scheduled: index < 2 ? "2026-07-28" : today,
+    }));
+    render(
+      <DashboardPanel
+        controller={dashboardPanelController([...completedItems, ...openItems])}
       />,
     );
 
+    const chart = screen.getByRole("group", { name: "Completion history" });
     expect(
       Array.from(
-        container.querySelectorAll(".dashboard-line-y-tick"),
+        chart.querySelectorAll(".dashboard-line-y-tick"),
         (tick) => tick.textContent,
       ),
     ).toEqual(["100%", "75%", "50%", "25%", "0%"]);
     expect(
-      screen.getByRole("img", { name: "2026-07-02: 75% completed (3/4)" }),
+      screen.getByRole("img", { name: "2026-07-29: 75% completed (3/4)" }),
     ).toHaveStyle({ top: "31%" });
-    expect(screen.getByText("2026-07-02: 75% completed (3/4)"))
+    expect(screen.getByText("2026-07-29: 75% completed (3/4)"))
       .toBeInTheDocument();
   });
 
