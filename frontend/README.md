@@ -21,6 +21,10 @@ Workspace detail visits participate in browser Back and Forward navigation, incl
 details. Browser Back and the detail header Back button require confirmation before discarding
 unsaved edits.
 
+ToDo details opened from Workspace or Planner provide page-local Undo, Redo, and Save controls.
+`Ctrl/Cmd+Z` undoes, `Ctrl/Cmd+Shift+Z` or `Ctrl+Y` redoes, and `Ctrl/Cmd+S` saves. Undo and Redo
+change only the open draft and never mutate the server until Save is explicitly used.
+
 Completion history reports the daily percentage of Tasks and Events scheduled or due on
 each browser-local calendar date. Its Y-axis is fixed at 0–100%, and dates without eligible
 work remain visible as zero-value points.
