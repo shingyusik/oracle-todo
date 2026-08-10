@@ -66,9 +66,10 @@ the current draft and does not share or replay the page-local Undo/Redo history.
 
 ## Error handling
 
-Existing controller error presentation remains authoritative. A rejected patch or status
-transition leaves the current draft, dirty state, and Undo/Redo history intact. The pending
-save guard is always released after success or failure.
+The detail view catches a rejected patch or status transition and displays a safe inline
+error using the existing `RavenApiError` message pattern. The current draft, dirty state,
+and Undo/Redo history remain intact, and the pending save guard is always released after
+success or failure.
 
 ## Verification
 
