@@ -383,6 +383,11 @@ function DetailView({
     (initialItem) => initialDetailDraftHistory(initialItem),
   );
   const draft = draftHistory.present;
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const savePendingRef = React.useRef(false);
+  const saveDraftRef = React.useRef<() => Promise<void>>(async () => {});
+  const pendingNavigationRef = React.useRef(false);
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
     null,
   );
@@ -397,8 +402,13 @@ function DetailView({
     });
   }, [item]);
 
+  React.useEffect(() => {
+    setSaveError(null);
+  }, [item?.id]);
+
   const hasDraftChanges = item ? hasDetailChanges(item, draft) : false;
   const pendingNavigation = pendingLinkedItem !== null || detailHistory.pendingBack;
+  pendingNavigationRef.current = pendingNavigation;
 
   React.useEffect(() => {
     detailHistory.setDirty(hasDraftChanges);
@@ -416,13 +426,6 @@ function DetailView({
     }
   }, [pendingNavigation]);
 
-  if (!item) {
-    return null;
-  }
-
-  const detailItem = item;
-  const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
-
   function setField(field: keyof DetailDraft, value: string) {
     dispatchDraft({
       type: "update",
@@ -436,20 +439,80 @@ function DetailView({
   }
 
   async function saveDraft() {
-    const patch = detailPatchForItem(detailItem, draft);
-    if (Object.keys(patch).length > 0) {
-      await controller.saveDetailItem(patch);
+    if (savePendingRef.current || !item || !hasDraftChanges) {
+      return;
     }
 
-    const transition = transitionActionForStatus(
-      detailItem.status,
-      draft.status,
-      detailItem.type,
-    );
-    if (transition) {
-      await controller.transitionWorkspaceItem(detailItem.id, transition);
+    savePendingRef.current = true;
+    setIsSaving(true);
+    setSaveError(null);
+    dispatchDraft({ type: "close-group" });
+    const detailItem = item;
+    const patch = detailPatchForItem(detailItem, draft);
+    try {
+      if (Object.keys(patch).length > 0) {
+        await controller.saveDetailItem(patch);
+      }
+
+      const transition = transitionActionForStatus(
+        detailItem.status,
+        draft.status,
+        detailItem.type,
+      );
+      if (transition) {
+        await controller.transitionWorkspaceItem(detailItem.id, transition);
+      }
+    } catch (cause) {
+      setSaveError(
+        cause instanceof RavenApiError
+          ? cause.message
+          : "Could not save detail.",
+      );
+    } finally {
+      savePendingRef.current = false;
+      setIsSaving(false);
     }
   }
+
+  saveDraftRef.current = saveDraft;
+
+  React.useEffect(() => {
+    function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (
+        event.isComposing ||
+        pendingNavigationRef.current ||
+        event.altKey ||
+        (!event.ctrlKey && !event.metaKey)
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "s" && !event.shiftKey) {
+        event.preventDefault();
+        void saveDraftRef.current();
+      } else if (key === "z" && event.shiftKey) {
+        event.preventDefault();
+        dispatchDraft({ type: "redo" });
+      } else if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        dispatchDraft({ type: "undo" });
+      } else if (key === "y" && event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        event.preventDefault();
+        dispatchDraft({ type: "redo" });
+      }
+    }
+
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    return () => document.removeEventListener("keydown", handleDocumentKeyDown);
+  }, []);
+
+  if (!item) {
+    return null;
+  }
+
+  const detailItem = item;
+  const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
 
   function openLinkedItem(nextItem: WorkspaceItemModel) {
     if (hasDraftChanges) {
@@ -552,13 +615,14 @@ function DetailView({
           <button
             type="button"
             aria-label="Save"
-            disabled={!hasDraftChanges}
+            disabled={!hasDraftChanges || isSaving}
             onClick={() => void saveDraft()}
           >
             <Save size={16} aria-hidden="true" />
           </button>
         </div>
       </header>
+      {saveError ? <p role="alert">{saveError}</p> : null}
       <div className="detail-layout">
         <div className="detail-heading">
           <div className="detail-kicker">

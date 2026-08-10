@@ -8884,6 +8884,143 @@ describe("WorkbenchPageClient", () => {
     expect(editor.closest(".detail-layout")).not.toBeNull();
   });
 
+  it("supports detail save undo and redo keyboard conventions", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Renamed",
+            status: "active",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+
+    const title = screen.getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Renamed");
+
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true });
+    expect(title).toHaveValue("One");
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true, shiftKey: true });
+    expect(title).toHaveValue("Renamed");
+    fireEvent.keyDown(document, { key: "z", metaKey: true });
+    expect(title).toHaveValue("One");
+    fireEvent.keyDown(document, { key: "y", ctrlKey: true });
+    expect(title).toHaveValue("Renamed");
+    fireEvent.keyDown(document, { key: "s", metaKey: true });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/todo/items/task-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ title: "Renamed" }),
+      }),
+    ));
+  });
+
+  it("prevents duplicate detail saves while a request is pending", async () => {
+    const user = userEvent.setup();
+    let resolvePatch!: (value: Response) => void;
+    const patchResponse = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return patchResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Renamed");
+
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true, repeat: true });
+
+    expect(fetchMock.mock.calls.filter(
+      ([url, init]) => url === "/api/v1/todo/items/task-1" && init?.method === "PATCH",
+    )).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    resolvePatch({
+      ok: true,
+      json: async () => ({
+        id: "task-1",
+        type: "task",
+        title: "Renamed",
+        status: "active",
+      }),
+    } as Response);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+  });
+
+  it("keeps detail draft history after a failed save", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => ({
+            code: "internal_error",
+            message: "Could not save detail.",
+            fields: {},
+            request_id: "00000000-0000-4000-8000-000000000007",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Renamed");
+
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save detail.");
+    expect(screen.getByLabelText("Title")).toHaveValue("Renamed");
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
   it("groups detail edits into page-local undo and redo steps", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
