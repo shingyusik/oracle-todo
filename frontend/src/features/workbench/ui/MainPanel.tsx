@@ -2550,7 +2550,7 @@ function detailDraftHistoryReducer(
 ): DetailDraftHistory {
   if (action.type === "sync-item") {
     if (action.itemId === state.itemId) {
-      return { ...state, present: action.draft };
+      return { ...state, present: action.draft, activeGroup: null };
     }
     return {
       itemId: action.itemId,

@@ -8890,7 +8890,13 @@ describe("WorkbenchPageClient", () => {
       Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "active" },
+          {
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            note: "Old note",
+          },
         ],
       }),
     );
@@ -8900,13 +8906,35 @@ describe("WorkbenchPageClient", () => {
     await openWorkspaceTasks(user);
     await user.click(screen.getByRole("button", { name: "Open details for One" }));
 
-    const title = screen.getByLabelText("Title");
-    await user.type(title, " two");
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(title).toHaveValue("One");
+    const undo = screen.getByRole("button", { name: "Undo" });
+    const redo = screen.getByRole("button", { name: "Redo" });
+    expect(undo).toBeDisabled();
+    expect(redo).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Redo" }));
-    expect(title).toHaveValue("One two");
+    const title = screen.getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Renamed");
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note line 1" }));
+    const note = screen.getByRole("textbox", { name: "Markdown note line 1" });
+    await user.clear(note);
+    await user.type(note, "New note");
+
+    await user.click(undo);
+    expect(title).toHaveValue("Renamed");
+    expect(within(screen.getByLabelText("Markdown note editor")).getByText("Old note")).toBeVisible();
+
+    await user.click(undo);
+    expect(title).toHaveValue("One");
+    expect(undo).toBeDisabled();
+    expect(redo).toBeEnabled();
+
+    await user.click(redo);
+    expect(title).toHaveValue("Renamed");
+    expect(within(screen.getByLabelText("Markdown note editor")).getByText("Old note")).toBeVisible();
+
+    await user.click(redo);
+    expect(within(screen.getByLabelText("Markdown note editor")).getByText("New note")).toBeVisible();
+    expect(redo).toBeDisabled();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   });
 
@@ -8927,12 +8955,17 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Open details for One" }));
 
     const title = screen.getByLabelText("Title");
-    await user.type(title, " two");
+    await user.clear(title);
+    await user.type(title, "First edit");
+    await user.tab();
     await user.click(screen.getByRole("button", { name: "Undo" }));
-    await user.type(title, " three");
+    expect(screen.getByRole("button", { name: "Redo" })).toBeEnabled();
+
+    await user.clear(title);
+    await user.type(title, "Second edit");
 
     expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
-    expect(title).toHaveValue("One three");
+    expect(title).toHaveValue("Second edit");
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   });
 
