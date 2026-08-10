@@ -9580,6 +9580,302 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
+  it("keeps the newer detail PATCH in workspace collections when the older response arrives last", async () => {
+    const user = userEvent.setup();
+    let resolveOldPatch!: (value: Response) => void;
+    let resolveNewPatch!: (value: Response) => void;
+    let resolveOverlapSuccess!: (value: Response) => void;
+    let resolveFailedPatch!: (value: Response) => void;
+    const oldPatchResponse = new Promise<Response>((resolve) => {
+      resolveOldPatch = resolve;
+    });
+    const newPatchResponse = new Promise<Response>((resolve) => {
+      resolveNewPatch = resolve;
+    });
+    const overlapSuccessResponse = new Promise<Response>((resolve) => {
+      resolveOverlapSuccess = resolve;
+    });
+    const failedPatchResponse = new Promise<Response>((resolve) => {
+      resolveFailedPatch = resolve;
+    });
+    let patchAttempts = 0;
+    let allItemsReads = 0;
+    let canonicalReadTitle = "Health";
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1" && init?.method === "PATCH") {
+        patchAttempts += 1;
+        if (patchAttempts === 1) return oldPatchResponse;
+        if (patchAttempts === 2) return newPatchResponse;
+        if (patchAttempts === 3) return overlapSuccessResponse;
+        return failedPatchResponse;
+      }
+      if (url === "/api/v1/todo/items") {
+        allItemsReads += 1;
+        return Promise.resolve({
+          ok: true,
+          json: async () => linkedAreaItemsResponse(url).map((item) =>
+            item.id === "area-1" ? { ...item, title: canonicalReadTitle } : item),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Older title");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.history.state).toMatchObject({ __ravenDetailItemId: "project-1" }),
+    );
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Newer title");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(patchAttempts).toBe(2);
+
+    await act(async () => {
+      resolveNewPatch({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical newer PATCH",
+          status: "active",
+        }),
+      } as Response);
+      await newPatchResponse;
+    });
+    expect(await screen.findByRole("heading", { name: "Canonical newer PATCH" }))
+      .toBeInTheDocument();
+
+    await act(async () => {
+      resolveOldPatch({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical older PATCH",
+          status: "active",
+        }),
+      } as Response);
+      await oldPatchResponse;
+    });
+
+    expect(screen.getByRole("heading", { name: "Canonical newer PATCH" }))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const reopenedItem = await screen.findByRole("button", {
+      name: "Open details for Canonical newer PATCH",
+    });
+    await user.click(reopenedItem);
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Accepted overlap PATCH");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.history.state).toMatchObject({ __ravenDetailItemId: "project-1" }),
+    );
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Canonical newer PATCH details"))
+      .toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Failing latest PATCH");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(patchAttempts).toBe(4);
+
+    await act(async () => {
+      resolveOverlapSuccess({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Accepted overlap PATCH",
+          status: "active",
+        }),
+      } as Response);
+      await overlapSuccessResponse;
+    });
+
+    const initialAllItemsReads = allItemsReads;
+    canonicalReadTitle = "Canonical after failed overlap";
+    await act(async () => {
+      resolveFailedPatch({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          code: "conflict",
+          message: "Could not save latest PATCH.",
+          fields: {},
+          request_id: "00000000-0000-4000-8000-000000000009",
+        }),
+      } as Response);
+      await failedPatchResponse;
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save latest PATCH.");
+    await waitFor(() => expect(allItemsReads).toBe(initialAllItemsReads + 1));
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(await screen.findByRole("button", {
+      name: "Open details for Canonical after failed overlap",
+    })).toBeInTheDocument();
+  });
+
+  it("keeps the newer detail transition in workspace collections when the older response arrives last", async () => {
+    const user = userEvent.setup();
+    let resolveOldTransition!: (value: Response) => void;
+    let resolveNewTransition!: (value: Response) => void;
+    const oldTransitionResponse = new Promise<Response>((resolve) => {
+      resolveOldTransition = resolve;
+    });
+    const newTransitionResponse = new Promise<Response>((resolve) => {
+      resolveNewTransition = resolve;
+    });
+    let transitionAttempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
+        transitionAttempts += 1;
+        return transitionAttempts === 1 ? oldTransitionResponse : newTransitionResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    await waitFor(() =>
+      expect(window.history.state).toMatchObject({ __ravenDetailItemId: "project-1" }),
+    );
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(transitionAttempts).toBe(2);
+
+    await act(async () => {
+      resolveNewTransition({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical newer transition",
+          status: "archived",
+        }),
+      } as Response);
+      await newTransitionResponse;
+    });
+    await act(async () => {
+      resolveOldTransition({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical older transition",
+          status: "archived",
+        }),
+      } as Response);
+      await oldTransitionResponse;
+    });
+
+    expect(screen.getByRole("heading", { name: "Canonical newer transition" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(await screen.findByRole("button", {
+      name: "Open details for Canonical newer transition",
+    })).toBeInTheDocument();
+  });
+
+  it("retries a failed composite detail save to the final canonical item", async () => {
+    const user = userEvent.setup();
+    let transitionAttempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "area-1",
+            type: "area",
+            title: "Canonical composite title",
+            status: "active",
+          }),
+        } as Response);
+      }
+      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
+        transitionAttempts += 1;
+        if (transitionAttempts === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: async () => ({
+              code: "conflict",
+              message: "Could not archive item.",
+              fields: {},
+              request_id: "00000000-0000-4000-8000-000000000010",
+            }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "area-1",
+            type: "area",
+            title: "Canonical composite title",
+            status: "archived",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Composite title");
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not archive item.");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("heading", { name: "Canonical composite title" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(transitionAttempts).toBe(2);
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("active");
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(await screen.findByRole("button", {
+      name: "Open details for Canonical composite title",
+    })).toBeInTheDocument();
+  });
+
   it("groups detail edits into page-local undo and redo steps", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>

@@ -318,7 +318,11 @@ export function MainPanel({ controller }: MainPanelProps) {
   if (controller.detailItem) {
     return (
       <main className="main-panel">
-        <DetailView controller={controller} detailHistory={detailHistory} />
+        <DetailView
+          key={controller.detailItem.id}
+          controller={controller}
+          detailHistory={detailHistory}
+        />
       </main>
     );
   }
@@ -396,13 +400,6 @@ function DetailView({
   );
   const cancelLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
   const discardLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
-
-  if (activeItemIdRef.current !== (item?.id ?? null)) {
-    activeItemIdRef.current = item?.id ?? null;
-    saveGenerationRef.current += 1;
-    savePendingRef.current = false;
-    suppressedSyncRef.current = null;
-  }
 
   React.useEffect(() => {
     if (suppressedSyncRef.current?.itemId === item?.id) {
