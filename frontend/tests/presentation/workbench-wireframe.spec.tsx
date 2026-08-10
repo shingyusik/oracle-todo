@@ -9792,6 +9792,60 @@ describe("WorkbenchPageClient", () => {
     })).toBeInTheDocument();
   });
 
+  it("preserves edits made while a detail save is pending", async () => {
+    const user = userEvent.setup();
+    let resolvePatch!: (value: Response) => void;
+    const patchResponse = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    let patchAttempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        patchAttempts += 1;
+        return patchResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Submitted A");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Later B");
+
+    await act(async () => {
+      resolvePatch({
+        ok: true,
+        json: async () => ({
+          id: "task-1",
+          type: "task",
+          title: "Submitted A",
+          status: "active",
+        }),
+      } as Response);
+      await patchResponse;
+    });
+
+    expect(screen.getByLabelText("Title")).toHaveValue("Later B");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Submitted A");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Later B");
+    expect(patchAttempts).toBe(1);
+  });
+
   it("retries a failed composite detail save to the final canonical item", async () => {
     const user = userEvent.setup();
     let transitionAttempts = 0;

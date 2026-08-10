@@ -387,12 +387,15 @@ function DetailView({
     (initialItem) => initialDetailDraftHistory(initialItem),
   );
   const draft = draftHistory.present;
+  const latestDraftRef = React.useRef(draft);
+  latestDraftRef.current = draft;
   const [isSaving, setIsSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const savePendingRef = React.useRef(false);
   const saveGenerationRef = React.useRef(0);
   const activeItemIdRef = React.useRef(item?.id ?? null);
   const suppressedSyncRef = React.useRef<{ itemId: string; generation: number } | null>(null);
+  const preservedDraftSyncRef = React.useRef<{ itemId: string; generation: number } | null>(null);
   const saveDraftRef = React.useRef<() => Promise<void>>(async () => {});
   const pendingNavigationRef = React.useRef(false);
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
@@ -403,6 +406,10 @@ function DetailView({
 
   React.useEffect(() => {
     if (suppressedSyncRef.current?.itemId === item?.id) {
+      return;
+    }
+    if (preservedDraftSyncRef.current?.itemId === item?.id) {
+      preservedDraftSyncRef.current = null;
       return;
     }
     dispatchDraft({
@@ -424,6 +431,7 @@ function DetailView({
       saveGenerationRef.current += 1;
       savePendingRef.current = false;
       suppressedSyncRef.current = null;
+      preservedDraftSyncRef.current = null;
     };
   }, [item?.id]);
 
@@ -470,6 +478,7 @@ function DetailView({
     setSaveError(null);
     dispatchDraft({ type: "close-group" });
     const detailItem = item;
+    const submittedDraft = draft;
     suppressedSyncRef.current = { itemId: detailItem.id, generation: saveGeneration };
     const isCurrentSave = () =>
       activeItemIdRef.current === detailItem.id &&
@@ -492,6 +501,12 @@ function DetailView({
         await controller.transitionWorkspaceItem(detailItem.id, transition);
       }
       if (isCurrentSave()) {
+        if (!sameDetailDraft(latestDraftRef.current, submittedDraft)) {
+          preservedDraftSyncRef.current = {
+            itemId: detailItem.id,
+            generation: saveGeneration,
+          };
+        }
         suppressedSyncRef.current = null;
       }
     } catch (cause) {
