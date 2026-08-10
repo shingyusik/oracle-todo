@@ -387,15 +387,17 @@ function DetailView({
     (initialItem) => initialDetailDraftHistory(initialItem),
   );
   const draft = draftHistory.present;
-  const latestDraftRef = React.useRef(draft);
-  latestDraftRef.current = draft;
   const [isSaving, setIsSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const savePendingRef = React.useRef(false);
   const saveGenerationRef = React.useRef(0);
   const activeItemIdRef = React.useRef(item?.id ?? null);
   const suppressedSyncRef = React.useRef<{ itemId: string; generation: number } | null>(null);
-  const preservedDraftSyncRef = React.useRef<{ itemId: string; generation: number } | null>(null);
+  const pendingSaveRebaseRef = React.useRef<{
+    itemId: string;
+    generation: number;
+    submittedDraft: DetailDraft;
+  } | null>(null);
   const saveDraftRef = React.useRef<() => Promise<void>>(async () => {});
   const pendingNavigationRef = React.useRef(false);
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
@@ -408,8 +410,20 @@ function DetailView({
     if (suppressedSyncRef.current?.itemId === item?.id) {
       return;
     }
-    if (preservedDraftSyncRef.current?.itemId === item?.id) {
-      preservedDraftSyncRef.current = null;
+    const pendingRebase = pendingSaveRebaseRef.current;
+    if (
+      pendingRebase &&
+      item &&
+      pendingRebase.itemId === item.id &&
+      pendingRebase.generation === saveGenerationRef.current
+    ) {
+      pendingSaveRebaseRef.current = null;
+      dispatchDraft({
+        type: "rebase-saved-item",
+        itemId: item.id,
+        submittedDraft: pendingRebase.submittedDraft,
+        canonicalDraft: detailDraftForItem(item),
+      });
       return;
     }
     dispatchDraft({
@@ -431,7 +445,7 @@ function DetailView({
       saveGenerationRef.current += 1;
       savePendingRef.current = false;
       suppressedSyncRef.current = null;
-      preservedDraftSyncRef.current = null;
+      pendingSaveRebaseRef.current = null;
     };
   }, [item?.id]);
 
@@ -501,12 +515,11 @@ function DetailView({
         await controller.transitionWorkspaceItem(detailItem.id, transition);
       }
       if (isCurrentSave()) {
-        if (!sameDetailDraft(latestDraftRef.current, submittedDraft)) {
-          preservedDraftSyncRef.current = {
-            itemId: detailItem.id,
-            generation: saveGeneration,
-          };
-        }
+        pendingSaveRebaseRef.current = {
+          itemId: detailItem.id,
+          generation: saveGeneration,
+          submittedDraft,
+        };
         suppressedSyncRef.current = null;
       }
     } catch (cause) {
@@ -2631,6 +2644,12 @@ type DetailDraftHistory = {
 type DetailDraftHistoryAction =
   | { type: "sync-item"; itemId: string | null; draft: DetailDraft }
   | {
+      type: "rebase-saved-item";
+      itemId: string;
+      submittedDraft: DetailDraft;
+      canonicalDraft: DetailDraft;
+    }
+  | {
       type: "update";
       fields: Partial<DetailDraft>;
       group: keyof DetailDraft | null;
@@ -2674,6 +2693,20 @@ function detailDraftHistoryReducer(
       present: action.draft,
       future: [],
       activeGroup: null,
+    };
+  }
+
+  if (action.type === "rebase-saved-item") {
+    if (action.itemId !== state.itemId) {
+      return state;
+    }
+    const rebase = (snapshot: DetailDraft) =>
+      rebaseDetailDraft(snapshot, action.submittedDraft, action.canonicalDraft);
+    return {
+      ...state,
+      past: state.past.map(rebase),
+      present: rebase(state.present),
+      future: state.future.map(rebase),
     };
   }
 
@@ -2726,6 +2759,20 @@ function detailDraftHistoryReducer(
 function sameDetailDraft(left: DetailDraft, right: DetailDraft): boolean {
   return (Object.keys(left) as (keyof DetailDraft)[]).every(
     (field) => left[field] === right[field],
+  );
+}
+
+function rebaseDetailDraft(
+  snapshot: DetailDraft,
+  submitted: DetailDraft,
+  canonical: DetailDraft,
+): DetailDraft {
+  return (Object.keys(snapshot) as (keyof DetailDraft)[]).reduce(
+    (rebased, field) => ({
+      ...rebased,
+      [field]: snapshot[field] === submitted[field] ? canonical[field] : snapshot[field],
+    }),
+    {} as DetailDraft,
   );
 }
 

@@ -9578,7 +9578,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(screen.getByLabelText("Status for Canonical newer transition")).toHaveValue("active");
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   it("serializes detail PATCH calls and keeps the last successful canonical item", async () => {
@@ -9808,7 +9808,13 @@ describe("WorkbenchPageClient", () => {
       return Promise.resolve({
         ok: true,
         json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "active" },
+          {
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "active",
+            note: "Original note",
+          },
         ],
       } as Response);
     });
@@ -9818,10 +9824,12 @@ describe("WorkbenchPageClient", () => {
     await openWorkspaceTasks(user);
     await user.click(screen.getByRole("button", { name: "Open details for One" }));
     await user.clear(screen.getByLabelText("Title"));
-    await user.type(screen.getByLabelText("Title"), "Submitted A");
+    await user.type(screen.getByLabelText("Title"), " Submitted A ");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await user.clear(screen.getByLabelText("Title"));
-    await user.type(screen.getByLabelText("Title"), "Later B");
+    await user.click(screen.getByRole("button", { name: "Edit Markdown note line 1" }));
+    const note = screen.getByRole("textbox", { name: "Markdown note line 1" });
+    await user.clear(note);
+    await user.type(note, "Later B");
 
     await act(async () => {
       resolvePatch({
@@ -9831,18 +9839,29 @@ describe("WorkbenchPageClient", () => {
           type: "task",
           title: "Submitted A",
           status: "active",
+          note: "Original note",
         }),
       } as Response);
       await patchResponse;
     });
 
-    expect(screen.getByLabelText("Title")).toHaveValue("Later B");
+    expect(screen.getByLabelText("Title")).toHaveValue("Submitted A");
+    expect(
+      within(screen.getByLabelText("Markdown note editor")).getByText("Later B"),
+    ).toBeVisible();
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(screen.getByLabelText("Title")).toHaveValue("Submitted A");
+    expect(
+      within(screen.getByLabelText("Markdown note editor")).getByText("Original note"),
+    ).toBeVisible();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Redo" }));
-    expect(screen.getByLabelText("Title")).toHaveValue("Later B");
+    expect(screen.getByLabelText("Title")).toHaveValue("Submitted A");
+    expect(
+      within(screen.getByLabelText("Markdown note editor")).getByText("Later B"),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     expect(patchAttempts).toBe(1);
   });
 
