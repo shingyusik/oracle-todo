@@ -6,8 +6,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
+  Redo2,
   Save,
   Trash2,
+  Undo2,
   X,
 } from "lucide-react";
 
@@ -375,7 +377,12 @@ function DetailView({
   detailHistory,
 }: MainPanelProps & { detailHistory: DetailHistoryController }) {
   const item = controller.detailItem;
-  const [draft, setDraft] = React.useState(() => detailDraftForItem(item));
+  const [draftHistory, dispatchDraft] = React.useReducer(
+    detailDraftHistoryReducer,
+    item,
+    (initialItem) => initialDetailDraftHistory(initialItem),
+  );
+  const draft = draftHistory.present;
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
     null,
   );
@@ -383,7 +390,11 @@ function DetailView({
   const discardLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
 
   React.useEffect(() => {
-    setDraft(detailDraftForItem(item));
+    dispatchDraft({
+      type: "sync-item",
+      itemId: item?.id ?? null,
+      draft: detailDraftForItem(item),
+    });
   }, [item]);
 
   const hasDraftChanges = item ? hasDetailChanges(item, draft) : false;
@@ -413,7 +424,15 @@ function DetailView({
   const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
 
   function setField(field: keyof DetailDraft, value: string) {
-    setDraft((current) => ({ ...current, [field]: value }));
+    dispatchDraft({
+      type: "update",
+      fields: { [field]: value },
+      group: continuousDetailDraftFields.includes(field) ? field : null,
+    });
+  }
+
+  function setFields(fields: Partial<DetailDraft>) {
+    dispatchDraft({ type: "update", fields, group: null });
   }
 
   async function saveDraft() {
@@ -497,7 +516,11 @@ function DetailView({
   }
 
   return (
-    <section className="detail-view" aria-label={`${item.title} details`}>
+    <section
+      className="detail-view"
+      aria-label={`${item.title} details`}
+      onBlurCapture={() => dispatchDraft({ type: "close-group" })}
+    >
       <header className="detail-header">
         <button
           type="button"
@@ -508,6 +531,24 @@ function DetailView({
           <ArrowLeft size={16} aria-hidden="true" />
         </button>
         <div className="detail-actions">
+          <button
+            type="button"
+            aria-label="Undo"
+            title="Undo (Ctrl/Cmd+Z)"
+            disabled={draftHistory.past.length === 0}
+            onClick={() => dispatchDraft({ type: "undo" })}
+          >
+            <Undo2 size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Redo"
+            title="Redo (Ctrl/Cmd+Shift+Z or Ctrl+Y)"
+            disabled={draftHistory.future.length === 0}
+            onClick={() => dispatchDraft({ type: "redo" })}
+          >
+            <Redo2 size={16} aria-hidden="true" />
+          </button>
           <button
             type="button"
             aria-label="Save"
@@ -551,6 +592,7 @@ function DetailView({
                 item={item}
                 draft={draft}
                 setField={setField}
+                setFields={setFields}
                 workspaceItems={controller.workspaceItems}
                 controller={controller}
               />
@@ -2462,6 +2504,115 @@ type DetailDraft = {
   priority: string;
 };
 
+type DetailDraftHistory = {
+  itemId: string | null;
+  past: DetailDraft[];
+  present: DetailDraft;
+  future: DetailDraft[];
+  activeGroup: keyof DetailDraft | null;
+};
+
+type DetailDraftHistoryAction =
+  | { type: "sync-item"; itemId: string | null; draft: DetailDraft }
+  | {
+      type: "update";
+      fields: Partial<DetailDraft>;
+      group: keyof DetailDraft | null;
+    }
+  | { type: "close-group" }
+  | { type: "undo" }
+  | { type: "redo" };
+
+const continuousDetailDraftFields: (keyof DetailDraft)[] = [
+  "title",
+  "note",
+  "outcome",
+  "definition_of_done",
+  "location",
+  "participants",
+  "commitment_type",
+  "standard",
+];
+
+function initialDetailDraftHistory(item: WorkspaceItemModel | null): DetailDraftHistory {
+  return {
+    itemId: item?.id ?? null,
+    past: [],
+    present: detailDraftForItem(item),
+    future: [],
+    activeGroup: null,
+  };
+}
+
+function detailDraftHistoryReducer(
+  state: DetailDraftHistory,
+  action: DetailDraftHistoryAction,
+): DetailDraftHistory {
+  if (action.type === "sync-item") {
+    if (action.itemId === state.itemId) {
+      return { ...state, present: action.draft };
+    }
+    return {
+      itemId: action.itemId,
+      past: [],
+      present: action.draft,
+      future: [],
+      activeGroup: null,
+    };
+  }
+
+  if (action.type === "update") {
+    const present = { ...state.present, ...action.fields };
+    if (sameDetailDraft(state.present, present)) {
+      return state;
+    }
+    if (action.group !== null && action.group === state.activeGroup) {
+      return { ...state, present, future: [] };
+    }
+    return {
+      ...state,
+      past: [...state.past, state.present],
+      present,
+      future: [],
+      activeGroup: action.group,
+    };
+  }
+
+  if (action.type === "close-group") {
+    return state.activeGroup === null ? state : { ...state, activeGroup: null };
+  }
+
+  if (action.type === "undo") {
+    const present = state.past.at(-1);
+    return present
+      ? {
+          ...state,
+          past: state.past.slice(0, -1),
+          present,
+          future: [state.present, ...state.future],
+          activeGroup: null,
+        }
+      : state;
+  }
+
+  const present = state.future[0];
+  return present
+    ? {
+        ...state,
+        past: [...state.past, state.present],
+        present,
+        future: state.future.slice(1),
+        activeGroup: null,
+      }
+    : state;
+}
+
+function sameDetailDraft(left: DetailDraft, right: DetailDraft): boolean {
+  return (Object.keys(left) as (keyof DetailDraft)[]).every(
+    (field) => left[field] === right[field],
+  );
+}
+
 type StringWorkspaceItemPatchField = {
   [Key in keyof WorkspaceItemPatch]: WorkspaceItemPatch[Key] extends string | undefined
     ? Key
@@ -2701,12 +2852,14 @@ function DetailTypeFields({
   item,
   draft,
   setField,
+  setFields,
   workspaceItems,
   controller,
 }: {
   item: WorkspaceItemModel;
   draft: DetailDraft;
   setField: (field: keyof DetailDraft, value: string) => void;
+  setFields: (fields: Partial<DetailDraft>) => void;
   workspaceItems: WorkspaceItemsModel;
   controller: WorkbenchController;
 }) {
@@ -2923,8 +3076,7 @@ function DetailTypeFields({
             horizon={draft.horizon}
             scheduled={draft.scheduled}
             onCommit={({ horizon, scheduled }) => {
-              setField("horizon", horizon);
-              setField("scheduled", scheduled);
+              setFields({ horizon, scheduled });
             }}
           />
         </div>

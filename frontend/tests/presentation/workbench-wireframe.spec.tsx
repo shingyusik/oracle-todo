@@ -8884,6 +8884,58 @@ describe("WorkbenchPageClient", () => {
     expect(editor.closest(".detail-layout")).not.toBeNull();
   });
 
+  it("groups detail edits into page-local undo and redo steps", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+
+    const title = screen.getByLabelText("Title");
+    await user.type(title, " two");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(title).toHaveValue("One");
+
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(title).toHaveValue("One two");
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  });
+
+  it("clears detail redo history after a new local edit", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+
+    const title = screen.getByLabelText("Title");
+    await user.type(title, " two");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.type(title, " three");
+
+    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+    expect(title).toHaveValue("One three");
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  });
+
   it("keeps checkbox keyboard selection from opening details", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
