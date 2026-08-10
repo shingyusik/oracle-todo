@@ -87,6 +87,32 @@ type MainPanelProps = {
   controller: WorkbenchController;
 };
 
+const detailHistoryStateKey = "__ravenDetailItemId";
+
+type DetailHistoryController = {
+  pendingBack: boolean;
+  setDirty(dirty: boolean): void;
+  requestBack(): void;
+  cancelBack(): void;
+  discardBack(): void;
+};
+
+function detailIdFromHistoryState(state: unknown): string | null {
+  if (!state || typeof state !== "object") {
+    return null;
+  }
+
+  const value = (state as Record<string, unknown>)[detailHistoryStateKey];
+  return typeof value === "string" ? value : null;
+}
+
+function withDetailHistoryState(state: unknown, itemId: string | null) {
+  const existing = state && typeof state === "object" && !Array.isArray(state)
+    ? state as Record<string, unknown>
+    : {};
+  return { ...existing, [detailHistoryStateKey]: itemId };
+}
+
 type PlannerCreationSourceContext = Omit<PlannerCreationContext, "tableSettings">;
 
 type ItemColumn = {
@@ -121,11 +147,147 @@ function sameTags(left: string[] | null | undefined, right: string[] | null | un
   return formatTags(left) === formatTags(right);
 }
 
+function useDetailHistory(controller: WorkbenchController): DetailHistoryController {
+  const controllerRef = useRef(controller);
+  controllerRef.current = controller;
+  const currentDetailIdRef = useRef(controller.detailItem?.id ?? null);
+  const dirtyRef = useRef(false);
+  const applyingHistoryRef = useRef(false);
+  const restoringCurrentEntryRef = useRef(false);
+  const pendingBackRef = useRef(false);
+  const discardAfterRestoreRef = useRef(false);
+  const [pendingBack, setPendingBack] = React.useState(false);
+
+  useEffect(() => {
+    window.history.replaceState(
+      withDetailHistoryState(window.history.state, currentDetailIdRef.current),
+      "",
+    );
+
+    function restoreCurrentEntry() {
+      restoringCurrentEntryRef.current = true;
+      window.history.forward();
+    }
+
+    function finishDiscard() {
+      pendingBackRef.current = false;
+      setPendingBack(false);
+      dirtyRef.current = false;
+      window.history.back();
+    }
+
+    function handlePopState(event: PopStateEvent) {
+      const currentId = currentDetailIdRef.current;
+      const requestedId = detailIdFromHistoryState(event.state);
+
+      if (restoringCurrentEntryRef.current && requestedId === currentId) {
+        restoringCurrentEntryRef.current = false;
+        if (discardAfterRestoreRef.current) {
+          discardAfterRestoreRef.current = false;
+          finishDiscard();
+        } else if (!pendingBackRef.current) {
+          pendingBackRef.current = true;
+          setPendingBack(true);
+        }
+        return;
+      }
+
+      if (pendingBackRef.current) {
+        restoreCurrentEntry();
+        return;
+      }
+
+      if (currentId && dirtyRef.current) {
+        restoreCurrentEntry();
+        return;
+      }
+
+      const item = requestedId
+        ? controllerRef.current.workspaceItems.allItems.find(({ id }) => id === requestedId)
+        : null;
+      const nextId = item?.id ?? null;
+      if (nextId === currentId) {
+        return;
+      }
+
+      applyingHistoryRef.current = true;
+      if (item) {
+        controllerRef.current.openDetailView(item);
+      } else {
+        controllerRef.current.closeDetailView();
+      }
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    const nextId = controller.detailItem?.id ?? null;
+    const previousId = currentDetailIdRef.current;
+    if (nextId === previousId) {
+      return;
+    }
+    currentDetailIdRef.current = nextId;
+
+    if (applyingHistoryRef.current) {
+      applyingHistoryRef.current = false;
+      return;
+    }
+
+    if (nextId) {
+      window.history.pushState(withDetailHistoryState(window.history.state, nextId), "");
+    } else if (previousId) {
+      window.history.replaceState(withDetailHistoryState(window.history.state, null), "");
+    }
+  }, [controller.detailItem?.id]);
+
+  const setDirty = React.useCallback((dirty: boolean) => {
+    dirtyRef.current = dirty;
+  }, []);
+
+  return {
+    pendingBack,
+    setDirty,
+    requestBack() {
+      if (pendingBackRef.current || restoringCurrentEntryRef.current) {
+        return;
+      }
+      if (dirtyRef.current) {
+        pendingBackRef.current = true;
+        setPendingBack(true);
+      } else {
+        window.history.back();
+      }
+    },
+    cancelBack() {
+      discardAfterRestoreRef.current = false;
+      pendingBackRef.current = false;
+      setPendingBack(false);
+    },
+    discardBack() {
+      if (!pendingBackRef.current) {
+        return;
+      }
+      if (restoringCurrentEntryRef.current) {
+        discardAfterRestoreRef.current = true;
+        return;
+      }
+      pendingBackRef.current = false;
+      setPendingBack(false);
+      dirtyRef.current = false;
+      window.history.back();
+    },
+  };
+}
+
 export function MainPanel({ controller }: MainPanelProps) {
+  const detailHistory = useDetailHistory(controller);
+
   if (controller.detailItem) {
     return (
       <main className="main-panel">
-        <DetailView controller={controller} />
+        <DetailView controller={controller} detailHistory={detailHistory} />
       </main>
     );
   }
@@ -179,7 +341,10 @@ function HealthWorkspace({ leafTabId }: { leafTabId: HealthTabId }) {
   return <HealthPanel controller={controller} leafTabId={leafTabId} />;
 }
 
-function DetailView({ controller }: MainPanelProps) {
+function DetailView({
+  controller,
+  detailHistory,
+}: MainPanelProps & { detailHistory: DetailHistoryController }) {
   const item = controller.detailItem;
   const [draft, setDraft] = React.useState(() => detailDraftForItem(item));
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
@@ -192,18 +357,25 @@ function DetailView({ controller }: MainPanelProps) {
     setDraft(detailDraftForItem(item));
   }, [item]);
 
+  const hasDraftChanges = item ? hasDetailChanges(item, draft) : false;
+  const pendingNavigation = pendingLinkedItem !== null || detailHistory.pendingBack;
+
   React.useEffect(() => {
-    if (pendingLinkedItem) {
+    detailHistory.setDirty(hasDraftChanges);
+    return () => detailHistory.setDirty(false);
+  }, [detailHistory.setDirty, hasDraftChanges]);
+
+  React.useEffect(() => {
+    if (pendingNavigation) {
       cancelLinkedItemNavigationRef.current?.focus();
     }
-  }, [pendingLinkedItem]);
+  }, [pendingNavigation]);
 
   if (!item) {
     return null;
   }
 
   const detailItem = item;
-  const hasDraftChanges = hasDetailChanges(detailItem, draft);
   const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
 
   function setField(field: keyof DetailDraft, value: string) {
@@ -235,23 +407,28 @@ function DetailView({ controller }: MainPanelProps) {
     controller.openDetailView(nextItem);
   }
 
-  function discardDraftAndOpenLinkedItem() {
-    if (!pendingLinkedItem) {
-      return;
+  function discardPendingNavigation() {
+    if (pendingLinkedItem) {
+      detailHistory.setDirty(false);
+      controller.openDetailView(pendingLinkedItem);
+      setPendingLinkedItem(null);
+    } else {
+      detailHistory.discardBack();
     }
-
-    controller.openDetailView(pendingLinkedItem);
-    setPendingLinkedItem(null);
   }
 
-  function cancelLinkedItemNavigation() {
-    setPendingLinkedItem(null);
+  function cancelPendingNavigation() {
+    if (pendingLinkedItem) {
+      setPendingLinkedItem(null);
+    } else {
+      detailHistory.cancelBack();
+    }
   }
 
   function handleLinkedItemNavigationDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      cancelLinkedItemNavigation();
+      cancelPendingNavigation();
       return;
     }
 
@@ -279,7 +456,7 @@ function DetailView({ controller }: MainPanelProps) {
           type="button"
           className="detail-back"
           aria-label="< Back"
-          onClick={controller.closeDetailView}
+          onClick={detailHistory.requestBack}
         >
           <ArrowLeft size={16} aria-hidden="true" />
         </button>
@@ -356,7 +533,7 @@ function DetailView({ controller }: MainPanelProps) {
           />
         </section>
       </div>
-      {pendingLinkedItem ? (
+      {pendingNavigation ? (
         <div className="confirmation-backdrop">
           <section
             className="confirmation-dialog"
@@ -366,19 +543,19 @@ function DetailView({ controller }: MainPanelProps) {
             onKeyDown={handleLinkedItemNavigationDialogKeyDown}
           >
             <h2>Discard unsaved changes?</h2>
-            <p>Your changes will be lost when you open another item.</p>
+            <p>Your changes will be lost if you leave this detail.</p>
             <div className="dialog-actions">
               <button
                 ref={cancelLinkedItemNavigationRef}
                 type="button"
-                onClick={cancelLinkedItemNavigation}
+                onClick={cancelPendingNavigation}
               >
                 Cancel
               </button>
               <button
                 ref={discardLinkedItemNavigationRef}
                 type="button"
-                onClick={discardDraftAndOpenLinkedItem}
+                onClick={discardPendingNavigation}
               >
                 Discard changes
               </button>

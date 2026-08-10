@@ -6342,8 +6342,124 @@ describe("WorkbenchPageClient", () => {
       expect.objectContaining({ method: "PATCH" }),
     );
 
+    await waitFor(() => expect(saveButton).toBeDisabled());
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Unsaved title");
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    expect(screen.getByRole("table", { name: "Tasks items" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Discard unsaved changes?" }))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Unsaved title");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(await screen.findByRole("button", { name: "Discard changes" }));
+    expect(await screen.findByRole("table", { name: "Tasks items" })).toBeInTheDocument();
+  });
+
+  it("traverses nested detail visits with browser history", async () => {
+    const user = userEvent.setup();
+    const originalUrl = window.location.href;
+    window.history.replaceState({ preserved: "keep" }, "", originalUrl);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => linkedAreaItemsResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    act(() => window.history.back());
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
+    act(() => window.history.forward());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    act(() => window.history.forward());
+    expect(await screen.findByLabelText("Checkup details")).toBeInTheDocument();
+    expect(window.location.href).toBe(originalUrl);
+    expect(window.history.state).toMatchObject({ preserved: "keep" });
+
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    expect(await screen.findByRole("table", { name: "Tasks items" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.history.state).toMatchObject({
+        preserved: "keep",
+        __ravenDetailItemId: null,
+      }),
+    );
+  });
+
+  it("falls back to the list for an unavailable detail history item", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({ ok: true, json: async () => linkedAreaItemsResponse(url) }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+    window.history.pushState(
+      { ...window.history.state, __ravenDetailItemId: "missing-item" },
+      "",
+    );
+
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    act(() => window.history.forward());
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
+  });
+
+  it("confirms browser Back before discarding a dirty detail draft", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => linkedAreaItemsResponse(url),
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Health draft");
+
+    act(() => window.history.back());
+    expect(await screen.findByRole("dialog", { name: "Discard unsaved changes?" }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
+    act(() => window.history.back());
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
+    await user.keyboard("{Escape}");
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
+
+    act(() => window.history.back());
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
+    act(() => window.history.back());
+    await user.click(await screen.findByRole("button", { name: "Discard changes" }));
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
   });
 
   it("renders nonempty linked-item groups and opens the selected child", async () => {
@@ -6618,6 +6734,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
   });
 
   it("does not render linked items for a Task without direct children", async () => {

@@ -17,6 +17,10 @@ Active Planner tasks and events expose a Miss dialog. Users can mark the item mi
 or create an independent follow-up on a selected date; the date defaults to browser-local
 tomorrow and cannot be earlier than tomorrow.
 
+Workspace detail visits participate in browser Back and Forward navigation, including linked
+details. Browser Back and the detail header Back button require confirmation before discarding
+unsaved edits.
+
 Completion history reports the daily percentage of Tasks and Events scheduled or due on
 each browser-local calendar date. Its Y-axis is fixed at 0–100%, and dates without eligible
 work remain visible as zero-value points.
