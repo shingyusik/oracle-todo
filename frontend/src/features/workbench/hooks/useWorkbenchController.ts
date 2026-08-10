@@ -802,7 +802,12 @@ export function useWorkbenchController(): WorkbenchController {
   const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
   const pendingTaskCreation = useRef(false);
   const workspaceRequestId = useRef(0);
-  const itemTransitions = useRef(new Map<string, Promise<void>>());
+  const itemTransitions = useRef(
+    new Map<
+      string,
+      { promise: Promise<void>; detailGeneration: number | null }
+    >(),
+  );
   const initialPlannerTableTabs = useRef(planner.tableTabs);
   const plannerSettingsLoaded = useRef(false);
   const pendingPlannerSettingsCommands =
@@ -1736,9 +1741,16 @@ export function useWorkbenchController(): WorkbenchController {
       itemId: string,
       action: WorkspaceItemTransitionAction,
     ) => {
+      const originatingGeneration =
+        detailItem?.id === itemId ? detailOpenGeneration.current : null;
       const existing = itemTransitions.current.get(itemId);
-      if (existing) return existing;
-      const originatingGeneration = detailOpenGeneration.current;
+      if (
+        existing &&
+        (originatingGeneration === null ||
+          existing.detailGeneration === originatingGeneration)
+      ) {
+        return existing.promise;
+      }
 
       const transition = (async () => {
         const updated = await postJson(`/api/v1/todo/items/${itemId}/${action}`, {});
@@ -1754,13 +1766,16 @@ export function useWorkbenchController(): WorkbenchController {
           tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
         }));
       })();
-      itemTransitions.current.set(itemId, transition);
+      itemTransitions.current.set(itemId, {
+        promise: transition,
+        detailGeneration: originatingGeneration,
+      });
       setItemTransitionStates((current) => ({
         ...current,
         [itemId]: { pending: true, error: null },
       }));
       const clearTransition = (error: string | null) => {
-        if (itemTransitions.current.get(itemId) === transition) {
+        if (itemTransitions.current.get(itemId)?.promise === transition) {
           itemTransitions.current.delete(itemId);
           setItemTransitionStates((current) =>
             error
@@ -1783,7 +1798,7 @@ export function useWorkbenchController(): WorkbenchController {
     },
     missWorkspaceItem: (itemId) => {
       const existing = itemTransitions.current.get(itemId);
-      if (existing) return existing;
+      if (existing) return existing.promise;
 
       const transition = (async () => {
         const source = await postMissItem(itemId);
@@ -1803,13 +1818,16 @@ export function useWorkbenchController(): WorkbenchController {
           };
         });
       })();
-      itemTransitions.current.set(itemId, transition);
+      itemTransitions.current.set(itemId, {
+        promise: transition,
+        detailGeneration: null,
+      });
       setItemTransitionStates((current) => ({
         ...current,
         [itemId]: { pending: true, error: null },
       }));
       const clearTransition = (error: string | null) => {
-        if (itemTransitions.current.get(itemId) === transition) {
+        if (itemTransitions.current.get(itemId)?.promise === transition) {
           itemTransitions.current.delete(itemId);
           setItemTransitionStates((current) =>
             error
@@ -1832,7 +1850,7 @@ export function useWorkbenchController(): WorkbenchController {
     },
     postponeWorkspaceItem: (itemId, scheduled) => {
       const existing = itemTransitions.current.get(itemId);
-      if (existing) return existing;
+      if (existing) return existing.promise;
 
       const transition = (async () => {
         const result = await postPostponeItem(itemId, scheduled);
@@ -1858,13 +1876,16 @@ export function useWorkbenchController(): WorkbenchController {
           };
         });
       })();
-      itemTransitions.current.set(itemId, transition);
+      itemTransitions.current.set(itemId, {
+        promise: transition,
+        detailGeneration: null,
+      });
       setItemTransitionStates((current) => ({
         ...current,
         [itemId]: { pending: true, error: null },
       }));
       const clearTransition = (error: string | null) => {
-        if (itemTransitions.current.get(itemId) === transition) {
+        if (itemTransitions.current.get(itemId)?.promise === transition) {
           itemTransitions.current.delete(itemId);
           setItemTransitionStates((current) =>
             error

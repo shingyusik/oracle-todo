@@ -9502,6 +9502,84 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
   });
 
+  it("starts a new same-action transition after reopening the same detail item", async () => {
+    const user = userEvent.setup();
+    let resolveOldTransition!: (value: Response) => void;
+    let resolveNewTransition!: (value: Response) => void;
+    const oldTransitionResponse = new Promise<Response>((resolve) => {
+      resolveOldTransition = resolve;
+    });
+    const newTransitionResponse = new Promise<Response>((resolve) => {
+      resolveNewTransition = resolve;
+    });
+    let transitionAttempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
+        transitionAttempts += 1;
+        return transitionAttempts === 1 ? oldTransitionResponse : newTransitionResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(transitionAttempts).toBe(1);
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(transitionAttempts).toBe(2);
+
+    await act(async () => {
+      resolveOldTransition({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical old transition",
+          status: "archived",
+        }),
+      } as Response);
+      await oldTransitionResponse;
+    });
+
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Health");
+    expect(screen.getByLabelText("Status for Health")).toHaveValue("archived");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await act(async () => {
+      resolveNewTransition({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical newer transition",
+          status: "archived",
+        }),
+      } as Response);
+      await newTransitionResponse;
+    });
+
+    expect(screen.getByLabelText("Title")).toHaveValue("Canonical newer transition");
+    expect(screen.getByLabelText("Status for Canonical newer transition")).toHaveValue("archived");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Status for Canonical newer transition")).toHaveValue("active");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
   it("groups detail edits into page-local undo and redo steps", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
