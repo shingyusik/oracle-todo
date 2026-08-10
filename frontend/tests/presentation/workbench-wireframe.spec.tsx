@@ -234,6 +234,31 @@ function testLongDateLabel(date: string): string {
   });
 }
 
+function controlHistoryForward() {
+  const forward = window.history.forward.bind(window.history);
+  const pending: Array<() => void> = [];
+  const spy = vi.spyOn(window.history, "forward").mockImplementation(() => {
+    pending.push(forward);
+  });
+
+  return {
+    spy,
+    async releaseNext() {
+      const next = pending.shift();
+      if (!next) {
+        throw new Error("No pending history.forward() call");
+      }
+      const popped = new Promise<void>((resolve) => {
+        window.addEventListener("popstate", () => resolve(), { once: true });
+      });
+      await act(async () => {
+        next();
+        await popped;
+      });
+    },
+  };
+}
+
 function linkedAreaItemsResponse(url: string) {
   const area = { id: "area-1", type: "area", title: "Health", status: "active" };
 
@@ -6424,11 +6449,7 @@ describe("WorkbenchPageClient", () => {
 
   it("confirms browser Back before discarding a dirty detail draft", async () => {
     const user = userEvent.setup();
-    const forward = window.history.forward.bind(window.history);
-    const pendingForwards: Array<() => void> = [];
-    const forwardSpy = vi.spyOn(window.history, "forward").mockImplementation(() => {
-      pendingForwards.push(forward);
-    });
+    const controlledForward = controlHistoryForward();
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>
@@ -6448,8 +6469,8 @@ describe("WorkbenchPageClient", () => {
     await user.type(screen.getByLabelText("Title"), "Health draft");
 
     act(() => window.history.back());
-    await waitFor(() => expect(forwardSpy).toHaveBeenCalledTimes(1));
-    act(() => pendingForwards.shift()?.());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledTimes(1));
+    await controlledForward.releaseNext();
     expect(await screen.findByRole("dialog", { name: "Discard unsaved changes?" }))
       .toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
@@ -6457,14 +6478,13 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" }))
       .toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
-    await waitFor(() => expect(forwardSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledTimes(2));
     await user.keyboard("{Escape}");
-    act(() => pendingForwards.shift()?.());
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 20));
-    });
-    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
-    forwardSpy.mockRestore();
+    await controlledForward.releaseNext();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull(),
+    );
+    controlledForward.spy.mockRestore();
     expect(screen.getByLabelText("Health details")).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
 
@@ -6746,18 +6766,8 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
 
     await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
-    act(() => window.history.back());
-    await waitFor(() =>
-      expect(window.history.state).toMatchObject({ __ravenDetailItemId: "area-1" }),
-    );
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
-    });
-    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" }))
-      .toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
     await waitFor(() =>
       expect(window.history.state).toMatchObject({ __ravenDetailItemId: "project-1" }),
     );
@@ -6767,6 +6777,78 @@ describe("WorkbenchPageClient", () => {
     );
     expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
     expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+  });
+
+  it("cancels linked navigation only after browser Back restoration settles", async () => {
+    const user = userEvent.setup();
+    const controlledForward = controlHistoryForward();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({ ok: true, json: async () => linkedAreaItemsResponse(url) }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Health draft");
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await controlledForward.releaseNext();
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull(),
+    );
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
+    controlledForward.spy.mockRestore();
+    act(() => window.history.back());
+    expect(await screen.findByRole("dialog", { name: "Discard unsaved changes?" }))
+      .toBeInTheDocument();
+  });
+
+  it("opens a linked detail only after browser Back restoration settles", async () => {
+    const user = userEvent.setup();
+    const controlledForward = controlHistoryForward();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({ ok: true, json: async () => linkedAreaItemsResponse(url) }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Health draft");
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    await controlledForward.releaseNext();
+
+    expect(await screen.findByLabelText("Checkup details")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    await waitFor(() =>
+      expect(window.history.state).toMatchObject({ __ravenDetailItemId: "project-1" }),
+    );
+    controlledForward.spy.mockRestore();
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    act(() => window.history.back());
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
   });
 
   it("does not render linked items for a Task without direct children", async () => {

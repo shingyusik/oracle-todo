@@ -93,6 +93,7 @@ type DetailHistoryController = {
   pendingBack: boolean;
   setDirty(dirty: boolean): void;
   setDialogOpen(open: boolean): void;
+  deferUntilRestored(action: () => void): boolean;
   requestBack(): void;
   cancelBack(): void;
   discardBack(): void;
@@ -156,6 +157,7 @@ function useDetailHistory(controller: WorkbenchController): DetailHistoryControl
   const applyingHistoryRef = useRef(false);
   const restoringCurrentEntryRef = useRef(false);
   const consumeRestorationRef = useRef(false);
+  const deferredRestorationActionRef = useRef<(() => void) | null>(null);
   const pendingBackRef = useRef(false);
   const dialogOpenRef = useRef(false);
   const discardAfterRestoreRef = useRef(false);
@@ -187,7 +189,12 @@ function useDetailHistory(controller: WorkbenchController): DetailHistoryControl
         restoringCurrentEntryRef.current = false;
         const consumeRestoration = consumeRestorationRef.current;
         consumeRestorationRef.current = false;
-        if (discardAfterRestoreRef.current) {
+        const deferredAction = deferredRestorationActionRef.current;
+        deferredRestorationActionRef.current = null;
+        if (deferredAction) {
+          discardAfterRestoreRef.current = false;
+          deferredAction();
+        } else if (discardAfterRestoreRef.current) {
           discardAfterRestoreRef.current = false;
           finishDiscard();
         } else if (!consumeRestoration && !dialogOpenRef.current && !pendingBackRef.current) {
@@ -263,6 +270,13 @@ function useDetailHistory(controller: WorkbenchController): DetailHistoryControl
     pendingBack,
     setDirty,
     setDialogOpen,
+    deferUntilRestored(action) {
+      if (!restoringCurrentEntryRef.current) {
+        return false;
+      }
+      deferredRestorationActionRef.current ??= action;
+      return true;
+    },
     requestBack() {
       if (pendingBackRef.current || restoringCurrentEntryRef.current) {
         return;
@@ -429,10 +443,16 @@ function DetailView({
 
   function discardPendingNavigation() {
     if (pendingLinkedItem) {
-      detailHistory.setDirty(false);
-      detailHistory.setDialogOpen(false);
-      controller.openDetailView(pendingLinkedItem);
-      setPendingLinkedItem(null);
+      const nextItem = pendingLinkedItem;
+      const discardLinkedNavigation = () => {
+        detailHistory.setDirty(false);
+        detailHistory.setDialogOpen(false);
+        controller.openDetailView(nextItem);
+        setPendingLinkedItem(null);
+      };
+      if (!detailHistory.deferUntilRestored(discardLinkedNavigation)) {
+        discardLinkedNavigation();
+      }
     } else {
       detailHistory.discardBack();
     }
@@ -440,7 +460,13 @@ function DetailView({
 
   function cancelPendingNavigation() {
     if (pendingLinkedItem) {
-      setPendingLinkedItem(null);
+      const cancelLinkedNavigation = () => {
+        detailHistory.setDialogOpen(false);
+        setPendingLinkedItem(null);
+      };
+      if (!detailHistory.deferUntilRestored(cancelLinkedNavigation)) {
+        cancelLinkedNavigation();
+      }
     } else {
       detailHistory.cancelBack();
     }
