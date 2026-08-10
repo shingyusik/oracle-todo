@@ -8893,7 +8893,7 @@ describe("WorkbenchPageClient", () => {
           json: async () => ({
             id: "task-1",
             type: "task",
-            title: "Renamed",
+            title: "Canonical title",
             status: "active",
           }),
         } as Response);
@@ -8933,6 +8933,10 @@ describe("WorkbenchPageClient", () => {
         body: JSON.stringify({ title: "Renamed" }),
       }),
     ));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Title")).toHaveValue("Canonical title");
+      expect(screen.getByRole("heading", { name: "Canonical title" })).toBeInTheDocument();
+    });
   });
 
   it("prevents duplicate detail saves while a request is pending", async () => {
@@ -8974,12 +8978,14 @@ describe("WorkbenchPageClient", () => {
       json: async () => ({
         id: "task-1",
         type: "task",
-        title: "Renamed",
+        title: "Canonical title",
         status: "active",
       }),
     } as Response);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+    expect(await screen.findByRole("heading", { name: "Canonical title" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Canonical title");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   it("keeps detail draft history after a failed save", async () => {
