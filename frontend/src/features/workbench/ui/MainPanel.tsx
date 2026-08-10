@@ -420,6 +420,13 @@ function DetailView({
     setIsSaving(false);
   }, [item?.id]);
 
+  React.useEffect(() => () => {
+    activeItemIdRef.current = null;
+    saveGenerationRef.current += 1;
+    savePendingRef.current = false;
+    suppressedSyncRef.current = null;
+  }, []);
+
   const hasDraftChanges = item ? hasDetailChanges(item, draft) : false;
   const pendingNavigation = pendingLinkedItem !== null || detailHistory.pendingBack;
   pendingNavigationRef.current = pendingNavigation;
@@ -464,10 +471,16 @@ function DetailView({
     dispatchDraft({ type: "close-group" });
     const detailItem = item;
     suppressedSyncRef.current = { itemId: detailItem.id, generation: saveGeneration };
+    const isCurrentSave = () =>
+      activeItemIdRef.current === detailItem.id &&
+      saveGenerationRef.current === saveGeneration;
     const patch = detailPatchForItem(detailItem, draft);
     try {
       if (Object.keys(patch).length > 0) {
         await controller.saveDetailItem(patch);
+      }
+      if (!isCurrentSave()) {
+        return;
       }
 
       const transition = transitionActionForStatus(
@@ -478,17 +491,11 @@ function DetailView({
       if (transition) {
         await controller.transitionWorkspaceItem(detailItem.id, transition);
       }
-      if (
-        activeItemIdRef.current === detailItem.id &&
-        saveGenerationRef.current === saveGeneration
-      ) {
+      if (isCurrentSave()) {
         suppressedSyncRef.current = null;
       }
     } catch (cause) {
-      if (
-        activeItemIdRef.current === detailItem.id &&
-        saveGenerationRef.current === saveGeneration
-      ) {
+      if (isCurrentSave()) {
         setSaveError(
           cause instanceof RavenApiError
             ? cause.message
@@ -496,10 +503,7 @@ function DetailView({
         );
       }
     } finally {
-      if (
-        activeItemIdRef.current === detailItem.id &&
-        saveGenerationRef.current === saveGeneration
-      ) {
+      if (isCurrentSave()) {
         savePendingRef.current = false;
         setIsSaving(false);
       }

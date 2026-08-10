@@ -295,6 +295,14 @@ function linkedAreaItemsResponse(url: string) {
   return [];
 }
 
+async function openLinkedHealthDetail(user: ReturnType<typeof userEvent.setup>) {
+  render(<WorkbenchPageClient />);
+  await user.click(screen.getByRole("button", { name: "ToDo" }));
+  await user.click(screen.getByRole("button", { name: "Workspace" }));
+  await user.click(screen.getByRole("button", { name: "Areas" }));
+  await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+}
+
 function linkedAreaWithOverflowResponse(url: string) {
   const area = { id: "area-1", type: "area", title: "Health", status: "active" };
 
@@ -9289,43 +9297,39 @@ describe("WorkbenchPageClient", () => {
       resolvePatch = resolve;
     });
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/area-1" && init?.method === "PATCH") {
         return patchResponse;
       }
 
       return Promise.resolve({
         ok: true,
-        json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "active" },
-          { id: "task-2", type: "task", title: "Two", status: "active" },
-        ],
+        json: async () => linkedAreaItemsResponse(url),
       } as Response);
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<WorkbenchPageClient />);
-    await openWorkspaceTasks(user);
-    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await openLinkedHealthDetail(user);
     await user.clear(screen.getByLabelText("Title"));
-    await user.type(screen.getByLabelText("Title"), "Late title");
+    await user.type(screen.getByLabelText("Title"), "Late Health title");
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
-    await screen.findByRole("table", { name: "Tasks items" });
-    await user.click(screen.getByRole("button", { name: "Open details for Two" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Title"));
-    await user.type(screen.getByLabelText("Title"), "Local B draft");
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.type(screen.getByLabelText("Title"), "Local Checkup draft");
     await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Title")).toHaveValue("Two");
+    expect(screen.getByLabelText("Title")).toHaveValue("Checkup");
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Local Checkup draft");
 
     await act(async () => {
       resolvePatch({
         ok: true,
         json: async () => ({
-          id: "task-1",
-          type: "task",
-          title: "Canonical late title",
+          id: "area-1",
+          type: "area",
+          title: "Canonical late Health title",
           status: "active",
         }),
       } as Response);
@@ -9333,13 +9337,14 @@ describe("WorkbenchPageClient", () => {
     });
 
     expect(patchCalls(fetchMock)).toHaveLength(1);
-    expect(screen.getByLabelText("Two details")).toBeInTheDocument();
-    expect(screen.getByLabelText("Title")).toHaveValue("Two");
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Local Checkup draft");
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Redo" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "Redo" }));
-    expect(screen.getByLabelText("Title")).toHaveValue("Local B draft");
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Checkup");
   });
 
   it("ignores a late detail save failure after discarding and opening another item", async () => {
@@ -9349,30 +9354,29 @@ describe("WorkbenchPageClient", () => {
       rejectPatch = reject;
     });
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+      if (url === "/api/v1/todo/items/area-1" && init?.method === "PATCH") {
         return patchResponse;
       }
 
       return Promise.resolve({
         ok: true,
-        json: async () => [
-          { id: "task-1", type: "task", title: "One", status: "active" },
-          { id: "task-2", type: "task", title: "Two", status: "active" },
-        ],
+        json: async () => linkedAreaItemsResponse(url),
       } as Response);
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<WorkbenchPageClient />);
-    await openWorkspaceTasks(user);
-    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await openLinkedHealthDetail(user);
     await user.clear(screen.getByLabelText("Title"));
-    await user.type(screen.getByLabelText("Title"), "Late title");
+    await user.type(screen.getByLabelText("Title"), "Late Health title");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
-    await screen.findByRole("table", { name: "Tasks items" });
-    await user.click(screen.getByRole("button", { name: "Open details for Two" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Local Checkup draft");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Checkup");
+    await user.click(screen.getByRole("button", { name: "Redo" }));
 
     await act(async () => {
       rejectPatch(new Error("late failure"));
@@ -9380,11 +9384,122 @@ describe("WorkbenchPageClient", () => {
     });
 
     await waitFor(() => expect(patchCalls(fetchMock)).toHaveLength(1));
-    expect(screen.getByLabelText("Two details")).toBeInTheDocument();
-    expect(screen.getByLabelText("Title")).toHaveValue("Two");
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Local Checkup draft");
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+  });
+
+  it("rejects a late save completion from an older visit to the same detail item", async () => {
+    const user = userEvent.setup();
+    let resolvePatch!: (value: Response) => void;
+    const patchResponse = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1" && init?.method === "PATCH") {
+        return patchResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Old delayed draft");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Newer Health draft");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Health");
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Newer Health draft");
+
+    await act(async () => {
+      resolvePatch({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical old save",
+          status: "active",
+        }),
+      } as Response);
+      await patchResponse;
+    });
+
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Newer Health draft");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Health");
+  });
+
+  it("rejects a late status transition from an older visit to the same detail item", async () => {
+    const user = userEvent.setup();
+    let resolveTransition!: (value: Response) => void;
+    const transitionResponse = new Promise<Response>((resolve) => {
+      resolveTransition = resolve;
+    });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
+        return transitionResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/todo/items/area-1/archive",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Newer Health draft");
+
+    await act(async () => {
+      resolveTransition({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Health",
+          status: "archived",
+        }),
+      } as Response);
+      await transitionResponse;
+    });
+
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Newer Health draft");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
   });
 
   it("groups detail edits into page-local undo and redo steps", async () => {

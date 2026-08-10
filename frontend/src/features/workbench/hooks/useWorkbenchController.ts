@@ -793,6 +793,11 @@ export function useWorkbenchController(): WorkbenchController {
   const [plannerCreationContext, setPlannerCreationContext] =
     useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
+  const detailOpenGeneration = useRef(0);
+  const setDetailPage = (item: WorkspaceItemModel | null) => {
+    detailOpenGeneration.current += 1;
+    setDetailItem(item);
+  };
   const [dashboardReload, setDashboardReload] = useState(0);
   const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
   const pendingTaskCreation = useRef(false);
@@ -972,7 +977,7 @@ export function useWorkbenchController(): WorkbenchController {
     setArchiveConfirmationOpen(false);
     setCreationDialogOpen(false);
     setPlannerCreationContext(null);
-    setDetailItem(null);
+    setDetailPage(null);
     if (
       selection.leafTabId === "tasks"
       && pendingTaskCreation.current
@@ -1062,7 +1067,7 @@ export function useWorkbenchController(): WorkbenchController {
             pendingDashboardDetail.current?.requestId === requestId
           ) {
             pendingDashboardDetail.current = null;
-            setDetailItem(
+            setDetailPage(
               allItems.find((item) => item.id === pendingDetail.itemId) ?? null,
             );
           }
@@ -1543,11 +1548,11 @@ export function useWorkbenchController(): WorkbenchController {
         items: [item, ...current.items],
         allItems: [item, ...current.allItems],
       }));
-      setDetailItem(item);
+      setDetailPage(item);
       setCreationDialogOpen(false);
       setPlannerCreationContext(null);
     },
-    openDetailView: (item) => setDetailItem(item),
+    openDetailView: (item) => setDetailPage(item),
     patchWorkspaceItem: async (itemId, patch) => {
       const updated = await patchItem(itemId, patch);
       setDetailItem((current) => (current?.id === updated.id ? updated : current));
@@ -1733,10 +1738,15 @@ export function useWorkbenchController(): WorkbenchController {
     ) => {
       const existing = itemTransitions.current.get(itemId);
       if (existing) return existing;
+      const originatingGeneration = detailOpenGeneration.current;
 
       const transition = (async () => {
         const updated = await postJson(`/api/v1/todo/items/${itemId}/${action}`, {});
-        setDetailItem((current) => (current?.id === updated.id ? updated : current));
+        setDetailItem((current) =>
+          detailOpenGeneration.current === originatingGeneration && current?.id === updated.id
+            ? updated
+            : current,
+        );
         setWorkspaceItems((current) => ({
           ...current,
           items: replaceWorkspaceItem(current.items, updated),
@@ -1905,8 +1915,13 @@ export function useWorkbenchController(): WorkbenchController {
         return;
       }
 
+      const originatingGeneration = detailOpenGeneration.current;
       const updated = await patchItem(detailItem.id, patch);
-      setDetailItem((current) => (current?.id === updated.id ? updated : current));
+      setDetailItem((current) =>
+        detailOpenGeneration.current === originatingGeneration && current?.id === updated.id
+          ? updated
+          : current,
+      );
       setWorkspaceItems((current) => ({
         ...current,
         items: replaceWorkspaceItem(current.items, updated),
@@ -1914,7 +1929,7 @@ export function useWorkbenchController(): WorkbenchController {
         tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
       }));
     },
-    closeDetailView: () => setDetailItem(null),
+    closeDetailView: () => setDetailPage(null),
   };
 }
 
