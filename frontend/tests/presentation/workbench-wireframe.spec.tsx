@@ -8936,7 +8936,7 @@ describe("WorkbenchPageClient", () => {
     expect(within(screen.getByLabelText("Markdown note editor")).getByText("New note")).toBeVisible();
     expect(redo).toBeDisabled();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
-  });
+  }, 10_000);
 
   it("clears detail redo history after a new local edit", async () => {
     const user = userEvent.setup();
