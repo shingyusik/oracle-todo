@@ -13,6 +13,10 @@ served by `raven ui` from the same origin as the authenticated API.
 Dashboard shows ToDo analytics only. Ledger and Health Journal start directly at their
 operational views.
 
+Active Planner tasks and events expose a Miss dialog. Users can mark the item missed only
+or create an independent follow-up on a selected date; the date defaults to browser-local
+tomorrow and cannot be earlier than tomorrow.
+
 Completion history reports the daily percentage of Tasks and Events scheduled or due on
 each browser-local calendar date. Its Y-axis is fixed at 0–100%, and dates without eligible
 work remain visible as zero-value points.

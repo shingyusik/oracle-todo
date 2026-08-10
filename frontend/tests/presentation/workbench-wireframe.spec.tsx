@@ -3478,9 +3478,24 @@ describe("WorkbenchPageClient", () => {
     const trigger = screen.getByRole("button", { name: "Miss Active task" });
     await user.click(trigger);
     const dialog = screen.getByRole("dialog", { name: "Miss Active task?" });
+    const tomorrow = testAddDays(testToday(), 1);
+    const postponeDate = within(dialog).getByLabelText("Postpone date");
     expect(within(dialog).getByRole("button", { name: "Mark missed" })).toHaveFocus();
     expect(within(dialog).getByRole("button", { name: "Miss and postpone" })).toBeEnabled();
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeEnabled();
+    expect(postponeDate).toHaveValue(tomorrow);
+    expect(postponeDate).toHaveAttribute("min", tomorrow);
+    await user.tab({ shift: true });
+    expect(postponeDate).toHaveFocus();
+    fireEvent.change(postponeDate, {
+      target: { value: testAddDays(testToday(), 5) },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(trigger);
+    expect(
+      within(screen.getByRole("dialog", { name: "Miss Active task?" }))
+        .getByLabelText("Postpone date"),
+    ).toHaveValue(tomorrow);
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Miss Active task?" })).toBeNull();
     expect(trigger).toHaveFocus();
@@ -3623,7 +3638,7 @@ describe("WorkbenchPageClient", () => {
     });
   });
 
-  it("postpones to browser-local tomorrow and prevents duplicate dialog submission", async () => {
+  it("postpones to a selected browser-local date and prevents duplicate dialog submission", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 6, 25, 23, 30));
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -3656,6 +3671,15 @@ describe("WorkbenchPageClient", () => {
     await user.click(await screen.findByRole("button", { name: "Miss Active task" }));
     const dialog = screen.getByRole("dialog", { name: "Miss Active task?" });
     const postpone = within(dialog).getByRole("button", { name: "Miss and postpone" });
+    const postponeDate = within(dialog).getByLabelText("Postpone date");
+    expect(postponeDate).toHaveValue("2026-07-26");
+    expect(postponeDate).toHaveAttribute("min", "2026-07-26");
+    fireEvent.change(postponeDate, { target: { value: "" } });
+    expect(postpone).toBeDisabled();
+    fireEvent.change(postponeDate, { target: { value: "2026-07-25" } });
+    expect(postpone).toBeDisabled();
+    fireEvent.change(postponeDate, { target: { value: "2026-07-30" } });
+    expect(postpone).toBeEnabled();
     fireEvent.click(postpone);
     fireEvent.click(postpone);
 
@@ -3669,7 +3693,7 @@ describe("WorkbenchPageClient", () => {
       expect.objectContaining({
         body: JSON.stringify({
           today: "2026-07-25",
-          scheduled: "2026-07-26",
+          scheduled: "2026-07-30",
         }),
       }),
     );
@@ -3681,7 +3705,7 @@ describe("WorkbenchPageClient", () => {
       ok: true,
       json: async () => ({
         source: { ...task, status: "missed" },
-        follow_up: { ...task, id: "task-follow-up", scheduled: "2026-07-26" },
+        follow_up: { ...task, id: "task-follow-up", scheduled: "2026-07-30" },
       }),
     } as Response);
     await waitFor(() =>

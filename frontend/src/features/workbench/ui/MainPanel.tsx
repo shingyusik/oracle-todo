@@ -2051,7 +2051,9 @@ function PlannerMissButton({
   tableId: PlannerTableId;
 }) {
   const [open, setOpen] = React.useState(false);
+  const [postponeDate, setPostponeDate] = React.useState(browserTomorrow);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const postponeDateRef = useRef<HTMLInputElement>(null);
   const markMissedRef = useRef<HTMLButtonElement>(null);
   const postponeRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -2059,12 +2061,19 @@ function PlannerMissButton({
     (item.type === "task" || item.type === "event") &&
     item.status === "active";
   const transitionState = controller.workspaceItemTransitionState(item.id);
+  const minimumPostponeDate = browserTomorrow();
+  const canPostpone = postponeDate >= minimumPostponeDate;
 
   useEffect(() => {
     if (open) markMissedRef.current?.focus();
   }, [open]);
 
   if (!visible) return null;
+
+  function openDialog() {
+    setPostponeDate(browserTomorrow());
+    setOpen(true);
+  }
 
   function closeDialog() {
     setOpen(false);
@@ -2077,7 +2086,7 @@ function PlannerMissButton({
       if (action === "miss") {
         await controller.missWorkspaceItem(item.id);
       } else {
-        await controller.postponeWorkspaceItem(item.id, browserTomorrow());
+        await controller.postponeWorkspaceItem(item.id, postponeDate);
       }
       setOpen(false);
       requestAnimationFrame(() => {
@@ -2101,12 +2110,17 @@ function PlannerMissButton({
     if (event.key !== "Tab") return;
 
     const controls = [
+      postponeDateRef.current,
       markMissedRef.current,
       postponeRef.current,
       cancelRef.current,
-    ].filter((control): control is HTMLButtonElement => control !== null);
+    ].filter(
+      (control): control is HTMLInputElement | HTMLButtonElement => control !== null,
+    );
     if (controls.length === 0) return;
-    const currentIndex = controls.indexOf(document.activeElement as HTMLButtonElement);
+    const currentIndex = controls.indexOf(
+      document.activeElement as HTMLInputElement | HTMLButtonElement,
+    );
     if (event.shiftKey && currentIndex === 0) {
       event.preventDefault();
       controls.at(-1)?.focus();
@@ -2125,7 +2139,7 @@ function PlannerMissButton({
         aria-label={`Miss ${item.title}`}
         title={`Miss ${item.title}`}
         disabled={transitionState.pending}
-        onClick={() => setOpen(true)}
+        onClick={openDialog}
       >
         Miss
       </button>
@@ -2141,7 +2155,18 @@ function PlannerMissButton({
                 onKeyDown={handleDialogKeyDown}
               >
                 <h2>Miss {item.title}?</h2>
-                <p>Mark this scheduled work as missed, or create a follow-up for tomorrow.</p>
+                <p>Mark this scheduled work as missed, or create a follow-up for the chosen date.</p>
+                <label className="field-label">
+                  Postpone date
+                  <input
+                    ref={postponeDateRef}
+                    type="date"
+                    value={postponeDate}
+                    min={minimumPostponeDate}
+                    disabled={transitionState.pending}
+                    onChange={(event) => setPostponeDate(event.target.value)}
+                  />
+                </label>
                 {transitionState.pending
                   ? <p className="planner-miss-progress" role="status">Updating missed work…</p>
                   : null}
@@ -2160,7 +2185,7 @@ function PlannerMissButton({
                   <button
                     ref={postponeRef}
                     type="button"
-                    disabled={transitionState.pending}
+                    disabled={transitionState.pending || !canPostpone}
                     onClick={() => void submit("postpone")}
                   >
                     Miss and postpone
