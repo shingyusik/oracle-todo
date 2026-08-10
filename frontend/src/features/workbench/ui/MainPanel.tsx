@@ -2784,11 +2784,31 @@ function rebaseDetailDraft(
   );
   if (
     rebased.status !== canonical.status &&
-    transitionActionForStatus(canonical.status, rebased.status, itemType) === null
+    !canPersistDetailStatusHistory(canonical.status, rebased.status, itemType)
   ) {
     rebased.status = canonical.status;
   }
   return rebased;
+}
+
+function canPersistDetailStatusHistory(
+  canonicalStatus: string,
+  historicalStatus: string,
+  itemType: WorkspaceItemModel["type"],
+): boolean {
+  if (canonicalStatus === "completed") {
+    return historicalStatus === "active" && (itemType === "task" || itemType === "event");
+  }
+  if (
+    canonicalStatus === "missed" ||
+    canonicalStatus === "archived" ||
+    canonicalStatus === "dropped" ||
+    canonicalStatus === "cancelled" ||
+    canonicalStatus === "rejected"
+  ) {
+    return false;
+  }
+  return transitionActionForStatus(canonicalStatus, historicalStatus, itemType) !== null;
 }
 
 type StringWorkspaceItemPatchField = {

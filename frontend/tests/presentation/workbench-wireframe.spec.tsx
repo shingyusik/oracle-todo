@@ -9625,6 +9625,71 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
+  it("keeps a completed project canonical while undoing other fields", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/project-1" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "project-1",
+            type: "project",
+            title: "Saved project",
+            status: "paused",
+          }),
+        } as Response);
+      }
+      if (url === "/api/v1/todo/items/project-1/complete" && init?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "project-1",
+            type: "project",
+            title: "Saved project",
+            status: "completed",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            id: "project-1",
+            type: "project",
+            title: "Terminal project",
+            status: "paused",
+          },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+    await user.click(await screen.findByRole("button", {
+      name: "Open details for Terminal project",
+    }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Saved project");
+    await user.selectOptions(screen.getByLabelText("Status for Terminal project"), "completed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("heading", { name: "Saved project" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("completed");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Terminal project");
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("completed");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Saved project");
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("completed");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
   it("serializes detail PATCH calls and keeps the last successful canonical item", async () => {
     const user = userEvent.setup();
     let resolveOldPatch!: (value: Response) => void;
