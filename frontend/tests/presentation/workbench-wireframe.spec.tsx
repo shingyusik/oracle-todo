@@ -9120,6 +9120,7 @@ describe("WorkbenchPageClient", () => {
     fireEvent.keyDown(document, { key: "s", ctrlKey: true });
 
     await waitFor(() => expect(patchCalls(fetchMock)).toHaveLength(1));
+    expect(patchCalls(fetchMock)[0]?.[0]).toBe("/api/v1/todo/items/task-detail");
     expect(patchCalls(fetchMock)[0]?.[1]).toEqual(expect.objectContaining({
       body: JSON.stringify({ title: "Planner edit" }),
     }));
