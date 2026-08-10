@@ -1362,6 +1362,11 @@ button {
   list-style: none;
 }
 
+.weekly-day-grid .planner-card-list,
+.weekly-day-grid .planner-card-list li {
+  min-width: 0;
+}
+
 .planner-item-row {
   position: relative;
   display: flex;

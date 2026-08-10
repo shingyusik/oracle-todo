@@ -239,6 +239,14 @@ describe("design system boundaries", () => {
     );
   });
 
+  it("keeps weekly item rows inside day cards", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toMatch(
+      /\.weekly-day-grid \.planner-card-list,\n\.weekly-day-grid \.planner-card-list li\s*\{[^}]*min-width:\s*0;/s,
+    );
+  });
+
   it("keeps the Dashboard donut fluid inside the four-column desktop card", async () => {
     const source = await readSource("src/styles/globals.css");
 
