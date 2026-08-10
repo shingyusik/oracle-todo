@@ -6424,6 +6424,11 @@ describe("WorkbenchPageClient", () => {
 
   it("confirms browser Back before discarding a dirty detail draft", async () => {
     const user = userEvent.setup();
+    const forward = window.history.forward.bind(window.history);
+    const pendingForwards: Array<() => void> = [];
+    const forwardSpy = vi.spyOn(window.history, "forward").mockImplementation(() => {
+      pendingForwards.push(forward);
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>
@@ -6443,6 +6448,8 @@ describe("WorkbenchPageClient", () => {
     await user.type(screen.getByLabelText("Title"), "Health draft");
 
     act(() => window.history.back());
+    await waitFor(() => expect(forwardSpy).toHaveBeenCalledTimes(1));
+    act(() => pendingForwards.shift()?.());
     expect(await screen.findByRole("dialog", { name: "Discard unsaved changes?" }))
       .toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
@@ -6450,7 +6457,14 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" }))
       .toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
+    await waitFor(() => expect(forwardSpy).toHaveBeenCalledTimes(2));
     await user.keyboard("{Escape}");
+    act(() => pendingForwards.shift()?.());
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+    });
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    forwardSpy.mockRestore();
     expect(screen.getByLabelText("Health details")).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
 
@@ -6732,9 +6746,26 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("Health draft");
 
     await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    act(() => window.history.back());
+    await waitFor(() =>
+      expect(window.history.state).toMatchObject({ __ravenDetailItemId: "area-1" }),
+    );
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" }))
+      .toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(screen.getByLabelText("Checkup details")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    await waitFor(() =>
+      expect(window.history.state).toMatchObject({ __ravenDetailItemId: "project-1" }),
+    );
     act(() => window.history.back());
+    await waitFor(() =>
+      expect(window.history.state).toMatchObject({ __ravenDetailItemId: "area-1" }),
+    );
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
     expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
   });
 

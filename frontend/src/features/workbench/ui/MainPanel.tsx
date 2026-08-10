@@ -92,6 +92,7 @@ const detailHistoryStateKey = "__ravenDetailItemId";
 type DetailHistoryController = {
   pendingBack: boolean;
   setDirty(dirty: boolean): void;
+  setDialogOpen(open: boolean): void;
   requestBack(): void;
   cancelBack(): void;
   discardBack(): void;
@@ -154,7 +155,9 @@ function useDetailHistory(controller: WorkbenchController): DetailHistoryControl
   const dirtyRef = useRef(false);
   const applyingHistoryRef = useRef(false);
   const restoringCurrentEntryRef = useRef(false);
+  const consumeRestorationRef = useRef(false);
   const pendingBackRef = useRef(false);
+  const dialogOpenRef = useRef(false);
   const discardAfterRestoreRef = useRef(false);
   const [pendingBack, setPendingBack] = React.useState(false);
 
@@ -182,10 +185,12 @@ function useDetailHistory(controller: WorkbenchController): DetailHistoryControl
 
       if (restoringCurrentEntryRef.current && requestedId === currentId) {
         restoringCurrentEntryRef.current = false;
+        const consumeRestoration = consumeRestorationRef.current;
+        consumeRestorationRef.current = false;
         if (discardAfterRestoreRef.current) {
           discardAfterRestoreRef.current = false;
           finishDiscard();
-        } else if (!pendingBackRef.current) {
+        } else if (!consumeRestoration && !dialogOpenRef.current && !pendingBackRef.current) {
           pendingBackRef.current = true;
           setPendingBack(true);
         }
@@ -193,6 +198,11 @@ function useDetailHistory(controller: WorkbenchController): DetailHistoryControl
       }
 
       if (pendingBackRef.current) {
+        restoreCurrentEntry();
+        return;
+      }
+
+      if (dialogOpenRef.current) {
         restoreCurrentEntry();
         return;
       }
@@ -245,10 +255,14 @@ function useDetailHistory(controller: WorkbenchController): DetailHistoryControl
   const setDirty = React.useCallback((dirty: boolean) => {
     dirtyRef.current = dirty;
   }, []);
+  const setDialogOpen = React.useCallback((open: boolean) => {
+    dialogOpenRef.current = open;
+  }, []);
 
   return {
     pendingBack,
     setDirty,
+    setDialogOpen,
     requestBack() {
       if (pendingBackRef.current || restoringCurrentEntryRef.current) {
         return;
@@ -261,6 +275,7 @@ function useDetailHistory(controller: WorkbenchController): DetailHistoryControl
       }
     },
     cancelBack() {
+      consumeRestorationRef.current = restoringCurrentEntryRef.current;
       discardAfterRestoreRef.current = false;
       pendingBackRef.current = false;
       setPendingBack(false);
@@ -366,6 +381,11 @@ function DetailView({
   }, [detailHistory.setDirty, hasDraftChanges]);
 
   React.useEffect(() => {
+    detailHistory.setDialogOpen(pendingNavigation);
+    return () => detailHistory.setDialogOpen(false);
+  }, [detailHistory.setDialogOpen, pendingNavigation]);
+
+  React.useEffect(() => {
     if (pendingNavigation) {
       cancelLinkedItemNavigationRef.current?.focus();
     }
@@ -410,6 +430,7 @@ function DetailView({
   function discardPendingNavigation() {
     if (pendingLinkedItem) {
       detailHistory.setDirty(false);
+      detailHistory.setDialogOpen(false);
       controller.openDetailView(pendingLinkedItem);
       setPendingLinkedItem(null);
     } else {
