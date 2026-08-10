@@ -9538,7 +9538,7 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(transitionAttempts).toBe(2);
+    expect(transitionAttempts).toBe(1);
 
     await act(async () => {
       resolveOldTransition({
@@ -9552,6 +9552,7 @@ describe("WorkbenchPageClient", () => {
       } as Response);
       await oldTransitionResponse;
     });
+    await waitFor(() => expect(transitionAttempts).toBe(2));
 
     expect(screen.getByLabelText("Health details")).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health");
@@ -9580,7 +9581,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
-  it("keeps the newer detail PATCH in workspace collections when the older response arrives last", async () => {
+  it("serializes detail PATCH calls and keeps the last successful canonical item", async () => {
     const user = userEvent.setup();
     let resolveOldPatch!: (value: Response) => void;
     let resolveNewPatch!: (value: Response) => void;
@@ -9599,8 +9600,6 @@ describe("WorkbenchPageClient", () => {
       resolveFailedPatch = resolve;
     });
     let patchAttempts = 0;
-    let allItemsReads = 0;
-    let canonicalReadTitle = "Health";
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/area-1" && init?.method === "PATCH") {
         patchAttempts += 1;
@@ -9609,15 +9608,6 @@ describe("WorkbenchPageClient", () => {
         if (patchAttempts === 3) return overlapSuccessResponse;
         return failedPatchResponse;
       }
-      if (url === "/api/v1/todo/items") {
-        allItemsReads += 1;
-        return Promise.resolve({
-          ok: true,
-          json: async () => linkedAreaItemsResponse(url).map((item) =>
-            item.id === "area-1" ? { ...item, title: canonicalReadTitle } : item),
-        } as Response);
-      }
-
       return Promise.resolve({
         ok: true,
         json: async () => linkedAreaItemsResponse(url),
@@ -9640,22 +9630,7 @@ describe("WorkbenchPageClient", () => {
     await user.clear(screen.getByLabelText("Title"));
     await user.type(screen.getByLabelText("Title"), "Newer title");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(patchAttempts).toBe(2);
-
-    await act(async () => {
-      resolveNewPatch({
-        ok: true,
-        json: async () => ({
-          id: "area-1",
-          type: "area",
-          title: "Canonical newer PATCH",
-          status: "active",
-        }),
-      } as Response);
-      await newPatchResponse;
-    });
-    expect(await screen.findByRole("heading", { name: "Canonical newer PATCH" }))
-      .toBeInTheDocument();
+    expect(patchAttempts).toBe(1);
 
     await act(async () => {
       resolveOldPatch({
@@ -9668,6 +9643,20 @@ describe("WorkbenchPageClient", () => {
         }),
       } as Response);
       await oldPatchResponse;
+    });
+    await waitFor(() => expect(patchAttempts).toBe(2));
+
+    await act(async () => {
+      resolveNewPatch({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical newer PATCH",
+          status: "active",
+        }),
+      } as Response);
+      await newPatchResponse;
     });
 
     expect(screen.getByRole("heading", { name: "Canonical newer PATCH" }))
@@ -9692,7 +9681,7 @@ describe("WorkbenchPageClient", () => {
     await user.clear(screen.getByLabelText("Title"));
     await user.type(screen.getByLabelText("Title"), "Failing latest PATCH");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(patchAttempts).toBe(4);
+    expect(patchAttempts).toBe(3);
 
     await act(async () => {
       resolveOverlapSuccess({
@@ -9706,9 +9695,8 @@ describe("WorkbenchPageClient", () => {
       } as Response);
       await overlapSuccessResponse;
     });
+    await waitFor(() => expect(patchAttempts).toBe(4));
 
-    const initialAllItemsReads = allItemsReads;
-    canonicalReadTitle = "Canonical after failed overlap";
     await act(async () => {
       resolveFailedPatch({
         ok: false,
@@ -9724,15 +9712,14 @@ describe("WorkbenchPageClient", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save latest PATCH.");
-    await waitFor(() => expect(allItemsReads).toBe(initialAllItemsReads + 1));
     await user.click(screen.getByRole("button", { name: "< Back" }));
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(await screen.findByRole("button", {
-      name: "Open details for Canonical after failed overlap",
+      name: "Open details for Accepted overlap PATCH",
     })).toBeInTheDocument();
-  });
+  }, 10_000);
 
-  it("keeps the newer detail transition in workspace collections when the older response arrives last", async () => {
+  it("serializes detail transitions and keeps the last canonical item", async () => {
     const user = userEvent.setup();
     let resolveOldTransition!: (value: Response) => void;
     let resolveNewTransition!: (value: Response) => void;
@@ -9768,20 +9755,8 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(transitionAttempts).toBe(2);
+    expect(transitionAttempts).toBe(1);
 
-    await act(async () => {
-      resolveNewTransition({
-        ok: true,
-        json: async () => ({
-          id: "area-1",
-          type: "area",
-          title: "Canonical newer transition",
-          status: "archived",
-        }),
-      } as Response);
-      await newTransitionResponse;
-    });
     await act(async () => {
       resolveOldTransition({
         ok: true,
@@ -9793,6 +9768,19 @@ describe("WorkbenchPageClient", () => {
         }),
       } as Response);
       await oldTransitionResponse;
+    });
+    await waitFor(() => expect(transitionAttempts).toBe(2));
+    await act(async () => {
+      resolveNewTransition({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Canonical newer transition",
+          status: "archived",
+        }),
+      } as Response);
+      await newTransitionResponse;
     });
 
     expect(screen.getByRole("heading", { name: "Canonical newer transition" }))
@@ -9874,6 +9862,92 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByRole("button", {
       name: "Open details for Canonical composite title",
     })).toBeInTheDocument();
+  });
+
+  it("completes and releases a detail save rendered in React StrictMode", async () => {
+    const user = userEvent.setup();
+    let resolvePatch!: (value: Response) => void;
+    const patchResponse = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    let patchAttempts = 0;
+    let transitionAttempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        patchAttempts += 1;
+        if (patchAttempts === 1) return patchResponse;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Canonical second StrictMode save",
+            status: "completed",
+          }),
+        } as Response);
+      }
+      if (url === "/api/v1/todo/items/task-1/complete" && init?.method === "POST") {
+        transitionAttempts += 1;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Canonical StrictMode save",
+            status: "completed",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <React.StrictMode>
+        <WorkbenchPageClient />
+      </React.StrictMode>,
+    );
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "StrictMode save");
+    await user.selectOptions(screen.getByLabelText("Status for One"), "completed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await act(async () => {
+      resolvePatch({
+        ok: true,
+        json: async () => ({
+          id: "task-1",
+          type: "task",
+          title: "Canonical StrictMode save",
+          status: "active",
+        }),
+      } as Response);
+      await patchResponse;
+    });
+
+    await waitFor(() => expect(transitionAttempts).toBe(1));
+    expect(await screen.findByRole("heading", { name: "Canonical StrictMode save" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("completed");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Second StrictMode save");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patchAttempts).toBe(2));
+    expect(await screen.findByRole("heading", { name: "Canonical second StrictMode save" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("groups detail edits into page-local undo and redo steps", async () => {

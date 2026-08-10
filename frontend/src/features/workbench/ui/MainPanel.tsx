@@ -417,12 +417,15 @@ function DetailView({
     setIsSaving(false);
   }, [item?.id]);
 
-  React.useEffect(() => () => {
-    activeItemIdRef.current = null;
-    saveGenerationRef.current += 1;
-    savePendingRef.current = false;
-    suppressedSyncRef.current = null;
-  }, []);
+  React.useEffect(() => {
+    activeItemIdRef.current = item?.id ?? null;
+    return () => {
+      activeItemIdRef.current = null;
+      saveGenerationRef.current += 1;
+      savePendingRef.current = false;
+      suppressedSyncRef.current = null;
+    };
+  }, [item?.id]);
 
   const hasDraftChanges = item ? hasDetailChanges(item, draft) : false;
   const pendingNavigation = pendingLinkedItem !== null || detailHistory.pendingBack;

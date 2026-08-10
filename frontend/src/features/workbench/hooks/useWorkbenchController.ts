@@ -802,9 +802,7 @@ export function useWorkbenchController(): WorkbenchController {
   const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
   const pendingTaskCreation = useRef(false);
   const workspaceRequestId = useRef(0);
-  const itemOperationSequences = useRef(new Map<string, number>());
-  const activeItemOperations = useRef(new Map<string, number>());
-  const failedLatestItemOperations = useRef(new Map<string, number>());
+  const itemMutationTails = useRef(new Map<string, Promise<void>>());
   const itemTransitions = useRef(
     new Map<
       string,
@@ -823,26 +821,6 @@ export function useWorkbenchController(): WorkbenchController {
     Record<string, WorkspaceItemTransitionState>
   >({});
 
-  const beginItemOperation = (itemId: string) => {
-    const sequence = (itemOperationSequences.current.get(itemId) ?? 0) + 1;
-    itemOperationSequences.current.set(itemId, sequence);
-    const activeCount = activeItemOperations.current.get(itemId) ?? 0;
-    activeItemOperations.current.set(itemId, activeCount + 1);
-    return { sequence, overlapped: activeCount > 0 };
-  };
-
-  const finishItemOperation = (itemId: string) => {
-    const activeCount = activeItemOperations.current.get(itemId) ?? 1;
-    if (activeCount <= 1) {
-      activeItemOperations.current.delete(itemId);
-    } else {
-      activeItemOperations.current.set(itemId, activeCount - 1);
-    }
-  };
-
-  const isLatestItemOperation = (itemId: string, sequence: number) =>
-    itemOperationSequences.current.get(itemId) === sequence;
-
   const applySharedItem = (updated: WorkspaceItemModel) => {
     setWorkspaceItems((current) => ({
       ...current,
@@ -852,44 +830,20 @@ export function useWorkbenchController(): WorkbenchController {
     }));
   };
 
-  const reconcileSharedItem = async (itemId: string, sequence: number) => {
-    const allItems = await fetchAllWorkspaceItems();
-    if (!isLatestItemOperation(itemId, sequence)) {
-      return;
-    }
-    const canonical = allItems.find((item) => item.id === itemId);
-    if (!canonical) {
-      return;
-    }
-    setWorkspaceItems((current) => ({
-      ...current,
-      items: replaceWorkspaceItem(current.items, canonical),
-      allItems,
-      tagOptions: collectTagOptions(allItems),
-      relatedItems: buildRelatedItems(allItems),
-    }));
-  };
-
-  const settleItemOperationFailure = async (
+  const enqueueItemMutation = <Result,>(
     itemId: string,
-    sequence: number,
-    overlapped: boolean,
-  ) => {
-    if (!overlapped || !isLatestItemOperation(itemId, sequence)) {
-      return;
-    }
-    failedLatestItemOperations.current.set(itemId, sequence);
-    await reconcileSharedItem(itemId, sequence).catch(() => undefined);
-  };
-
-  const settleStaleItemOperationSuccess = async (itemId: string) => {
-    const failedSequence = failedLatestItemOperations.current.get(itemId);
-    if (
-      failedSequence !== undefined &&
-      isLatestItemOperation(itemId, failedSequence)
-    ) {
-      await reconcileSharedItem(itemId, failedSequence).catch(() => undefined);
-    }
+    mutation: () => Promise<Result>,
+  ): Promise<Result> => {
+    const previous = itemMutationTails.current.get(itemId);
+    const operation = previous ? previous.then(mutation, mutation) : mutation();
+    const tail = operation.then(() => undefined, () => undefined);
+    itemMutationTails.current.set(itemId, tail);
+    void tail.then(() => {
+      if (itemMutationTails.current.get(itemId) === tail) {
+        itemMutationTails.current.delete(itemId);
+      }
+    });
+    return operation;
   };
   const panel = useMemo(
     () => createPanelModel(selection.leafTabId),
@@ -1630,28 +1584,12 @@ export function useWorkbenchController(): WorkbenchController {
       setPlannerCreationContext(null);
     },
     openDetailView: (item) => setDetailPage(item),
-    patchWorkspaceItem: async (itemId, patch) => {
-      const operation = beginItemOperation(itemId);
-      try {
+    patchWorkspaceItem: (itemId, patch) =>
+      enqueueItemMutation(itemId, async () => {
         const updated = await patchItem(itemId, patch);
-        if (isLatestItemOperation(itemId, operation.sequence)) {
-          failedLatestItemOperations.current.delete(itemId);
-          setDetailItem((current) => (current?.id === updated.id ? updated : current));
-          applySharedItem(updated);
-        } else {
-          await settleStaleItemOperationSuccess(itemId);
-        }
-      } catch (cause) {
-        await settleItemOperationFailure(
-          itemId,
-          operation.sequence,
-          operation.overlapped,
-        );
-        throw cause;
-      } finally {
-        finishItemOperation(itemId);
-      }
-    },
+        setDetailItem((current) => (current?.id === updated.id ? updated : current));
+        applySharedItem(updated);
+      }),
     plannerTableTabs: (tableId) => activePlanner.tableTabs[tableId],
     plannerTableSettings: (tableId) =>
       activePlanner.tableTabs[tableId].draftSettings,
@@ -1835,33 +1773,16 @@ export function useWorkbenchController(): WorkbenchController {
       ) {
         return existing.promise;
       }
-      const operation = beginItemOperation(itemId);
 
-      const transition = (async () => {
-        try {
+      const transition = enqueueItemMutation(itemId, async () => {
           const updated = await postJson(`/api/v1/todo/items/${itemId}/${action}`, {});
-          if (isLatestItemOperation(itemId, operation.sequence)) {
-            failedLatestItemOperations.current.delete(itemId);
-            setDetailItem((current) =>
-              detailOpenGeneration.current === originatingGeneration && current?.id === updated.id
-                ? updated
-                : current,
-            );
-            applySharedItem(updated);
-          } else {
-            await settleStaleItemOperationSuccess(itemId);
-          }
-        } catch (cause) {
-          await settleItemOperationFailure(
-            itemId,
-            operation.sequence,
-            operation.overlapped,
+          setDetailItem((current) =>
+            detailOpenGeneration.current === originatingGeneration && current?.id === updated.id
+              ? updated
+              : current,
           );
-          throw cause;
-        } finally {
-          finishItemOperation(itemId);
-        }
-      })();
+          applySharedItem(updated);
+        });
       itemTransitions.current.set(itemId, {
         promise: transition,
         detailGeneration: originatingGeneration,
@@ -2034,30 +1955,15 @@ export function useWorkbenchController(): WorkbenchController {
 
       const itemId = detailItem.id;
       const originatingGeneration = detailOpenGeneration.current;
-      const operation = beginItemOperation(itemId);
-      try {
+      await enqueueItemMutation(itemId, async () => {
         const updated = await patchItem(itemId, patch);
-        if (isLatestItemOperation(itemId, operation.sequence)) {
-          failedLatestItemOperations.current.delete(itemId);
-          setDetailItem((current) =>
-            detailOpenGeneration.current === originatingGeneration && current?.id === updated.id
-              ? updated
-              : current,
-          );
-          applySharedItem(updated);
-        } else {
-          await settleStaleItemOperationSuccess(itemId);
-        }
-      } catch (cause) {
-        await settleItemOperationFailure(
-          itemId,
-          operation.sequence,
-          operation.overlapped,
+        setDetailItem((current) =>
+          detailOpenGeneration.current === originatingGeneration && current?.id === updated.id
+            ? updated
+            : current,
         );
-        throw cause;
-      } finally {
-        finishItemOperation(itemId);
-      }
+        applySharedItem(updated);
+      });
     },
     closeDetailView: () => setDetailPage(null),
   };
