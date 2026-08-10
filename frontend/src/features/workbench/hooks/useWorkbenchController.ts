@@ -1906,7 +1906,7 @@ export function useWorkbenchController(): WorkbenchController {
       }
 
       const updated = await patchItem(detailItem.id, patch);
-      setDetailItem(updated);
+      setDetailItem((current) => (current?.id === updated.id ? updated : current));
       setWorkspaceItems((current) => ({
         ...current,
         items: replaceWorkspaceItem(current.items, updated),

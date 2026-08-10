@@ -8889,6 +8889,10 @@ describe("WorkbenchPageClient", () => {
     const editor = screen.getByRole("region", { name: "Edit properties" });
 
     expect(header).toContainElement(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("button", { name: "Save" })).toHaveAttribute(
+      "title",
+      "Save (Ctrl/Cmd+S)",
+    );
     expect(header).not.toContainElement(editor);
     expect(editor.closest(".detail-layout")).not.toBeNull();
   });
@@ -9212,6 +9216,175 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("Renamed");
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
+  it("keeps the submitted draft and history when a patched status transition fails", async () => {
+    const user = userEvent.setup();
+    const requestUrls: string[] = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        requestUrls.push(url);
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Canonical title",
+            status: "active",
+          }),
+        } as Response);
+      }
+
+      if (url === "/api/v1/todo/items/task-1/complete" && init?.method === "POST") {
+        requestUrls.push(url);
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          json: async () => ({
+            code: "conflict",
+            message: "Could not complete item.",
+            fields: {},
+            request_id: "00000000-0000-4000-8000-000000000008",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Renamed");
+    await user.selectOptions(screen.getByLabelText("Status for One"), "completed");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not complete item.");
+    expect(requestUrls).toEqual([
+      "/api/v1/todo/items/task-1",
+      "/api/v1/todo/items/task-1/complete",
+    ]);
+    expect(screen.getByLabelText("Title")).toHaveValue("Renamed");
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("completed");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Renamed");
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("active");
+  });
+
+  it("ignores a late detail save success after discarding and opening another item", async () => {
+    const user = userEvent.setup();
+    let resolvePatch!: (value: Response) => void;
+    const patchResponse = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return patchResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+          { id: "task-2", type: "task", title: "Two", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Late title");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    await screen.findByRole("table", { name: "Tasks items" });
+    await user.click(screen.getByRole("button", { name: "Open details for Two" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Local B draft");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Two");
+
+    await act(async () => {
+      resolvePatch({
+        ok: true,
+        json: async () => ({
+          id: "task-1",
+          type: "task",
+          title: "Canonical late title",
+          status: "active",
+        }),
+      } as Response);
+      await patchResponse;
+    });
+
+    expect(patchCalls(fetchMock)).toHaveLength(1);
+    expect(screen.getByLabelText("Two details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Two");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Redo" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Local B draft");
+  });
+
+  it("ignores a late detail save failure after discarding and opening another item", async () => {
+    const user = userEvent.setup();
+    let rejectPatch!: (reason: Error) => void;
+    const patchResponse = new Promise<Response>((_resolve, reject) => {
+      rejectPatch = reject;
+    });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return patchResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+          { id: "task-2", type: "task", title: "Two", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Late title");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    await screen.findByRole("table", { name: "Tasks items" });
+    await user.click(screen.getByRole("button", { name: "Open details for Two" }));
+
+    await act(async () => {
+      rejectPatch(new Error("late failure"));
+      await patchResponse.catch(() => undefined);
+    });
+
+    await waitFor(() => expect(patchCalls(fetchMock)).toHaveLength(1));
+    expect(screen.getByLabelText("Two details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Two");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
   });
 
   it("groups detail edits into page-local undo and redo steps", async () => {

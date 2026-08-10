@@ -386,6 +386,9 @@ function DetailView({
   const [isSaving, setIsSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const savePendingRef = React.useRef(false);
+  const saveGenerationRef = React.useRef(0);
+  const activeItemIdRef = React.useRef(item?.id ?? null);
+  const suppressedSyncRef = React.useRef<{ itemId: string; generation: number } | null>(null);
   const saveDraftRef = React.useRef<() => Promise<void>>(async () => {});
   const pendingNavigationRef = React.useRef(false);
   const [pendingLinkedItem, setPendingLinkedItem] = React.useState<WorkspaceItemModel | null>(
@@ -394,16 +397,27 @@ function DetailView({
   const cancelLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
   const discardLinkedItemNavigationRef = useRef<HTMLButtonElement | null>(null);
 
+  if (activeItemIdRef.current !== (item?.id ?? null)) {
+    activeItemIdRef.current = item?.id ?? null;
+    saveGenerationRef.current += 1;
+    savePendingRef.current = false;
+    suppressedSyncRef.current = null;
+  }
+
   React.useEffect(() => {
+    if (suppressedSyncRef.current?.itemId === item?.id) {
+      return;
+    }
     dispatchDraft({
       type: "sync-item",
       itemId: item?.id ?? null,
       draft: detailDraftForItem(item),
     });
-  }, [item]);
+  }, [isSaving, item]);
 
   React.useEffect(() => {
     setSaveError(null);
+    setIsSaving(false);
   }, [item?.id]);
 
   const hasDraftChanges = item ? hasDetailChanges(item, draft) : false;
@@ -444,10 +458,12 @@ function DetailView({
     }
 
     savePendingRef.current = true;
+    const saveGeneration = ++saveGenerationRef.current;
     setIsSaving(true);
     setSaveError(null);
     dispatchDraft({ type: "close-group" });
     const detailItem = item;
+    suppressedSyncRef.current = { itemId: detailItem.id, generation: saveGeneration };
     const patch = detailPatchForItem(detailItem, draft);
     try {
       if (Object.keys(patch).length > 0) {
@@ -462,15 +478,31 @@ function DetailView({
       if (transition) {
         await controller.transitionWorkspaceItem(detailItem.id, transition);
       }
+      if (
+        activeItemIdRef.current === detailItem.id &&
+        saveGenerationRef.current === saveGeneration
+      ) {
+        suppressedSyncRef.current = null;
+      }
     } catch (cause) {
-      setSaveError(
-        cause instanceof RavenApiError
-          ? cause.message
-          : "Could not save detail.",
-      );
+      if (
+        activeItemIdRef.current === detailItem.id &&
+        saveGenerationRef.current === saveGeneration
+      ) {
+        setSaveError(
+          cause instanceof RavenApiError
+            ? cause.message
+            : "Could not save detail.",
+        );
+      }
     } finally {
-      savePendingRef.current = false;
-      setIsSaving(false);
+      if (
+        activeItemIdRef.current === detailItem.id &&
+        saveGenerationRef.current === saveGeneration
+      ) {
+        savePendingRef.current = false;
+        setIsSaving(false);
+      }
     }
   }
 
@@ -615,6 +647,7 @@ function DetailView({
           <button
             type="button"
             aria-label="Save"
+            title="Save (Ctrl/Cmd+S)"
             disabled={!hasDraftChanges || isSaving}
             onClick={() => void saveDraft()}
           >
