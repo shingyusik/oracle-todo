@@ -9577,8 +9577,52 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Status for Canonical newer transition")).toHaveValue("active");
+    expect(screen.getByLabelText("Status for Canonical newer transition")).toHaveValue("archived");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    expect(await screen.findByRole("button", {
+      name: "Open details for Canonical newer transition",
+    })).toBeInTheDocument();
+  });
+
+  it("keeps a supported completed task status undo saveable", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1/complete" && init?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "One",
+            status: "completed",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.selectOptions(screen.getByLabelText("Status for One"), "completed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("completed"),
+    );
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("active");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
   it("serializes detail PATCH calls and keeps the last successful canonical item", async () => {
@@ -9927,9 +9971,18 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     expect(transitionAttempts).toBe(2);
     await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("active");
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived");
+    expect(screen.getByLabelText("Title")).toHaveValue("Health");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Redo" }));
     expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived");
+    expect(screen.getByLabelText("Title")).toHaveValue("Canonical composite title");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "< Back" }));
     expect(await screen.findByRole("button", {

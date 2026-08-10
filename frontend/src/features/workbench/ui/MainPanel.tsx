@@ -421,6 +421,7 @@ function DetailView({
       dispatchDraft({
         type: "rebase-saved-item",
         itemId: item.id,
+        itemType: item.type,
         submittedDraft: pendingRebase.submittedDraft,
         canonicalDraft: detailDraftForItem(item),
       });
@@ -2646,6 +2647,7 @@ type DetailDraftHistoryAction =
   | {
       type: "rebase-saved-item";
       itemId: string;
+      itemType: WorkspaceItemModel["type"];
       submittedDraft: DetailDraft;
       canonicalDraft: DetailDraft;
     }
@@ -2701,7 +2703,12 @@ function detailDraftHistoryReducer(
       return state;
     }
     const rebase = (snapshot: DetailDraft) =>
-      rebaseDetailDraft(snapshot, action.submittedDraft, action.canonicalDraft);
+      rebaseDetailDraft(
+        snapshot,
+        action.submittedDraft,
+        action.canonicalDraft,
+        action.itemType,
+      );
     return {
       ...state,
       past: state.past.map(rebase),
@@ -2766,14 +2773,22 @@ function rebaseDetailDraft(
   snapshot: DetailDraft,
   submitted: DetailDraft,
   canonical: DetailDraft,
+  itemType: WorkspaceItemModel["type"],
 ): DetailDraft {
-  return (Object.keys(snapshot) as (keyof DetailDraft)[]).reduce(
+  const rebased = (Object.keys(snapshot) as (keyof DetailDraft)[]).reduce(
     (rebased, field) => ({
       ...rebased,
       [field]: snapshot[field] === submitted[field] ? canonical[field] : snapshot[field],
     }),
     {} as DetailDraft,
   );
+  if (
+    rebased.status !== canonical.status &&
+    transitionActionForStatus(canonical.status, rebased.status, itemType) === null
+  ) {
+    rebased.status = canonical.status;
+  }
+  return rebased;
 }
 
 type StringWorkspaceItemPatchField = {
