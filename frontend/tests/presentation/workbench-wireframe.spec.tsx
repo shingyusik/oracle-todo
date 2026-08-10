@@ -97,6 +97,12 @@ async function openWorkspaceTasks(
   await screen.findByRole("table", { name: "Tasks items" });
 }
 
+function patchCalls(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter(
+    ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
+  );
+}
+
 async function addWorkspaceStatusFilter(
   user: ReturnType<typeof userEvent.setup>,
   status: string,
@@ -7589,10 +7595,13 @@ describe("WorkbenchPageClient", () => {
     await user.click(within(detailPicker).getByRole("button", { name: "Week" }));
     await user.click(within(detailPicker).getByRole("button", { name: /June 10, 2026/ }));
 
+    expect(detailTrigger).toHaveTextContent("Week · 2026-06-08 to 2026-06-14");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(detailTrigger).toHaveTextContent("Month · June 2026");
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(detailTrigger).toHaveTextContent("Week · 2026-06-08 to 2026-06-14");
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
-    expect(
-      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
-    ).toHaveLength(0);
+    expect(patchCalls(fetchMock)).toHaveLength(0);
   });
 
   it("patches a goal period through the inline calendar with an ISO week anchor", async () => {
@@ -8937,6 +8946,183 @@ describe("WorkbenchPageClient", () => {
       expect(screen.getByLabelText("Title")).toHaveValue("Canonical title");
       expect(screen.getByRole("heading", { name: "Canonical title" })).toBeInTheDocument();
     });
+  });
+
+  it("keeps undo history after saving without undoing the server", async () => {
+    const user = userEvent.setup();
+    let canonicalResponseRead = false;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => {
+            canonicalResponseRead = true;
+            return {
+              id: "task-1",
+              type: "task",
+              title: "Saved title",
+              status: "active",
+            };
+          },
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+
+    const title = screen.getByLabelText("Title");
+    const save = screen.getByRole("button", { name: "Save" });
+    await user.clear(title);
+    await user.type(title, "Saved title");
+    await user.click(save);
+
+    await waitFor(() => {
+      expect(canonicalResponseRead).toBe(true);
+      expect(title).toHaveValue("Saved title");
+      expect(save).toBeDisabled();
+      expect(patchCalls(fetchMock)).toHaveLength(1);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(title).toHaveValue("One");
+    expect(save).toBeEnabled();
+    expect(patchCalls(fetchMock)).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(title).toHaveValue("Saved title");
+    expect(save).toBeDisabled();
+    expect(patchCalls(fetchMock)).toHaveLength(1);
+  });
+
+  it("ignores detail history shortcuts during confirmation and IME composition", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "task-1", type: "task", title: "One", status: "active" },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+
+    const title = screen.getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Draft title");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Discard unsaved changes?" });
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true });
+    expect(title).toHaveValue("Draft title");
+    expect(dialog).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true, isComposing: true });
+    expect(title).toHaveValue("Draft title");
+
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true });
+    expect(title).toHaveValue("One");
+  });
+
+  it("resets detail history when another item opens", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "task-1", type: "task", title: "One", status: "active" },
+            { id: "task-2", type: "task", title: "Two", status: "active" },
+          ],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Abandoned draft");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    await screen.findByRole("table", { name: "Tasks items" });
+    await user.click(screen.getByRole("button", { name: "Open details for Two" }));
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("table", { name: "Tasks items" });
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("One");
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+  });
+
+  it("uses the shared detail shortcuts for an item opened from Planner", async () => {
+    const user = userEvent.setup();
+    const task = {
+      id: "task-detail",
+      type: "task",
+      title: "Detail task",
+      status: "active",
+      scheduled: testToday(),
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-detail" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...task, title: "Planner edit" }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === "/api/v1/todo/items?type=task"
+            ? [task]
+            : [],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(await screen.findByRole("button", { name: "Detail task" }));
+
+    const title = screen.getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Planner edit");
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true });
+    expect(title).toHaveValue("Detail task");
+
+    await user.clear(title);
+    await user.type(title, "Planner edit");
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+
+    await waitFor(() => expect(patchCalls(fetchMock)).toHaveLength(1));
+    expect(patchCalls(fetchMock)[0]?.[1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ title: "Planner edit" }),
+    }));
   });
 
   it("prevents duplicate detail saves while a request is pending", async () => {
