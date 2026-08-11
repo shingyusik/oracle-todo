@@ -9097,6 +9097,285 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
   });
 
+  it("protects a dirty detail draft while its Archive confirmation is open", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: async () => [
+        { id: "task-1", type: "task", title: "Workspace Task", status: "active" },
+      ],
+    } as Response));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", {
+      name: "Open details for Workspace Task",
+    }));
+    const title = screen.getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Dirty Workspace Task");
+
+    const archiveButton = screen.getByRole("button", { name: "Archive" });
+    await user.click(archiveButton);
+    const dialog = screen.getByRole("dialog", { name: "Archive Workspace Task?" });
+    expect(within(dialog).getByText(
+      "Move this item to Archive? Unsaved changes will be discarded.",
+    )).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "z", metaKey: true });
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "s", metaKey: true });
+    expect(title).toHaveValue("Dirty Workspace Task");
+    expect(patchCalls(fetchMock)).toHaveLength(0);
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Archive Workspace Task?",
+    })).toBeNull());
+    expect(title).toHaveValue("Dirty Workspace Task");
+    await waitFor(() => expect(archiveButton).toHaveFocus());
+  });
+
+  it("keeps Archive unavailable while a dirty detail save is in flight", async () => {
+    const user = userEvent.setup();
+    let resolvePatch!: (value: Response) => void;
+    const patchResponse = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return patchResponse;
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "Workspace Task", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", {
+      name: "Open details for Workspace Task",
+    }));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Saved Workspace Task");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    const archiveButton = screen.getByRole("button", { name: "Archive" });
+    expect(archiveButton).toBeDisabled();
+    fireEvent.click(archiveButton);
+    expect(fetchMock.mock.calls.filter(
+      ([url, init]) => String(url).endsWith("/archive") && init?.method === "POST",
+    )).toHaveLength(0);
+
+    await act(async () => resolvePatch({
+      ok: true,
+      json: async () => ({
+        id: "task-1",
+        type: "task",
+        title: "Saved Workspace Task",
+        status: "active",
+      }),
+    } as Response));
+    await waitFor(() => expect(archiveButton).toBeEnabled());
+  });
+
+  it("locks a failed dirty-detail Archive request and retries with only safe errors", async () => {
+    const user = userEvent.setup();
+    let resolveFirstArchive!: (value: Response) => void;
+    const firstArchiveResponse = new Promise<Response>((resolve) => {
+      resolveFirstArchive = resolve;
+    });
+    let archiveAttempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1/archive" && init?.method === "POST") {
+        archiveAttempts += 1;
+        if (archiveAttempts === 1) return firstArchiveResponse;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Workspace Task",
+            status: "archived",
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "Workspace Task", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", {
+      name: "Open details for Workspace Task",
+    }));
+    const title = screen.getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Unsaved Workspace Task");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Archive Workspace Task?" });
+    const confirm = within(dialog).getByRole("button", { name: "Archive" });
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(archiveAttempts).toBe(1);
+    expect(dialog).toHaveAttribute("aria-busy", "true");
+    expect(confirm).toHaveAttribute("aria-disabled", "true");
+    expect(cancel).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Save", hidden: true })).toBeDisabled();
+    fireEvent.click(cancel);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog).toBeInTheDocument();
+    expect(title).toHaveValue("Unsaved Workspace Task");
+
+    await act(async () => resolveFirstArchive({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        code: "internal_error",
+        message: "Could not archive item.",
+        fields: { sql: "private statement" },
+        request_id: "00000000-0000-4000-8000-000000000011",
+      }),
+    } as Response));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent("Could not archive item.");
+    expect(dialog).toHaveAttribute("aria-busy", "false");
+    expect(confirm).toHaveAttribute("aria-disabled", "false");
+    expect(screen.getByRole("button", { name: "Save", hidden: true })).toBeEnabled();
+    expect(title).toHaveValue("Unsaved Workspace Task");
+    expect(dialog).not.toHaveTextContent("internal_error");
+    expect(dialog).not.toHaveTextContent("private statement");
+    expect(dialog).not.toHaveTextContent("00000000-0000-4000-8000-000000000011");
+
+    await user.click(confirm);
+    expect(archiveAttempts).toBe(2);
+    const tasksTable = await screen.findByRole("table", { name: "Tasks items" });
+    expect(within(tasksTable).queryByRole("button", {
+      name: "Open details for Workspace Task",
+    })).toBeNull();
+  });
+
+  it("returns an archived Planner detail to the same Daily date and view settings", async () => {
+    const user = userEvent.setup();
+    const scheduled = testAddDays(testToday(), 1);
+    const task = {
+      id: "planner-task",
+      type: "task",
+      title: "Planner Task",
+      status: "active",
+      scheduled,
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/planner-task/archive" && init?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...task, status: "archived" }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => url === "/api/v1/todo/items?type=task" ? [task] : [],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Next day" }));
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
+    const filterDialog = screen.getByRole("dialog", { name: "Filter Today" });
+    await user.click(within(filterDialog).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filterDialog).getByRole("option", { name: "Title" }));
+    await user.type(within(filterDialog).getByLabelText("Filter value"), "Planner");
+    fireEvent.mouseDown(screen.getByRole("tablist", { name: "Today views" }));
+    await user.click(await screen.findByRole("button", { name: "Planner Task" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(within(
+      screen.getByRole("dialog", { name: "Archive Planner Task?" }),
+    ).getByRole("button", { name: "Archive" }));
+
+    expect(await screen.findByLabelText("Daily planner")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Daily" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Choose Daily date" })).toHaveTextContent(
+      testLongDateLabel(scheduled),
+    );
+    expect(screen.getByLabelText("Active planner controls")).toHaveTextContent("1 rules");
+    expect(screen.queryByRole("button", { name: "Planner Task" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "Tasks items" })).toBeNull();
+  });
+
+  it("returns an archived linked project directly to its Areas list origin", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/project-1/archive" && init?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "project-1",
+            type: "project",
+            title: "Checkup",
+            status: "archived",
+            area_id: "area-1",
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(within(
+      screen.getByRole("dialog", { name: "Archive Checkup?" }),
+    ).getByRole("button", { name: "Archive" }));
+
+    const areasTable = await screen.findByRole("table", { name: "Areas items" });
+    expect(within(areasTable).getByRole("button", {
+      name: "Open details for Health",
+    })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Health details")).toBeNull();
+    expect(screen.queryByLabelText("Checkup details")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open details for Checkup" })).toBeNull();
+    expect(window.history.state).toMatchObject({ __ravenDetailItemId: null });
+
+    await user.click(within(areasTable).getByRole("button", {
+      name: "Open details for Health",
+    }));
+    expect(screen.getByRole("region", { name: "Linked items" })).not.toHaveTextContent(
+      "Checkup",
+    );
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+    const projectsTable = await screen.findByRole("table", { name: "Projects items" });
+    expect(within(projectsTable).queryByRole("button", {
+      name: "Open details for Checkup",
+    })).toBeNull();
+  });
+
   it("supports detail save undo and redo keyboard conventions", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
