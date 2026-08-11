@@ -12,6 +12,7 @@ type DestructiveConfirmationDialogProps = {
   description: string;
   confirmLabel?: string;
   error?: string | null;
+  disabled?: boolean;
   fallbackFocusRef: React.RefObject<HTMLElement>;
   onCancel: () => void;
   onConfirm: () => Promise<void>;
@@ -40,6 +41,7 @@ function DestructiveDialogContent({
   description,
   confirmLabel = "Purge permanently",
   error = null,
+  disabled = false,
   fallbackFocusRef,
   onCancel,
   onConfirm,
@@ -67,7 +69,7 @@ function DestructiveDialogContent({
   }, [fallbackFocusRef]);
 
   async function confirm() {
-    if (activeConfirmation.current) return;
+    if (activeConfirmation.current || disabled) return;
     activeConfirmation.current = true;
     setPending(true);
     try {
@@ -86,11 +88,11 @@ function DestructiveDialogContent({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        aria-busy={pending}
+        aria-busy={pending || disabled}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
-            if (!pending) onCancel();
+            if (!pending && !disabled) onCancel();
           } else if (event.key === "Tab") {
             event.preventDefault();
             if (document.activeElement === cancelRef.current && event.shiftKey) {
@@ -117,9 +119,9 @@ function DestructiveDialogContent({
           <button
             ref={cancelRef}
             type="button"
-            aria-disabled={pending}
+            aria-disabled={pending || disabled}
             onClick={() => {
-              if (!pending) onCancel();
+              if (!pending && !disabled) onCancel();
             }}
           >
             Cancel
@@ -127,7 +129,7 @@ function DestructiveDialogContent({
           <button
             ref={confirmRef}
             type="button"
-            aria-disabled={pending}
+            aria-disabled={pending || disabled}
             onClick={() => void confirm()}
           >
             {confirmLabel}

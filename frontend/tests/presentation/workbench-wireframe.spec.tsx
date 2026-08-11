@@ -6541,6 +6541,52 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
   });
 
+  it("keeps the first deferred Archive dialog intent while restoration settles", async () => {
+    const user = userEvent.setup();
+    const controlledForward = controlHistoryForward();
+    let archiveAttempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
+        archiveAttempts += 1;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "area-1",
+            type: "area",
+            title: "Health",
+            status: "archived",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    const dialog = screen.getByRole("dialog", { name: "Archive Health?" });
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledTimes(1));
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
+
+    expect(archiveAttempts).toBe(0);
+    expect(dialog).toHaveAttribute("aria-busy", "true");
+    await controlledForward.releaseNext();
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Archive Health?" })).toBeNull(),
+    );
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    expect(archiveAttempts).toBe(0);
+    controlledForward.spy.mockRestore();
+  });
+
   it("defers successful Archive close until browser Back restoration settles", async () => {
     const user = userEvent.setup();
     const controlledForward = controlHistoryForward();

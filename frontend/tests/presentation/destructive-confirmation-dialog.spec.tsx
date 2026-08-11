@@ -81,4 +81,36 @@ describe("DestructiveConfirmationDialog", () => {
 
     expect(screen.getByRole("alert")).toBeEmptyDOMElement();
   });
+
+  it("blocks external disabled confirmation and cancellation intents", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <DestructiveConfirmationDialog
+        title="Archive One?"
+        description="Archive this item from active views."
+        confirmLabel="Archive"
+        disabled
+        fallbackFocusRef={React.createRef<HTMLElement>()}
+        onCancel={onCancel}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Archive One?" });
+    const cancelButton = within(dialog).getByRole("button", { name: "Cancel" });
+    const archiveButton = within(dialog).getByRole("button", { name: "Archive" });
+    expect(dialog).toHaveAttribute("aria-busy", "true");
+    expect(cancelButton).toHaveAttribute("aria-disabled", "true");
+    expect(archiveButton).toHaveAttribute("aria-disabled", "true");
+
+    await user.click(cancelButton);
+    await user.click(archiveButton);
+    await user.keyboard("{Escape}");
+
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
 });

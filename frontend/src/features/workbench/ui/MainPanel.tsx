@@ -392,6 +392,8 @@ function DetailView({
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [archiveDialogOpen, setArchiveDialogOpen] = React.useState(false);
   const [archiveError, setArchiveError] = React.useState<string | null>(null);
+  const [archiveActionLocked, setArchiveActionLocked] = React.useState(false);
+  const archiveActionLockedRef = React.useRef(false);
   const archiveButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const savePendingRef = React.useRef(false);
   const saveGenerationRef = React.useRef(0);
@@ -588,29 +590,45 @@ function DetailView({
   const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
 
   function cancelArchive() {
+    if (archiveActionLockedRef.current) {
+      return;
+    }
     const cancelArchiveDialog = () => {
+      archiveActionLockedRef.current = false;
+      setArchiveActionLocked(false);
       setArchiveError(null);
       detailHistory.setDialogOpen(false);
       setArchiveDialogOpen(false);
     };
-    if (!detailHistory.deferUntilRestored(cancelArchiveDialog)) {
+    if (detailHistory.deferUntilRestored(cancelArchiveDialog)) {
+      archiveActionLockedRef.current = true;
+      setArchiveActionLocked(true);
+    } else {
       cancelArchiveDialog();
     }
   }
 
   function closeAfterArchive() {
     const closeArchivedDetail = () => {
+      archiveActionLockedRef.current = false;
+      setArchiveActionLocked(false);
       detailHistory.setDirty(false);
       detailHistory.setDialogOpen(false);
       setArchiveDialogOpen(false);
       controller.closeDetailView();
     };
-    if (!detailHistory.deferUntilRestored(closeArchivedDetail)) {
+    if (detailHistory.deferUntilRestored(closeArchivedDetail)) {
+      archiveActionLockedRef.current = true;
+      setArchiveActionLocked(true);
+    } else {
       closeArchivedDetail();
     }
   }
 
   async function confirmArchive() {
+    if (archiveActionLockedRef.current) {
+      return;
+    }
     setArchiveError(null);
     try {
       await controller.transitionWorkspaceItem(detailItem.id, "archive");
@@ -741,6 +759,8 @@ function DetailView({
               title="Archive"
               disabled={isSaving || transitionState.pending}
               onClick={() => {
+                archiveActionLockedRef.current = false;
+                setArchiveActionLocked(false);
                 setArchiveError(null);
                 setArchiveDialogOpen(true);
               }}
@@ -852,6 +872,7 @@ function DetailView({
             : "Move this item to Archive?"}
           confirmLabel="Archive"
           error={archiveError}
+          disabled={archiveActionLocked}
           fallbackFocusRef={archiveButtonRef}
           onCancel={cancelArchive}
           onConfirm={confirmArchive}
