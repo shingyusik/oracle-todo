@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -26,9 +26,13 @@ describe("DestructiveConfirmationDialog", () => {
       />,
     );
 
+    const dialog = screen.getByRole("dialog", { name: "Archive One?" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(
-      screen.getByRole("dialog", { name: "Archive One?" }),
-    ).toHaveAttribute("aria-modal", "true");
+      within(dialog).getByText("Archive this item from active views.", {
+        exact: true,
+      }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Could not archive item.",
     );
@@ -61,5 +65,20 @@ describe("DestructiveConfirmationDialog", () => {
     expect(
       screen.getByRole("button", { name: "Purge permanently" }),
     ).toBeInTheDocument();
+  });
+
+  it("renders an alert for an empty error string", () => {
+    render(
+      <DestructiveConfirmationDialog
+        title="Archive One?"
+        description="Archive this item from active views."
+        error=""
+        fallbackFocusRef={React.createRef<HTMLElement>()}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toBeEmptyDOMElement();
   });
 });

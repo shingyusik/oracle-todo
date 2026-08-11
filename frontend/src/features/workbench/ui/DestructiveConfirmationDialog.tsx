@@ -108,7 +108,7 @@ function DestructiveDialogContent({
       >
         <h2>{title}</h2>
         <p>{description}</p>
-        {error ? (
+        {error !== null ? (
           <p className="items-message" role="alert">
             {error}
           </p>
