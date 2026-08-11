@@ -9246,14 +9246,14 @@ describe("WorkbenchPageClient", () => {
       status: 500,
       json: async () => ({
         code: "internal_error",
-        message: "Could not archive item.",
-        fields: { sql: "private statement" },
+        message: "Archive is blocked by a related item.",
+        fields: { sql: ["private statement"] },
         request_id: "00000000-0000-4000-8000-000000000011",
       }),
     } as Response));
 
     const alert = await within(dialog).findByRole("alert");
-    expect(alert).toHaveTextContent("Could not archive item.");
+    expect(alert).toHaveTextContent("Archive is blocked by a related item.");
     expect(dialog).toHaveAttribute("aria-busy", "false");
     expect(confirm).toHaveAttribute("aria-disabled", "false");
     expect(screen.getByRole("button", { name: "Save", hidden: true })).toBeEnabled();
