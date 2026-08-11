@@ -8905,6 +8905,89 @@ describe("WorkbenchPageClient", () => {
     expect(editor.closest(".detail-layout")).not.toBeNull();
   });
 
+  it("archives an active task from detail and returns to the unchanged Tasks table", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1/archive" && init?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "task-1",
+            type: "task",
+            title: "Canonical One",
+            status: "archived",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          { id: "task-1", type: "task", title: "One", status: "active" },
+        ],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await user.click(screen.getByRole("button", { name: "Open details for One" }));
+
+    const header = screen.getByRole("button", { name: "< Back" }).closest(".detail-header");
+    expect(header).not.toBeNull();
+    expect(within(header as HTMLElement).getAllByRole("button").map((button) =>
+      button.getAttribute("aria-label")
+    )).toEqual(["< Back", "Undo", "Redo", "Save", "Archive"]);
+
+    const archiveButton = screen.getByRole("button", { name: "Archive" });
+    await user.click(archiveButton);
+    const dialog = screen.getByRole("dialog", { name: "Archive One?" });
+    expect(within(dialog).getByText("Move this item to Archive?")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
+
+    expect(await screen.findByRole("table", { name: "Tasks items" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open details for Canonical One" })).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/todo/items/task-1/archive",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(window.history.state).toMatchObject({ __ravenDetailItemId: null });
+  });
+
+  it("does not offer Archive for a persisted archived detail item", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "area-1",
+            type: "area",
+            title: "Health",
+            status: "archived",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived"),
+    );
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+  });
+
   it("supports detail save undo and redo keyboard conventions", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
@@ -9552,7 +9635,9 @@ describe("WorkbenchPageClient", () => {
       } as Response);
       await oldTransitionResponse;
     });
-    await waitFor(() => expect(transitionAttempts).toBe(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(transitionAttempts).toBe(2);
 
     expect(screen.getByLabelText("Health details")).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Health");
@@ -9581,9 +9666,10 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "< Back" }));
     expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
-    expect(await screen.findByRole("button", {
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", {
       name: "Open details for Canonical newer transition",
-    })).toBeInTheDocument();
+    })).toBeNull();
   });
 
   it("keeps a supported completed task status undo saveable", async () => {
@@ -9878,7 +9964,9 @@ describe("WorkbenchPageClient", () => {
       } as Response);
       await oldTransitionResponse;
     });
-    await waitFor(() => expect(transitionAttempts).toBe(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(transitionAttempts).toBe(2);
     await act(async () => {
       resolveNewTransition({
         ok: true,
@@ -9896,9 +9984,10 @@ describe("WorkbenchPageClient", () => {
       .toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived");
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    expect(await screen.findByRole("button", {
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", {
       name: "Open details for Canonical newer transition",
-    })).toBeInTheDocument();
+    })).toBeNull();
   });
 
   it("preserves edits made while a detail save is pending", async () => {
@@ -10050,9 +10139,10 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("Canonical composite title");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    expect(await screen.findByRole("button", {
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", {
       name: "Open details for Canonical composite title",
-    })).toBeInTheDocument();
+    })).toBeNull();
   });
 
   it("completes and releases a detail save rendered in React StrictMode", async () => {

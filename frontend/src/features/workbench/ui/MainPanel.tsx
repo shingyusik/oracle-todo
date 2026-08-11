@@ -84,6 +84,7 @@ import {
 } from "@/features/workbench/ui/TableViewControls";
 import { TableViewTabs } from "@/features/workbench/ui/TableViewTabs";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
+import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type MainPanelProps = {
   controller: WorkbenchController;
@@ -389,6 +390,9 @@ function DetailView({
   const draft = draftHistory.present;
   const [isSaving, setIsSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [archiveDialogOpen, setArchiveDialogOpen] = React.useState(false);
+  const [archiveError, setArchiveError] = React.useState<string | null>(null);
+  const archiveButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const savePendingRef = React.useRef(false);
   const saveGenerationRef = React.useRef(0);
   const activeItemIdRef = React.useRef(item?.id ?? null);
@@ -452,7 +456,8 @@ function DetailView({
 
   const hasDraftChanges = item ? hasDetailChanges(item, draft) : false;
   const pendingNavigation = pendingLinkedItem !== null || detailHistory.pendingBack;
-  pendingNavigationRef.current = pendingNavigation;
+  const detailDialogOpen = pendingNavigation || archiveDialogOpen;
+  pendingNavigationRef.current = detailDialogOpen;
 
   React.useEffect(() => {
     detailHistory.setDirty(hasDraftChanges);
@@ -460,9 +465,9 @@ function DetailView({
   }, [detailHistory.setDirty, hasDraftChanges]);
 
   React.useEffect(() => {
-    detailHistory.setDialogOpen(pendingNavigation);
+    detailHistory.setDialogOpen(detailDialogOpen);
     return () => detailHistory.setDialogOpen(false);
-  }, [detailHistory.setDialogOpen, pendingNavigation]);
+  }, [detailDialogOpen, detailHistory.setDialogOpen]);
 
   React.useEffect(() => {
     if (pendingNavigation) {
@@ -577,7 +582,27 @@ function DetailView({
   }
 
   const detailItem = item;
+  const transitionState = controller.workspaceItemTransitionState(detailItem.id);
   const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
+
+  async function confirmArchive() {
+    setArchiveError(null);
+    try {
+      await controller.transitionWorkspaceItem(detailItem.id, "archive");
+    } catch (cause) {
+      setArchiveError(
+        cause instanceof RavenApiError
+          ? cause.message
+          : "Could not archive item.",
+      );
+      return;
+    }
+
+    detailHistory.setDirty(false);
+    detailHistory.setDialogOpen(false);
+    setArchiveDialogOpen(false);
+    controller.closeDetailView();
+  }
 
   function openLinkedItem(nextItem: WorkspaceItemModel) {
     if (hasDraftChanges) {
@@ -681,11 +706,26 @@ function DetailView({
             type="button"
             aria-label="Save"
             title="Save (Ctrl/Cmd+S)"
-            disabled={!hasDraftChanges || isSaving}
+            disabled={!hasDraftChanges || isSaving || transitionState.pending}
             onClick={() => void saveDraft()}
           >
             <Save size={16} aria-hidden="true" />
           </button>
+          {detailItem.status !== "archived" ? (
+            <button
+              ref={archiveButtonRef}
+              type="button"
+              aria-label="Archive"
+              title="Archive"
+              disabled={isSaving || transitionState.pending}
+              onClick={() => {
+                setArchiveError(null);
+                setArchiveDialogOpen(true);
+              }}
+            >
+              <Trash2 size={16} aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </header>
       {saveError ? <p role="alert">{saveError}</p> : null}
@@ -781,6 +821,22 @@ function DetailView({
             </div>
           </section>
         </div>
+      ) : null}
+      {archiveDialogOpen ? (
+        <DestructiveConfirmationDialog
+          title={`Archive ${detailItem.title}?`}
+          description={hasDraftChanges
+            ? "Move this item to Archive? Unsaved changes will be discarded."
+            : "Move this item to Archive?"}
+          confirmLabel="Archive"
+          error={archiveError}
+          fallbackFocusRef={archiveButtonRef}
+          onCancel={() => {
+            setArchiveError(null);
+            setArchiveDialogOpen(false);
+          }}
+          onConfirm={confirmArchive}
+        />
       ) : null}
     </section>
   );
