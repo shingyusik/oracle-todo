@@ -8946,8 +8946,10 @@ describe("WorkbenchPageClient", () => {
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
     await user.click(within(dialog).getByRole("button", { name: "Archive" }));
 
-    expect(await screen.findByRole("table", { name: "Tasks items" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open details for Canonical One" })).toBeNull();
+    const tasksTable = await screen.findByRole("table", { name: "Tasks items" });
+    expect(within(tasksTable).queryByRole("button", {
+      name: /^Open details for /,
+    })).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/todo/items/task-1/archive",
       expect.objectContaining({ method: "POST" }),
@@ -9914,7 +9916,7 @@ describe("WorkbenchPageClient", () => {
     })).toBeInTheDocument();
   }, 10_000);
 
-  it("serializes detail transitions and keeps the last canonical item", async () => {
+  it("retries a detail transition after an older pending transition settles", async () => {
     const user = userEvent.setup();
     let resolveOldTransition!: (value: Response) => void;
     let resolveNewTransition!: (value: Response) => void;
