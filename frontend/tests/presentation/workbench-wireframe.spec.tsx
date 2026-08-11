@@ -9320,6 +9320,16 @@ describe("WorkbenchPageClient", () => {
       testLongDateLabel(scheduled),
     );
     expect(screen.getByLabelText("Active planner controls")).toHaveTextContent("1 rules");
+    await user.click(screen.getByRole("button", { name: "Filter Today" }));
+    const restoredFilterDialog = screen.getByRole("dialog", { name: "Filter Today" });
+    expect(within(restoredFilterDialog).getByLabelText("Filter field")).toHaveValue("title");
+    expect(within(restoredFilterDialog).getByLabelText("Filter value")).toHaveValue(
+      "Planner",
+    );
+    fireEvent.mouseDown(screen.getByRole("tablist", { name: "Today views" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Filter Today",
+    })).toBeNull());
     expect(screen.queryByRole("button", { name: "Planner Task" })).toBeNull();
     expect(screen.queryByRole("table", { name: "Tasks items" })).toBeNull();
   });
@@ -9346,10 +9356,12 @@ describe("WorkbenchPageClient", () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/project-1/archive" && init?.method === "POST") {
         archivePosts += 1;
-        projectArchived = true;
         return Promise.resolve({
           ok: true,
-          json: async () => ({ ...project, status: "archived" }),
+          json: async () => {
+            projectArchived = true;
+            return { ...project, status: "archived" };
+          },
         } as Response);
       }
 
