@@ -2876,6 +2876,86 @@ describe("useWorkbenchController", () => {
     expect(result.current.workspaceItems.allItems[0]?.status).toBe("completed");
   });
 
+  it("removes an archived detail item from active workspace state", async () => {
+    const task = {
+      id: "task-1",
+      type: "task",
+      title: "One",
+      status: "active",
+      area_id: "area-1",
+    };
+    const area = {
+      id: "area-1",
+      type: "area",
+      title: "Focus",
+      status: "active",
+    };
+    const archivedTask = {
+      ...task,
+      title: "Canonical One",
+      status: "archived",
+    };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/task-1/archive") {
+        expect(init).toEqual(
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({}),
+          }),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => archivedTask,
+        });
+      }
+      if (url === "/api/v1/todo/items?type=task") {
+        return Promise.resolve({ ok: true, json: async () => [task] });
+      }
+      if (url === "/api/v1/todo/items?type=area") {
+        return Promise.resolve({ ok: true, json: async () => [area] });
+      }
+      if (url === "/api/v1/todo/items") {
+        return Promise.resolve({ ok: true, json: async () => [task, area] });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("tasks");
+    });
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    act(() => {
+      result.current.openDetailView(task);
+      result.current.toggleItemSelection("task-1");
+    });
+
+    await act(async () => {
+      await result.current.transitionWorkspaceItem("task-1", "archive");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/todo/items/task-1/archive",
+      expect.objectContaining({ body: JSON.stringify({}) }),
+    );
+    expect(result.current.selection.leafTabId).toBe("tasks");
+    expect(result.current.detailItem).toEqual(archivedTask);
+    expect(result.current.workspaceItems.items.map(({ id }) => id)).toEqual([]);
+    expect(result.current.workspaceItems.allItems.map(({ id }) => id)).toEqual([
+      "area-1",
+    ]);
+    expect(result.current.selectedItemIds).toEqual([]);
+    expect(result.current.workspaceItems.relatedItems.areas).toEqual({
+      "area-1": "Focus",
+    });
+  });
+
   it("marks a Planner item missed without removing it from the loaded collection", async () => {
     const source = {
       id: "task-1",

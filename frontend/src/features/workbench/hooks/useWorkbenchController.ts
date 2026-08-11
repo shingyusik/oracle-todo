@@ -830,6 +830,19 @@ export function useWorkbenchController(): WorkbenchController {
     }));
   };
 
+  const removeSharedItem = (itemId: string) => {
+    setWorkspaceItems((current) => {
+      const allItems = current.allItems.filter((item) => item.id !== itemId);
+      return {
+        ...current,
+        items: current.items.filter((item) => item.id !== itemId),
+        allItems,
+        relatedItems: buildRelatedItems(allItems),
+      };
+    });
+    setSelectedItemIds((current) => current.filter((id) => id !== itemId));
+  };
+
   const enqueueItemMutation = <Result,>(
     itemId: string,
     mutation: () => Promise<Result>,
@@ -1781,7 +1794,11 @@ export function useWorkbenchController(): WorkbenchController {
               ? updated
               : current,
           );
-          applySharedItem(updated);
+          if (action === "archive") {
+            removeSharedItem(itemId);
+          } else {
+            applySharedItem(updated);
+          }
         });
       itemTransitions.current.set(itemId, {
         promise: transition,
