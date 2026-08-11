@@ -10,6 +10,8 @@ import {
 type DestructiveConfirmationDialogProps = {
   title: string;
   description: string;
+  confirmLabel?: string;
+  error?: string | null;
   fallbackFocusRef: React.RefObject<HTMLElement>;
   onCancel: () => void;
   onConfirm: () => Promise<void>;
@@ -36,6 +38,8 @@ export function DestructiveConfirmationDialog(
 function DestructiveDialogContent({
   title,
   description,
+  confirmLabel = "Purge permanently",
+  error = null,
   fallbackFocusRef,
   onCancel,
   onConfirm,
@@ -104,6 +108,11 @@ function DestructiveDialogContent({
       >
         <h2>{title}</h2>
         <p>{description}</p>
+        {error ? (
+          <p className="items-message" role="alert">
+            {error}
+          </p>
+        ) : null}
         <div className="dialog-actions">
           <button
             ref={cancelRef}
@@ -121,7 +130,7 @@ function DestructiveDialogContent({
             aria-disabled={pending}
             onClick={() => void confirm()}
           >
-            Purge permanently
+            {confirmLabel}
           </button>
         </div>
       </section>
