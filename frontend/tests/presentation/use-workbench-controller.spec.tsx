@@ -2956,6 +2956,74 @@ describe("useWorkbenchController", () => {
     });
   });
 
+  it("rebuilds area relations after archiving an Area detail item", async () => {
+    const areaOne = {
+      id: "area-1",
+      type: "area",
+      title: "One",
+      status: "active",
+    };
+    const areaTwo = {
+      id: "area-2",
+      type: "area",
+      title: "Two",
+      status: "active",
+    };
+    const archivedArea = {
+      ...areaOne,
+      title: "Canonical One",
+      status: "archived",
+    };
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/api/v1/todo/items/area-1/archive") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => archivedArea,
+        });
+      }
+      if (url === "/api/v1/todo/items?type=area" || url === "/api/v1/todo/items") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [areaOne, areaTwo],
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(async () => {
+      result.current.selectTab("workspace");
+      result.current.selectTab("areas");
+    });
+    await waitFor(() =>
+      expect(result.current.workspaceItems.status).toBe("loaded"),
+    );
+
+    act(() => {
+      result.current.openDetailView(areaOne);
+      result.current.toggleItemSelection("area-1");
+    });
+
+    await act(async () => {
+      await result.current.transitionWorkspaceItem("area-1", "archive");
+    });
+
+    expect(result.current.selection.leafTabId).toBe("areas");
+    expect(result.current.detailItem).toEqual(archivedArea);
+    expect(result.current.workspaceItems.items.map(({ id }) => id)).toEqual([
+      "area-2",
+    ]);
+    expect(result.current.workspaceItems.allItems.map(({ id }) => id)).toEqual([
+      "area-2",
+    ]);
+    expect(result.current.selectedItemIds).toEqual([]);
+    expect(result.current.workspaceItems.relatedItems.areas).toEqual({
+      "area-2": "Two",
+    });
+  });
+
   it("marks a Planner item missed without removing it from the loaded collection", async () => {
     const source = {
       id: "task-1",
