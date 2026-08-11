@@ -6510,6 +6510,85 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
   });
 
+  it("defers Archive cancellation until browser Back restoration settles", async () => {
+    const user = userEvent.setup();
+    const controlledForward = controlHistoryForward();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({ ok: true, json: async () => linkedAreaItemsResponse(url) }),
+      ),
+    );
+
+    await openLinkedHealthDetail(user);
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    const archiveDialog = screen.getByRole("dialog", { name: "Archive Health?" });
+
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledTimes(1));
+    await user.click(within(archiveDialog).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("dialog", { name: "Archive Health?" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    await controlledForward.releaseNext();
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Archive Health?" })).toBeNull(),
+    );
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    controlledForward.spy.mockRestore();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
+  });
+
+  it("defers successful Archive close until browser Back restoration settles", async () => {
+    const user = userEvent.setup();
+    const controlledForward = controlHistoryForward();
+    const health = { id: "area-1", type: "area", title: "Health", status: "active" };
+    const work = { id: "area-2", type: "area", title: "Work", status: "active" };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...health, status: "archived" }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => [health, work],
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledTimes(1));
+    await user.click(within(
+      screen.getByRole("dialog", { name: "Archive Health?" }),
+    ).getByRole("button", { name: "Archive" }));
+
+    expect(screen.getByRole("dialog", { name: "Archive Health?" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Health details")).toBeInTheDocument();
+    await controlledForward.releaseNext();
+
+    const areasTable = await screen.findByRole("table", { name: "Areas items" });
+    expect(within(areasTable).queryByRole("button", {
+      name: "Open details for Health",
+    })).toBeNull();
+    await user.click(within(areasTable).getByRole("button", { name: "Open details for Work" }));
+    expect(screen.getByLabelText("Work details")).toBeInTheDocument();
+    controlledForward.spy.mockRestore();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
+  });
+
   it("renders nonempty linked-item groups and opens the selected child", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -8957,36 +9036,18 @@ describe("WorkbenchPageClient", () => {
     expect(window.history.state).toMatchObject({ __ravenDetailItemId: null });
   });
 
-  it("does not offer Archive for a persisted archived detail item", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "area-1",
-            type: "area",
-            title: "Health",
-            status: "archived",
-          }),
-        } as Response);
-      }
+  it("does not offer Archive when an archived item is initially rendered in detail", () => {
+    const hook = renderHook(() => useWorkbenchController());
+    act(() => hook.result.current.openDetailView({
+      id: "area-archived",
+      type: "area",
+      title: "Archived area",
+      status: "archived",
+    }));
 
-      return Promise.resolve({
-        ok: true,
-        json: async () => linkedAreaItemsResponse(url),
-      } as Response);
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    render(<MainPanel controller={hook.result.current} />);
 
-    await openLinkedHealthDetail(user);
-    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: /^Status for / })).toHaveValue("archived"),
-    );
+    expect(screen.getByLabelText("Archived area details")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
   });
 
@@ -9585,6 +9646,86 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("Newer Health draft");
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+  });
+
+  it("blocks keyboard detail saves while an older item transition is pending", async () => {
+    const user = userEvent.setup();
+    let resolveOldTransition!: (value: Response) => void;
+    const oldTransitionResponse = new Promise<Response>((resolve) => {
+      resolveOldTransition = resolve;
+    });
+    let transitionAttempts = 0;
+    let patchAttempts = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/area-1" && init?.method === "PATCH") {
+        patchAttempts += 1;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "area-1",
+            type: "area",
+            title: "Newer Health draft",
+            status: "active",
+          }),
+        } as Response);
+      }
+      if (url === "/api/v1/todo/items/area-1/archive" && init?.method === "POST") {
+        transitionAttempts += 1;
+        if (transitionAttempts === 1) return oldTransitionResponse;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "area-1",
+            type: "area",
+            title: "Newer Health draft",
+            status: "archived",
+          }),
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => linkedAreaItemsResponse(url),
+      } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openLinkedHealthDetail(user);
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(transitionAttempts).toBe(1);
+    await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    act(() => window.history.back());
+    expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Newer Health draft");
+    await user.selectOptions(screen.getByLabelText("Status for Health"), "archived");
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    await act(async () => Promise.resolve());
+
+    expect(patchAttempts).toBe(0);
+    expect(transitionAttempts).toBe(1);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await act(async () => {
+      resolveOldTransition({
+        ok: true,
+        json: async () => ({
+          id: "area-1",
+          type: "area",
+          title: "Health",
+          status: "archived",
+        }),
+      } as Response);
+      await oldTransitionResponse;
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled());
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+
+    await waitFor(() => expect(patchAttempts).toBe(1));
+    await waitFor(() => expect(transitionAttempts).toBe(2));
   });
 
   it("starts a new same-action transition after reopening the same detail item", async () => {

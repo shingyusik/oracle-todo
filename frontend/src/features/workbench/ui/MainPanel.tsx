@@ -455,6 +455,9 @@ function DetailView({
   }, [item?.id]);
 
   const hasDraftChanges = item ? hasDetailChanges(item, draft) : false;
+  const transitionState = item
+    ? controller.workspaceItemTransitionState(item.id)
+    : { pending: false, error: null };
   const pendingNavigation = pendingLinkedItem !== null || detailHistory.pendingBack;
   const detailDialogOpen = pendingNavigation || archiveDialogOpen;
   pendingNavigationRef.current = detailDialogOpen;
@@ -488,7 +491,7 @@ function DetailView({
   }
 
   async function saveDraft() {
-    if (savePendingRef.current || !item || !hasDraftChanges) {
+    if (savePendingRef.current || !item || !hasDraftChanges || transitionState.pending) {
       return;
     }
 
@@ -582,8 +585,30 @@ function DetailView({
   }
 
   const detailItem = item;
-  const transitionState = controller.workspaceItemTransitionState(detailItem.id);
   const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
+
+  function cancelArchive() {
+    const cancelArchiveDialog = () => {
+      setArchiveError(null);
+      detailHistory.setDialogOpen(false);
+      setArchiveDialogOpen(false);
+    };
+    if (!detailHistory.deferUntilRestored(cancelArchiveDialog)) {
+      cancelArchiveDialog();
+    }
+  }
+
+  function closeAfterArchive() {
+    const closeArchivedDetail = () => {
+      detailHistory.setDirty(false);
+      detailHistory.setDialogOpen(false);
+      setArchiveDialogOpen(false);
+      controller.closeDetailView();
+    };
+    if (!detailHistory.deferUntilRestored(closeArchivedDetail)) {
+      closeArchivedDetail();
+    }
+  }
 
   async function confirmArchive() {
     setArchiveError(null);
@@ -598,10 +623,7 @@ function DetailView({
       return;
     }
 
-    detailHistory.setDirty(false);
-    detailHistory.setDialogOpen(false);
-    setArchiveDialogOpen(false);
-    controller.closeDetailView();
+    closeAfterArchive();
   }
 
   function openLinkedItem(nextItem: WorkspaceItemModel) {
@@ -831,10 +853,7 @@ function DetailView({
           confirmLabel="Archive"
           error={archiveError}
           fallbackFocusRef={archiveButtonRef}
-          onCancel={() => {
-            setArchiveError(null);
-            setArchiveDialogOpen(false);
-          }}
+          onCancel={cancelArchive}
           onConfirm={confirmArchive}
         />
       ) : null}
