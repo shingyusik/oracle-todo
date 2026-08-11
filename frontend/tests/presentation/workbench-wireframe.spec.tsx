@@ -9326,27 +9326,62 @@ describe("WorkbenchPageClient", () => {
 
   it("returns an archived linked project directly to its Areas list origin", async () => {
     const user = userEvent.setup();
+    const area = { id: "area-1", type: "area", title: "Health", status: "active" };
+    const project = {
+      id: "project-1",
+      type: "project",
+      title: "Checkup",
+      status: "active",
+      area_id: "area-1",
+    };
+    const task = {
+      id: "task-1",
+      type: "task",
+      title: "Book appointment",
+      status: "active",
+      area_id: "area-1",
+    };
+    let projectArchived = false;
+    let archivePosts = 0;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/project-1/archive" && init?.method === "POST") {
+        archivePosts += 1;
+        projectArchived = true;
         return Promise.resolve({
           ok: true,
-          json: async () => ({
-            id: "project-1",
-            type: "project",
-            title: "Checkup",
-            status: "archived",
-            area_id: "area-1",
-          }),
+          json: async () => ({ ...project, status: "archived" }),
         } as Response);
       }
+
+      let response: typeof area[] | Array<typeof area | typeof project | typeof task> = [];
+      if (url === "/api/v1/todo/items?type=project") {
+        response = projectArchived ? [] : [project];
+      } else if (url === "/api/v1/todo/items?type=area") {
+        response = [area];
+      } else if (url === "/api/v1/todo/items") {
+        response = projectArchived ? [area, task] : [area, project, task];
+      }
+
       return Promise.resolve({
         ok: true,
-        json: async () => linkedAreaItemsResponse(url),
+        json: async () => response,
       } as Response);
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await openLinkedHealthDetail(user);
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+    expect(await screen.findByRole("button", {
+      name: "Open details for Checkup",
+    })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    const initialAreasTable = await screen.findByRole("table", { name: "Areas items" });
+    await user.click(within(initialAreasTable).getByRole("button", {
+      name: "Open details for Health",
+    }));
     await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
     await user.click(screen.getByRole("button", { name: "Archive" }));
     await user.click(within(
@@ -9354,6 +9389,7 @@ describe("WorkbenchPageClient", () => {
     ).getByRole("button", { name: "Archive" }));
 
     const areasTable = await screen.findByRole("table", { name: "Areas items" });
+    expect(archivePosts).toBe(1);
     expect(within(areasTable).getByRole("button", {
       name: "Open details for Health",
     })).toBeInTheDocument();
