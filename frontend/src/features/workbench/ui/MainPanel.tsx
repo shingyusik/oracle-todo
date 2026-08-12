@@ -5056,7 +5056,8 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
             applied automatically.
           </p>
         ) : null}
-        {creationContext != null || plannerTypeOptions.length > 1 ? (
+        {creationContext?.tableId !== "daily.unscheduled" &&
+        (creationContext != null || plannerTypeOptions.length > 1) ? (
           <label className="field-label">
             Type
             <select
@@ -5578,7 +5579,7 @@ function TagsInput({
     <div
       ref={dropdownRef}
       className="tag-dropdown"
-      style={portalDropdown ? dropdownStyle : undefined}
+      style={portalDropdown ? { ...dropdownStyle, zIndex: 110 } : undefined}
       onClick={stopRowEvent}
     >
       <input

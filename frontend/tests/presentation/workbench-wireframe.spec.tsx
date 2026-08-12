@@ -2683,6 +2683,7 @@ describe("WorkbenchPageClient", () => {
     const dropdown = screen.getByRole("listbox", { name: "Tags options" }).parentElement;
     expect(dropdown).not.toBeNull();
     expect(dialog.contains(dropdown)).toBe(false);
+    expect(dropdown).toHaveStyle({ zIndex: "110" });
   });
 
   it("removes a chip tag while creating a planner item", async () => {
@@ -2906,7 +2907,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Or")).toBeInTheDocument();
   }, 10_000);
 
-  it("keeps Daily table controls isolated and constrains Unscheduled creation to Task", async () => {
+  it("keeps Daily table controls isolated and hides the fixed Unscheduled Task type", async () => {
     const user = userEvent.setup();
     const today = testToday();
     const responses: Record<string, unknown[]> = {
@@ -2952,10 +2953,7 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByText("Inbox remains")).toBeInTheDocument();
 
     await user.click(within(unscheduledControls).getByRole("button", { name: "Add to Unscheduled" }));
-    const type = screen.getByLabelText("Type");
-    expect(within(type).getAllByRole("option").map((option) => option.textContent)).toEqual(["Task"]);
-    expect(within(type).queryByRole("option", { name: "Routine" })).toBeNull();
-    expect(within(type).queryByRole("option", { name: "Event" })).toBeNull();
+    expect(screen.queryByLabelText("Type")).toBeNull();
     expect(screen.queryByLabelText("Scheduled")).toBeNull();
   });
 
@@ -3001,7 +2999,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     await user.click(screen.getByRole("button", { name: "Add to Unscheduled" }));
-    expect(within(screen.getByLabelText("Type")).getAllByRole("option").map((option) => option.textContent)).toEqual(["Task"]);
+    expect(screen.queryByLabelText("Type")).toBeNull();
     expect(screen.queryByLabelText("Scheduled")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
