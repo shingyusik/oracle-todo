@@ -6461,6 +6461,7 @@ describe("WorkbenchPageClient", () => {
 
   it("confirms browser Back before discarding a dirty detail draft", async () => {
     const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const controlledForward = controlHistoryForward();
     vi.stubGlobal(
       "fetch",
@@ -6479,6 +6480,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
     await user.clear(screen.getByLabelText("Title"));
     await user.type(screen.getByLabelText("Title"), "Health draft");
+    await user.tab();
 
     act(() => window.history.back());
     await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledTimes(1));
@@ -6506,6 +6508,7 @@ describe("WorkbenchPageClient", () => {
     act(() => window.history.back());
     await user.click(await screen.findByRole("button", { name: "Discard changes" }));
     expect(await screen.findByRole("table", { name: "Areas items" })).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("defers Archive cancellation until browser Back restoration settles", async () => {
