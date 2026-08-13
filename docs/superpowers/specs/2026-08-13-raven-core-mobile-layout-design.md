@@ -25,6 +25,15 @@ Ledger and Health workspace screens are outside this slice. SHI-29 remains open 
 - Wrap headers, filters, sort controls, date controls, and action groups when space is limited.
 - Constrain dialogs and popovers to the viewport.
 
+### Mobile Navigation Drawer
+
+- Keep the existing Menu, Close, overlay dismissal, focus trap, and scroll lock behavior.
+- Set the mobile drawer width to `min(320px, calc(100vw - 24px))`.
+- Leave at least 24px of overlay visible so the drawer can still be dismissed from outside.
+- Keep the logo, wordmark, tagline, and Close button visible on one row.
+- Prevent the Close button from shrinking or being pushed outside the drawer.
+- Keep the desktop sidebar width unchanged.
+
 ## Screen Behavior
 
 ### Dashboard
@@ -70,6 +79,7 @@ No API or mutation behavior changes. Existing loading, validation, save, archive
 - Extend CSS boundary tests for the 760px media query, page overflow containment, and component-local scrolling.
 - Run the complete frontend Vitest suite and TypeScript typecheck.
 - Manually verify Dashboard, Tasks, Daily Planner, Weekly Planner, Monthly Planner, and the shared detail view at 360px.
+- Verify the mobile drawer at 360px and 320px, including full Close button visibility, outside-tap dismissal, Escape, focus restoration, and body scroll lock.
 - Confirm that only intended table, calendar, and heatmap regions scroll horizontally.
 - Confirm that navigation, filtering, sorting, creation, completion, detail editing, Undo/Redo, save, and archive remain usable.
 
