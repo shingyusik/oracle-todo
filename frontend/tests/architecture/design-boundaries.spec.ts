@@ -14,6 +14,20 @@ async function readSource(relativePath: string): Promise<string> {
   return source.replace(/\r\n/g, "\n");
 }
 
+function cssBlockAt(source: string, start: number): string {
+  const openingBrace = source.indexOf("{", start);
+  if (openingBrace < 0) throw new Error("CSS block opening brace not found");
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  throw new Error("CSS block closing brace not found");
+}
+
 async function collectSourceFiles(relativeDir: string): Promise<string[]> {
   const absoluteDir = path.join(process.cwd(), relativeDir);
   const entries = await fs.readdir(absoluteDir, { withFileTypes: true });
@@ -82,17 +96,10 @@ describe("design system boundaries", () => {
     const mobileDrawerQuery =
       `@media (max-width: ${mobileBreakpoint}px) {\n  .workbench-shell {`;
     const mobileDrawerStart = source.indexOf(mobileDrawerQuery);
-    const mobileDrawerEndMarker =
-      `\n}\n\n@media (prefers-reduced-motion: reduce) and (max-width: ${mobileBreakpoint}px)`;
-    const mobileDrawerEnd = source.indexOf(
-      mobileDrawerEndMarker,
-      mobileDrawerStart,
-    );
 
     expect(mobileDrawerStart).toBeGreaterThan(-1);
-    expect(mobileDrawerEnd).toBeGreaterThan(mobileDrawerStart);
 
-    const mobileDrawerStyles = source.slice(mobileDrawerStart, mobileDrawerEnd + 2);
+    const mobileDrawerStyles = cssBlockAt(source, mobileDrawerStart);
 
     expect(mobileDrawerStyles).toMatch(
       /\.workbench-nav\s*\{[^}]*width:\s*min\(320px, calc\(100vw - 24px\)\);/,
