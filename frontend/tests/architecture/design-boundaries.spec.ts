@@ -76,6 +76,17 @@ describe("design system boundaries", () => {
     expect(source).not.toContain(".tree-sidebar {\n    display: grid;");
   });
 
+  it("keeps the mobile navigation header inside the drawer", async () => {
+    const source = await readSource("src/styles/globals.css");
+
+    expect(source).toMatch(
+      /@media \(max-width: 760px\)[\s\S]*?\.workbench-nav\s*\{[^}]*width:\s*min\(320px, calc\(100vw - 24px\)\);/,
+    );
+    expect(source).toMatch(
+      /@media \(max-width: 760px\)[\s\S]*?\.workbench-nav-close\s*\{[^}]*flex:\s*0 0 auto;/,
+    );
+  });
+
   it("uses the Merovingian asset as the favicon", async () => {
     const source = await readSource("src/app/layout.tsx");
 
