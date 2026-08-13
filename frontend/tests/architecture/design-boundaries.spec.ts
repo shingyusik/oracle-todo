@@ -82,15 +82,17 @@ describe("design system boundaries", () => {
     const mobileDrawerQuery =
       `@media (max-width: ${mobileBreakpoint}px) {\n  .workbench-shell {`;
     const mobileDrawerStart = source.indexOf(mobileDrawerQuery);
+    const mobileDrawerEndMarker =
+      `\n}\n\n@media (prefers-reduced-motion: reduce) and (max-width: ${mobileBreakpoint}px)`;
     const mobileDrawerEnd = source.indexOf(
-      `@media (prefers-reduced-motion: reduce) and (max-width: ${mobileBreakpoint}px)`,
+      mobileDrawerEndMarker,
       mobileDrawerStart,
     );
 
     expect(mobileDrawerStart).toBeGreaterThan(-1);
     expect(mobileDrawerEnd).toBeGreaterThan(mobileDrawerStart);
 
-    const mobileDrawerStyles = source.slice(mobileDrawerStart, mobileDrawerEnd);
+    const mobileDrawerStyles = source.slice(mobileDrawerStart, mobileDrawerEnd + 2);
 
     expect(mobileDrawerStyles).toMatch(
       /\.workbench-nav\s*\{[^}]*width:\s*min\(320px, calc\(100vw - 24px\)\);/,
