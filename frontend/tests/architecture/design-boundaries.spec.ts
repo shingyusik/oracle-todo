@@ -99,13 +99,22 @@ describe("design system boundaries", () => {
 
     expect(mobileDrawerStart).toBeGreaterThan(-1);
 
-    const mobileDrawerStyles = cssBlockAt(source, mobileDrawerStart);
+    const mobileDrawerStyles = cssBlockAt(source, mobileDrawerStart).replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const mobileDrawerBody = mobileDrawerStyles.slice(
+      mobileDrawerStyles.indexOf("{") + 1,
+      mobileDrawerStyles.lastIndexOf("}"),
+    );
+
+    expect(mobileDrawerBody).not.toMatch(/^\s*@/m);
 
     expect(mobileDrawerStyles).toMatch(
-      /\.workbench-nav\s*\{[^}]*width:\s*min\(320px, calc\(100vw - 24px\)\);/,
+      /\n  \.workbench-nav\s*\{[^}]*width:\s*min\(320px, calc\(100vw - 24px\)\);/,
     );
     expect(mobileDrawerStyles).toMatch(
-      /\.workbench-nav-close\s*\{[^}]*flex:\s*0 0 auto;/,
+      /\n  \.workbench-nav-close\s*\{[^}]*flex:\s*0 0 auto;/,
     );
   });
 
