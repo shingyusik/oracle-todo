@@ -78,12 +78,25 @@ describe("design system boundaries", () => {
 
   it("keeps the mobile navigation header inside the drawer", async () => {
     const source = await readSource("src/styles/globals.css");
-
-    expect(source).toMatch(
-      /@media \(max-width: 760px\)[\s\S]*?\.workbench-nav\s*\{[^}]*width:\s*min\(320px, calc\(100vw - 24px\)\);/,
+    const mobileBreakpoint = workbenchLayout.mobileBreakpointPx - 1;
+    const mobileDrawerQuery =
+      `@media (max-width: ${mobileBreakpoint}px) {\n  .workbench-shell {`;
+    const mobileDrawerStart = source.indexOf(mobileDrawerQuery);
+    const mobileDrawerEnd = source.indexOf(
+      `@media (prefers-reduced-motion: reduce) and (max-width: ${mobileBreakpoint}px)`,
+      mobileDrawerStart,
     );
-    expect(source).toMatch(
-      /@media \(max-width: 760px\)[\s\S]*?\.workbench-nav-close\s*\{[^}]*flex:\s*0 0 auto;/,
+
+    expect(mobileDrawerStart).toBeGreaterThan(-1);
+    expect(mobileDrawerEnd).toBeGreaterThan(mobileDrawerStart);
+
+    const mobileDrawerStyles = source.slice(mobileDrawerStart, mobileDrawerEnd);
+
+    expect(mobileDrawerStyles).toMatch(
+      /\.workbench-nav\s*\{[^}]*width:\s*min\(320px, calc\(100vw - 24px\)\);/,
+    );
+    expect(mobileDrawerStyles).toMatch(
+      /\.workbench-nav-close\s*\{[^}]*flex:\s*0 0 auto;/,
     );
   });
 
