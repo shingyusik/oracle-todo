@@ -393,6 +393,78 @@ describe("LedgerPanel", () => {
     expect(ledgerApi.createEntry).toHaveBeenCalledOnce();
   });
 
+  it.each(["ordinary-first", "creation-first"] as const)(
+    "keeps creation recovery mounted when %s refresh is superseded by a failed peer",
+    async (order) => {
+      const user = userEvent.setup();
+      const older = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
+      const winner = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
+      vi.spyOn(ledgerApi, "listEntries")
+        .mockResolvedValueOnce({ items: [], nextOffset: null })
+        .mockReturnValueOnce(older.promise)
+        .mockReturnValueOnce(winner.promise);
+      vi.spyOn(ledgerApi, "listCurrencies")
+        .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+      vi.spyOn(ledgerApi, "listAccountCategories")
+        .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
+      vi.spyOn(ledgerApi, "listAccounts")
+        .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
+      vi.spyOn(ledgerApi, "listTransactionCategories")
+        .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+      vi.spyOn(ledgerApi, "listAccountBalances")
+        .mockResolvedValue({ items: [], nextOffset: null });
+      vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
+      vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+
+      let liveController!: LedgerController;
+      function ProductionLedgerPanel() {
+        liveController = useLedgerController();
+        return <LedgerPanel controller={liveController} />;
+      }
+
+      render(<ProductionLedgerPanel />);
+      await user.click(await screen.findByRole("button", { name: "Add transaction" }));
+      await user.type(screen.getByLabelText("Content"), "Lunch");
+      await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+      await user.type(screen.getByLabelText("Amount"), "12000");
+
+      let ordinary!: Promise<void>;
+      if (order === "ordinary-first") {
+        act(() => {
+          ordinary = liveController.archive("entry-existing");
+        });
+        await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
+        await user.click(screen.getByRole("button", { name: "Save transaction" }));
+      } else {
+        await user.click(screen.getByRole("button", { name: "Save transaction" }));
+        await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
+        act(() => {
+          ordinary = liveController.archive("entry-existing");
+        });
+      }
+      await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(3));
+
+      await act(async () => {
+        winner.reject(new Error("Mixed refresh failed"));
+        if (order === "creation-first") await ordinary;
+      });
+      await act(async () => {
+        older.resolve({ items: [], nextOffset: null });
+        if (order === "ordinary-first") await ordinary;
+      });
+
+      expect(await screen.findByText("Mixed refresh failed")).toBeInTheDocument();
+      expect(await screen.findByText(
+        "Transaction saved, but the list could not refresh.",
+      )).toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "Add transaction" }))
+        .toBeInTheDocument();
+      expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+      expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Close Add transaction" })).toBeDisabled();
+    },
+  );
+
   it("keeps the draft and inline error open after a rejected creation", async () => {
     const user = userEvent.setup();
     const save = deferred<void>();
@@ -439,7 +511,12 @@ describe("LedgerPanel", () => {
     expect(trigger).toHaveFocus();
   });
 
-  it("renders distinct loading and error states", () => {
+  it("renders blocking load errors and non-blocking loaded errors", async () => {
+    const user = userEvent.setup();
+    const loadedErrorController = controller({
+      ...loadedState,
+      error: "Ledger refresh failed",
+    });
     const { rerender } = render(
       <LedgerPanel controller={controller({ ...loadedState, status: "loading" })} />,
     );
@@ -455,6 +532,12 @@ describe("LedgerPanel", () => {
       />,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Ledger is unavailable");
+
+    rerender(<LedgerPanel controller={loadedErrorController} />);
+    expect(screen.getByRole("heading", { name: "Transactions" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Ledger refresh failed");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(loadedErrorController.refresh).toHaveBeenCalledOnce();
   });
 
   it("loads account and category references into their leaves", () => {
@@ -994,7 +1077,7 @@ describe("LedgerPanel", () => {
         await expect(mutation()).resolves.toBeUndefined();
       });
     }
-    expect(result.current.state.status).toBe("error");
+    expect(result.current.state.status).toBe("loaded");
     expect(result.current.state.error).toBe("Ledger refresh failed");
 
     vi.mocked(ledgerApi.listEntries)
@@ -1002,6 +1085,7 @@ describe("LedgerPanel", () => {
     await act(async () => {
       expect(await result.current.refresh()).toBe(true);
     });
+    expect(result.current.state.error).toBeNull();
 
     await act(async () => {
       await expect(result.current.createEntry({} as never))
@@ -1069,7 +1153,7 @@ describe("LedgerPanel", () => {
         expect(result.current.state.error).toBeNull();
         expect(result.current.state.entries[0]?.entry.content).toBe("Newer");
       } else {
-        expect(result.current.state.error).toBeNull();
+        expect(result.current.state.error).toBe("Winning refresh failed");
       }
     },
   );

@@ -288,7 +288,7 @@ export function useLedgerController(): LedgerController {
         }
         const message = errorMessage(error);
         setState((current) => current.status === "loaded"
-          ? current
+          ? { ...current, error: message }
           : { ...current, status: "error", error: message });
         return { ok: false, error: message };
       }
@@ -311,11 +311,6 @@ export function useLedgerController(): LedgerController {
     const outcome = await refreshOutcome();
     if (outcome.ok) return;
     if (requireRefresh) throw new LedgerMutationRefreshError();
-    setState((current) => ({
-      ...current,
-      status: "error",
-      error: outcome.error,
-    }));
   }, [refreshOutcome]);
 
   const runReports = useCallback(async (range: ReportRangeInput) => {

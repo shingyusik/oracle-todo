@@ -49,6 +49,12 @@ export function LedgerPanel({
   return (
     <>
       {panel}
+      {controller.state.error ? (
+        <div className="items-message">
+          <p role="alert">{controller.state.error}</p>
+          <button type="button" onClick={() => void controller.refresh()}>Retry</button>
+        </div>
+      ) : null}
       {controller.tableViewSaveError ? (
         <div className="items-message">
           <p role="alert">{controller.tableViewSaveError}</p>

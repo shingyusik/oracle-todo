@@ -164,7 +164,7 @@ function LedgerQuickAdd({
   if (controller.state.status === "loading") {
     return <p role="status">Loading Ledger references…</p>;
   }
-  if (controller.state.error) {
+  if (controller.state.status === "error") {
     return (
       <>
         <p role="alert" className="items-message">{controller.state.error}</p>
