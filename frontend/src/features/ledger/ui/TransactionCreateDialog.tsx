@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { createPortal } from "react-dom";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
@@ -17,9 +18,36 @@ export function TransactionCreateDialog({
   onClose,
   returnFocusRef,
 }: TransactionCreateDialogProps) {
+  const [host, setHost] = React.useState<HTMLElement | null>(null);
+
+  React.useLayoutEffect(() => {
+    const element = document.createElement("div");
+    element.dataset.ravenModalHost = "";
+    document.body.append(element);
+    setHost(element);
+    return () => element.remove();
+  }, []);
+
+  return host
+    ? createPortal(
+        <TransactionCreateDialogContent
+          controller={controller}
+          onClose={onClose}
+          returnFocusRef={returnFocusRef}
+        />,
+        host,
+      )
+    : null;
+}
+
+function TransactionCreateDialogContent({
+  controller,
+  onClose,
+  returnFocusRef,
+}: TransactionCreateDialogProps) {
   const [pending, setPending] = React.useState(false);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
-  useModalIsolation(dialogRef, true, "shell");
+  useModalIsolation(dialogRef, true, "body");
 
   React.useEffect(() => {
     dialogRef.current?.querySelector<HTMLElement>(

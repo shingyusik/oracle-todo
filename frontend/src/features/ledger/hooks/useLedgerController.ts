@@ -238,7 +238,9 @@ export function useLedgerController(): LedgerController {
   }, []);
 
   const refresh = useCallback(async () => {
-    setState((current) => ({ ...current, status: "loading", error: null }));
+    setState((current) => current.status === "loaded"
+      ? { ...current, error: null }
+      : { ...current, status: "loading", error: null });
     try {
       const [entries, currencies, accountCategories, accounts, categories, balances] =
         await Promise.all([

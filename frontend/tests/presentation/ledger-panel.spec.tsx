@@ -180,8 +180,38 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("heading", { name: "Transactions" })).toBeInTheDocument();
     expect(screen.queryByText("Overview")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("New transaction")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add transaction" })).toBeInTheDocument();
+    const add = screen.getByRole("button", { name: "Add transaction" });
+    expect(add).toHaveClass("items-toolbar-button");
+    expect(add.parentElement).toHaveClass("workspace-table-header-row");
+    expect(add.previousElementSibling).toHaveAttribute(
+      "aria-label",
+      "Transactions controls",
+    );
     expect(screen.getByText("No transactions yet.")).toBeInTheDocument();
+  });
+
+  it("isolates a nested Ledger dialog without hiding its ancestors", async () => {
+    const user = userEvent.setup();
+    const view = render(
+      <div className="workbench-shell">
+        <aside>Navigation</aside>
+        <main className="main-panel">
+          <LedgerPanel controller={controller()} />
+        </main>
+      </div>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add transaction" }));
+    const dialog = screen.getByRole("dialog", { name: "Add transaction" });
+
+    expect(view.container).toHaveAttribute("aria-hidden", "true");
+    expect(view.container).toHaveAttribute("inert");
+    let ancestor = dialog.parentElement;
+    while (ancestor) {
+      expect(ancestor).not.toHaveAttribute("aria-hidden", "true");
+      expect(ancestor).not.toHaveAttribute("inert");
+      ancestor = ancestor.parentElement;
+    }
   });
 
   it("keeps creation open and non-dismissible until the mutation resolves", async () => {
@@ -210,6 +240,53 @@ describe("LedgerPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", {
       name: "Add transaction",
     })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
+  it("keeps the production dialog mounted through its background refresh", async () => {
+    const user = userEvent.setup();
+    const refreshedEntries = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
+    vi.spyOn(ledgerApi, "listEntries")
+      .mockResolvedValueOnce({ items: [], nextOffset: null })
+      .mockReturnValueOnce(refreshedEntries.promise);
+    vi.spyOn(ledgerApi, "listCurrencies")
+      .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountCategories")
+      .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccounts")
+      .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
+    vi.spyOn(ledgerApi, "listTransactionCategories")
+      .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountBalances")
+      .mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "createEntry")
+      .mockResolvedValue(entryView("created-entry", "Lunch").entry);
+
+    function ProductionLedgerPanel() {
+      return <LedgerPanel controller={useLedgerController()} />;
+    }
+
+    render(<ProductionLedgerPanel />);
+    const trigger = await screen.findByRole("button", { name: "Add transaction" });
+    await user.click(trigger);
+    await user.type(screen.getByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByRole("dialog", { name: "Add transaction" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close Add transaction" })).toBeDisabled();
+    expect(screen.queryByText("Loading Ledger")).toBeNull();
+
+    await act(async () => refreshedEntries.resolve({
+      items: [entryView("entry-1", "Lunch")],
+      nextOffset: null,
+    }));
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Add transaction",
+    })).toBeNull());
+    expect(screen.getByText("Lunch")).toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
 

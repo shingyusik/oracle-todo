@@ -56,16 +56,19 @@ export function LedgerTableViewHeader({
     <>
       <header className="workspace-table-header">
         <h1 id={headingId}>{title}</h1>
-        <TableViewControls adapter={controlsAdapter} />
-        {onAdd ? (
-          <button
-            ref={addButtonRef}
-            type="button"
-            onClick={onAdd}
-          >
-            Add transaction
-          </button>
-        ) : null}
+        <div className="workspace-table-header-row">
+          <TableViewControls adapter={controlsAdapter} />
+          {onAdd ? (
+            <button
+              ref={addButtonRef}
+              className="items-toolbar-button"
+              type="button"
+              onClick={onAdd}
+            >
+              Add transaction
+            </button>
+          ) : null}
+        </div>
       </header>
       <TableViewTabs
         scopeId={scope}
