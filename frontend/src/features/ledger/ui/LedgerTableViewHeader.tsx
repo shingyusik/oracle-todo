@@ -29,7 +29,6 @@ export function LedgerTableViewHeader({
   addButtonRef,
   onArchiveSelected,
   archiveDisabled = true,
-  archiveButtonRef,
 }: {
   controller: LedgerController;
   scope: LedgerTableScopeId;
@@ -39,7 +38,6 @@ export function LedgerTableViewHeader({
   addButtonRef?: React.RefObject<HTMLButtonElement>;
   onArchiveSelected?: () => void;
   archiveDisabled?: boolean;
-  archiveButtonRef?: React.RefObject<HTMLButtonElement>;
 }) {
   const tabs = controller.tableTabs(scope);
   const settings = controller.tableSettings(scope);
@@ -64,7 +62,7 @@ export function LedgerTableViewHeader({
     <>
       <header className="workspace-table-header">
         <h1 id={headingId}>{title}</h1>
-        <div className="workspace-table-header-row">
+        <div className="workspace-table-header-row ledger-table-header-row">
           <TableViewTabs
             scopeId={scope}
             title={title}
@@ -93,7 +91,6 @@ export function LedgerTableViewHeader({
             ) : null}
             {onArchiveSelected ? (
               <button
-                ref={archiveButtonRef}
                 className="items-toolbar-button"
                 type="button"
                 aria-label="Archive selected transactions"

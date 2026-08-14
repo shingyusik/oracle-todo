@@ -158,12 +158,15 @@ function TransactionTableRow({
     : row.kind === "expense"
       ? `−${amount}`
       : amount;
+  const accessibleContext = `${row.content}, ${row.date}, ${
+    row.accountLabel || "Unknown account"
+  }`;
 
   return (
     <tr
       role="button"
       tabIndex={0}
-      aria-label={`Open transaction ${row.content}`}
+      aria-label={`Open details for ${accessibleContext}`}
       onClick={() => onOpen(row)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " " || event.key === "Space") {
@@ -175,7 +178,7 @@ function TransactionTableRow({
       <td className="selection-column">
         <input
           type="checkbox"
-          aria-label={`Select ${row.content}`}
+          aria-label={`Select ${accessibleContext}`}
           checked={selected}
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}

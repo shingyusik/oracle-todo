@@ -234,11 +234,15 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
 }
 
-.workspace-table-header-row > .table-view-tabs {
+.ledger-table-header-row {
+  justify-content: space-between;
+}
+
+.ledger-table-header-row > .table-view-tabs {
   flex: 1 1 auto;
 }
 

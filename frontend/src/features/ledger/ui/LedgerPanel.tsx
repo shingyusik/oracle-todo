@@ -90,7 +90,6 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const actions = useLifecycleAction();
   const addButtonRef = useRef<HTMLButtonElement>(null);
-  const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const settings = controller.tableSettings("ledger.transactions");
   const activeRows = useMemo(
     () => projectTransactionRows(controller.state.entries),
@@ -112,6 +111,15 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
       return next.length === current.length ? current : next;
     });
   }, [visibleRows]);
+
+  useEffect(() => {
+    if (
+      editing &&
+      !activeRows.some(({ detailEntry }) => detailEntry.entry.id === editing.entry.id)
+    ) {
+      setEditing(null);
+    }
+  }, [activeRows, editing]);
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -160,7 +168,6 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
         addButtonRef={addButtonRef}
         onArchiveSelected={() => setArchiveConfirmationOpen(true)}
         archiveDisabled={selectedIds.length === 0 || actions.isPending("archive-selected")}
-        archiveButtonRef={archiveButtonRef}
       />
       {editing ? (
         <TransactionForm

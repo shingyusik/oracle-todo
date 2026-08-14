@@ -1,5 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import {
   act,
   render,
@@ -14,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
 import {
   createLedgerTableViews,
   defaultLedgerTableSettings,
@@ -27,6 +30,7 @@ import {
   useLedgerController,
 } from "@/features/ledger/hooks/useLedgerController";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
+import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
 
 const loadedState: LedgerState = {
   status: "loaded",
@@ -274,7 +278,7 @@ describe("LedgerPanel", () => {
     const table = screen.getByRole("table", { name: "Transactions" });
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent))
       .toEqual(["", "Date", "Content", "Account", "Category", "Amount"]);
-    const rows = within(table).getAllByRole("button", { name: /Open transaction/ });
+    const rows = within(table).getAllByRole("button", { name: /Open details for/ });
     expect(rows.map((row) => within(row).getAllByRole("cell")[1]?.textContent))
       .toEqual(["2026-08-02", "2026-08-01", "2026-07-30"]);
     expect(within(table).getByText("Cash → Card")).toBeInTheDocument();
@@ -286,7 +290,9 @@ describe("LedgerPanel", () => {
     expect(within(table).getByText("−12000 KRW")).toHaveClass("ledger-amount-negative");
     expect(within(table).getByText("2500 KRW")).toHaveClass("ledger-amount-neutral");
     expect(within(table).queryByText(/[+−]2500 KRW/)).not.toBeInTheDocument();
-    const transferRow = screen.getByRole("button", { name: "Open transaction Move funds" });
+    const transferRow = screen.getByRole("button", {
+      name: "Open details for Move funds, 2026-08-01, Cash → Card",
+    });
     expect(within(transferRow).getAllByRole("cell")[4]).toBeEmptyDOMElement();
   });
 
@@ -324,9 +330,12 @@ describe("LedgerPanel", () => {
     expect(within(table).getAllByRole("rowgroup", { name: /group/ })
       .map((group) => group.getAttribute("aria-label")))
       .toEqual(["2026-08-04 group", "2026-07-30 group"]);
-    expect(within(table).getAllByRole("button", { name: /Open transaction/ })
+    expect(within(table).getAllByRole("button", { name: /Open details for/ })
       .map((row) => row.getAttribute("aria-label")))
-      .toEqual(["Open transaction Dinner", "Open transaction Lunch"]);
+      .toEqual([
+        "Open details for Dinner, 2026-08-04, Cash",
+        "Open details for Lunch, 2026-07-30, Cash",
+      ]);
   });
 
   it.each([
@@ -391,8 +400,12 @@ describe("LedgerPanel", () => {
       ...loadedState,
       entries: [transactionEntry("expense-1", "Lunch")],
     })} />);
-    const row = screen.getByRole("button", { name: "Open transaction Lunch" });
-    const checkbox = screen.getByRole("checkbox", { name: "Select Lunch" });
+    const row = screen.getByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    });
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    });
 
     await user.click(checkbox);
     expect(screen.queryByRole("button", { name: "Cancel transaction edit" })).toBeNull();
@@ -413,6 +426,134 @@ describe("LedgerPanel", () => {
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
   });
 
+  it("gives duplicate transaction rows distinct contextual accessible names", () => {
+    render(<LedgerPanel controller={controller({
+      ...loadedState,
+      entries: [
+        transactionEntry("lunch-cash", "Lunch"),
+        transactionEntry("lunch-card", "Lunch", {
+          date: "2026-07-31",
+          accountId: "account-card",
+        }, { accountName: "Card" }),
+      ],
+    })} />);
+
+    expect(screen.getByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    })).toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "Open details for Lunch, 2026-07-31, Card",
+    })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-31, Card",
+    })).toBeInTheDocument();
+  });
+
+  it("invokes the transaction detail callback once per row activation only", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    });
+    const groups = deriveTransactionGroups(
+      ledger.state.entries,
+      ledger.tableSettings("ledger.transactions"),
+    );
+    const onOpen = vi.fn();
+    render(
+      <TransactionsTable
+        controller={ledger}
+        groups={groups}
+        activeRowCount={1}
+        selectedIds={[]}
+        onOpen={onOpen}
+        onToggle={vi.fn()}
+        onToggleAll={vi.fn()}
+      />,
+    );
+    const row = screen.getByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    });
+
+    await user.click(row);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    row.focus();
+    await user.keyboard("{Enter}");
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    await user.keyboard(" ");
+    expect(onOpen).toHaveBeenCalledTimes(3);
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    });
+    await user.click(checkbox);
+    checkbox.focus();
+    await user.keyboard("{Enter}");
+    await user.keyboard(" ");
+    expect(onOpen).toHaveBeenCalledTimes(3);
+  });
+
+  it("closes an open transaction edit when its active logical row disappears", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    });
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    }));
+    expect(screen.getByRole("button", { name: "Cancel transaction edit" }))
+      .toBeInTheDocument();
+
+    view.rerender(<LedgerPanel controller={{
+      ...ledger,
+      state: { ...ledger.state, entries: [] },
+    }} />);
+
+    await waitFor(() => expect(screen.queryByRole("button", {
+      name: "Cancel transaction edit",
+    })).toBeNull());
+  });
+
+  it("keeps an open transaction edit when only the current filter hides its row", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    });
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    }));
+    const filtered: LedgerController = {
+      ...ledger,
+      tableSettings: (scope) => scope === "ledger.transactions"
+          ? transactionSettings({
+              filterRules: [{
+                id: "income-only",
+                field: "entry_type",
+                type: "select",
+                operator: "is",
+                value: ["income"],
+              }],
+            })
+          : ledger.tableSettings(scope),
+    };
+
+    view.rerender(<LedgerPanel controller={filtered} />);
+
+    expect(screen.queryByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel transaction edit" }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+  });
+
   it("selects visible logical rows and exposes indeterminate select-all state", async () => {
     const user = userEvent.setup();
     const ledger = controller({ ...loadedState, entries: transactionEntries() });
@@ -423,7 +564,9 @@ describe("LedgerPanel", () => {
     });
     expect(deleteButton).toBeDisabled();
 
-    await user.click(screen.getByRole("checkbox", { name: "Select Salary" }));
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Salary, 2026-08-02, Cash",
+    }));
     expect(selectAll).toHaveProperty("indeterminate", true);
     expect(deleteButton).toBeEnabled();
     await user.click(selectAll);
@@ -436,12 +579,16 @@ describe("LedgerPanel", () => {
       ...ledger,
       state: { ...ledger.state, entries: [transactionEntry("expense-1", "Lunch")] },
     }} />);
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select Lunch" }))
+    await waitFor(() => expect(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    }))
       .toBeChecked());
-    expect(screen.queryByRole("checkbox", { name: "Select Salary" })).toBeNull();
+    expect(screen.queryByRole("checkbox", {
+      name: "Select Salary, 2026-08-02, Cash",
+    })).toBeNull();
   });
 
-  it("keeps tabs left and controls, Add, Delete together on the right", () => {
+  it("keeps Ledger tabs split from actions without changing the shared header alignment", async () => {
     render(<LedgerPanel controller={controller()} />);
 
     const tabs = screen.getByRole("tablist", { name: "Transactions views" });
@@ -449,7 +596,7 @@ describe("LedgerPanel", () => {
     const remove = screen.getByRole("button", { name: "Archive selected transactions" });
     const actions = add.parentElement!;
     const row = actions.parentElement!;
-    expect(row).toHaveClass("workspace-table-header-row");
+    expect(row).toHaveClass("workspace-table-header-row", "ledger-table-header-row");
     expect(row.firstElementChild).toBe(tabs);
     expect(actions).toHaveClass("workspace-table-header-actions");
     expect([...actions.children]).toEqual([
@@ -457,6 +604,15 @@ describe("LedgerPanel", () => {
       add,
       remove,
     ]);
+
+    const css = await fs.readFile(
+      path.join(process.cwd(), "src/styles/globals.css"),
+      "utf8",
+    );
+    const sharedRule = css.match(/\.workspace-table-header-row\s*\{([^}]*)\}/)?.[1];
+    const ledgerRule = css.match(/\.ledger-table-header-row\s*\{([^}]*)\}/)?.[1];
+    expect(sharedRule).toContain("justify-content: flex-end;");
+    expect(ledgerRule).toContain("justify-content: space-between;");
   });
 
   it("isolates a nested Ledger dialog without hiding its ancestors", async () => {
@@ -832,8 +988,12 @@ describe("LedgerPanel", () => {
     render(<LedgerPanel controller={ledger} />);
     const addButton = screen.getByRole("button", { name: "Add transaction" });
 
-    await user.click(screen.getByRole("checkbox", { name: "Select Lunch" }));
-    await user.click(screen.getByRole("checkbox", { name: "Select Move funds" }));
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    }));
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Move funds, 2026-08-01, Cash → Card",
+    }));
     await user.click(screen.getByRole("button", { name: "Archive selected transactions" }));
     const dialog = screen.getByRole("dialog", { name: "Archive selected transactions?" });
     expect(dialog).toHaveTextContent(
@@ -851,8 +1011,12 @@ describe("LedgerPanel", () => {
     })).toBeNull());
     expect(screen.getByRole("button", { name: "Archive selected transactions" }))
       .toBeDisabled();
-    expect(screen.getByRole("checkbox", { name: "Select Lunch" })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Select Move funds" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", {
+      name: "Select Move funds, 2026-08-01, Cash → Card",
+    })).not.toBeChecked();
     await waitFor(() => expect(addButton).toHaveFocus());
     expect(ledger.restore).not.toHaveBeenCalled();
     expect(ledger.purge).not.toHaveBeenCalled();
@@ -867,12 +1031,24 @@ describe("LedgerPanel", () => {
       .mockResolvedValue(undefined);
     render(<LedgerPanel controller={ledger} />);
 
-    await user.click(screen.getByRole("checkbox", { name: "Select Salary" }));
-    await user.click(screen.getByRole("checkbox", { name: "Select Move funds" }));
-    await user.click(screen.getByRole("checkbox", { name: "Select Lunch" }));
-    const salary = screen.getByRole("checkbox", { name: "Select Salary" });
-    const transfer = screen.getByRole("checkbox", { name: "Select Move funds" });
-    const lunch = screen.getByRole("checkbox", { name: "Select Lunch" });
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Salary, 2026-08-02, Cash",
+    }));
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Move funds, 2026-08-01, Cash → Card",
+    }));
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    }));
+    const salary = screen.getByRole("checkbox", {
+      name: "Select Salary, 2026-08-02, Cash",
+    });
+    const transfer = screen.getByRole("checkbox", {
+      name: "Select Move funds, 2026-08-01, Cash → Card",
+    });
+    const lunch = screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    });
     await user.click(screen.getByRole("button", { name: "Archive selected transactions" }));
     const dialog = screen.getByRole("dialog", { name: "Archive selected transactions?" });
     await user.click(within(dialog).getByRole("button", { name: "Archive" }));
@@ -905,8 +1081,12 @@ describe("LedgerPanel", () => {
       : Promise.resolve());
     const view = render(<LedgerPanel controller={ledger} />);
 
-    await user.click(screen.getByRole("checkbox", { name: "Select Lunch" }));
-    await user.click(screen.getByRole("checkbox", { name: "Select Move funds" }));
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    }));
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Move funds, 2026-08-01, Cash → Card",
+    }));
     await user.click(screen.getByRole("button", { name: "Archive selected transactions" }));
     await user.click(within(screen.getByRole("dialog", {
       name: "Archive selected transactions?",
