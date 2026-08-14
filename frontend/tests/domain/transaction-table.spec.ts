@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { LedgerEntryType, LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
-import { deriveTransactionGroups, projectTransactionRows } from "@/features/ledger/model/transaction-table";
+import {
+  deriveTransactionGroups,
+  projectTransactionRows,
+  transactionToday,
+} from "@/features/ledger/model/transaction-table";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
 
 const baseEntry = {
@@ -270,6 +274,25 @@ describe("deriveTransactionGroups", () => {
     }))[0]).toEqual(["salary", "food", "coffee", "move"]);
   });
 
+  it("uses the local calendar date for default relative-date filtering", () => {
+    expect(transactionToday({
+      getFullYear: () => 2026,
+      getMonth: () => 0,
+      getDate: () => 2,
+    })).toBe("2026-01-02");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 0, 2, 0, 30));
+    const groups = deriveTransactionGroups(transactionEntries(), transactionSettings({
+      filterRules: [{
+        id: "today", field: "date", type: "date", operator: "is_relative_to_today",
+        value: { amount: "0", unit: "day" },
+      }],
+    }));
+    vi.useRealTimers();
+
+    expect(groups[0]?.rows.map((row) => row.id)).toEqual(["food"]);
+  });
+
   it("sorts each supported field stably and breaks final ties by row id", () => {
     const expected: Record<string, string[]> = {
       date: ["move", "coffee", "food", "salary"],
@@ -293,18 +316,54 @@ describe("deriveTransactionGroups", () => {
   });
 
   it.each([
-    ["month", ["2026-01", "2025-12"], ["January 2026", "December 2025"]],
-    ["week", ["2026-01-05", "2025-12-29"], ["Week of 2026-01-05", "Week of 2025-12-29"]],
-    ["day", ["2026-01-05", "2026-01-02", "2026-01-01", "2025-12-31"], ["2026-01-05", "2026-01-02", "2026-01-01", "2025-12-31"]],
-    ["account", ["account-2", "account-1", "account-3"], ["Bank", "Cash", "Card"]],
-    ["category", ["category-2", "category-1", "category-3", "uncategorized"], ["Salary", "Food", "Groceries", "Uncategorized"]],
-    ["entry_type", ["income", "expense", "transfer"], ["income", "expense", "transfer"]],
-  ] as const)("groups sorted rows by %s", (groupBy, keys, labels) => {
+    ["month", ["2026-01", "2025-12"], ["January 2026", "December 2025"], [["salary", "food", "coffee"], ["move"]]],
+    ["week", ["2026-01-05", "2025-12-29"], ["Week of 2026-01-05", "Week of 2025-12-29"], [["salary"], ["food", "coffee", "move"]]],
+    ["day", ["2026-01-05", "2026-01-02", "2026-01-01", "2025-12-31"], ["2026-01-05", "2026-01-02", "2026-01-01", "2025-12-31"], [["salary"], ["food"], ["coffee"], ["move"]]],
+    ["account", ["account-2", "account-1", "account-3"], ["Bank", "Cash", "Card"], [["salary"], ["food", "move"], ["coffee"]]],
+    ["category", ["category-2", "category-1", "category-3", "uncategorized"], ["Salary", "Food", "Groceries", "Uncategorized"], [["salary"], ["food"], ["coffee"], ["move"]]],
+    ["entry_type", ["income", "expense", "transfer"], ["income", "expense", "transfer"], [["salary"], ["food", "coffee"], ["move"]]],
+  ] as const)("groups sorted rows by %s", (groupBy, keys, labels, rows) => {
     const groups = deriveTransactionGroups(transactionEntries(), transactionSettings({
       groupSettings: { groupBy },
     }), "2026-01-04");
 
     expect(groups.map((group) => group.key)).toEqual(keys);
     expect(groups.map((group) => group.label)).toEqual(labels);
+    expect(groups.map((group) => group.rows.map((row) => row.id))).toEqual(rows);
+  });
+
+  it.each([
+    [
+      { hideEmpty: false },
+      ["category-2", "category-1", "category-3", "uncategorized"],
+      [["salary"], ["food"], ["coffee"], ["move"]],
+    ],
+    [
+      { hiddenGroupKeys: ["category-1"] },
+      ["category-2", "category-3", "uncategorized"],
+      [["salary"], ["coffee"], ["move"]],
+    ],
+    [
+      { sort: "alphabetical" as const },
+      ["category-1", "category-3", "category-2", "uncategorized"],
+      [["food"], ["coffee"], ["salary"], ["move"]],
+    ],
+    [
+      { sort: "reverse_alphabetical" as const },
+      ["uncategorized", "category-2", "category-3", "category-1"],
+      [["move"], ["salary"], ["coffee"], ["food"]],
+    ],
+    [
+      { manualOrder: ["uncategorized", "category-1"] },
+      ["uncategorized", "category-1", "category-2", "category-3"],
+      [["move"], ["food"], ["salary"], ["coffee"]],
+    ],
+  ])("honors category group settings", (groupSettings, keys, rows) => {
+    const groups = deriveTransactionGroups(transactionEntries(), transactionSettings({
+      groupSettings: { groupBy: "category", ...groupSettings },
+    }), "2026-01-04");
+
+    expect(groups.map((group) => group.key)).toEqual(keys);
+    expect(groups.map((group) => group.rows.map((row) => row.id))).toEqual(rows);
   });
 });

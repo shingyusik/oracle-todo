@@ -71,6 +71,12 @@ describe("ledger table views", () => {
     expect(defaultLedgerTableSettings("ledger.transactions").groupSettings.groupBy).toBe("none");
   });
 
+  it("normalizes persisted transaction updated sorts", () => {
+    expect(normalizeLedgerTableSettings("ledger.transactions", {
+      sortRules: [{ id: "updated", field: "updated", direction: "desc" }],
+    }).sortRules).toEqual([{ id: "updated", field: "updated", direction: "desc" }]);
+  });
+
   it("normalizes each persisted scope locally", () => {
     const views = createLedgerTableViews({
       "ledger.transactions": {

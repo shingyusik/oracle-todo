@@ -1,6 +1,15 @@
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import {
+  ledgerFilterFieldsForScope,
+  ledgerSortFieldsForScope,
+} from "@/features/ledger/model/ledger-table-views";
+import {
+  orderVisiblePlannerGroups,
+  type PlannerGroupSettings,
+} from "@/features/workbench/model/planner-group-settings";
+import {
   effectivePlannerFilterRules,
+  localCalendarDate,
   matchesPlannerFilterValue,
   type PlannerFilterField,
   type PlannerFilterRule,
@@ -136,12 +145,6 @@ export type TransactionRowGroup = {
   rows: TransactionRow[];
 };
 
-const transactionFilterFields: readonly PlannerFilterField[] = [
-  "date", "content", "entry_type", "account", "category", "amount",
-];
-const transactionSortFields: readonly PlannerSortBy[] = [
-  "date", "content", "account", "category", "amount", "updated",
-];
 const monthNames = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -150,13 +153,22 @@ const monthNames = [
 export function deriveTransactionGroups(
   entries: LedgerEntryView[],
   settings: PlannerTableSettings,
-  today = new Date().toISOString().slice(0, 10),
+  today = transactionToday(),
 ): TransactionRowGroup[] {
-  const rules = effectivePlannerFilterRules(settings.filterRules, transactionFilterFields);
+  const rules = effectivePlannerFilterRules(
+    settings.filterRules,
+    ledgerFilterFieldsForScope("ledger.transactions"),
+  );
   const rows = projectTransactionRows(entries)
     .filter((row) => matchesTransactionRules(row, rules, settings.filterMode, today))
     .sort((left, right) => compareTransactionRows(left, right, settings.sortRules));
-  return groupTransactionRows(rows, settings.groupSettings.groupBy);
+  return groupTransactionRows(rows, settings.groupSettings);
+}
+
+export function transactionToday(
+  date: Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date(),
+): string {
+  return localCalendarDate(date);
 }
 
 function matchesTransactionRules(
@@ -192,7 +204,9 @@ function compareTransactionRows(
   right: TransactionRow,
   rules: readonly PlannerSortRule[],
 ): number {
-  const activeRules = rules.filter((rule) => transactionSortFields.includes(rule.field));
+  const activeRules = rules.filter((rule) =>
+    ledgerSortFieldsForScope("ledger.transactions").includes(rule.field),
+  );
   const effectiveRules: readonly PlannerSortRule[] = activeRules.length > 0
     ? activeRules
     : [{ id: "transaction-default-sort", field: "date", direction: "desc" }];
@@ -228,8 +242,9 @@ function compareString(left: string, right: string): number {
 
 function groupTransactionRows(
   rows: TransactionRow[],
-  groupBy: PlannerGroupBy,
+  settings: PlannerGroupSettings,
 ): TransactionRowGroup[] {
+  const { groupBy } = settings;
   if (groupBy === "none") return [{ key: "all", label: null, rows }];
   const groups = new Map<string, TransactionRowGroup>();
   for (const row of rows) {
@@ -238,7 +253,14 @@ function groupTransactionRows(
     group.rows.push(row);
     groups.set(key, group);
   }
-  return [...groups.values()];
+  return orderVisiblePlannerGroups(
+    [...groups.values()].map(({ key, label, rows }) => ({
+      key,
+      label: label ?? key,
+      count: rows.length,
+    })),
+    settings,
+  ).map(({ key }) => groups.get(key)!);
 }
 
 function transactionGroup(
