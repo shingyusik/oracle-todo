@@ -270,6 +270,24 @@ describe("TransactionForm", () => {
     expect(ledger.createEntry).not.toHaveBeenCalled();
   });
 
+  it("clears a destination that collides with the changed source account", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(<TransactionForm controller={ledger} />);
+
+    await user.click(screen.getByRole("tab", { name: "Transfer" }));
+    await user.type(screen.getByLabelText("Amount"), "45000");
+    await user.type(screen.getByLabelText("Content"), "Move savings");
+    await user.selectOptions(screen.getByLabelText("To account"), "account-bank");
+    await user.selectOptions(screen.getByLabelText("From account"), "account-bank");
+    await user.click(screen.getByRole("button", { name: "Save transfer" }));
+
+    expect(ledger.transfer).not.toHaveBeenCalled();
+
+    await user.selectOptions(screen.getByLabelText("From account"), "account-cash");
+    expect(screen.getByLabelText("To account")).toHaveValue("");
+  });
+
   it("keeps entered values and exposes an error when the API rejects submission", async () => {
     const user = userEvent.setup();
     const ledger = controller({

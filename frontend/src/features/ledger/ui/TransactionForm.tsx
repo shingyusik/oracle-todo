@@ -213,7 +213,14 @@ export function TransactionForm({
             <select
               required
               value={draft.fromAccount}
-              onChange={(event) => field("fromAccount", event.target.value)}
+              onChange={(event) => {
+                const fromAccount = event.target.value;
+                setDraft((current) => ({
+                  ...current,
+                  fromAccount,
+                  toAccount: current.toAccount === fromAccount ? "" : current.toAccount,
+                }));
+              }}
             >
               <option value="">Select account</option>
               {activeAccounts.map((account) => (
