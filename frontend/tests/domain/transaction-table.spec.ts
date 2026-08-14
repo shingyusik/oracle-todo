@@ -96,6 +96,7 @@ describe("projectTransactionRows", () => {
 
   it("keeps adjustments visible and omits malformed transfer groups", () => {
     const adjustment = entryView("adjustment-1", "adjustment_out");
+    const incomeAdjustment = entryView("adjustment-in-1", "adjustment_in");
     const malformed = entryView("malformed-out", "transfer_out", {
       transferGroupId: "malformed-group",
     });
@@ -105,8 +106,80 @@ describe("projectTransactionRows", () => {
       amountMinor: 2_000,
     });
 
-    expect(projectTransactionRows([mismatched, adjustment, malformed])).toEqual([
+    expect(projectTransactionRows([mismatched, incomeAdjustment, adjustment, malformed])).toEqual([
+      expect.objectContaining({ id: "adjustment-in-1", kind: "income" }),
       expect.objectContaining({ id: "adjustment-1", kind: "expense" }),
     ]);
   });
+
+  function validPair(): LedgerEntryView[] {
+    return [
+      entryView("regression-out", "transfer_out", {
+        content: "Regression transfer",
+        transactionCategoryId: null,
+        categoryName: null,
+        transferGroupId: "regression-group",
+        accountName: "Cash",
+      }),
+      entryView("regression-in", "transfer_in", {
+        content: "Regression transfer",
+        transactionCategoryId: null,
+        categoryName: null,
+        transferGroupId: "regression-group",
+        accountId: "account-2",
+        accountName: "Bank",
+      }),
+    ];
+  }
+
+  const malformedPairs: { name: string; entries: () => LedgerEntryView[] }[] = [
+    {
+      name: "currency mismatches",
+      entries: () => {
+        const [out, incoming] = validPair();
+        return [out, { ...incoming, entry: { ...incoming.entry, currencyId: "currency-2" } }];
+      },
+    },
+    {
+      name: "uses the same account",
+      entries: () => {
+        const [out, incoming] = validPair();
+        return [out, { ...incoming, entry: { ...incoming.entry, accountId: out.entry.accountId } }];
+      },
+    },
+    {
+      name: "uses duplicate entry identities",
+      entries: () => {
+        const [out, incoming] = validPair();
+        return [out, { ...incoming, entry: { ...incoming.entry, id: out.entry.id } }];
+      },
+    },
+    {
+      name: "has duplicate transfer sides",
+      entries: () => {
+        const [out, incoming] = validPair();
+        return [out, incoming, { ...incoming, entry: { ...incoming.entry, id: "duplicate-in" } }];
+      },
+    },
+    {
+      name: "has a non-null category",
+      entries: () => {
+        const [out, incoming] = validPair();
+        return [out, { ...incoming, entry: { ...incoming.entry, transactionCategoryId: "category-1" } }];
+      },
+    },
+    {
+      name: "has mismatched shared metadata",
+      entries: () => {
+        const [out, incoming] = validPair();
+        return [out, { ...incoming, entry: { ...incoming.entry, content: "Different content" } }];
+      },
+    },
+  ];
+
+  for (const { name, entries } of malformedPairs) {
+    it(`omits transfer pair when it ${name}`, () => {
+      expect(projectTransactionRows(entries()).some(({ kind }) => kind === "transfer")).toBe(false);
+    });
+  }
 });
