@@ -91,6 +91,9 @@ export type PlannerFilterRule = {
 
 export type PlannerGroupBy =
   | "none"
+  | "month"
+  | "week"
+  | "day"
   | "entry_type"
   | "account"
   | "category"
@@ -841,6 +844,14 @@ function matchesPlannerFilterRule(
   today: string,
 ): boolean {
   const value = plannerFilterValue(item, relatedItems, rule.field);
+  return matchesPlannerFilterValue(value, rule, today);
+}
+
+export function matchesPlannerFilterValue(
+  value: string | string[] | number | null | undefined,
+  rule: PlannerFilterRule,
+  today: string,
+): boolean {
   if (rule.operator === "is_empty") return isFilterEmpty(value);
   if (rule.operator === "is_not_empty") return !isFilterEmpty(value);
   if (isFilterEmpty(value)) {

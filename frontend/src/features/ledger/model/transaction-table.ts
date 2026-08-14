@@ -1,4 +1,14 @@
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import {
+  effectivePlannerFilterRules,
+  matchesPlannerFilterValue,
+  type PlannerFilterField,
+  type PlannerFilterRule,
+  type PlannerGroupBy,
+  type PlannerSortRule,
+  type PlannerSortBy,
+  type PlannerTableSettings,
+} from "@/features/workbench/model/planner-model";
 
 export type TransactionRow = {
   id: string;
@@ -8,6 +18,7 @@ export type TransactionRow = {
   date: string;
   content: string;
   accountIds: string[];
+  accountLabels: string[];
   accountLabel: string;
   categoryId: string | null;
   categoryLabel: string;
@@ -57,6 +68,7 @@ export function projectTransactionRows(entries: LedgerEntryView[]): TransactionR
       date: out.entry.date,
       content: out.entry.content,
       accountIds: [out.entry.accountId, incoming.entry.accountId],
+      accountLabels: [out.accountName ?? "", incoming.accountName ?? ""],
       accountLabel: `${out.accountName ?? ""} → ${incoming.accountName ?? ""}`,
       categoryId: null,
       categoryLabel: "",
@@ -107,6 +119,7 @@ function projectEntry(detailEntry: LedgerEntryView): TransactionRow {
     date: entry.date,
     content: entry.content,
     accountIds: [entry.accountId],
+    accountLabels: [detailEntry.accountName ?? ""],
     accountLabel: detailEntry.accountName ?? "",
     categoryId: entry.transactionCategoryId,
     categoryLabel: detailEntry.categoryName ?? "",
@@ -115,4 +128,151 @@ function projectEntry(detailEntry: LedgerEntryView): TransactionRow {
     currencyCode: detailEntry.currencyCode ?? "",
     updatedAt: entry.updatedAt,
   };
+}
+
+export type TransactionRowGroup = {
+  key: string;
+  label: string | null;
+  rows: TransactionRow[];
+};
+
+const transactionFilterFields: readonly PlannerFilterField[] = [
+  "date", "content", "entry_type", "account", "category", "amount",
+];
+const transactionSortFields: readonly PlannerSortBy[] = [
+  "date", "content", "account", "category", "amount", "updated",
+];
+const monthNames = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+export function deriveTransactionGroups(
+  entries: LedgerEntryView[],
+  settings: PlannerTableSettings,
+  today = new Date().toISOString().slice(0, 10),
+): TransactionRowGroup[] {
+  const rules = effectivePlannerFilterRules(settings.filterRules, transactionFilterFields);
+  const rows = projectTransactionRows(entries)
+    .filter((row) => matchesTransactionRules(row, rules, settings.filterMode, today))
+    .sort((left, right) => compareTransactionRows(left, right, settings.sortRules));
+  return groupTransactionRows(rows, settings.groupSettings.groupBy);
+}
+
+function matchesTransactionRules(
+  row: TransactionRow,
+  rules: readonly PlannerFilterRule[],
+  mode: PlannerTableSettings["filterMode"],
+  today: string,
+): boolean {
+  if (rules.length === 0) return true;
+  const matches = rules.map((rule) =>
+    matchesPlannerFilterValue(transactionFilterValue(row, rule.field), rule, today),
+  );
+  return mode === "and" ? matches.every(Boolean) : matches.some(Boolean);
+}
+
+function transactionFilterValue(
+  row: TransactionRow,
+  field: PlannerFilterField,
+): string | string[] | number | null {
+  if (field === "date") return row.date;
+  if (field === "content") return row.content;
+  if (field === "entry_type") return row.kind;
+  if (field === "account") return uniqueValues([...row.accountIds, ...row.accountLabels]);
+  if (field === "category") {
+    return row.categoryId ? uniqueValues([row.categoryId, row.categoryLabel]) : [];
+  }
+  if (field === "amount") return row.amountMinor;
+  return null;
+}
+
+function compareTransactionRows(
+  left: TransactionRow,
+  right: TransactionRow,
+  rules: readonly PlannerSortRule[],
+): number {
+  const activeRules = rules.filter((rule) => transactionSortFields.includes(rule.field));
+  const effectiveRules: readonly PlannerSortRule[] = activeRules.length > 0
+    ? activeRules
+    : [{ id: "transaction-default-sort", field: "date", direction: "desc" }];
+  for (const rule of effectiveRules) {
+    const result = compareTransactionValue(
+      transactionSortValue(left, rule.field),
+      transactionSortValue(right, rule.field),
+    );
+    if (result !== 0) return rule.direction === "asc" ? result : -result;
+  }
+  return compareString(left.id, right.id);
+}
+
+function transactionSortValue(row: TransactionRow, field: PlannerSortBy): string | number {
+  if (field === "date") return row.date;
+  if (field === "content") return row.content;
+  if (field === "account") return row.accountLabel;
+  if (field === "category") return row.categoryLabel;
+  if (field === "amount") return row.amountMinor;
+  if (field === "updated") return row.updatedAt;
+  return "";
+}
+
+function compareTransactionValue(left: string | number, right: string | number): number {
+  return typeof left === "number" && typeof right === "number"
+    ? left - right
+    : compareString(String(left), String(right));
+}
+
+function compareString(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function groupTransactionRows(
+  rows: TransactionRow[],
+  groupBy: PlannerGroupBy,
+): TransactionRowGroup[] {
+  if (groupBy === "none") return [{ key: "all", label: null, rows }];
+  const groups = new Map<string, TransactionRowGroup>();
+  for (const row of rows) {
+    const { key, label } = transactionGroup(row, groupBy);
+    const group = groups.get(key) ?? { key, label, rows: [] };
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function transactionGroup(
+  row: TransactionRow,
+  groupBy: PlannerGroupBy,
+): Pick<TransactionRowGroup, "key" | "label"> {
+  if (groupBy === "month") {
+    const key = row.date.slice(0, 7);
+    return { key, label: `${monthNames[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}` };
+  }
+  if (groupBy === "week") {
+    const key = isoMonday(row.date);
+    return { key, label: `Week of ${key}` };
+  }
+  if (groupBy === "day") return { key: row.date, label: row.date };
+  if (groupBy === "account") {
+    return { key: row.accountIds[0] ?? "uncategorized", label: row.accountLabels[0] || "Uncategorized" };
+  }
+  if (groupBy === "category") {
+    return row.categoryId
+      ? { key: row.categoryId, label: row.categoryLabel || row.categoryId }
+      : { key: "uncategorized", label: "Uncategorized" };
+  }
+  if (groupBy === "entry_type") return { key: row.kind, label: row.kind };
+  return { key: "all", label: null };
+}
+
+function isoMonday(date: string): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  const offset = (value.getUTCDay() + 6) % 7;
+  value.setUTCDate(value.getUTCDate() - offset);
+  return value.toISOString().slice(0, 10);
+}
+
+function uniqueValues(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }

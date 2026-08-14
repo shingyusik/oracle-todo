@@ -13,6 +13,7 @@ import {
   effectivePlannerFilterRules,
   filterPlannerItemsByRules,
   groupPlannerItems,
+  matchesPlannerFilterValue,
   matchesPlannerFilterRules,
   defaultPlannerTableSettings,
   normalizePlannerTableSettings,
@@ -208,6 +209,17 @@ function legacyPlannerControls(): LegacyPlannerControls {
 }
 
 describe("planner model", () => {
+  it("exports the existing value-level filter semantics", () => {
+    expect(matchesPlannerFilterValue("Focus block", {
+      id: "text", field: "title", type: "text", operator: "contains", value: "focus",
+    }, "2026-07-08")).toBe(true);
+    expect(matchesPlannerFilterValue(["area-1", "Work"], {
+      id: "relation", field: "area", type: "relation", operator: "is", value: ["Work"],
+    }, "2026-07-08")).toBe(true);
+    expect(matchesPlannerFilterValue(100, {
+      id: "amount", field: "amount", type: "number", operator: "greater_than", value: "99",
+    }, "2026-07-08")).toBe(true);
+  });
   it("ignores incomplete filter rules while retaining empty operators and completed values", () => {
     const rules: PlannerFilterRule[] = [
       { id: "select", field: "status", type: "select", operator: "is", value: [] },

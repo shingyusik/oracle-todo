@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { LedgerEntryType, LedgerEntryView } from "@/features/ledger/model/ledger-model";
-import { projectTransactionRows } from "@/features/ledger/model/transaction-table";
+import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
+import { deriveTransactionGroups, projectTransactionRows } from "@/features/ledger/model/transaction-table";
+import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
 
 const baseEntry = {
   date: "2026-08-01",
@@ -182,4 +184,127 @@ describe("projectTransactionRows", () => {
       expect(projectTransactionRows(entries()).some(({ kind }) => kind === "transfer")).toBe(false);
     });
   }
+});
+
+function transactionEntries(): LedgerEntryView[] {
+  return [
+    entryView("archived", "expense", { date: "2026-01-06", deletedAt: "2026-01-07T00:00:00Z" }),
+    entryView("food", "expense", {
+      date: "2026-01-02", content: "Lunch", amountMinor: 200, updatedAt: "2026-01-03T00:00:00Z",
+    }),
+    entryView("transfer-in", "transfer_in", {
+      date: "2025-12-31", content: "Move", amountMinor: 300, accountId: "account-2",
+      accountName: "Bank", categoryName: null, transactionCategoryId: null, transferGroupId: "move",
+    }),
+    entryView("salary", "income", {
+      date: "2026-01-05", content: "Alpha", amountMinor: 1_000, accountId: "account-2",
+      accountName: "Bank", categoryName: "Salary", transactionCategoryId: "category-2",
+      updatedAt: "2026-01-02T00:00:00Z",
+    }),
+    entryView("coffee", "expense", {
+      date: "2026-01-01", content: "Bean", amountMinor: 200, accountId: "account-3",
+      accountName: "Card", categoryName: "Groceries", transactionCategoryId: "category-3",
+      updatedAt: "2026-01-04T00:00:00Z",
+    }),
+    entryView("transfer-out", "transfer_out", {
+      date: "2025-12-31", content: "Move", amountMinor: 300, accountId: "account-1",
+      accountName: "Cash", categoryName: null, transactionCategoryId: null, transferGroupId: "move",
+    }),
+  ];
+}
+
+function transactionSettings(
+  patch: Omit<Partial<PlannerTableSettings>, "groupSettings"> & {
+    groupSettings?: Partial<PlannerTableSettings["groupSettings"]>;
+  } = {},
+): PlannerTableSettings {
+  const defaults = defaultLedgerTableSettings("ledger.transactions");
+  const { groupSettings, ...settings } = patch;
+  return {
+    ...defaults,
+    ...settings,
+    groupSettings: {
+      ...defaults.groupSettings,
+      ...groupSettings,
+    },
+  };
+}
+
+function groupIds(settings?: PlannerTableSettings): string[][] {
+  return deriveTransactionGroups(transactionEntries(), settings ?? transactionSettings(), "2026-01-04")
+    .map((group) => group.rows.map((row) => row.id));
+}
+
+describe("deriveTransactionGroups", () => {
+  it("projects active logical rows into one ungrouped date-descending result", () => {
+    const groups = deriveTransactionGroups(transactionEntries(), transactionSettings(), "2026-01-04");
+
+    expect(groups.map((group) => group.key)).toEqual(["all"]);
+    expect(groups[0]?.label).toBeNull();
+    expect(groups[0]?.rows.map((row) => row.id)).toEqual(["salary", "food", "coffee", "move"]);
+    expect(groups[0]?.rows.map((row) => row.id)).not.toContain("archived");
+  });
+
+  it("applies Ledger filter fields with effective rules and AND/OR semantics", () => {
+    const rule = (id: string, field: "date" | "entry_type" | "account" | "category" | "amount" | "content", type: "date" | "select" | "relation" | "number" | "text", operator: "is" | "contains", value: string | string[]) => ({ id, field, type, operator, value } as const);
+    const each = [
+      [rule("date", "date", "date", "is", "2026-01-02"), ["food"]],
+      [rule("type", "entry_type", "select", "is", ["income"]), ["salary"]],
+      [rule("account", "account", "relation", "contains", ["Bank"]), ["salary", "move"]],
+      [rule("category", "category", "relation", "is", ["Food"]), ["food"]],
+      [rule("amount", "amount", "number", "is", "200"), ["food", "coffee"]],
+      [rule("content", "content", "text", "contains", "bean"), ["coffee"]],
+    ] as const;
+
+    for (const [filterRule, expected] of each) {
+      expect(groupIds(transactionSettings({ filterRules: [filterRule] }))[0]).toEqual(expected);
+    }
+    expect(groupIds(transactionSettings({
+      filterRules: [each[0][0], each[5][0]], filterMode: "or",
+    }))[0]).toEqual(["food", "coffee"]);
+    expect(groupIds(transactionSettings({
+      filterRules: [each[0][0], each[5][0]], filterMode: "and",
+    }))[0]).toEqual([]);
+    expect(groupIds(transactionSettings({
+      filterRules: [rule("empty", "content", "text", "contains", "")],
+    }))[0]).toEqual(["salary", "food", "coffee", "move"]);
+  });
+
+  it("sorts each supported field stably and breaks final ties by row id", () => {
+    const expected: Record<string, string[]> = {
+      date: ["move", "coffee", "food", "salary"],
+      content: ["salary", "coffee", "food", "move"],
+      account: ["salary", "coffee", "food", "move"],
+      category: ["move", "food", "coffee", "salary"],
+      amount: ["coffee", "food", "move", "salary"],
+      updated: ["salary", "food", "coffee", "move"],
+    };
+    for (const [field, ids] of Object.entries(expected)) {
+      expect(groupIds(transactionSettings({
+        sortRules: [{ id: field, field: field as "date", direction: "asc" }],
+      }))[0]).toEqual(ids);
+    }
+    expect(groupIds(transactionSettings({
+      sortRules: [
+        { id: "amount", field: "amount", direction: "asc" },
+        { id: "content", field: "content", direction: "desc" },
+      ],
+    }))[0]).toEqual(["food", "coffee", "move", "salary"]);
+  });
+
+  it.each([
+    ["month", ["2026-01", "2025-12"], ["January 2026", "December 2025"]],
+    ["week", ["2026-01-05", "2025-12-29"], ["Week of 2026-01-05", "Week of 2025-12-29"]],
+    ["day", ["2026-01-05", "2026-01-02", "2026-01-01", "2025-12-31"], ["2026-01-05", "2026-01-02", "2026-01-01", "2025-12-31"]],
+    ["account", ["account-2", "account-1", "account-3"], ["Bank", "Cash", "Card"]],
+    ["category", ["category-2", "category-1", "category-3", "uncategorized"], ["Salary", "Food", "Groceries", "Uncategorized"]],
+    ["entry_type", ["income", "expense", "transfer"], ["income", "expense", "transfer"]],
+  ] as const)("groups sorted rows by %s", (groupBy, keys, labels) => {
+    const groups = deriveTransactionGroups(transactionEntries(), transactionSettings({
+      groupSettings: { groupBy },
+    }), "2026-01-04");
+
+    expect(groups.map((group) => group.key)).toEqual(keys);
+    expect(groups.map((group) => group.label)).toEqual(labels);
+  });
 });

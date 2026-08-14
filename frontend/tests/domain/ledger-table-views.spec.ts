@@ -29,6 +29,18 @@ describe("ledger table views", () => {
       "currency",
       "current_balance",
     ]);
+    expect(ledgerSortFieldsForScope("ledger.transactions")).toEqual([
+      "date", "content", "account", "category", "amount", "updated",
+    ]);
+    expect(ledgerGroupOptionsForScope("ledger.transactions")).toEqual([
+      { value: "none", label: "None" },
+      { value: "month", label: "Month" },
+      { value: "week", label: "Week" },
+      { value: "day", label: "Day" },
+      { value: "account", label: "Account" },
+      { value: "category", label: "Category" },
+      { value: "entry_type", label: "Type" },
+    ]);
     expect(ledgerGroupOptionsForScope("ledger.categories").map(({ value }) => value))
       .toEqual(["none", "kind", "parent"]);
   });

@@ -43,15 +43,22 @@ const filterFields: Record<LedgerTableScopeId, readonly PlannerFilterField[]> = 
   "ledger.categories": ["name", "kind", "parent"],
 };
 
+const transactionSortFields: readonly PlannerSortBy[] = [
+  "date", "content", "account", "category", "amount", "updated",
+];
+
 const groupOptions: Record<
   LedgerTableScopeId,
   readonly { value: PlannerGroupBy; label: string }[]
 > = {
   "ledger.transactions": [
     { value: "none", label: "None" },
-    { value: "entry_type", label: "Type" },
+    { value: "month", label: "Month" },
+    { value: "week", label: "Week" },
+    { value: "day", label: "Day" },
     { value: "account", label: "Account" },
     { value: "category", label: "Category" },
+    { value: "entry_type", label: "Type" },
   ],
   "ledger.accounts": [
     { value: "none", label: "None" },
@@ -95,7 +102,7 @@ export function ledgerFilterFieldsForScope(
 export function ledgerSortFieldsForScope(
   scope: LedgerTableScopeId,
 ): readonly PlannerSortBy[] {
-  return filterFields[scope];
+  return scope === "ledger.transactions" ? transactionSortFields : filterFields[scope];
 }
 
 export function ledgerGroupOptionsForScope(scope: LedgerTableScopeId) {
@@ -133,7 +140,7 @@ export function normalizeLedgerTableSettings(
     : defaults.filterRules;
   const sortRules = Array.isArray(candidate.sortRules)
     ? candidate.sortRules.flatMap((rule) => {
-        const normalized = normalizePlannerSortRule(rule, allowedFields);
+        const normalized = normalizePlannerSortRule(rule, ledgerSortFieldsForScope(scope));
         return normalized ? [normalized] : [];
       })
     : defaults.sortRules;

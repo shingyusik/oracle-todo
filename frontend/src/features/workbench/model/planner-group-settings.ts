@@ -23,6 +23,9 @@ export type PlannerGroupCandidate = {
 
 const groupByValues = new Set<PlannerGroupBy>([
   "none",
+  "month",
+  "week",
+  "day",
   "area",
   "project",
   "routine",
