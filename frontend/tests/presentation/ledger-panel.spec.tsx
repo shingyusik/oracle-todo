@@ -19,7 +19,10 @@ import type {
   LedgerController,
   LedgerState,
 } from "@/features/ledger/hooks/useLedgerController";
-import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
+import {
+  LedgerMutationRefreshError,
+  useLedgerController,
+} from "@/features/ledger/hooks/useLedgerController";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 
 const loadedState: LedgerState = {
@@ -939,6 +942,65 @@ describe("LedgerPanel", () => {
     expect(refreshed).toBe(true);
     expect(result.current.state.status).toBe("loaded");
     expect(result.current.state.error).toBeNull();
+  });
+
+  it("limits persisted refresh failures to transaction creation methods", async () => {
+    vi.spyOn(ledgerApi, "listEntries")
+      .mockResolvedValueOnce({ items: [], nextOffset: null })
+      .mockRejectedValue(new Error("Ledger refresh failed"));
+    vi.spyOn(ledgerApi, "listCurrencies")
+      .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountCategories")
+      .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccounts")
+      .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
+    vi.spyOn(ledgerApi, "listTransactionCategories")
+      .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountBalances")
+      .mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "restoreEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "purgeEntry").mockResolvedValue(undefined);
+    vi.spyOn(ledgerApi, "createAccount").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createTransactionCategory").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "updateTransactionCategory").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "purgeMaster").mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+
+    const ordinaryMutations = [
+      () => result.current.updateEntry("entry", {} as never),
+      () => result.current.archive("entry"),
+      () => result.current.restore("entry"),
+      () => result.current.purge("entry", "confirm"),
+      () => result.current.createAccount({} as never),
+      () => result.current.updateAccount("account", {}),
+      () => result.current.archiveAccount("account"),
+      () => result.current.restoreAccount("account"),
+      () => result.current.purgeAccount("account", "confirm"),
+      () => result.current.createCategory({} as never),
+      () => result.current.updateCategory("category", {}),
+      () => result.current.archiveCategory("category"),
+      () => result.current.restoreCategory("category"),
+      () => result.current.purgeCategory("category", "confirm"),
+    ];
+    for (const mutation of ordinaryMutations) {
+      await act(async () => {
+        await expect(mutation()).resolves.toBeUndefined();
+      });
+    }
+
+    await act(async () => {
+      await expect(result.current.createEntry({} as never))
+        .rejects.toBeInstanceOf(LedgerMutationRefreshError);
+      await expect(result.current.transfer({} as never))
+        .rejects.toBeInstanceOf(LedgerMutationRefreshError);
+    });
   });
 
   it.each(["success", "error"] as const)(

@@ -5,7 +5,10 @@ import React from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
+import {
+  LedgerMutationRefreshError,
+  type LedgerController,
+} from "@/features/ledger/hooks/useLedgerController";
 import { createLedgerTableViews } from "@/features/ledger/model/ledger-table-views";
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
 
@@ -407,9 +410,10 @@ describe("TransactionForm", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Amount is invalid");
   });
 
-  it("edits two-decimal minor units without changing their value", async () => {
+  it("keeps edits retryable when an update reports a refresh failure", async () => {
     const user = userEvent.setup();
     const ledger = controller();
+    vi.mocked(ledger.updateEntry).mockRejectedValue(new LedgerMutationRefreshError());
     render(
       <TransactionForm
         controller={ledger}
@@ -455,6 +459,11 @@ describe("TransactionForm", () => {
       "entry-usd",
       expect.objectContaining({ amount: "12.34" }),
     );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Ledger could not refresh.",
+    );
+    expect(screen.getByRole("button", { name: "Save transaction" })).not.toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Retry refresh" })).toBeNull();
   });
 
   it("round-trips RFC3339 through a non-UTC browser-local datetime", async () => {

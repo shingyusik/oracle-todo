@@ -122,7 +122,7 @@ export function TransactionForm({
       saved = true;
     } catch (cause) {
       if (mounted.current) {
-        if (cause instanceof LedgerMutationRefreshError) {
+        if (!entry && cause instanceof LedgerMutationRefreshError) {
           persistedWithoutRefresh = true;
           setRefreshRecovery(true);
           setError("Transaction saved, but the list could not refresh.");

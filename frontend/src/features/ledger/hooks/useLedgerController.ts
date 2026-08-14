@@ -299,9 +299,13 @@ export function useLedgerController(): LedgerController {
     void refresh();
   }, [refresh]);
 
-  const mutate = useCallback(async (operation: () => Promise<unknown>) => {
+  const mutate = useCallback(async (
+    operation: () => Promise<unknown>,
+    requireRefresh = false,
+  ) => {
     await operation();
-    if (!await refresh()) throw new LedgerMutationRefreshError();
+    const refreshed = await refresh();
+    if (requireRefresh && !refreshed) throw new LedgerMutationRefreshError();
   }, [refresh]);
 
   const runReports = useCallback(async (range: ReportRangeInput) => {
@@ -460,9 +464,9 @@ export function useLedgerController(): LedgerController {
     confirmTableViewAction,
     cancelTableViewAction: () => setTableViewConfirmation(null),
     refresh,
-    createEntry: (input) => mutate(() => ledgerApi.createEntry(input)),
+    createEntry: (input) => mutate(() => ledgerApi.createEntry(input), true),
     updateEntry: (id, input) => mutate(() => ledgerApi.updateEntry(id, input)),
-    transfer: (input) => mutate(() => ledgerApi.createTransfer(input)),
+    transfer: (input) => mutate(() => ledgerApi.createTransfer(input), true),
     archive: (id) => mutate(() => ledgerApi.archiveEntry(id)),
     restore: (id) => mutate(() => ledgerApi.restoreEntry(id)),
     previewPurge: ledgerApi.previewEntryPurge,
