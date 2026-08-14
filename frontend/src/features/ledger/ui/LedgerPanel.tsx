@@ -30,6 +30,17 @@ export function LedgerPanel({
   controller,
   leafTabId = "transactions",
 }: LedgerPanelProps) {
+  const [tombstonedIds, setTombstonedIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (controller.state.status !== "loaded" || tombstonedIds.size === 0) return;
+    const activeIds = new Set(
+      projectTransactionRows(controller.state.entries).map(({ id }) => id),
+    );
+    const next = new Set([...tombstonedIds].filter((id) => activeIds.has(id)));
+    if (next.size !== tombstonedIds.size) setTombstonedIds(next);
+  }, [controller.state.entries, controller.state.status, tombstonedIds]);
+
   if (controller.state.status === "loading") {
     return <p role="status" className="items-message">Loading Ledger…</p>;
   }
@@ -52,7 +63,13 @@ export function LedgerPanel({
       ? <CategoriesPanel controller={controller} />
       : leafTabId === "reports"
         ? <LedgerReports controller={controller} />
-        : <TransactionsPanel controller={controller} />;
+        : (
+            <TransactionsPanel
+              controller={controller}
+              tombstonedIds={tombstonedIds}
+              setTombstonedIds={setTombstonedIds}
+            />
+          );
   return (
     <>
       {panel}
@@ -83,19 +100,22 @@ export function LedgerPanel({
   );
 }
 
-function TransactionsPanel({ controller }: { controller: LedgerController }) {
+function TransactionsPanel({
+  controller,
+  tombstonedIds,
+  setTombstonedIds,
+}: {
+  controller: LedgerController;
+  tombstonedIds: ReadonlySet<string>;
+  setTombstonedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+}) {
   const [editing, setEditing] = useState<LedgerEntryView | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [tombstonedIds, setTombstonedIds] = useState<Set<string>>(() => new Set());
   const actions = useLifecycleAction();
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const settings = controller.tableSettings("ledger.transactions");
-  const controllerRows = useMemo(
-    () => projectTransactionRows(controller.state.entries),
-    [controller.state.entries],
-  );
   const displayedEntries = useMemo(
     () => controller.state.entries.filter(({ entry }) =>
       !tombstonedIds.has(entry.transferGroupId ?? entry.id)),
@@ -118,13 +138,6 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
     () => groups.flatMap((group) => group.rows),
     [groups],
   );
-
-  useEffect(() => {
-    if (tombstonedIds.size === 0) return;
-    const activeIds = new Set(controllerRows.map(({ id }) => id));
-    const next = new Set([...tombstonedIds].filter((id) => activeIds.has(id)));
-    if (next.size !== tombstonedIds.size) setTombstonedIds(next);
-  }, [controllerRows, tombstonedIds]);
 
   useEffect(() => {
     const visibleIds = new Set(visibleRows.map(({ id }) => id));

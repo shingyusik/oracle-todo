@@ -1163,7 +1163,7 @@ describe("LedgerPanel", () => {
     expect(within(dialog).queryByRole("alert")).toBeNull();
   });
 
-  it("hides a persisted archive immediately when its refresh fails", async () => {
+  it("keeps a persisted archive hidden across Ledger tab unmounts", async () => {
     const user = userEvent.setup();
     mockLedgerLoads();
     vi.mocked(ledgerApi.listEntries)
@@ -1175,11 +1175,15 @@ describe("LedgerPanel", () => {
       .mockResolvedValue({ items: [], nextOffset: null });
     vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
 
-    function ProductionLedgerPanel() {
-      return <LedgerPanel controller={useLedgerController()} />;
+    function ProductionLedgerPanel({
+      leafTabId = "transactions",
+    }: {
+      leafTabId?: "transactions" | "accounts";
+    }) {
+      return <LedgerPanel controller={useLedgerController()} leafTabId={leafTabId} />;
     }
 
-    render(<ProductionLedgerPanel />);
+    const view = render(<ProductionLedgerPanel />);
     const row = await screen.findByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     });
@@ -1200,6 +1204,14 @@ describe("LedgerPanel", () => {
     })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel transaction edit" })).toBeNull();
     expect(ledgerApi.archiveEntry).toHaveBeenCalledOnce();
+
+    view.rerender(<ProductionLedgerPanel leafTabId="accounts" />);
+    expect(screen.getByRole("heading", { name: "Accounts" })).toBeInTheDocument();
+    view.rerender(<ProductionLedgerPanel />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Ledger refresh failed");
+    expect(screen.queryByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
