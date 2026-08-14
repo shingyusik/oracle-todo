@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -50,7 +50,7 @@ function controller(
           id: "account-bank",
           name: "Bank",
           categoryId: "account-category-bank",
-          currencyId: "currency-krw",
+          currencyId: "currency-usd",
           openingBalanceMinor: 0,
           active: true,
         },
@@ -112,6 +112,75 @@ function controller(
 }
 
 describe("TransactionForm", () => {
+  it("shows the approved expense and income creation fields in order", async () => {
+    const user = userEvent.setup();
+    render(<TransactionForm controller={controller()} />);
+
+    const tabs = screen.getByRole("tablist", { name: "Transaction type" });
+    expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Expense",
+      "Income",
+      "Transfer",
+    ]);
+    expect(within(tabs).getByRole("tab", { name: "Expense" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(visibleFieldLabels()).toEqual([
+      "Date",
+      "Content",
+      "Account",
+      "Category",
+      "Amount",
+      "Notes",
+    ]);
+    expect(screen.queryByLabelText("Written at")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Adjustment/ })).not.toBeInTheDocument();
+
+    await user.click(within(tabs).getByRole("tab", { name: "Income" }));
+
+    expect(within(tabs).getByRole("tab", { name: "Income" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(visibleFieldLabels()).toEqual([
+      "Date",
+      "Content",
+      "Account",
+      "Category",
+      "Amount",
+      "Notes",
+    ]);
+  });
+
+  it("shows the approved transfer creation fields in order", async () => {
+    const user = userEvent.setup();
+    render(<TransactionForm controller={controller()} />);
+
+    await user.click(screen.getByRole("tab", { name: "Transfer" }));
+
+    expect(visibleFieldLabels()).toEqual([
+      "Date",
+      "Content",
+      "From account",
+      "To account",
+      "Amount",
+      "Notes",
+    ]);
+    expect(screen.queryByLabelText("Written at")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("From account"), "account-cash");
+    expect(within(screen.getByLabelText("To account")).queryByRole("option", {
+      name: "Cash",
+    })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("To account"), "account-bank");
+    await user.selectOptions(screen.getByLabelText("From account"), "account-bank");
+    expect(screen.getByLabelText("To account")).toHaveValue("");
+  });
+
   it("reports pending until the controller mutation and refresh boundary resolves", async () => {
     const user = userEvent.setup();
     let resolveSave!: () => void;
@@ -134,7 +203,6 @@ describe("TransactionForm", () => {
     await user.type(screen.getByLabelText("Amount"), "12000");
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
-    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
     await user.click(screen.getByRole("button", { name: "Save transaction" }));
 
     expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
@@ -146,27 +214,37 @@ describe("TransactionForm", () => {
     expect(onPendingChange.mock.calls).toEqual([[true], [false]]);
   });
 
-  it("submits only structured transaction fields", async () => {
+  it.each([
+    ["Expense", "expense", "account-cash", "currency-krw"],
+    ["Income", "income", "account-bank", "currency-usd"],
+  ] as const)("submits an %s with account-derived creation metadata", async (
+    tab,
+    entryType,
+    account,
+    currency,
+  ) => {
     const user = userEvent.setup();
     const ledger = controller();
     render(<TransactionForm controller={ledger} />);
 
-    await user.selectOptions(screen.getByLabelText("Type"), "expense");
+    await user.click(screen.getByRole("tab", { name: tab }));
     await user.type(screen.getByLabelText("Amount"), "12000");
     await user.type(screen.getByLabelText("Content"), "Lunch");
-    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
-    await user.selectOptions(screen.getByLabelText("Category"), "category-food");
-    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
+    await user.selectOptions(screen.getByLabelText("Account"), account);
+    if (entryType === "expense") {
+      await user.selectOptions(screen.getByLabelText("Category"), "category-food");
+    }
     await user.click(screen.getByRole("button", { name: "Save transaction" }));
 
     expect(ledger.createEntry).toHaveBeenCalledWith(expect.objectContaining({
-      entryType: "expense",
+      entryType,
       amount: "12000",
       content: "Lunch",
-      account: "account-cash",
-      category: "category-food",
-      currency: "currency-krw",
+      account,
+      currency,
+      writtenAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     }));
+    expect(ledger.transfer).not.toHaveBeenCalled();
   });
 
   it("submits a paired transfer with separate source and destination accounts", async () => {
@@ -174,12 +252,11 @@ describe("TransactionForm", () => {
     const ledger = controller();
     render(<TransactionForm controller={ledger} />);
 
-    await user.click(screen.getByRole("button", { name: "Transfer" }));
+    await user.click(screen.getByRole("tab", { name: "Transfer" }));
     await user.type(screen.getByLabelText("Amount"), "45000");
     await user.type(screen.getByLabelText("Content"), "Move savings");
     await user.selectOptions(screen.getByLabelText("From account"), "account-cash");
     await user.selectOptions(screen.getByLabelText("To account"), "account-bank");
-    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
     await user.click(screen.getByRole("button", { name: "Save transfer" }));
 
     expect(ledger.transfer).toHaveBeenCalledWith(expect.objectContaining({
@@ -188,7 +265,9 @@ describe("TransactionForm", () => {
       fromAccount: "account-cash",
       toAccount: "account-bank",
       currency: "currency-krw",
+      writtenAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     }));
+    expect(ledger.createEntry).not.toHaveBeenCalled();
   });
 
   it("keeps entered values and exposes an error when the API rejects submission", async () => {
@@ -201,7 +280,6 @@ describe("TransactionForm", () => {
     await user.type(screen.getByLabelText("Amount"), "bad");
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
-    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
     await user.click(screen.getByRole("button", { name: "Save transaction" }));
 
     expect(screen.getByLabelText("Amount")).toHaveValue("bad");
@@ -240,6 +318,17 @@ describe("TransactionForm", () => {
       />,
     );
 
+    expect(visibleFieldLabels()).toEqual([
+      "Date",
+      "Written at",
+      "Type",
+      "Account",
+      "Category",
+      "Amount",
+      "Currency",
+      "Content",
+      "Notes",
+    ]);
     expect(screen.getByLabelText("Amount")).toHaveValue("12.34");
     await user.click(screen.getByRole("button", { name: "Save transaction" }));
     expect(ledger.updateEntry).toHaveBeenCalledWith(
@@ -294,3 +383,10 @@ describe("TransactionForm", () => {
     }
   });
 });
+
+function visibleFieldLabels() {
+  const form = screen.getByRole("form");
+  return Array.from(form.querySelectorAll("label")).map((label) =>
+    label.childNodes[0]?.textContent?.trim(),
+  );
+}

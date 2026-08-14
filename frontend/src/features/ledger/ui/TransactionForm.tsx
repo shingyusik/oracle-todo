@@ -23,7 +23,7 @@ type TransactionFormProps = {
   onPendingChange?: (pending: boolean) => void;
 };
 
-type FormMode = "entry" | "transfer";
+type CreationMode = "expense" | "income" | "transfer";
 
 export function TransactionForm({
   controller,
@@ -32,7 +32,7 @@ export function TransactionForm({
   onPendingChange,
 }: TransactionFormProps) {
   const initial = transactionDraft(entry, controller.state.currencies);
-  const [mode, setMode] = useState<FormMode>("entry");
+  const [mode, setMode] = useState<CreationMode>("expense");
   const [draft, setDraft] = useState(initial);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,28 +55,36 @@ export function TransactionForm({
     let saved = false;
     try {
       if (mode === "transfer") {
+        const currency = controller.state.accounts.find(
+          (account) => account.active && account.id === draft.fromAccount,
+        )?.currencyId ?? "";
         const input: TransferInput = {
           date: draft.date,
-          writtenAt: utcDateTime(draft.writtenAt),
+          writtenAt: new Date().toISOString(),
           content: draft.content,
           fromAccount: draft.fromAccount,
           toAccount: draft.toAccount,
           amount: draft.amount,
-          currency: draft.currency,
+          currency,
           source: "ui",
           notes: draft.notes || null,
         };
         await controller.transfer(input);
       } else {
+        const currency = entry
+          ? draft.currency
+          : controller.state.accounts.find(
+              (account) => account.active && account.id === draft.account,
+            )?.currencyId ?? "";
         const input: LedgerEntryInput = {
           date: draft.date,
-          writtenAt: utcDateTime(draft.writtenAt),
+          writtenAt: entry ? utcDateTime(draft.writtenAt) : new Date().toISOString(),
           content: draft.content,
           category: draft.category || null,
           account: draft.account,
-          entryType: draft.entryType,
+          entryType: entry ? draft.entryType : mode,
           amount: draft.amount,
-          currency: draft.currency,
+          currency,
           source: "ui",
           notes: draft.notes || null,
         };
@@ -101,29 +109,28 @@ export function TransactionForm({
   const activeAccounts = controller.state.accounts.filter((account) => account.active);
   const activeCurrencies = controller.state.currencies.filter((currency) => currency.active);
   const activeCategories = controller.state.categories.filter(
-    (category) => category.active && category.kind === categoryKind(draft.entryType),
+    (category) =>
+      category.active &&
+      category.kind ===
+        categoryKind(entry ? draft.entryType : mode === "income" ? "income" : "expense"),
   );
 
   return (
     <form aria-label={entry ? "Edit transaction" : "New transaction"} onSubmit={submit}>
       {!entry && (
-        <div role="group" aria-label="Transaction mode" className="items-toolbar">
-          <button
-            type="button"
-            className="items-toolbar-button"
-            aria-pressed={mode === "entry"}
-            onClick={() => setMode("entry")}
-          >
-            Entry
-          </button>
-          <button
-            type="button"
-            className="items-toolbar-button"
-            aria-pressed={mode === "transfer"}
-            onClick={() => setMode("transfer")}
-          >
-            Transfer
-          </button>
+        <div role="tablist" aria-label="Transaction type" className="items-toolbar">
+          {(["expense", "income", "transfer"] as const).map((type) => (
+            <button
+              key={type}
+              type="button"
+              role="tab"
+              className="items-toolbar-button"
+              aria-selected={mode === type}
+              onClick={() => setMode(type)}
+            >
+              {type[0].toUpperCase() + type.slice(1)}
+            </button>
+          ))}
         </div>
       )}
       <label className="field-label">
@@ -135,30 +142,44 @@ export function TransactionForm({
           onChange={(event) => field("date", event.target.value)}
         />
       </label>
-      <label className="field-label">
-        Written at
-        <input
-          type="datetime-local"
-          required
-          value={draft.writtenAt}
-          onChange={(event) => field("writtenAt", event.target.value)}
-        />
-      </label>
-      {mode === "entry" ? (
+      {entry && (
+        <label className="field-label">
+          Written at
+          <input
+            type="datetime-local"
+            required
+            value={draft.writtenAt}
+            onChange={(event) => field("writtenAt", event.target.value)}
+          />
+        </label>
+      )}
+      {!entry && (
+        <label className="field-label">
+          Content
+          <input
+            required
+            value={draft.content}
+            onChange={(event) => field("content", event.target.value)}
+          />
+        </label>
+      )}
+      {mode !== "transfer" ? (
         <>
-          <label className="field-label">
-            Type
-            <select
-              value={draft.entryType}
-              onChange={(event) =>
-                field("entryType", event.target.value as PublicLedgerEntryType)}
-            >
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-              <option value="adjustment_out">Adjustment out</option>
-              <option value="adjustment_in">Adjustment in</option>
-            </select>
-          </label>
+          {entry && (
+            <label className="field-label">
+              Type
+              <select
+                value={draft.entryType}
+                onChange={(event) =>
+                  field("entryType", event.target.value as PublicLedgerEntryType)}
+              >
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+                <option value="adjustment_out">Adjustment out</option>
+                <option value="adjustment_in">Adjustment in</option>
+              </select>
+            </label>
+          )}
           <label className="field-label">
             Account
             <select
@@ -208,9 +229,11 @@ export function TransactionForm({
               onChange={(event) => field("toAccount", event.target.value)}
             >
               <option value="">Select account</option>
-              {activeAccounts.map((account) => (
-                <option key={account.id} value={account.id}>{account.name}</option>
-              ))}
+              {activeAccounts
+                .filter((account) => account.id !== draft.fromAccount)
+                .map((account) => (
+                  <option key={account.id} value={account.id}>{account.name}</option>
+                ))}
             </select>
           </label>
         </>
@@ -224,29 +247,33 @@ export function TransactionForm({
           onChange={(event) => field("amount", event.target.value)}
         />
       </label>
-      <label className="field-label">
-        Currency
-        <select
-          required
-          value={draft.currency}
-          onChange={(event) => field("currency", event.target.value)}
-        >
-          <option value="">Select currency</option>
-          {activeCurrencies.map((currency) => (
-            <option key={currency.id} value={currency.id}>
-              {currency.code} — {currency.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field-label">
-        Content
-        <input
-          required
-          value={draft.content}
-          onChange={(event) => field("content", event.target.value)}
-        />
-      </label>
+      {entry && (
+        <label className="field-label">
+          Currency
+          <select
+            required
+            value={draft.currency}
+            onChange={(event) => field("currency", event.target.value)}
+          >
+            <option value="">Select currency</option>
+            {activeCurrencies.map((currency) => (
+              <option key={currency.id} value={currency.id}>
+                {currency.code} — {currency.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {entry && (
+        <label className="field-label">
+          Content
+          <input
+            required
+            value={draft.content}
+            onChange={(event) => field("content", event.target.value)}
+          />
+        </label>
+      )}
       <label className="field-label">
         Notes
         <textarea
