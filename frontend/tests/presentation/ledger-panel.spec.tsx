@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import { createLedgerTableViews } from "@/features/ledger/model/ledger-table-views";
 import type {
   LedgerController,
   LedgerState,
@@ -72,8 +73,23 @@ const loadedState: LedgerState = {
 };
 
 function controller(state: LedgerState = loadedState): LedgerController {
+  const views = createLedgerTableViews();
   return {
     state,
+    tableViewSaveError: null,
+    retryTableViewSave: vi.fn(),
+    tableViewConfirmation: null,
+    tableTabs: (scope) => views[scope],
+    tableSettings: (scope) => views[scope].draftSettings,
+    tableIsDirty: vi.fn(() => false),
+    updateTableSettings: vi.fn(),
+    selectTableTab: vi.fn(),
+    saveTableTab: vi.fn(),
+    createTableTab: vi.fn(() => true),
+    renameTableTab: vi.fn(() => true),
+    requestDeleteTableTab: vi.fn(),
+    confirmTableViewAction: vi.fn(),
+    cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
     createEntry: vi.fn(),
     updateEntry: vi.fn(),
@@ -137,9 +153,25 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
+function mockLedgerLoads() {
+  vi.spyOn(ledgerApi, "listEntries")
+    .mockResolvedValue({ items: [], nextOffset: null });
+  vi.spyOn(ledgerApi, "listCurrencies")
+    .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+  vi.spyOn(ledgerApi, "listAccountCategories")
+    .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
+  vi.spyOn(ledgerApi, "listAccounts")
+    .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
+  vi.spyOn(ledgerApi, "listTransactionCategories")
+    .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+  vi.spyOn(ledgerApi, "listAccountBalances")
+    .mockResolvedValue({ items: [], nextOffset: null });
+}
+
 describe("LedgerPanel", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("uses Transactions as the default leaf and has no Overview", () => {
@@ -623,5 +655,280 @@ describe("LedgerPanel", () => {
       2,
       expect.objectContaining({ offset: 200 }),
     );
+  });
+
+  it("exposes Ledger view save failures with a retry action", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    ledger.tableViewSaveError = "Could not save Ledger views.";
+    render(<LedgerPanel controller={ledger} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not save Ledger views.",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry view save" }));
+    expect(ledger.retryTableViewSave).toHaveBeenCalledOnce();
+  });
+
+  it("reuses table tabs, Ledger field controls, pills, and focus dismissal", async () => {
+    const user = userEvent.setup();
+    const views = createLedgerTableViews({
+      "ledger.transactions": {
+        tabs: [{
+          id: "all",
+          name: "All",
+          settings: {
+            sortRules: [{ id: "amount", field: "amount", direction: "desc" }],
+            groupSettings: { groupBy: "account" },
+          },
+        }, {
+          id: "recent",
+          name: "Recent",
+          settings: {},
+        }],
+      },
+    });
+    const ledger = controller();
+    ledger.tableTabs = (scope) => views[scope];
+    ledger.tableSettings = (scope) => views[scope].draftSettings;
+    ledger.tableIsDirty = vi.fn(() => false);
+    render(<LedgerPanel controller={ledger} />);
+
+    expect(screen.getByRole("tablist", { name: "Transactions views" }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText("Active Transactions controls"))
+      .toHaveTextContent("Sorted by amount");
+    expect(screen.getByLabelText("Active Transactions controls"))
+      .toHaveTextContent("Grouped by account");
+
+    const filter = screen.getByRole("button", { name: "Filter Transactions" });
+    await user.click(filter);
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    expect(screen.getByRole("option", { name: "Date" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Amount" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(filter).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: "Filter Transactions" }))
+      .not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add Transactions view" }));
+    const name = screen.getByRole("textbox", { name: "View name" });
+    await user.clear(name);
+    await user.type(name, "Monthly");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(ledger.createTableTab).toHaveBeenCalledWith(
+      "ledger.transactions",
+      "Monthly",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open Recent view menu" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(ledger.requestDeleteTableTab).toHaveBeenCalledWith(
+      "ledger.transactions",
+      "recent",
+    );
+  });
+
+  it("keeps saved view tabs independent across Ledger table leaves", () => {
+    const views = createLedgerTableViews({
+      "ledger.transactions": { tabs: [{ id: "tx", name: "Recent", settings: {} }] },
+      "ledger.accounts": { tabs: [{ id: "account", name: "Balances", settings: {} }] },
+      "ledger.categories": { tabs: [{ id: "category", name: "Income", settings: {} }] },
+    });
+    const ledger = controller();
+    ledger.tableTabs = (scope) => views[scope];
+    ledger.tableSettings = (scope) => views[scope].draftSettings;
+    const { rerender } = render(<LedgerPanel controller={ledger} />);
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeInTheDocument();
+
+    rerender(<LedgerPanel controller={ledger} leafTabId="accounts" />);
+    expect(screen.getByRole("tab", { name: "Balances" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Recent" })).not.toBeInTheDocument();
+
+    rerender(<LedgerPanel controller={ledger} leafTabId="categories" />);
+    expect(screen.getByRole("tab", { name: "Income" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Balances" })).not.toBeInTheDocument();
+  });
+
+  it("loads, edits, and persists Ledger table views independently", async () => {
+    mockLedgerLoads();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("ledger.views.v1")) {
+        return new Response(JSON.stringify({
+          "ledger.transactions": {
+            tabs: [{
+              id: "recent",
+              name: "Recent",
+              settings: {
+                sortRules: [{ id: "date", field: "date", direction: "desc" }],
+              },
+            }],
+          },
+          "ledger.accounts": "broken",
+          "ledger.categories": {
+            tabs: [{ id: "income", name: "Income", settings: {} }],
+          },
+        }), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await waitFor(() => expect(
+      result.current.tableTabs("ledger.transactions").activeTabId,
+    ).toBe("recent"));
+
+    expect(result.current.tableTabs("ledger.accounts").activeTabId)
+      .toBe("ledger.accounts-table");
+    expect(result.current.tableTabs("ledger.categories").activeTabId)
+      .toBe("income");
+
+    act(() => {
+      expect(result.current.createTableTab("ledger.accounts", "By currency"))
+        .toBe(true);
+    });
+    const createdAccountTabId = result.current.tableTabs("ledger.accounts").activeTabId;
+    act(() => {
+      result.current.renameTableTab(
+        "ledger.accounts",
+        createdAccountTabId,
+        "Currencies",
+      );
+    });
+    act(() => {
+      result.current.updateTableSettings("ledger.accounts", (settings) => ({
+        ...settings,
+        groupSettings: { ...settings.groupSettings, groupBy: "currency" },
+      }));
+    });
+    act(() => {
+      result.current.saveTableTab("ledger.accounts");
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/preferences/ledger.views.v1",
+      expect.objectContaining({ method: "PUT" }),
+    ));
+    expect(result.current.tableTabs("ledger.transactions").tabs[0]?.name)
+      .toBe("Recent");
+    expect(result.current.tableTabs("ledger.accounts").tabs[1]?.name)
+      .toBe("Currencies");
+    expect(result.current.tableTabs("ledger.accounts").tabs[1]?.settings.groupSettings.groupBy)
+      .toBe("currency");
+
+    const accountTabId = result.current.tableTabs("ledger.accounts").activeTabId;
+    act(() => result.current.requestDeleteTableTab("ledger.accounts", accountTabId));
+    expect(result.current.tableViewConfirmation).toMatchObject({
+      kind: "delete",
+      target: { scope: "ledger.accounts" },
+      targetTabId: accountTabId,
+    });
+    act(() => result.current.confirmTableViewAction());
+    expect(result.current.tableTabs("ledger.accounts").tabs).toHaveLength(1);
+    expect(result.current.tableTabs("ledger.transactions").tabs).toHaveLength(1);
+  });
+
+  it("replays early view commands over a delayed stored preference", async () => {
+    mockLedgerLoads();
+    const stored = deferred<Response>();
+    const putBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init) return stored.promise;
+      putBodies.push(JSON.parse(String(init.body)));
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }));
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    act(() => {
+      expect(result.current.createTableTab("ledger.accounts", "Early"))
+        .toBe(true);
+    });
+    expect(result.current.tableTabs("ledger.accounts").tabs.map(({ name }) => name))
+      .toEqual(["Table", "Early"]);
+
+    await act(async () => stored.resolve(new Response(JSON.stringify({
+      "ledger.transactions": {
+        tabs: [{ id: "stored-tx", name: "Stored transactions", settings: {} }],
+      },
+      "ledger.accounts": {
+        tabs: [{ id: "stored-account", name: "Stored accounts", settings: {} }],
+      },
+    }), { status: 200 })));
+
+    await waitFor(() => expect(
+      result.current.tableTabs("ledger.accounts").tabs.map(({ name }) => name),
+    ).toEqual(["Stored accounts", "Early"]));
+    expect(result.current.tableTabs("ledger.transactions").tabs[0]?.name)
+      .toBe("Stored transactions");
+    await waitFor(() => expect(putBodies).toHaveLength(1));
+    expect(putBodies[0]).toMatchObject({
+      value: {
+        "ledger.transactions": {
+          tabs: [expect.objectContaining({ name: "Stored transactions" })],
+        },
+        "ledger.accounts": {
+          tabs: [
+            expect.objectContaining({ name: "Stored accounts" }),
+            expect.objectContaining({ name: "Early" }),
+          ],
+        },
+      },
+    });
+  });
+
+  it("reports a failed view preference write and retries the current views", async () => {
+    mockLedgerLoads();
+    let putCount = 0;
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init) return Promise.resolve(new Response("{}", { status: 200 }));
+      putCount += 1;
+      return Promise.resolve(new Response("{}", { status: putCount === 1 ? 500 : 200 }));
+    }));
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await waitFor(() => expect(
+      result.current.tableTabs("ledger.transactions").activeTabId,
+    ).toBe("ledger.transactions-table"));
+    act(() => {
+      result.current.createTableTab("ledger.transactions", "Unsaved view");
+    });
+
+    await waitFor(() => expect(result.current.tableViewSaveError)
+      .toBe("Could not save Ledger views."));
+    act(() => result.current.retryTableViewSave());
+    expect(result.current.tableViewSaveError).toBe("Could not save Ledger views.");
+    await waitFor(() => expect(putCount).toBe(2));
+    await waitFor(() => expect(result.current.tableViewSaveError).toBeNull());
+    expect(result.current.tableTabs("ledger.transactions").tabs.at(-1)?.name)
+      .toBe("Unsaved view");
+  });
+
+  it("ignores an older failed write after a newer queued view save succeeds", async () => {
+    mockLedgerLoads();
+    let putCount = 0;
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init) return Promise.resolve(new Response("{}", { status: 200 }));
+      putCount += 1;
+      return Promise.resolve(new Response("{}", { status: putCount === 1 ? 500 : 200 }));
+    }));
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(
+      result.current.tableTabs("ledger.transactions").activeTabId,
+    ).toBe("ledger.transactions-table"));
+    act(() => {
+      result.current.createTableTab("ledger.transactions", "Queued");
+    });
+    const tabId = result.current.tableTabs("ledger.transactions").activeTabId;
+    act(() => {
+      result.current.renameTableTab("ledger.transactions", tabId, "Queued latest");
+    });
+
+    await waitFor(() => expect(putCount).toBe(2));
+    expect(result.current.tableViewSaveError).toBeNull();
   });
 });
