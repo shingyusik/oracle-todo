@@ -6,11 +6,13 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
+import { createLedgerTableViews } from "@/features/ledger/model/ledger-table-views";
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
 
 function controller(
   overrides: Partial<LedgerController> = {},
 ): LedgerController {
+  const views = createLedgerTableViews();
   return {
     state: {
       status: "loaded",
@@ -70,6 +72,20 @@ function controller(
       categoryBreakdown: [],
       briefing: null,
     },
+    tableViewSaveError: null,
+    retryTableViewSave: vi.fn(),
+    tableViewConfirmation: null,
+    tableTabs: (scope) => views[scope],
+    tableSettings: (scope) => views[scope].draftSettings,
+    tableIsDirty: vi.fn(() => false),
+    updateTableSettings: vi.fn(),
+    selectTableTab: vi.fn(),
+    saveTableTab: vi.fn(),
+    createTableTab: vi.fn(() => true),
+    renameTableTab: vi.fn(() => true),
+    requestDeleteTableTab: vi.fn(),
+    confirmTableViewAction: vi.fn(),
+    cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
     createEntry: vi.fn(),
     updateEntry: vi.fn(),

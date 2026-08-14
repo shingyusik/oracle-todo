@@ -1006,6 +1006,52 @@ function tableViewFilterFieldConfigs(
 ): PlannerFilterFieldConfig[] {
   const configs: Record<PlannerFilterField, PlannerFilterFieldConfig> = {
     title: { field: "title", label: "Title", type: "text", options: [] },
+    date: { field: "date", label: "Date", type: "date", options: [] },
+    content: { field: "content", label: "Content", type: "text", options: [] },
+    entry_type: {
+      field: "entry_type",
+      label: "Type",
+      type: "select",
+      options: filterOptions.daily.statuses,
+    },
+    account: {
+      field: "account",
+      label: "Account",
+      type: "relation",
+      options: filterOptions.daily.areas,
+    },
+    category: {
+      field: "category",
+      label: "Category",
+      type: "relation",
+      options: filterOptions.daily.projects,
+    },
+    amount: { field: "amount", label: "Amount", type: "number", options: [] },
+    name: { field: "name", label: "Name", type: "text", options: [] },
+    account_type: {
+      field: "account_type",
+      label: "Type",
+      type: "relation",
+      options: filterOptions.daily.areas,
+    },
+    currency: {
+      field: "currency",
+      label: "Currency",
+      type: "relation",
+      options: filterOptions.daily.projects,
+    },
+    current_balance: {
+      field: "current_balance",
+      label: "Current balance",
+      type: "number",
+      options: [],
+    },
+    kind: {
+      field: "kind",
+      label: "Kind",
+      type: "select",
+      options: filterOptions.daily.statuses,
+    },
     status: {
       field: "status",
       label: "Status",

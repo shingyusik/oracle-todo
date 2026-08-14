@@ -60,6 +60,8 @@ describe("planner group settings", () => {
       manualOrder: ["focus"],
       hiddenGroupKeys: ["ops"],
     });
+    expect(normalizePlannerGroupSettings({ groupBy: "account" }).groupBy)
+      .toBe("none");
   });
 
   it("builds relation, missing-value, and multi-tag candidates", () => {

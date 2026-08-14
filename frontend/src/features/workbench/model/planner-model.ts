@@ -23,6 +23,17 @@ export type DailyFilterState = {
 export type PlannerFilterMode = "and" | "or";
 export type PlannerFilterField =
   | "title"
+  | "date"
+  | "content"
+  | "entry_type"
+  | "account"
+  | "category"
+  | "amount"
+  | "name"
+  | "account_type"
+  | "currency"
+  | "current_balance"
+  | "kind"
   | "scheduled"
   | "due"
   | "tags"
@@ -80,6 +91,13 @@ export type PlannerFilterRule = {
 
 export type PlannerGroupBy =
   | "none"
+  | "entry_type"
+  | "account"
+  | "category"
+  | "account_type"
+  | "currency"
+  | "kind"
+  | "parent"
   | "area"
   | "project"
   | "routine"
@@ -97,6 +115,17 @@ export type PlannerSortRule = {
 
 export const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterType> = {
   title: "text",
+  date: "date",
+  content: "text",
+  entry_type: "select",
+  account: "relation",
+  category: "relation",
+  amount: "number",
+  name: "text",
+  account_type: "relation",
+  currency: "relation",
+  current_balance: "number",
+  kind: "select",
   scheduled: "date",
   due: "date",
   tags: "multiSelect",

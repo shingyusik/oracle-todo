@@ -10,6 +10,8 @@ import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
 import { LedgerReports } from "@/features/ledger/ui/LedgerReports";
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
+import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
+import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 
 type LedgerPanelProps = {
   controller: LedgerController;
@@ -36,10 +38,35 @@ export function LedgerPanel({
     );
   }
 
-  if (leafTabId === "accounts") return <AccountsPanel controller={controller} />;
-  if (leafTabId === "categories") return <CategoriesPanel controller={controller} />;
-  if (leafTabId === "reports") return <LedgerReports controller={controller} />;
-  return <TransactionsPanel controller={controller} />;
+  const panel = leafTabId === "accounts"
+    ? <AccountsPanel controller={controller} />
+    : leafTabId === "categories"
+      ? <CategoriesPanel controller={controller} />
+      : leafTabId === "reports"
+        ? <LedgerReports controller={controller} />
+        : <TransactionsPanel controller={controller} />;
+  return (
+    <>
+      {panel}
+      {controller.tableViewSaveError ? (
+        <div className="items-message">
+          <p role="alert">{controller.tableViewSaveError}</p>
+          <button type="button" onClick={controller.retryTableViewSave}>
+            Retry view save
+          </button>
+        </div>
+      ) : null}
+      <TableViewTabConfirmationDialog
+        adapter={{
+          confirmation: controller.tableViewConfirmation,
+          confirm: controller.confirmTableViewAction,
+          cancel: controller.cancelTableViewAction,
+          isDirty: ({ scope }) => controller.tableIsDirty(scope),
+          activeTabId: ({ scope }) => controller.tableTabs(scope).activeTabId,
+        }}
+      />
+    </>
+  );
 }
 
 function TransactionsPanel({ controller }: { controller: LedgerController }) {
@@ -47,9 +74,12 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
 
   return (
     <section aria-labelledby="ledger-transactions-heading">
-      <header className="workspace-table-header">
-        <h1 id="ledger-transactions-heading">Transactions</h1>
-      </header>
+      <LedgerTableViewHeader
+        controller={controller}
+        scope="ledger.transactions"
+        title="Transactions"
+        headingId="ledger-transactions-heading"
+      />
       <TransactionForm
         key={editing?.entry.id ?? "new"}
         controller={controller}

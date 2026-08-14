@@ -9,6 +9,7 @@ import type {
 } from "@/features/ledger/model/ledger-model";
 import { useLifecycleAction } from "@/features/ledger/ui/ledger-ui";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
+import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 
 export function CategoriesPanel({ controller }: { controller: LedgerController }) {
   const [editing, setEditing] = useState<TransactionCategory | null>(null);
@@ -59,9 +60,12 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
       aria-labelledby="ledger-categories-heading"
       tabIndex={-1}
     >
-      <header className="workspace-table-header">
-        <h1 id="ledger-categories-heading">Categories</h1>
-      </header>
+      <LedgerTableViewHeader
+        controller={controller}
+        scope="ledger.categories"
+        title="Categories"
+        headingId="ledger-categories-heading"
+      />
       <form aria-label={editing ? "Edit category" : "New category"} onSubmit={save}>
         <label className="field-label">
           Category name

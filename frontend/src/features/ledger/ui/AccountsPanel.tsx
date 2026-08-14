@@ -10,6 +10,7 @@ import {
   useLifecycleAction,
 } from "@/features/ledger/ui/ledger-ui";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
+import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 
 export function AccountsPanel({ controller }: { controller: LedgerController }) {
   const [editing, setEditing] = useState<Account | null>(null);
@@ -67,9 +68,12 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
       aria-labelledby="ledger-accounts-heading"
       tabIndex={-1}
     >
-      <header className="workspace-table-header">
-        <h1 id="ledger-accounts-heading">Accounts</h1>
-      </header>
+      <LedgerTableViewHeader
+        controller={controller}
+        scope="ledger.accounts"
+        title="Accounts"
+        headingId="ledger-accounts-heading"
+      />
       <form aria-label={editing ? "Edit account" : "New account"} onSubmit={save}>
         <label className="field-label">
           Account name
