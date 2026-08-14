@@ -1,10 +1,15 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { LedgerTabId } from "@/domain/workbench/navigation";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import {
+  deriveTransactionGroups,
+  projectTransactionRows,
+  type TransactionRow,
+} from "@/features/ledger/model/transaction-table";
 import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
 import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
 import { LedgerReports } from "@/features/ledger/ui/LedgerReports";
@@ -12,6 +17,8 @@ import { TransactionCreateDialog } from "@/features/ledger/ui/TransactionCreateD
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
+import { useLifecycleAction } from "@/features/ledger/ui/ledger-ui";
+import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 
 type LedgerPanelProps = {
@@ -79,7 +86,68 @@ export function LedgerPanel({
 function TransactionsPanel({ controller }: { controller: LedgerController }) {
   const [editing, setEditing] = useState<LedgerEntryView | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const actions = useLifecycleAction();
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const archiveButtonRef = useRef<HTMLButtonElement>(null);
+  const settings = controller.tableSettings("ledger.transactions");
+  const activeRows = useMemo(
+    () => projectTransactionRows(controller.state.entries),
+    [controller.state.entries],
+  );
+  const groups = useMemo(
+    () => deriveTransactionGroups(controller.state.entries, settings),
+    [controller.state.entries, settings],
+  );
+  const visibleRows = useMemo(
+    () => groups.flatMap((group) => group.rows),
+    [groups],
+  );
+
+  useEffect(() => {
+    const visibleIds = new Set(visibleRows.map(({ id }) => id));
+    setSelectedIds((current) => {
+      const next = current.filter((id) => visibleIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [visibleRows]);
+
+  function toggleSelection(id: string) {
+    setSelectedIds((current) => current.includes(id)
+      ? current.filter((candidate) => candidate !== id)
+      : [...current, id]);
+  }
+
+  function toggleAllVisible() {
+    const visibleIds = new Set(visibleRows.map(({ id }) => id));
+    const allSelected = visibleRows.length > 0 && visibleRows.every(
+      ({ id }) => selectedIds.includes(id),
+    );
+    setSelectedIds((current) => allSelected
+      ? current.filter((id) => !visibleIds.has(id))
+      : [...new Set([...current, ...visibleIds])]);
+  }
+
+  async function archiveSelected() {
+    const targets = selectedIds.flatMap((id) => {
+      const row = visibleRows.find((candidate) => candidate.id === id);
+      return row ? [row] : [];
+    });
+    let complete = false;
+    await actions.run("archive-selected", async () => {
+      for (const row of targets) {
+        await controller.archive(row.archiveEntryId);
+        setSelectedIds((current) => current.filter((id) => id !== row.id));
+      }
+      complete = true;
+    });
+    if (complete) setArchiveConfirmationOpen(false);
+  }
+
+  function openTransaction(row: TransactionRow) {
+    setEditing(row.detailEntry);
+  }
 
   return (
     <section aria-labelledby="ledger-transactions-heading">
@@ -90,6 +158,9 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
         headingId="ledger-transactions-heading"
         onAdd={() => setDialogOpen(true)}
         addButtonRef={addButtonRef}
+        onArchiveSelected={() => setArchiveConfirmationOpen(true)}
+        archiveDisabled={selectedIds.length === 0 || actions.isPending("archive-selected")}
+        archiveButtonRef={archiveButtonRef}
       />
       {editing ? (
         <TransactionForm
@@ -104,12 +175,32 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
           Cancel transaction edit
         </button>
       )}
-      <TransactionsTable controller={controller} onEdit={setEditing} />
+      <TransactionsTable
+        controller={controller}
+        groups={groups}
+        activeRowCount={activeRows.length}
+        selectedIds={selectedIds}
+        onOpen={openTransaction}
+        onToggle={toggleSelection}
+        onToggleAll={toggleAllVisible}
+      />
       {dialogOpen ? (
         <TransactionCreateDialog
           controller={controller}
           onClose={() => setDialogOpen(false)}
           returnFocusRef={addButtonRef}
+        />
+      ) : null}
+      {archiveConfirmationOpen ? (
+        <DestructiveConfirmationDialog
+          title="Archive selected transactions?"
+          description={`${selectedIds.length} transactions will be archived and removed from Ledger views.`}
+          confirmLabel="Archive"
+          error={actions.error}
+          disabled={actions.isPending("archive-selected")}
+          fallbackFocusRef={archiveButtonRef}
+          onCancel={() => setArchiveConfirmationOpen(false)}
+          onConfirm={archiveSelected}
         />
       ) : null}
     </section>

@@ -1,4 +1,5 @@
 import React from "react";
+import { Trash2 } from "lucide-react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {
@@ -9,6 +10,7 @@ import {
   type LedgerTableScopeId,
 } from "@/features/ledger/model/ledger-table-views";
 import type { LedgerState } from "@/features/ledger/hooks/useLedgerController";
+import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
 import type { PlannerGroupCandidate } from "@/features/workbench/model/planner-group-settings";
 import {
   TableViewActivePills,
@@ -25,6 +27,9 @@ export function LedgerTableViewHeader({
   headingId,
   onAdd,
   addButtonRef,
+  onArchiveSelected,
+  archiveDisabled = true,
+  archiveButtonRef,
 }: {
   controller: LedgerController;
   scope: LedgerTableScopeId;
@@ -32,6 +37,9 @@ export function LedgerTableViewHeader({
   headingId: string;
   onAdd?: () => void;
   addButtonRef?: React.RefObject<HTMLButtonElement>;
+  onArchiveSelected?: () => void;
+  archiveDisabled?: boolean;
+  archiveButtonRef?: React.RefObject<HTMLButtonElement>;
 }) {
   const tabs = controller.tableTabs(scope);
   const settings = controller.tableSettings(scope);
@@ -57,34 +65,48 @@ export function LedgerTableViewHeader({
       <header className="workspace-table-header">
         <h1 id={headingId}>{title}</h1>
         <div className="workspace-table-header-row">
-          <TableViewControls adapter={controlsAdapter} />
-          {onAdd ? (
-            <button
-              ref={addButtonRef}
-              className="items-toolbar-button"
-              type="button"
-              aria-haspopup="dialog"
-              onClick={onAdd}
-            >
-              Add transaction
-            </button>
-          ) : null}
+          <TableViewTabs
+            scopeId={scope}
+            title={title}
+            controller={{
+              tabs,
+              isDirty: controller.tableIsDirty(scope),
+              select: (tabId) => controller.selectTableTab(scope, tabId),
+              save: () => controller.saveTableTab(scope),
+              create: (name) => controller.createTableTab(scope, name),
+              rename: (tabId, name) => controller.renameTableTab(scope, tabId, name),
+              requestDelete: (tabId) => controller.requestDeleteTableTab(scope, tabId),
+            }}
+          />
+          <div className="workspace-table-header-actions">
+            <TableViewControls adapter={controlsAdapter} />
+            {onAdd ? (
+              <button
+                ref={addButtonRef}
+                className="items-toolbar-button"
+                type="button"
+                aria-haspopup="dialog"
+                onClick={onAdd}
+              >
+                Add transaction
+              </button>
+            ) : null}
+            {onArchiveSelected ? (
+              <button
+                ref={archiveButtonRef}
+                className="items-toolbar-button"
+                type="button"
+                aria-label="Archive selected transactions"
+                disabled={archiveDisabled}
+                onClick={onArchiveSelected}
+              >
+                <Trash2 size={16} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
         </div>
+        <TableViewActivePills adapter={controlsAdapter} />
       </header>
-      <TableViewTabs
-        scopeId={scope}
-        title={title}
-        controller={{
-          tabs,
-          isDirty: controller.tableIsDirty(scope),
-          select: (tabId) => controller.selectTableTab(scope, tabId),
-          save: () => controller.saveTableTab(scope),
-          create: (name) => controller.createTableTab(scope, name),
-          rename: (tabId, name) => controller.renameTableTab(scope, tabId, name),
-          requestDelete: (tabId) => controller.requestDeleteTableTab(scope, tabId),
-        }}
-      />
-      <TableViewActivePills adapter={controlsAdapter} />
     </>
   );
 }
@@ -115,7 +137,7 @@ function ledgerFilterOptions(
         ...empty,
         areas: options(state.accounts),
         projects: options(state.categories),
-        statuses: ["expense", "income", "transfer", "adjustment_out", "adjustment_in"]
+        statuses: ["expense", "income", "transfer"]
           .map((value) => ({ value, label: label(value) })),
       },
     };
@@ -147,16 +169,23 @@ function ledgerGroupCandidates(
 ): PlannerGroupCandidate[] {
   if (groupBy === "none") return [];
   if (scope === "ledger.transactions") {
-    if (groupBy === "entry_type") return counted(
-      state.entries.map(({ entry }) => entry.entryType),
-    );
-    const values = groupBy === "account"
-      ? state.entries.map(({ entry }) => entry.accountId)
-      : state.entries.map(({ entry }) => entry.transactionCategoryId ?? "uncategorized");
-    const labels = groupBy === "account"
-      ? new Map(state.accounts.map(({ id, name }) => [id, name]))
-      : new Map(state.categories.map(({ id, name }) => [id, name]));
-    return counted(values, labels);
+    const settings = defaultLedgerTableSettings(scope);
+    return deriveTransactionGroups(state.entries, {
+      ...settings,
+      groupSettings: {
+        ...settings.groupSettings,
+        groupBy: groupBy as typeof settings.groupSettings.groupBy,
+        hideEmpty: false,
+        manualOrder: [],
+        hiddenGroupKeys: [],
+      },
+    }).map((group) => ({
+      key: group.key,
+      label: groupBy === "entry_type"
+        ? label(group.label ?? group.key)
+        : group.label ?? label(group.key),
+      count: group.rows.length,
+    }));
   }
   if (scope === "ledger.accounts") {
     const values = groupBy === "account_type"

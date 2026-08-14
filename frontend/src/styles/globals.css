@@ -234,7 +234,18 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-table-header-row > .table-view-tabs {
+  flex: 1 1 auto;
+}
+
+.workspace-table-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
   gap: 8px;
 }
 
@@ -1654,6 +1665,18 @@ button {
 .items-table td {
   color: var(--color-shade-70);
   font-size: 14px;
+}
+
+.items-table .ledger-amount-positive {
+  color: var(--color-aloe-strong);
+}
+
+.items-table .ledger-amount-negative {
+  color: var(--color-danger-text);
+}
+
+.items-table .ledger-amount-neutral {
+  color: inherit;
 }
 
 .inline-cell-control {
