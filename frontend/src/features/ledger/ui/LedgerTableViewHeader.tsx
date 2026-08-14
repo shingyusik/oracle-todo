@@ -23,11 +23,15 @@ export function LedgerTableViewHeader({
   scope,
   title,
   headingId,
+  onAdd,
+  addButtonRef,
 }: {
   controller: LedgerController;
   scope: LedgerTableScopeId;
   title: string;
   headingId: string;
+  onAdd?: () => void;
+  addButtonRef?: React.RefObject<HTMLButtonElement>;
 }) {
   const tabs = controller.tableTabs(scope);
   const settings = controller.tableSettings(scope);
@@ -53,6 +57,15 @@ export function LedgerTableViewHeader({
       <header className="workspace-table-header">
         <h1 id={headingId}>{title}</h1>
         <TableViewControls adapter={controlsAdapter} />
+        {onAdd ? (
+          <button
+            ref={addButtonRef}
+            type="button"
+            onClick={onAdd}
+          >
+            Add transaction
+          </button>
+        ) : null}
       </header>
       <TableViewTabs
         scopeId={scope}

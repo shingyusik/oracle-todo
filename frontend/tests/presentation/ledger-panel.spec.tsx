@@ -179,7 +179,84 @@ describe("LedgerPanel", () => {
 
     expect(screen.getByRole("heading", { name: "Transactions" })).toBeInTheDocument();
     expect(screen.queryByText("Overview")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("New transaction")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add transaction" })).toBeInTheDocument();
     expect(screen.getByText("No transactions yet.")).toBeInTheDocument();
+  });
+
+  it("keeps creation open and non-dismissible until the mutation resolves", async () => {
+    const user = userEvent.setup();
+    const save = deferred<void>();
+    const ledger = controller();
+    ledger.createEntry = vi.fn(() => save.promise);
+    render(<LedgerPanel controller={ledger} />);
+
+    const trigger = screen.getByRole("button", { name: "Add transaction" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Add transaction" });
+    await user.type(screen.getByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close Add transaction" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(dialog).toBeInTheDocument();
+    await user.click(dialog.parentElement!);
+    expect(dialog).toBeInTheDocument();
+
+    await act(async () => save.resolve());
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Add transaction",
+    })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
+  it("keeps the draft and inline error open after a rejected creation", async () => {
+    const user = userEvent.setup();
+    const save = deferred<void>();
+    const ledger = controller();
+    ledger.createEntry = vi.fn(() => save.promise);
+    render(<LedgerPanel controller={ledger} />);
+
+    const trigger = screen.getByRole("button", { name: "Add transaction" });
+    await user.click(trigger);
+    await user.type(screen.getByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    await act(async () => save.reject(new Error("Transaction could not be saved")));
+
+    expect(screen.getByRole("dialog", { name: "Add transaction" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Transaction could not be saved");
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+    expect(screen.getByLabelText("Amount")).toHaveValue("12000");
+    const close = screen.getByRole("button", { name: "Close Add transaction" });
+    expect(close).not.toBeDisabled();
+    await user.click(close);
+    expect(screen.queryByRole("dialog", { name: "Add transaction" })).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("traps focus and restores the Add trigger when Escape closes the idle dialog", async () => {
+    const user = userEvent.setup();
+    render(<LedgerPanel controller={controller()} />);
+
+    const trigger = screen.getByRole("button", { name: "Add transaction" });
+    await user.click(trigger);
+    const close = screen.getByRole("button", { name: "Close Add transaction" });
+    const save = screen.getByRole("button", { name: "Save transaction" });
+    expect(close).toHaveFocus();
+
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(save).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Add transaction" })).toBeNull();
+    expect(trigger).toHaveFocus();
   });
 
   it("renders distinct loading and error states", () => {
@@ -209,10 +286,12 @@ describe("LedgerPanel", () => {
     const accountsTable = screen.getByRole("table");
     expect(within(accountsTable).getAllByText("Cash")).toHaveLength(2);
     expect(within(accountsTable).getByText("Korean won")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add transaction" })).toBeNull();
 
     rerender(<LedgerPanel leafTabId="categories" controller={ledger} />);
     expect(screen.getByRole("heading", { name: "Categories" })).toBeInTheDocument();
     expect(within(screen.getByRole("table")).getByText("Food")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add transaction" })).toBeNull();
   });
 
   it("requires confirmation before archive, restore, and purge", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 
 import type { LedgerTabId } from "@/domain/workbench/navigation";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
@@ -8,6 +8,7 @@ import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
 import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
 import { LedgerReports } from "@/features/ledger/ui/LedgerReports";
+import { TransactionCreateDialog } from "@/features/ledger/ui/TransactionCreateDialog";
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
@@ -71,6 +72,8 @@ export function LedgerPanel({
 
 function TransactionsPanel({ controller }: { controller: LedgerController }) {
   const [editing, setEditing] = useState<LedgerEntryView | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <section aria-labelledby="ledger-transactions-heading">
@@ -79,19 +82,30 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
         scope="ledger.transactions"
         title="Transactions"
         headingId="ledger-transactions-heading"
+        onAdd={() => setDialogOpen(true)}
+        addButtonRef={addButtonRef}
       />
-      <TransactionForm
-        key={editing?.entry.id ?? "new"}
-        controller={controller}
-        entry={editing}
-        onSaved={() => setEditing(null)}
-      />
+      {editing ? (
+        <TransactionForm
+          key={editing.entry.id}
+          controller={controller}
+          entry={editing}
+          onSaved={() => setEditing(null)}
+        />
+      ) : null}
       {editing && (
         <button type="button" onClick={() => setEditing(null)}>
           Cancel transaction edit
         </button>
       )}
       <TransactionsTable controller={controller} onEdit={setEditing} />
+      {dialogOpen ? (
+        <TransactionCreateDialog
+          controller={controller}
+          onClose={() => setDialogOpen(false)}
+          returnFocusRef={addButtonRef}
+        />
+      ) : null}
     </section>
   );
 }
