@@ -198,7 +198,7 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
           confirmLabel="Archive"
           error={actions.error}
           disabled={actions.isPending("archive-selected")}
-          fallbackFocusRef={archiveButtonRef}
+          fallbackFocusRef={addButtonRef}
           onCancel={() => setArchiveConfirmationOpen(false)}
           onConfirm={archiveSelected}
         />

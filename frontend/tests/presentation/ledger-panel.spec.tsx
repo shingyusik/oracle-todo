@@ -262,7 +262,7 @@ describe("LedgerPanel", () => {
       "aria-label",
       "Transactions controls",
     );
-    expect(screen.getByText("No active transactions.")).toBeInTheDocument();
+    expect(screen.getByText("No transactions yet.")).toBeInTheDocument();
   });
 
   it("renders compact active logical transactions in default date order", () => {
@@ -364,7 +364,7 @@ describe("LedgerPanel", () => {
     });
     const ledger = controller({ ...loadedState, entries: [archived] });
     const view = render(<LedgerPanel controller={ledger} />);
-    expect(screen.getByText("No active transactions.")).toBeInTheDocument();
+    expect(screen.getByText("No transactions yet.")).toBeInTheDocument();
 
     const filtered = controller({
       ...loadedState,
@@ -830,6 +830,7 @@ describe("LedgerPanel", () => {
       ? firstArchive.promise
       : Promise.resolve());
     render(<LedgerPanel controller={ledger} />);
+    const addButton = screen.getByRole("button", { name: "Add transaction" });
 
     await user.click(screen.getByRole("checkbox", { name: "Select Lunch" }));
     await user.click(screen.getByRole("checkbox", { name: "Select Move funds" }));
@@ -852,6 +853,7 @@ describe("LedgerPanel", () => {
       .toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "Select Lunch" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Select Move funds" })).not.toBeChecked();
+    await waitFor(() => expect(addButton).toHaveFocus());
     expect(ledger.restore).not.toHaveBeenCalled();
     expect(ledger.purge).not.toHaveBeenCalled();
   });
@@ -861,7 +863,8 @@ describe("LedgerPanel", () => {
     const ledger = controller({ ...loadedState, entries: transactionEntries() });
     ledger.archive = vi.fn()
       .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("Could not archive selected transactions."));
+      .mockRejectedValueOnce(new Error("Could not archive selected transactions."))
+      .mockResolvedValue(undefined);
     render(<LedgerPanel controller={ledger} />);
 
     await user.click(screen.getByRole("checkbox", { name: "Select Salary" }));
@@ -882,9 +885,58 @@ describe("LedgerPanel", () => {
     expect(salary).not.toBeChecked();
     expect(transfer).toBeChecked();
     expect(lunch).toBeChecked();
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog", { name: "Archive selected transactions?" }))
-      .toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(ledger.archive).toHaveBeenCalledTimes(4));
+    expect(ledger.archive).toHaveBeenNthCalledWith(3, "transfer-out");
+    expect(ledger.archive).toHaveBeenNthCalledWith(4, "expense-1");
+    expect(vi.mocked(ledger.archive).mock.calls.filter(([id]) => id === "income-1"))
+      .toHaveLength(1);
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Archive selected transactions?",
+    })).toBeNull());
+  });
+
+  it("archives the snapshotted targets despite in-flight visibility changes", async () => {
+    const user = userEvent.setup();
+    const firstArchive = deferred<void>();
+    const ledger = controller({ ...loadedState, entries: transactionEntries() });
+    ledger.archive = vi.fn((id: string) => id === "expense-1"
+      ? firstArchive.promise
+      : Promise.resolve());
+    const view = render(<LedgerPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Lunch" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Move funds" }));
+    await user.click(screen.getByRole("button", { name: "Archive selected transactions" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected transactions?",
+    })).getByRole("button", { name: "Archive" }));
+    expect(ledger.archive).toHaveBeenCalledTimes(1);
+
+    const changed = {
+      ...ledger,
+      state: {
+        ...ledger.state,
+        entries: [
+          transactionEntry("income-1", "Salary", {
+            date: "2026-08-02",
+            entryType: "income" as const,
+          }),
+          transactionEntry("new-income", "Bonus", {
+            date: "2026-08-05",
+            entryType: "income" as const,
+          }),
+        ],
+      },
+    };
+    view.rerender(<LedgerPanel controller={changed} />);
+    await act(async () => firstArchive.resolve());
+
+    await waitFor(() => expect(ledger.archive).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(ledger.archive).mock.calls).toEqual([
+      ["expense-1"],
+      ["transfer-out"],
+    ]);
   });
 
   it("does not expose transaction edit, archive, restore, or purge action buttons", () => {

@@ -68,7 +68,7 @@ export function TransactionsTable({
           rows={rows}
           selectedIds={selectedIds}
           emptyMessage={activeRowCount === 0
-            ? "No active transactions."
+            ? "No transactions yet."
             : "No transactions match this view."}
           onOpen={onOpen}
           onToggle={onToggle}
