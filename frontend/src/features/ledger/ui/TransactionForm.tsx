@@ -24,6 +24,7 @@ type TransactionFormProps = {
 };
 
 type CreationMode = "expense" | "income" | "transfer";
+const creationModes: CreationMode[] = ["expense", "income", "transfer"];
 
 export function TransactionForm({
   controller,
@@ -33,10 +34,13 @@ export function TransactionForm({
 }: TransactionFormProps) {
   const initial = transactionDraft(entry, controller.state.currencies);
   const [mode, setMode] = useState<CreationMode>("expense");
+  const [focusedMode, setFocusedMode] = useState<CreationMode>("expense");
   const [draft, setDraft] = useState(initial);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
+  const tabRefs = useRef(new Map<CreationMode, HTMLButtonElement>());
+  const tabPanelId = React.useId();
 
   useEffect(() => () => {
     mounted.current = false;
@@ -44,6 +48,25 @@ export function TransactionForm({
 
   function field(name: keyof typeof draft, value: string) {
     setDraft((current) => ({ ...current, [name]: value }));
+  }
+
+  function selectMode(nextMode: CreationMode) {
+    if (nextMode !== mode && nextMode !== "transfer") field("category", "");
+    setFocusedMode(nextMode);
+    setMode(nextMode);
+  }
+
+  function moveTabFocus(event: React.KeyboardEvent, index: number) {
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowLeft") nextIndex = index - 1;
+    if (event.key === "ArrowRight") nextIndex = index + 1;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = creationModes.length - 1;
+    if (nextIndex === undefined) return;
+    event.preventDefault();
+    const nextMode = creationModes[(nextIndex + creationModes.length) % creationModes.length];
+    setFocusedMode(nextMode);
+    tabRefs.current.get(nextMode)?.focus();
   }
 
   async function submit(event: React.FormEvent) {
@@ -114,25 +137,39 @@ export function TransactionForm({
       category.kind ===
         categoryKind(entry ? draft.entryType : mode === "income" ? "income" : "expense"),
   );
+  const selectedSource = activeAccounts.find((account) => account.id === draft.fromAccount);
 
   return (
     <form aria-label={entry ? "Edit transaction" : "New transaction"} onSubmit={submit}>
       {!entry && (
         <div role="tablist" aria-label="Transaction type" className="items-toolbar">
-          {(["expense", "income", "transfer"] as const).map((type) => (
+          {creationModes.map((type, index) => (
             <button
               key={type}
+              ref={(element) => {
+                if (element) tabRefs.current.set(type, element);
+                else tabRefs.current.delete(type);
+              }}
+              id={`${tabPanelId}-${type}`}
               type="button"
               role="tab"
               className="items-toolbar-button"
               aria-selected={mode === type}
-              onClick={() => setMode(type)}
+              aria-controls={tabPanelId}
+              tabIndex={focusedMode === type ? 0 : -1}
+              onClick={() => selectMode(type)}
+              onKeyDown={(event) => moveTabFocus(event, index)}
             >
               {type[0].toUpperCase() + type.slice(1)}
             </button>
           ))}
         </div>
       )}
+      <div
+        id={!entry ? tabPanelId : undefined}
+        role={!entry ? "tabpanel" : undefined}
+        aria-labelledby={!entry ? `${tabPanelId}-${mode}` : undefined}
+      >
       <label className="field-label">
         Date
         <input
@@ -215,10 +252,20 @@ export function TransactionForm({
               value={draft.fromAccount}
               onChange={(event) => {
                 const fromAccount = event.target.value;
+                const sourceAccount = activeAccounts.find(
+                  (account) => account.id === fromAccount,
+                );
                 setDraft((current) => ({
                   ...current,
                   fromAccount,
-                  toAccount: current.toAccount === fromAccount ? "" : current.toAccount,
+                  toAccount: activeAccounts.some(
+                    (account) =>
+                      account.id === current.toAccount &&
+                      account.id !== fromAccount &&
+                      account.currencyId === sourceAccount?.currencyId,
+                  )
+                    ? current.toAccount
+                    : "",
                 }));
               }}
             >
@@ -237,7 +284,12 @@ export function TransactionForm({
             >
               <option value="">Select account</option>
               {activeAccounts
-                .filter((account) => account.id !== draft.fromAccount)
+                .filter(
+                  (account) =>
+                    !selectedSource ||
+                    (account.id !== selectedSource.id &&
+                      account.currencyId === selectedSource.currencyId),
+                )
                 .map((account) => (
                   <option key={account.id} value={account.id}>{account.name}</option>
                 ))}
@@ -282,12 +334,13 @@ export function TransactionForm({
         </label>
       )}
       <label className="field-label">
-        Notes
+        Note
         <textarea
           value={draft.notes}
           onChange={(event) => field("notes", event.target.value)}
         />
       </label>
+      </div>
       {error && <p role="alert" className="items-message">{error}</p>}
       <button type="submit" className="items-toolbar-button" disabled={pending}>
         {pending
@@ -301,11 +354,12 @@ export function TransactionForm({
 }
 
 function transactionDraft(entry: LedgerEntryView | null, currencies: Currency[]) {
-  const now = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
   const currency = currencies.find((item) => item.id === entry?.entry.currencyId);
   return {
-    date: entry?.entry.date ?? now.slice(0, 10),
-    writtenAt: localDateTime(entry?.entry.writtenAt ?? now),
+    date: entry?.entry.date ?? localCalendarDate(now),
+    writtenAt: localDateTime(entry?.entry.writtenAt ?? nowIso),
     entryType: (entry?.entry.entryType === "transfer_in" ||
       entry?.entry.entryType === "transfer_out"
       ? "expense"
@@ -321,6 +375,11 @@ function transactionDraft(entry: LedgerEntryView | null, currencies: Currency[])
     content: entry?.entry.content ?? "",
     notes: entry?.entry.notes ?? "",
   };
+}
+
+function localCalendarDate(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function categoryKind(type: PublicLedgerEntryType): "expense" | "income" {

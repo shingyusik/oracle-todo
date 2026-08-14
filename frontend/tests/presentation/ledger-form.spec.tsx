@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -51,6 +51,14 @@ function controller(
           name: "Bank",
           categoryId: "account-category-bank",
           currencyId: "currency-usd",
+          openingBalanceMinor: 0,
+          active: true,
+        },
+        {
+          id: "account-savings",
+          name: "Savings",
+          categoryId: "account-category-bank",
+          currencyId: "currency-krw",
           openingBalanceMinor: 0,
           active: true,
         },
@@ -132,7 +140,7 @@ describe("TransactionForm", () => {
       "Account",
       "Category",
       "Amount",
-      "Notes",
+      "Note",
     ]);
     expect(screen.queryByLabelText("Written at")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
@@ -150,7 +158,7 @@ describe("TransactionForm", () => {
       "Account",
       "Category",
       "Amount",
-      "Notes",
+      "Note",
     ]);
   });
 
@@ -166,19 +174,70 @@ describe("TransactionForm", () => {
       "From account",
       "To account",
       "Amount",
-      "Notes",
+      "Note",
     ]);
     expect(screen.queryByLabelText("Written at")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
 
+    await user.selectOptions(screen.getByLabelText("To account"), "account-bank");
     await user.selectOptions(screen.getByLabelText("From account"), "account-cash");
+    expect(screen.getByLabelText("To account")).toHaveValue("");
     expect(within(screen.getByLabelText("To account")).queryByRole("option", {
       name: "Cash",
     })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText("To account")).queryByRole("option", {
+      name: "Bank",
+    })).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("To account"), "account-bank");
-    await user.selectOptions(screen.getByLabelText("From account"), "account-bank");
+    await user.selectOptions(screen.getByLabelText("To account"), "account-savings");
+    await user.selectOptions(screen.getByLabelText("From account"), "account-savings");
     expect(screen.getByLabelText("To account")).toHaveValue("");
+  });
+
+  it("supports roving keyboard navigation and links tabs to the shared panel", async () => {
+    const user = userEvent.setup();
+    render(<TransactionForm controller={controller()} />);
+
+    const expense = screen.getByRole("tab", { name: "Expense" });
+    const income = screen.getByRole("tab", { name: "Income" });
+    const transfer = screen.getByRole("tab", { name: "Transfer" });
+    const panel = screen.getByRole("tabpanel");
+
+    expect(expense).toHaveAttribute("tabindex", "0");
+    expect(income).toHaveAttribute("tabindex", "-1");
+    expect(expense).toHaveAttribute("aria-controls", panel.id);
+    expect(panel).toHaveAttribute("aria-labelledby", expense.id);
+
+    expense.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(income).toHaveFocus();
+    expect(income).toHaveAttribute("tabindex", "0");
+    expect(expense).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Enter}");
+    expect(income).toHaveAttribute("aria-selected", "true");
+    expect(panel).toHaveAttribute("aria-labelledby", income.id);
+
+    await user.keyboard("{End}");
+    expect(transfer).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(expense).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(transfer).toHaveFocus();
+  });
+
+  it("defaults creation Date from the browser-local calendar day", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-15T00:30:00.000Z"));
+      render(<TransactionForm controller={controller()} />);
+      expect(screen.getByLabelText("Date")).toHaveValue("2026-08-14");
+    } finally {
+      vi.useRealTimers();
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
   });
 
   it("reports pending until the controller mutation and refresh boundary resolves", async () => {
@@ -247,6 +306,49 @@ describe("TransactionForm", () => {
     expect(ledger.transfer).not.toHaveBeenCalled();
   });
 
+  it("clears an expense category when switching to Income", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(<TransactionForm controller={ledger} />);
+
+    await user.selectOptions(screen.getByLabelText("Category"), "category-food");
+    await user.click(screen.getByRole("tab", { name: "Income" }));
+    await user.type(screen.getByLabelText("Amount"), "1000");
+    await user.type(screen.getByLabelText("Content"), "Refund");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-bank");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+
+    expect(ledger.createEntry).toHaveBeenCalledWith(expect.objectContaining({
+      entryType: "income",
+      category: null,
+    }));
+  });
+
+  it("generates writtenAt at submission time", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-14T00:00:00.000Z"));
+      const ledger = controller();
+      render(<TransactionForm controller={ledger} />);
+
+      fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "1000" } });
+      fireEvent.change(screen.getByLabelText("Content"), { target: { value: "Lunch" } });
+      fireEvent.change(screen.getByLabelText("Account"), {
+        target: { value: "account-cash" },
+      });
+      vi.setSystemTime(new Date("2026-08-14T00:05:00.000Z"));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Save transaction" }));
+      });
+
+      expect(ledger.createEntry).toHaveBeenCalledWith(expect.objectContaining({
+        writtenAt: "2026-08-14T00:05:00.000Z",
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("submits a paired transfer with separate source and destination accounts", async () => {
     const user = userEvent.setup();
     const ledger = controller();
@@ -256,14 +358,14 @@ describe("TransactionForm", () => {
     await user.type(screen.getByLabelText("Amount"), "45000");
     await user.type(screen.getByLabelText("Content"), "Move savings");
     await user.selectOptions(screen.getByLabelText("From account"), "account-cash");
-    await user.selectOptions(screen.getByLabelText("To account"), "account-bank");
+    await user.selectOptions(screen.getByLabelText("To account"), "account-savings");
     await user.click(screen.getByRole("button", { name: "Save transfer" }));
 
     expect(ledger.transfer).toHaveBeenCalledWith(expect.objectContaining({
       amount: "45000",
       content: "Move savings",
       fromAccount: "account-cash",
-      toAccount: "account-bank",
+      toAccount: "account-savings",
       currency: "currency-krw",
       writtenAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     }));
@@ -345,7 +447,7 @@ describe("TransactionForm", () => {
       "Amount",
       "Currency",
       "Content",
-      "Notes",
+      "Note",
     ]);
     expect(screen.getByLabelText("Amount")).toHaveValue("12.34");
     await user.click(screen.getByRole("button", { name: "Save transaction" }));
