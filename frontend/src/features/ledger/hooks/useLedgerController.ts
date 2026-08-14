@@ -177,6 +177,7 @@ export function useLedgerController(): LedgerController {
   const initialTableViews = useRef(tableViews);
   const tableViewsLoaded = useRef(false);
   const pendingTableViewCommands = useRef<PendingLedgerViewCommand[]>([]);
+  const refreshGeneration = useRef(0);
   const [tableViewConfirmation, setTableViewConfirmation] = useState<
     LedgerTableViewConfirmation | null
   >(null);
@@ -238,6 +239,7 @@ export function useLedgerController(): LedgerController {
   }, []);
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     setState((current) => current.status === "loaded"
       ? { ...current, error: null }
       : { ...current, status: "loading", error: null });
@@ -255,6 +257,7 @@ export function useLedgerController(): LedgerController {
           drainPages((offset) =>
             ledgerApi.listAccountBalances({ limit: 200, offset })),
         ]);
+      if (generation !== refreshGeneration.current) return;
       setState((current) => ({
         ...current,
         status: "loaded",
@@ -267,6 +270,7 @@ export function useLedgerController(): LedgerController {
         balances,
       }));
     } catch (error) {
+      if (generation !== refreshGeneration.current) return;
       setState((current) => ({
         ...current,
         status: "error",

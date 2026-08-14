@@ -290,6 +290,73 @@ describe("LedgerPanel", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("keeps the production draft after the creation mutation rejects", async () => {
+    const user = userEvent.setup();
+    mockLedgerLoads();
+    vi.spyOn(ledgerApi, "createEntry")
+      .mockRejectedValue(new Error("Transaction could not be saved"));
+
+    function ProductionLedgerPanel() {
+      return <LedgerPanel controller={useLedgerController()} />;
+    }
+
+    render(<ProductionLedgerPanel />);
+    await user.click(await screen.findByRole("button", { name: "Add transaction" }));
+    await user.type(screen.getByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Transaction could not be saved",
+    );
+    expect(screen.getByRole("dialog", { name: "Add transaction" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+    expect(screen.getByLabelText("Amount")).toHaveValue("12000");
+    const submit = screen.getByRole("button", { name: "Save transaction" });
+    expect(submit).not.toBeDisabled();
+    expect(submit).toHaveFocus();
+  });
+
+  it("closes a persisted creation and exposes its failed refresh for retry", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(ledgerApi, "listEntries")
+      .mockResolvedValueOnce({ items: [], nextOffset: null })
+      .mockRejectedValueOnce(new Error("Ledger refresh failed"))
+      .mockResolvedValue({ items: [entryView("entry-1", "Lunch")], nextOffset: null });
+    vi.spyOn(ledgerApi, "listCurrencies")
+      .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountCategories")
+      .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccounts")
+      .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
+    vi.spyOn(ledgerApi, "listTransactionCategories")
+      .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountBalances")
+      .mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "createEntry")
+      .mockResolvedValue(entryView("created-entry", "Lunch").entry);
+
+    function ProductionLedgerPanel() {
+      return <LedgerPanel controller={useLedgerController()} />;
+    }
+
+    render(<ProductionLedgerPanel />);
+    await user.click(await screen.findByRole("button", { name: "Add transaction" }));
+    await user.type(screen.getByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger refresh failed");
+    expect(ledgerApi.createEntry).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Add transaction" })).toBeNull();
+    expect(screen.queryByLabelText("New transaction")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Lunch")).toBeInTheDocument();
+    expect(ledgerApi.createEntry).toHaveBeenCalledOnce();
+  });
+
   it("keeps the draft and inline error open after a rejected creation", async () => {
     const user = userEvent.setup();
     const save = deferred<void>();
@@ -812,6 +879,55 @@ describe("LedgerPanel", () => {
       expect.objectContaining({ offset: 200 }),
     );
   });
+
+  it.each(["success", "error"] as const)(
+    "ignores an older refresh %s after a newer refresh completes",
+    async (olderCompletion) => {
+      const older = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
+      const newer = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
+      vi.spyOn(ledgerApi, "listEntries")
+        .mockResolvedValueOnce({ items: [], nextOffset: null })
+        .mockReturnValueOnce(older.promise)
+        .mockReturnValueOnce(newer.promise);
+      vi.spyOn(ledgerApi, "listCurrencies")
+        .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+      vi.spyOn(ledgerApi, "listAccountCategories")
+        .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
+      vi.spyOn(ledgerApi, "listAccounts")
+        .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
+      vi.spyOn(ledgerApi, "listTransactionCategories")
+        .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+      vi.spyOn(ledgerApi, "listAccountBalances")
+        .mockResolvedValue({ items: [], nextOffset: null });
+
+      const { result } = renderHook(() => useLedgerController());
+      await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+      let olderRequest!: Promise<void>;
+      let newerRequest!: Promise<void>;
+      act(() => {
+        olderRequest = result.current.refresh();
+        newerRequest = result.current.refresh();
+      });
+      await act(async () => {
+        newer.resolve({ items: [entryView("newer", "Newer")], nextOffset: null });
+        await newerRequest;
+      });
+      expect(result.current.state.entries[0]?.entry.content).toBe("Newer");
+
+      await act(async () => {
+        if (olderCompletion === "success") {
+          older.resolve({ items: [entryView("older", "Older")], nextOffset: null });
+        } else {
+          older.reject(new Error("Stale refresh failed"));
+        }
+        await olderRequest;
+      });
+
+      expect(result.current.state.status).toBe("loaded");
+      expect(result.current.state.error).toBeNull();
+      expect(result.current.state.entries[0]?.entry.content).toBe("Newer");
+    },
+  );
 
   it("exposes Ledger view save failures with a retry action", async () => {
     const user = userEvent.setup();
