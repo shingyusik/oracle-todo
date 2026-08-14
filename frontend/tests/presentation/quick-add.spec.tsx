@@ -30,7 +30,7 @@ function stubLedgerLoaded() {
     vi.spyOn(ledgerApi, "listAccounts").mockResolvedValue(page),
     vi.spyOn(ledgerApi, "listTransactionCategories").mockResolvedValue(page),
     vi.spyOn(ledgerApi, "listAccountBalances").mockResolvedValue(page),
-  ];
+  ] as const;
 }
 
 function stubHealthLoaded() {
@@ -182,6 +182,51 @@ describe("QuickAddDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Diet save failed");
     expect(screen.getByLabelText("Food name")).toHaveValue("Lunch");
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("retries only Ledger refresh after a transaction was persisted", async () => {
+    const user = userEvent.setup();
+    const ledgerSpies = stubLedgerLoaded();
+    ledgerSpies[0]
+      .mockResolvedValueOnce({ items: [], nextOffset: null })
+      .mockRejectedValueOnce(new Error("Ledger refresh failed"))
+      .mockResolvedValue({ items: [], nextOffset: null });
+    ledgerSpies[3].mockResolvedValue({
+      items: [{
+        id: "account-cash",
+        name: "Cash",
+        categoryId: "account-category-cash",
+        currencyId: "currency-krw",
+        openingBalanceMinor: 0,
+        active: true,
+      }],
+      nextOffset: null,
+    });
+    const create = vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof ledgerApi.createEntry>>,
+    );
+    const onClose = vi.fn();
+    render(
+      <QuickAddDialog controller={workbenchController()} onClose={onClose} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Ledger transaction" }));
+    await user.type(await screen.findByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Transaction saved, but the list could not refresh.",
+    );
+    expect(screen.getByRole("button", { name: "Close Quick Add" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Back to Quick Add" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save transaction" })).toBeDisabled();
+    expect(create).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(create).toHaveBeenCalledOnce();
   });
 
   it("closes on Escape and restores focus to the invoking control", async () => {

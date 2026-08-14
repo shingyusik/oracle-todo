@@ -63,6 +63,7 @@ export function LedgerTableViewHeader({
               ref={addButtonRef}
               className="items-toolbar-button"
               type="button"
+              aria-haspopup="dialog"
               onClick={onAdd}
             >
               Add transaction

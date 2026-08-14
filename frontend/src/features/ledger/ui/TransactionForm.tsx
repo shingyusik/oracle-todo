@@ -2,7 +2,10 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
-import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
+import {
+  LedgerMutationRefreshError,
+  type LedgerController,
+} from "@/features/ledger/hooks/useLedgerController";
 import type {
   Currency,
   LedgerEntryInput,
@@ -37,6 +40,7 @@ export function TransactionForm({
   const [focusedMode, setFocusedMode] = useState<CreationMode>("expense");
   const [draft, setDraft] = useState(initial);
   const [pending, setPending] = useState(false);
+  const [refreshRecovery, setRefreshRecovery] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
   const tabRefs = useRef(new Map<CreationMode, HTMLButtonElement>());
@@ -71,11 +75,12 @@ export function TransactionForm({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (pending) return;
+    if (pending || refreshRecovery) return;
     setPending(true);
     onPendingChange?.(true);
     setError(null);
     let saved = false;
+    let persistedWithoutRefresh = false;
     try {
       if (mode === "transfer") {
         const currency = controller.state.accounts.find(
@@ -117,16 +122,40 @@ export function TransactionForm({
       saved = true;
     } catch (cause) {
       if (mounted.current) {
-        setError(cause instanceof Error ? cause.message : "Could not save transaction");
+        if (cause instanceof LedgerMutationRefreshError) {
+          persistedWithoutRefresh = true;
+          setRefreshRecovery(true);
+          setError("Transaction saved, but the list could not refresh.");
+        } else {
+          setError(cause instanceof Error ? cause.message : "Could not save transaction");
+        }
       }
     } finally {
       if (mounted.current) {
         if (saved) setDraft(transactionDraft(null, controller.state.currencies));
         setPending(false);
-        onPendingChange?.(false);
-        if (saved) onSaved?.();
+        if (!persistedWithoutRefresh) {
+          onPendingChange?.(false);
+          if (saved) onSaved?.();
+        }
       }
     }
+  }
+
+  async function retryRefresh() {
+    if (pending || !refreshRecovery) return;
+    setPending(true);
+    const refreshed = await controller.refresh();
+    if (!mounted.current) return;
+    setPending(false);
+    if (!refreshed) {
+      setError("Transaction saved, but the list could not refresh.");
+      return;
+    }
+    setRefreshRecovery(false);
+    setDraft(transactionDraft(null, controller.state.currencies));
+    onPendingChange?.(false);
+    onSaved?.();
   }
 
   const activeAccounts = controller.state.accounts.filter((account) => account.active);
@@ -246,7 +275,7 @@ export function TransactionForm({
       ) : (
         <>
           <label className="field-label">
-            From account
+            Source account
             <select
               required
               value={draft.fromAccount}
@@ -276,7 +305,7 @@ export function TransactionForm({
             </select>
           </label>
           <label className="field-label">
-            To account
+            Destination account
             <select
               required
               value={draft.toAccount}
@@ -342,13 +371,27 @@ export function TransactionForm({
       </label>
       </div>
       {error && <p role="alert" className="items-message">{error}</p>}
-      <button type="submit" className="items-toolbar-button" disabled={pending}>
+      <button
+        type="submit"
+        className="items-toolbar-button"
+        disabled={pending || refreshRecovery}
+      >
         {pending
           ? "Saving…"
           : mode === "transfer"
             ? "Save transfer"
             : "Save transaction"}
       </button>
+      {refreshRecovery && (
+        <button
+          type="button"
+          className="items-toolbar-button"
+          disabled={pending}
+          onClick={() => void retryRefresh()}
+        >
+          {pending ? "Refreshing…" : "Retry refresh"}
+        </button>
+      )}
     </form>
   );
 }

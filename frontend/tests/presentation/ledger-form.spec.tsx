@@ -171,27 +171,27 @@ describe("TransactionForm", () => {
     expect(visibleFieldLabels()).toEqual([
       "Date",
       "Content",
-      "From account",
-      "To account",
+      "Source account",
+      "Destination account",
       "Amount",
       "Note",
     ]);
     expect(screen.queryByLabelText("Written at")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("To account"), "account-bank");
-    await user.selectOptions(screen.getByLabelText("From account"), "account-cash");
-    expect(screen.getByLabelText("To account")).toHaveValue("");
-    expect(within(screen.getByLabelText("To account")).queryByRole("option", {
+    await user.selectOptions(screen.getByLabelText("Destination account"), "account-bank");
+    await user.selectOptions(screen.getByLabelText("Source account"), "account-cash");
+    expect(screen.getByLabelText("Destination account")).toHaveValue("");
+    expect(within(screen.getByLabelText("Destination account")).queryByRole("option", {
       name: "Cash",
     })).not.toBeInTheDocument();
-    expect(within(screen.getByLabelText("To account")).queryByRole("option", {
+    expect(within(screen.getByLabelText("Destination account")).queryByRole("option", {
       name: "Bank",
     })).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("To account"), "account-savings");
-    await user.selectOptions(screen.getByLabelText("From account"), "account-savings");
-    expect(screen.getByLabelText("To account")).toHaveValue("");
+    await user.selectOptions(screen.getByLabelText("Destination account"), "account-savings");
+    await user.selectOptions(screen.getByLabelText("Source account"), "account-savings");
+    expect(screen.getByLabelText("Destination account")).toHaveValue("");
   });
 
   it("supports roving keyboard navigation and links tabs to the shared panel", async () => {
@@ -357,8 +357,8 @@ describe("TransactionForm", () => {
     await user.click(screen.getByRole("tab", { name: "Transfer" }));
     await user.type(screen.getByLabelText("Amount"), "45000");
     await user.type(screen.getByLabelText("Content"), "Move savings");
-    await user.selectOptions(screen.getByLabelText("From account"), "account-cash");
-    await user.selectOptions(screen.getByLabelText("To account"), "account-savings");
+    await user.selectOptions(screen.getByLabelText("Source account"), "account-cash");
+    await user.selectOptions(screen.getByLabelText("Destination account"), "account-savings");
     await user.click(screen.getByRole("button", { name: "Save transfer" }));
 
     expect(ledger.transfer).toHaveBeenCalledWith(expect.objectContaining({
@@ -380,14 +380,14 @@ describe("TransactionForm", () => {
     await user.click(screen.getByRole("tab", { name: "Transfer" }));
     await user.type(screen.getByLabelText("Amount"), "45000");
     await user.type(screen.getByLabelText("Content"), "Move savings");
-    await user.selectOptions(screen.getByLabelText("To account"), "account-bank");
-    await user.selectOptions(screen.getByLabelText("From account"), "account-bank");
+    await user.selectOptions(screen.getByLabelText("Destination account"), "account-bank");
+    await user.selectOptions(screen.getByLabelText("Source account"), "account-bank");
     await user.click(screen.getByRole("button", { name: "Save transfer" }));
 
     expect(ledger.transfer).not.toHaveBeenCalled();
 
-    await user.selectOptions(screen.getByLabelText("From account"), "account-cash");
-    expect(screen.getByLabelText("To account")).toHaveValue("");
+    await user.selectOptions(screen.getByLabelText("Source account"), "account-cash");
+    expect(screen.getByLabelText("Destination account")).toHaveValue("");
   });
 
   it("keeps entered values and exposes an error when the API rejects submission", async () => {

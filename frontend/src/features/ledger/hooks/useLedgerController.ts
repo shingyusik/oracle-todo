@@ -59,6 +59,13 @@ type PendingLedgerViewCommand = {
 type LoadStatus = "loading" | "loaded" | "error";
 type ReportStatus = "idle" | "loading" | "loaded" | "error";
 
+export class LedgerMutationRefreshError extends Error {
+  constructor() {
+    super("Changes were saved, but Ledger could not refresh.");
+    this.name = "LedgerMutationRefreshError";
+  }
+}
+
 export type LedgerState = {
   status: LoadStatus;
   error: string | null;
@@ -95,7 +102,7 @@ export type LedgerController = {
   requestDeleteTableTab(scope: LedgerTableScopeId, tabId: string): void;
   confirmTableViewAction(): void;
   cancelTableViewAction(): void;
-  refresh(): Promise<void>;
+  refresh(): Promise<boolean>;
   createEntry(input: LedgerEntryInput): Promise<void>;
   updateEntry(id: string, input: LedgerEntryUpdate): Promise<void>;
   transfer(input: TransferInput): Promise<void>;
@@ -178,6 +185,7 @@ export function useLedgerController(): LedgerController {
   const tableViewsLoaded = useRef(false);
   const pendingTableViewCommands = useRef<PendingLedgerViewCommand[]>([]);
   const refreshGeneration = useRef(0);
+  const latestRefresh = useRef<Promise<boolean> | null>(null);
   const [tableViewConfirmation, setTableViewConfirmation] = useState<
     LedgerTableViewConfirmation | null
   >(null);
@@ -238,45 +246,53 @@ export function useLedgerController(): LedgerController {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback((): Promise<boolean> => {
     const generation = ++refreshGeneration.current;
     setState((current) => current.status === "loaded"
       ? { ...current, error: null }
       : { ...current, status: "loading", error: null });
-    try {
-      const [entries, currencies, accountCategories, accounts, categories, balances] =
-        await Promise.all([
-          drainPages((offset) =>
-            ledgerApi.listEntries({ includeArchived: true, limit: 200, offset })),
-          drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
-          drainPages((offset) =>
-            ledgerApi.listAccountCategories({ limit: 200, offset })),
-          drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
-          drainPages((offset) =>
-            ledgerApi.listTransactionCategories({ limit: 200, offset })),
-          drainPages((offset) =>
-            ledgerApi.listAccountBalances({ limit: 200, offset })),
-        ]);
-      if (generation !== refreshGeneration.current) return;
-      setState((current) => ({
-        ...current,
-        status: "loaded",
-        error: null,
-        entries,
-        currencies,
-        accountCategories,
-        accounts,
-        categories,
-        balances,
-      }));
-    } catch (error) {
-      if (generation !== refreshGeneration.current) return;
-      setState((current) => ({
-        ...current,
-        status: "error",
-        error: errorMessage(error),
-      }));
-    }
+    const request = (async (): Promise<boolean> => {
+      try {
+        const [entries, currencies, accountCategories, accounts, categories, balances] =
+          await Promise.all([
+            drainPages((offset) =>
+              ledgerApi.listEntries({ includeArchived: true, limit: 200, offset })),
+            drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
+            drainPages((offset) =>
+              ledgerApi.listAccountCategories({ limit: 200, offset })),
+            drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
+            drainPages((offset) =>
+              ledgerApi.listTransactionCategories({ limit: 200, offset })),
+            drainPages((offset) =>
+              ledgerApi.listAccountBalances({ limit: 200, offset })),
+          ]);
+        if (generation !== refreshGeneration.current) {
+          return latestRefresh.current ?? false;
+        }
+        setState((current) => ({
+          ...current,
+          status: "loaded",
+          error: null,
+          entries,
+          currencies,
+          accountCategories,
+          accounts,
+          categories,
+          balances,
+        }));
+        return true;
+      } catch (error) {
+        if (generation !== refreshGeneration.current) {
+          return latestRefresh.current ?? false;
+        }
+        setState((current) => current.status === "loaded"
+          ? current
+          : { ...current, status: "error", error: errorMessage(error) });
+        return false;
+      }
+    })();
+    latestRefresh.current = request;
+    return request;
   }, []);
 
   useEffect(() => {
@@ -285,7 +301,7 @@ export function useLedgerController(): LedgerController {
 
   const mutate = useCallback(async (operation: () => Promise<unknown>) => {
     await operation();
-    await refresh();
+    if (!await refresh()) throw new LedgerMutationRefreshError();
   }, [refresh]);
 
   const runReports = useCallback(async (range: ReportRangeInput) => {
