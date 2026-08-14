@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   createLedgerTableViews,
+  defaultLedgerTableSettings,
   ledgerFilterFieldsForScope,
   ledgerGroupOptionsForScope,
   ledgerSortFieldsForScope,
   ledgerTableScopeIds,
+  normalizeLedgerTableSettings,
 } from "@/features/ledger/model/ledger-table-views";
 
 describe("ledger table views", () => {
@@ -60,6 +62,13 @@ describe("ledger table views", () => {
     });
     expect(views["ledger.accounts"].draftSettings.sortRules[0]?.field).toBe("name");
     expect(views["ledger.categories"].draftSettings.sortRules[0]?.field).toBe("name");
+  });
+
+  it("retains calendar grouping for transaction settings", () => {
+    expect(normalizeLedgerTableSettings("ledger.transactions", {
+      groupSettings: { groupBy: "week" },
+    }).groupSettings.groupBy).toBe("week");
+    expect(defaultLedgerTableSettings("ledger.transactions").groupSettings.groupBy).toBe("none");
   });
 
   it("normalizes each persisted scope locally", () => {

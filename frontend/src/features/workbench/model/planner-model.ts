@@ -221,6 +221,9 @@ const plannerGoalSortFields = [
 ] as const satisfies readonly PlannerSortBy[];
 
 const plannerGoalGroupByValues: readonly PlannerGroupBy[] = ["none", "tag", "status"];
+const plannerDateWorkGroupByValues: readonly PlannerGroupBy[] = [
+  "none", "area", "project", "routine", "tag", "item_type", "status",
+];
 const maxRelativeDateAmount = 100_000;
 
 export function plannerFilterFieldsForTable(
@@ -291,10 +294,7 @@ export function normalizePlannerTableSettings(
       filterMode: normalizeFilterMode(legacy.filterMode, defaults.filterMode),
       filterRules,
       sortRules,
-      groupSettings: tableId.endsWith("goals") &&
-          !plannerGoalGroupByValues.includes(groupSettings.groupBy)
-        ? { ...groupSettings, groupBy: "none" }
-        : groupSettings,
+      groupSettings: normalizePlannerTableGroupSettings(tableId, groupSettings),
     };
   }
 
@@ -312,8 +312,23 @@ export function normalizePlannerTableSettings(
     filterMode: normalizeFilterMode(candidate.filterMode, defaults.filterMode),
     filterRules,
     sortRules,
-    groupSettings: normalizePlannerGroupSettings(candidate.groupSettings),
+    groupSettings: normalizePlannerTableGroupSettings(
+      tableId,
+      normalizePlannerGroupSettings(candidate.groupSettings),
+    ),
   };
+}
+
+function normalizePlannerTableGroupSettings(
+  tableId: PlannerTableId,
+  settings: PlannerGroupSettings,
+): PlannerGroupSettings {
+  const allowedGroups = tableId.endsWith("goals")
+    ? plannerGoalGroupByValues
+    : plannerDateWorkGroupByValues;
+  return allowedGroups.includes(settings.groupBy)
+    ? settings
+    : { ...settings, groupBy: "none" };
 }
 
 function defaultSortRule(tableId: PlannerTableId): PlannerSortRule {

@@ -258,6 +258,27 @@ describe("planner model", () => {
     expect(second.groupSettings.hiddenGroupKeys).toEqual([]);
   });
 
+  it.each(["month", "week", "day"] as const)(
+    "rejects Ledger-only %s grouping from persisted and legacy ToDo settings",
+    (groupBy) => {
+      const legacy = legacyPlannerControls();
+      legacy.groupSettings = {
+        daily: { ...defaultPlannerGroupSettings(), groupBy },
+        weekly: { ...defaultPlannerGroupSettings(), groupBy },
+        monthly: { ...defaultPlannerGroupSettings(), groupBy },
+        yearly: { ...defaultPlannerGroupSettings(), groupBy },
+      };
+
+      for (const tableId of plannerTableIds) {
+        expect(normalizePlannerTableSettings(tableId, {
+          groupSettings: { groupBy },
+        }, legacy).groupSettings.groupBy).toBe("none");
+        expect(normalizePlannerTableSettings(tableId, undefined, legacy).groupSettings.groupBy)
+          .toBe("none");
+      }
+    },
+  );
+
   it("defines table-specific filter and sort field capabilities in the model", () => {
     expect(plannerFilterFieldsForTable("weekly.week-goals")).toContain("horizon");
     expect(plannerFilterFieldsForTable("weekly.week-goals")).not.toContain("project");
