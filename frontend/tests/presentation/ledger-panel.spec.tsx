@@ -338,6 +338,33 @@ describe("LedgerPanel", () => {
       ]);
   });
 
+  it("sorts transaction amounts in the units shown by the table", () => {
+    const ledger = controller({
+      ...loadedState,
+      entries: [
+        transactionEntry("usd", "USD amount", {
+          amountMinor: 1234,
+          currencyId: "currency-usd",
+        }, { currencyCode: "USD" }),
+        transactionEntry("krw", "KRW amount", { amountMinor: 13 }),
+      ],
+    });
+    ledger.tableSettings = (scope) => scope === "ledger.transactions"
+      ? transactionSettings({
+          sortRules: [{ id: "amount", field: "amount", direction: "asc" }],
+        })
+      : defaultLedgerTableSettings(scope);
+
+    render(<LedgerPanel controller={ledger} />);
+
+    expect(screen.getAllByRole("button", { name: /Open details for/ })
+      .map((row) => row.getAttribute("aria-label")))
+      .toEqual([
+        "Open details for USD amount, 2026-07-30, Cash",
+        "Open details for KRW amount, 2026-07-30, Cash",
+      ]);
+  });
+
   it.each([
     ["month", [["August 2026", "2"], ["July 2026", "1"]]],
     ["week", [["Week of 2026-07-27", "3"]]],
@@ -613,6 +640,23 @@ describe("LedgerPanel", () => {
     const ledgerRule = css.match(/\.ledger-table-header-row\s*\{([^}]*)\}/)?.[1];
     expect(sharedRule).toContain("justify-content: flex-end;");
     expect(ledgerRule).toContain("justify-content: space-between;");
+  });
+
+  it.each([
+    ["accounts", "Accounts"],
+    ["categories", "Categories"],
+  ] as const)("preserves the pre-Transactions %s header structure", (leafTabId, title) => {
+    render(<LedgerPanel controller={controller()} leafTabId={leafTabId} />);
+
+    const heading = screen.getByRole("heading", { name: title });
+    const header = heading.closest("header")!;
+    const row = within(header).getByRole("group", { name: `${title} controls` }).parentElement!;
+    const tabs = screen.getByRole("tablist", { name: `${title} views` });
+    expect(row).toHaveClass("workspace-table-header-row");
+    expect(row).not.toHaveClass("ledger-table-header-row");
+    expect(within(header).queryByRole("tablist")).toBeNull();
+    expect(header.nextElementSibling).toBe(tabs);
+    expect(screen.queryByRole("button", { name: "Archive selected transactions" })).toBeNull();
   });
 
   it("isolates a nested Ledger dialog without hiding its ancestors", async () => {
@@ -1011,15 +1055,46 @@ describe("LedgerPanel", () => {
     })).toBeNull());
     expect(screen.getByRole("button", { name: "Archive selected transactions" }))
       .toBeDisabled();
-    expect(screen.getByRole("checkbox", {
+    expect(screen.queryByRole("checkbox", {
       name: "Select Lunch, 2026-07-30, Cash",
-    })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", {
+    })).toBeNull();
+    expect(screen.queryByRole("checkbox", {
       name: "Select Move funds, 2026-08-01, Cash → Card",
-    })).not.toBeChecked();
+    })).toBeNull();
     await waitFor(() => expect(addButton).toHaveFocus());
     expect(ledger.restore).not.toHaveBeenCalled();
     expect(ledger.purge).not.toHaveBeenCalled();
+  });
+
+  it("removes archived rows from stale transaction group candidates", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    });
+    ledger.tableSettings = (scope) => scope === "ledger.transactions"
+      ? transactionSettings({
+          groupSettings: {
+            ...defaultLedgerTableSettings("ledger.transactions").groupSettings,
+            groupBy: "account",
+          },
+        })
+      : defaultLedgerTableSettings(scope);
+    ledger.archive = vi.fn().mockResolvedValue(undefined);
+    render(<LedgerPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    }));
+    await user.click(screen.getByRole("button", { name: "Archive selected transactions" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected transactions?",
+    })).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("Lunch")).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "Group Transactions" }));
+    expect(within(screen.getByRole("list", { name: "Groups" })).queryByText("Cash"))
+      .toBeNull();
   });
 
   it("retains failed and unattempted selections after a partial archive failure", async () => {
@@ -1040,15 +1115,6 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("checkbox", {
       name: "Select Lunch, 2026-07-30, Cash",
     }));
-    const salary = screen.getByRole("checkbox", {
-      name: "Select Salary, 2026-08-02, Cash",
-    });
-    const transfer = screen.getByRole("checkbox", {
-      name: "Select Move funds, 2026-08-01, Cash → Card",
-    });
-    const lunch = screen.getByRole("checkbox", {
-      name: "Select Lunch, 2026-07-30, Cash",
-    });
     await user.click(screen.getByRole("button", { name: "Archive selected transactions" }));
     const dialog = screen.getByRole("dialog", { name: "Archive selected transactions?" });
     await user.click(within(dialog).getByRole("button", { name: "Archive" }));
@@ -1058,9 +1124,10 @@ describe("LedgerPanel", () => {
     expect(ledger.archive).toHaveBeenCalledTimes(2);
     expect(ledger.archive).toHaveBeenNthCalledWith(1, "income-1");
     expect(ledger.archive).toHaveBeenNthCalledWith(2, "transfer-out");
-    expect(salary).not.toBeChecked();
-    expect(transfer).toBeChecked();
-    expect(lunch).toBeChecked();
+    expect(screen.queryByLabelText("Select Salary, 2026-08-02, Cash")).toBeNull();
+    expect(screen.getByLabelText("Select Move funds, 2026-08-01, Cash → Card"))
+      .toBeChecked();
+    expect(screen.getByLabelText("Select Lunch, 2026-07-30, Cash")).toBeChecked();
     await user.click(within(dialog).getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(ledger.archive).toHaveBeenCalledTimes(4));
     expect(ledger.archive).toHaveBeenNthCalledWith(3, "transfer-out");
@@ -1070,6 +1137,74 @@ describe("LedgerPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", {
       name: "Archive selected transactions?",
     })).toBeNull());
+  });
+
+  it("clears a failed archive error before reopening confirmation", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    });
+    ledger.archive = vi.fn().mockRejectedValue(new Error("Archive failed"));
+    render(<LedgerPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    }));
+    const archive = screen.getByRole("button", { name: "Archive selected transactions" });
+    await user.click(archive);
+    let dialog = screen.getByRole("dialog", { name: "Archive selected transactions?" });
+    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Archive failed");
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(archive);
+    dialog = screen.getByRole("dialog", { name: "Archive selected transactions?" });
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+  });
+
+  it("hides a persisted archive immediately when its refresh fails", async () => {
+    const user = userEvent.setup();
+    mockLedgerLoads();
+    vi.mocked(ledgerApi.listEntries)
+      .mockResolvedValueOnce({
+        items: [transactionEntry("expense-1", "Lunch")],
+        nextOffset: null,
+      })
+      .mockRejectedValueOnce(new Error("Ledger refresh failed"))
+      .mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+
+    function ProductionLedgerPanel() {
+      return <LedgerPanel controller={useLedgerController()} />;
+    }
+
+    render(<ProductionLedgerPanel />);
+    const row = await screen.findByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    });
+    await user.click(row);
+    expect(screen.getByRole("button", { name: "Cancel transaction edit" }))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    }));
+    await user.click(screen.getByRole("button", { name: "Archive selected transactions" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected transactions?",
+    })).getByRole("button", { name: "Archive" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger refresh failed");
+    expect(screen.queryByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel transaction edit" })).toBeNull();
+    expect(ledgerApi.archiveEntry).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText("Lunch")).toBeNull();
+    expect(ledgerApi.archiveEntry).toHaveBeenCalledOnce();
   });
 
   it("archives the snapshotted targets despite in-flight visibility changes", async () => {

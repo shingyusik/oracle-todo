@@ -10,6 +10,7 @@ import {
   type LedgerTableScopeId,
 } from "@/features/ledger/model/ledger-table-views";
 import type { LedgerState } from "@/features/ledger/hooks/useLedgerController";
+import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
 import type { PlannerGroupCandidate } from "@/features/workbench/model/planner-group-settings";
 import {
@@ -25,6 +26,7 @@ export function LedgerTableViewHeader({
   scope,
   title,
   headingId,
+  transactionEntries,
   onAdd,
   addButtonRef,
   onArchiveSelected,
@@ -34,6 +36,7 @@ export function LedgerTableViewHeader({
   scope: LedgerTableScopeId;
   title: string;
   headingId: string;
+  transactionEntries?: LedgerEntryView[];
   onAdd?: () => void;
   addButtonRef?: React.RefObject<HTMLButtonElement>;
   onArchiveSelected?: () => void;
@@ -48,7 +51,12 @@ export function LedgerTableViewHeader({
     filterFields: ledgerFilterFieldsForScope(scope),
     sortFields: ledgerSortFieldsForScope(scope),
     groupOptions: [...ledgerGroupOptionsForScope(scope)],
-    candidates: ledgerGroupCandidates(scope, settings.groupSettings.groupBy, controller.state),
+    candidates: ledgerGroupCandidates(
+      scope,
+      settings.groupSettings.groupBy,
+      controller.state,
+      transactionEntries,
+    ),
     filterOptions: ledgerFilterOptions(scope, controller.state),
     activeControlsAriaLabel: `Active ${title} controls`,
     dropdownIdPrefix: "ledger",
@@ -58,24 +66,52 @@ export function LedgerTableViewHeader({
     update: (updater) => controller.updateTableSettings(scope, updater),
   };
 
+  const tableTabs = (
+    <TableViewTabs
+      scopeId={scope}
+      title={title}
+      controller={{
+        tabs,
+        isDirty: controller.tableIsDirty(scope),
+        select: (tabId) => controller.selectTableTab(scope, tabId),
+        save: () => controller.saveTableTab(scope),
+        create: (name) => controller.createTableTab(scope, name),
+        rename: (tabId, name) => controller.renameTableTab(scope, tabId, name),
+        requestDelete: (tabId) => controller.requestDeleteTableTab(scope, tabId),
+      }}
+    />
+  );
+
+  if (scope !== "ledger.transactions") return (
+    <>
+      <header className="workspace-table-header">
+        <h1 id={headingId}>{title}</h1>
+        <div className="workspace-table-header-row">
+          <TableViewControls adapter={controlsAdapter} />
+          {onAdd ? (
+            <button
+              ref={addButtonRef}
+              className="items-toolbar-button"
+              type="button"
+              aria-haspopup="dialog"
+              onClick={onAdd}
+            >
+              Add transaction
+            </button>
+          ) : null}
+        </div>
+      </header>
+      {tableTabs}
+      <TableViewActivePills adapter={controlsAdapter} />
+    </>
+  );
+
   return (
     <>
       <header className="workspace-table-header">
         <h1 id={headingId}>{title}</h1>
         <div className="workspace-table-header-row ledger-table-header-row">
-          <TableViewTabs
-            scopeId={scope}
-            title={title}
-            controller={{
-              tabs,
-              isDirty: controller.tableIsDirty(scope),
-              select: (tabId) => controller.selectTableTab(scope, tabId),
-              save: () => controller.saveTableTab(scope),
-              create: (name) => controller.createTableTab(scope, name),
-              rename: (tabId, name) => controller.renameTableTab(scope, tabId, name),
-              requestDelete: (tabId) => controller.requestDeleteTableTab(scope, tabId),
-            }}
-          />
+          {tableTabs}
           <div className="workspace-table-header-actions">
             <TableViewControls adapter={controlsAdapter} />
             {onAdd ? (
@@ -163,11 +199,12 @@ function ledgerGroupCandidates(
   scope: LedgerTableScopeId,
   groupBy: string,
   state: LedgerState,
+  transactionEntries?: LedgerEntryView[],
 ): PlannerGroupCandidate[] {
   if (groupBy === "none") return [];
   if (scope === "ledger.transactions") {
     const settings = defaultLedgerTableSettings(scope);
-    return deriveTransactionGroups(state.entries, {
+    return deriveTransactionGroups(transactionEntries ?? state.entries, {
       ...settings,
       groupSettings: {
         ...settings.groupSettings,
@@ -176,7 +213,7 @@ function ledgerGroupCandidates(
         manualOrder: [],
         hiddenGroupKeys: [],
       },
-    }).map((group) => ({
+    }, undefined, state.currencies).map((group) => ({
       key: group.key,
       label: groupBy === "entry_type"
         ? label(group.label ?? group.key)

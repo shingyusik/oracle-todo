@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { LedgerEntryType, LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import type {
+  Currency,
+  LedgerEntryType,
+  LedgerEntryView,
+} from "@/features/ledger/model/ledger-model";
 import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
 import {
   deriveTransactionGroups,
@@ -274,6 +278,53 @@ describe("deriveTransactionGroups", () => {
     }))[0]).toEqual(["salary", "food", "coffee", "move"]);
   });
 
+  it("filters and sorts amounts in displayed currency units", () => {
+    const currencies: Currency[] = [{
+      id: "currency-1",
+      code: "USD",
+      name: "US dollar",
+      symbol: "$",
+      decimalPlaces: 2,
+      active: true,
+    }, {
+      id: "currency-krw",
+      code: "KRW",
+      name: "Korean won",
+      symbol: "₩",
+      decimalPlaces: 0,
+      active: true,
+    }];
+    const entries = [
+      entryView("usd", "expense", {
+        amountMinor: 1234,
+        content: "USD amount",
+        currencyCode: "USD",
+      }),
+      entryView("krw", "expense", {
+        amountMinor: 13,
+        content: "KRW amount",
+        currencyId: "currency-krw",
+        currencyCode: "KRW",
+      }),
+    ];
+    const amountFilter = transactionSettings({
+      filterRules: [{
+        id: "displayed-amount",
+        field: "amount",
+        type: "number",
+        operator: "is",
+        value: "12.34",
+      }],
+    });
+
+    expect(deriveTransactionGroups(entries, amountFilter, "2026-01-04", currencies)[0]
+      ?.rows.map(({ id }) => id)).toEqual(["usd"]);
+    expect(deriveTransactionGroups(entries, transactionSettings({
+      sortRules: [{ id: "amount", field: "amount", direction: "asc" }],
+    }), "2026-01-04", currencies)[0]?.rows.map(({ id }) => id))
+      .toEqual(["usd", "krw"]);
+  });
+
   it("uses the local calendar date for default relative-date filtering", () => {
     expect(transactionToday({
       getFullYear: () => 2026,
@@ -313,6 +364,36 @@ describe("deriveTransactionGroups", () => {
         { id: "content", field: "content", direction: "desc" },
       ],
     }))[0]).toEqual(["food", "coffee", "move", "salary"]);
+  });
+
+  it.each(["content", "account", "category"] as const)(
+    "sorts mixed-case and localized %s text with localeCompare",
+    (field) => {
+      const labels = ["Zulu", "apple", "Éclair", "한글"];
+      const entries = labels.map((label, index) => entryView(`entry-${index}`, "expense", {
+        content: field === "content" ? label : "same",
+        accountName: field === "account" ? label : "Cash",
+        categoryName: field === "category" ? label : "Food",
+      }));
+      const expected = labels
+        .map((label, index) => ({ id: `entry-${index}`, label }))
+        .sort((left, right) => left.label.localeCompare(right.label))
+        .map(({ id }) => id);
+
+      expect(deriveTransactionGroups(entries, transactionSettings({
+        sortRules: [{ id: field, field, direction: "asc" }],
+      }), "2026-01-04")[0]?.rows.map(({ id }) => id)).toEqual(expected);
+    },
+  );
+
+  it("uses localeCompare for the final row-id tie break", () => {
+    const ids = ["Zulu-id", "apple-id", "Éclair-id"];
+    const entries = ids.map((id) => entryView(id, "expense", { content: "same" }));
+
+    expect(deriveTransactionGroups(entries, transactionSettings({
+      sortRules: [{ id: "content", field: "content", direction: "asc" }],
+    }), "2026-01-04")[0]?.rows.map(({ id }) => id))
+      .toEqual([...ids].sort((left, right) => left.localeCompare(right)));
   });
 
   it.each([

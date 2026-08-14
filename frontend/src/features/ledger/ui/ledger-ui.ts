@@ -58,6 +58,7 @@ export function useLifecycleAction() {
   }
 
   return {
+    clearError: () => setError(null),
     error,
     isPending: (key: string) => pending.has(key),
     run,

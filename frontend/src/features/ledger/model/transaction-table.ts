@@ -1,4 +1,4 @@
-import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import type { Currency, LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import {
   ledgerFilterFieldsForScope,
   ledgerSortFieldsForScope,
@@ -154,14 +154,30 @@ export function deriveTransactionGroups(
   entries: LedgerEntryView[],
   settings: PlannerTableSettings,
   today = transactionToday(),
+  currencies: readonly Currency[] = [],
 ): TransactionRowGroup[] {
+  const decimalPlaces = new Map(currencies.map((currency) => [
+    currency.id,
+    currency.decimalPlaces,
+  ]));
   const rules = effectivePlannerFilterRules(
     settings.filterRules,
     ledgerFilterFieldsForScope("ledger.transactions"),
   );
   const rows = projectTransactionRows(entries)
-    .filter((row) => matchesTransactionRules(row, rules, settings.filterMode, today))
-    .sort((left, right) => compareTransactionRows(left, right, settings.sortRules));
+    .filter((row) => matchesTransactionRules(
+      row,
+      rules,
+      settings.filterMode,
+      today,
+      decimalPlaces,
+    ))
+    .sort((left, right) => compareTransactionRows(
+      left,
+      right,
+      settings.sortRules,
+      decimalPlaces,
+    ));
   return groupTransactionRows(rows, settings.groupSettings);
 }
 
@@ -176,10 +192,15 @@ function matchesTransactionRules(
   rules: readonly PlannerFilterRule[],
   mode: PlannerTableSettings["filterMode"],
   today: string,
+  decimalPlaces: ReadonlyMap<string, number>,
 ): boolean {
   if (rules.length === 0) return true;
   const matches = rules.map((rule) =>
-    matchesPlannerFilterValue(transactionFilterValue(row, rule.field), rule, today),
+    matchesPlannerFilterValue(
+      transactionFilterValue(row, rule.field, decimalPlaces),
+      rule,
+      today,
+    ),
   );
   return mode === "and" ? matches.every(Boolean) : matches.some(Boolean);
 }
@@ -187,6 +208,7 @@ function matchesTransactionRules(
 function transactionFilterValue(
   row: TransactionRow,
   field: PlannerFilterField,
+  decimalPlaces: ReadonlyMap<string, number>,
 ): string | string[] | number | null {
   if (field === "date") return row.date;
   if (field === "content") return row.content;
@@ -195,7 +217,7 @@ function transactionFilterValue(
   if (field === "category") {
     return row.categoryId ? uniqueValues([row.categoryId, row.categoryLabel]) : [];
   }
-  if (field === "amount") return row.amountMinor;
+  if (field === "amount") return displayedAmount(row, decimalPlaces);
   return null;
 }
 
@@ -203,6 +225,7 @@ function compareTransactionRows(
   left: TransactionRow,
   right: TransactionRow,
   rules: readonly PlannerSortRule[],
+  decimalPlaces: ReadonlyMap<string, number>,
 ): number {
   const activeRules = rules.filter((rule) =>
     ledgerSortFieldsForScope("ledger.transactions").includes(rule.field),
@@ -212,20 +235,24 @@ function compareTransactionRows(
     : [{ id: "transaction-default-sort", field: "date", direction: "desc" }];
   for (const rule of effectiveRules) {
     const result = compareTransactionValue(
-      transactionSortValue(left, rule.field),
-      transactionSortValue(right, rule.field),
+      transactionSortValue(left, rule.field, decimalPlaces),
+      transactionSortValue(right, rule.field, decimalPlaces),
     );
     if (result !== 0) return rule.direction === "asc" ? result : -result;
   }
   return compareString(left.id, right.id);
 }
 
-function transactionSortValue(row: TransactionRow, field: PlannerSortBy): string | number {
+function transactionSortValue(
+  row: TransactionRow,
+  field: PlannerSortBy,
+  decimalPlaces: ReadonlyMap<string, number>,
+): string | number {
   if (field === "date") return row.date;
   if (field === "content") return row.content;
   if (field === "account") return row.accountLabel;
   if (field === "category") return row.categoryLabel;
-  if (field === "amount") return row.amountMinor;
+  if (field === "amount") return displayedAmount(row, decimalPlaces);
   if (field === "updated") return row.updatedAt;
   return "";
 }
@@ -237,7 +264,14 @@ function compareTransactionValue(left: string | number, right: string | number):
 }
 
 function compareString(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+  return left.localeCompare(right);
+}
+
+function displayedAmount(
+  row: TransactionRow,
+  decimalPlaces: ReadonlyMap<string, number>,
+): number {
+  return row.amountMinor / 10 ** (decimalPlaces.get(row.currencyId) ?? 0);
 }
 
 function groupTransactionRows(

@@ -88,21 +88,43 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [tombstonedIds, setTombstonedIds] = useState<Set<string>>(() => new Set());
   const actions = useLifecycleAction();
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const settings = controller.tableSettings("ledger.transactions");
-  const activeRows = useMemo(
+  const controllerRows = useMemo(
     () => projectTransactionRows(controller.state.entries),
     [controller.state.entries],
   );
+  const displayedEntries = useMemo(
+    () => controller.state.entries.filter(({ entry }) =>
+      !tombstonedIds.has(entry.transferGroupId ?? entry.id)),
+    [controller.state.entries, tombstonedIds],
+  );
+  const activeRows = useMemo(
+    () => projectTransactionRows(displayedEntries),
+    [displayedEntries],
+  );
   const groups = useMemo(
-    () => deriveTransactionGroups(controller.state.entries, settings),
-    [controller.state.entries, settings],
+    () => deriveTransactionGroups(
+      displayedEntries,
+      settings,
+      undefined,
+      controller.state.currencies,
+    ),
+    [controller.state.currencies, displayedEntries, settings],
   );
   const visibleRows = useMemo(
     () => groups.flatMap((group) => group.rows),
     [groups],
   );
+
+  useEffect(() => {
+    if (tombstonedIds.size === 0) return;
+    const activeIds = new Set(controllerRows.map(({ id }) => id));
+    const next = new Set([...tombstonedIds].filter((id) => activeIds.has(id)));
+    if (next.size !== tombstonedIds.size) setTombstonedIds(next);
+  }, [controllerRows, tombstonedIds]);
 
   useEffect(() => {
     const visibleIds = new Set(visibleRows.map(({ id }) => id));
@@ -146,6 +168,7 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
     await actions.run("archive-selected", async () => {
       for (const row of targets) {
         await controller.archive(row.archiveEntryId);
+        setTombstonedIds((current) => new Set(current).add(row.id));
         setSelectedIds((current) => current.filter((id) => id !== row.id));
       }
       complete = true;
@@ -164,9 +187,13 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
         scope="ledger.transactions"
         title="Transactions"
         headingId="ledger-transactions-heading"
+        transactionEntries={displayedEntries}
         onAdd={() => setDialogOpen(true)}
         addButtonRef={addButtonRef}
-        onArchiveSelected={() => setArchiveConfirmationOpen(true)}
+        onArchiveSelected={() => {
+          actions.clearError();
+          setArchiveConfirmationOpen(true);
+        }}
         archiveDisabled={selectedIds.length === 0 || actions.isPending("archive-selected")}
       />
       {editing ? (
@@ -206,7 +233,10 @@ function TransactionsPanel({ controller }: { controller: LedgerController }) {
           error={actions.error}
           disabled={actions.isPending("archive-selected")}
           fallbackFocusRef={addButtonRef}
-          onCancel={() => setArchiveConfirmationOpen(false)}
+          onCancel={() => {
+            actions.clearError();
+            setArchiveConfirmationOpen(false);
+          }}
           onConfirm={archiveSelected}
         />
       ) : null}
