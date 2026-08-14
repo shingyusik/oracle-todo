@@ -143,7 +143,9 @@ describe("QuickAddDialog", () => {
 
     expect(screen.getByRole("button", { name: "Close Quick Add" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Back to Quick Add" })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("Saving in progress");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Operation in progress. Close is disabled until it finishes.",
+    );
     await user.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
 
@@ -221,7 +223,7 @@ describe("QuickAddDialog", () => {
     );
     expect(screen.getByRole("button", { name: "Close Quick Add" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Back to Quick Add" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save transaction" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
     expect(create).toHaveBeenCalledOnce();
 
     await user.click(screen.getByRole("button", { name: "Retry refresh" }));

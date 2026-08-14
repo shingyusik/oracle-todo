@@ -376,8 +376,10 @@ export function TransactionForm({
         className="items-toolbar-button"
         disabled={pending || refreshRecovery}
       >
-        {pending
-          ? "Saving…"
+        {refreshRecovery
+          ? "Saved"
+          : pending
+            ? "Saving…"
           : mode === "transfer"
             ? "Save transfer"
             : "Save transaction"}

@@ -374,7 +374,7 @@ describe("LedgerPanel", () => {
     expect(ledgerApi.createEntry).toHaveBeenCalledOnce();
     expect(screen.getByRole("dialog", { name: "Add transaction" })).toBeInTheDocument();
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
-    expect(screen.getByRole("button", { name: "Save transaction" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Close Add transaction" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Retry refresh" }));
@@ -994,12 +994,22 @@ describe("LedgerPanel", () => {
         await expect(mutation()).resolves.toBeUndefined();
       });
     }
+    expect(result.current.state.status).toBe("error");
+    expect(result.current.state.error).toBe("Ledger refresh failed");
+
+    vi.mocked(ledgerApi.listEntries)
+      .mockResolvedValueOnce({ items: [], nextOffset: null });
+    await act(async () => {
+      expect(await result.current.refresh()).toBe(true);
+    });
 
     await act(async () => {
       await expect(result.current.createEntry({} as never))
         .rejects.toBeInstanceOf(LedgerMutationRefreshError);
+      expect(result.current.state.status).toBe("loaded");
       await expect(result.current.transfer({} as never))
         .rejects.toBeInstanceOf(LedgerMutationRefreshError);
+      expect(result.current.state.status).toBe("loaded");
     });
   });
 

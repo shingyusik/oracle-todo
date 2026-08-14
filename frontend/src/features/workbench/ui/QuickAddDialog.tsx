@@ -127,7 +127,7 @@ export function QuickAddDialog({
             </button>
             {pending ? (
               <p role="status">
-                Saving in progress. Close is disabled until saving finishes.
+                Operation in progress. Close is disabled until it finishes.
               </p>
             ) : null}
             {kind === "ledger" ? (

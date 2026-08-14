@@ -58,6 +58,7 @@ type PendingLedgerViewCommand = {
 
 type LoadStatus = "loading" | "loaded" | "error";
 type ReportStatus = "idle" | "loading" | "loaded" | "error";
+type RefreshOutcome = { ok: true } | { ok: false; error: string };
 
 export class LedgerMutationRefreshError extends Error {
   constructor() {
@@ -185,7 +186,7 @@ export function useLedgerController(): LedgerController {
   const tableViewsLoaded = useRef(false);
   const pendingTableViewCommands = useRef<PendingLedgerViewCommand[]>([]);
   const refreshGeneration = useRef(0);
-  const latestRefresh = useRef<Promise<boolean> | null>(null);
+  const latestRefresh = useRef<Promise<RefreshOutcome> | null>(null);
   const [tableViewConfirmation, setTableViewConfirmation] = useState<
     LedgerTableViewConfirmation | null
   >(null);
@@ -246,12 +247,12 @@ export function useLedgerController(): LedgerController {
     };
   }, []);
 
-  const refresh = useCallback((): Promise<boolean> => {
+  const refreshOutcome = useCallback((): Promise<RefreshOutcome> => {
     const generation = ++refreshGeneration.current;
     setState((current) => current.status === "loaded"
       ? { ...current, error: null }
       : { ...current, status: "loading", error: null });
-    const request = (async (): Promise<boolean> => {
+    const request = (async (): Promise<RefreshOutcome> => {
       try {
         const [entries, currencies, accountCategories, accounts, categories, balances] =
           await Promise.all([
@@ -267,7 +268,7 @@ export function useLedgerController(): LedgerController {
               ledgerApi.listAccountBalances({ limit: 200, offset })),
           ]);
         if (generation !== refreshGeneration.current) {
-          return latestRefresh.current ?? false;
+          return latestRefresh.current ?? { ok: false, error: "Ledger request failed" };
         }
         setState((current) => ({
           ...current,
@@ -280,20 +281,23 @@ export function useLedgerController(): LedgerController {
           categories,
           balances,
         }));
-        return true;
+        return { ok: true };
       } catch (error) {
         if (generation !== refreshGeneration.current) {
-          return latestRefresh.current ?? false;
+          return latestRefresh.current ?? { ok: false, error: "Ledger request failed" };
         }
+        const message = errorMessage(error);
         setState((current) => current.status === "loaded"
           ? current
-          : { ...current, status: "error", error: errorMessage(error) });
-        return false;
+          : { ...current, status: "error", error: message });
+        return { ok: false, error: message };
       }
     })();
     latestRefresh.current = request;
     return request;
   }, []);
+
+  const refresh = useCallback(async () => (await refreshOutcome()).ok, [refreshOutcome]);
 
   useEffect(() => {
     void refresh();
@@ -304,9 +308,15 @@ export function useLedgerController(): LedgerController {
     requireRefresh = false,
   ) => {
     await operation();
-    const refreshed = await refresh();
-    if (requireRefresh && !refreshed) throw new LedgerMutationRefreshError();
-  }, [refresh]);
+    const outcome = await refreshOutcome();
+    if (outcome.ok) return;
+    if (requireRefresh) throw new LedgerMutationRefreshError();
+    setState((current) => ({
+      ...current,
+      status: "error",
+      error: outcome.error,
+    }));
+  }, [refreshOutcome]);
 
   const runReports = useCallback(async (range: ReportRangeInput) => {
     setState((current) => ({
