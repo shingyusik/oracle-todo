@@ -6,7 +6,7 @@ import {
   ledgerApi,
   type AccountInput,
   type Page,
-  type ReportRangeInput,
+  type ReportSelection,
   type TransactionCategoryInput,
 } from "@/features/ledger/api/ledger-api";
 import type {
@@ -16,10 +16,12 @@ import type {
   BreakdownRow,
   Currency,
   LedgerBriefing,
+  LedgerComparison,
   LedgerEntryInput,
   LedgerEntryUpdate,
   LedgerEntryView,
   LedgerSummary,
+  LedgerTrend,
   MasterPurgePreview,
   PurgePreview,
   TransactionCategory,
@@ -79,10 +81,13 @@ export type LedgerState = {
   balances: AccountBalance[];
   reportStatus: ReportStatus;
   reportError: string | null;
+  reportSelection?: ReportSelection;
+  comparison?: LedgerComparison | null;
+  trend?: LedgerTrend | null;
   summary: LedgerSummary | null;
   accountBreakdown: BreakdownRow[];
   categoryBreakdown: BreakdownRow[];
-  briefing: LedgerBriefing | null;
+  briefing?: LedgerBriefing | null;
 };
 
 export type LedgerController = {
@@ -125,7 +130,8 @@ export type LedgerController = {
   restoreCategory(id: string): Promise<void>;
   previewCategoryPurge(id: string): Promise<MasterPurgePreview>;
   purgeCategory(id: string, confirmation: string): Promise<void>;
-  runReports(range: ReportRangeInput): Promise<void>;
+  runReports(selection: ReportSelection): Promise<void>;
+  retryReports?(): Promise<void>;
 };
 
 const initialState: LedgerState = {
@@ -139,10 +145,12 @@ const initialState: LedgerState = {
   balances: [],
   reportStatus: "idle",
   reportError: null,
+  reportSelection: { period: "current_month" },
+  comparison: null,
+  trend: null,
   summary: null,
   accountBreakdown: [],
   categoryBreakdown: [],
-  briefing: null,
 };
 
 let ledgerViewsWrite = Promise.resolve();
@@ -188,6 +196,7 @@ export function useLedgerController(): LedgerController {
   const tableViewsLoaded = useRef(false);
   const pendingTableViewCommands = useRef<PendingLedgerViewCommand[]>([]);
   const refreshGeneration = useRef(0);
+  const reportGeneration = useRef(0);
   const latestRefresh = useRef<Promise<RefreshOutcome> | null>(null);
   const [tableViewConfirmation, setTableViewConfirmation] = useState<
     LedgerTableViewConfirmation | null
@@ -315,30 +324,38 @@ export function useLedgerController(): LedgerController {
     if (requireRefresh) throw new LedgerMutationRefreshError();
   }, [refreshOutcome]);
 
-  const runReports = useCallback(async (range: ReportRangeInput) => {
+  const runReports = useCallback(async (selection: ReportSelection) => {
+    const generation = ++reportGeneration.current;
     setState((current) => ({
       ...current,
       reportStatus: "loading",
       reportError: null,
+      reportSelection: selection,
     }));
     try {
-      const [summary, accountBreakdown, categoryBreakdown, briefing] =
-        await Promise.all([
-          ledgerApi.summary(range),
-          ledgerApi.accountReport(range),
-          ledgerApi.categoryReport(range),
-          ledgerApi.briefing(range),
-        ]);
+      const comparison = await ledgerApi.compare(selection);
+      const range = {
+        from: comparison.current.range.start,
+        to: comparison.current.range.end,
+      };
+      const [accountBreakdown, categoryBreakdown, trend] = await Promise.all([
+        ledgerApi.accountReport(range),
+        ledgerApi.categoryReport(range),
+        ledgerApi.trend(range),
+      ]);
+      if (generation !== reportGeneration.current) return;
       setState((current) => ({
         ...current,
         reportStatus: "loaded",
         reportError: null,
-        summary,
+        comparison,
+        trend,
+        summary: comparison.current,
         accountBreakdown,
         categoryBreakdown,
-        briefing,
       }));
     } catch (error) {
+      if (generation !== reportGeneration.current) throw error;
       setState((current) => ({
         ...current,
         reportStatus: "error",
@@ -347,6 +364,11 @@ export function useLedgerController(): LedgerController {
       throw error;
     }
   }, []);
+
+  const retryReports = useCallback(
+    () => runReports(state.reportSelection ?? { period: "current_month" }),
+    [runReports, state.reportSelection],
+  );
 
   function updateTableTabs(
     scope: LedgerTableScopeId,
@@ -504,6 +526,7 @@ export function useLedgerController(): LedgerController {
       mutate(() =>
         ledgerApi.purgeMaster("transaction-categories", id, confirmation)),
     runReports,
+    retryReports,
   };
 }
 

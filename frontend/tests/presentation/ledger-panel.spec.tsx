@@ -16,7 +16,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
-import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import type {
+  LedgerComparison,
+  LedgerEntryView,
+  LedgerTrend,
+} from "@/features/ledger/model/ledger-model";
 import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
 import {
   createLedgerTableViews,
@@ -78,6 +82,9 @@ const loadedState: LedgerState = {
   balances: [],
   reportStatus: "idle",
   reportError: null,
+  reportSelection: { period: "current_month" },
+  comparison: null,
+  trend: null,
   summary: null,
   accountBreakdown: [],
   categoryBreakdown: [],
@@ -127,7 +134,8 @@ function controller(state: LedgerState = loadedState): LedgerController {
     restoreCategory: vi.fn(),
     previewCategoryPurge: vi.fn(),
     purgeCategory: vi.fn(),
-    runReports: vi.fn(),
+    runReports: vi.fn().mockResolvedValue(undefined),
+    retryReports: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -269,6 +277,59 @@ function mockLedgerLoads() {
     .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
   vi.spyOn(ledgerApi, "listAccountBalances")
     .mockResolvedValue({ items: [], nextOffset: null });
+}
+
+function comparison(start: string, end: string): LedgerComparison {
+  const current = {
+    range: { start, end },
+    currencies: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      incomeMinor: 3000,
+      expenseMinor: 1200,
+      netChangeMinor: 1800,
+      entryCount: 2,
+    }],
+  };
+  return {
+    current,
+    previous: {
+      range: { start: "2026-07-01", end: "2026-07-31" },
+      currencies: [{
+        currencyId: "currency-krw",
+        currencyCode: "KRW",
+        incomeMinor: 2000,
+        expenseMinor: 1000,
+        netChangeMinor: 1000,
+        entryCount: 1,
+      }],
+    },
+    currencies: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      current: current.currencies[0]!,
+      previous: {
+        currencyId: "currency-krw",
+        currencyCode: "KRW",
+        incomeMinor: 2000,
+        expenseMinor: 1000,
+        netChangeMinor: 1000,
+        entryCount: 1,
+      },
+    }],
+  };
+}
+
+function trend(start: string, end: string): LedgerTrend {
+  return {
+    range: { start, end },
+    granularity: "daily",
+    currencies: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      points: [{ start, end, incomeMinor: 3000, expenseMinor: 1200 }],
+    }],
+  };
 }
 
 describe("LedgerPanel", () => {
@@ -1516,7 +1577,19 @@ describe("LedgerPanel", () => {
     expect(screen.queryByRole("button", { name: /^Purge / })).toBeNull();
   });
 
-  it("submits the selected Reports date range", async () => {
+  it("loads the current month once when Reports opens, including in StrictMode", async () => {
+    const ledger = controller();
+    render(
+      <React.StrictMode>
+        <LedgerPanel leafTabId="reports" controller={ledger} />
+      </React.StrictMode>,
+    );
+
+    await waitFor(() => expect(ledger.runReports).toHaveBeenCalledTimes(1));
+    expect(ledger.runReports).toHaveBeenCalledWith({ period: "current_month" });
+  });
+
+  it("submits a custom Reports date range", async () => {
     const user = userEvent.setup();
     const ledger = controller();
     render(<LedgerPanel leafTabId="reports" controller={ledger} />);
@@ -1525,7 +1598,8 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("To"), "2026-07-31");
     await user.click(screen.getByRole("button", { name: "Run reports" }));
 
-    expect(ledger.runReports).toHaveBeenCalledWith({
+    expect(ledger.runReports).toHaveBeenLastCalledWith({
+      period: "custom",
       from: "2026-07-01",
       to: "2026-07-31",
     });
@@ -1619,16 +1693,13 @@ describe("LedgerPanel", () => {
         })}
       />,
     );
-    expect(screen.getAllByText("12.34 USD")).toHaveLength(2);
-    expect(screen.getAllByText("2.00 USD")).toHaveLength(2);
-    expect(screen.getAllByText("10.34 USD")).toHaveLength(2);
-    const briefing = screen.getByRole("region", { name: "Briefing" });
-    expect(briefing).toHaveTextContent("2026-07-01 to 2026-07-31");
-    expect(briefing).not.toHaveTextContent("Raw briefing");
-    expect(briefing).not.toHaveTextContent(/\b1234\b/);
+    expect(screen.getAllByText("12.34 USD")).toHaveLength(1);
+    expect(screen.getAllByText("2.00 USD")).toHaveLength(1);
+    expect(screen.getAllByText("10.34 USD")).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Briefing" })).toBeNull();
   });
 
-  it("renders an empty structured Briefing without exposing raw markdown", () => {
+  it("does not expose legacy briefing content in Reports", () => {
     render(
       <LedgerPanel
         leafTabId="reports"
@@ -1650,9 +1721,8 @@ describe("LedgerPanel", () => {
       />,
     );
 
-    const briefing = screen.getByRole("region", { name: "Briefing" });
-    expect(briefing).toHaveTextContent("No briefing data for this range.");
-    expect(briefing).not.toHaveTextContent("Raw 1234");
+    expect(screen.queryByRole("region", { name: "Briefing" })).toBeNull();
+    expect(screen.queryByText("Raw 1234")).toBeNull();
   });
 
   it("reports account and category lifecycle action failures", async () => {
@@ -1721,6 +1791,115 @@ describe("LedgerPanel", () => {
       "account-cash",
       expect.objectContaining({ openingBalance: "12.34" }),
     );
+  });
+
+  it("does not load reports during the initial Ledger refresh", async () => {
+    mockLedgerLoads();
+    const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(
+      comparison("2026-08-01", "2026-08-31"),
+    );
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+
+    expect(compare).not.toHaveBeenCalled();
+  });
+
+  it("loads report analysis from the comparison's canonical current range", async () => {
+    mockLedgerLoads();
+    const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(
+      comparison("2026-08-01", "2026-08-31"),
+    );
+    const accounts = vi.spyOn(ledgerApi, "accountReport").mockResolvedValue([]);
+    const categories = vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
+    const reportTrend = vi.spyOn(ledgerApi, "trend").mockResolvedValue(
+      trend("2026-08-01", "2026-08-31"),
+    );
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+
+    await act(async () => {
+      await result.current.runReports({ period: "current_month" });
+    });
+
+    expect(compare).toHaveBeenCalledWith({ period: "current_month" });
+    expect(accounts).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
+    expect(categories).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
+    expect(reportTrend).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
+    expect(result.current.state.reportSelection).toEqual({ period: "current_month" });
+    expect(result.current.state.comparison?.current.range).toEqual({
+      start: "2026-08-01",
+      end: "2026-08-31",
+    });
+  });
+
+  it.each(["success", "failure"] as const)(
+    "keeps a newer report result when an older report request completes late with %s",
+    async (olderCompletion) => {
+      mockLedgerLoads();
+      const older = deferred<LedgerComparison>();
+      vi.spyOn(ledgerApi, "compare")
+        .mockReturnValueOnce(older.promise)
+        .mockResolvedValueOnce(comparison("2026-08-01", "2026-08-31"));
+      vi.spyOn(ledgerApi, "accountReport").mockResolvedValue([]);
+      vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
+      vi.spyOn(ledgerApi, "trend").mockResolvedValue(trend("2026-08-01", "2026-08-31"));
+      const { result } = renderHook(() => useLedgerController());
+      await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+
+      let olderRequest!: Promise<void>;
+      let newerRequest!: Promise<void>;
+      act(() => {
+        olderRequest = result.current.runReports({ period: "previous_month" });
+        newerRequest = result.current.runReports({ period: "current_month" });
+      });
+      await act(async () => {
+        await newerRequest;
+      });
+      await act(async () => {
+        if (olderCompletion === "success") {
+          older.resolve(comparison("2026-07-01", "2026-07-31"));
+          await expect(olderRequest).resolves.toBeUndefined();
+        } else {
+          older.reject(new Error("Older report failed"));
+          await expect(olderRequest).rejects.toThrow("Older report failed");
+        }
+      });
+
+      expect(result.current.state.reportStatus).toBe("loaded");
+      expect(result.current.state.reportError).toBeNull();
+      expect(result.current.state.reportSelection).toEqual({ period: "current_month" });
+    },
+  );
+
+  it("retains report data after a failure and retries the last selection", async () => {
+    mockLedgerLoads();
+    const compare = vi.spyOn(ledgerApi, "compare")
+      .mockResolvedValueOnce(comparison("2026-08-01", "2026-08-31"))
+      .mockRejectedValueOnce(new Error("Report service unavailable"))
+      .mockResolvedValueOnce(comparison("2026-08-01", "2026-08-31"));
+    vi.spyOn(ledgerApi, "accountReport").mockResolvedValue([]);
+    vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
+    vi.spyOn(ledgerApi, "trend").mockResolvedValue(trend("2026-08-01", "2026-08-31"));
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await act(async () => {
+      await result.current.runReports({ period: "current_month" });
+    });
+    const previousComparison = result.current.state.comparison;
+
+    await act(async () => {
+      await expect(result.current.runReports({ period: "previous_month" }))
+        .rejects.toThrow("Report service unavailable");
+    });
+
+    expect(result.current.state.reportStatus).toBe("error");
+    expect(result.current.state.comparison).toBe(previousComparison);
+    expect(result.current.state.reportSelection).toEqual({ period: "previous_month" });
+    await act(async () => {
+      await result.current.retryReports?.();
+    });
+    expect(compare).toHaveBeenLastCalledWith({ period: "previous_month" });
   });
 
   it("retains all controller records across subsequent pages", async () => {
