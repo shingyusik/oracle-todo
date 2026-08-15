@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::collections::BTreeMap;
 
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use time::{Date, Duration, Month};
 
 use crate::application::error::{LedgerError, LedgerResult};
@@ -70,9 +70,7 @@ impl YearMonth {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ReportRange {
-    #[serde(serialize_with = "serialize_date")]
     pub start: Date,
-    #[serde(serialize_with = "serialize_date")]
     pub end: Date,
 }
 
@@ -178,11 +176,11 @@ pub enum TrendGranularity {
     Monthly,
 }
 
+const MAX_TREND_BUCKETS: usize = 366;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TrendPoint {
-    #[serde(serialize_with = "serialize_date")]
     pub start: Date,
-    #[serde(serialize_with = "serialize_date")]
     pub end: Date,
     pub income_minor: i64,
     pub expense_minor: i64,
@@ -253,6 +251,7 @@ impl<R: LedgerReadRepository> LedgerService<R> {
         granularity: Option<TrendGranularity>,
     ) -> LedgerResult<LedgerTrend> {
         let granularity = granularity.unwrap_or_else(|| automatic_granularity(range));
+        validate_trend_bucket_count(range, granularity)?;
         let spans = trend_spans(range, granularity)?;
         let mut grouped = BTreeMap::<(String, String), BTreeMap<Date, (i64, i64)>>::new();
         for record in self.repository.daily_report(range.start, range.end)? {
@@ -390,6 +389,28 @@ fn trend_spans(
     }
 }
 
+fn validate_trend_bucket_count(
+    range: ReportRange,
+    granularity: TrendGranularity,
+) -> LedgerResult<()> {
+    let mut count = 0;
+    let mut start = range.start;
+    loop {
+        count += 1;
+        if count > MAX_TREND_BUCKETS {
+            return Err(LedgerError::Validation {
+                field: "date_range",
+                message: format!("trend range exceeds {MAX_TREND_BUCKETS} buckets"),
+            });
+        }
+        let end = min(bucket_end(start, granularity)?, range.end);
+        if end == range.end {
+            return Ok(());
+        }
+        start = end.next_day().ok_or_else(date_overflow)?;
+    }
+}
+
 fn bucket_start(
     date: Date,
     range: ReportRange,
@@ -457,13 +478,6 @@ fn date_overflow() -> LedgerError {
 
 fn report_overflow() -> LedgerError {
     LedgerError::Storage("ledger report total overflow".to_string())
-}
-
-fn serialize_date<S>(date: &Date, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&date.to_string())
 }
 
 fn currency_summary(record: ReportAggregateRecord) -> CurrencySummary {

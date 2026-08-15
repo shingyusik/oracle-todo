@@ -3,6 +3,7 @@ use ledger_engine::application::commands::{
     UpdateAccount, UpdateEntry,
 };
 use ledger_engine::application::doctor::{DoctorOptions, DoctorSeverity};
+use ledger_engine::application::error::LedgerError;
 use ledger_engine::application::export::ExportOptions;
 use ledger_engine::application::ports::Page;
 use ledger_engine::application::reports::{ReportPeriod, ReportRange, TrendGranularity, YearMonth};
@@ -348,6 +349,29 @@ fn trend_uses_clipped_calendar_buckets_auto_granularity_and_empty_series() {
         )
         .unwrap();
     assert!(empty.currencies.is_empty());
+}
+
+#[test]
+fn trend_allows_366_buckets_and_rejects_367_before_reading_entries() {
+    let seeded = seeded_service();
+    let maximum = ReportRange::new(date!(2024 - 01 - 01), date!(2024 - 12 - 31)).unwrap();
+    assert!(
+        seeded
+            .service
+            .trend(maximum, Some(TrendGranularity::Daily))
+            .is_ok()
+    );
+
+    let over_limit = ReportRange::new(date!(2024 - 01 - 01), date!(2025 - 01 - 01)).unwrap();
+    assert!(matches!(
+        seeded
+            .service
+            .trend(over_limit, Some(TrendGranularity::Daily)),
+        Err(LedgerError::Validation {
+            field: "date_range",
+            ..
+        })
+    ));
 }
 
 #[test]

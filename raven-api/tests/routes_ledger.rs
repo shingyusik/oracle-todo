@@ -203,6 +203,23 @@ async fn reports_and_purge_preview_have_stable_surfaces() {
 #[tokio::test]
 async fn report_comparison_accepts_presets_and_equal_length_custom_ranges() {
     let (_temp, app) = app();
+    let legacy = app
+        .clone()
+        .oneshot(
+            Request::get(
+                "/api/v1/ledger/reports/compare?current_from=2026-07-01&current_to=2026-07-31&previous_from=2026-06-01&previous_to=2026-06-30",
+            )
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(legacy.status(), StatusCode::OK);
+    assert_eq!(
+        body(legacy).await["current"]["range"]["start"],
+        json!([2026, 182])
+    );
+
     let preset = app
         .clone()
         .oneshot(
@@ -226,10 +243,10 @@ async fn report_comparison_accepts_presets_and_equal_length_custom_ranges() {
         .unwrap();
     assert_eq!(custom.status(), StatusCode::OK);
     let custom = body(custom).await;
-    assert_eq!(custom["current"]["range"]["start"], "2024-03-01");
-    assert_eq!(custom["current"]["range"]["end"], "2024-03-03");
-    assert_eq!(custom["previous"]["range"]["start"], "2024-02-27");
-    assert_eq!(custom["previous"]["range"]["end"], "2024-02-29");
+    assert_eq!(custom["current"]["range"]["start"], json!([2024, 61]));
+    assert_eq!(custom["current"]["range"]["end"], json!([2024, 63]));
+    assert_eq!(custom["previous"]["range"]["start"], json!([2024, 58]));
+    assert_eq!(custom["previous"]["range"]["end"], json!([2024, 60]));
     assert_eq!(custom["currencies"], json!([]));
 }
 
@@ -255,6 +272,7 @@ async fn report_trend_returns_stable_empty_series_and_rejects_unsafe_queries() {
     for path in [
         "/api/v1/ledger/reports/trend?from=2026-07-31&to=2026-07-01",
         "/api/v1/ledger/reports/trend?from=2026-07-01&to=2026-07-31&granularity=hourly",
+        "/api/v1/ledger/reports/trend?from=2024-01-01&to=2025-01-01&granularity=daily",
         "/api/v1/ledger/reports/compare?period=custom&from=2026-07-01",
         "/api/v1/ledger/reports/compare?period=current_month&unexpected=value",
     ] {
