@@ -158,7 +158,7 @@ All routes below use prefix `/api/v1/ledger`.
 | Account categories | `GET/POST /account-categories`, `PATCH/DELETE /account-categories/:id`, `GET /account-categories/:id/purge` |
 | Accounts | `GET/POST /accounts`, `PATCH/DELETE /accounts/:id`, `GET /accounts/:id/purge` |
 | Transaction categories | `GET/POST /transaction-categories`, `PATCH/DELETE /transaction-categories/:id`, `GET /transaction-categories/:id/purge` |
-| Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/accounts`, `/reports/categories`, `/reports/compare`, `/reports/briefing` |
+| Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/accounts`, `/reports/categories`, `/reports/compare`, `/reports/trend`, `/reports/briefing` |
 
 JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
 offset `0`, limit `100`; limits are bounded. Report queries accept either `from`+`to` or
@@ -168,6 +168,36 @@ Entry and master-data purge `GET` routes return confirmation previews. Purge `DE
 requires `{"confirmation":"<confirmation-id>"}` matching the preview; audit events survive.
 Only entries expose archive/restore. Currency, account-category, account, and transaction
 category lifecycle uses the `active` field on update.
+
+### Ledger reports
+
+`GET /reports/compare` accepts either the legacy explicit four-date selector or a period
+selector:
+
+| Selector | Query |
+| --- | --- |
+| Explicit ranges | `current_from`, `current_to`, `previous_from`, `previous_to` |
+| Current month | `period=current_month` |
+| Previous month | `period=previous_month` |
+| Current year | `period=current_year` |
+| Custom | `period=custom&from=YYYY-MM-DD&to=YYYY-MM-DD` |
+
+The three presets use the configured local date to select calendar periods. `custom` requires
+both `from` and `to`; its preceding range has the same inclusive number of days and ends the
+day before the custom range. The response retains `current` and `previous` summaries and
+also returns aligned `currencies` rows. Each currency remains separate: minor units from
+different currencies are never combined or converted, and a currency missing from one side
+has zero totals on that side.
+
+`GET /reports/trend` requires `from` and `to` and accepts optional
+`granularity=auto|daily|weekly|monthly`. Ranges are inclusive. Series are partitioned by
+currency; each currency with activity receives zero-filled points for missing buckets. Daily,
+weekly (Monday-based), and monthly buckets are clipped to the requested range. Archived
+entries are excluded. With no activity, `currencies` is an empty array. A trend request may
+produce at most 366 buckets; larger requests return the standard validation error.
+
+Report dates in JSON retain Raven's established `[year, ordinal]` representation for ranges
+and trend-point `start`/`end` values; they are not ISO date strings.
 
 ## Health routes
 
