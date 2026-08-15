@@ -23,7 +23,6 @@ export function LedgerReports({
   controller: LedgerController;
   onDrilldown?: (target: ReportDrilldownTarget) => void;
 }) {
-  const [formError, setFormError] = useState<string | null>(null);
   const defaultReportRequested = useRef(false);
   const { state } = controller;
   const reportCurrencies = state.comparison?.currencies.map((currency) => ({
@@ -56,14 +55,10 @@ export function LedgerReports({
   const currency = state.currencies.find(({ id }) => id === currencyId);
 
   function runReports(selection: Parameters<LedgerController["runReports"]>[0]) {
-    setFormError(null);
-    void controller.runReports(selection).catch((cause) => {
-      setFormError(cause instanceof Error ? cause.message : "Could not load reports");
-    });
+    void controller.runReports(selection).catch(() => undefined);
   }
 
   function retryReports() {
-    setFormError(null);
     void controller.retryReports().catch(() => undefined);
   }
 
@@ -82,12 +77,10 @@ export function LedgerReports({
         selectedId={currencyId}
         onChange={setCurrencyId}
       />
-      {(formError || state.reportError) && (
+      {state.reportError && (
         <div className="items-message ledger-report-error">
-          <p role="alert">{formError ?? state.reportError}</p>
-          {state.reportError && (
-            <button type="button" onClick={retryReports}>Retry reports</button>
-          )}
+          <p role="alert">{state.reportError}</p>
+          <button type="button" onClick={retryReports}>Retry reports</button>
         </div>
       )}
       <div

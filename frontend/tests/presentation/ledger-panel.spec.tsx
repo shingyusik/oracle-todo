@@ -1362,7 +1362,7 @@ describe("LedgerPanel", () => {
         if (order === "ordinary-first") await ordinary;
       });
 
-      expect(await screen.findByText("Mixed refresh failed")).toBeInTheDocument();
+      expect(await screen.findByText("Ledger request failed")).toBeInTheDocument();
       expect(await screen.findByText(
         "Transaction saved, but the list could not refresh.",
       )).toBeInTheDocument();
@@ -1639,7 +1639,7 @@ describe("LedgerPanel", () => {
       name: "Archive selected transactions?",
     })).getByRole("button", { name: "Archive" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger refresh failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger request failed");
     expect(screen.queryByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     })).toBeNull();
@@ -1648,7 +1648,7 @@ describe("LedgerPanel", () => {
     view.rerender(<ProductionLedgerPanel leafTabId="accounts" />);
     expect(screen.getByRole("heading", { name: "Accounts" })).toBeInTheDocument();
     view.rerender(<ProductionLedgerPanel />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Ledger refresh failed");
+    expect(screen.getByRole("alert")).toHaveTextContent("Ledger request failed");
     expect(screen.queryByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     })).toBeNull();
@@ -1797,15 +1797,23 @@ describe("LedgerPanel", () => {
     loaded.retryReports = retryReports;
     const view = render(<LedgerPanel leafTabId="reports" controller={loaded} />);
 
-    await user.click(screen.getByRole("tab", { name: "USD" }));
-    expect(screen.getByRole("tab", { name: "USD" })).toHaveAttribute("aria-selected", "true");
+    const currencyGroup = screen.getByRole("group", { name: "Report currency" });
+    const krw = within(currencyGroup).getByRole("button", { name: "KRW" });
+    const usd = within(currencyGroup).getByRole("button", { name: "USD" });
+    expect(screen.queryByRole("tablist", { name: "Report currency" })).toBeNull();
+    expect(krw).toHaveAttribute("aria-pressed", "true");
+    krw.focus();
+    await user.tab();
+    expect(usd).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(usd).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("region", { name: "Report analysis" })).toHaveTextContent("12.34 USD");
     expect(screen.getByRole("region", { name: "Report analysis" })).not.toHaveTextContent("3000 KRW");
 
     view.rerender(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState({
       reportStatus: "loading",
     }))} />);
-    expect(screen.getByRole("tab", { name: "USD" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "USD" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("region", { name: "Report analysis" })).toHaveAttribute("aria-busy", "true");
 
     const failed = controller(reportAnalysisState({
@@ -1814,7 +1822,7 @@ describe("LedgerPanel", () => {
     }));
     failed.retryReports = retryReports;
     view.rerender(<LedgerPanel leafTabId="reports" controller={failed} />);
-    expect(screen.getByRole("tab", { name: "USD" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "USD" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "Retry reports" }));
     expect(retryReports).toHaveBeenCalledTimes(1);
   });
@@ -2077,6 +2085,22 @@ describe("LedgerPanel", () => {
     expect(compare).not.toHaveBeenCalled();
   });
 
+  it("does not render unknown report error details", async () => {
+    mockLedgerLoads();
+    const hostile = "sqlite /Users/private/ledger.sqlite: SELECT secret FROM audit";
+    vi.spyOn(ledgerApi, "compare").mockRejectedValue(new Error(hostile));
+
+    function ProductionLedgerReports() {
+      return <LedgerPanel leafTabId="reports" controller={useLedgerController()} />;
+    }
+
+    render(<ProductionLedgerReports />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load reports.");
+    expect(alert).not.toHaveTextContent(hostile);
+  });
+
   it("loads report analysis from the comparison's canonical current range", async () => {
     mockLedgerLoads();
     const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(
@@ -2221,7 +2245,7 @@ describe("LedgerPanel", () => {
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("error"));
-    expect(result.current.state.error).toBe("Initial Ledger load failed");
+    expect(result.current.state.error).toBe("Ledger request failed");
 
     let refreshed!: boolean;
     await act(async () => {
@@ -2283,7 +2307,7 @@ describe("LedgerPanel", () => {
       });
     }
     expect(result.current.state.status).toBe("loaded");
-    expect(result.current.state.error).toBe("Ledger refresh failed");
+    expect(result.current.state.error).toBe("Ledger request failed");
 
     vi.mocked(ledgerApi.listEntries)
       .mockResolvedValueOnce({ items: [], nextOffset: null });
@@ -2358,7 +2382,7 @@ describe("LedgerPanel", () => {
         expect(result.current.state.error).toBeNull();
         expect(result.current.state.entries[0]?.entry.content).toBe("Newer");
       } else {
-        expect(result.current.state.error).toBe("Winning refresh failed");
+        expect(result.current.state.error).toBe("Ledger request failed");
       }
     },
   );

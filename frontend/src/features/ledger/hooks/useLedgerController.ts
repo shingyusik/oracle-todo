@@ -44,6 +44,7 @@ import {
   updateTableViewTabDraft,
   type TableViewTabsState,
 } from "@/features/workbench/model/table-view-tabs";
+import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
 
 type LedgerTableViewConfirmation =
   | {
@@ -357,7 +358,7 @@ export function useLedgerController(): LedgerController {
       setState((current) => ({
         ...current,
         reportStatus: "error",
-        reportError: errorMessage(error),
+        reportError: errorMessage(error, "Could not load reports."),
       }));
       throw error;
     }
@@ -528,8 +529,10 @@ export function useLedgerController(): LedgerController {
   };
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Ledger request failed";
+function errorMessage(error: unknown, fallback = "Ledger request failed"): string {
+  return error instanceof RavenApiError || error instanceof RavenTransportError
+    ? error.message
+    : fallback;
 }
 
 async function drainPages<T>(

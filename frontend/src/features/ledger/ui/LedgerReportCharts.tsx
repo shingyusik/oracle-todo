@@ -97,13 +97,12 @@ export function ReportCurrencyTabs({
 }) {
   if (currencies.length === 0) return null;
   return (
-    <div className="ledger-report-currencies" role="tablist" aria-label="Report currency">
+    <div className="ledger-report-currencies" role="group" aria-label="Report currency">
       {currencies.map((currency) => (
         <button
           key={currency.id}
           type="button"
-          role="tab"
-          aria-selected={currency.id === selectedId}
+          aria-pressed={currency.id === selectedId}
           onClick={() => onChange(currency.id)}
         >
           {currency.code}
