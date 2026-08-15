@@ -1362,7 +1362,7 @@ describe("LedgerPanel", () => {
         if (order === "ordinary-first") await ordinary;
       });
 
-      expect(await screen.findByText("Ledger request failed")).toBeInTheDocument();
+      expect(await screen.findByText("Mixed refresh failed")).toBeInTheDocument();
       expect(await screen.findByText(
         "Transaction saved, but the list could not refresh.",
       )).toBeInTheDocument();
@@ -1639,7 +1639,7 @@ describe("LedgerPanel", () => {
       name: "Archive selected transactions?",
     })).getByRole("button", { name: "Archive" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger request failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger refresh failed");
     expect(screen.queryByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     })).toBeNull();
@@ -1648,7 +1648,7 @@ describe("LedgerPanel", () => {
     view.rerender(<ProductionLedgerPanel leafTabId="accounts" />);
     expect(screen.getByRole("heading", { name: "Accounts" })).toBeInTheDocument();
     view.rerender(<ProductionLedgerPanel />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Ledger request failed");
+    expect(screen.getByRole("alert")).toHaveTextContent("Ledger refresh failed");
     expect(screen.queryByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     })).toBeNull();
@@ -2245,7 +2245,7 @@ describe("LedgerPanel", () => {
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("error"));
-    expect(result.current.state.error).toBe("Ledger request failed");
+    expect(result.current.state.error).toBe("Initial Ledger load failed");
 
     let refreshed!: boolean;
     await act(async () => {
@@ -2307,7 +2307,7 @@ describe("LedgerPanel", () => {
       });
     }
     expect(result.current.state.status).toBe("loaded");
-    expect(result.current.state.error).toBe("Ledger request failed");
+    expect(result.current.state.error).toBe("Ledger refresh failed");
 
     vi.mocked(ledgerApi.listEntries)
       .mockResolvedValueOnce({ items: [], nextOffset: null });
@@ -2382,7 +2382,7 @@ describe("LedgerPanel", () => {
         expect(result.current.state.error).toBeNull();
         expect(result.current.state.entries[0]?.entry.content).toBe("Newer");
       } else {
-        expect(result.current.state.error).toBe("Ledger request failed");
+        expect(result.current.state.error).toBe("Winning refresh failed");
       }
     },
   );

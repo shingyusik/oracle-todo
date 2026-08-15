@@ -358,7 +358,7 @@ export function useLedgerController(): LedgerController {
       setState((current) => ({
         ...current,
         reportStatus: "error",
-        reportError: errorMessage(error, "Could not load reports."),
+        reportError: reportErrorMessage(error),
       }));
       throw error;
     }
@@ -529,10 +529,14 @@ export function useLedgerController(): LedgerController {
   };
 }
 
-function errorMessage(error: unknown, fallback = "Ledger request failed"): string {
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Ledger request failed";
+}
+
+function reportErrorMessage(error: unknown): string {
   return error instanceof RavenApiError || error instanceof RavenTransportError
     ? error.message
-    : fallback;
+    : "Could not load reports.";
 }
 
 async function drainPages<T>(
