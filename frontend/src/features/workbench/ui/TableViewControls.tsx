@@ -37,6 +37,7 @@ export type PlannerFilterOptionSet = {
   tags: Option<string>[];
   areas: Option<string>[];
   projects: Option<string>[];
+  currencies: Option<string>[];
   routines: Option<string>[];
   statuses: Option<string>[];
   priorities: Option<string>[];
@@ -1038,7 +1039,7 @@ function tableViewFilterFieldConfigs(
       field: "currency",
       label: "Currency",
       type: "relation",
-      options: filterOptions.daily.projects,
+      options: filterOptions.daily.currencies,
     },
     current_balance: {
       field: "current_balance",

@@ -431,14 +431,15 @@ function ordinalDate(value: unknown, field: string): string {
     return invalidDate(field);
   }
   const date = new Date(0);
+  const yearStart = new Date(0);
   date.setUTCFullYear(validYear, 0, validOrdinal);
+  yearStart.setUTCFullYear(validYear, 0, 1);
   if (
     date.getUTCFullYear() !== validYear
     || date.getUTCMonth() > 11
     || date.getUTCDate() < 1
     || validOrdinal !== Math.floor(
-      (Date.UTC(validYear, date.getUTCMonth(), date.getUTCDate())
-        - Date.UTC(validYear, 0, 1)) / 86_400_000,
+      (date.getTime() - yearStart.getTime()) / 86_400_000,
     ) + 1
   ) return invalidDate(field);
   return isoDate(

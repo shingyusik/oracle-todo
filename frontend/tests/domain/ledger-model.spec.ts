@@ -137,6 +137,11 @@ describe("Ledger wire boundary", () => {
       granularity: "daily",
       currencies: [],
     }).range.start).toBe("0000-01-01");
+    expect(mapLedgerTrend({
+      range: { start: [0, 366], end: [0, 366] },
+      granularity: "daily",
+      currencies: [],
+    }).range.start).toBe("0000-12-31");
   });
 
   it("rejects invalid ordinal report dates", () => {

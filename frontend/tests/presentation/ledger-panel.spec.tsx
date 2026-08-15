@@ -31,6 +31,7 @@ import {
   useLedgerController,
 } from "@/features/ledger/hooks/useLedgerController";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
+import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
 
 const loadedState: LedgerState = {
@@ -128,6 +129,28 @@ function controller(state: LedgerState = loadedState): LedgerController {
     purgeCategory: vi.fn(),
     runReports: vi.fn(),
   };
+}
+
+function TransactionHeaderHarness() {
+  const [settings, setSettings] = React.useState(defaultLedgerTableSettings("ledger.transactions"));
+  const views = React.useMemo(() => createLedgerTableViews(), []);
+  const ledger = controller();
+  ledger.tableTabs = (scope) => views[scope];
+  ledger.tableSettings = (scope) => scope === "ledger.transactions"
+    ? settings
+    : views[scope].draftSettings;
+  ledger.updateTableSettings = (scope, updater) => {
+    if (scope === "ledger.transactions") setSettings(updater);
+  };
+
+  return (
+    <LedgerTableViewHeader
+      controller={ledger}
+      scope="ledger.transactions"
+      title="Transactions"
+      headingId="transactions-heading"
+    />
+  );
 }
 
 function entryView(id: string, content: string): LedgerEntryView {
@@ -2000,6 +2023,23 @@ describe("LedgerPanel", () => {
       "ledger.transactions",
       "recent",
     );
+  });
+
+  it("keeps transaction category and currency filter candidates separate", async () => {
+    const user = userEvent.setup();
+    render(<TransactionHeaderHarness />);
+
+    await user.click(screen.getByRole("button", { name: "Filter Transactions" }));
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    await user.click(screen.getByRole("option", { name: "Category" }));
+    await user.click(screen.getByRole("button", { name: "Select Category filter values" }));
+    expect(screen.getByText("Food")).toBeInTheDocument();
+    expect(screen.queryByText("USD")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Filter field"), "currency");
+    expect(screen.getByText("USD")).toBeInTheDocument();
+    expect(screen.getByText("KRW")).toBeInTheDocument();
+    expect(screen.queryByText("Food")).not.toBeInTheDocument();
   });
 
   it("keeps saved view tabs independent across Ledger table leaves", () => {

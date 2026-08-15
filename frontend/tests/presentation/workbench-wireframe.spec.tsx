@@ -615,6 +615,7 @@ describe("WorkbenchPageClient", () => {
           tags: [],
           areas: [],
           projects: [],
+          currencies: [],
           routines: [],
           statuses: [],
           priorities: [],

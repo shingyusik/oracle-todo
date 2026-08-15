@@ -154,6 +154,7 @@ function ledgerFilterOptions(
     tags: [],
     areas: [],
     projects: [],
+    currencies: [],
     routines: [],
     statuses: [],
     priorities: [],
@@ -169,12 +170,10 @@ function ledgerFilterOptions(
       daily: {
         ...empty,
         areas: options(state.accounts),
-        projects: [
-          ...options(state.categories),
-          ...state.currencies
-            .filter(({ active }) => active)
-            .map(({ id, code }) => ({ value: id, label: code })),
-        ],
+        projects: options(state.categories),
+        currencies: state.currencies
+          .filter(({ active }) => active)
+          .map(({ id, code }) => ({ value: id, label: code })),
         statuses: ["expense", "income", "transfer"]
           .map((value) => ({ value, label: label(value) })),
       },
@@ -187,6 +186,7 @@ function ledgerFilterOptions(
         ...empty,
         areas: options(state.accountCategories),
         projects: state.currencies.map(({ id, code }) => ({ value: id, label: code })),
+        currencies: state.currencies.map(({ id, code }) => ({ value: id, label: code })),
       },
     };
   }

@@ -2214,6 +2214,7 @@ function filterOptionsForItems(
     tags: toFilterOptions(items.flatMap((item) => item.tags ?? [])),
     areas: relationFilterOptions(items, relatedItems.areas, "area_id"),
     projects: relationFilterOptions(items, relatedItems.projects, "project_id"),
+    currencies: [],
     routines: relationFilterOptions(items, relatedItems.routines, "routine_id"),
     statuses: toFilterOptions([...items.map((item) => item.status), "missed"]),
     priorities: priorityOptions.map((value) => ({ value, label: value })),
