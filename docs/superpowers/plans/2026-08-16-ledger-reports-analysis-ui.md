@@ -31,6 +31,8 @@
 - Modify: `frontend/src/features/ledger/api/ledger-api.ts`
 - Modify: `frontend/src/features/ledger/model/ledger-table-views.ts`
 - Modify: `frontend/src/features/ledger/model/transaction-table.ts`
+- Modify: `frontend/src/features/ledger/ui/LedgerTableViewHeader.tsx`
+- Test: `frontend/tests/domain/ledger-api.spec.ts`
 - Test: `frontend/tests/domain/ledger-model.spec.ts`
 - Test: `frontend/tests/domain/ledger-reports.spec.ts`
 - Test: `frontend/tests/domain/ledger-table-views.spec.ts`
@@ -167,7 +169,7 @@ Expected: all selected tests and typecheck PASS.
 Commit:
 
 ```bash
-git add frontend/src/features/ledger/model/ledger-model.ts frontend/src/features/ledger/model/ledger-reports.ts frontend/src/features/ledger/model/ledger-table-views.ts frontend/src/features/ledger/model/transaction-table.ts frontend/src/features/ledger/api/ledger-api.ts frontend/tests/domain/ledger-model.spec.ts frontend/tests/domain/ledger-reports.spec.ts frontend/tests/domain/ledger-table-views.spec.ts frontend/tests/domain/transaction-table.spec.ts
+git add frontend/src/features/ledger/model/ledger-model.ts frontend/src/features/ledger/model/ledger-reports.ts frontend/src/features/ledger/model/ledger-table-views.ts frontend/src/features/ledger/model/transaction-table.ts frontend/src/features/ledger/api/ledger-api.ts frontend/src/features/ledger/ui/LedgerTableViewHeader.tsx frontend/tests/domain/ledger-api.spec.ts frontend/tests/domain/ledger-model.spec.ts frontend/tests/domain/ledger-reports.spec.ts frontend/tests/domain/ledger-table-views.spec.ts frontend/tests/domain/transaction-table.spec.ts
 git commit -m "[ADD] Model Ledger report analysis"
 ```
 
@@ -177,6 +179,7 @@ git commit -m "[ADD] Model Ledger report analysis"
 
 **Files:**
 - Modify: `frontend/src/features/ledger/hooks/useLedgerController.ts`
+- Modify: `frontend/src/features/ledger/ui/LedgerReports.tsx`
 - Test: `frontend/tests/presentation/ledger-panel.spec.tsx`
 
 **Interfaces:**
@@ -247,7 +250,7 @@ Expected: PASS.
 Commit:
 
 ```bash
-git add frontend/src/features/ledger/hooks/useLedgerController.ts frontend/tests/presentation/ledger-panel.spec.tsx
+git add frontend/src/features/ledger/hooks/useLedgerController.ts frontend/src/features/ledger/ui/LedgerReports.tsx frontend/tests/presentation/ledger-panel.spec.tsx
 git commit -m "[UPDATE] Load Ledger report analysis"
 ```
 
