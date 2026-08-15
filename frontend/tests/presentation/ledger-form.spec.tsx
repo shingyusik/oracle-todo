@@ -78,10 +78,12 @@ function controller(
       balances: [],
       reportStatus: "idle",
       reportError: null,
+      reportSelection: { period: "current_month" },
+      comparison: null,
+      trend: null,
       summary: null,
       accountBreakdown: [],
       categoryBreakdown: [],
-      briefing: null,
     },
     tableViewSaveError: null,
     retryTableViewSave: vi.fn(),
@@ -119,6 +121,7 @@ function controller(
     previewCategoryPurge: vi.fn(),
     purgeCategory: vi.fn(),
     runReports: vi.fn(),
+    retryReports: vi.fn(),
     ...overrides,
   };
 }

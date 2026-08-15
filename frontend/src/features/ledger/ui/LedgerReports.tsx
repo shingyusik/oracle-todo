@@ -32,6 +32,11 @@ export function LedgerReports({ controller }: { controller: LedgerController }) 
     }
   }
 
+  function retryReports() {
+    setFormError(null);
+    void controller.retryReports().catch(() => undefined);
+  }
+
   return (
     <section aria-labelledby="ledger-reports-heading">
       <header className="workspace-table-header">
@@ -65,10 +70,10 @@ export function LedgerReports({ controller }: { controller: LedgerController }) 
       {(formError || state.reportError) && (
         <div className="items-message">
           <p role="alert">{formError ?? state.reportError}</p>
-          {state.reportError && controller.retryReports && (
+          {state.reportError && (
             <button
               type="button"
-              onClick={() => void controller.retryReports?.().catch(() => undefined)}
+              onClick={retryReports}
             >
               Retry reports
             </button>

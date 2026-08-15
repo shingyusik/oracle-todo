@@ -88,7 +88,6 @@ const loadedState: LedgerState = {
   summary: null,
   accountBreakdown: [],
   categoryBreakdown: [],
-  briefing: null,
 };
 
 function controller(state: LedgerState = loadedState): LedgerController {
@@ -1605,6 +1604,36 @@ describe("LedgerPanel", () => {
     });
   });
 
+  it("clears a rejected custom-range error after report retry succeeds", async () => {
+    const user = userEvent.setup();
+
+    function ReportRetryHarness() {
+      const [reportError, setReportError] = React.useState<string | null>(null);
+      const ledger = controller({
+        ...loadedState,
+        reportStatus: reportError ? "error" : "loaded",
+        reportError,
+      });
+      ledger.runReports = vi.fn(async () => {
+        setReportError("Custom range failed");
+        throw new Error("Custom range failed");
+      });
+      ledger.retryReports = vi.fn(async () => {
+        setReportError(null);
+      });
+      return <LedgerPanel leafTabId="reports" controller={ledger} />;
+    }
+
+    render(<ReportRetryHarness />);
+    await user.type(screen.getByLabelText("From"), "2026-07-01");
+    await user.type(screen.getByLabelText("To"), "2026-07-31");
+    await user.click(screen.getByRole("button", { name: "Run reports" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Custom range failed");
+
+    await user.click(screen.getByRole("button", { name: "Retry reports" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
   it("formats two-decimal transaction, balance, and report minor units exactly", () => {
     const ledger = controller({
       ...loadedState,
@@ -1676,20 +1705,6 @@ describe("LedgerPanel", () => {
               entryCount: 2,
             }],
           },
-          briefing: {
-            summary: {
-              range: { start: "2026-07-01", end: "2026-07-31" },
-              currencies: [{
-                currencyId: "currency-usd",
-                currencyCode: "USD",
-                incomeMinor: 1234,
-                expenseMinor: 200,
-                netChangeMinor: 1034,
-                entryCount: 2,
-              }],
-            },
-            markdown: "Raw briefing: income 1234, expense 200, net 1034",
-          },
         })}
       />,
     );
@@ -1697,32 +1712,6 @@ describe("LedgerPanel", () => {
     expect(screen.getAllByText("2.00 USD")).toHaveLength(1);
     expect(screen.getAllByText("10.34 USD")).toHaveLength(1);
     expect(screen.queryByRole("region", { name: "Briefing" })).toBeNull();
-  });
-
-  it("does not expose legacy briefing content in Reports", () => {
-    render(
-      <LedgerPanel
-        leafTabId="reports"
-        controller={controller({
-          ...loadedState,
-          reportStatus: "loaded",
-          summary: {
-            range: { start: "2026-07-01", end: "2026-07-31" },
-            currencies: [],
-          },
-          briefing: {
-            summary: {
-              range: { start: "2026-07-01", end: "2026-07-31" },
-              currencies: [],
-            },
-            markdown: "Raw 1234",
-          },
-        })}
-      />,
-    );
-
-    expect(screen.queryByRole("region", { name: "Briefing" })).toBeNull();
-    expect(screen.queryByText("Raw 1234")).toBeNull();
   });
 
   it("reports account and category lifecycle action failures", async () => {
@@ -1862,7 +1851,7 @@ describe("LedgerPanel", () => {
           await expect(olderRequest).resolves.toBeUndefined();
         } else {
           older.reject(new Error("Older report failed"));
-          await expect(olderRequest).rejects.toThrow("Older report failed");
+          await expect(olderRequest).resolves.toBeUndefined();
         }
       });
 
@@ -1897,7 +1886,7 @@ describe("LedgerPanel", () => {
     expect(result.current.state.comparison).toBe(previousComparison);
     expect(result.current.state.reportSelection).toEqual({ period: "previous_month" });
     await act(async () => {
-      await result.current.retryReports?.();
+      await result.current.retryReports();
     });
     expect(compare).toHaveBeenLastCalledWith({ period: "previous_month" });
   });

@@ -15,7 +15,6 @@ import type {
   AccountCategory,
   BreakdownRow,
   Currency,
-  LedgerBriefing,
   LedgerComparison,
   LedgerEntryInput,
   LedgerEntryUpdate,
@@ -81,13 +80,12 @@ export type LedgerState = {
   balances: AccountBalance[];
   reportStatus: ReportStatus;
   reportError: string | null;
-  reportSelection?: ReportSelection;
-  comparison?: LedgerComparison | null;
-  trend?: LedgerTrend | null;
+  reportSelection: ReportSelection;
+  comparison: LedgerComparison | null;
+  trend: LedgerTrend | null;
   summary: LedgerSummary | null;
   accountBreakdown: BreakdownRow[];
   categoryBreakdown: BreakdownRow[];
-  briefing?: LedgerBriefing | null;
 };
 
 export type LedgerController = {
@@ -131,7 +129,7 @@ export type LedgerController = {
   previewCategoryPurge(id: string): Promise<MasterPurgePreview>;
   purgeCategory(id: string, confirmation: string): Promise<void>;
   runReports(selection: ReportSelection): Promise<void>;
-  retryReports?(): Promise<void>;
+  retryReports(): Promise<void>;
 };
 
 const initialState: LedgerState = {
@@ -355,7 +353,7 @@ export function useLedgerController(): LedgerController {
         categoryBreakdown,
       }));
     } catch (error) {
-      if (generation !== reportGeneration.current) throw error;
+      if (generation !== reportGeneration.current) return;
       setState((current) => ({
         ...current,
         reportStatus: "error",
@@ -366,7 +364,7 @@ export function useLedgerController(): LedgerController {
   }, []);
 
   const retryReports = useCallback(
-    () => runReports(state.reportSelection ?? { period: "current_month" }),
+    () => runReports(state.reportSelection),
     [runReports, state.reportSelection],
   );
 
