@@ -37,6 +37,7 @@ import {
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
+import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
 
 const loadedState: LedgerState = {
   status: "loaded",
@@ -2099,6 +2100,29 @@ describe("LedgerPanel", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Could not load reports.");
     expect(alert).not.toHaveTextContent(hostile);
+  });
+
+  it.each([
+    ["RavenApiError", new RavenApiError(
+      "invalid_report_range",
+      "Report range is invalid.",
+      {},
+      "00000000-0000-4000-8000-000000000001",
+      400,
+    ), "Report range is invalid."],
+    ["RavenTransportError", new RavenTransportError("network"),
+      "Raven API is unreachable."],
+  ])("renders trusted %s messages for report failures", async (_name, error, message) => {
+    mockLedgerLoads();
+    vi.spyOn(ledgerApi, "compare").mockRejectedValue(error);
+
+    function ProductionLedgerReports() {
+      return <LedgerPanel leafTabId="reports" controller={useLedgerController()} />;
+    }
+
+    render(<ProductionLedgerReports />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 
   it("loads report analysis from the comparison's canonical current range", async () => {
