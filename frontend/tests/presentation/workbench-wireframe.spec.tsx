@@ -77,6 +77,7 @@ function reportLedgerController() {
     currencies: [{
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       incomeMinor: 3000,
       expenseMinor: 800,
       netChangeMinor: 2200,
@@ -88,6 +89,7 @@ function reportLedgerController() {
     currencies: [{
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       incomeMinor: 2000,
       expenseMinor: 500,
       netChangeMinor: 1500,

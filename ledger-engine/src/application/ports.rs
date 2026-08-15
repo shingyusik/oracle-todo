@@ -134,6 +134,7 @@ pub(crate) struct ReportAggregateRecord {
     pub name: Option<String>,
     pub currency_id: String,
     pub currency_code: String,
+    pub decimal_places: u8,
     pub income_minor: i64,
     pub expense_minor: i64,
     pub net_change_minor: i64,

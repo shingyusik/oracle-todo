@@ -1,6 +1,6 @@
 use ledger_engine::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
-    UpdateAccount, UpdateEntry,
+    UpdateAccount, UpdateCurrency, UpdateEntry,
 };
 use ledger_engine::application::doctor::{DoctorOptions, DoctorSeverity};
 use ledger_engine::application::error::LedgerError;
@@ -320,6 +320,119 @@ fn comparison_aligns_currencies_missing_from_either_period_with_zeroes() {
     assert_eq!(comparison.currencies[1].currency_code, "USD");
     assert_eq!(comparison.currencies[1].current.expense_minor, 2_500);
     assert_eq!(comparison.currencies[1].previous.expense_minor, 0);
+}
+
+#[test]
+fn comparison_preserves_inactive_currency_precision_in_zero_aligned_rows() {
+    let mut seeded = seeded_service();
+    create_entry(
+        &mut seeded.service,
+        "2026-07-10",
+        "inactive dollars",
+        "Dollar card",
+        Some("Food"),
+        EntryType::Expense,
+        1_234,
+        "USD",
+    );
+    let usd_id = seeded
+        .service
+        .currencies_page(Page {
+            offset: 0,
+            limit: 10,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|currency| currency.code() == "USD")
+        .unwrap()
+        .id()
+        .to_string();
+    seeded
+        .service
+        .update_currency(
+            &usd_id,
+            UpdateCurrency {
+                active: Some(false),
+                actor: "test".to_string(),
+                ..UpdateCurrency::default()
+            },
+        )
+        .unwrap();
+
+    let comparison = seeded
+        .service
+        .compare(
+            ReportRange::new(date!(2026 - 07 - 01), date!(2026 - 07 - 31)).unwrap(),
+            ReportRange::new(date!(2026 - 06 - 01), date!(2026 - 06 - 30)).unwrap(),
+        )
+        .unwrap();
+    let wire = serde_json::to_value(comparison).unwrap();
+
+    assert_eq!(wire["current"]["currencies"][0]["decimal_places"], 2);
+    assert_eq!(wire["currencies"][0]["current"]["decimal_places"], 2);
+    assert_eq!(wire["currencies"][0]["previous"]["decimal_places"], 2);
+}
+
+#[test]
+fn summary_fails_when_referenced_currency_metadata_is_missing_or_invalid() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    create_entry(
+        &mut seeded.service,
+        "2026-07-10",
+        "orphan currency",
+        "Dollar card",
+        Some("Food"),
+        EntryType::Expense,
+        1_234,
+        "USD",
+    );
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute_batch("PRAGMA foreign_keys = OFF")
+        .unwrap();
+    let usd_id: String = connection
+        .query_row("SELECT id FROM currencies WHERE code = 'USD'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE ledger_entries SET currency_id = 'missing-currency'
+             WHERE content = 'orphan currency'",
+            [],
+        )
+        .unwrap();
+    assert!(matches!(
+        seeded
+            .service
+            .summary(ReportRange::new(date!(2026 - 07 - 01), date!(2026 - 07 - 31)).unwrap(),),
+        Err(LedgerError::Storage(_))
+    ));
+
+    connection
+        .execute(
+            "UPDATE ledger_entries SET currency_id = ?1 WHERE content = 'orphan currency'",
+            [&usd_id],
+        )
+        .unwrap();
+    connection
+        .execute_batch("PRAGMA ignore_check_constraints = ON")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE currencies SET decimal_places = 19 WHERE id = ?1",
+            [&usd_id],
+        )
+        .unwrap();
+    assert!(matches!(
+        seeded
+            .service
+            .summary(ReportRange::new(date!(2026 - 07 - 01), date!(2026 - 07 - 31)).unwrap(),),
+        Err(LedgerError::Storage(_))
+    ));
 }
 
 #[test]

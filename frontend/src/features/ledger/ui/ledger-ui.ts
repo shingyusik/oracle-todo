@@ -13,7 +13,7 @@ export function formatMinorUnits(value: number, decimalPlaces: number): string {
 
 export function formatMoney(
   value: number,
-  currency: Currency | undefined,
+  currency: Pick<Currency, "code" | "decimalPlaces"> | undefined,
   fallbackCode = "",
 ): string {
   const amount = formatMinorUnits(value, currency?.decimalPlaces ?? 0);

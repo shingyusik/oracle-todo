@@ -1467,18 +1467,23 @@ fn aggregate_entries(
     end: time::Date,
 ) -> LedgerResult<Vec<ReportAggregateRecord>> {
     let (reference_id, name, join, group_by) = match kind {
-        AggregateKind::Summary => ("NULL", "NULL", "", "e.currency_id, currency_code"),
+        AggregateKind::Summary => (
+            "NULL",
+            "NULL",
+            "",
+            "e.currency_id, currency_code, currency_decimal_places",
+        ),
         AggregateKind::Account => (
             "e.account_id",
             "COALESCE(a.name, e.account_id)",
             "LEFT JOIN accounts AS a ON a.id = e.account_id",
-            "e.account_id, reference_name, e.currency_id, currency_code",
+            "e.account_id, reference_name, e.currency_id, currency_code, currency_decimal_places",
         ),
         AggregateKind::Category => (
             "e.transaction_category_id",
             "COALESCE(tc.name, 'Uncategorized')",
             "LEFT JOIN transaction_categories AS tc ON tc.id = e.transaction_category_id",
-            "e.transaction_category_id, reference_name, e.currency_id, currency_code",
+            "e.transaction_category_id, reference_name, e.currency_id, currency_code, currency_decimal_places",
         ),
     };
     let sql = format!(
@@ -1487,6 +1492,7 @@ fn aggregate_entries(
             {name} AS reference_name,
             e.currency_id,
             COALESCE(c.code, e.currency_id) AS currency_code,
+            c.decimal_places AS currency_decimal_places,
             COALESCE(SUM(CASE WHEN e.entry_type = 'income'
                 THEN e.amount_minor ELSE 0 END), 0) AS income_minor,
             COALESCE(SUM(CASE WHEN e.entry_type = 'expense'
@@ -1514,15 +1520,23 @@ fn aggregate_entries(
         .map_err(storage_error)?;
     let mut records = Vec::new();
     while let Some(row) = rows.next().map_err(storage_error)? {
-        let count = row.get::<_, i64>(7).map_err(storage_error)?;
+        let decimal_places = row.get::<_, i64>(4).map_err(storage_error)?;
+        let decimal_places = u8::try_from(decimal_places)
+            .ok()
+            .filter(|value| *value <= 18)
+            .ok_or_else(|| {
+                LedgerError::Storage("invalid ledger report currency precision".to_string())
+            })?;
+        let count = row.get::<_, i64>(8).map_err(storage_error)?;
         records.push(ReportAggregateRecord {
             reference_id: row.get(0).map_err(storage_error)?,
             name: row.get(1).map_err(storage_error)?,
             currency_id: row.get(2).map_err(storage_error)?,
             currency_code: row.get(3).map_err(storage_error)?,
-            income_minor: row.get(4).map_err(storage_error)?,
-            expense_minor: row.get(5).map_err(storage_error)?,
-            net_change_minor: row.get(6).map_err(storage_error)?,
+            decimal_places,
+            income_minor: row.get(5).map_err(storage_error)?,
+            expense_minor: row.get(6).map_err(storage_error)?,
+            net_change_minor: row.get(7).map_err(storage_error)?,
             entry_count: u64::try_from(count).map_err(|_| {
                 LedgerError::Storage("ledger report entry count is negative".to_string())
             })?,

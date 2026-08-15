@@ -33,6 +33,7 @@ export type LedgerReportSummary = {
 export type LedgerReportModel = {
   currencyId: string;
   currencyCode: string;
+  decimalPlaces: number;
   range: ReportRange | null;
   summary: LedgerReportSummary;
   categories: BreakdownRow[];
@@ -61,6 +62,7 @@ export function buildLedgerReportModel(
   return {
     currencyId,
     currencyCode: selected.currencyCode,
+    decimalPlaces: selected.current.decimalPlaces,
     range: comparison.current.range,
     summary: summaryCards(selected.current, selected.previous),
     categories: categories.filter((row) => matching(row) && row.expenseMinor > 0),
@@ -141,10 +143,11 @@ function emptyReportModel(
   return {
     currencyId,
     currencyCode: "",
+    decimalPlaces: 0,
     range: null,
     summary: summaryCards(
-      { currencyId, currencyCode: "", incomeMinor: 0, expenseMinor: 0, netChangeMinor: 0, entryCount: 0 },
-      { currencyId, currencyCode: "", incomeMinor: 0, expenseMinor: 0, netChangeMinor: 0, entryCount: 0 },
+      { currencyId, currencyCode: "", decimalPlaces: 0, incomeMinor: 0, expenseMinor: 0, netChangeMinor: 0, entryCount: 0 },
+      { currencyId, currencyCode: "", decimalPlaces: 0, incomeMinor: 0, expenseMinor: 0, netChangeMinor: 0, entryCount: 0 },
     ),
     categories: [],
     accounts: [],

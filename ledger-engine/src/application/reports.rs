@@ -127,6 +127,7 @@ impl ReportPeriod {
 pub struct CurrencySummary {
     pub currency_id: String,
     pub currency_code: String,
+    pub decimal_places: u8,
     pub income_minor: i64,
     pub expense_minor: i64,
     /// Signed balance movement across every entry type. Transfer pairs cancel.
@@ -147,6 +148,7 @@ pub struct BreakdownRow {
     pub name: String,
     pub currency_id: String,
     pub currency_code: String,
+    pub decimal_places: u8,
     pub income_minor: i64,
     pub expense_minor: i64,
     pub net_change_minor: i64,
@@ -340,25 +342,30 @@ fn align_comparison(
             .1 = Some(row);
     }
     rows.into_iter()
-        .map(
-            |((currency_code, currency_id), (current, previous))| CurrencyComparison {
+        .map(|((currency_code, currency_id), (current, previous))| {
+            let decimal_places = current
+                .or(previous)
+                .expect("comparison row exists")
+                .decimal_places;
+            CurrencyComparison {
                 current: current
                     .cloned()
-                    .unwrap_or_else(|| zero_summary(&currency_id, &currency_code)),
+                    .unwrap_or_else(|| zero_summary(&currency_id, &currency_code, decimal_places)),
                 previous: previous
                     .cloned()
-                    .unwrap_or_else(|| zero_summary(&currency_id, &currency_code)),
+                    .unwrap_or_else(|| zero_summary(&currency_id, &currency_code, decimal_places)),
                 currency_id,
                 currency_code,
-            },
-        )
+            }
+        })
         .collect()
 }
 
-fn zero_summary(currency_id: &str, currency_code: &str) -> CurrencySummary {
+fn zero_summary(currency_id: &str, currency_code: &str, decimal_places: u8) -> CurrencySummary {
     CurrencySummary {
         currency_id: currency_id.to_string(),
         currency_code: currency_code.to_string(),
+        decimal_places,
         income_minor: 0,
         expense_minor: 0,
         net_change_minor: 0,
@@ -505,6 +512,7 @@ fn currency_summary(record: ReportAggregateRecord) -> CurrencySummary {
     CurrencySummary {
         currency_id: record.currency_id,
         currency_code: record.currency_code,
+        decimal_places: record.decimal_places,
         income_minor: record.income_minor,
         expense_minor: record.expense_minor,
         net_change_minor: record.net_change_minor,
@@ -520,6 +528,7 @@ fn breakdown_rows(records: Vec<ReportAggregateRecord>) -> LedgerResult<Vec<Break
             name: record.name.unwrap_or_else(|| "Uncategorized".to_string()),
             currency_id: record.currency_id,
             currency_code: record.currency_code,
+            decimal_places: record.decimal_places,
             income_minor: record.income_minor,
             expense_minor: record.expense_minor,
             net_change_minor: record.net_change_minor,

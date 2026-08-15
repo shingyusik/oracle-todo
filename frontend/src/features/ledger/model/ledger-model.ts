@@ -133,6 +133,7 @@ export type ReportRange = { start: string; end: string };
 export type CurrencySummary = {
   currencyId: string;
   currencyCode: string;
+  decimalPlaces: number;
   incomeMinor: number;
   expenseMinor: number;
   netChangeMinor: number;
@@ -403,6 +404,12 @@ function mapCurrencySummary(value: unknown): CurrencySummary {
   return {
     currencyId: id(wire.currency_id, "currency summary.currency_id"),
     currencyCode: nonEmptyString(wire.currency_code, "currency summary.currency_code"),
+    decimalPlaces: rangeInteger(
+      wire.decimal_places,
+      "currency summary.decimal_places",
+      0,
+      18,
+    ),
     incomeMinor: unsignedInteger(wire.income_minor, "currency summary.income_minor"),
     expenseMinor: unsignedInteger(wire.expense_minor, "currency summary.expense_minor"),
     netChangeMinor: safeInteger(wire.net_change_minor, "currency summary.net_change_minor"),

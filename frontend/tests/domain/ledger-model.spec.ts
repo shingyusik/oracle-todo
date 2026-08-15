@@ -97,6 +97,7 @@ describe("Ledger wire boundary", () => {
     ) => ({
       currency_id: currencyId,
       currency_code: currencyCode,
+      decimal_places: 2,
       income_minor: incomeMinor,
       expense_minor: expenseMinor,
       net_change_minor: netChangeMinor,
@@ -121,7 +122,7 @@ describe("Ledger wire boundary", () => {
     expect(mappedComparison.currencies).toMatchObject([{
       currencyId: "currency-usd",
       currencyCode: "USD",
-      current: { incomeMinor: 1000, expenseMinor: 400, entryCount: 2 },
+      current: { decimalPlaces: 2, incomeMinor: 1000, expenseMinor: 400, entryCount: 2 },
       previous: { incomeMinor: 800, expenseMinor: 500, entryCount: 3 },
     }]);
 
@@ -172,6 +173,7 @@ describe("Ledger wire boundary", () => {
       currencies: [{
         currency_id: "currency-1",
         currency_code: "KRW",
+        decimal_places: 0,
         income_minor: 50000,
         expense_minor: 12000,
         net_change_minor: 38000,
@@ -180,6 +182,7 @@ describe("Ledger wire boundary", () => {
     }).currencies[0]).toEqual({
       currencyId: "currency-1",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       incomeMinor: 50000,
       expenseMinor: 12000,
       netChangeMinor: 38000,
@@ -200,10 +203,23 @@ describe("Ledger wire boundary", () => {
       decimal_places: 19, active: true,
     })).toThrow(/decimal_places/);
     expect(() => mapPage({ items: [], next_offset: -1 }, mapLedgerEntry)).toThrow(/next_offset/);
+    const reportCurrency = {
+      currency_id: "currency-1", currency_code: "KRW",
+      income_minor: 1, expense_minor: 1, net_change_minor: 0, entry_count: 1,
+    };
+    expect(() => mapLedgerSummary({
+      range: { start: "2026-07-01", end: "2026-07-31" },
+      currencies: [reportCurrency],
+    })).toThrow(/decimal_places/);
+    expect(() => mapLedgerSummary({
+      range: { start: "2026-07-01", end: "2026-07-31" },
+      currencies: [{ ...reportCurrency, decimal_places: 19 }],
+    })).toThrow(/decimal_places/);
     expect(() => mapLedgerSummary({
       range: { start: "2026-07-01", end: "2026-07-31" },
       currencies: [{
         currency_id: "currency-1", currency_code: "KRW",
+        decimal_places: 0,
         income_minor: 1, expense_minor: 1, net_change_minor: -2, entry_count: -1,
       }],
     })).toThrow(/entry_count/);
@@ -211,6 +227,7 @@ describe("Ledger wire boundary", () => {
       range: { start: "2026-07-01", end: "2026-07-31" },
       currencies: [{
         currency_id: "currency-1", currency_code: "KRW",
+        decimal_places: 0,
         income_minor: 1, expense_minor: 3, net_change_minor: -2, entry_count: 1,
       }],
     }).currencies[0]?.netChangeMinor).toBe(-2);

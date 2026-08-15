@@ -188,6 +188,21 @@ async fn reports_and_purge_preview_have_stable_surfaces() {
         .as_str()
         .unwrap()
         .to_string();
+    let comparison = app
+        .clone()
+        .oneshot(
+            Request::get(
+                "/api/v1/ledger/reports/compare?current_from=2026-07-01&current_to=2026-07-31&previous_from=2026-06-01&previous_to=2026-06-30",
+            )
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(comparison.status(), StatusCode::OK);
+    let comparison = body(comparison).await;
+    assert_eq!(comparison["current"]["currencies"][0]["decimal_places"], 0);
+    assert_eq!(comparison["currencies"][0]["current"]["decimal_places"], 0);
     let response = app
         .oneshot(
             Request::get(format!("/api/v1/ledger/entries/{id}/purge"))

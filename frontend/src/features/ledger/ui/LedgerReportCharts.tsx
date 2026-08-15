@@ -117,7 +117,7 @@ export function ReportSummaryCards({
   currency,
 }: {
   model: LedgerReportModel;
-  currency: Currency | undefined;
+  currency: Pick<Currency, "code" | "decimalPlaces"> | undefined;
 }) {
   const cards = [model.summary[0], model.summary[1], model.summary[2], model.summary[3]];
   const labels = ["Income", "Expenses", "Net", "Entries"];
@@ -262,7 +262,7 @@ export function LedgerTrendChart({
   currency,
 }: {
   model: LedgerReportModel;
-  currency: Currency | undefined;
+  currency: Pick<Currency, "code" | "decimalPlaces"> | undefined;
 }) {
   const points = model.trend.points;
   const maximum = Math.max(1, ...points.flatMap((point) => [point.incomeMinor, point.expenseMinor]));
@@ -303,18 +303,22 @@ export function LedgerTrendChart({
 
 type ReportSectionProps = {
   model: LedgerReportModel;
-  currency: Currency | undefined;
+  currency: Pick<Currency, "code" | "decimalPlaces"> | undefined;
   onDrilldown?: (target: ReportDrilldownTarget) => void;
 };
 
-function reportMoney(value: number, currency: Currency | undefined, code: string): string {
+function reportMoney(
+  value: number,
+  currency: Pick<Currency, "code" | "decimalPlaces"> | undefined,
+  code: string,
+): string {
   return formatMoney(value, currency, code);
 }
 
 function signedValue(
   value: number,
   count: boolean,
-  currency: Currency | undefined,
+  currency: Pick<Currency, "code" | "decimalPlaces"> | undefined,
   code: string,
 ): string {
   const formatted = count ? Math.abs(value).toString() : reportMoney(Math.abs(value), currency, code);

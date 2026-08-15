@@ -52,7 +52,10 @@ export function LedgerReports({
       currencyId,
     )
     : null;
-  const currency = state.currencies.find(({ id }) => id === currencyId);
+  const currency = model ? {
+    code: model.currencyCode,
+    decimalPlaces: model.decimalPlaces,
+  } : undefined;
 
   function runReports(selection: Parameters<LedgerController["runReports"]>[0]) {
     void controller.runReports(selection).catch(() => undefined);

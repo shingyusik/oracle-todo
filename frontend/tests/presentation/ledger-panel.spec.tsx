@@ -285,6 +285,7 @@ function comparison(start: string, end: string): LedgerComparison {
     currencies: [{
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       incomeMinor: 3000,
       expenseMinor: 1200,
       netChangeMinor: 1800,
@@ -298,6 +299,7 @@ function comparison(start: string, end: string): LedgerComparison {
       currencies: [{
         currencyId: "currency-krw",
         currencyCode: "KRW",
+        decimalPlaces: 0,
         incomeMinor: 2000,
         expenseMinor: 1000,
         netChangeMinor: 1000,
@@ -311,6 +313,7 @@ function comparison(start: string, end: string): LedgerComparison {
       previous: {
         currencyId: "currency-krw",
         currencyCode: "KRW",
+        decimalPlaces: 0,
         incomeMinor: 2000,
         expenseMinor: 1000,
         netChangeMinor: 1000,
@@ -340,6 +343,7 @@ function reportAnalysisState(
     currencies: [{
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       incomeMinor: 3000,
       expenseMinor: 1200,
       netChangeMinor: 1800,
@@ -347,6 +351,7 @@ function reportAnalysisState(
     }, {
       currencyId: "currency-usd",
       currencyCode: "USD",
+      decimalPlaces: 2,
       incomeMinor: 1234,
       expenseMinor: 200,
       netChangeMinor: 1034,
@@ -358,6 +363,7 @@ function reportAnalysisState(
     currencies: [{
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       incomeMinor: 2000,
       expenseMinor: 1500,
       netChangeMinor: 500,
@@ -365,6 +371,7 @@ function reportAnalysisState(
     }, {
       currencyId: "currency-usd",
       currencyCode: "USD",
+      decimalPlaces: 2,
       incomeMinor: 1000,
       expenseMinor: 350,
       netChangeMinor: 650,
@@ -388,6 +395,7 @@ function reportAnalysisState(
     categoryBreakdown: [{
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       referenceId: "category-food",
       name: "Food",
       incomeMinor: 0,
@@ -397,6 +405,7 @@ function reportAnalysisState(
     }, {
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       referenceId: "category-transit",
       name: "Transit",
       incomeMinor: 0,
@@ -406,6 +415,7 @@ function reportAnalysisState(
     }, {
       currencyId: "currency-usd",
       currencyCode: "USD",
+      decimalPlaces: 2,
       referenceId: "category-food",
       name: "Food",
       incomeMinor: 0,
@@ -416,6 +426,7 @@ function reportAnalysisState(
     accountBreakdown: [{
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       referenceId: "account-cash",
       name: "Cash",
       incomeMinor: 3000,
@@ -425,6 +436,7 @@ function reportAnalysisState(
     }, {
       currencyId: "currency-krw",
       currencyCode: "KRW",
+      decimalPlaces: 0,
       referenceId: null,
       name: "Unknown account",
       incomeMinor: 0,
@@ -434,6 +446,7 @@ function reportAnalysisState(
     }, {
       currencyId: "currency-usd",
       currencyCode: "USD",
+      decimalPlaces: 2,
       referenceId: "account-card",
       name: "Card",
       incomeMinor: 1234,
@@ -1978,6 +1991,9 @@ describe("LedgerPanel", () => {
     expect(screen.getByText("56.78 USD")).toBeInTheDocument();
 
     const usdReportState = reportAnalysisState();
+    usdReportState.currencies = usdReportState.currencies.filter(
+      ({ id }) => id !== "currency-usd",
+    );
     usdReportState.comparison = {
       ...usdReportState.comparison!,
       currencies: usdReportState.comparison!.currencies.filter(

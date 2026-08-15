@@ -14,6 +14,7 @@ import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table
 const current = {
   currencyId: "currency-usd",
   currencyCode: "USD",
+  decimalPlaces: 2,
   incomeMinor: 1000,
   expenseMinor: 400,
   netChangeMinor: 600,
@@ -22,6 +23,7 @@ const current = {
 const previous = {
   currencyId: "currency-usd",
   currencyCode: "USD",
+  decimalPlaces: 2,
   incomeMinor: 800,
   expenseMinor: 500,
   netChangeMinor: 300,
