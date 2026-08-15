@@ -331,6 +331,148 @@ function trend(start: string, end: string): LedgerTrend {
   };
 }
 
+function reportAnalysisState(
+  overrides: Partial<LedgerState> = {},
+): LedgerState {
+  const current = {
+    range: { start: "2026-08-01", end: "2026-08-31" },
+    currencies: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      incomeMinor: 3000,
+      expenseMinor: 1200,
+      netChangeMinor: 1800,
+      entryCount: 3,
+    }, {
+      currencyId: "currency-usd",
+      currencyCode: "USD",
+      incomeMinor: 1234,
+      expenseMinor: 200,
+      netChangeMinor: 1034,
+      entryCount: 2,
+    }],
+  };
+  const previous = {
+    range: { start: "2026-07-01", end: "2026-07-31" },
+    currencies: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      incomeMinor: 2000,
+      expenseMinor: 1500,
+      netChangeMinor: 500,
+      entryCount: 2,
+    }, {
+      currencyId: "currency-usd",
+      currencyCode: "USD",
+      incomeMinor: 1000,
+      expenseMinor: 350,
+      netChangeMinor: 650,
+      entryCount: 3,
+    }],
+  };
+
+  return {
+    ...loadedState,
+    reportStatus: "loaded",
+    comparison: {
+      current,
+      previous,
+      currencies: current.currencies.map((currency, index) => ({
+        currencyId: currency.currencyId,
+        currencyCode: currency.currencyCode,
+        current: currency,
+        previous: previous.currencies[index]!,
+      })),
+    },
+    categoryBreakdown: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      referenceId: "category-food",
+      name: "Food",
+      incomeMinor: 0,
+      expenseMinor: 700,
+      netChangeMinor: -700,
+      entryCount: 1,
+    }, {
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      referenceId: "category-transit",
+      name: "Transit",
+      incomeMinor: 0,
+      expenseMinor: 500,
+      netChangeMinor: -500,
+      entryCount: 1,
+    }, {
+      currencyId: "currency-usd",
+      currencyCode: "USD",
+      referenceId: "category-food",
+      name: "Food",
+      incomeMinor: 0,
+      expenseMinor: 200,
+      netChangeMinor: -200,
+      entryCount: 1,
+    }],
+    accountBreakdown: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      referenceId: "account-cash",
+      name: "Cash",
+      incomeMinor: 3000,
+      expenseMinor: 1200,
+      netChangeMinor: 1800,
+      entryCount: 3,
+    }, {
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      referenceId: null,
+      name: "Unknown account",
+      incomeMinor: 0,
+      expenseMinor: 0,
+      netChangeMinor: 0,
+      entryCount: 0,
+    }, {
+      currencyId: "currency-usd",
+      currencyCode: "USD",
+      referenceId: "account-card",
+      name: "Card",
+      incomeMinor: 1234,
+      expenseMinor: 200,
+      netChangeMinor: 1034,
+      entryCount: 2,
+    }],
+    trend: {
+      range: current.range,
+      granularity: "daily",
+      currencies: [{
+        currencyId: "currency-krw",
+        currencyCode: "KRW",
+        points: [{
+          start: "2026-08-01",
+          end: "2026-08-01",
+          incomeMinor: 1000,
+          expenseMinor: 700,
+        }, {
+          start: "2026-08-02",
+          end: "2026-08-02",
+          incomeMinor: 2000,
+          expenseMinor: 500,
+        }],
+      }, {
+        currencyId: "currency-usd",
+        currencyCode: "USD",
+        points: [{
+          start: "2026-08-01",
+          end: "2026-08-01",
+          incomeMinor: 1234,
+          expenseMinor: 200,
+        }],
+      }],
+    },
+    summary: current,
+    ...overrides,
+  };
+}
+
 describe("LedgerPanel", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -1586,6 +1728,20 @@ describe("LedgerPanel", () => {
 
     await waitFor(() => expect(ledger.runReports).toHaveBeenCalledTimes(1));
     expect(ledger.runReports).toHaveBeenCalledWith({ period: "current_month" });
+    expect(screen.getByRole("button", { name: "Current month" }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("submits each Reports period preset", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(<LedgerPanel leafTabId="reports" controller={ledger} />);
+
+    await user.click(screen.getByRole("button", { name: "Previous month" }));
+    await user.click(screen.getByRole("button", { name: "Current year" }));
+
+    expect(ledger.runReports).toHaveBeenNthCalledWith(2, { period: "previous_month" });
+    expect(ledger.runReports).toHaveBeenNthCalledWith(3, { period: "current_year" });
   });
 
   it("submits a custom Reports date range", async () => {
@@ -1632,6 +1788,130 @@ describe("LedgerPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Retry reports" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("keeps currencies separate and preserves the selected currency through loading and retry", async () => {
+    const user = userEvent.setup();
+    const retryReports = vi.fn().mockResolvedValue(undefined);
+    const loaded = controller(reportAnalysisState());
+    loaded.retryReports = retryReports;
+    const view = render(<LedgerPanel leafTabId="reports" controller={loaded} />);
+
+    await user.click(screen.getByRole("tab", { name: "USD" }));
+    expect(screen.getByRole("tab", { name: "USD" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "Report analysis" })).toHaveTextContent("12.34 USD");
+    expect(screen.getByRole("region", { name: "Report analysis" })).not.toHaveTextContent("3000 KRW");
+
+    view.rerender(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState({
+      reportStatus: "loading",
+    }))} />);
+    expect(screen.getByRole("tab", { name: "USD" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "Report analysis" })).toHaveAttribute("aria-busy", "true");
+
+    const failed = controller(reportAnalysisState({
+      reportStatus: "error",
+      reportError: "Report service unavailable",
+    }));
+    failed.retryReports = retryReports;
+    view.rerender(<LedgerPanel leafTabId="reports" controller={failed} />);
+    expect(screen.getByRole("tab", { name: "USD" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("button", { name: "Retry reports" }));
+    expect(retryReports).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders four report summary cards with signed previous-period changes", () => {
+    render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />);
+
+    const summary = screen.getByRole("region", { name: "Summary" });
+    expect(within(summary).getByRole("group", { name: "Income" }))
+      .toHaveTextContent("3000 KRW");
+    expect(within(summary).getByRole("group", { name: "Income" }))
+      .toHaveTextContent("+1000 KRW");
+    expect(within(summary).getByRole("group", { name: "Expenses" }))
+      .toHaveTextContent("−300 KRW");
+    expect(within(summary).getByRole("group", { name: "Net" }))
+      .toHaveTextContent("+1300 KRW");
+    expect(within(summary).getByRole("group", { name: "Entries" }))
+      .toHaveTextContent("+1");
+  });
+
+  it("uses the same expense rows and total for the category donut and table", () => {
+    const onReportDrilldown = vi.fn();
+    render(
+      <LedgerPanel
+        leafTabId="reports"
+        controller={controller(reportAnalysisState())}
+        onReportDrilldown={onReportDrilldown}
+      />,
+    );
+
+    const categories = screen.getByRole("region", { name: "Expense categories" });
+    expect(within(categories).getAllByText("1200 KRW")).toHaveLength(2);
+    expect(within(categories).getByRole("button", { name: /Food, 700 KRW/ }))
+      .toBeInTheDocument();
+    expect(within(categories).getByRole("row", { name: /Transit 500 KRW/ }))
+      .toBeInTheDocument();
+  });
+
+  it("renders account income, expense, and net while omitting invalid drilldowns", async () => {
+    const user = userEvent.setup();
+    const onReportDrilldown = vi.fn();
+    render(
+      <LedgerPanel
+        leafTabId="reports"
+        controller={controller(reportAnalysisState())}
+        onReportDrilldown={onReportDrilldown}
+      />,
+    );
+
+    const accounts = screen.getByRole("region", { name: "Accounts" });
+    expect(within(accounts).getByRole("row", {
+      name: /View Cash transactions 3000 KRW 1200 KRW 1800 KRW/,
+    }))
+      .toBeInTheDocument();
+    expect(within(accounts).queryByRole("button", { name: /Unknown account/ })).toBeNull();
+    await user.click(within(accounts).getByRole("button", { name: "View Cash transactions" }));
+    expect(onReportDrilldown).toHaveBeenCalledWith({
+      range: { start: "2026-08-01", end: "2026-08-31" },
+      currencyId: "currency-krw",
+      kind: "account",
+      referenceId: "account-cash",
+    });
+  });
+
+  it("announces trend granularity and exposes both series at every point", () => {
+    render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />);
+
+    const trendChart = screen.getByRole("img", { name: "Income and expense trend" });
+    expect(screen.getByRole("region", { name: "Trend" })).toHaveTextContent("Daily granularity");
+    expect(trendChart.querySelectorAll("polyline")).toHaveLength(2);
+    expect(screen.getByText("2026-08-01: Income 1000 KRW; Expense 700 KRW"))
+      .toBeInTheDocument();
+    expect(screen.getByText("2026-08-02: Income 2000 KRW; Expense 500 KRW"))
+      .toBeInTheDocument();
+  });
+
+  it("shows zero cards and section-specific messages for an empty report", () => {
+    const empty = reportAnalysisState({
+      comparison: {
+        current: { range: { start: "2026-08-01", end: "2026-08-31" }, currencies: [] },
+        previous: { range: { start: "2026-07-01", end: "2026-07-31" }, currencies: [] },
+        currencies: [],
+      },
+      accountBreakdown: [],
+      categoryBreakdown: [],
+      trend: {
+        range: { start: "2026-08-01", end: "2026-08-31" },
+        granularity: "daily",
+        currencies: [],
+      },
+    });
+    render(<LedgerPanel leafTabId="reports" controller={controller(empty)} />);
+
+    expect(screen.getByRole("region", { name: "Summary" })).toHaveTextContent("Income0");
+    expect(screen.getByText("No expense categories for this period.")).toBeInTheDocument();
+    expect(screen.getByText("No account activity for this period.")).toBeInTheDocument();
+    expect(screen.getByText("No trend data for this period.")).toBeInTheDocument();
   });
 
   it("formats two-decimal transaction, balance, and report minor units exactly", () => {
@@ -1688,29 +1968,32 @@ describe("LedgerPanel", () => {
     expect(screen.getByText("12.34 USD")).toBeInTheDocument();
     expect(screen.getByText("56.78 USD")).toBeInTheDocument();
 
+    const usdReportState = reportAnalysisState();
+    usdReportState.comparison = {
+      ...usdReportState.comparison!,
+      currencies: usdReportState.comparison!.currencies.filter(
+        ({ currencyId }) => currencyId === "currency-usd",
+      ),
+    };
+    usdReportState.trend = {
+      ...usdReportState.trend!,
+      currencies: usdReportState.trend!.currencies.filter(
+        ({ currencyId }) => currencyId === "currency-usd",
+      ),
+    };
     rerender(
       <LedgerPanel
         leafTabId="reports"
-        controller={controller({
-          ...loadedState,
-          reportStatus: "loaded",
-          summary: {
-            range: { start: "2026-07-01", end: "2026-07-31" },
-            currencies: [{
-              currencyId: "currency-usd",
-              currencyCode: "USD",
-              incomeMinor: 1234,
-              expenseMinor: 200,
-              netChangeMinor: 1034,
-              entryCount: 2,
-            }],
-          },
-        })}
+        controller={controller(usdReportState)}
       />,
     );
-    expect(screen.getAllByText("12.34 USD")).toHaveLength(1);
-    expect(screen.getAllByText("2.00 USD")).toHaveLength(1);
-    expect(screen.getAllByText("10.34 USD")).toHaveLength(1);
+    const reportSummary = screen.getByRole("region", { name: "Summary" });
+    expect(within(reportSummary).getByRole("group", { name: "Income" }))
+      .toHaveTextContent("12.34 USD");
+    expect(within(reportSummary).getByRole("group", { name: "Expenses" }))
+      .toHaveTextContent("2.00 USD");
+    expect(within(reportSummary).getByRole("group", { name: "Net" }))
+      .toHaveTextContent("10.34 USD");
     expect(screen.queryByRole("region", { name: "Briefing" })).toBeNull();
   });
 

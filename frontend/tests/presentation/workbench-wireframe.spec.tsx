@@ -13,6 +13,16 @@ import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  LedgerController,
+  LedgerState,
+} from "@/features/ledger/hooks/useLedgerController";
+import * as ledgerControllerHooks from "@/features/ledger/hooks/useLedgerController";
+import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
+import {
+  createLedgerTableViews,
+  defaultLedgerTableSettings,
+} from "@/features/ledger/model/ledger-table-views";
 import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
 import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
 import type {
@@ -28,6 +38,219 @@ beforeEach(() => {
   window.localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
 });
+
+function reportTransaction(
+  id: string,
+  content: string,
+  overrides: Partial<LedgerEntryView["entry"]> = {},
+  names: Partial<Pick<LedgerEntryView, "accountName" | "categoryName" | "currencyCode">> = {},
+): LedgerEntryView {
+  return {
+    accountName: "Cash",
+    categoryName: "Food",
+    currencyCode: "KRW",
+    ...names,
+    entry: {
+      id,
+      date: "2026-08-05",
+      writtenAt: "2026-08-05T00:00:00Z",
+      content,
+      transactionCategoryId: "category-food",
+      accountId: "account-cash",
+      entryType: "expense",
+      amountMinor: 700,
+      currencyId: "currency-krw",
+      transferGroupId: null,
+      source: "ui",
+      notes: null,
+      createdAt: "2026-08-05T00:00:00Z",
+      updatedAt: "2026-08-05T00:00:00Z",
+      deletedAt: null,
+      ...overrides,
+    },
+  };
+}
+
+function reportLedgerController() {
+  const current = {
+    range: { start: "2026-08-01", end: "2026-08-31" },
+    currencies: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      incomeMinor: 3000,
+      expenseMinor: 800,
+      netChangeMinor: 2200,
+      entryCount: 2,
+    }],
+  };
+  const previous = {
+    range: { start: "2026-07-01", end: "2026-07-31" },
+    currencies: [{
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      incomeMinor: 2000,
+      expenseMinor: 500,
+      netChangeMinor: 1500,
+      entryCount: 1,
+    }],
+  };
+  const state: LedgerState = {
+    status: "loaded",
+    error: null,
+    entries: [
+      reportTransaction("matching", "Matching lunch"),
+      reportTransaction("other-category", "Bus fare", {
+        transactionCategoryId: "category-transit",
+      }, { categoryName: "Transit" }),
+      reportTransaction("other-account", "Card lunch", {
+        accountId: "account-card",
+      }, { accountName: "Card" }),
+      reportTransaction("outside-range", "July lunch", { date: "2026-07-31" }),
+      reportTransaction("other-currency", "Dollar lunch", {
+        currencyId: "currency-usd",
+      }, { currencyCode: "USD" }),
+    ],
+    currencies: [{
+      id: "currency-krw",
+      code: "KRW",
+      name: "Korean won",
+      symbol: "₩",
+      decimalPlaces: 0,
+      active: true,
+    }, {
+      id: "currency-usd",
+      code: "USD",
+      name: "US dollar",
+      symbol: "$",
+      decimalPlaces: 2,
+      active: true,
+    }],
+    accountCategories: [],
+    accounts: [],
+    categories: [],
+    balances: [],
+    reportStatus: "loaded",
+    reportError: null,
+    reportSelection: { period: "current_month" },
+    comparison: {
+      current,
+      previous,
+      currencies: [{
+        currencyId: "currency-krw",
+        currencyCode: "KRW",
+        current: current.currencies[0]!,
+        previous: previous.currencies[0]!,
+      }],
+    },
+    trend: {
+      range: current.range,
+      granularity: "daily",
+      currencies: [{
+        currencyId: "currency-krw",
+        currencyCode: "KRW",
+        points: [],
+      }],
+    },
+    summary: current,
+    accountBreakdown: [{
+      ...current.currencies[0]!,
+      referenceId: "account-cash",
+      name: "Cash",
+    }, {
+      ...current.currencies[0]!,
+      referenceId: null,
+      name: "Unknown account",
+    }],
+    categoryBreakdown: [{
+      ...current.currencies[0]!,
+      incomeMinor: 0,
+      expenseMinor: 700,
+      netChangeMinor: -700,
+      referenceId: "category-food",
+      name: "Food",
+    }, {
+      ...current.currencies[0]!,
+      incomeMinor: 0,
+      expenseMinor: 100,
+      netChangeMinor: -100,
+      referenceId: null,
+      name: "No reference",
+    }],
+  };
+  let views = createLedgerTableViews({
+    "ledger.transactions": {
+      tabs: [{
+        id: "active",
+        name: "Table",
+        settings: defaultLedgerTableSettings("ledger.transactions"),
+      }, {
+        id: "saved",
+        name: "Saved",
+        settings: {
+          ...defaultLedgerTableSettings("ledger.transactions"),
+          filterRules: [{
+            id: "saved-content",
+            field: "content",
+            type: "text",
+            operator: "contains",
+            value: "saved",
+          }],
+        },
+      }],
+    },
+  });
+  const savedSettings = structuredClone(views["ledger.transactions"].tabs[1]!.settings);
+  const ledger = {
+    state,
+    tableViewSaveError: null,
+    retryTableViewSave: vi.fn(),
+    tableViewConfirmation: null,
+    tableTabs: (scope) => views[scope],
+    tableSettings: (scope) => views[scope].draftSettings,
+    tableIsDirty: vi.fn(() => false),
+    updateTableSettings: (scope, updater) => {
+      views = {
+        ...views,
+        [scope]: {
+          ...views[scope],
+          draftSettings: updater(views[scope].draftSettings),
+        },
+      };
+    },
+    selectTableTab: vi.fn(),
+    saveTableTab: vi.fn(),
+    createTableTab: vi.fn(() => true),
+    renameTableTab: vi.fn(() => true),
+    requestDeleteTableTab: vi.fn(),
+    confirmTableViewAction: vi.fn(),
+    cancelTableViewAction: vi.fn(),
+    refresh: vi.fn(),
+    createEntry: vi.fn(),
+    updateEntry: vi.fn(),
+    transfer: vi.fn(),
+    updateTransfer: vi.fn(),
+    archive: vi.fn(),
+    restore: vi.fn(),
+    previewPurge: vi.fn(),
+    purge: vi.fn(),
+    createAccount: vi.fn(),
+    updateAccount: vi.fn(),
+    archiveAccount: vi.fn(),
+    restoreAccount: vi.fn(),
+    previewAccountPurge: vi.fn(),
+    purgeAccount: vi.fn(),
+    createCategory: vi.fn(),
+    updateCategory: vi.fn(),
+    archiveCategory: vi.fn(),
+    restoreCategory: vi.fn(),
+    previewCategoryPurge: vi.fn(),
+    purgeCategory: vi.fn(),
+    runReports: vi.fn(),
+    retryReports: vi.fn(),
+  } satisfies LedgerController;
+
+  return { ledger, savedSettings };
+}
 
 async function statusOptions(title: string): Promise<string[]> {
   const select = await screen.findByLabelText(`Status for ${title}`);
@@ -852,6 +1075,81 @@ describe("WorkbenchPageClient", () => {
       "page",
     );
     expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
+  });
+
+  it("drills a category report into the active Transactions draft and matching rows", async () => {
+    const user = userEvent.setup();
+    const workbench = renderHook(() => useWorkbenchController());
+    const { ledger, savedSettings } = reportLedgerController();
+    vi.spyOn(ledgerControllerHooks, "useLedgerController").mockReturnValue(ledger);
+    const reportsController = {
+      ...workbench.result.current,
+      selection: {
+        ...workbench.result.current.selection,
+        mainTabId: "ledger" as const,
+        leafTabId: "reports" as const,
+        ledgerExpanded: true,
+      },
+    };
+    const view = render(<MainPanel controller={reportsController} />);
+
+    expect(screen.queryByRole("button", { name: /No reference/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /Food, 700 KRW/ }));
+
+    expect(workbench.result.current.selection.leafTabId).toBe("transactions");
+    expect(ledger.tableSettings("ledger.transactions").filterRules).toEqual([
+      expect.objectContaining({ field: "date", operator: "is_between" }),
+      expect.objectContaining({ field: "currency", operator: "is" }),
+      expect.objectContaining({ field: "category", operator: "is" }),
+    ]);
+    expect(ledger.tableTabs("ledger.transactions").tabs[1]!.settings)
+      .toEqual(savedSettings);
+
+    view.rerender(<MainPanel controller={workbench.result.current} />);
+    const transactions = screen.getByRole("table", { name: "Transactions" });
+    expect(within(transactions).getByText("Matching lunch")).toBeInTheDocument();
+    expect(within(transactions).queryByText("Bus fare")).toBeNull();
+    expect(within(transactions).getByText("Card lunch")).toBeInTheDocument();
+    expect(within(transactions).queryByText("July lunch")).toBeNull();
+    expect(within(transactions).queryByText("Dollar lunch")).toBeNull();
+  });
+
+  it("drills an account report into Transactions without changing saved views", async () => {
+    const user = userEvent.setup();
+    const workbench = renderHook(() => useWorkbenchController());
+    const { ledger, savedSettings } = reportLedgerController();
+    vi.spyOn(ledgerControllerHooks, "useLedgerController").mockReturnValue(ledger);
+    const view = render(
+      <MainPanel controller={{
+        ...workbench.result.current,
+        selection: {
+          ...workbench.result.current.selection,
+          mainTabId: "ledger",
+          leafTabId: "reports",
+          ledgerExpanded: true,
+        },
+      }} />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Unknown account/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "View Cash transactions" }));
+
+    expect(workbench.result.current.selection.leafTabId).toBe("transactions");
+    expect(ledger.tableSettings("ledger.transactions").filterRules).toEqual([
+      expect.objectContaining({ field: "date", operator: "is_between" }),
+      expect.objectContaining({ field: "currency", operator: "is" }),
+      expect.objectContaining({ field: "account", operator: "is" }),
+    ]);
+    expect(ledger.tableTabs("ledger.transactions").tabs[1]!.settings)
+      .toEqual(savedSettings);
+
+    view.rerender(<MainPanel controller={workbench.result.current} />);
+    const transactions = screen.getByRole("table", { name: "Transactions" });
+    expect(within(transactions).getByText("Matching lunch")).toBeInTheDocument();
+    expect(within(transactions).getByText("Bus fare")).toBeInTheDocument();
+    expect(within(transactions).queryByText("Card lunch")).toBeNull();
+    expect(within(transactions).queryByText("July lunch")).toBeNull();
+    expect(within(transactions).queryByText("Dollar lunch")).toBeNull();
   });
 
   it("keeps top-level navigation in keyboard focus order", async () => {

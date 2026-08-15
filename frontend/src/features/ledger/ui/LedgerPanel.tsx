@@ -9,6 +9,7 @@ import {
   projectTransactionRows,
   type TransactionRow,
 } from "@/features/ledger/model/transaction-table";
+import type { ReportDrilldownTarget } from "@/features/ledger/model/ledger-reports";
 import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
 import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
 import { LedgerReports } from "@/features/ledger/ui/LedgerReports";
@@ -23,11 +24,13 @@ import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableVie
 type LedgerPanelProps = {
   controller: LedgerController;
   leafTabId?: LedgerTabId;
+  onReportDrilldown?: (target: ReportDrilldownTarget) => void;
 };
 
 export function LedgerPanel({
   controller,
   leafTabId = "transactions",
+  onReportDrilldown,
 }: LedgerPanelProps) {
   const [tombstonedIds, setTombstonedIds] = useState<Set<string>>(() => new Set());
 
@@ -61,7 +64,7 @@ export function LedgerPanel({
     : leafTabId === "categories"
       ? <CategoriesPanel controller={controller} />
       : leafTabId === "reports"
-        ? <LedgerReports controller={controller} />
+        ? <LedgerReports controller={controller} onDrilldown={onReportDrilldown} />
         : (
             <TransactionsPanel
               controller={controller}

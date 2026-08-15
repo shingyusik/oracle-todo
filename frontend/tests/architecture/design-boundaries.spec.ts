@@ -67,6 +67,24 @@ describe("design system boundaries", () => {
     expect(violations).toEqual([]);
   });
 
+  it("keeps Ledger report charts native and on shared chart colors", async () => {
+    const component = await readSource(
+      "src/features/ledger/ui/LedgerReportCharts.tsx",
+    );
+    const css = await readSource("src/styles/globals.css");
+    const externalImports = Array.from(
+      component.matchAll(/from "([^"]+)"/g),
+      ([, dependency]) => dependency,
+    ).filter((dependency) => dependency !== "react" && !dependency.startsWith("@/"));
+
+    expect(externalImports).toEqual([]);
+    expect(component).toContain('type="date"');
+    expect(component).toContain("conic-gradient(");
+    expect(component).toContain("<svg");
+    expect(css).toContain("stroke: var(--color-chart-primary);");
+    expect(css).toContain("stroke: var(--color-chart-secondary);");
+  });
+
   it("keeps the one-column tree sidebar at the typed total width", async () => {
     const source = await readSource("src/styles/globals.css");
     const totalSidebarWidth =

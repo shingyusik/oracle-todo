@@ -23,6 +23,10 @@ import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
 import { useHealthController } from "@/features/health/hooks/useHealthController";
 import { HealthPanel } from "@/features/health/ui/HealthPanel";
 import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
+import {
+  applyReportDrilldown,
+  type ReportDrilldownTarget,
+} from "@/features/ledger/model/ledger-reports";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { RavenApiError } from "@/lib/raven-api";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
@@ -339,7 +343,10 @@ export function MainPanel({ controller }: MainPanelProps) {
   if (isLedgerPanel(controller.selection.leafTabId)) {
     return (
       <main className="main-panel">
-        <LedgerWorkspace leafTabId={controller.selection.leafTabId} />
+        <LedgerWorkspace
+          leafTabId={controller.selection.leafTabId}
+          workbench={controller}
+        />
       </main>
     );
   }
@@ -367,9 +374,26 @@ export function MainPanel({ controller }: MainPanelProps) {
   );
 }
 
-function LedgerWorkspace({ leafTabId }: { leafTabId: LedgerTabId }) {
+function LedgerWorkspace({
+  leafTabId,
+  workbench,
+}: {
+  leafTabId: LedgerTabId;
+  workbench: WorkbenchController;
+}) {
   const controller = useLedgerController();
-  return <LedgerPanel controller={controller} leafTabId={leafTabId} />;
+  function drilldown(target: ReportDrilldownTarget) {
+    controller.updateTableSettings("ledger.transactions", (settings) =>
+      applyReportDrilldown(settings, target));
+    workbench.selectTab("transactions");
+  }
+  return (
+    <LedgerPanel
+      controller={controller}
+      leafTabId={leafTabId}
+      onReportDrilldown={drilldown}
+    />
+  );
 }
 
 function HealthWorkspace({ leafTabId }: { leafTabId: HealthTabId }) {
