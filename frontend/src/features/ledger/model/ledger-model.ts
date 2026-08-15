@@ -143,7 +143,34 @@ export type BreakdownRow = CurrencySummary & {
   referenceId: string | null;
   name: string;
 };
-export type LedgerComparison = { current: LedgerSummary; previous: LedgerSummary };
+export type CurrencyComparison = {
+  currencyId: string;
+  currencyCode: string;
+  current: CurrencySummary;
+  previous: CurrencySummary;
+};
+export type LedgerComparison = {
+  current: LedgerSummary;
+  previous: LedgerSummary;
+  currencies: CurrencyComparison[];
+};
+export type TrendGranularity = "daily" | "weekly" | "monthly";
+export type TrendPoint = {
+  start: string;
+  end: string;
+  incomeMinor: number;
+  expenseMinor: number;
+};
+export type CurrencyTrend = {
+  currencyId: string;
+  currencyCode: string;
+  points: TrendPoint[];
+};
+export type LedgerTrend = {
+  range: ReportRange;
+  granularity: TrendGranularity;
+  currencies: CurrencyTrend[];
+};
 export type LedgerBriefing = { summary: LedgerSummary; markdown: string };
 export type PurgePreview = {
   confirmationId: string;
@@ -301,7 +328,53 @@ export function mapBreakdown(value: unknown): BreakdownRow[] {
 
 export function mapLedgerComparison(value: unknown): LedgerComparison {
   const wire = record(value, "ledger comparison");
-  return { current: mapLedgerSummary(wire.current), previous: mapLedgerSummary(wire.previous) };
+  return {
+    current: mapOrdinalLedgerSummary(wire.current, "ledger comparison.current"),
+    previous: mapOrdinalLedgerSummary(wire.previous, "ledger comparison.previous"),
+    currencies: array(wire.currencies, "ledger comparison.currencies").map((item) => {
+      const currency = record(item, "ledger comparison currency");
+      return {
+        currencyId: id(currency.currency_id, "ledger comparison currency.currency_id"),
+        currencyCode: nonEmptyString(
+          currency.currency_code,
+          "ledger comparison currency.currency_code",
+        ),
+        current: mapCurrencySummary(currency.current),
+        previous: mapCurrencySummary(currency.previous),
+      };
+    }),
+  };
+}
+
+export function mapLedgerTrend(value: unknown): LedgerTrend {
+  const wire = record(value, "ledger trend");
+  const range = record(wire.range, "ledger trend.range");
+  return {
+    range: {
+      start: ordinalDate(range.start, "ledger trend.range.start"),
+      end: ordinalDate(range.end, "ledger trend.range.end"),
+    },
+    granularity: trendGranularity(wire.granularity),
+    currencies: array(wire.currencies, "ledger trend.currencies").map((item) => {
+      const currency = record(item, "ledger trend currency");
+      return {
+        currencyId: id(currency.currency_id, "ledger trend currency.currency_id"),
+        currencyCode: nonEmptyString(
+          currency.currency_code,
+          "ledger trend currency.currency_code",
+        ),
+        points: array(currency.points, "ledger trend currency.points").map((point) => {
+          const wirePoint = record(point, "ledger trend point");
+          return {
+            start: ordinalDate(wirePoint.start, "ledger trend point.start"),
+            end: ordinalDate(wirePoint.end, "ledger trend point.end"),
+            incomeMinor: unsignedInteger(wirePoint.income_minor, "ledger trend point.income_minor"),
+            expenseMinor: unsignedInteger(wirePoint.expense_minor, "ledger trend point.expense_minor"),
+          };
+        }),
+      };
+    }),
+  };
 }
 
 export function mapLedgerBriefing(value: unknown): LedgerBriefing {
@@ -335,6 +408,60 @@ function mapCurrencySummary(value: unknown): CurrencySummary {
     netChangeMinor: safeInteger(wire.net_change_minor, "currency summary.net_change_minor"),
     entryCount: unsignedInteger(wire.entry_count, "currency summary.entry_count"),
   };
+}
+
+function mapOrdinalLedgerSummary(value: unknown, field: string): LedgerSummary {
+  const wire = record(value, field);
+  const range = record(wire.range, `${field}.range`);
+  return {
+    range: {
+      start: ordinalDate(range.start, `${field}.range.start`),
+      end: ordinalDate(range.end, `${field}.range.end`),
+    },
+    currencies: array(wire.currencies, `${field}.currencies`).map(mapCurrencySummary),
+  };
+}
+
+function ordinalDate(value: unknown, field: string): string {
+  const [year, ordinal, ...rest] = array(value, field);
+  if (rest.length > 0) return invalidDate(field);
+  const validYear = safeInteger(year, field);
+  const validOrdinal = safeInteger(ordinal, field);
+  if (validYear < 0 || validYear > 9999 || validOrdinal < 1 || validOrdinal > 366) {
+    return invalidDate(field);
+  }
+  const date = new Date(0);
+  date.setUTCFullYear(validYear, 0, validOrdinal);
+  if (
+    date.getUTCFullYear() !== validYear
+    || date.getUTCMonth() > 11
+    || date.getUTCDate() < 1
+    || validOrdinal !== Math.floor(
+      (Date.UTC(validYear, date.getUTCMonth(), date.getUTCDate())
+        - Date.UTC(validYear, 0, 1)) / 86_400_000,
+    ) + 1
+  ) return invalidDate(field);
+  return isoDate(
+    `${String(validYear).padStart(4, "0")}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`,
+    field,
+  );
+}
+
+function invalidDate(field: string): never {
+  try {
+    isoDate("", field);
+  } catch (cause) {
+    throw cause;
+  }
+  throw new Error("unreachable");
+}
+
+function trendGranularity(value: unknown): TrendGranularity {
+  const result = string(value, "ledger trend.granularity");
+  if (result !== "daily" && result !== "weekly" && result !== "monthly") {
+    return invalidDate("ledger trend.granularity");
+  }
+  return result;
 }
 
 function entryType(value: unknown): LedgerEntryType {

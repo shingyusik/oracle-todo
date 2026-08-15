@@ -23,6 +23,7 @@ describe("ledger table views", () => {
       "entry_type",
       "account",
       "category",
+      "currency",
       "amount",
     ]);
     expect(ledgerSortFieldsForScope("ledger.accounts")).toEqual([

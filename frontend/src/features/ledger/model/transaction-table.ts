@@ -220,6 +220,7 @@ function transactionFilterValue(
   if (field === "category") {
     return row.categoryId ? uniqueValues([row.categoryId, row.categoryLabel]) : [];
   }
+  if (field === "currency") return [row.currencyId, row.currencyCode];
   if (field === "amount") return displayedAmount(row, decimalPlaces);
   return null;
 }

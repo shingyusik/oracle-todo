@@ -37,6 +37,7 @@ const filterFields: Record<LedgerTableScopeId, readonly PlannerFilterField[]> = 
     "entry_type",
     "account",
     "category",
+    "currency",
     "amount",
   ],
   "ledger.accounts": ["name", "account_type", "currency", "current_balance"],

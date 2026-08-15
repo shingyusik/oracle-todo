@@ -4,8 +4,10 @@ import { webcrypto } from "node:crypto";
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
 import {
   mapCurrency,
+  mapLedgerComparison,
   mapLedgerEntry,
   mapLedgerSummary,
+  mapLedgerTrend,
   mapPage,
 } from "@/features/ledger/model/ledger-model";
 
@@ -84,6 +86,75 @@ function stubCrypto() {
 }
 
 describe("Ledger wire boundary", () => {
+  it("maps aligned comparison and trend ordinal dates", () => {
+    const currencySummary = (
+      currencyId: string,
+      currencyCode: string,
+      incomeMinor: number,
+      expenseMinor: number,
+      netChangeMinor: number,
+      entryCount: number,
+    ) => ({
+      currency_id: currencyId,
+      currency_code: currencyCode,
+      income_minor: incomeMinor,
+      expense_minor: expenseMinor,
+      net_change_minor: netChangeMinor,
+      entry_count: entryCount,
+    });
+    const summary = (start: number[], end: number[]) => ({
+      range: { start, end },
+      currencies: [],
+    });
+
+    const mappedComparison = mapLedgerComparison({
+      current: summary([2026, 213], [2026, 243]),
+      previous: summary([2026, 182], [2026, 212]),
+      currencies: [{
+        currency_id: "currency-usd",
+        currency_code: "USD",
+        current: currencySummary("currency-usd", "USD", 1000, 400, 600, 2),
+        previous: currencySummary("currency-usd", "USD", 800, 500, 300, 3),
+      }],
+    });
+    expect(mappedComparison.current.range).toEqual({ start: "2026-08-01", end: "2026-08-31" });
+    expect(mappedComparison.currencies).toMatchObject([{
+      currencyId: "currency-usd",
+      currencyCode: "USD",
+      current: { incomeMinor: 1000, expenseMinor: 400, entryCount: 2 },
+      previous: { incomeMinor: 800, expenseMinor: 500, entryCount: 3 },
+    }]);
+
+    expect(mapLedgerTrend({
+      range: { start: [2026, 213], end: [2026, 214] },
+      granularity: "daily",
+      currencies: [{ currency_id: "currency-usd", currency_code: "USD", points: [{
+        start: [2026, 213], end: [2026, 213], income_minor: 100, expense_minor: 25,
+      }] }],
+    }).currencies[0]?.points[0]?.start).toBe("2026-08-01");
+    expect(mapLedgerTrend({
+      range: { start: [0, 1], end: [0, 1] },
+      granularity: "daily",
+      currencies: [],
+    }).range.start).toBe("0000-01-01");
+  });
+
+  it("rejects invalid ordinal report dates", () => {
+    expect(() => mapLedgerTrend({
+      range: { start: [2026, 366], end: [2026, 366] },
+      granularity: "daily",
+      currencies: [],
+    })).toThrow(/range.start/);
+    expect(() => mapLedgerTrend({
+      range: { start: [2026, 213], end: [2026, 213] },
+      granularity: "daily",
+      currencies: [{ currency_id: "currency-usd", currency_code: "USD", points: [{
+        start: [2026, 213], end: [2026, 213],
+        income_minor: Number.MAX_SAFE_INTEGER + 1, expense_minor: 0,
+      }] }],
+    })).toThrow(/income_minor/);
+  });
+
   it("maps exact minor-unit entry and report fields", () => {
     expect(mapLedgerEntry(entry)).toMatchObject({
       writtenAt: "2026-07-31T01:00:00Z",

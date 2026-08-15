@@ -11,6 +11,7 @@ import {
   type LedgerEntryUpdate,
   type LedgerEntryView,
   type LedgerSummary,
+  type LedgerTrend,
   type MasterPurgePreview,
   type PurgePreview,
   type TransactionCategory,
@@ -28,6 +29,7 @@ import {
   mapLedgerEntry,
   mapLedgerEntryView,
   mapLedgerSummary,
+  mapLedgerTrend,
   mapMasterPurgePreview,
   mapPage,
   mapPurgePreview,
@@ -60,6 +62,9 @@ export type EntryQuery = PageQuery & {
 };
 export type ReportRangeInput = { from: string; to: string };
 export type MonthlyReportInput = { year: number; month: number };
+export type ReportSelection =
+  | { period: "current_month" | "previous_month" | "current_year" }
+  | { period: "custom"; from: string; to: string };
 
 export type CurrencyInput = {
   code: string; name: string; symbol: string; decimalPlaces: number; actor?: string;
@@ -270,15 +275,18 @@ export const ledgerApi = {
   async categoryReport(input: ReportRangeInput): Promise<BreakdownRow[]> {
     return mapBreakdown(await requestJson(apiPath(`${ROOT}/reports/categories`, reportQuery(input))));
   },
-  async compare(
-    current: ReportRangeInput,
-    previous: ReportRangeInput,
-  ): Promise<LedgerComparison> {
+  async compare(input: ReportSelection): Promise<LedgerComparison> {
     return mapLedgerComparison(await requestJson(apiPath(`${ROOT}/reports/compare`, {
-      current_from: current.from,
-      current_to: current.to,
-      previous_from: previous.from,
-      previous_to: previous.to,
+      period: input.period,
+      from: input.period === "custom" ? input.from : undefined,
+      to: input.period === "custom" ? input.to : undefined,
+    })));
+  },
+  async trend(input: ReportRangeInput): Promise<LedgerTrend> {
+    return mapLedgerTrend(await requestJson(apiPath(`${ROOT}/reports/trend`, {
+      from: input.from,
+      to: input.to,
+      granularity: "auto",
     })));
   },
   async briefing(input: ReportRangeInput): Promise<LedgerBriefing> {

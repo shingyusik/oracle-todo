@@ -169,7 +169,12 @@ function ledgerFilterOptions(
       daily: {
         ...empty,
         areas: options(state.accounts),
-        projects: options(state.categories),
+        projects: [
+          ...options(state.categories),
+          ...state.currencies
+            .filter(({ active }) => active)
+            .map(({ id, code }) => ({ value: id, label: code })),
+        ],
         statuses: ["expense", "income", "transfer"]
           .map((value) => ({ value, label: label(value) })),
       },

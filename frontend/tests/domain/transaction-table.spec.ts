@@ -282,6 +282,21 @@ describe("deriveTransactionGroups", () => {
     }))[0]).toEqual(["salary", "food", "coffee", "move"]);
   });
 
+  it("filters transaction rows by their currency id or code", () => {
+    const settings = transactionSettings({
+      filterRules: [{
+        id: "currency", field: "currency", type: "relation", operator: "is", value: ["USD"],
+      }],
+    });
+    const entries = [
+      entryView("usd", "expense", { currencyId: "currency-usd", currencyCode: "USD" }),
+      entryView("krw", "expense", { currencyId: "currency-krw", currencyCode: "KRW" }),
+    ];
+
+    expect(deriveTransactionGroups(entries, settings, "2026-08-01")[0]?.rows.map(({ id }) => id))
+      .toEqual(["usd"]);
+  });
+
   it("filters and sorts amounts in displayed currency units", () => {
     const currencies: Currency[] = [{
       id: "currency-1",
