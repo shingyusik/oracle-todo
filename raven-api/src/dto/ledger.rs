@@ -81,6 +81,21 @@ pub struct TransferBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct UpdateTransferBody {
+    pub date: String,
+    pub content: String,
+    pub from_account: String,
+    pub to_account: String,
+    pub amount: String,
+    pub currency: String,
+    pub notes: Option<String>,
+    #[serde(default = "default_actor")]
+    pub actor: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateCurrencyBody {
     pub code: String,
     pub name: String,

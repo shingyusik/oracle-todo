@@ -80,6 +80,10 @@ export type TransferInput = {
   actor?: string;
 };
 
+export type TransferUpdate = Omit<TransferInput, "writtenAt" | "source"> & {
+  reason?: string | null;
+};
+
 export type Currency = {
   id: string;
   code: string;

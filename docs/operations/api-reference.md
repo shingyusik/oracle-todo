@@ -153,7 +153,7 @@ All routes below use prefix `/api/v1/ledger`.
 | Resource | Routes |
 | --- | --- |
 | Entries | `GET/POST /entries`, `GET/PATCH /entries/:id`, `POST /entries/:id/archive`, `POST /entries/:id/restore`, `GET/DELETE /entries/:id/purge` |
-| Transfers | `POST /transfers`, `GET /transfers/:id` |
+| Transfers | `POST /transfers`, `GET/PATCH /transfers/:id` |
 | Currencies | `GET/POST /currencies`, `PATCH/DELETE /currencies/:id`, `GET /currencies/:id/purge` |
 | Account categories | `GET/POST /account-categories`, `PATCH/DELETE /account-categories/:id`, `GET /account-categories/:id/purge` |
 | Accounts | `GET/POST /accounts`, `PATCH/DELETE /accounts/:id`, `GET /accounts/:id/purge` |

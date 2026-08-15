@@ -101,6 +101,7 @@ function controller(
     createEntry: vi.fn(),
     updateEntry: vi.fn(),
     transfer: vi.fn(),
+    updateTransfer: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
     previewPurge: vi.fn(),

@@ -7,7 +7,9 @@ use ledger_engine::application::commands::{
 use ledger_engine::application::error::LedgerError;
 use ledger_engine::application::ports::{EntryQuery, Page};
 use ledger_engine::application::service::LedgerService;
-use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
+use ledger_engine::application::transfers::{
+    TransferCommand, TransferOperationKey, UpdateTransferCommand,
+};
 use ledger_engine::domain::{EntryType, Money};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
@@ -103,6 +105,125 @@ fn transfer_creates_exactly_two_opposite_rows_and_one_paired_audit() {
     assert_eq!(
         after["in_entry"],
         serde_json::to_value(&input.entry).unwrap()
+    );
+}
+
+#[test]
+fn update_transfer_changes_the_validated_pair_atomically_and_audits_once() {
+    let mut seeded = seeded_service_in_memory();
+    let created = seeded.service.transfer(valid_transfer()).unwrap();
+    let before = seeded
+        .service
+        .show_transfer(&created.transfer_group_id)
+        .unwrap();
+
+    let updated = seeded
+        .service
+        .update_transfer(
+            &created.transfer_group_id,
+            UpdateTransferCommand {
+                date: "2026-08-15".to_string(),
+                content: "Move more savings".to_string(),
+                from_account: "Savings".to_string(),
+                to_account: "Wallet".to_string(),
+                amount: Money::from_minor_units(25_000),
+                currency: "KRW".to_string(),
+                notes: Some("rebalanced".to_string()),
+                actor: "editor".to_string(),
+                reason: Some("correct transfer".to_string()),
+            },
+        )
+        .unwrap();
+
+    assert_eq!(updated.transfer_group_id, created.transfer_group_id);
+    assert_eq!(updated.out_entry.entry.id(), before.out_entry.entry.id());
+    assert_eq!(updated.in_entry.entry.id(), before.in_entry.entry.id());
+    assert_eq!(updated.out_entry.entry.account_id(), seeded.savings_id);
+    assert_eq!(updated.in_entry.entry.account_id(), seeded.wallet_id);
+    assert_eq!(updated.out_entry.entry.content(), "Move more savings");
+    assert_eq!(updated.in_entry.entry.content(), "Move more savings");
+    assert_eq!(updated.amount_minor, 25_000);
+    assert_eq!(
+        updated.out_entry.entry.written_at(),
+        before.out_entry.entry.written_at()
+    );
+    assert_eq!(
+        updated.out_entry.entry.source(),
+        before.out_entry.entry.source()
+    );
+    assert_eq!(
+        updated.out_entry.entry.created_at(),
+        before.out_entry.entry.created_at()
+    );
+    assert_eq!(updated.out_entry.entry.notes(), Some("rebalanced"));
+
+    let events = seeded
+        .service
+        .audit_page("transfer", &created.transfer_group_id, Page::default())
+        .unwrap()
+        .items;
+    assert_eq!(events.len(), 2);
+    let update = events
+        .iter()
+        .find(|event| event.action == "update")
+        .unwrap();
+    assert_eq!(update.actor, "editor");
+    assert_eq!(update.reason.as_deref(), Some("correct transfer"));
+    assert!(update.before.is_some());
+    assert!(update.after.is_some());
+    let doctor = seeded.service.doctor().unwrap();
+    assert!(doctor.healthy, "{:?}", doctor.issues);
+}
+
+#[test]
+fn invalid_transfer_update_rolls_back_both_rows_and_writes_no_audit() {
+    let mut seeded = seeded_service_in_memory();
+    let created = seeded.service.transfer(valid_transfer()).unwrap();
+    let before = seeded
+        .service
+        .show_transfer(&created.transfer_group_id)
+        .unwrap();
+
+    let error = seeded
+        .service
+        .update_transfer(
+            &created.transfer_group_id,
+            UpdateTransferCommand {
+                date: "2026-08-15".to_string(),
+                content: "Invalid move".to_string(),
+                from_account: "Wallet".to_string(),
+                to_account: "Dollar card".to_string(),
+                amount: Money::from_minor_units(25_000),
+                currency: "KRW".to_string(),
+                notes: None,
+                actor: "editor".to_string(),
+                reason: None,
+            },
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        LedgerError::Validation {
+            field: "currency",
+            ..
+        }
+    ));
+    assert_eq!(
+        seeded
+            .service
+            .show_transfer(&created.transfer_group_id)
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        seeded
+            .service
+            .audit_page("transfer", &created.transfer_group_id, Page::default())
+            .unwrap()
+            .items
+            .len(),
+        1
     );
 }
 

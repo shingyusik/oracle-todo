@@ -23,6 +23,7 @@ export type TransactionRow = {
   id: string;
   archiveEntryId: string;
   detailEntry: LedgerEntryView;
+  transferEntry: LedgerEntryView | null;
   kind: "expense" | "income" | "transfer";
   date: string;
   content: string;
@@ -73,6 +74,7 @@ export function projectTransactionRows(entries: LedgerEntryView[]): TransactionR
       id: transferGroupId,
       archiveEntryId: out.entry.id,
       detailEntry: out,
+      transferEntry: incoming,
       kind: "transfer",
       date: out.entry.date,
       content: out.entry.content,
@@ -122,6 +124,7 @@ function projectEntry(detailEntry: LedgerEntryView): TransactionRow {
     id: entry.id,
     archiveEntryId: entry.id,
     detailEntry,
+    transferEntry: null,
     kind: entry.entryType === "income" || entry.entryType === "adjustment_in"
       ? "income"
       : "expense",

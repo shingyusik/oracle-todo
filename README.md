@@ -168,9 +168,9 @@ account, currency, entry type, positive amount, optional transaction category, s
 notes, and lifecycle timestamps. Entry types are `expense`, `income`, `transfer_out`,
 `transfer_in`, `adjustment_out`, and `adjustment_in`.
 
-Transfers are created only by the transfer service as one idempotent operation. The paired
-rows share a transfer-group ID and commit atomically. Current balances are derived from
-opening balances and non-archived entries.
+Transfers are created and updated only by the transfer service. The paired rows share a
+transfer-group ID and commit atomically. Current balances are derived from opening balances
+and non-archived entries.
 
 ### Health Journal
 

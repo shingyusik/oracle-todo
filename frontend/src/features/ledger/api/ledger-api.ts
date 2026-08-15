@@ -16,6 +16,7 @@ import {
   type TransactionCategory,
   type TransactionCategoryKind,
   type TransferInput,
+  type TransferUpdate,
   type TransferView,
   mapAccount,
   mapAccountBalance,
@@ -143,6 +144,12 @@ export const ledgerApi = {
   },
   async getTransfer(id: string): Promise<TransferView> {
     return mapTransfer(await requestJson(`${ROOT}/transfers/${segment(id)}`));
+  },
+  async updateTransfer(id: string, input: TransferUpdate): Promise<TransferView> {
+    return mapTransfer(await requestJson(
+      `${ROOT}/transfers/${segment(id)}`,
+      jsonRequest("PATCH", transferUpdateBody(input)),
+    ));
   },
   listCurrencies: (query: PageQuery = {}) =>
     masterPage(`${ROOT}/currencies`, query, mapCurrency),
@@ -337,6 +344,20 @@ function transferBody(input: TransferInput): JsonObject {
     source: input.source,
     notes: input.notes,
     actor: input.actor,
+  });
+}
+
+function transferUpdateBody(input: TransferUpdate): JsonObject {
+  return clean({
+    date: input.date,
+    content: input.content,
+    from_account: input.fromAccount,
+    to_account: input.toAccount,
+    amount: input.amount,
+    currency: input.currency,
+    notes: input.notes,
+    actor: input.actor,
+    reason: input.reason,
   });
 }
 

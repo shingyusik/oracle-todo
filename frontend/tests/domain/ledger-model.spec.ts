@@ -215,6 +215,39 @@ describe("Ledger wire boundary", () => {
     expect(randomUUID).toHaveBeenCalledTimes(2);
   });
 
+  it("updates a transfer without sending creation-only metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify(transferResponse()),
+      { headers: { "content-type": "application/json" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ledgerApi.updateTransfer("transfer/1", {
+      date: "2026-08-15",
+      content: "Move more",
+      fromAccount: "Bank",
+      toAccount: "Wallet",
+      amount: "2500",
+      currency: "KRW",
+      notes: null,
+      reason: "correct transfer",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/ledger/transfers/transfer%2F1");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(String(init.body))).toEqual({
+      date: "2026-08-15",
+      content: "Move more",
+      from_account: "Bank",
+      to_account: "Wallet",
+      amount: "2500",
+      currency: "KRW",
+      notes: null,
+      reason: "correct transfer",
+    });
+  });
+
   it("bounds retained uncertain transfer keys with oldest-first eviction", async () => {
     const randomUUID = stubCrypto();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));

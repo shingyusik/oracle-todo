@@ -99,7 +99,11 @@ describe("projectTransactionRows", () => {
       accountLabel: "Cash → Bank",
       categoryLabel: "",
       archiveEntryId: "transfer-out-1",
+      transferEntry: {
+        entry: { id: "transfer-in-1", entryType: "transfer_in" },
+      },
     });
+    expect(rows.find(({ id }) => id === "expense-1")?.transferEntry).toBeNull();
     expect(rows.map(({ id }) => id)).not.toContain("archived-expense-1");
     expect(rows.map(({ id }) => id)).not.toContain("unmatched-transfer-in-1");
   });

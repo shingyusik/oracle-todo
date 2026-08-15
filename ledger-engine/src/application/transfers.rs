@@ -4,7 +4,9 @@ use uuid::{Uuid, Version};
 
 use crate::application::entries::{AuditMutation, audit_event, entry_validation, validate_actor};
 use crate::application::error::{LedgerError, LedgerResult};
+use crate::application::lifecycle::validate_transfer_pair;
 use crate::application::ports::LedgerMutationRepository;
+use crate::application::queries::{EntryView, TransferView};
 use crate::application::references::{resolve_account, resolve_currency};
 use crate::application::service::LedgerService;
 use crate::domain::{EntryType, LedgerEntry, LedgerEntryRehydration, Money};
@@ -27,6 +29,19 @@ pub struct TransferCommand {
     pub source: String,
     pub notes: Option<String>,
     pub actor: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateTransferCommand {
+    pub date: String,
+    pub content: String,
+    pub from_account: String,
+    pub to_account: String,
+    pub amount: Money,
+    pub currency: String,
+    pub notes: Option<String>,
+    pub actor: String,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -182,6 +197,129 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
 
         Ok(result)
     }
+
+    pub fn update_transfer(
+        &mut self,
+        transfer_group_id: &str,
+        command: UpdateTransferCommand,
+    ) -> LedgerResult<TransferView> {
+        validate_actor(&command.actor)?;
+        let now = OffsetDateTime::now_utc();
+        let operation_id = Uuid::new_v4().to_string();
+        let mut transaction = self.repository.begin_transaction()?;
+        let before = transaction.list_entries_by_transfer_group(transfer_group_id, false)?;
+        if before.is_empty() {
+            return Err(LedgerError::NotFound(format!(
+                "transfer group {transfer_group_id}"
+            )));
+        }
+        validate_transfer_pair(transfer_group_id, &before)?;
+        let before_out = transfer_side(&before, EntryType::TransferOut)?;
+        let before_in = transfer_side(&before, EntryType::TransferIn)?;
+        let from_account = resolve_account(&*transaction, &command.from_account)?;
+        let to_account = resolve_account(&*transaction, &command.to_account)?;
+        if from_account.id() == to_account.id() {
+            return Err(validation("accounts", "transfer accounts must be distinct"));
+        }
+        let currency = resolve_currency(&*transaction, &command.currency)?;
+        if from_account.currency_id() != to_account.currency_id() {
+            return Err(validation(
+                "currency",
+                "cross-currency transfers require explicit converted amounts and are unsupported",
+            ));
+        }
+        if from_account.currency_id() != currency.id() {
+            return Err(validation(
+                "currency",
+                "transfer currency must match both account currencies",
+            ));
+        }
+
+        let out_entry =
+            updated_transfer_entry(before_out, &command, from_account.id(), currency.id(), now)?;
+        let in_entry =
+            updated_transfer_entry(before_in, &command, to_account.id(), currency.id(), now)?;
+        let after = [&out_entry, &in_entry];
+        transaction.update_entry(&out_entry)?;
+        transaction.update_entry(&in_entry)?;
+        let before_audit = TransferAudit {
+            operation_id: &operation_id,
+            transfer_group_id,
+            out_entry: before_out,
+            in_entry: before_in,
+        };
+        let after_audit = TransferAudit {
+            operation_id: &operation_id,
+            transfer_group_id,
+            out_entry: after[0],
+            in_entry: after[1],
+        };
+        transaction.insert_audit_event(&audit_event(AuditMutation {
+            occurred_at: now,
+            actor: command.actor,
+            action: "update",
+            record_type: "transfer",
+            record_id: transfer_group_id,
+            before: Some(&before_audit),
+            after: Some(&after_audit),
+            reason: command.reason,
+        })?)?;
+        transaction.commit()?;
+
+        Ok(TransferView {
+            transfer_group_id: transfer_group_id.to_string(),
+            amount_minor: out_entry.amount().minor_units(),
+            currency_code: Some(currency.code().to_string()),
+            from_account_name: Some(from_account.name().to_string()),
+            to_account_name: Some(to_account.name().to_string()),
+            out_entry: EntryView {
+                entry: out_entry,
+                account_name: Some(from_account.name().to_string()),
+                category_name: None,
+                currency_code: Some(currency.code().to_string()),
+            },
+            in_entry: EntryView {
+                entry: in_entry,
+                account_name: Some(to_account.name().to_string()),
+                category_name: None,
+                currency_code: Some(currency.code().to_string()),
+            },
+        })
+    }
+}
+
+fn transfer_side(entries: &[LedgerEntry], entry_type: EntryType) -> LedgerResult<&LedgerEntry> {
+    entries
+        .iter()
+        .find(|entry| entry.entry_type() == entry_type)
+        .ok_or_else(|| LedgerError::Conflict("transfer pair has a missing side".to_string()))
+}
+
+fn updated_transfer_entry(
+    before: &LedgerEntry,
+    command: &UpdateTransferCommand,
+    account_id: &str,
+    currency_id: &str,
+    updated_at: OffsetDateTime,
+) -> LedgerResult<LedgerEntry> {
+    LedgerEntry::rehydrate(LedgerEntryRehydration {
+        id: before.id().to_string(),
+        date: command.date.clone(),
+        written_at: before.written_at(),
+        content: command.content.clone(),
+        transaction_category_id: None,
+        account_id: account_id.to_string(),
+        entry_type: before.entry_type(),
+        amount: command.amount,
+        currency_id: currency_id.to_string(),
+        transfer_group_id: before.transfer_group_id().map(str::to_string),
+        source: before.source().to_string(),
+        notes: command.notes.clone(),
+        created_at: before.created_at(),
+        updated_at,
+        deleted_at: before.deleted_at(),
+    })
+    .map_err(entry_validation)
 }
 
 fn canonical_payload(command: &TransferCommand) -> CanonicalTransferPayload {

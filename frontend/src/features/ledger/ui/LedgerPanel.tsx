@@ -4,7 +4,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { LedgerTabId } from "@/domain/workbench/navigation";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
-import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import {
   deriveTransactionGroups,
   projectTransactionRows,
@@ -14,7 +13,7 @@ import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
 import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
 import { LedgerReports } from "@/features/ledger/ui/LedgerReports";
 import { TransactionCreateDialog } from "@/features/ledger/ui/TransactionCreateDialog";
-import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
+import { TransactionDetail } from "@/features/ledger/ui/TransactionDetail";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 import { useLifecycleAction } from "@/features/ledger/ui/ledger-ui";
@@ -109,7 +108,7 @@ function TransactionsPanel({
   tombstonedIds: ReadonlySet<string>;
   setTombstonedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
-  const [editing, setEditing] = useState<LedgerEntryView | null>(null);
+  const [editing, setEditing] = useState<TransactionRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -150,7 +149,7 @@ function TransactionsPanel({
   useEffect(() => {
     if (
       editing &&
-      !activeRows.some(({ detailEntry }) => detailEntry.entry.id === editing.entry.id)
+      !activeRows.some(({ id }) => id === editing.id)
     ) {
       setEditing(null);
     }
@@ -190,7 +189,21 @@ function TransactionsPanel({
   }
 
   function openTransaction(row: TransactionRow) {
-    setEditing(row.detailEntry);
+    setEditing(row);
+  }
+
+  if (editing) {
+    return (
+      <TransactionDetail
+        controller={controller}
+        row={editing}
+        onBack={() => setEditing(null)}
+        onArchived={() => {
+          setTombstonedIds((current) => new Set(current).add(editing.id));
+          setEditing(null);
+        }}
+      />
+    );
   }
 
   return (
@@ -209,19 +222,6 @@ function TransactionsPanel({
         }}
         archiveDisabled={selectedIds.length === 0 || actions.isPending("archive-selected")}
       />
-      {editing ? (
-        <TransactionForm
-          key={editing.entry.id}
-          controller={controller}
-          entry={editing}
-          onSaved={() => setEditing(null)}
-        />
-      ) : null}
-      {editing && (
-        <button type="button" onClick={() => setEditing(null)}>
-          Cancel transaction edit
-        </button>
-      )}
       <TransactionsTable
         controller={controller}
         groups={groups}

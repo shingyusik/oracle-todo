@@ -24,6 +24,7 @@ import type {
   PurgePreview,
   TransactionCategory,
   TransferInput,
+  TransferUpdate,
 } from "@/features/ledger/model/ledger-model";
 import {
   createLedgerTableViews,
@@ -107,6 +108,7 @@ export type LedgerController = {
   createEntry(input: LedgerEntryInput): Promise<void>;
   updateEntry(id: string, input: LedgerEntryUpdate): Promise<void>;
   transfer(input: TransferInput): Promise<void>;
+  updateTransfer(id: string, input: TransferUpdate): Promise<void>;
   archive(id: string): Promise<void>;
   restore(id: string): Promise<void>;
   previewPurge(id: string): Promise<PurgePreview>;
@@ -472,6 +474,7 @@ export function useLedgerController(): LedgerController {
     createEntry: (input) => mutate(() => ledgerApi.createEntry(input), true),
     updateEntry: (id, input) => mutate(() => ledgerApi.updateEntry(id, input)),
     transfer: (input) => mutate(() => ledgerApi.createTransfer(input), true),
+    updateTransfer: (id, input) => mutate(() => ledgerApi.updateTransfer(id, input)),
     archive: (id) => mutate(() => ledgerApi.archiveEntry(id)),
     restore: (id) => mutate(() => ledgerApi.restoreEntry(id)),
     previewPurge: ledgerApi.previewEntryPurge,

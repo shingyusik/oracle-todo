@@ -10,7 +10,9 @@ use ledger_engine::application::commands::{
 use ledger_engine::application::ports::{EntryQuery, Page};
 use ledger_engine::application::reports::{ReportRange, YearMonth};
 use ledger_engine::application::service::LedgerService;
-use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
+use ledger_engine::application::transfers::{
+    TransferCommand, TransferOperationKey, UpdateTransferCommand,
+};
 use ledger_engine::domain::Money;
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use serde::Deserialize;
@@ -21,6 +23,7 @@ use crate::dto::ledger::{
     CreateAccountBody, CreateAccountCategoryBody, CreateCategoryBody, CreateCurrencyBody,
     CreateEntryBody, PageBody, PurgeBody, TransferBody, UpdateAccountBody,
     UpdateAccountCategoryBody, UpdateCategoryBody, UpdateCurrencyBody, UpdateEntryBody,
+    UpdateTransferBody,
 };
 use crate::{ApiError, RavenApiState};
 
@@ -37,7 +40,7 @@ pub fn router() -> Router<RavenApiState> {
             get(preview_purge_entry).delete(purge_entry),
         )
         .route("/transfers", post(create_transfer))
-        .route("/transfers/:id", get(get_transfer))
+        .route("/transfers/:id", get(get_transfer).patch(update_transfer))
         .route("/currencies", get(list_currencies).post(create_currency))
         .route(
             "/currencies/:id",
@@ -330,6 +333,34 @@ async fn get_transfer(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let transfer = ledger(&state, move |service| service.show_transfer(&id)).await?;
+    Ok(Json(json!(transfer)))
+}
+
+async fn update_transfer(
+    State(state): State<RavenApiState>,
+    Path(id): Path<String>,
+    body: Result<Json<UpdateTransferBody>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let body = json_value(body)?;
+    let transfer = ledger(&state, move |service| {
+        let precision = service.resolve_active_currency_precision(&body.currency)?;
+        let amount = parse_money(&body.amount, precision, "amount")?;
+        service.update_transfer(
+            &id,
+            UpdateTransferCommand {
+                date: body.date,
+                content: body.content,
+                from_account: body.from_account,
+                to_account: body.to_account,
+                amount,
+                currency: body.currency,
+                notes: body.notes,
+                actor: body.actor,
+                reason: body.reason,
+            },
+        )
+    })
+    .await?;
     Ok(Json(json!(transfer)))
 }
 

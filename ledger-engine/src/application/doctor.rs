@@ -1427,7 +1427,7 @@ fn validate_transfer_audit(
 ) -> Result<(), AuditSemanticError> {
     if !matches!(
         audit.action.as_str(),
-        "create" | "archive" | "restore" | "purge"
+        "create" | "update" | "archive" | "restore" | "purge"
     ) {
         return Err(AuditSemanticError::Transition(format!(
             "transfer action {} is not allowed",
@@ -1455,6 +1455,21 @@ fn validate_transfer_audit(
                 return Err(AuditSemanticError::Transition(
                     "transfer create must produce two active entries with matching lifecycle \
                      timestamps"
+                        .to_string(),
+                ));
+            }
+        }
+        ("update", Some(before_value), Some(before), Some(after_value), Some(after)) => {
+            if !before.has_consistent_pair_state()
+                || !after.has_consistent_pair_state()
+                || before.out.deleted_at.is_some()
+                || after.out.deleted_at.is_some()
+                || before.out.updated_at == after.out.updated_at
+                || before.operation_id != after.operation_id
+                || !transfer_update_immutable_payload_equal(before_value, after_value)
+            {
+                return Err(AuditSemanticError::Transition(
+                    "transfer update must change both active entries together and preserve immutable fields"
                         .to_string(),
                 ));
             }
@@ -1630,6 +1645,33 @@ fn entry_lifecycle_payload_equal(before: &Value, after: &Value) -> bool {
 
 fn transfer_lifecycle_payload_equal(before: &Value, after: &Value) -> bool {
     lifecycle_payload(before, true) == lifecycle_payload(after, true)
+}
+
+fn transfer_update_immutable_payload_equal(before: &Value, after: &Value) -> bool {
+    transfer_update_immutable_payload(before) == transfer_update_immutable_payload(after)
+}
+
+fn transfer_update_immutable_payload(snapshot: &Value) -> Value {
+    let mut snapshot = snapshot.clone();
+    if let Some(object) = snapshot.as_object_mut() {
+        object.remove("operation_id");
+        for field in ["out_entry", "in_entry"] {
+            if let Some(entry) = object.get_mut(field).and_then(Value::as_object_mut) {
+                for mutable in [
+                    "date",
+                    "content",
+                    "account_id",
+                    "amount",
+                    "currency_id",
+                    "notes",
+                    "updated_at",
+                ] {
+                    entry.remove(mutable);
+                }
+            }
+        }
+    }
+    snapshot
 }
 
 fn lifecycle_payload(snapshot: &Value, transfer: bool) -> Value {

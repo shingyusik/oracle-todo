@@ -43,6 +43,15 @@ fn app() -> (tempfile::TempDir, axum::Router) {
         })
         .unwrap();
     service
+        .create_account(CreateAccount {
+            name: "Savings".into(),
+            category: account_category.id().into(),
+            currency: currency.id().into(),
+            opening_balance: Money::from_minor_units(0),
+            actor: "test".into(),
+        })
+        .unwrap();
+    service
         .create_category(CreateTransactionCategory {
             name: "Food".into(),
             parent: None,
@@ -311,6 +320,90 @@ async fn entry_update_preserves_explicit_null_clear_semantics() {
     let response = app.oneshot(update).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert!(body(response).await["notes"].is_null());
+}
+
+#[tokio::test]
+async fn update_transfer_changes_the_pair_through_one_strict_safe_route() {
+    let (_temp, app) = app();
+    let create = Request::post("/api/v1/ledger/transfers")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "operation_key": "10000000-0000-4000-8000-000000000001",
+                "date": "2026-07-31",
+                "written_at": "2026-07-31T01:00:00Z",
+                "content": "Move savings",
+                "from_account": "Wallet",
+                "to_account": "Savings",
+                "amount": "12000",
+                "currency": "KRW"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(create).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let group_id = body(response).await["transfer_group_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let update = Request::patch(format!("/api/v1/ledger/transfers/{group_id}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "date": "2026-08-15",
+                "content": "Move more savings",
+                "from_account": "Savings",
+                "to_account": "Wallet",
+                "amount": "25000",
+                "currency": "KRW",
+                "notes": null
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(update).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated = body(response).await;
+    assert_eq!(updated["transfer_group_id"], group_id);
+    assert_eq!(updated["amount_minor"], 25_000);
+    assert_eq!(updated["from_account_name"], "Savings");
+    assert_eq!(updated["to_account_name"], "Wallet");
+    assert_eq!(
+        updated["out_entry"]["entry"]["content"],
+        "Move more savings"
+    );
+    assert_eq!(updated["in_entry"]["entry"]["content"], "Move more savings");
+
+    let unknown = Request::patch(format!("/api/v1/ledger/transfers/{group_id}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"internal_id":"hostile"}"#))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(unknown).await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let missing = Request::patch("/api/v1/ledger/transfers/missing")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "date": "2026-08-15",
+                "content": "Missing",
+                "from_account": "Savings",
+                "to_account": "Wallet",
+                "amount": "25000",
+                "currency": "KRW"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.oneshot(missing).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let error = body(response).await;
+    assert_eq!(error["code"], "not_found");
+    assert_eq!(error["message"], "The requested record was not found.");
 }
 
 #[tokio::test]
