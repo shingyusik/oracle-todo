@@ -202,6 +202,86 @@ fn report_periods_derive_the_immediately_preceding_inclusive_range() {
 }
 
 #[test]
+fn report_period_and_trend_boundaries_remain_calendar_aligned() {
+    for (period, current, previous) in [
+        (
+            ReportPeriod::CurrentMonth,
+            ReportRange::new(date!(2026 - 01 - 01), date!(2026 - 01 - 31)).unwrap(),
+            ReportRange::new(date!(2025 - 12 - 01), date!(2025 - 12 - 31)).unwrap(),
+        ),
+        (
+            ReportPeriod::PreviousMonth,
+            ReportRange::new(date!(2025 - 12 - 01), date!(2025 - 12 - 31)).unwrap(),
+            ReportRange::new(date!(2025 - 11 - 01), date!(2025 - 11 - 30)).unwrap(),
+        ),
+    ] {
+        assert_eq!(
+            period.comparison_ranges(date!(2026 - 01 - 15)).unwrap(),
+            (current, previous)
+        );
+    }
+
+    let mut seeded = seeded_service();
+    for (end, expected) in [
+        (date!(2026 - 03 - 03), TrendGranularity::Daily),
+        (date!(2026 - 03 - 04), TrendGranularity::Weekly),
+        (date!(2026 - 06 - 29), TrendGranularity::Weekly),
+        (date!(2026 - 06 - 30), TrendGranularity::Monthly),
+    ] {
+        assert_eq!(
+            seeded
+                .service
+                .trend(ReportRange::new(date!(2026 - 01 - 01), end).unwrap(), None,)
+                .unwrap()
+                .granularity,
+            expected
+        );
+    }
+
+    create_entry(
+        &mut seeded.service,
+        "2026-01-10",
+        "january expense",
+        "Bank",
+        Some("Food"),
+        EntryType::Expense,
+        100,
+        "KRW",
+    );
+    create_entry(
+        &mut seeded.service,
+        "2026-02-10",
+        "february income",
+        "Bank",
+        Some("Salary"),
+        EntryType::Income,
+        300,
+        "KRW",
+    );
+    let archived = create_entry(
+        &mut seeded.service,
+        "2026-01-20",
+        "archived expense",
+        "Bank",
+        Some("Food"),
+        EntryType::Expense,
+        999,
+        "KRW",
+    );
+    seeded.service.archive_entry(archived.id()).unwrap();
+
+    let monthly = seeded
+        .service
+        .trend(
+            ReportRange::new(date!(2026 - 01 - 01), date!(2026 - 02 - 28)).unwrap(),
+            Some(TrendGranularity::Monthly),
+        )
+        .unwrap();
+    assert_eq!(monthly.currencies[0].points[0].expense_minor, 100);
+    assert_eq!(monthly.currencies[0].points[1].income_minor, 300);
+}
+
+#[test]
 fn comparison_aligns_currencies_missing_from_either_period_with_zeroes() {
     let mut seeded = seeded_service();
     create_entry(
@@ -353,7 +433,9 @@ fn trend_uses_clipped_calendar_buckets_auto_granularity_and_empty_series() {
 
 #[test]
 fn trend_allows_366_buckets_and_rejects_367_before_reading_entries() {
-    let seeded = seeded_service();
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let seeded = seeded_service_at(&database);
     let maximum = ReportRange::new(date!(2024 - 01 - 01), date!(2024 - 12 - 31)).unwrap();
     assert!(
         seeded
@@ -362,11 +444,38 @@ fn trend_allows_366_buckets_and_rejects_367_before_reading_entries() {
             .is_ok()
     );
 
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "ALTER TABLE ledger_entries RENAME TO blocked_ledger_entries",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
     let over_limit = ReportRange::new(date!(2024 - 01 - 01), date!(2025 - 01 - 01)).unwrap();
     assert!(matches!(
         seeded
             .service
             .trend(over_limit, Some(TrendGranularity::Daily)),
+        Err(LedgerError::Validation {
+            field: "date_range",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn trend_rejects_directly_constructed_invalid_ranges() {
+    let seeded = seeded_service();
+    assert!(matches!(
+        seeded.service.trend(
+            ReportRange {
+                start: date!(2026 - 07 - 02),
+                end: date!(2026 - 07 - 01),
+            },
+            Some(TrendGranularity::Daily),
+        ),
         Err(LedgerError::Validation {
             field: "date_range",
             ..

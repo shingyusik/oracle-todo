@@ -174,13 +174,13 @@ category lifecycle uses the `active` field on update.
 `GET /reports/compare` accepts either the legacy explicit four-date selector or a period
 selector:
 
-| Selector | Query |
-| --- | --- |
-| Explicit ranges | `current_from`, `current_to`, `previous_from`, `previous_to` |
-| Current month | `period=current_month` |
-| Previous month | `period=previous_month` |
-| Current year | `period=current_year` |
-| Custom | `period=custom&from=YYYY-MM-DD&to=YYYY-MM-DD` |
+| Selector | Query | Comparison period |
+| --- | --- | --- |
+| Explicit ranges | `current_from`, `current_to`, `previous_from`, `previous_to` | Explicitly supplied current and previous ranges |
+| Current month | `period=current_month` | Current calendar month vs. the preceding calendar month |
+| Previous month | `period=previous_month` | Previous calendar month vs. the calendar month before it |
+| Current year | `period=current_year` | Current calendar year vs. the preceding calendar year |
+| Custom | `period=custom&from=YYYY-MM-DD&to=YYYY-MM-DD` | The immediately preceding range of equal inclusive length |
 
 The three presets use the configured local date to select calendar periods. `custom` requires
 both `from` and `to`; its preceding range has the same inclusive number of days and ends the
@@ -192,7 +192,7 @@ has zero totals on that side.
 `GET /reports/trend` requires `from` and `to` and accepts optional
 `granularity=auto|daily|weekly|monthly`. Ranges are inclusive. Series are partitioned by
 currency; each currency with activity receives zero-filled points for missing buckets. Daily,
-weekly (Monday-based), and monthly buckets are clipped to the requested range. Archived
+weekly (Monday-based), and monthly (calendar-month) buckets are clipped to the requested range. Archived
 entries are excluded. With no activity, `currencies` is an empty array. A trend request may
 produce at most 366 buckets; larger requests return the standard validation error.
 

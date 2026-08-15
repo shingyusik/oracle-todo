@@ -853,3 +853,44 @@ fn range(from: &str, to: &str) -> Result<ReportRange, ApiError> {
 const fn default_limit() -> u16 {
     100
 }
+
+#[cfg(test)]
+mod tests {
+    use time::macros::date;
+
+    use super::{ComparePeriod, CompareQuery, ReportRange};
+
+    #[test]
+    fn compare_presets_use_fixed_calendar_ranges() {
+        for (period, current, previous) in [
+            (
+                ComparePeriod::CurrentMonth,
+                ReportRange::new(date!(2026 - 01 - 01), date!(2026 - 01 - 31)).unwrap(),
+                ReportRange::new(date!(2025 - 12 - 01), date!(2025 - 12 - 31)).unwrap(),
+            ),
+            (
+                ComparePeriod::PreviousMonth,
+                ReportRange::new(date!(2025 - 12 - 01), date!(2025 - 12 - 31)).unwrap(),
+                ReportRange::new(date!(2025 - 11 - 01), date!(2025 - 11 - 30)).unwrap(),
+            ),
+            (
+                ComparePeriod::CurrentYear,
+                ReportRange::new(date!(2026 - 01 - 01), date!(2026 - 12 - 31)).unwrap(),
+                ReportRange::new(date!(2025 - 01 - 01), date!(2025 - 12 - 31)).unwrap(),
+            ),
+        ] {
+            let ranges = CompareQuery {
+                period: Some(period),
+                from: None,
+                to: None,
+                current_from: None,
+                current_to: None,
+                previous_from: None,
+                previous_to: None,
+            }
+            .ranges(date!(2026 - 01 - 15))
+            .unwrap();
+            assert_eq!(ranges, (current, previous));
+        }
+    }
+}

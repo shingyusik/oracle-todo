@@ -250,6 +250,7 @@ impl<R: LedgerReadRepository> LedgerService<R> {
         range: ReportRange,
         granularity: Option<TrendGranularity>,
     ) -> LedgerResult<LedgerTrend> {
+        let range = ReportRange::new(range.start, range.end)?;
         let granularity = granularity.unwrap_or_else(|| automatic_granularity(range));
         validate_trend_bucket_count(range, granularity)?;
         let spans = trend_spans(range, granularity)?;
@@ -418,11 +419,13 @@ fn bucket_start(
 ) -> LedgerResult<Date> {
     let start = match granularity {
         TrendGranularity::Daily => date,
-        TrendGranularity::Weekly => {
-            checked_sub_days(date, i64::from(date.weekday().number_days_from_monday()))?
-        }
+        TrendGranularity::Weekly => date
+            .checked_sub(Duration::days(i64::from(
+                date.weekday().number_days_from_monday(),
+            )))
+            .unwrap_or(Date::MIN),
         TrendGranularity::Monthly => {
-            Date::from_calendar_date(date.year(), date.month(), 1).map_err(|_| date_overflow())?
+            Date::from_calendar_date(date.year(), date.month(), 1).unwrap_or(Date::MIN)
         }
     };
     Ok(start.max(range.start))
@@ -431,12 +434,30 @@ fn bucket_start(
 fn bucket_end(start: Date, granularity: TrendGranularity) -> LedgerResult<Date> {
     match granularity {
         TrendGranularity::Daily => Ok(start),
-        TrendGranularity::Weekly => start
+        TrendGranularity::Weekly => Ok(start
             .checked_add(Duration::days(i64::from(
                 6 - start.weekday().number_days_from_monday(),
             )))
-            .ok_or_else(date_overflow),
-        TrendGranularity::Monthly => Ok(month_range(start.year(), start.month())?.end),
+            .unwrap_or(Date::MAX)),
+        TrendGranularity::Monthly => {
+            let next = if start.month() == Month::December {
+                start
+                    .year()
+                    .checked_add(1)
+                    .and_then(|year| Date::from_calendar_date(year, Month::January, 1).ok())
+            } else {
+                Date::from_calendar_date(
+                    start.year(),
+                    Month::try_from(u8::from(start.month()) + 1)
+                        .expect("calendar month has a successor"),
+                    1,
+                )
+                .ok()
+            };
+            Ok(next
+                .and_then(|date| date.previous_day())
+                .unwrap_or(Date::MAX))
+        }
     }
 }
 
@@ -514,4 +535,29 @@ fn breakdown_rows(records: Vec<ReportAggregateRecord>) -> LedgerResult<Vec<Break
             .then_with(|| left.reference_id.cmp(&right.reference_id))
     });
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weekly_and_monthly_boundaries_saturate_at_date_limits() {
+        let minimum = ReportRange {
+            start: Date::MIN,
+            end: Date::MIN,
+        };
+        assert_eq!(
+            bucket_start(Date::MIN, minimum, TrendGranularity::Weekly).unwrap(),
+            Date::MIN
+        );
+        assert_eq!(
+            bucket_end(Date::MAX, TrendGranularity::Weekly).unwrap(),
+            Date::MAX
+        );
+        assert_eq!(
+            bucket_end(Date::MAX, TrendGranularity::Monthly).unwrap(),
+            Date::MAX
+        );
+    }
 }
