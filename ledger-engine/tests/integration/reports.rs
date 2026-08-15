@@ -5,7 +5,7 @@ use ledger_engine::application::commands::{
 use ledger_engine::application::doctor::{DoctorOptions, DoctorSeverity};
 use ledger_engine::application::export::ExportOptions;
 use ledger_engine::application::ports::Page;
-use ledger_engine::application::reports::{ReportRange, YearMonth};
+use ledger_engine::application::reports::{ReportPeriod, ReportRange, TrendGranularity, YearMonth};
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
 use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
@@ -156,6 +156,198 @@ fn breakdown_comparison_and_briefing_are_deterministically_ordered() {
     assert_eq!(briefing.summary, comparison.current);
     assert!(briefing.markdown.contains("KRW"));
     assert!(briefing.markdown.contains("5000"));
+}
+
+#[test]
+fn report_periods_derive_the_immediately_preceding_inclusive_range() {
+    assert_eq!(
+        ReportPeriod::CurrentMonth
+            .comparison_ranges(date!(2026 - 03 - 15))
+            .unwrap(),
+        (
+            ReportRange::new(date!(2026 - 03 - 01), date!(2026 - 03 - 31)).unwrap(),
+            ReportRange::new(date!(2026 - 02 - 01), date!(2026 - 02 - 28)).unwrap(),
+        )
+    );
+    assert_eq!(
+        ReportPeriod::PreviousMonth
+            .comparison_ranges(date!(2026 - 03 - 15))
+            .unwrap(),
+        (
+            ReportRange::new(date!(2026 - 02 - 01), date!(2026 - 02 - 28)).unwrap(),
+            ReportRange::new(date!(2026 - 01 - 01), date!(2026 - 01 - 31)).unwrap(),
+        )
+    );
+    assert_eq!(
+        ReportPeriod::CurrentYear
+            .comparison_ranges(date!(2024 - 08 - 15))
+            .unwrap(),
+        (
+            ReportRange::new(date!(2024 - 01 - 01), date!(2024 - 12 - 31)).unwrap(),
+            ReportRange::new(date!(2023 - 01 - 01), date!(2023 - 12 - 31)).unwrap(),
+        )
+    );
+    assert_eq!(
+        ReportPeriod::Custom(
+            ReportRange::new(date!(2024 - 03 - 01), date!(2024 - 03 - 03)).unwrap()
+        )
+        .comparison_ranges(date!(2026 - 03 - 15))
+        .unwrap(),
+        (
+            ReportRange::new(date!(2024 - 03 - 01), date!(2024 - 03 - 03)).unwrap(),
+            ReportRange::new(date!(2024 - 02 - 27), date!(2024 - 02 - 29)).unwrap(),
+        )
+    );
+}
+
+#[test]
+fn comparison_aligns_currencies_missing_from_either_period_with_zeroes() {
+    let mut seeded = seeded_service();
+    create_entry(
+        &mut seeded.service,
+        "2026-06-10",
+        "previous won",
+        "Bank",
+        Some("Food"),
+        EntryType::Expense,
+        1_000,
+        "KRW",
+    );
+    create_entry(
+        &mut seeded.service,
+        "2026-07-10",
+        "current dollars",
+        "Dollar card",
+        Some("Food"),
+        EntryType::Expense,
+        2_500,
+        "USD",
+    );
+
+    let comparison = seeded
+        .service
+        .compare(
+            ReportRange::new(date!(2026 - 07 - 01), date!(2026 - 07 - 31)).unwrap(),
+            ReportRange::new(date!(2026 - 06 - 01), date!(2026 - 06 - 30)).unwrap(),
+        )
+        .unwrap();
+
+    assert_eq!(comparison.currencies.len(), 2);
+    assert_eq!(comparison.currencies[0].currency_code, "KRW");
+    assert_eq!(comparison.currencies[0].current.expense_minor, 0);
+    assert_eq!(comparison.currencies[0].previous.expense_minor, 1_000);
+    assert_eq!(comparison.currencies[1].currency_code, "USD");
+    assert_eq!(comparison.currencies[1].current.expense_minor, 2_500);
+    assert_eq!(comparison.currencies[1].previous.expense_minor, 0);
+}
+
+#[test]
+fn trend_separates_currencies_and_zero_fills_inclusive_daily_points() {
+    let mut seeded = seeded_service();
+    create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "won income",
+        "Bank",
+        Some("Salary"),
+        EntryType::Income,
+        3_000,
+        "KRW",
+    );
+    create_entry(
+        &mut seeded.service,
+        "2026-07-03",
+        "won expense",
+        "Bank",
+        Some("Food"),
+        EntryType::Expense,
+        1_000,
+        "KRW",
+    );
+    create_entry(
+        &mut seeded.service,
+        "2026-07-02",
+        "dollar expense",
+        "Dollar card",
+        Some("Food"),
+        EntryType::Expense,
+        500,
+        "USD",
+    );
+
+    let trend = seeded
+        .service
+        .trend(
+            ReportRange::new(date!(2026 - 07 - 01), date!(2026 - 07 - 03)).unwrap(),
+            Some(TrendGranularity::Daily),
+        )
+        .unwrap();
+
+    assert_eq!(trend.granularity, TrendGranularity::Daily);
+    assert_eq!(trend.currencies.len(), 2);
+    assert_eq!(trend.currencies[0].currency_code, "KRW");
+    assert_eq!(trend.currencies[0].points.len(), 3);
+    assert_eq!(trend.currencies[0].points[0].income_minor, 3_000);
+    assert_eq!(trend.currencies[0].points[1].income_minor, 0);
+    assert_eq!(trend.currencies[0].points[2].expense_minor, 1_000);
+    assert_eq!(trend.currencies[1].currency_code, "USD");
+    assert_eq!(trend.currencies[1].points[1].expense_minor, 500);
+}
+
+#[test]
+fn trend_uses_clipped_calendar_buckets_auto_granularity_and_empty_series() {
+    let mut seeded = seeded_service();
+    create_entry(
+        &mut seeded.service,
+        "2026-01-31",
+        "january",
+        "Bank",
+        Some("Food"),
+        EntryType::Expense,
+        100,
+        "KRW",
+    );
+    create_entry(
+        &mut seeded.service,
+        "2026-02-02",
+        "monday",
+        "Bank",
+        Some("Salary"),
+        EntryType::Income,
+        300,
+        "KRW",
+    );
+
+    let weekly = seeded
+        .service
+        .trend(
+            ReportRange::new(date!(2026 - 01 - 31), date!(2026 - 02 - 08)).unwrap(),
+            Some(TrendGranularity::Weekly),
+        )
+        .unwrap();
+    assert_eq!(weekly.currencies[0].points[0].start, date!(2026 - 01 - 31));
+    assert_eq!(weekly.currencies[0].points[0].end, date!(2026 - 02 - 01));
+    assert_eq!(weekly.currencies[0].points[1].start, date!(2026 - 02 - 02));
+    assert_eq!(weekly.currencies[0].points[1].end, date!(2026 - 02 - 08));
+
+    let automatic = seeded
+        .service
+        .trend(
+            ReportRange::new(date!(2026 - 01 - 01), date!(2026 - 12 - 31)).unwrap(),
+            None,
+        )
+        .unwrap();
+    assert_eq!(automatic.granularity, TrendGranularity::Monthly);
+    assert_eq!(automatic.currencies[0].points.len(), 12);
+
+    let empty = seeded
+        .service
+        .trend(
+            ReportRange::new(date!(2025 - 01 - 01), date!(2025 - 01 - 31)).unwrap(),
+            None,
+        )
+        .unwrap();
+    assert!(empty.currencies.is_empty());
 }
 
 #[test]

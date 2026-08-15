@@ -200,6 +200,76 @@ async fn reports_and_purge_preview_have_stable_surfaces() {
     assert_eq!(body(response).await["confirmation_id"], id);
 }
 
+#[tokio::test]
+async fn report_comparison_accepts_presets_and_equal_length_custom_ranges() {
+    let (_temp, app) = app();
+    let preset = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/ledger/reports/compare?period=current_month")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preset.status(), StatusCode::OK);
+
+    let custom = app
+        .oneshot(
+            Request::get(
+                "/api/v1/ledger/reports/compare?period=custom&from=2024-03-01&to=2024-03-03",
+            )
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(custom.status(), StatusCode::OK);
+    let custom = body(custom).await;
+    assert_eq!(custom["current"]["range"]["start"], "2024-03-01");
+    assert_eq!(custom["current"]["range"]["end"], "2024-03-03");
+    assert_eq!(custom["previous"]["range"]["start"], "2024-02-27");
+    assert_eq!(custom["previous"]["range"]["end"], "2024-02-29");
+    assert_eq!(custom["currencies"], json!([]));
+}
+
+#[tokio::test]
+async fn report_trend_returns_stable_empty_series_and_rejects_unsafe_queries() {
+    let (_temp, app) = app();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(
+                "/api/v1/ledger/reports/trend?from=2026-07-01&to=2026-07-31&granularity=daily",
+            )
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = body(response).await;
+    assert_eq!(response["granularity"], "daily");
+    assert_eq!(response["currencies"], json!([]));
+
+    for path in [
+        "/api/v1/ledger/reports/trend?from=2026-07-31&to=2026-07-01",
+        "/api/v1/ledger/reports/trend?from=2026-07-01&to=2026-07-31&granularity=hourly",
+        "/api/v1/ledger/reports/compare?period=custom&from=2026-07-01",
+        "/api/v1/ledger/reports/compare?period=current_month&unexpected=value",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let response = body(response).await;
+        assert_eq!(response["code"], "validation_error");
+        assert_eq!(response["message"], "The request is invalid.");
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn sqlite_requests_complete_concurrently_off_the_async_executor() {
     let (_temp, app) = app();

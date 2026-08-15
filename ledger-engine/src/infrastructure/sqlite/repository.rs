@@ -6,11 +6,11 @@ use time::OffsetDateTime;
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
-    AccountBalanceRecord, AuditActivity, AuditEvent, CandidateMatch, DatabaseHealth,
-    DiagnosticBatch, DiagnosticRow, DiagnosticTable, DiagnosticValue, EntryQuery, EntryViewRecord,
-    ForeignKeyViolation, LedgerExportSnapshot, LedgerMutationRepository, LedgerReadRepository,
-    LedgerRepository, LedgerTransaction, Page, ReportAggregateRecord, StoredAuditEvent,
-    StoredRecord, StoredTransferOperation, TransferOperationRecord,
+    AccountBalanceRecord, AuditActivity, AuditEvent, CandidateMatch, DailyReportRecord,
+    DatabaseHealth, DiagnosticBatch, DiagnosticRow, DiagnosticTable, DiagnosticValue, EntryQuery,
+    EntryViewRecord, ForeignKeyViolation, LedgerExportSnapshot, LedgerMutationRepository,
+    LedgerReadRepository, LedgerRepository, LedgerTransaction, Page, ReportAggregateRecord,
+    StoredAuditEvent, StoredRecord, StoredTransferOperation, TransferOperationRecord,
 };
 use crate::domain::{
     Account, AccountCategory, Currency, LedgerEntry, TransactionCategory, TransactionCategoryKind,
@@ -19,7 +19,7 @@ use crate::domain::{
 use super::audit_json;
 use super::mapping::{
     ACCOUNT_CATEGORY_COLUMNS, ACCOUNT_COLUMNS, AUDIT_COLUMNS, CURRENCY_COLUMNS, ENTRY_COLUMNS,
-    TRANSACTION_CATEGORY_COLUMNS, format_time, row_to_account, row_to_account_category,
+    TRANSACTION_CATEGORY_COLUMNS, format_time, parse_date, row_to_account, row_to_account_category,
     row_to_audit_event, row_to_currency, row_to_entry, row_to_transaction_category,
 };
 use super::{SqliteLedgerRepository, storage_error};
@@ -288,6 +288,45 @@ impl LedgerReadRepository for SqliteLedgerRepository {
         end: time::Date,
     ) -> LedgerResult<Vec<ReportAggregateRecord>> {
         aggregate_entries(&self.connection, AggregateKind::Category, start, end)
+    }
+
+    fn daily_report(
+        &self,
+        start: time::Date,
+        end: time::Date,
+    ) -> LedgerResult<Vec<DailyReportRecord>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT
+                    e.date,
+                    e.currency_id,
+                    COALESCE(c.code, e.currency_id),
+                    COALESCE(SUM(CASE WHEN e.entry_type = 'income'
+                        THEN e.amount_minor ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN e.entry_type = 'expense'
+                        THEN e.amount_minor ELSE 0 END), 0)
+                 FROM ledger_entries AS e
+                 LEFT JOIN currencies AS c ON c.id = e.currency_id
+                 WHERE e.deleted_at IS NULL AND e.date >= ?1 AND e.date <= ?2
+                 GROUP BY e.date, e.currency_id, c.code
+                 ORDER BY e.date, c.code, e.currency_id",
+            )
+            .map_err(storage_error)?;
+        let mut rows = statement
+            .query(params![start.to_string(), end.to_string()])
+            .map_err(storage_error)?;
+        let mut records = Vec::new();
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            records.push(DailyReportRecord {
+                date: parse_date(row.get::<_, String>(0).map_err(storage_error)?.as_str())?,
+                currency_id: row.get(1).map_err(storage_error)?,
+                currency_code: row.get(2).map_err(storage_error)?,
+                income_minor: row.get(3).map_err(storage_error)?,
+                expense_minor: row.get(4).map_err(storage_error)?,
+            });
+        }
+        Ok(records)
     }
 
     fn begin_export_snapshot(&self) -> LedgerResult<Box<dyn LedgerExportSnapshot + '_>> {

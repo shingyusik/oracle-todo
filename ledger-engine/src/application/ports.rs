@@ -141,6 +141,15 @@ pub(crate) struct ReportAggregateRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DailyReportRecord {
+    pub date: Date,
+    pub currency_id: String,
+    pub currency_code: String,
+    pub income_minor: i64,
+    pub expense_minor: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredRecord<T> {
     pub record: T,
     pub created_at: String,
@@ -397,6 +406,7 @@ pub(crate) trait LedgerReadRepository: LedgerRepository {
         start: Date,
         end: Date,
     ) -> LedgerResult<Vec<ReportAggregateRecord>>;
+    fn daily_report(&self, start: Date, end: Date) -> LedgerResult<Vec<DailyReportRecord>>;
     fn begin_export_snapshot(&self) -> LedgerResult<Box<dyn LedgerExportSnapshot + '_>>;
     fn scan_diagnostic_rows(
         &self,

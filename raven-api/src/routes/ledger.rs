@@ -8,7 +8,7 @@ use ledger_engine::application::commands::{
     UpdateAccount, UpdateAccountCategory, UpdateCurrency, UpdateEntry, UpdateTransactionCategory,
 };
 use ledger_engine::application::ports::{EntryQuery, Page};
-use ledger_engine::application::reports::{ReportRange, YearMonth};
+use ledger_engine::application::reports::{ReportPeriod, ReportRange, TrendGranularity, YearMonth};
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::application::transfers::{
     TransferCommand, TransferOperationKey, UpdateTransferCommand,
@@ -80,6 +80,7 @@ pub fn router() -> Router<RavenApiState> {
         .route("/reports/accounts", get(report_accounts))
         .route("/reports/categories", get(report_categories))
         .route("/reports/compare", get(report_compare))
+        .route("/reports/trend", get(report_trend))
         .route("/reports/briefing", get(report_briefing))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
@@ -147,10 +148,90 @@ impl ReportQuery {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CompareQuery {
-    current_from: String,
-    current_to: String,
-    previous_from: String,
-    previous_to: String,
+    period: Option<ComparePeriod>,
+    from: Option<String>,
+    to: Option<String>,
+    current_from: Option<String>,
+    current_to: Option<String>,
+    previous_from: Option<String>,
+    previous_to: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ComparePeriod {
+    CurrentMonth,
+    PreviousMonth,
+    CurrentYear,
+    Custom,
+}
+
+impl CompareQuery {
+    fn ranges(self, as_of: Date) -> Result<(ReportRange, ReportRange), ApiError> {
+        match self {
+            Self {
+                period: None,
+                from: None,
+                to: None,
+                current_from: Some(current_from),
+                current_to: Some(current_to),
+                previous_from: Some(previous_from),
+                previous_to: Some(previous_to),
+            } => Ok((
+                range(&current_from, &current_to)?,
+                range(&previous_from, &previous_to)?,
+            )),
+            Self {
+                period: Some(period),
+                from,
+                to,
+                current_from: None,
+                current_to: None,
+                previous_from: None,
+                previous_to: None,
+            } => {
+                let period = match (period, from, to) {
+                    (ComparePeriod::CurrentMonth, None, None) => ReportPeriod::CurrentMonth,
+                    (ComparePeriod::PreviousMonth, None, None) => ReportPeriod::PreviousMonth,
+                    (ComparePeriod::CurrentYear, None, None) => ReportPeriod::CurrentYear,
+                    (ComparePeriod::Custom, Some(from), Some(to)) => {
+                        ReportPeriod::Custom(range(&from, &to)?)
+                    }
+                    _ => return Err(ApiError::validation(None)),
+                };
+                period.comparison_ranges(as_of).map_err(Into::into)
+            }
+            _ => Err(ApiError::validation(None)),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrendQuery {
+    from: String,
+    to: String,
+    granularity: Option<TrendGranularityQuery>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TrendGranularityQuery {
+    Auto,
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+impl TrendGranularityQuery {
+    const fn explicit(self) -> Option<TrendGranularity> {
+        match self {
+            Self::Auto => None,
+            Self::Daily => Some(TrendGranularity::Daily),
+            Self::Weekly => Some(TrendGranularity::Weekly),
+            Self::Monthly => Some(TrendGranularity::Monthly),
+        }
+    }
 }
 
 async fn list_entries(
@@ -665,10 +746,24 @@ async fn report_compare(
     query: Result<Query<CompareQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let query = query_value(query)?;
-    let current = range(&query.current_from, &query.current_to)?;
-    let previous = range(&query.previous_from, &query.previous_to)?;
+    let as_of = OffsetDateTime::now_utc()
+        .to_offset(state.local_offset())
+        .date();
+    let (current, previous) = query.ranges(as_of)?;
     Ok(Json(json!(
         ledger(&state, move |service| service.compare(current, previous)).await?
+    )))
+}
+
+async fn report_trend(
+    State(state): State<RavenApiState>,
+    query: Result<Query<TrendQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let query = query_value(query)?;
+    let range = range(&query.from, &query.to)?;
+    let granularity = query.granularity.and_then(TrendGranularityQuery::explicit);
+    Ok(Json(json!(
+        ledger(&state, move |service| service.trend(range, granularity)).await?
     )))
 }
 
