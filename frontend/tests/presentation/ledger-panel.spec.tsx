@@ -35,6 +35,7 @@ import {
   useLedgerController,
 } from "@/features/ledger/hooks/useLedgerController";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
+import { AccountSettingsDialog } from "@/features/ledger/ui/AccountSettingsDialog";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
 import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
@@ -497,6 +498,229 @@ describe("LedgerPanel", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("uses complete, keyboard-operable tabs and shows only active settings", async () => {
+    const user = userEvent.setup();
+    const inactiveState = {
+      ...loadedState,
+      accountCategories: [...loadedState.accountCategories, {
+        id: "account-category-old",
+        name: "Old category",
+        parentId: null,
+        liability: false,
+        active: false,
+      }],
+      currencies: [...loadedState.currencies, {
+        id: "currency-old",
+        code: "OLD",
+        name: "Old currency",
+        symbol: "O",
+        decimalPlaces: 2,
+        active: false,
+      }],
+    };
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog
+          controller={controller(inactiveState)}
+          onClose={vi.fn()}
+          returnFocusRef={returnFocusRef}
+        />
+      </>,
+    );
+
+    const tabs = screen.getByRole("tablist", { name: "Account settings sections" });
+    const accountTypes = within(tabs).getByRole("tab", { name: "Account types" });
+    const currencies = within(tabs).getByRole("tab", { name: "Currencies" });
+    expect(accountTypes).toHaveAttribute("id", "account-types-tab");
+    expect(accountTypes).toHaveAttribute("aria-controls", "account-types-panel");
+    expect(accountTypes).toHaveAttribute("aria-selected", "true");
+    expect(accountTypes).toHaveAttribute("tabindex", "0");
+    expect(currencies).toHaveAttribute("id", "currencies-tab");
+    expect(currencies).toHaveAttribute("aria-controls", "currencies-panel");
+    expect(currencies).toHaveAttribute("aria-selected", "false");
+    expect(currencies).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("tabpanel", { name: "Account types" }))
+      .toHaveAttribute("aria-labelledby", "account-types-tab");
+    expect(screen.getAllByText("Cash")).not.toHaveLength(0);
+    expect(screen.queryByText("Old category")).toBeNull();
+
+    accountTypes.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(currencies).toHaveFocus();
+    expect(screen.getByRole("tabpanel", { name: "Currencies" }))
+      .toHaveAttribute("aria-labelledby", "currencies-tab");
+    expect(screen.getByText("KRW")).toBeInTheDocument();
+    expect(screen.queryByText("OLD")).toBeNull();
+    await user.keyboard("{ArrowLeft}");
+    expect(accountTypes).toHaveFocus();
+  });
+
+  it("creates, edits, and deactivates account types with the exact payload", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      accountCategories: [{
+        id: "account-category-bank",
+        name: "Bank",
+        parentId: null,
+        liability: false,
+        active: true,
+      }, ...loadedState.accountCategories],
+    });
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog controller={ledger} onClose={vi.fn()} returnFocusRef={returnFocusRef} />
+      </>,
+    );
+
+    await user.type(screen.getByLabelText("Account type name"), "Card");
+    await user.selectOptions(screen.getByLabelText("Parent account type"), "account-category-bank");
+    await user.click(screen.getByLabelText("Liability"));
+    await user.click(screen.getByRole("button", { name: "Add account type" }));
+    expect(ledger.createAccountCategory).toHaveBeenCalledWith({
+      name: "Card",
+      parent: "account-category-bank",
+      liability: true,
+    });
+    expect(screen.getByLabelText("Account type name")).toHaveValue("");
+
+    await user.click(screen.getByRole("button", { name: "Edit Cash" }));
+    expect(within(screen.getByLabelText("Parent account type"))
+      .queryByRole("option", { name: "Cash" })).toBeNull();
+    await user.clear(screen.getByLabelText("Account type name"));
+    await user.type(screen.getByLabelText("Account type name"), "Wallet");
+    await user.selectOptions(screen.getByLabelText("Parent account type"), "account-category-bank");
+    await user.click(screen.getByLabelText("Liability"));
+    await user.click(screen.getByRole("button", { name: "Update account type" }));
+    expect(ledger.updateAccountCategory).toHaveBeenCalledWith("account-category-cash", {
+      name: "Wallet",
+      parent: "account-category-bank",
+      liability: true,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Deactivate Cash" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(ledger.deactivateAccountCategory).toHaveBeenCalledWith("account-category-cash");
+    expect(ledger.previewAccountPurge).not.toHaveBeenCalled();
+    expect(ledger.purgeAccount).not.toHaveBeenCalled();
+  });
+
+  it("keeps an account type draft and only shows a safe save failure", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    ledger.createAccountCategory = vi.fn().mockRejectedValue(
+      new Error("sqlite /private/raven.sqlite: secret"),
+    );
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog controller={ledger} onClose={vi.fn()} returnFocusRef={returnFocusRef} />
+      </>,
+    );
+
+    await user.type(screen.getByLabelText("Account type name"), "Wallet");
+    await user.click(screen.getByLabelText("Liability"));
+    await user.click(screen.getByRole("button", { name: "Add account type" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save account type.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("sqlite");
+    expect(screen.getByLabelText("Account type name")).toHaveValue("Wallet");
+    expect(screen.getByLabelText("Liability")).toBeChecked();
+  });
+
+  it("creates, edits, validates, and deactivates currencies with the exact payload", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog controller={ledger} onClose={vi.fn()} returnFocusRef={returnFocusRef} />
+      </>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Currencies" }));
+    await user.type(screen.getByLabelText("Currency code"), "JPY");
+    await user.type(screen.getByLabelText("Currency name"), "Japanese yen");
+    await user.type(screen.getByLabelText("Currency symbol"), "¥");
+    await user.clear(screen.getByLabelText("Decimal places"));
+    await user.type(screen.getByLabelText("Decimal places"), "0");
+    await user.click(screen.getByRole("button", { name: "Add currency" }));
+    expect(ledger.createCurrency).toHaveBeenCalledWith({
+      code: "JPY",
+      name: "Japanese yen",
+      symbol: "¥",
+      decimalPlaces: 0,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Edit KRW" }));
+    await user.clear(screen.getByLabelText("Currency code"));
+    await user.type(screen.getByLabelText("Currency code"), "KWR");
+    await user.clear(screen.getByLabelText("Currency name"));
+    await user.type(screen.getByLabelText("Currency name"), "Korean won updated");
+    await user.clear(screen.getByLabelText("Currency symbol"));
+    await user.type(screen.getByLabelText("Currency symbol"), "W");
+    await user.clear(screen.getByLabelText("Decimal places"));
+    await user.type(screen.getByLabelText("Decimal places"), "3");
+    await user.click(screen.getByRole("button", { name: "Update currency" }));
+    expect(ledger.updateCurrency).toHaveBeenCalledWith("currency-krw", {
+      code: "KWR",
+      name: "Korean won updated",
+      symbol: "W",
+      decimalPlaces: 3,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Edit USD" }));
+    await user.clear(screen.getByLabelText("Decimal places"));
+    await user.type(screen.getByLabelText("Decimal places"), "19");
+    await user.click(screen.getByRole("button", { name: "Update currency" }));
+    expect(await screen.findByRole("alert"))
+      .toHaveTextContent("Decimal places must be an integer from 0 to 18.");
+    expect(ledger.updateCurrency).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Decimal places")).toHaveValue(19);
+
+    await user.click(screen.getByRole("button", { name: "Cancel edit" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate KRW" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(ledger.deactivateCurrency).toHaveBeenCalledWith("currency-krw");
+    expect(ledger.previewAccountPurge).not.toHaveBeenCalled();
+    expect(ledger.purgeAccount).not.toHaveBeenCalled();
+  });
+
+  it("keeps currency drafts after safe failures and blocks closing while pending", async () => {
+    const user = userEvent.setup();
+    const request = deferred<void>();
+    const ledger = controller();
+    ledger.createCurrency = vi.fn(() => request.promise);
+    const onClose = vi.fn();
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog controller={ledger} onClose={onClose} returnFocusRef={returnFocusRef} />
+      </>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Currencies" }));
+    await user.type(screen.getByLabelText("Currency code"), "JPY");
+    await user.type(screen.getByLabelText("Currency name"), "Japanese yen");
+    await user.type(screen.getByLabelText("Currency symbol"), "¥");
+    await user.click(screen.getByRole("button", { name: "Add currency" }));
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+
+    await act(async () => request.reject(new Error("raw storage error")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save currency.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("storage");
+    expect(screen.getByLabelText("Currency code")).toHaveValue("JPY");
   });
 
   it("forwards currency mutations and refreshes active currencies", async () => {
