@@ -187,7 +187,8 @@ both `from` and `to`; its preceding range has the same inclusive number of days 
 day before the custom range. The response retains `current` and `previous` summaries and
 also returns aligned `currencies` rows. Each currency remains separate: minor units from
 different currencies are never combined or converted, and a currency missing from one side
-has zero totals on that side.
+has zero totals on that side. Summary and comparison currency rows include `decimal_places`
+so clients can format integer minor units correctly even when a referenced currency is inactive.
 
 `GET /reports/trend` requires `from` and `to` and accepts optional
 `granularity=auto|daily|weekly|monthly`. Ranges are inclusive. Series are partitioned by
