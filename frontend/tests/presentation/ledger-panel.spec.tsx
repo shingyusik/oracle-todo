@@ -134,6 +134,12 @@ function controller(state: LedgerState = loadedState): LedgerController {
     restoreCategory: vi.fn(),
     previewCategoryPurge: vi.fn(),
     purgeCategory: vi.fn(),
+    createCurrency: vi.fn(),
+    updateCurrency: vi.fn(),
+    deactivateCurrency: vi.fn(),
+    createAccountCategory: vi.fn(),
+    updateAccountCategory: vi.fn(),
+    deactivateAccountCategory: vi.fn(),
     runReports: vi.fn().mockResolvedValue(undefined),
     retryReports: vi.fn().mockResolvedValue(undefined),
   };
@@ -491,6 +497,92 @@ describe("LedgerPanel", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("forwards currency mutations and refreshes active currencies", async () => {
+    const refreshedCurrencies = [{
+      id: "currency-jpy",
+      code: "JPY",
+      name: "Japanese yen",
+      symbol: "¥",
+      decimalPlaces: 0,
+      active: true,
+    }];
+    mockLedgerLoads();
+    vi.mocked(ledgerApi.listCurrencies)
+      .mockResolvedValueOnce({ items: loadedState.currencies, nextOffset: null })
+      .mockResolvedValue({ items: refreshedCurrencies, nextOffset: null });
+    vi.spyOn(ledgerApi, "createCurrency").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "updateCurrency").mockResolvedValue({} as never);
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+
+    await act(async () => {
+      await result.current.createCurrency({
+        code: "JPY",
+        name: "Japanese yen",
+        symbol: "¥",
+        decimalPlaces: 0,
+      });
+    });
+    expect(ledgerApi.createCurrency).toHaveBeenCalledWith({
+      code: "JPY",
+      name: "Japanese yen",
+      symbol: "¥",
+      decimalPlaces: 0,
+    });
+    expect(result.current.state.currencies).toEqual(refreshedCurrencies);
+
+    await act(async () => {
+      await result.current.updateCurrency("currency-usd", { name: "US Dollar" });
+      await result.current.deactivateCurrency("currency-usd");
+    });
+    expect(ledgerApi.updateCurrency).toHaveBeenCalledWith("currency-usd", {
+      name: "US Dollar",
+    });
+    expect(ledgerApi.updateCurrency).toHaveBeenCalledWith("currency-usd", { active: false });
+    expect(ledgerApi.listCurrencies).toHaveBeenCalledTimes(4);
+  });
+
+  it("forwards account-category mutations and refreshes active categories", async () => {
+    const refreshedCategories = [{
+      id: "account-type-card",
+      name: "Card",
+      parentId: null,
+      liability: true,
+      active: true,
+    }];
+    mockLedgerLoads();
+    vi.mocked(ledgerApi.listAccountCategories)
+      .mockResolvedValueOnce({ items: loadedState.accountCategories, nextOffset: null })
+      .mockResolvedValue({ items: refreshedCategories, nextOffset: null });
+    vi.spyOn(ledgerApi, "createAccountCategory").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "updateAccountCategory").mockResolvedValue({} as never);
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+
+    await act(async () => {
+      await result.current.createAccountCategory({ name: "Card", liability: true });
+    });
+    expect(ledgerApi.createAccountCategory).toHaveBeenCalledWith({
+      name: "Card",
+      liability: true,
+    });
+    expect(result.current.state.accountCategories).toEqual(refreshedCategories);
+
+    await act(async () => {
+      await result.current.updateAccountCategory("account-type-cash", { name: "Cash" });
+      await result.current.deactivateAccountCategory("account-type-cash");
+    });
+    expect(ledgerApi.updateAccountCategory).toHaveBeenCalledWith("account-type-cash", {
+      name: "Cash",
+    });
+    expect(ledgerApi.updateAccountCategory).toHaveBeenCalledWith("account-type-cash", {
+      active: false,
+    });
+    expect(ledgerApi.listAccountCategories).toHaveBeenCalledTimes(4);
   });
 
   it("uses Transactions as the default leaf and has no Overview", () => {

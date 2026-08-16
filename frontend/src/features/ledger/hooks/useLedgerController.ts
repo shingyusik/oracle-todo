@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ledgerApi,
   type AccountInput,
+  type AccountCategoryInput,
+  type CurrencyInput,
   type Page,
   type ReportSelection,
   type TransactionCategoryInput,
@@ -129,6 +131,12 @@ export type LedgerController = {
   restoreCategory(id: string): Promise<void>;
   previewCategoryPurge(id: string): Promise<MasterPurgePreview>;
   purgeCategory(id: string, confirmation: string): Promise<void>;
+  createCurrency(input: CurrencyInput): Promise<void>;
+  updateCurrency(id: string, input: Partial<CurrencyInput>): Promise<void>;
+  deactivateCurrency(id: string): Promise<void>;
+  createAccountCategory(input: AccountCategoryInput): Promise<void>;
+  updateAccountCategory(id: string, input: Partial<AccountCategoryInput>): Promise<void>;
+  deactivateAccountCategory(id: string): Promise<void>;
   runReports(selection: ReportSelection): Promise<void>;
   retryReports(): Promise<void>;
 };
@@ -524,6 +532,14 @@ export function useLedgerController(): LedgerController {
     purgeCategory: (id, confirmation) =>
       mutate(() =>
         ledgerApi.purgeMaster("transaction-categories", id, confirmation)),
+    createCurrency: (input) => mutate(() => ledgerApi.createCurrency(input)),
+    updateCurrency: (id, input) => mutate(() => ledgerApi.updateCurrency(id, input)),
+    deactivateCurrency: (id) => mutate(() => ledgerApi.updateCurrency(id, { active: false })),
+    createAccountCategory: (input) => mutate(() => ledgerApi.createAccountCategory(input)),
+    updateAccountCategory: (id, input) =>
+      mutate(() => ledgerApi.updateAccountCategory(id, input)),
+    deactivateAccountCategory: (id) =>
+      mutate(() => ledgerApi.updateAccountCategory(id, { active: false })),
     runReports,
     retryReports,
   };
