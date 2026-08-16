@@ -29,6 +29,9 @@ export function LedgerTableViewHeader({
   transactionEntries,
   onAdd,
   addButtonRef,
+  onSettings,
+  settingsButtonRef,
+  settingsLabel,
   onArchiveSelected,
   archiveDisabled = true,
 }: {
@@ -39,6 +42,9 @@ export function LedgerTableViewHeader({
   transactionEntries?: LedgerEntryView[];
   onAdd?: () => void;
   addButtonRef?: React.RefObject<HTMLButtonElement>;
+  onSettings?: () => void;
+  settingsButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  settingsLabel?: string;
   onArchiveSelected?: () => void;
   archiveDisabled?: boolean;
 }) {
@@ -97,6 +103,17 @@ export function LedgerTableViewHeader({
               onClick={onAdd}
             >
               Add transaction
+            </button>
+          ) : null}
+          {scope === "ledger.accounts" && onSettings ? (
+            <button
+              ref={settingsButtonRef as React.RefObject<HTMLButtonElement> | undefined}
+              className="items-toolbar-button"
+              type="button"
+              aria-haspopup="dialog"
+              onClick={onSettings}
+            >
+              {settingsLabel}
             </button>
           ) : null}
         </div>

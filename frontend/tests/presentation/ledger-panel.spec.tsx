@@ -500,6 +500,54 @@ describe("LedgerPanel", () => {
     vi.unstubAllGlobals();
   });
 
+  it("opens Account settings only from Accounts and restores the Accounts form after Escape", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    const { rerender } = render(<LedgerPanel controller={ledger} leafTabId="accounts" />);
+
+    const trigger = screen.getByRole("button", { name: "Account settings" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+    await user.clear(screen.getByLabelText("Opening balance"));
+    await user.type(screen.getByLabelText("Opening balance"), "1200");
+    await user.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Account settings" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Account settings" })).toBeNull();
+    expect(trigger).toHaveFocus();
+    expect(screen.getByLabelText("Opening balance")).toHaveValue("1200");
+    expect(screen.getByRole("button", { name: "Edit Cash" })).toBeInTheDocument();
+
+    rerender(<LedgerPanel controller={ledger} leafTabId="transactions" />);
+    expect(screen.queryByRole("button", { name: "Account settings" })).toBeNull();
+    rerender(<LedgerPanel controller={ledger} leafTabId="categories" />);
+    expect(screen.queryByRole("button", { name: "Account settings" })).toBeNull();
+    rerender(<LedgerPanel controller={ledger} leafTabId="reports" />);
+    expect(screen.queryByRole("button", { name: "Account settings" })).toBeNull();
+  });
+
+  it("keeps the production Account settings dialog open while its save is pending", async () => {
+    const user = userEvent.setup();
+    const request = deferred<void>();
+    const ledger = controller();
+    ledger.createAccountCategory = vi.fn(() => request.promise);
+    render(<LedgerPanel controller={ledger} leafTabId="accounts" />);
+
+    await user.click(screen.getByRole("button", { name: "Account settings" }));
+    await user.type(screen.getByLabelText("Account type name"), "Wallet");
+    await user.click(screen.getByRole("button", { name: "Add account type" }));
+
+    expect(screen.getByRole("dialog", { name: "Account settings" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Account settings" })).toBeInTheDocument();
+
+    await act(async () => request.resolve(undefined));
+  });
+
   it("uses complete, keyboard-operable tabs and shows only active settings", async () => {
     const user = userEvent.setup();
     const inactiveState = {

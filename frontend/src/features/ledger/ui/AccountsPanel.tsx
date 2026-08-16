@@ -9,6 +9,7 @@ import {
   formatMoney,
   useLifecycleAction,
 } from "@/features/ledger/ui/ledger-ui";
+import { AccountSettingsDialog } from "@/features/ledger/ui/AccountSettingsDialog";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 
@@ -17,8 +18,10 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
   const [draft, setDraft] = useState(accountDraft(null, controller.state.currencies));
   const [error, setError] = useState<string | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<Account | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const actions = useLifecycleAction();
   const sectionRef = useRef<HTMLElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   function edit(account: Account | null) {
     setEditing(account);
@@ -73,6 +76,9 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         scope="ledger.accounts"
         title="Accounts"
         headingId="ledger-accounts-heading"
+        onSettings={() => setSettingsOpen(true)}
+        settingsButtonRef={settingsButtonRef}
+        settingsLabel="Account settings"
       />
       <form aria-label={editing ? "Edit account" : "New account"} onSubmit={save}>
         <label className="field-label">
@@ -218,6 +224,13 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
           fallbackFocusRef={sectionRef}
           onCancel={() => setPurgeTarget(null)}
           onConfirm={() => purge(purgeTarget)}
+        />
+      ) : null}
+      {settingsOpen ? (
+        <AccountSettingsDialog
+          controller={controller}
+          onClose={() => setSettingsOpen(false)}
+          returnFocusRef={settingsButtonRef}
         />
       ) : null}
     </section>
