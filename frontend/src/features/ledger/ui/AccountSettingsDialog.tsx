@@ -252,7 +252,7 @@ function AccountSettingsDialogContent({
     <div className="confirmation-backdrop">
       <div
         ref={dialogRef}
-        className="confirmation-dialog"
+        className="confirmation-dialog ledger-account-settings-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Account settings"
