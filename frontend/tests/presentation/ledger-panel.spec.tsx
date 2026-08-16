@@ -548,6 +548,88 @@ describe("LedgerPanel", () => {
     await act(async () => request.resolve(undefined));
   });
 
+  it("isolates Account settings and traps focus between its enabled controls", async () => {
+    const user = userEvent.setup();
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    const view = render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog
+          controller={controller()}
+          onClose={vi.fn()}
+          returnFocusRef={returnFocusRef}
+        />
+      </>,
+    );
+
+    const close = screen.getByRole("button", { name: "Close" });
+    const lastControl = screen.getByRole("button", { name: "Deactivate Cash" });
+    expect(view.container).toHaveAttribute("aria-hidden", "true");
+    expect(view.container).toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(close).toHaveFocus();
+
+    close.focus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(lastControl).toHaveFocus();
+    await user.keyboard("{Tab}");
+    expect(close).toHaveFocus();
+  });
+
+  it("keeps Account settings open and returns focus when Escape cancels deactivation", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog
+          controller={controller()}
+          onClose={onClose}
+          returnFocusRef={returnFocusRef}
+        />
+      </>,
+    );
+
+    const deactivate = screen.getByRole("button", { name: "Deactivate Cash" });
+    await user.click(deactivate);
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Deactivate Cash?" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Account settings" })).toBeInTheDocument();
+    await waitFor(() => expect(deactivate).toHaveFocus());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("executes a pending settings deactivation only once", async () => {
+    const user = userEvent.setup();
+    const request = deferred<void>();
+    const ledger = controller();
+    ledger.deactivateAccountCategory = vi.fn(() => request.promise);
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog
+          controller={ledger}
+          onClose={vi.fn()}
+          returnFocusRef={returnFocusRef}
+        />
+      </>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Deactivate Cash" }));
+    const confirm = screen.getByRole("button", { name: "Deactivate" });
+    await user.click(confirm);
+    await user.click(confirm);
+
+    expect(ledger.deactivateAccountCategory).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog", { name: "Deactivate Cash?" }))
+      .toHaveAttribute("aria-busy", "true");
+    await act(async () => request.resolve(undefined));
+  });
+
   it("uses complete, keyboard-operable tabs and shows only active settings", async () => {
     const user = userEvent.setup();
     const inactiveState = {
@@ -681,6 +763,104 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("sqlite");
     expect(screen.getByLabelText("Account type name")).toHaveValue("Wallet");
     expect(screen.getByLabelText("Liability")).toBeChecked();
+  });
+
+  it("returns matching deactivated editors to Add mode without retaining update paths", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog controller={ledger} onClose={vi.fn()} returnFocusRef={returnFocusRef} />
+      </>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Cash" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate Cash" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(screen.getByRole("form", { name: "New account type" })).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Account type name"));
+    await user.type(screen.getByLabelText("Account type name"), "Wallet");
+    await user.click(screen.getByRole("button", { name: "Add account type" }));
+    expect(ledger.createAccountCategory).toHaveBeenCalledTimes(1);
+    expect(ledger.updateAccountCategory).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("tab", { name: "Currencies" }));
+    await user.click(screen.getByRole("button", { name: "Edit KRW" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate KRW" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(screen.getByRole("form", { name: "New currency" })).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Currency code"));
+    await user.type(screen.getByLabelText("Currency code"), "JPY");
+    await user.clear(screen.getByLabelText("Currency name"));
+    await user.type(screen.getByLabelText("Currency name"), "Japanese yen");
+    await user.clear(screen.getByLabelText("Currency symbol"));
+    await user.type(screen.getByLabelText("Currency symbol"), "¥");
+    await user.click(screen.getByRole("button", { name: "Add currency" }));
+    expect(ledger.createCurrency).toHaveBeenCalledTimes(1);
+    expect(ledger.updateCurrency).not.toHaveBeenCalled();
+  });
+
+  it("keeps editors for different deactivated settings", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      accountCategories: [{
+        id: "account-category-bank",
+        name: "Bank",
+        parentId: null,
+        liability: false,
+        active: true,
+      }, ...loadedState.accountCategories],
+    });
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog controller={ledger} onClose={vi.fn()} returnFocusRef={returnFocusRef} />
+      </>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Bank" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate Cash" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(screen.getByRole("form", { name: "Edit account type" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Account type name")).toHaveValue("Bank");
+
+    await user.click(screen.getByRole("tab", { name: "Currencies" }));
+    await user.click(screen.getByRole("button", { name: "Edit USD" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate KRW" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(screen.getByRole("form", { name: "Edit currency" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Currency code")).toHaveValue("USD");
+  });
+
+  it("clears inline save errors when cancelling either editor", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    ledger.updateAccountCategory = vi.fn().mockRejectedValue(new Error("account failure"));
+    ledger.updateCurrency = vi.fn().mockRejectedValue(new Error("currency failure"));
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(
+      <>
+        <button ref={returnFocusRef} type="button">Open settings</button>
+        <AccountSettingsDialog controller={ledger} onClose={vi.fn()} returnFocusRef={returnFocusRef} />
+      </>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Cash" }));
+    await user.click(screen.getByRole("button", { name: "Update account type" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save account type.");
+    await user.click(screen.getByRole("button", { name: "Cancel edit" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: "Currencies" }));
+    await user.click(screen.getByRole("button", { name: "Edit KRW" }));
+    await user.click(screen.getByRole("button", { name: "Update currency" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save currency.");
+    await user.click(screen.getByRole("button", { name: "Cancel edit" }));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("creates, edits, validates, and deactivates currencies with the exact payload", async () => {

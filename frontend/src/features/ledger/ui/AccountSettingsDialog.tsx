@@ -113,11 +113,13 @@ function AccountSettingsDialogContent({
   function resetAccountEditor() {
     setAccountEditing(null);
     setAccountDraft(emptyAccountCategoryDraft);
+    setError(null);
   }
 
   function resetCurrencyEditor() {
     setCurrencyEditing(null);
     setCurrencyDraft(emptyCurrencyDraft);
+    setError(null);
   }
 
   function selectTab(tab: AccountSettingsTab) {
@@ -210,8 +212,10 @@ function AccountSettingsDialogContent({
     try {
       if (target.kind === "account-type") {
         await controller.deactivateAccountCategory(target.item.id);
+        if (accountEditing?.id === target.item.id) resetAccountEditor();
       } else {
         await controller.deactivateCurrency(target.item.id);
+        if (currencyEditing?.id === target.item.id) resetCurrencyEditor();
       }
       setDeactivationTarget(null);
     } catch (cause) {
@@ -425,28 +429,30 @@ function AccountTypes({
         ) : null}
       </form>
       {items.length === 0 ? <p className="items-message">No account types yet.</p> : (
-        <table className="items-table">
-          <thead>
-            <tr><th>Name</th><th>Parent</th><th>Liability</th><th>Actions</th></tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id}>
-                <td>{item.name}</td>
-                <td>{item.parentId ? names.get(item.parentId) ?? "—" : "—"}</td>
-                <td>{item.liability ? "Yes" : "No"}</td>
-                <td>
-                  <button type="button" disabled={pending} onClick={() => onEdit(item)}>
-                    Edit {item.name}
-                  </button>
-                  <button type="button" disabled={pending} onClick={() => onDeactivate(item)}>
-                    Deactivate {item.name}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="items-section">
+          <table className="items-table">
+            <thead>
+              <tr><th>Name</th><th>Parent</th><th>Liability</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.name}</td>
+                  <td>{item.parentId ? names.get(item.parentId) ?? "—" : "—"}</td>
+                  <td>{item.liability ? "Yes" : "No"}</td>
+                  <td>
+                    <button type="button" disabled={pending} onClick={() => onEdit(item)}>
+                      Edit {item.name}
+                    </button>
+                    <button type="button" disabled={pending} onClick={() => onDeactivate(item)}>
+                      Deactivate {item.name}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </>
   );
@@ -534,29 +540,31 @@ function Currencies({
         ) : null}
       </form>
       {items.length === 0 ? <p className="items-message">No currencies yet.</p> : (
-        <table className="items-table">
-          <thead>
-            <tr><th>Code</th><th>Name</th><th>Symbol</th><th>Decimal places</th><th>Actions</th></tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id}>
-                <td>{item.code}</td>
-                <td>{item.name}</td>
-                <td>{item.symbol}</td>
-                <td>{item.decimalPlaces}</td>
-                <td>
-                  <button type="button" disabled={pending} onClick={() => onEdit(item)}>
-                    Edit {item.code}
-                  </button>
-                  <button type="button" disabled={pending} onClick={() => onDeactivate(item)}>
-                    Deactivate {item.code}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="items-section">
+          <table className="items-table">
+            <thead>
+              <tr><th>Code</th><th>Name</th><th>Symbol</th><th>Decimal places</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.code}</td>
+                  <td>{item.name}</td>
+                  <td>{item.symbol}</td>
+                  <td>{item.decimalPlaces}</td>
+                  <td>
+                    <button type="button" disabled={pending} onClick={() => onEdit(item)}>
+                      Edit {item.code}
+                    </button>
+                    <button type="button" disabled={pending} onClick={() => onDeactivate(item)}>
+                      Deactivate {item.code}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </>
   );
