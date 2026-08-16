@@ -782,7 +782,9 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("form", { name: "New account type" })).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Account type name"));
     await user.type(screen.getByLabelText("Account type name"), "Wallet");
-    await user.click(screen.getByRole("button", { name: "Add account type" }));
+    const addAccountType = screen.getByRole("button", { name: "Add account type" });
+    await waitFor(() => expect(addAccountType).toBeEnabled());
+    await user.click(addAccountType);
     expect(ledger.createAccountCategory).toHaveBeenCalledTimes(1);
     expect(ledger.updateAccountCategory).not.toHaveBeenCalled();
 
@@ -797,7 +799,9 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Currency name"), "Japanese yen");
     await user.clear(screen.getByLabelText("Currency symbol"));
     await user.type(screen.getByLabelText("Currency symbol"), "¥");
-    await user.click(screen.getByRole("button", { name: "Add currency" }));
+    const addCurrency = screen.getByRole("button", { name: "Add currency" });
+    await waitFor(() => expect(addCurrency).toBeEnabled());
+    await user.click(addCurrency);
     expect(ledger.createCurrency).toHaveBeenCalledTimes(1);
     expect(ledger.updateCurrency).not.toHaveBeenCalled();
   });
