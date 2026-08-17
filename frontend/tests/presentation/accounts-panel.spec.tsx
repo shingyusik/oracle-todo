@@ -696,26 +696,22 @@ describe("AccountDetail", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
-  it("re-expresses opening balance exactly when the selected currency precision changes", async () => {
+  it("preserves the opening balance draft verbatim when currency changes", async () => {
     const user = userEvent.setup();
-    render(<AccountDetail controller={accountsController()} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    const ledger = accountsController();
+    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
 
     await user.clear(screen.getByLabelText("Opening balance"));
-    await user.type(screen.getByLabelText("Opening balance"), "12.34");
+    await user.type(screen.getByLabelText("Opening balance"), "1.");
     await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
-    expect(screen.getByLabelText("Opening balance")).toHaveValue("1234");
-    await user.selectOptions(screen.getByLabelText("Currency"), "currency-usd");
-    expect(screen.getByLabelText("Opening balance")).toHaveValue("12.34");
-
-    await user.clear(screen.getByLabelText("Opening balance"));
-    await user.type(screen.getByLabelText("Opening balance"), "0");
-    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
-    expect(screen.getByLabelText("Opening balance")).toHaveValue("0");
-
-    await user.clear(screen.getByLabelText("Opening balance"));
-    await user.type(screen.getByLabelText("Opening balance"), "invalid");
-    await user.selectOptions(screen.getByLabelText("Currency"), "currency-usd");
-    expect(screen.getByLabelText("Opening balance")).toHaveValue("invalid");
+    expect(screen.getByLabelText("Opening balance")).toHaveValue("1.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", {
+      name: "Wallet",
+      category: "account-type-cash",
+      currency: "currency-krw",
+      openingBalance: "1.",
+    }));
   });
 
   it("returns focus to the Accounts section after clean Back, discard, and successful Delete", async () => {

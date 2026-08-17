@@ -31,7 +31,6 @@ type DraftHistory = {
 
 type DraftAction =
   | { type: "change"; name: keyof AccountDraft; value: string; group: boolean }
-  | { type: "currency"; currency: string; openingBalance: string }
   | { type: "undo" | "redo" | "close-group" };
 
 export function AccountDetail({ controller, row, onBack, onDeleted }: AccountDetailProps) {
@@ -62,19 +61,6 @@ export function AccountDetail({ controller, row, onBack, onDeleted }: AccountDet
 
   function field(name: keyof AccountDraft, value: string, group = false) {
     dispatch({ type: "change", name, value, group });
-  }
-
-  function changeCurrency(currency: string) {
-    if (currency === draft.currency) return;
-    const fromPrecision = currencyPrecision(draft.currency, row, controller);
-    const toPrecision = currencyPrecision(currency, row, controller);
-    dispatch({
-      type: "currency",
-      currency,
-      openingBalance: fromPrecision === null || toPrecision === null
-        ? draft.openingBalance
-        : reexpressOpeningBalance(draft.openingBalance, fromPrecision, toPrecision),
-    });
   }
 
   async function save() {
@@ -188,7 +174,7 @@ export function AccountDetail({ controller, row, onBack, onDeleted }: AccountDet
             </label>
             <label className="field-label">
               Currency
-              <select required disabled={pending} value={draft.currency} onChange={(event) => changeCurrency(event.target.value)}>
+              <select required disabled={pending} value={draft.currency} onChange={(event) => field("currency", event.target.value)}>
                 {activeCurrencies.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
                 {!activeCurrencies.some(({ id }) => id === draft.currency) ? (
                   <option value={draft.currency} disabled>{row.currencyCode}</option>
@@ -259,12 +245,6 @@ function historyReducer(state: DraftHistory, action: DraftAction): DraftHistory 
     const [present, ...future] = state.future;
     return present ? { past: [...state.past, state.present], present, future, group: null } : state;
   }
-  if (action.type === "currency") {
-    const present = { ...state.present, currency: action.currency, openingBalance: action.openingBalance };
-    return sameDraft(present, state.present)
-      ? state
-      : { past: [...state.past, state.present], present, future: [], group: null };
-  }
   if (action.type !== "change") return state;
   if (state.present[action.name] === action.value) return state;
   const present = { ...state.present, [action.name]: action.value } as AccountDraft;
@@ -278,28 +258,4 @@ function sameDraft(left: AccountDraft, right: AccountDraft) {
     left.category === right.category &&
     left.currency === right.currency &&
     left.openingBalance === right.openingBalance;
-}
-
-function currencyPrecision(
-  currencyId: string,
-  row: AccountRow,
-  controller: LedgerController,
-): number | null {
-  if (currencyId === row.currencyId) return row.decimalPlaces;
-  return controller.state.currencies.find(({ id }) => id === currencyId)?.decimalPlaces ?? null;
-}
-
-function reexpressOpeningBalance(value: string, fromPrecision: number, toPrecision: number): string {
-  const minor = parseMinorUnits(value, fromPrecision);
-  return minor === null ? value : formatMinorUnits(minor, toPrecision);
-}
-
-function parseMinorUnits(value: string, decimalPlaces: number): number | null {
-  const match = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(value.trim());
-  if (!match) return null;
-  const fraction = match[3] ?? "";
-  if (fraction.length > decimalPlaces) return null;
-  const minor = Number(`${match[2]}${fraction.padEnd(decimalPlaces, "0")}`);
-  if (!Number.isSafeInteger(minor)) return null;
-  return match[1] === "-" ? -minor : minor;
 }
