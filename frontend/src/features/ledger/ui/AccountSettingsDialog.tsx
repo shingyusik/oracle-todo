@@ -10,7 +10,7 @@ import type {
 } from "@/features/ledger/model/ledger-model";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
-import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
+import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
 
 type AccountSettingsDialogProps = {
   controller: LedgerController;
@@ -166,7 +166,7 @@ function AccountSettingsDialogContent({
       else await controller.createAccountCategory(input);
       resetAccountEditor();
     } catch (cause) {
-      setError(safeErrorMessage(cause, "Could not save account type."));
+      setError(safeLedgerErrorMessage(cause, "Could not save account type."));
     } finally {
       setPending(false);
     }
@@ -198,7 +198,7 @@ function AccountSettingsDialogContent({
       else await controller.createCurrency(input);
       resetCurrencyEditor();
     } catch (cause) {
-      setError(safeErrorMessage(cause, "Could not save currency."));
+      setError(safeLedgerErrorMessage(cause, "Could not save currency."));
     } finally {
       setPending(false);
     }
@@ -219,7 +219,7 @@ function AccountSettingsDialogContent({
       }
       setDeactivationTarget(null);
     } catch (cause) {
-      setError(safeErrorMessage(
+      setError(safeLedgerErrorMessage(
         cause,
         target.kind === "account-type" ? "Could not deactivate account type." : "Could not deactivate currency.",
       ));
@@ -568,10 +568,4 @@ function Currencies({
       )}
     </>
   );
-}
-
-function safeErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof RavenApiError || error instanceof RavenTransportError
-    ? error.message
-    : fallback;
 }

@@ -3,6 +3,13 @@
 import { useRef, useState } from "react";
 
 import type { Currency } from "@/features/ledger/model/ledger-model";
+import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
+
+export function safeLedgerErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof RavenApiError || error instanceof RavenTransportError
+    ? error.message
+    : fallback;
+}
 
 export function formatMinorUnits(value: number, decimalPlaces: number): string {
   const sign = value < 0 ? "-" : "";
