@@ -500,23 +500,20 @@ describe("LedgerPanel", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens Account settings only from Accounts and restores the Accounts form after Escape", async () => {
+  it("opens Account settings only from Accounts and restores trigger focus after Escape", async () => {
     const user = userEvent.setup();
     const ledger = controller();
     const { rerender } = render(<LedgerPanel controller={ledger} leafTabId="accounts" />);
 
     const trigger = screen.getByRole("button", { name: "Account settings" });
     expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
-    await user.clear(screen.getByLabelText("Opening balance"));
-    await user.type(screen.getByLabelText("Opening balance"), "1200");
     await user.click(trigger);
     expect(screen.getByRole("dialog", { name: "Account settings" })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Account settings" })).toBeNull();
     expect(trigger).toHaveFocus();
-    expect(screen.getByLabelText("Opening balance")).toHaveValue("1200");
-    expect(screen.getByRole("button", { name: "Edit Cash" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add account" })).toBeInTheDocument();
 
     rerender(<LedgerPanel controller={ledger} leafTabId="transactions" />);
     expect(screen.queryByRole("button", { name: "Account settings" })).toBeNull();
@@ -1648,16 +1645,26 @@ describe("LedgerPanel", () => {
     expect(ledgerRule).toContain("justify-content: space-between;");
   });
 
-  it.each([
-    ["accounts", "Accounts"],
-    ["categories", "Categories"],
-  ] as const)("preserves the pre-Transactions %s header structure", (leafTabId, title) => {
-    render(<LedgerPanel controller={controller()} leafTabId={leafTabId} />);
+  it("uses the Transactions header structure for Accounts", () => {
+    render(<LedgerPanel controller={controller()} leafTabId="accounts" />);
 
-    const heading = screen.getByRole("heading", { name: title });
+    const heading = screen.getByRole("heading", { name: "Accounts" });
     const header = heading.closest("header")!;
-    const row = within(header).getByRole("group", { name: `${title} controls` }).parentElement!;
-    const tabs = screen.getByRole("tablist", { name: `${title} views` });
+    const tabs = screen.getByRole("tablist", { name: "Accounts views" });
+    const row = tabs.parentElement!;
+    expect(row).toHaveClass("workspace-table-header-row", "ledger-table-header-row");
+    expect(within(header).getByRole("button", { name: "Account settings" })).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Add account" })).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Delete selected" })).toBeDisabled();
+  });
+
+  it("preserves the pre-Transactions Categories header structure", () => {
+    render(<LedgerPanel controller={controller()} leafTabId="categories" />);
+
+    const heading = screen.getByRole("heading", { name: "Categories" });
+    const header = heading.closest("header")!;
+    const row = within(header).getByRole("group", { name: "Categories controls" }).parentElement!;
+    const tabs = screen.getByRole("tablist", { name: "Categories views" });
     expect(row).toHaveClass("workspace-table-header-row");
     expect(row).not.toHaveClass("ledger-table-header-row");
     expect(within(header).queryByRole("tablist")).toBeNull();
@@ -2012,14 +2019,22 @@ describe("LedgerPanel", () => {
   });
 
   it("loads account and category references into their leaves", () => {
-    const ledger = controller();
+    const ledger = controller({
+      ...loadedState,
+      balances: [{
+        account: loadedState.accounts[0]!,
+        currencyCode: "KRW",
+        decimalPlaces: 0,
+        currentBalanceMinor: 0,
+      }],
+    });
     const { rerender } = render(
       <LedgerPanel leafTabId="accounts" controller={ledger} />,
     );
     expect(screen.getByRole("heading", { name: "Accounts" })).toBeInTheDocument();
     const accountsTable = screen.getByRole("table");
     expect(within(accountsTable).getAllByText("Cash")).toHaveLength(2);
-    expect(within(accountsTable).getByText("Korean won")).toBeInTheDocument();
+    expect(within(accountsTable).getByText("0 KRW")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add transaction" })).toBeNull();
 
     rerender(<LedgerPanel leafTabId="categories" controller={ledger} />);
@@ -2536,7 +2551,6 @@ describe("LedgerPanel", () => {
         })}
       />,
     );
-    expect(screen.getByText("12.34 USD")).toBeInTheDocument();
     expect(screen.getByText("56.78 USD")).toBeInTheDocument();
 
     const usdReportState = reportAnalysisState();
@@ -2571,72 +2585,30 @@ describe("LedgerPanel", () => {
     expect(screen.queryByRole("region", { name: "Briefing" })).toBeNull();
   });
 
-  it("reports account and category lifecycle action failures", async () => {
+  it("reports category lifecycle action failures", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    const accountController = controller();
-    accountController.archiveAccount = vi.fn().mockRejectedValue(new Error("Account conflict"));
-    const { rerender } = render(
-      <LedgerPanel leafTabId="accounts" controller={accountController} />,
-    );
-    await user.click(screen.getByRole("button", { name: "Archive Cash" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Account conflict");
-
     const categoryController = controller();
     categoryController.archiveCategory =
       vi.fn().mockRejectedValue(new Error("Category conflict"));
-    rerender(<LedgerPanel leafTabId="categories" controller={categoryController} />);
+    render(<LedgerPanel leafTabId="categories" controller={categoryController} />);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(screen.getByRole("button", { name: "Archive Food" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Category conflict");
   });
 
-  it("reports account and category purge preview failures", async () => {
+  it("reports category purge preview failures", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    const accountController = controller();
-    const accountPreview = deferred<never>();
-    accountController.previewAccountPurge = vi.fn(() => accountPreview.promise);
-    const { rerender } = render(
-      <LedgerPanel leafTabId="accounts" controller={accountController} />,
-    );
-    const accountPurge = screen.getByRole("button", { name: "Purge Cash" });
-    await user.click(accountPurge);
-    await user.click(screen.getByRole("button", { name: "Purge permanently" }));
-    await act(async () => accountPreview.reject(new Error("Account preview failed")));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Account preview failed");
-    await waitFor(() => expect(accountPurge).toHaveFocus());
-
     const categoryController = controller();
     const categoryPreview = deferred<never>();
     categoryController.previewCategoryPurge = vi.fn(() => categoryPreview.promise);
-    rerender(<LedgerPanel leafTabId="categories" controller={categoryController} />);
+    render(<LedgerPanel leafTabId="categories" controller={categoryController} />);
     const categoryPurge = screen.getByRole("button", { name: "Purge Food" });
     await user.click(categoryPurge);
     await user.click(screen.getByRole("button", { name: "Purge permanently" }));
     await act(async () => categoryPreview.reject(new Error("Category preview failed")));
     expect(await screen.findByRole("alert")).toHaveTextContent("Category preview failed");
     await waitFor(() => expect(categoryPurge).toHaveFocus());
-  });
-
-  it("edits a two-decimal account opening balance without changing its value", async () => {
-    const user = userEvent.setup();
-    const ledger = controller({
-      ...loadedState,
-      accounts: [{
-        ...loadedState.accounts[0],
-        currencyId: "currency-usd",
-        openingBalanceMinor: 1234,
-      }],
-    });
-    render(<LedgerPanel leafTabId="accounts" controller={ledger} />);
-
-    await user.click(screen.getByRole("button", { name: "Edit Cash" }));
-    expect(screen.getByLabelText("Opening balance")).toHaveValue("12.34");
-    await user.click(screen.getByRole("button", { name: "Update account" }));
-    expect(ledger.updateAccount).toHaveBeenCalledWith(
-      "account-cash",
-      expect.objectContaining({ openingBalance: "12.34" }),
-    );
   });
 
   it("does not load reports during the initial Ledger refresh", async () => {

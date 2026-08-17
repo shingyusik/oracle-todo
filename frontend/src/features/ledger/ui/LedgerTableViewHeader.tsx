@@ -29,11 +29,13 @@ export function LedgerTableViewHeader({
   transactionEntries,
   onAdd,
   addButtonRef,
+  addLabel,
   onSettings,
   settingsButtonRef,
   settingsLabel,
   onArchiveSelected,
   archiveDisabled = true,
+  archiveSelectedLabel,
 }: {
   controller: LedgerController;
   scope: LedgerTableScopeId;
@@ -42,11 +44,13 @@ export function LedgerTableViewHeader({
   transactionEntries?: LedgerEntryView[];
   onAdd?: () => void;
   addButtonRef?: React.RefObject<HTMLButtonElement>;
+  addLabel?: string;
   onSettings?: () => void;
   settingsButtonRef?: React.RefObject<HTMLButtonElement | null>;
   settingsLabel?: string;
   onArchiveSelected?: () => void;
   archiveDisabled?: boolean;
+  archiveSelectedLabel?: string;
 }) {
   const tabs = controller.tableTabs(scope);
   const settings = controller.tableSettings(scope);
@@ -88,7 +92,7 @@ export function LedgerTableViewHeader({
     />
   );
 
-  if (scope !== "ledger.transactions") return (
+  if (scope !== "ledger.transactions" && scope !== "ledger.accounts") return (
     <>
       <header className="workspace-table-header">
         <h1 id={headingId}>{title}</h1>
@@ -102,18 +106,7 @@ export function LedgerTableViewHeader({
               aria-haspopup="dialog"
               onClick={onAdd}
             >
-              Add transaction
-            </button>
-          ) : null}
-          {scope === "ledger.accounts" && onSettings ? (
-            <button
-              ref={settingsButtonRef as React.RefObject<HTMLButtonElement> | undefined}
-              className="items-toolbar-button"
-              type="button"
-              aria-haspopup="dialog"
-              onClick={onSettings}
-            >
-              {settingsLabel}
+              {addLabel ?? "Add transaction"}
             </button>
           ) : null}
         </div>
@@ -123,6 +116,8 @@ export function LedgerTableViewHeader({
     </>
   );
 
+  const isAccounts = scope === "ledger.accounts";
+
   return (
     <>
       <header className="workspace-table-header">
@@ -131,6 +126,17 @@ export function LedgerTableViewHeader({
           {tableTabs}
           <div className="workspace-table-header-actions">
             <TableViewControls adapter={controlsAdapter} />
+            {isAccounts && onSettings ? (
+              <button
+                ref={settingsButtonRef as React.RefObject<HTMLButtonElement> | undefined}
+                className="items-toolbar-button"
+                type="button"
+                aria-haspopup="dialog"
+                onClick={onSettings}
+              >
+                {settingsLabel}
+              </button>
+            ) : null}
             {onAdd ? (
               <button
                 ref={addButtonRef}
@@ -139,18 +145,18 @@ export function LedgerTableViewHeader({
                 aria-haspopup="dialog"
                 onClick={onAdd}
               >
-                Add transaction
+                {addLabel ?? "Add transaction"}
               </button>
             ) : null}
             {onArchiveSelected ? (
               <button
                 className="items-toolbar-button"
                 type="button"
-                aria-label="Archive selected transactions"
+                aria-label={archiveSelectedLabel ?? "Archive selected transactions"}
                 disabled={archiveDisabled}
                 onClick={onArchiveSelected}
               >
-                <Trash2 size={16} aria-hidden="true" />
+                {archiveSelectedLabel ?? <Trash2 size={16} aria-hidden="true" />}
               </button>
             ) : null}
           </div>

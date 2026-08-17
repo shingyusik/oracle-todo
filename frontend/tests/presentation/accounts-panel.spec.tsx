@@ -7,6 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { LedgerController, LedgerState } from "@/features/ledger/hooks/useLedgerController";
 import { AccountCreateDialog } from "@/features/ledger/ui/AccountCreateDialog";
+import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
+import { AccountsTable } from "@/features/ledger/ui/AccountsTable";
+import type { AccountRowGroup } from "@/features/ledger/model/account-table";
+import {
+  createLedgerTableViews,
+} from "@/features/ledger/model/ledger-table-views";
 import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
 
 const state: LedgerState = {
@@ -251,5 +257,231 @@ describe("AccountCreateDialog", () => {
     expect(screen.queryByRole("dialog", { name: "Add account" })).toBeNull();
     expect(trigger).toHaveFocus();
     expect(close).not.toBeInTheDocument();
+  });
+});
+
+const accountRows: AccountRowGroup[] = [{
+  key: "account-type-cash",
+  label: "Cash",
+  rows: [{
+    id: "account-wallet",
+    account: {
+      id: "account-wallet",
+      name: "Wallet",
+      categoryId: "account-type-cash",
+      currencyId: "currency-usd",
+      openingBalanceMinor: 0,
+      active: true,
+    },
+    name: "Wallet",
+    accountTypeId: "account-type-cash",
+    accountTypeLabel: "Cash",
+    currencyId: "currency-usd",
+    currencyCode: "USD",
+    decimalPlaces: 2,
+    currentBalanceMinor: 123456,
+  }, {
+    id: "account-card",
+    account: {
+      id: "account-card",
+      name: "Card",
+      categoryId: "account-type-cash",
+      currencyId: "currency-krw",
+      openingBalanceMinor: 0,
+      active: true,
+    },
+    name: "Card",
+    accountTypeId: "account-type-cash",
+    accountTypeLabel: "Cash",
+    currencyId: "currency-krw",
+    currencyCode: "KRW",
+    decimalPlaces: 0,
+    currentBalanceMinor: 5000,
+  }],
+}];
+
+function accountsState(): LedgerState {
+  return {
+    ...state,
+    currencies: [...state.currencies, {
+      id: "currency-usd",
+      code: "USD",
+      name: "US dollar",
+      symbol: "$",
+      decimalPlaces: 2,
+      active: true,
+    }],
+    accounts: accountRows.flatMap((group) => group.rows.map(({ account }) => account)),
+    balances: accountRows.flatMap((group) => group.rows.map((row) => ({
+      account: row.account,
+      currencyCode: row.currencyCode,
+      decimalPlaces: row.decimalPlaces,
+      currentBalanceMinor: row.currentBalanceMinor,
+    }))),
+  };
+}
+
+function accountsController(nextState = accountsState()): LedgerController {
+  const ledger = controller();
+  const views = createLedgerTableViews();
+  ledger.state = nextState;
+  ledger.tableTabs = (scope) => views[scope];
+  ledger.tableSettings = (scope) => views[scope].draftSettings;
+  ledger.tableIsDirty = vi.fn(() => false);
+  return ledger;
+}
+
+describe("AccountsTable", () => {
+  it("renders the compact balance columns and activates rows without activating checkboxes", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const onToggle = vi.fn();
+    render(
+      <AccountsTable
+        groups={accountRows}
+        activeRowCount={2}
+        selectedIds={[]}
+        onOpen={onOpen}
+        onToggle={onToggle}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole("columnheader").map(({ textContent }) => textContent)).toEqual([
+      "",
+      "Account",
+      "Account type",
+      "Current balance",
+    ]);
+    expect(screen.getByText("1234.56 USD")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Opening balance" })).toBeNull();
+
+    const row = screen.getByRole("button", { name: "Open details for Wallet, Cash" });
+    await user.click(row);
+    await user.keyboard("{Enter}");
+    await user.keyboard(" ");
+    await user.click(screen.getByRole("checkbox", { name: "Select Wallet, Cash" }));
+
+    expect(onOpen).toHaveBeenCalledTimes(3);
+    expect(onToggle).toHaveBeenCalledWith("account-wallet");
+  });
+
+  it("limits select-all to visible rows and exposes indeterminate selection", () => {
+    const onToggleAll = vi.fn();
+    render(
+      <AccountsTable
+        groups={accountRows}
+        activeRowCount={2}
+        selectedIds={["account-wallet"]}
+        onOpen={vi.fn()}
+        onToggle={vi.fn()}
+        onToggleAll={onToggleAll}
+      />,
+    );
+
+    const selectAll = screen.getByRole<HTMLInputElement>("checkbox", { name: "Select all visible accounts" });
+    expect(selectAll).not.toBeChecked();
+    expect(selectAll.indeterminate).toBe(true);
+    selectAll.click();
+    expect(onToggleAll).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [[], 0, "No accounts yet."],
+    [[], 1, "No accounts match this view."],
+  ])("shows the correct empty message", (groups, activeRowCount, message) => {
+    render(
+      <AccountsTable
+        groups={groups}
+        activeRowCount={activeRowCount}
+        selectedIds={[]}
+        onOpen={vi.fn()}
+        onToggle={vi.fn()}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+  });
+});
+
+describe("AccountsPanel", () => {
+  it("opens the production create dialog and restores Add account focus", async () => {
+    const user = userEvent.setup();
+    render(<AccountsPanel controller={accountsController()} />);
+
+    const trigger = screen.getByRole("button", { name: "Add account" });
+    await user.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Add account" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Account name")).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Add account" })).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("uses Ledger account view settings and keeps settings, add, and selected delete in the header", () => {
+    const ledger = accountsController();
+    render(<AccountsPanel controller={ledger} />);
+
+    expect(screen.getByRole("button", { name: "Account settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add account" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Table" })).toBeInTheDocument();
+  });
+
+  it("deactivates selected visible accounts sequentially and retains the failed selection safely", async () => {
+    const user = userEvent.setup();
+    const savings = {
+      ...accountRows[0]!.rows[0]!,
+      id: "account-savings",
+      account: {
+        ...accountRows[0]!.rows[0]!.account,
+        id: "account-savings",
+        name: "Savings",
+      },
+      name: "Savings",
+    };
+    const nextState = accountsState();
+    nextState.accounts = [...nextState.accounts, savings.account];
+    nextState.balances = [...nextState.balances, {
+      account: savings.account,
+      currencyCode: savings.currencyCode,
+      decimalPlaces: savings.decimalPlaces,
+      currentBalanceMinor: savings.currentBalanceMinor,
+    }];
+    const ledger = accountsController(nextState);
+    ledger.archiveAccount = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("storage path should not be shown"));
+    render(<AccountsPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible accounts" }));
+    await user.click(screen.getByRole("button", { name: "Delete selected" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(ledger.archiveAccount).toHaveBeenNthCalledWith(1, "account-card"));
+    expect(ledger.archiveAccount).toHaveBeenNthCalledWith(2, "account-savings");
+    expect(ledger.archiveAccount).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not delete selected accounts.");
+    expect(screen.queryByText("storage path should not be shown")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Select Card, Cash", hidden: true })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Savings, Cash", hidden: true })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Wallet, Cash", hidden: true })).toBeChecked();
+  });
+
+  it("prunes selected IDs when a refreshed state no longer contains the account", async () => {
+    const user = userEvent.setup();
+    const ledger = accountsController();
+    const { rerender } = render(<AccountsPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Wallet, Cash" }));
+    expect(screen.getByRole("button", { name: "Delete selected" })).toBeEnabled();
+
+    rerender(<AccountsPanel controller={accountsController({ ...accountsState(), accounts: [], balances: [] })} />);
+    expect(screen.getByText("No accounts yet.")).toBeInTheDocument();
+    rerender(<AccountsPanel controller={accountsController()} />);
+
+    expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled();
   });
 });
