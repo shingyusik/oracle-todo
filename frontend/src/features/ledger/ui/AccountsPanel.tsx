@@ -8,6 +8,7 @@ import {
   type AccountRow,
 } from "@/features/ledger/model/account-table";
 import { AccountCreateDialog } from "@/features/ledger/ui/AccountCreateDialog";
+import { AccountDetail } from "@/features/ledger/ui/AccountDetail";
 import { AccountSettingsDialog } from "@/features/ledger/ui/AccountSettingsDialog";
 import { AccountsTable } from "@/features/ledger/ui/AccountsTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
@@ -15,7 +16,7 @@ import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 export function AccountsPanel({ controller }: { controller: LedgerController }) {
-  const [selectedDetail, setSelectedDetail] = useState<AccountRow | null>(null);
+  const [selectedDetailId, setSelectedDetailId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -34,6 +35,9 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
     controller.tableSettings("ledger.accounts"),
   );
   const visibleRows = groups.flatMap((group) => group.rows);
+  const selectedDetail = selectedDetailId === null
+    ? null
+    : visibleRows.find(({ id }) => id === selectedDetailId) ?? null;
   const activeRowCount = controller.state.accounts.filter(({ active }) => active).length;
   const selectedVisibleIds = selectedIds.filter((id) =>
     visibleRows.some((row) => row.id === id),
@@ -47,8 +51,8 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
       const next = current.filter((id) => activeAccountIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (selectedDetail && !activeAccountIds.has(selectedDetail.id)) setSelectedDetail(null);
-  }, [controller.state.accounts, selectedDetail]);
+    if (selectedDetailId && !activeAccountIds.has(selectedDetailId)) setSelectedDetailId(null);
+  }, [controller.state.accounts, selectedDetailId]);
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -91,6 +95,17 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
     }
   }
 
+  if (selectedDetail) {
+    return (
+      <AccountDetail
+        controller={controller}
+        row={selectedDetail}
+        onBack={() => setSelectedDetailId(null)}
+        onDeleted={() => setSelectedDetailId(null)}
+      />
+    );
+  }
+
   return (
     <section ref={sectionRef} aria-labelledby="ledger-accounts-heading" tabIndex={-1}>
       <LedgerTableViewHeader
@@ -115,7 +130,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={setSelectedDetail}
+        onOpen={(row) => setSelectedDetailId(row.id)}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
       />
