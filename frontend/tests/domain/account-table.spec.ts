@@ -75,13 +75,19 @@ function rowIds(
 }
 
 describe("deriveAccountGroups", () => {
-  it("joins active accounts to their balances and defensively excludes inactive accounts", () => {
+  it("joins each active account to its own balance despite a reversed balance response", () => {
     const cash = account("cash", { name: "Cash" });
+    const bank = account("bank", {
+      name: "Bank",
+      categoryId: "type-debt",
+      currencyId: "currency-jpy",
+    });
     const archived = account("archived", { name: "Archived", active: false });
     const withoutBalance = account("without-balance", { name: "No balance" });
     const groups = deriveAccountGroups(
-      [cash, archived, withoutBalance],
+      [cash, bank, archived, withoutBalance],
       [
+        balance(bank, { currencyCode: "JPY", decimalPlaces: 0, currentBalanceMinor: 678 }),
         balance(cash, { currencyCode: "USD", decimalPlaces: 2, currentBalanceMinor: 12_345 }),
         balance(archived, { currencyCode: "KRW", decimalPlaces: 0, currentBalanceMinor: 99 }),
       ],
@@ -92,17 +98,30 @@ describe("deriveAccountGroups", () => {
     expect(groups).toEqual([{
       key: "all",
       label: null,
-      rows: [expect.objectContaining({
-        id: "cash",
-        account: cash,
-        name: "Cash",
-        accountTypeId: "type-asset",
-        accountTypeLabel: "Asset",
-        currencyId: "currency-usd",
-        currencyCode: "USD",
-        decimalPlaces: 2,
-        currentBalanceMinor: 12_345,
-      })],
+      rows: [
+        expect.objectContaining({
+          id: "bank",
+          account: bank,
+          name: "Bank",
+          accountTypeId: "type-debt",
+          accountTypeLabel: "Liability",
+          currencyId: "currency-jpy",
+          currencyCode: "JPY",
+          decimalPlaces: 0,
+          currentBalanceMinor: 678,
+        }),
+        expect.objectContaining({
+          id: "cash",
+          account: cash,
+          name: "Cash",
+          accountTypeId: "type-asset",
+          accountTypeLabel: "Asset",
+          currencyId: "currency-usd",
+          currencyCode: "USD",
+          decimalPlaces: 2,
+          currentBalanceMinor: 12_345,
+        }),
+      ],
     }]);
   });
 
@@ -178,6 +197,33 @@ describe("deriveAccountGroups", () => {
       ],
       accountSettings({ filterRules: [filterRule as PlannerTableSettings["filterRules"][number]] }),
     )).toEqual(expected);
+  });
+
+  it("unions separate filter matches in OR mode and excludes them in AND mode", () => {
+    const bank = account("bank", { name: "Bank cash" });
+    const card = account("card", {
+      name: "Card",
+      categoryId: "type-debt",
+      currencyId: "currency-krw",
+    });
+    const balances = [
+      balance(bank, { currencyCode: "USD", decimalPlaces: 2, currentBalanceMinor: 1_234 }),
+      balance(card, { currencyCode: "KRW", decimalPlaces: 0, currentBalanceMinor: 12 }),
+    ];
+    const filterRules: PlannerTableSettings["filterRules"] = [{
+      id: "name", field: "name", type: "text", operator: "contains", value: "bank",
+    }, {
+      id: "currency", field: "currency", type: "relation", operator: "is", value: ["KRW"],
+    }];
+
+    expect(rowIds([bank, card], balances, accountSettings({
+      filterMode: "or",
+      filterRules,
+    }))).toEqual(["bank", "card"]);
+    expect(rowIds([bank, card], balances, accountSettings({
+      filterMode: "and",
+      filterRules,
+    }))).toEqual([]);
   });
 
   it("sorts supported fields with deterministic multi-rule and row-id ties", () => {
