@@ -4,6 +4,9 @@ import React, { useEffect, useRef, useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {
+  defaultLedgerTableSettings,
+} from "@/features/ledger/model/ledger-table-views";
+import {
   deriveAccountGroups,
   type AccountRow,
 } from "@/features/ledger/model/account-table";
@@ -35,9 +38,15 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
     controller.tableSettings("ledger.accounts"),
   );
   const visibleRows = groups.flatMap((group) => group.rows);
+  const activeRows = deriveAccountGroups(
+    controller.state.accounts,
+    controller.state.balances,
+    controller.state.accountCategories,
+    defaultLedgerTableSettings("ledger.accounts"),
+  ).flatMap((group) => group.rows);
   const selectedDetail = selectedDetailId === null
     ? null
-    : visibleRows.find(({ id }) => id === selectedDetailId) ?? null;
+    : activeRows.find(({ id }) => id === selectedDetailId) ?? null;
   const activeRowCount = controller.state.accounts.filter(({ active }) => active).length;
   const selectedVisibleIds = selectedIds.filter((id) =>
     visibleRows.some((row) => row.id === id),
@@ -95,13 +104,18 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
     }
   }
 
+  function returnToList() {
+    setSelectedDetailId(null);
+    requestAnimationFrame(() => sectionRef.current?.focus());
+  }
+
   if (selectedDetail) {
     return (
       <AccountDetail
         controller={controller}
         row={selectedDetail}
-        onBack={() => setSelectedDetailId(null)}
-        onDeleted={() => setSelectedDetailId(null)}
+        onBack={returnToList}
+        onDeleted={returnToList}
       />
     );
   }

@@ -11,8 +11,10 @@ import { AccountDetail } from "@/features/ledger/ui/AccountDetail";
 import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
 import { AccountsTable } from "@/features/ledger/ui/AccountsTable";
 import type { AccountRowGroup } from "@/features/ledger/model/account-table";
+import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
 import {
   createLedgerTableViews,
+  defaultLedgerTableSettings,
 } from "@/features/ledger/model/ledger-table-views";
 import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
 
@@ -662,5 +664,82 @@ describe("AccountDetail", () => {
     rerender(<AccountsPanel controller={accountsController({ ...refreshed, accounts: [], balances: [] })} />);
     expect(screen.getByText("No accounts yet.")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Wallet details" })).toBeNull();
+  });
+
+  it("keeps detail open from the unfiltered account projection after saving out of the active name filter", async () => {
+    const user = userEvent.setup();
+    const ledger = accountsController();
+    const filteredSettings: PlannerTableSettings = {
+      ...defaultLedgerTableSettings("ledger.accounts"),
+      filterRules: [{ id: "wallet", field: "name", type: "text", operator: "contains", value: "wallet" }],
+    };
+    ledger.tableSettings = vi.fn(() => filteredSettings);
+    const request = deferred<void>();
+    ledger.updateAccount = vi.fn(() => request.promise);
+    const { rerender } = render(<AccountsPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("button", { name: "Open details for Wallet, Cash" }));
+    await user.clear(screen.getByLabelText("Account name"));
+    await user.type(screen.getByLabelText("Account name"), "Everyday cash");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    ledger.state = {
+      ...ledger.state,
+      accounts: ledger.state.accounts.map((account) => account.id === "account-wallet"
+        ? { ...account, name: "Everyday cash" }
+        : account),
+    };
+    await act(async () => request.resolve(undefined));
+    rerender(<AccountsPanel controller={ledger} />);
+
+    expect(screen.getByRole("region", { name: "Everyday cash details" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Account name")).toHaveValue("Everyday cash");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("re-expresses opening balance exactly when the selected currency precision changes", async () => {
+    const user = userEvent.setup();
+    render(<AccountDetail controller={accountsController()} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+
+    await user.clear(screen.getByLabelText("Opening balance"));
+    await user.type(screen.getByLabelText("Opening balance"), "12.34");
+    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
+    expect(screen.getByLabelText("Opening balance")).toHaveValue("1234");
+    await user.selectOptions(screen.getByLabelText("Currency"), "currency-usd");
+    expect(screen.getByLabelText("Opening balance")).toHaveValue("12.34");
+
+    await user.clear(screen.getByLabelText("Opening balance"));
+    await user.type(screen.getByLabelText("Opening balance"), "0");
+    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
+    expect(screen.getByLabelText("Opening balance")).toHaveValue("0");
+
+    await user.clear(screen.getByLabelText("Opening balance"));
+    await user.type(screen.getByLabelText("Opening balance"), "invalid");
+    await user.selectOptions(screen.getByLabelText("Currency"), "currency-usd");
+    expect(screen.getByLabelText("Opening balance")).toHaveValue("invalid");
+  });
+
+  it("returns focus to the Accounts section after clean Back, discard, and successful Delete", async () => {
+    const user = userEvent.setup();
+    const ledger = accountsController();
+    render(<AccountsPanel controller={ledger} />);
+
+    const openWallet = async () => user.click(screen.getByRole("button", { name: "Open details for Wallet, Cash" }));
+    const accountsSection = () => screen
+      .getAllByRole<HTMLElement>("region", { name: "Accounts" })
+      .find((element) => element.tabIndex === -1)!;
+    await openWallet();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await waitFor(() => expect(accountsSection()).toHaveFocus());
+
+    await openWallet();
+    await user.type(screen.getByLabelText("Account name"), " draft");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(accountsSection()).toHaveFocus());
+
+    await openWallet();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(accountsSection()).toHaveFocus());
   });
 });
