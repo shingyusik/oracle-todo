@@ -334,6 +334,16 @@ function accountsController(nextState = accountsState()): LedgerController {
   return ledger;
 }
 
+function inactiveReferenceController(): LedgerController {
+  const nextState = accountsState();
+  nextState.accountCategories = [
+    ...nextState.accountCategories.map((item) => item.id === "account-type-cash" ? { ...item, active: false } : item),
+    { id: "account-type-bank", name: "Bank", parentId: null, liability: false, active: true },
+  ];
+  nextState.currencies = nextState.currencies.map((item) => item.id === "currency-usd" ? { ...item, active: false } : item);
+  return accountsController(nextState);
+}
+
 describe("AccountsTable", () => {
   it("renders the compact balance columns and activates rows without activating checkboxes", async () => {
     const user = userEvent.setup();
@@ -490,7 +500,7 @@ describe("AccountsPanel", () => {
 });
 
 describe("AccountDetail", () => {
-  it("edits only account fields, saves the four-field payload, and keeps the refreshed detail open", async () => {
+  it("edits only account fields, saves a partial payload, and keeps the refreshed detail open", async () => {
     const user = userEvent.setup();
     const ledger = accountsController();
     const row = accountRows[0]!.rows[0]!;
@@ -517,12 +527,56 @@ describe("AccountDetail", () => {
 
     await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", {
       name: "Everyday wallet",
-      category: "account-type-cash",
-      currency: "currency-usd",
-      openingBalance: "0.00",
     }));
     expect(onBack).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("saves a name-only edit without unavailable current references", async () => {
+    const user = userEvent.setup();
+    const ledger = inactiveReferenceController();
+    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+
+    await user.clear(screen.getByLabelText("Account name"));
+    await user.type(screen.getByLabelText("Account name"), "Cash wallet");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", { name: "Cash wallet" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("saves an opening balance-only edit without unavailable current references", async () => {
+    const user = userEvent.setup();
+    const ledger = inactiveReferenceController();
+    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+
+    await user.clear(screen.getByLabelText("Opening balance"));
+    await user.type(screen.getByLabelText("Opening balance"), "12.34");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", { openingBalance: "12.34" }));
+  });
+
+  it("saves a category-only edit without unavailable current references", async () => {
+    const user = userEvent.setup();
+    const ledger = inactiveReferenceController();
+    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+
+    await user.selectOptions(screen.getByLabelText("Account type"), "account-type-bank");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", { category: "account-type-bank" }));
+  });
+
+  it("saves a currency edit with the current opening balance", async () => {
+    const user = userEvent.setup();
+    const currencyLedger = inactiveReferenceController();
+    render(<AccountDetail controller={currencyLedger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(currencyLedger.updateAccount).toHaveBeenCalledWith("account-wallet", {
+      currency: "currency-krw",
+      openingBalance: "0.00",
+    }));
   });
 
   it("keeps local draft history for buttons and shortcuts without saving until requested", async () => {
@@ -707,8 +761,6 @@ describe("AccountDetail", () => {
     expect(screen.getByLabelText("Opening balance")).toHaveValue("1.");
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", {
-      name: "Wallet",
-      category: "account-type-cash",
       currency: "currency-krw",
       openingBalance: "1.",
     }));

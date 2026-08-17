@@ -3,6 +3,7 @@
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import { ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-react";
 
+import type { AccountInput } from "@/features/ledger/api/ledger-api";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type { AccountRow } from "@/features/ledger/model/account-table";
 import { formatMinorUnits, formatMoney, safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
@@ -66,12 +67,13 @@ export function AccountDetail({ controller, row, onBack, onDeleted }: AccountDet
   async function save() {
     if (pending || actionInFlight.current || !dirty) return;
     const saved = draft;
+    const update = accountUpdate(baseline, saved);
     actionInFlight.current = true;
     dispatch({ type: "close-group" });
     setPending(true);
     setError(null);
     try {
-      await controller.updateAccount(row.id, saved);
+      await controller.updateAccount(row.id, update);
       if (mounted.current) setBaseline(saved);
     } catch (cause) {
       if (mounted.current) setError(safeLedgerErrorMessage(cause, "Could not save account."));
@@ -258,4 +260,15 @@ function sameDraft(left: AccountDraft, right: AccountDraft) {
     left.category === right.category &&
     left.currency === right.currency &&
     left.openingBalance === right.openingBalance;
+}
+
+function accountUpdate(baseline: AccountDraft, draft: AccountDraft): Partial<AccountInput> {
+  return {
+    ...(draft.name !== baseline.name ? { name: draft.name } : {}),
+    ...(draft.category !== baseline.category ? { category: draft.category } : {}),
+    ...(draft.currency !== baseline.currency ? { currency: draft.currency, openingBalance: draft.openingBalance } : {}),
+    ...(draft.currency === baseline.currency && draft.openingBalance !== baseline.openingBalance
+      ? { openingBalance: draft.openingBalance }
+      : {}),
+  };
 }
