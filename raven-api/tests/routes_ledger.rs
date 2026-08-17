@@ -216,6 +216,112 @@ async fn reports_and_purge_preview_have_stable_surfaces() {
 }
 
 #[tokio::test]
+async fn account_balances_preserve_precision_for_an_inactive_currency() {
+    let (_temp, app) = app();
+    let currency = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/ledger/currencies")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "code": "USD",
+                        "name": "US Dollar",
+                        "symbol": "$",
+                        "decimal_places": 2,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(currency.status(), StatusCode::CREATED);
+    let currency_id = body(currency).await["id"].as_str().unwrap().to_string();
+
+    let categories = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/ledger/account-categories")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let category_id = body(categories).await["items"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let account = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/ledger/accounts")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "Dollar card",
+                        "category": category_id,
+                        "currency": currency_id,
+                        "opening_balance": "12.34",
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(account.status(), StatusCode::CREATED);
+    let account_id = body(account).await["id"].as_str().unwrap().to_string();
+
+    let deactivate = app
+        .clone()
+        .oneshot(
+            Request::patch(format!("/api/v1/ledger/currencies/{currency_id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"active":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(deactivate.status(), StatusCode::OK);
+
+    let balances = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/ledger/account-balances")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let balances = body(balances).await;
+    let dollar_card = balances["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["account"]["id"] == account_id)
+        .unwrap();
+    assert_eq!(dollar_card["decimal_places"], 2);
+    assert_eq!(dollar_card["current_balance_minor"], 1_234);
+
+    let currencies = app
+        .oneshot(
+            Request::get("/api/v1/ledger/currencies")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        body(currencies).await["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|currency| currency["code"] != "USD")
+    );
+}
+
+#[tokio::test]
 async fn report_comparison_accepts_presets_and_equal_length_custom_ranges() {
     let (_temp, app) = app();
     let legacy = app

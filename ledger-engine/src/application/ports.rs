@@ -116,6 +116,7 @@ pub struct ForeignKeyViolation {
 pub(crate) struct AccountBalanceRecord {
     pub account: Account,
     pub currency_code: String,
+    pub decimal_places: u8,
     pub movement_minor: i64,
     pub currency_mismatch_count: u64,
 }

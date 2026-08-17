@@ -709,6 +709,62 @@ fn account_balances_include_opening_and_signed_live_movements_by_currency() {
 }
 
 #[test]
+fn account_balances_preserve_precision_for_an_inactive_currency() {
+    let mut seeded = seeded_service();
+    create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "inactive dollars",
+        "Dollar card",
+        Some("Food"),
+        EntryType::Expense,
+        1_234,
+        "USD",
+    );
+    let usd_id = seeded
+        .service
+        .currencies_page(Page {
+            offset: 0,
+            limit: 10,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|currency| currency.code() == "USD")
+        .unwrap()
+        .id()
+        .to_string();
+    seeded
+        .service
+        .update_currency(
+            &usd_id,
+            UpdateCurrency {
+                active: Some(false),
+                actor: "test".to_string(),
+                ..UpdateCurrency::default()
+            },
+        )
+        .unwrap();
+
+    let balances = seeded
+        .service
+        .account_balances_page(Page {
+            offset: 0,
+            limit: 20,
+        })
+        .unwrap();
+    let dollar_card = balances
+        .items
+        .iter()
+        .find(|row| row.account.name() == "Dollar card")
+        .unwrap();
+
+    assert_eq!(dollar_card.currency_code, "USD");
+    assert_eq!(dollar_card.decimal_places, 2);
+    assert_eq!(dollar_card.current_balance_minor, -1_234);
+}
+
+#[test]
 fn summary_streams_more_than_one_hundred_thousand_entries() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");

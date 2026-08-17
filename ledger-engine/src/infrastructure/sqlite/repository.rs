@@ -234,7 +234,7 @@ impl LedgerReadRepository for SqliteLedgerRepository {
         let sql = "SELECT
                 a.id, a.name, a.account_category_id, a.currency_id,
                 a.opening_balance_minor, a.active,
-                c.code,
+                c.code, c.decimal_places,
                 COALESCE(SUM(CASE e.entry_type
                     WHEN 'expense' THEN -e.amount_minor
                     WHEN 'income' THEN e.amount_minor
@@ -255,7 +255,7 @@ impl LedgerReadRepository for SqliteLedgerRepository {
              WHERE a.active = 1 AND a.deleted_at IS NULL
              GROUP BY
                 a.id, a.name, a.account_category_id, a.currency_id,
-                a.opening_balance_minor, a.active, c.code
+                a.opening_balance_minor, a.active, c.code, c.decimal_places
              ORDER BY a.name, a.id
              LIMIT ?1 OFFSET ?2";
         collect_rows(
@@ -1094,11 +1094,16 @@ where
 
 fn row_to_account_balance_record(row: &rusqlite::Row<'_>) -> LedgerResult<AccountBalanceRecord> {
     let account = row_to_account(row)?;
-    let mismatch_count = row.get::<_, i64>(8).map_err(storage_error)?;
+    let decimal_places = row.get::<_, i64>(7).map_err(storage_error)?;
+    let decimal_places = u8::try_from(decimal_places).map_err(|_| {
+        LedgerError::Storage("invalid account balance currency precision".to_string())
+    })?;
+    let mismatch_count = row.get::<_, i64>(9).map_err(storage_error)?;
     Ok(AccountBalanceRecord {
         account,
         currency_code: row.get(6).map_err(storage_error)?,
-        movement_minor: row.get(7).map_err(storage_error)?,
+        decimal_places,
+        movement_minor: row.get(8).map_err(storage_error)?,
         currency_mismatch_count: u64::try_from(mismatch_count).map_err(|_| {
             LedgerError::Storage("account balance mismatch count is negative".to_string())
         })?,

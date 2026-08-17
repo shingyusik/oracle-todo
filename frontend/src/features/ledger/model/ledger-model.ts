@@ -117,6 +117,7 @@ export type TransactionCategory = {
 export type AccountBalance = {
   account: Account;
   currencyCode: string;
+  decimalPlaces: number;
   currentBalanceMinor: number;
 };
 export type TransferView = {
@@ -265,6 +266,12 @@ export function mapAccountBalance(value: unknown): AccountBalance {
   return {
     account: mapAccount(wire.account),
     currencyCode: nonEmptyString(wire.currency_code, "account balance.currency_code"),
+    decimalPlaces: rangeInteger(
+      wire.decimal_places,
+      "account balance.decimal_places",
+      0,
+      18,
+    ),
     currentBalanceMinor: safeInteger(
       wire.current_balance_minor,
       "account balance.current_balance_minor",

@@ -2530,6 +2530,7 @@ describe("LedgerPanel", () => {
               openingBalanceMinor: 1234,
             },
             currencyCode: "USD",
+            decimalPlaces: 2,
             currentBalanceMinor: 5678,
           }],
         })}

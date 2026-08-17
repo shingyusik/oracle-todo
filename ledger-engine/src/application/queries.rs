@@ -40,6 +40,7 @@ impl PartialEq<EntryView> for LedgerEntry {
 pub struct AccountBalanceView {
     pub account: Account,
     pub currency_code: String,
+    pub decimal_places: u8,
     pub current_balance_minor: i64,
 }
 
@@ -152,6 +153,7 @@ impl<R: LedgerReadRepository> LedgerService<R> {
                     Ok(AccountBalanceView {
                         account: record.account,
                         currency_code: record.currency_code,
+                        decimal_places: record.decimal_places,
                         current_balance_minor,
                     })
                 })

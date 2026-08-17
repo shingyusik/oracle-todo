@@ -3,6 +3,7 @@ import { webcrypto } from "node:crypto";
 
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
 import {
+  mapAccountBalance,
   mapCurrency,
   mapLedgerComparison,
   mapLedgerEntry,
@@ -188,6 +189,32 @@ describe("Ledger wire boundary", () => {
       netChangeMinor: 38000,
       entryCount: 2,
     });
+  });
+
+  it("maps account-balance precision only from the supported integer range", () => {
+    const balance = {
+      account: {
+        id: "account-1",
+        name: "Dollar card",
+        category_id: "category-1",
+        currency_id: "currency-usd",
+        opening_balance: 1_234,
+        active: true,
+      },
+      currency_code: "USD",
+      decimal_places: 2,
+      current_balance_minor: 5_678,
+    };
+
+    expect(mapAccountBalance(balance)).toMatchObject({
+      currencyCode: "USD",
+      decimalPlaces: 2,
+      currentBalanceMinor: 5_678,
+    });
+    for (const decimalPlaces of [-1, 19, 1.5, "2", undefined]) {
+      expect(() => mapAccountBalance({ ...balance, decimal_places: decimalPlaces }))
+        .toThrow(/decimal_places/);
+    }
   });
 
   it("rejects unsafe integer money at the boundary", () => {
