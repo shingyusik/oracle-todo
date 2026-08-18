@@ -318,6 +318,14 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
                 "transaction category {id} kind is immutable while children exist"
             )));
         }
+        if before.is_active()
+            && command.active == Some(false)
+            && transaction.transaction_category_has_active_children(id)?
+        {
+            return Err(LedgerError::Conflict(format!(
+                "transaction category {id} cannot be deactivated while active children exist"
+            )));
+        }
         let parent_id = match command.parent {
             Some(Some(reference)) => {
                 let parent = resolve_transaction_category(&*transaction, &reference)?;

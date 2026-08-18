@@ -719,6 +719,16 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
         )
     }
 
+    fn transaction_category_has_active_children(&self, id: &str) -> LedgerResult<bool> {
+        exists(
+            &self.transaction,
+            "SELECT EXISTS(
+                SELECT 1 FROM transaction_categories WHERE parent_id = ?1 AND active = 1
+             )",
+            id,
+        )
+    }
+
     fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>> {
         list_active_currencies_on(&self.transaction, page)
     }

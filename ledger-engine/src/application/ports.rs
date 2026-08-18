@@ -294,6 +294,7 @@ pub(crate) trait LedgerTransaction {
     fn account_has_entries(&self, id: &str) -> LedgerResult<bool>;
     fn transaction_category_has_entries(&self, id: &str) -> LedgerResult<bool>;
     fn transaction_category_has_children(&self, id: &str) -> LedgerResult<bool>;
+    fn transaction_category_has_active_children(&self, id: &str) -> LedgerResult<bool>;
     fn list_active_currencies(&self, page: Page) -> LedgerResult<Vec<Currency>>;
     fn list_active_account_categories(&self, page: Page) -> LedgerResult<Vec<AccountCategory>>;
     fn list_active_accounts(&self, page: Page) -> LedgerResult<Vec<Account>>;

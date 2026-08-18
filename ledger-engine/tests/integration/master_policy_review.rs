@@ -90,6 +90,78 @@ fn parent_transaction_category_kind_is_immutable_while_children_exist() {
 }
 
 #[test]
+fn transaction_category_deactivation_requires_children_to_be_inactive() {
+    let mut fixture = master_fixture();
+    let parent = fixture
+        .service
+        .create_category(CreateTransactionCategory {
+            name: "Housing".to_string(),
+            parent: None,
+            kind: TransactionCategoryKind::Expense,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+    let child = fixture
+        .service
+        .create_category(CreateTransactionCategory {
+            name: "Groceries".to_string(),
+            parent: Some(parent.id().to_string()),
+            kind: TransactionCategoryKind::Expense,
+            actor: "test".to_string(),
+        })
+        .unwrap();
+    let audit_before = fixture
+        .service
+        .audit_page("transaction_category", parent.id(), Page::default())
+        .unwrap();
+
+    let error = fixture
+        .service
+        .update_category(
+            parent.id(),
+            UpdateTransactionCategory {
+                active: Some(false),
+                actor: "test".to_string(),
+                ..UpdateTransactionCategory::default()
+            },
+        )
+        .unwrap_err();
+
+    assert!(matches!(error, LedgerError::Conflict(message) if message.contains("active children")));
+    assert_eq!(
+        fixture
+            .service
+            .audit_page("transaction_category", parent.id(), Page::default())
+            .unwrap(),
+        audit_before
+    );
+
+    fixture
+        .service
+        .update_category(
+            child.id(),
+            UpdateTransactionCategory {
+                active: Some(false),
+                actor: "test".to_string(),
+                ..UpdateTransactionCategory::default()
+            },
+        )
+        .unwrap();
+    let updated_parent = fixture
+        .service
+        .update_category(
+            parent.id(),
+            UpdateTransactionCategory {
+                active: Some(false),
+                actor: "test".to_string(),
+                ..UpdateTransactionCategory::default()
+            },
+        )
+        .unwrap();
+    assert!(!updated_parent.is_active());
+}
+
+#[test]
 fn unreferenced_leaf_transaction_category_kind_can_change() {
     let mut fixture = master_fixture();
     let category = fixture
@@ -202,7 +274,9 @@ fn unreferenced_currency_precision_and_account_currency_can_change() {
 
 #[test]
 fn omitted_inactive_transaction_parent_is_preserved_and_kind_checked() {
-    let mut fixture = master_fixture();
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut fixture = master_fixture_at(&database);
     let child = fixture
         .service
         .create_category(CreateTransactionCategory {
@@ -212,22 +286,23 @@ fn omitted_inactive_transaction_parent_is_preserved_and_kind_checked() {
             actor: "test".to_string(),
         })
         .unwrap();
-    fixture
-        .service
-        .update_category(
-            &fixture.parent_category_id,
-            UpdateTransactionCategory {
-                active: Some(false),
-                actor: "test".to_string(),
-                ..UpdateTransactionCategory::default()
-            },
+    let child_id = child.id().to_string();
+    let parent_id = fixture.parent_category_id.clone();
+    drop(fixture);
+
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE transaction_categories SET active = 0 WHERE id = ?1",
+            [&parent_id],
         )
         .unwrap();
+    drop(connection);
+    let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
 
-    let unrelated = fixture
-        .service
+    let unrelated = service
         .update_category(
-            child.id(),
+            &child_id,
             UpdateTransactionCategory {
                 name: Some("Renamed child".to_string()),
                 actor: "test".to_string(),
@@ -235,10 +310,9 @@ fn omitted_inactive_transaction_parent_is_preserved_and_kind_checked() {
             },
         )
         .unwrap();
-    let same_kind = fixture
-        .service
+    let same_kind = service
         .update_category(
-            child.id(),
+            &child_id,
             UpdateTransactionCategory {
                 kind: Some(TransactionCategoryKind::Expense),
                 actor: "test".to_string(),
@@ -246,17 +320,11 @@ fn omitted_inactive_transaction_parent_is_preserved_and_kind_checked() {
             },
         )
         .unwrap();
-    assert_eq!(
-        unrelated.parent_id(),
-        Some(fixture.parent_category_id.as_str())
-    );
-    assert_eq!(
-        same_kind.parent_id(),
-        Some(fixture.parent_category_id.as_str())
-    );
+    assert_eq!(unrelated.parent_id(), Some(parent_id.as_str()));
+    assert_eq!(same_kind.parent_id(), Some(parent_id.as_str()));
     assert!(matches!(
-        fixture.service.update_category(
-            child.id(),
+        service.update_category(
+            &child_id,
             UpdateTransactionCategory {
                 kind: Some(TransactionCategoryKind::Income),
                 actor: "test".to_string(),
