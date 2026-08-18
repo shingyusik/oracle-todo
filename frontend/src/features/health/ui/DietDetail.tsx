@@ -389,7 +389,7 @@ function canonicalDraft(draft: DietDraft): CanonicalDraft {
     occurredAt: canonicalTime(draft.occurredAt),
     mealType: draft.mealType,
     foodName: draft.foodName.trim(),
-    tagKeys: canonicalTagKeys(draft.tags),
+    tagKeys: exactTagKeys(draft.tags),
     note: draft.note.trim() || null,
   };
 }
@@ -402,15 +402,8 @@ function canonicalTime(value: string): string | null {
   }
 }
 
-function canonicalTagKeys(tags: readonly string[]): Set<string> {
-  return new Set(tags
-    .map((tag) => tag
-      .normalize("NFKC")
-      .toUpperCase()
-      .toLowerCase()
-      .normalize("NFKC")
-      .trim())
-    .filter(Boolean));
+function exactTagKeys(tags: readonly string[]): Set<string> {
+  return new Set(tags.map((tag) => tag.trim()).filter(Boolean));
 }
 
 function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {

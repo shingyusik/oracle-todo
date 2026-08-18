@@ -658,9 +658,9 @@ describe("DietPanel table", () => {
     await waitFor(() => expect(refreshedRow).toHaveFocus());
   });
 
-  it("uses canonical values for no-op dirty checks and payloads", async () => {
+  it("uses canonical scalar values and exact unordered tag sets for no-op checks", async () => {
     const user = userEvent.setup();
-    const tagged = { ...entry, tags: ["rice", "warm"] };
+    const tagged = { ...entry, tags: ["rice", "warm", "𐐨"] };
     const health = controller({ ...loadedState, dietEntries: [tagged] });
     render(<DietPanel controller={health} />);
     await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
@@ -671,8 +671,10 @@ describe("DietPanel table", () => {
       target: { value: time.value.length === 16 ? `${time.value}:00` : time.value.slice(0, 16) },
     });
     await user.click(screen.getByRole("button", { name: "Remove rice tag" }));
+    await user.click(screen.getByRole("button", { name: "Remove warm tag" }));
+    await user.click(screen.getByRole("button", { name: "Remove 𐐨 tag" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.type(screen.getByRole("combobox", { name: "Tags" }), "RICE,rice{Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), "𐐨,warm,rice,rice{Enter}");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(health.updateDiet).not.toHaveBeenCalled();
 
@@ -684,28 +686,25 @@ describe("DietPanel table", () => {
     }, undefined);
   });
 
-  it("compares engine-equivalent Unicode tag sets without rewriting their spellings", async () => {
+  it.each([
+    ["i", "ı"],
+    ["Straße", "STRASSE"],
+    ["ẞ", "ss"],
+    ["ＦＵＬＬ", "FULL"],
+  ])("defers the %s to %s tag spelling change to the server", async (original, changed) => {
     const user = userEvent.setup();
-    const tagged = { ...entry, tags: ["a", "ffi", "strasse", "σ", "ἃι", "𐐨"] };
+    const tagged = { ...entry, tags: [original] };
     const health = controller({ ...loadedState, dietEntries: [tagged] });
     render(<DietPanel controller={health} />);
     await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
-    for (const tag of tagged.tags) {
-      await user.click(screen.getByRole("button", { name: `Remove ${tag} tag` }));
-    }
+    await user.click(screen.getByRole("button", { name: `Remove ${original} tag` }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.type(
-      screen.getByRole("combobox", { name: "Tags" }),
-      "𐐀,ᾃ,ς,ﬃ,ＳＴＲＡＳＳＥ,Straße,a,ᾃ{Enter}",
-    );
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), `${changed}{Enter}`);
 
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    expect(health.updateDiet).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Remove a tag" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
-      tags: ["𐐀", "ᾃ", "ς", "ﬃ", "ＳＴＲＡＳＳＥ", "Straße"],
+      tags: [changed],
       expectedUpdatedAt: entry.updatedAt,
     }, undefined);
   });
