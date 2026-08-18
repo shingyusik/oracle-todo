@@ -79,6 +79,31 @@ function controller(
   };
 }
 
+function DietDialogHarness({
+  health,
+  onClose = vi.fn(),
+}: {
+  health: HealthController;
+  onClose?: () => void;
+}) {
+  const [open, setOpen] = React.useState(true);
+  const returnFocusRef = React.useRef<HTMLButtonElement>(null);
+  return <>
+    <main data-testid="diet-dialog-background">
+      <button ref={returnFocusRef}>Open diet</button>
+    </main>
+    {open ? <DietCreateDialog
+      controller={health}
+      onClose={() => {
+        onClose();
+        setOpen(false);
+      }}
+      returnFocusRef={returnFocusRef}
+      tagOptions={[]}
+    /> : null}
+  </>;
+}
+
 describe("Health Journal forms", () => {
   it("submits structured bowel fields with a Bristol value from 1 to 7", async () => {
     const user = userEvent.setup();
@@ -192,6 +217,9 @@ describe("Health Journal forms", () => {
       />
     </>);
 
+    fireEvent.change(screen.getByLabelText("Time"), {
+      target: { value: "2026-08-17T08:30" },
+    });
     await user.selectOptions(screen.getByLabelText("Meal"), "lunch");
     await user.type(screen.getByLabelText("Food"), "Bibimbap");
     await user.click(screen.getByRole("button", { name: "Tags" }));
@@ -212,8 +240,54 @@ describe("Health Journal forms", () => {
     await user.upload(screen.getByLabelText("Photo"), image);
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Diet save failed");
+    expect(screen.getByLabelText("Time")).toHaveValue("2026-08-17T08:30");
+    expect(screen.getByLabelText("Meal")).toHaveValue("lunch");
+    expect(screen.getByLabelText("Food")).toHaveValue("Bibimbap");
     expect(screen.getByRole("button", { name: "Remove rice tag" })).toBeVisible();
     expect(screen.getByLabelText("Photo")).toHaveProperty("files.length", 1);
+    expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
+  });
+
+  it("portals the Diet dialog under body and isolates outside content", () => {
+    const view = render(<DietDialogHarness health={controller()} />);
+    const dialog = screen.getByRole("dialog", { name: "Add diet entry" });
+    const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
+
+    expect(host?.parentElement).toBe(document.body);
+    expect(view.container).toHaveAttribute("aria-hidden", "true");
+    expect(view.container).toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("hidden");
+    let ancestor = dialog.parentElement;
+    while (ancestor) {
+      expect(ancestor).not.toHaveAttribute("aria-hidden", "true");
+      expect(ancestor).not.toHaveAttribute("inert");
+      ancestor = ancestor.parentElement;
+    }
+  });
+
+  it("wraps Tab in both directions and closes from idle Escape or backdrop", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const first = render(<DietDialogHarness health={controller()} onClose={onClose} />);
+    const close = screen.getByRole("button", { name: "Close Add diet entry" });
+    const save = screen.getByRole("button", { name: "Save diet entry" });
+
+    close.focus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(save).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
+    expect(onClose).toHaveBeenCalledOnce();
+    first.unmount();
+
+    render(<DietDialogHarness health={controller()} onClose={onClose} />);
+    const backdrop = screen.getByRole("dialog", { name: "Add diet entry" }).parentElement;
+    expect(backdrop).not.toBeNull();
+    fireEvent.mouseDown(backdrop!);
+    expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it("blocks Diet dialog dismissal and duplicate submission until save resolves", async () => {
@@ -242,6 +316,7 @@ describe("Health Journal forms", () => {
     await user.type(screen.getByLabelText("Food"), "Lunch");
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
     await user.keyboard("{Escape}");
+    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Add diet entry" }).parentElement!);
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
     expect(onClose).not.toHaveBeenCalled();
     expect(health.createDiet).toHaveBeenCalledOnce();
