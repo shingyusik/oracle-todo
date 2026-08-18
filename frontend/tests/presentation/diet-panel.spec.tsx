@@ -13,7 +13,7 @@ import {
 import type { DietEntry, HealthTrends } from "@/features/health/model/health-model";
 import type { HealthController, HealthState } from "@/features/health/hooks/useHealthController";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
-import { DietPanel } from "@/features/health/ui/DietPanel";
+import { DietPanel as DietPanelView } from "@/features/health/ui/DietPanel";
 
 const entry: DietEntry = {
   id: "diet-1",
@@ -81,6 +81,33 @@ function controller(
     restore: vi.fn(),
     purge: vi.fn(),
   };
+}
+
+function DietPanel({ controller: health }: { controller: HealthController }) {
+  const [tombstonedIds, setTombstonedIds] = React.useState<Set<string>>(() => new Set());
+  const [refreshWarning, setRefreshWarning] = React.useState<string | null>(null);
+  const [refreshPending, setRefreshPending] = React.useState(false);
+
+  return (
+    <DietPanelView
+      controller={health}
+      tombstonedIds={tombstonedIds}
+      onArchiveCommitted={(id, warning) => {
+        setTombstonedIds((current) => new Set(current).add(id));
+        if (warning) setRefreshWarning(warning);
+      }}
+      refreshWarning={refreshWarning}
+      refreshPending={refreshPending}
+      onRetryRefresh={async () => {
+        setRefreshPending(true);
+        try {
+          if (await health.refresh()) setRefreshWarning(null);
+        } finally {
+          setRefreshPending(false);
+        }
+      }}
+    />
+  );
 }
 
 function deferred<T>() {

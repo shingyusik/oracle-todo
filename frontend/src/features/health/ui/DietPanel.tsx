@@ -13,16 +13,31 @@ import { DietTable } from "@/features/health/ui/DietTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
-export function DietPanel({ controller }: { controller: HealthController }) {
+type DietPanelProps = {
+  controller: HealthController;
+  tombstonedIds?: ReadonlySet<string>;
+  onArchiveCommitted?: (id: string, refreshWarning?: string) => void;
+  refreshWarning?: string | null;
+  refreshPending?: boolean;
+  onRetryRefresh?: () => Promise<void>;
+};
+
+const noDietTombstones: ReadonlySet<string> = new Set();
+
+export function DietPanel({
+  controller,
+  tombstonedIds = noDietTombstones,
+  onArchiveCommitted,
+  refreshWarning = null,
+  refreshPending = false,
+  onRetryRefresh,
+}: DietPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [tombstones, setTombstones] = useState<Set<string>>(() => new Set());
   const [createOpen, setCreateOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<DietRow | null>(null);
   const [archiveTargets, setArchiveTargets] = useState<string[] | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
-  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
-  const [refreshPending, setRefreshPending] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -30,19 +45,10 @@ export function DietPanel({ controller }: { controller: HealthController }) {
     if (controller.state.dietStatus === "idle") void controller.refreshDiet();
   }, [controller]);
 
-  useEffect(() => {
-    if (controller.state.dietStatus !== "loaded" || tombstones.size === 0) return;
-    const activeIds = new Set(controller.state.dietEntries
-      .filter(({ deletedAt }) => deletedAt === null)
-      .map(({ id }) => id));
-    const next = new Set([...tombstones].filter((id) => activeIds.has(id)));
-    if (next.size !== tombstones.size) setTombstones(next);
-  }, [controller.state.dietEntries, controller.state.dietStatus, tombstones]);
-
   const entries = useMemo(
     () => controller.state.dietEntries.filter(({ deletedAt, id }) =>
-      deletedAt === null && !tombstones.has(id)),
-    [controller.state.dietEntries, tombstones],
+      deletedAt === null && !tombstonedIds.has(id)),
+    [controller.state.dietEntries, tombstonedIds],
   );
   const activeGroups = useMemo(
     () => deriveDietGroups(entries, defaultHealthTableSettings("health.diet")),
@@ -100,8 +106,7 @@ export function DietPanel({ controller }: { controller: HealthController }) {
       setArchiveTargets(null);
     } catch (error) {
       if (error instanceof HealthMutationRefreshError) {
-        if (currentId) markArchived(currentId);
-        setRefreshWarning(error.message);
+        if (currentId) markArchived(currentId, error.message);
       } else {
         setArchiveError(error instanceof Error ? error.message : "Could not archive diet entries.");
       }
@@ -111,19 +116,15 @@ export function DietPanel({ controller }: { controller: HealthController }) {
     }
   }
 
-  function markArchived(id: string) {
-    setTombstones((current) => new Set(current).add(id));
+  function markArchived(id: string, warning?: string) {
+    onArchiveCommitted?.(id, warning);
     setSelectedIds((current) => current.filter((candidate) => candidate !== id));
     setArchiveTargets((current) => current?.filter((candidate) => candidate !== id) ?? null);
   }
 
   async function retryRefresh() {
-    setRefreshPending(true);
-    try {
-      if (await controller.refresh()) setRefreshWarning(null);
-    } finally {
-      setRefreshPending(false);
-    }
+    if (onRetryRefresh) await onRetryRefresh();
+    else await controller.refresh();
   }
 
   const initial = controller.state.dietEntries.length === 0;

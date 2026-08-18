@@ -18,6 +18,7 @@ import type {
   HealthState,
 } from "@/features/health/hooks/useHealthController";
 import {
+  HealthMutationRefreshError,
   useHealthController,
 } from "@/features/health/hooks/useHealthController";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
@@ -454,6 +455,42 @@ describe("HealthPanel", () => {
     const actions = screen.getAllByRole("button", { name: /Archive Bibimbap/ });
     expect(actions[0].getAttribute("aria-label"))
       .not.toBe(actions[1].getAttribute("aria-label"));
+  });
+
+  it("preserves committed Diet archive recovery across Health leaf tabs", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.archiveDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refresh = vi.fn().mockResolvedValue(true);
+    const view = render(<HealthPanel controller={health} leafTabId="diet" />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Select Bibimbap/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected diet entries" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("Bibimbap")).toBeNull());
+
+    view.rerender(<HealthPanel controller={health} leafTabId="timeline" />);
+    view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
+    expect(screen.queryByText("Bibimbap")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refresh).toHaveBeenCalledOnce();
+    expect(health.archiveDiet).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Bibimbap")).toBeNull();
+
+    view.rerender(<HealthPanel controller={{
+      ...health,
+      state: { ...health.state, dietEntries: [], dietError: null },
+    }} leafTabId="diet" />);
+    await waitFor(() => expect(screen.queryByText(
+      "Changes were saved, but Health could not refresh.",
+    )).toBeNull());
+    expect(screen.queryByText("Bibimbap")).toBeNull();
   });
 
   it("loads, normalizes, edits, and persists Health Diet views", async () => {
