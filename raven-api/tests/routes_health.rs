@@ -3,6 +3,7 @@ use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use raven_api::{AuthMode, RavenApiConfig, router};
 use serde_json::{Value, json};
+use std::path::{Path as FilePath, PathBuf};
 use tower::ServiceExt;
 
 const PNG: &[u8] = &[
@@ -81,6 +82,29 @@ async fn get_diet(app: &axum::Router, id: &str) -> Value {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     body(response).await
+}
+
+async fn get_diet_audit(app: &axum::Router, id: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/v1/health/audit/diet_entry/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    body(response).await
+}
+
+fn media_entries(root: &FilePath) -> Vec<PathBuf> {
+    let mut entries = std::fs::read_dir(root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    entries.sort();
+    entries
 }
 
 #[tokio::test]
@@ -208,9 +232,10 @@ async fn service_detected_media_mismatch_is_unsupported_media() {
 
 #[tokio::test]
 async fn diet_image_update_replaces_supported_images_and_removes_image() {
-    let (_temp, app) = app();
+    let (temp, app) = app();
     let created = create_diet(&app).await;
     let id = created["id"].as_str().unwrap();
+    let stale_updated_at = created["updated_at"].as_str().unwrap().to_string();
     let mut updated_at = created["updated_at"].as_str().unwrap().to_string();
     let mut media_id = None::<String>;
 
@@ -245,6 +270,40 @@ async fn diet_image_update_replaces_supported_images_and_removes_image() {
         updated_at = updated["updated_at"].as_str().unwrap().to_string();
     }
 
+    let audit = get_diet_audit(&app, id).await;
+    let latest = audit["items"].as_array().unwrap().last().unwrap();
+    assert_eq!(latest["action"], "update");
+    assert_eq!(latest["reason"], "replace meal photo");
+
+    let before_stale = get_diet(&app, id).await;
+    let media_before_stale = media_entries(&temp.path().join("media"));
+    let stale = app
+        .clone()
+        .oneshot(
+            Request::patch(format!("/api/v1/health/diet/{id}/with-image"))
+                .header(header::CONTENT_TYPE, "image/png")
+                .header(
+                    "x-raven-diet-metadata",
+                    json!({
+                        "food_name": "Stale Salad",
+                        "expected_updated_at": stale_updated_at,
+                        "reason": "stale replacement"
+                    })
+                    .to_string(),
+                )
+                .body(Body::from(PNG))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+    assert_eq!(get_diet(&app, id).await, before_stale);
+    assert_eq!(
+        media_entries(&temp.path().join("media")),
+        media_before_stale
+    );
+    assert_eq!(get_diet_audit(&app, id).await, audit);
+
     let response = app
         .clone()
         .oneshot(
@@ -268,9 +327,12 @@ async fn diet_image_update_replaces_supported_images_and_removes_image() {
 
 #[tokio::test]
 async fn diet_image_update_rejects_invalid_uploads_without_changing_entry() {
-    let (_temp, app) = app();
+    let (temp, app) = app();
     let created = create_diet(&app).await;
     let id = created["id"].as_str().unwrap();
+    let media = temp.path().join("media");
+    let initial_media = media_entries(&media);
+    let initial_audit = get_diet_audit(&app, id).await;
     let metadata = json!({"food_name": "Changed"}).to_string();
     let cases = [
         (
@@ -313,6 +375,8 @@ async fn diet_image_update_rejects_invalid_uploads_without_changing_entry() {
             .unwrap();
         assert_eq!(response.status(), expected_status);
         assert_eq!(get_diet(&app, id).await, created);
+        assert_eq!(media_entries(&media), initial_media);
+        assert_eq!(get_diet_audit(&app, id).await, initial_audit);
     }
 
     let response = app
@@ -328,6 +392,8 @@ async fn diet_image_update_rejects_invalid_uploads_without_changing_entry() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(get_diet(&app, id).await, created);
+    assert_eq!(media_entries(&media), initial_media);
+    assert_eq!(get_diet_audit(&app, id).await, initial_audit);
 }
 
 #[tokio::test]
