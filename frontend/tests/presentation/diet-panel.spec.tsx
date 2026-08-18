@@ -650,4 +650,59 @@ describe("DietPanel table", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Archive failed");
     await waitFor(() => expect(remove).toHaveFocus());
   });
+
+  it("treats a committed archive refresh failure as success and leaves later targets unattempted", async () => {
+    const user = userEvent.setup();
+    const dinner = { ...entry, id: "dinner", mealType: "dinner" as const, foodName: "Soup" };
+    const snack = { ...entry, id: "snack", mealType: "snack" as const, foodName: "Apple" };
+    const health = controller({ ...loadedState, dietEntries: [entry, dinner, snack] });
+    health.archiveDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refresh = vi.fn().mockResolvedValue(true);
+    render(<DietPanel controller={health} />);
+    for (const food of ["Bibimbap", "Soup", "Apple"]) {
+      await user.click(screen.getByRole("checkbox", { name: new RegExp(`Select ${food}`) }));
+    }
+    const remove = screen.getByRole("button", { name: "Archive selected diet entries" });
+    await user.click(remove);
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).toBeNull());
+    expect(health.archiveDiet).toHaveBeenCalledTimes(1);
+    expect(health.archiveDiet).toHaveBeenCalledWith("diet-1");
+    expect(screen.queryByRole("checkbox", { name: /Select Bibimbap/ })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: /Select Soup/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Select Apple/ })).toBeChecked();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+    await waitFor(() => expect(remove).toHaveFocus());
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refresh).toHaveBeenCalledOnce();
+    expect(health.archiveDiet).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByText(
+      "Changes were saved, but Health could not refresh.",
+    )).toBeNull());
+    expect(screen.queryByText("Bibimbap")).toBeNull();
+  });
+
+  it("returns focus to Add when the sole archive committed before refresh failed", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.archiveDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("checkbox", { name: /Select Bibimbap/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected diet entries" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => expect(screen.queryByText("Bibimbap")).toBeNull());
+    expect(screen.getByRole("button", { name: "Archive selected diet entries" })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add diet entry" })).toHaveFocus());
+  });
 });

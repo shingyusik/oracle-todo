@@ -2,7 +2,10 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import type { HealthController } from "@/features/health/hooks/useHealthController";
+import {
+  HealthMutationRefreshError,
+  type HealthController,
+} from "@/features/health/hooks/useHealthController";
 import { deriveDietGroups, type DietRow } from "@/features/health/model/diet-table";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
@@ -18,12 +21,23 @@ export function DietPanel({ controller }: { controller: HealthController }) {
   const [archiveTargets, setArchiveTargets] = useState<string[] | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
+  const [refreshPending, setRefreshPending] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (controller.state.dietStatus === "idle") void controller.refreshDiet();
   }, [controller]);
+
+  useEffect(() => {
+    if (controller.state.dietStatus !== "loaded" || tombstones.size === 0) return;
+    const activeIds = new Set(controller.state.dietEntries
+      .filter(({ deletedAt }) => deletedAt === null)
+      .map(({ id }) => id));
+    const next = new Set([...tombstones].filter((id) => activeIds.has(id)));
+    if (next.size !== tombstones.size) setTombstones(next);
+  }, [controller.state.dietEntries, controller.state.dietStatus, tombstones]);
 
   const entries = useMemo(
     () => controller.state.dietEntries.filter(({ deletedAt, id }) =>
@@ -76,19 +90,39 @@ export function DietPanel({ controller }: { controller: HealthController }) {
     if (!archiveTargets || archivePending) return;
     setArchivePending(true);
     setArchiveError(null);
+    let currentId: string | null = null;
     try {
       for (const id of archiveTargets) {
+        currentId = id;
         await controller.archiveDiet(id);
-        setTombstones((current) => new Set(current).add(id));
-        setSelectedIds((current) => current.filter((candidate) => candidate !== id));
-        setArchiveTargets((current) => current?.filter((candidate) => candidate !== id) ?? null);
+        markArchived(id);
       }
       setArchiveTargets(null);
     } catch (error) {
-      setArchiveError(error instanceof Error ? error.message : "Could not archive diet entries.");
+      if (error instanceof HealthMutationRefreshError) {
+        if (currentId) markArchived(currentId);
+        setRefreshWarning(error.message);
+      } else {
+        setArchiveError(error instanceof Error ? error.message : "Could not archive diet entries.");
+      }
       setArchiveTargets(null);
     } finally {
       setArchivePending(false);
+    }
+  }
+
+  function markArchived(id: string) {
+    setTombstones((current) => new Set(current).add(id));
+    setSelectedIds((current) => current.filter((candidate) => candidate !== id));
+    setArchiveTargets((current) => current?.filter((candidate) => candidate !== id) ?? null);
+  }
+
+  async function retryRefresh() {
+    setRefreshPending(true);
+    try {
+      if (await controller.refresh()) setRefreshWarning(null);
+    } finally {
+      setRefreshPending(false);
     }
   }
 
@@ -129,7 +163,14 @@ export function DietPanel({ controller }: { controller: HealthController }) {
         onToggle={toggle}
         onToggleAll={toggleAll}
       />
-      {controller.state.dietError ? (
+      {refreshWarning ? (
+        <div className="items-message">
+          <p role="alert">{refreshWarning}</p>
+          <button type="button" disabled={refreshPending} onClick={() => void retryRefresh()}>
+            Retry
+          </button>
+        </div>
+      ) : controller.state.dietError ? (
         <p role="alert" className="items-message">{controller.state.dietError}</p>
       ) : null}
       {archiveError && archiveTargets === null ? (
