@@ -596,15 +596,89 @@ describe("DietPanel table", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("Meal"), "dinner");
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.type(screen.getByRole("combobox", { name: "Tags" }), "warm{Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), "Straße,wheat{Enter}");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
       mealType: "dinner",
-      tags: ["rice", "warm"],
+      tags: ["rice", "strasse", "wheat"],
       expectedUpdatedAt: entry.updatedAt,
     }, undefined));
     expect(screen.getByRole("button", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
+  });
+
+  it("freezes the opened version and restores focus by ID after refreshed labels change", async () => {
+    const user = userEvent.setup();
+    const saved = deferred<void>();
+    const health = controller();
+    health.updateDiet = vi.fn(() => saved.promise);
+    const view = render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.type(screen.getByLabelText("Note"), "user edit");
+
+    const refreshed = {
+      ...entry,
+      occurredAt: "2026-08-18T06:30:00Z",
+      mealType: "dinner" as const,
+      foodName: "Server meal",
+      tags: ["server"],
+      updatedAt: "2026-08-18T06:31:00Z",
+    };
+    view.rerender(<DietPanel controller={{
+      ...health,
+      state: { ...health.state, dietEntries: [refreshed] },
+    }} />);
+    expect(screen.getByLabelText("Food")).toHaveValue("Bibimbap");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
+      note: "user edit",
+      expectedUpdatedAt: entry.updatedAt,
+    }, undefined);
+
+    await act(async () => saved.resolve());
+    const refreshedRow = await screen.findByRole("button", { name: /Open details for Server meal/ });
+    await waitFor(() => expect(refreshedRow).toHaveFocus());
+  });
+
+  it("uses canonical values for no-op dirty checks and payloads", async () => {
+    const user = userEvent.setup();
+    const tagged = { ...entry, tags: ["rice", "warm"] };
+    const health = controller({ ...loadedState, dietEntries: [tagged] });
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    fireEvent.change(screen.getByLabelText("Food"), { target: { value: "  Bibimbap  " } });
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "   " } });
+    const time = screen.getByLabelText("Time") as HTMLInputElement;
+    fireEvent.change(time, {
+      target: { value: time.value.length === 16 ? `${time.value}:00` : time.value.slice(0, 16) },
+    });
+    await user.click(screen.getByRole("button", { name: "Remove rice tag" }));
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), "RICE,rice{Enter}");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(health.updateDiet).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Food"), { target: { value: "  Kimchi  " } });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
+      foodName: "Kimchi",
+      expectedUpdatedAt: entry.updatedAt,
+    }, undefined);
+  });
+
+  it("sends an exact RFC3339 instant across the local timezone boundary", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    fireEvent.change(screen.getByLabelText("Time"), {
+      target: { value: "2026-08-19T00:15:00" },
+    });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
+      occurredAt: "2026-08-18T15:15:00.000Z",
+      expectedUpdatedAt: entry.updatedAt,
+    }, undefined);
   });
 
   it("keeps draft and history after save failure", async () => {
@@ -632,7 +706,16 @@ describe("DietPanel table", () => {
     await user.upload(photo, invalid);
     expect(screen.getByRole("alert")).toHaveTextContent("Meal image must be an image file");
     expect(screen.getByText("Current photo")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Note"), "kept");
+    await user.upload(photo, invalid);
+    expect(screen.getByLabelText("Note")).toHaveValue("kept");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(health.updateDiet).toHaveBeenLastCalledWith("diet-1", {
+      note: "kept",
+      expectedUpdatedAt: entry.updatedAt,
+    }, undefined);
 
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
     await user.click(screen.getByRole("button", { name: "Remove photo" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(health.updateDiet).toHaveBeenLastCalledWith("diet-1", {
@@ -658,7 +741,9 @@ describe("DietPanel table", () => {
     const user = userEvent.setup();
     const health = controller();
     health.updateDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
-    health.refresh = vi.fn().mockResolvedValue(true);
+    health.refresh = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
     render(<DietPanel controller={health} />);
     await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
     await user.type(screen.getByLabelText("Note"), "saved");
@@ -671,7 +756,74 @@ describe("DietPanel table", () => {
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(health.refresh).toHaveBeenCalledOnce();
     expect(health.updateDiet).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+    expect(screen.getByLabelText("Note")).toHaveValue("saved");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refresh).toHaveBeenCalledTimes(2);
+    expect(health.updateDiet).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
+  });
+
+  it("blocks invalid and pending edits, actions, shortcuts, and duplicate saves", async () => {
+    const user = userEvent.setup();
+    const saved = deferred<void>();
+    const health = controller();
+    health.updateDiet = vi.fn(() => saved.promise);
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.clear(screen.getByLabelText("Food"));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    expect(health.updateDiet).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText("Food"), "Dinner");
+    fireEvent.keyDown(window, { key: "s", metaKey: true });
+    await waitFor(() => expect(health.updateDiet).toHaveBeenCalledOnce());
+    for (const name of ["< Back", "Undo", "Redo", "Save", "Delete"]) {
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    }
+    expect(screen.getByLabelText("Food")).toBeDisabled();
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(health.updateDiet).toHaveBeenCalledOnce();
+    await act(async () => saved.resolve());
+  });
+
+  it("supports Meta undo, Shift redo, and the established Ctrl+Y alternative", async () => {
+    const user = userEvent.setup();
+    render(<DietPanel controller={controller()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    fireEvent.change(screen.getByLabelText("Food"), { target: { value: "Dinner" } });
+    fireEvent.keyDown(window, { key: "z", metaKey: true });
+    expect(screen.getByLabelText("Food")).toHaveValue("Bibimbap");
+    fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+    expect(screen.getByLabelText("Food")).toHaveValue("Dinner");
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(screen.getByLabelText("Food")).toHaveValue("Dinner");
+  });
+
+  it("treats detail archive refresh failure as committed and retries reads only", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.archiveDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refresh = vi.fn().mockResolvedValue(true);
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive Bibimbap?",
+    })).getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => expect(screen.queryByText("Bibimbap")).toBeNull());
+    expect(health.archiveDiet).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add diet entry" })).toHaveFocus());
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refresh).toHaveBeenCalledOnce();
+    expect(health.archiveDiet).toHaveBeenCalledOnce();
   });
 
   it("archives from detail once and exits when active truth or a tombstone removes the row", async () => {

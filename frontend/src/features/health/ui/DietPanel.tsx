@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   HealthMutationRefreshError,
@@ -41,7 +41,8 @@ export function DietPanel({
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
-  const detailOriginLabelRef = useRef<string | null>(null);
+  const tableRef = useRef<HTMLElement>(null);
+  const detailOriginIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (controller.state.dietStatus === "idle") void controller.refreshDiet();
@@ -77,6 +78,14 @@ export function DietPanel({
     ? activeRows.find(({ id }) => id === detailRow.id) ?? null
     : null;
 
+  useLayoutEffect(() => {
+    const elements = tableRef.current?.querySelectorAll<HTMLElement>('tr[role="button"]');
+    elements?.forEach((element, index) => {
+      const row = visibleRows[index];
+      if (row) element.id = dietRowDomId(row.id);
+    });
+  }, [currentDetailRow, visibleRows]);
+
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
     setSelectedIds((current) => {
@@ -91,9 +100,8 @@ export function DietPanel({
 
   function restoreDetailFocus() {
     requestAnimationFrame(() => {
-      const label = detailOriginLabelRef.current;
-      const target = [...document.querySelectorAll<HTMLElement>('[role="button"][aria-label]')]
-        .find((element) => element.getAttribute("aria-label") === label);
+      const id = detailOriginIdRef.current;
+      const target = id ? document.getElementById(id) : null;
       (target ?? addButtonRef.current)?.focus();
     });
   }
@@ -170,6 +178,7 @@ export function DietPanel({
   if (currentDetailRow) {
     return (
       <DietDetail
+        key={currentDetailRow.id}
         controller={controller}
         row={currentDetailRow}
         tagOptions={detailTags}
@@ -183,7 +192,7 @@ export function DietPanel({
   }
 
   return (
-    <section aria-labelledby="health-diet-heading">
+    <section ref={tableRef} aria-labelledby="health-diet-heading">
       <HealthTableViewHeader
         controller={controller}
         entries={entries}
@@ -201,7 +210,7 @@ export function DietPanel({
         activeRowCount={activeRows.length}
         selectedIds={selectedIds}
         onOpen={(row) => {
-          detailOriginLabelRef.current = `Open details for ${row.food}, ${row.date} ${row.timeLabel}, ${row.mealLabel}`;
+          detailOriginIdRef.current = dietRowDomId(row.id);
           setDetailRow(row);
         }}
         onToggle={toggle}
@@ -245,4 +254,8 @@ export function DietPanel({
       ) : null}
     </section>
   );
+}
+
+function dietRowDomId(id: string): string {
+  return `diet-row-${id}`;
 }

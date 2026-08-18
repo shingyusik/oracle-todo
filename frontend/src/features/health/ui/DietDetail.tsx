@@ -37,6 +37,14 @@ type DraftHistory = {
   coalescingGroup: keyof DietDraft | null;
 };
 
+type CanonicalDraft = {
+  occurredAt: string | null;
+  mealType: MealType;
+  foodName: string;
+  tags: string[];
+  note: string | null;
+};
+
 type DraftAction =
   | { type: "change"; name: keyof DietDraft; value: DietDraft[keyof DietDraft]; coalesce?: boolean }
   | { type: "image"; newImage: File | null; removeImage: boolean }
@@ -57,7 +65,11 @@ export function DietDetail({
   onBack,
   onArchived,
 }: DietDetailProps) {
-  const initialDraft = dietDraft(row);
+  const [baseline] = useState(() => {
+    const baselineRow = snapshotRow(row);
+    return { row: baselineRow, draft: dietDraft(baselineRow) };
+  });
+  const initialDraft = baseline.draft;
   const [history, dispatch] = useReducer(historyReducer, initialDraft, (present) => ({
     past: [],
     present,
@@ -71,8 +83,13 @@ export function DietDetail({
   const backButtonRef = useRef<HTMLButtonElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const actionInFlight = useRef(false);
   const draft = history.present;
-  const dirty = !sameDraft(draft, initialDraft);
+  const canonicalBaseline = canonicalDraft(initialDraft);
+  const canonicalPresent = canonicalDraft(draft);
+  const dirty = !sameCanonicalDraft(canonicalPresent, canonicalBaseline) ||
+    draft.newImage !== null || draft.removeImage;
+  const valid = canonicalPresent.occurredAt !== null && canonicalPresent.foodName !== "";
   const readOnly = pending || refreshRecovery;
 
   function change<Name extends keyof DietDraft>(
@@ -84,20 +101,21 @@ export function DietDetail({
   }
 
   function back() {
-    if (pending || refreshRecovery) return;
+    if (actionInFlight.current || refreshRecovery) return;
     if (dirty) setConfirmation("back");
     else onBack();
   }
 
   async function save() {
-    if (pending || refreshRecovery || !dirty) return;
+    if (actionInFlight.current || refreshRecovery || !dirty || !valid) return;
+    actionInFlight.current = true;
     dispatch({ type: "close-group" });
     setPending(true);
     setError(null);
     try {
       await controller.updateDiet(
-        row.id,
-        dietPatch(initialDraft, draft, row),
+        baseline.row.id,
+        dietPatch(canonicalBaseline, canonicalPresent, draft, baseline.row),
         draft.newImage ?? undefined,
       );
       onBack();
@@ -105,26 +123,30 @@ export function DietDetail({
       setError(cause instanceof Error ? cause.message : "Could not save diet entry");
       if (cause instanceof HealthMutationRefreshError) setRefreshRecovery(true);
     } finally {
+      actionInFlight.current = false;
       setPending(false);
     }
   }
 
   async function retryRefresh() {
-    if (pending) return;
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
     setPending(true);
     try {
       if (await controller.refresh()) onBack();
     } finally {
+      actionInFlight.current = false;
       setPending(false);
     }
   }
 
   async function archive() {
-    if (pending) return;
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
     setPending(true);
     setError(null);
     try {
-      await controller.archiveDiet(row.id);
+      await controller.archiveDiet(baseline.row.id);
       onArchived();
     } catch (cause) {
       if (cause instanceof HealthMutationRefreshError) {
@@ -133,6 +155,7 @@ export function DietDetail({
         setError(cause instanceof Error ? cause.message : "Could not archive diet entry");
       }
     } finally {
+      actionInFlight.current = false;
       setPending(false);
     }
   }
@@ -144,7 +167,7 @@ export function DietDetail({
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (
-        event.isComposing || pending || refreshRecovery || confirmation ||
+        event.isComposing || actionInFlight.current || refreshRecovery || confirmation ||
         !(event.ctrlKey || event.metaKey)
       ) return;
       const key = event.key.toLowerCase();
@@ -167,9 +190,9 @@ export function DietDetail({
   });
 
   return (
-    <section className="detail-view" aria-label={`${row.food} details`}>
+    <section className="detail-view" aria-label={`${baseline.row.food} details`}>
       <header className="detail-header">
-        <button ref={backButtonRef} type="button" className="detail-back" aria-label="< Back" onClick={back}>
+        <button ref={backButtonRef} type="button" className="detail-back" aria-label="< Back" disabled={readOnly} onClick={back}>
           <ArrowLeft size={16} aria-hidden="true" />
         </button>
         <div className="detail-actions">
@@ -179,10 +202,11 @@ export function DietDetail({
           <button type="button" aria-label="Redo" title="Redo (Ctrl/Cmd+Shift+Z or Ctrl+Y)" disabled={pending || refreshRecovery || history.future.length === 0} onClick={() => dispatch({ type: "redo" })}>
             <Redo2 size={16} aria-hidden="true" />
           </button>
-          <button type="button" aria-label="Save" title="Save (Ctrl/Cmd+S)" disabled={pending || refreshRecovery || !dirty} onClick={() => void save()}>
+          <button type="button" aria-label="Save" title="Save (Ctrl/Cmd+S)" disabled={readOnly || !dirty || !valid} onClick={() => void save()}>
             <Save size={16} aria-hidden="true" />
           </button>
           <button ref={deleteButtonRef} type="button" aria-label="Delete" title="Delete" disabled={pending || refreshRecovery} onClick={() => {
+            if (actionInFlight.current || refreshRecovery) return;
             setError(null);
             setConfirmation("archive");
           }}>
@@ -194,8 +218,8 @@ export function DietDetail({
         <div className="detail-heading">
           <div className="detail-kicker"><span>Diet entry details</span></div>
           <h1>{draft.foodName}</h1>
-          <p>Created {formatTimestamp(row.entry.createdAt)}</p>
-          <p>Updated {formatTimestamp(row.entry.updatedAt)}</p>
+          <p>Created {formatTimestamp(baseline.row.entry.createdAt)}</p>
+          <p>Updated {formatTimestamp(baseline.row.entry.updatedAt)}</p>
         </div>
         {error ? <p role="alert" className="form-error">{error}</p> : null}
         {refreshRecovery ? (
@@ -247,9 +271,9 @@ export function DietDetail({
             />
             {draft.newImage ? (
               <><span>{draft.newImage.name}</span><button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: false })}>Remove selected photo</button></>
-            ) : row.entry.mediaId && draft.removeImage ? (
+            ) : baseline.row.entry.mediaId && draft.removeImage ? (
               <><span>Photo will be removed</span><button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: false })}>Keep photo</button></>
-            ) : row.entry.mediaId ? (
+            ) : baseline.row.entry.mediaId ? (
               <><span>Current photo</span><button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: true })}>Remove photo</button></>
             ) : <span>No photo</span>}
           </label>
@@ -330,7 +354,7 @@ function dietDraft(row: DietRow): DietDraft {
   const occurredAt = new Date(row.entry.occurredAt);
   const local = new Date(occurredAt.getTime() - occurredAt.getTimezoneOffset() * 60_000);
   return {
-    occurredAt: local.toISOString().slice(0, 16),
+    occurredAt: local.toISOString().slice(0, 23).replace(/\.000$/, ""),
     mealType: row.entry.mealType,
     foodName: row.entry.foodName,
     tags: [...row.entry.tags],
@@ -340,14 +364,47 @@ function dietDraft(row: DietRow): DietDraft {
   };
 }
 
-function sameDraft(left: DietDraft, right: DietDraft): boolean {
+function snapshotRow(row: DietRow): DietRow {
+  return {
+    ...row,
+    tags: [...row.tags],
+    entry: { ...row.entry, tags: [...row.entry.tags] },
+  };
+}
+
+function canonicalDraft(draft: DietDraft): CanonicalDraft {
+  return {
+    occurredAt: canonicalTime(draft.occurredAt),
+    mealType: draft.mealType,
+    foodName: draft.foodName.trim(),
+    tags: canonicalTags(draft.tags),
+    note: draft.note.trim() || null,
+  };
+}
+
+function canonicalTime(value: string): string | null {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function canonicalTags(tags: readonly string[]): string[] {
+  return [...new Set(tags.map((tag) => tag
+    .normalize("NFKC")
+    .toLocaleLowerCase("und")
+    .replaceAll("ß", "ss")
+    .replaceAll("ς", "σ")
+    .normalize("NFKC")
+    .trim())
+    .filter(Boolean))]
+    .sort();
+}
+
+function sameCanonicalDraft(left: CanonicalDraft, right: CanonicalDraft): boolean {
   return left.occurredAt === right.occurredAt &&
     left.mealType === right.mealType &&
     left.foodName === right.foodName &&
     sameValue(left.tags, right.tags) &&
-    left.note === right.note &&
-    left.newImage === right.newImage &&
-    left.removeImage === right.removeImage;
+    left.note === right.note;
 }
 
 function sameValue(left: DietDraft[keyof DietDraft], right: DietDraft[keyof DietDraft]): boolean {
@@ -356,13 +413,18 @@ function sameValue(left: DietDraft[keyof DietDraft], right: DietDraft[keyof Diet
     : left === right;
 }
 
-function dietPatch(baseline: DietDraft, draft: DietDraft, row: DietRow): DietUpdate {
+function dietPatch(
+  baseline: CanonicalDraft,
+  present: CanonicalDraft,
+  draft: DietDraft,
+  row: DietRow,
+): DietUpdate {
   const patch: DietUpdate = { expectedUpdatedAt: row.entry.updatedAt };
-  if (draft.occurredAt !== baseline.occurredAt) patch.occurredAt = new Date(draft.occurredAt).toISOString();
-  if (draft.mealType !== baseline.mealType) patch.mealType = draft.mealType;
-  if (draft.foodName !== baseline.foodName) patch.foodName = draft.foodName.trim();
-  if (!sameValue(draft.tags, baseline.tags)) patch.tags = draft.tags;
-  if (draft.note !== baseline.note) patch.note = draft.note.trim() || null;
+  if (present.occurredAt !== baseline.occurredAt) patch.occurredAt = present.occurredAt!;
+  if (present.mealType !== baseline.mealType) patch.mealType = present.mealType;
+  if (present.foodName !== baseline.foodName) patch.foodName = present.foodName;
+  if (!sameValue(present.tags, baseline.tags)) patch.tags = present.tags;
+  if (present.note !== baseline.note) patch.note = present.note;
   if (!draft.newImage && row.entry.mediaId !== null && draft.removeImage) patch.removeImage = true;
   return patch;
 }
