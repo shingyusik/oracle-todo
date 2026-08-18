@@ -94,39 +94,72 @@ describe("Health Diet controller", () => {
     expect(result.current.state.dietError).toBe("No Diet");
   });
 
-  it("runs one Diet mutation route and refreshes Diet, Timeline, and Trends", async () => {
+  it("uses exactly one route and three reads for every Diet mutation", async () => {
     mockOtherReads();
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    const create = vi.spyOn(healthApi, "createDiet").mockResolvedValue(entry);
+    const createWithImage = vi.spyOn(healthApi, "createDietWithImage").mockResolvedValue(entry);
     const update = vi.spyOn(healthApi, "updateDiet").mockResolvedValue(entry);
     const updateWithImage = vi.spyOn(healthApi, "updateDietWithImage").mockResolvedValue(entry);
     const archive = vi.spyOn(healthApi, "archiveDiet").mockResolvedValue(entry);
     const { result } = renderHook(() => useHealthController());
     await waitFor(() => expect(result.current.state.dietStatus).toBe("loaded"));
+    const input = {
+      occurredAt: entry.occurredAt,
+      mealType: entry.mealType,
+      foodName: entry.foodName,
+    };
+    const image = new Blob(["photo"], { type: "image/jpeg" });
+    const mutations = [create, createWithImage, update, updateWithImage, archive];
+    const cases = [
+      { expected: create, run: () => result.current.createDiet(input) },
+      { expected: createWithImage, run: () => result.current.createDiet(input, image) },
+      { expected: update, run: () => result.current.updateDiet("diet-1", { note: "text" }) },
+      {
+        expected: updateWithImage,
+        run: () => result.current.updateDiet("diet-1", { note: "photo" }, image),
+      },
+      { expected: archive, run: () => result.current.archiveDiet("diet-1") },
+    ];
+
+    for (const mutationCase of cases) {
+      for (const mutation of mutations) mutation.mockClear();
+      vi.mocked(healthApi.listDiet).mockClear();
+      vi.mocked(healthApi.timeline).mockClear();
+      vi.mocked(healthApi.trends).mockClear();
+
+      await act(async () => mutationCase.run());
+
+      expect(mutationCase.expected).toHaveBeenCalledOnce();
+      expect(mutations.reduce((total, mutation) => total + mutation.mock.calls.length, 0))
+        .toBe(1);
+      expect(healthApi.listDiet).toHaveBeenCalledOnce();
+      expect(healthApi.timeline).toHaveBeenCalledOnce();
+      expect(healthApi.trends).toHaveBeenCalledOnce();
+    }
+  });
+
+  it.each(["diet", "timeline", "trends"] as const)(
+    "throws after a saved mutation when the %s refresh fails and retries reads only",
+    async (failedRead) => {
+    mockOtherReads();
+    vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    const read = failedRead === "diet"
+      ? vi.mocked(healthApi.listDiet)
+      : failedRead === "timeline"
+        ? vi.mocked(healthApi.timeline)
+        : vi.mocked(healthApi.trends);
+    const create = vi.spyOn(healthApi, "createDiet").mockResolvedValue(entry);
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => {
+      expect(healthApi.listDiet).toHaveBeenCalledOnce();
+      expect(healthApi.timeline).toHaveBeenCalledOnce();
+      expect(healthApi.trends).toHaveBeenCalledOnce();
+    });
     vi.mocked(healthApi.listDiet).mockClear();
     vi.mocked(healthApi.timeline).mockClear();
     vi.mocked(healthApi.trends).mockClear();
-
-    const image = new Blob(["photo"], { type: "image/jpeg" });
-    await act(async () => result.current.updateDiet("diet-1", { note: "updated" }, image));
-    expect(update).not.toHaveBeenCalled();
-    expect(updateWithImage).toHaveBeenCalledOnce();
-    expect(healthApi.listDiet).toHaveBeenCalledOnce();
-    expect(healthApi.timeline).toHaveBeenCalledOnce();
-    expect(healthApi.trends).toHaveBeenCalledOnce();
-
-    await act(async () => result.current.archiveDiet("diet-1"));
-    expect(archive).toHaveBeenCalledOnce();
-  });
-
-  it("throws after a saved mutation if a read refresh fails without retrying it", async () => {
-    mockOtherReads();
-    vi.spyOn(healthApi, "listDiet")
-      .mockResolvedValueOnce([])
-      .mockRejectedValueOnce(new Error("refresh failed"))
-      .mockResolvedValueOnce([]);
-    const create = vi.spyOn(healthApi, "createDiet").mockResolvedValue(entry);
-    const { result } = renderHook(() => useHealthController());
-    await waitFor(() => expect(result.current.state.dietStatus).toBe("loaded"));
+    read.mockRejectedValueOnce(new Error(`${failedRead} refresh failed`));
 
     await act(async () => {
       await expect(result.current.createDiet({
@@ -137,17 +170,21 @@ describe("Health Diet controller", () => {
     });
     expect(create).toHaveBeenCalledOnce();
     await act(async () => {
-      await expect(result.current.refreshDiet()).resolves.toBe(true);
+      await expect(result.current.refresh()).resolves.toBe(true);
     });
     expect(create).toHaveBeenCalledOnce();
+    expect(healthApi.listDiet).toHaveBeenCalledTimes(2);
+    expect(healthApi.timeline).toHaveBeenCalledTimes(2);
+    expect(healthApi.trends).toHaveBeenCalledTimes(2);
   });
 
-  it("starts a post-mutation Diet read after an earlier refresh finishes", async () => {
+  it("keeps a stale pre-mutation Diet completion from replacing the newer result", async () => {
     mockOtherReads();
-    const initial = deferred<DietEntry[]>();
+    const older = deferred<DietEntry[]>();
+    const newer = deferred<DietEntry[]>();
     vi.spyOn(healthApi, "listDiet")
-      .mockImplementationOnce(() => initial.promise)
-      .mockResolvedValueOnce([entry]);
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
     vi.spyOn(healthApi, "createDiet").mockResolvedValue(entry);
     const { result } = renderHook(() => useHealthController());
 
@@ -160,10 +197,12 @@ describe("Health Diet controller", () => {
       });
       await Promise.resolve();
     });
-    await act(async () => initial.resolve([]));
+    await waitFor(() => expect(healthApi.listDiet).toHaveBeenCalledTimes(2));
+    await act(async () => newer.resolve([entry]));
     await act(async () => mutation);
-
-    expect(healthApi.listDiet).toHaveBeenCalledTimes(2);
     expect(result.current.state.dietEntries).toEqual([entry]);
+    await act(async () => older.reject(new Error("stale failure")));
+    expect(result.current.state.dietEntries).toEqual([entry]);
+    expect(result.current.state.dietError).toBeNull();
   });
 });

@@ -88,6 +88,7 @@ export type HealthController = {
   requestDeleteTableTab(scope: HealthTableScopeId, tabId: string): void;
   confirmTableViewAction(): void;
   cancelTableViewAction(): void;
+  refresh(): Promise<boolean>;
   refreshDiet(): Promise<boolean>;
   refreshTimeline(): Promise<void>;
   loadMoreTimeline(): Promise<void>;
@@ -231,8 +232,8 @@ export function useHealthController(): HealthController {
     };
   }, []);
 
-  const refreshDiet = useCallback((): Promise<boolean> => {
-    if (latestDietRefresh.current) return latestDietRefresh.current;
+  const startDietRefresh = useCallback((force = false): Promise<boolean> => {
+    if (!force && latestDietRefresh.current) return latestDietRefresh.current;
     const generation = ++dietGeneration.current;
     setState((current) => current.dietStatus === "loaded"
       ? { ...current, dietError: null }
@@ -273,6 +274,11 @@ export function useHealthController(): HealthController {
     });
     return request;
   }, []);
+
+  const refreshDiet = useCallback(
+    () => startDietRefresh(),
+    [startDietRefresh],
+  );
 
   const refreshTimelineOutcome = useCallback(async (): Promise<RefreshOutcome> => {
     const generation = ++timelineGeneration.current;
@@ -383,16 +389,20 @@ export function useHealthController(): HealthController {
     }
   }, [timelineOffset]);
 
-  const refreshAfterMutation = useCallback(async () => {
-    const pendingDietRefresh = latestDietRefresh.current;
-    if (pendingDietRefresh) await pendingDietRefresh;
+  const refreshAll = useCallback(async (forceDiet = false) => {
     const [dietOk, timeline, trend] = await Promise.all([
-      refreshDiet(),
+      startDietRefresh(forceDiet),
       refreshTimelineOutcome(),
       refreshTrendsOutcome(),
     ]);
-    if (!dietOk || !timeline.ok || !trend.ok) throw new HealthMutationRefreshError();
-  }, [refreshDiet, refreshTimelineOutcome, refreshTrendsOutcome]);
+    return dietOk && timeline.ok && trend.ok;
+  }, [startDietRefresh, refreshTimelineOutcome, refreshTrendsOutcome]);
+
+  const refresh = useCallback(() => refreshAll(), [refreshAll]);
+
+  const refreshAfterMutation = useCallback(async () => {
+    if (!await refreshAll(true)) throw new HealthMutationRefreshError();
+  }, [refreshAll]);
 
   async function mutate(operation: () => Promise<unknown>) {
     await operation();
@@ -516,6 +526,7 @@ export function useHealthController(): HealthController {
     },
     confirmTableViewAction,
     cancelTableViewAction: () => setTableViewConfirmation(null),
+    refresh,
     refreshDiet,
     refreshTimeline,
     loadMoreTimeline,

@@ -52,6 +52,7 @@ function controller(
     requestDeleteTableTab: vi.fn(),
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
+    refresh: vi.fn(),
     refreshDiet: vi.fn(),
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
