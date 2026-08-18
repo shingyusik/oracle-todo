@@ -43,6 +43,10 @@ export function DietPanel({ controller }: { controller: HealthController }) {
     [controller, entries],
   );
   const visibleRows = useMemo(() => groups.flatMap(({ rows }) => rows), [groups]);
+  const selectedVisibleIds = useMemo(
+    () => visibleRows.filter(({ id }) => selectedIds.includes(id)).map(({ id }) => id),
+    [selectedIds, visibleRows],
+  );
 
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
@@ -111,11 +115,10 @@ export function DietPanel({ controller }: { controller: HealthController }) {
         addButtonRef={addButtonRef}
         onArchiveSelected={() => {
           setArchiveError(null);
-          const visibleIds = new Set(visibleRows.map(({ id }) => id));
-          setArchiveTargets(selectedIds.filter((id) => visibleIds.has(id)));
+          setArchiveTargets(selectedVisibleIds);
         }}
         archiveButtonRef={archiveButtonRef}
-        archiveDisabled={selectedIds.length === 0 || archivePending}
+        archiveDisabled={selectedVisibleIds.length === 0 || archivePending}
       />
       {detailRow ? <p aria-live="polite"><span>Diet entry details</span>: {detailRow.food}</p> : null}
       <DietTable

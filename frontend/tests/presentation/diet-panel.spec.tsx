@@ -535,6 +535,36 @@ describe("DietPanel table", () => {
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: /Select Soup/ })).toBeNull());
   });
 
+  it("disables an empty visible archive and snapshots only selected visible rows", async () => {
+    const user = userEvent.setup();
+    const dinner = { ...entry, id: "dinner", mealType: "dinner" as const, foodName: "Soup" };
+    const health = controller({ ...loadedState, dietEntries: [entry, dinner] });
+    const view = render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("checkbox", { name: /Select Bibimbap/ }));
+
+    const dinnerOnly = defaultHealthTableSettings("health.diet");
+    dinnerOnly.filterRules = [{
+      id: "dinner", field: "meal_type", type: "select", operator: "is", value: ["dinner"],
+    }];
+    view.rerender(<DietPanel controller={{ ...health, tableSettings: () => dinnerOnly }} />);
+    const remove = screen.getByRole("button", { name: "Archive selected diet entries" });
+    expect(remove).toBeDisabled();
+    await user.click(remove);
+    expect(screen.queryByRole("dialog", { name: "Archive selected diet entries?" })).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: /Select Soup/ }));
+    expect(remove).toBeEnabled();
+    await user.click(remove);
+    const dialog = screen.getByRole("dialog", { name: "Archive selected diet entries?" });
+    expect(dialog).toHaveTextContent("1 diet entries will be archived");
+    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(health.archiveDiet).toHaveBeenCalledWith("dinner"));
+    expect(health.archiveDiet).not.toHaveBeenCalledWith("diet-1");
+
+    view.rerender(<DietPanel controller={health} />);
+    expect(screen.getByRole("checkbox", { name: /Select Bibimbap/ })).toBeChecked();
+  });
+
   it("places saved views left and Filter Sort Group Add Delete actions right", () => {
     render(<DietPanel controller={controller()} />);
     const tabs = screen.getByRole("tablist", { name: "Diet views" });
