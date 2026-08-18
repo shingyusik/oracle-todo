@@ -178,7 +178,7 @@ describe("Health Diet controller", () => {
     expect(healthApi.trends).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps a stale pre-mutation Diet completion from replacing the newer result", async () => {
+  it("keeps a stale pre-mutation Diet failure from replacing the newer result", async () => {
     mockOtherReads();
     const older = deferred<DietEntry[]>();
     const newer = deferred<DietEntry[]>();
@@ -203,6 +203,35 @@ describe("Health Diet controller", () => {
     expect(result.current.state.dietEntries).toEqual([entry]);
     await act(async () => older.reject(new Error("stale failure")));
     expect(result.current.state.dietEntries).toEqual([entry]);
+    expect(result.current.state.dietError).toBeNull();
+  });
+
+  it("keeps a stale pre-mutation Diet result from replacing the newer result", async () => {
+    mockOtherReads();
+    const older = deferred<DietEntry[]>();
+    const newer = deferred<DietEntry[]>();
+    vi.spyOn(healthApi, "listDiet")
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
+    vi.spyOn(healthApi, "createDiet").mockResolvedValue(entry);
+    const { result } = renderHook(() => useHealthController());
+
+    let mutation!: Promise<void>;
+    await act(async () => {
+      mutation = result.current.createDiet({
+        occurredAt: entry.occurredAt,
+        mealType: entry.mealType,
+        foodName: entry.foodName,
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(healthApi.listDiet).toHaveBeenCalledTimes(2));
+    await act(async () => newer.resolve([entry]));
+    await act(async () => mutation);
+    await act(async () => older.resolve([{ ...entry, id: "stale" }]));
+
+    expect(result.current.state.dietEntries).toEqual([entry]);
+    expect(result.current.state.dietStatus).toBe("loaded");
     expect(result.current.state.dietError).toBeNull();
   });
 });
