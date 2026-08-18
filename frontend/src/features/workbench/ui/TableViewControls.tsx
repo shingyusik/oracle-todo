@@ -60,6 +60,7 @@ export type TableViewControlsAdapter = {
   title: string;
   settings: PlannerTableSettings;
   filterFields: readonly PlannerFilterField[];
+  fieldLabels?: Partial<Record<PlannerFilterField, string>>;
   sortFields: readonly PlannerSortBy[];
   groupOptions: Option<PlannerGroupBy>[];
   candidates: PlannerGroupCandidate[];
@@ -354,12 +355,13 @@ export function TableViewActivePills({
 function visibleTableViewFilterRules(
   adapter: Pick<
     TableViewControlsAdapter,
-    "settings" | "filterFields" | "filterOptions"
+    "settings" | "filterFields" | "filterOptions" | "fieldLabels"
   >,
 ): PlannerFilterRule[] {
   const fields = tableViewFilterFieldConfigs(
     adapter.filterOptions,
     adapter.filterFields,
+    adapter.fieldLabels,
   );
   return adapter.settings.filterRules.filter((rule) =>
     fields.some((field) => field.field === rule.field));
@@ -532,6 +534,7 @@ function TableViewFilterRulePanel({
   const fields = tableViewFilterFieldConfigs(
     adapter.filterOptions,
     adapter.filterFields,
+    adapter.fieldLabels,
   );
 
   if (rules.length === 0) {
@@ -1004,6 +1007,7 @@ function TableViewFilterOptionDropdown({
 function tableViewFilterFieldConfigs(
   filterOptions: PlannerFilterOptions,
   allowedFields: readonly PlannerFilterField[],
+  fieldLabels?: Partial<Record<PlannerFilterField, string>>,
 ): PlannerFilterFieldConfig[] {
   const configs: Record<PlannerFilterField, PlannerFilterFieldConfig> = {
     title: { field: "title", label: "Title", type: "text", options: [] },
@@ -1132,7 +1136,10 @@ function tableViewFilterFieldConfigs(
     },
   };
 
-  return allowedFields.map((field) => configs[field]);
+  return allowedFields.map((field) => ({
+    ...configs[field],
+    label: fieldLabels?.[field] ?? configs[field].label,
+  }));
 }
 
 function tableViewFilterFieldWithStoredOptions(
@@ -1279,12 +1286,13 @@ function newTableViewSortRule(field: PlannerSortBy): PlannerSortRule {
 function tableViewSortFieldOptions(
   adapter: Pick<
     TableViewControlsAdapter,
-    "filterFields" | "sortFields" | "filterOptions"
+    "filterFields" | "sortFields" | "filterOptions" | "fieldLabels"
   >,
 ): PlannerSortFieldOption[] {
   const fields: PlannerSortFieldOption[] = tableViewFilterFieldConfigs(
     adapter.filterOptions,
     adapter.filterFields,
+    adapter.fieldLabels,
   ).map((field) => ({
     value: field.field as PlannerSortBy,
     label: field.label,

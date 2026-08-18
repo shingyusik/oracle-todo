@@ -59,6 +59,9 @@ export function LedgerTableViewHeader({
     title,
     settings,
     filterFields: ledgerFilterFieldsForScope(scope),
+    ...(scope === "ledger.categories"
+      ? { fieldLabels: { kind: "Type", parent: "Parent category" } }
+      : {}),
     sortFields: ledgerSortFieldsForScope(scope),
     groupOptions: [...ledgerGroupOptionsForScope(scope)],
     candidates: ledgerGroupCandidates(
@@ -90,30 +93,6 @@ export function LedgerTableViewHeader({
         requestDelete: (tabId) => controller.requestDeleteTableTab(scope, tabId),
       }}
     />
-  );
-
-  if (scope !== "ledger.transactions" && scope !== "ledger.accounts") return (
-    <>
-      <header className="workspace-table-header">
-        <h1 id={headingId}>{title}</h1>
-        <div className="workspace-table-header-row">
-          <TableViewControls adapter={controlsAdapter} />
-          {onAdd ? (
-            <button
-              ref={addButtonRef}
-              className="items-toolbar-button"
-              type="button"
-              aria-haspopup="dialog"
-              onClick={onAdd}
-            >
-              {addLabel ?? "Add transaction"}
-            </button>
-          ) : null}
-        </div>
-      </header>
-      {tableTabs}
-      <TableViewActivePills adapter={controlsAdapter} />
-    </>
   );
 
   const isAccounts = scope === "ledger.accounts";
@@ -258,10 +237,11 @@ function ledgerGroupCandidates(
       : new Map(state.currencies.map(({ id, code }) => [id, code]));
     return counted(values, labels);
   }
+  const activeCategories = state.categories.filter(({ active }) => active);
   const values = groupBy === "kind"
-    ? state.categories.map(({ kind }) => kind)
-    : state.categories.map(({ parentId }) => parentId ?? "none");
-  const labels = new Map(state.categories.map(({ id, name }) => [id, name]));
+    ? activeCategories.map(({ kind }) => kind)
+    : activeCategories.map(({ parentId }) => parentId ?? "none");
+  const labels = new Map(activeCategories.map(({ id, name }) => [id, name]));
   labels.set("none", "No parent");
   return counted(values, labels);
 }

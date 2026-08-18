@@ -6,7 +6,14 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { LedgerController, LedgerState } from "@/features/ledger/hooks/useLedgerController";
+import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
+import {
+  createLedgerTableViews,
+  defaultLedgerTableSettings,
+} from "@/features/ledger/model/ledger-table-views";
 import { CategoryCreateDialog } from "@/features/ledger/ui/CategoryCreateDialog";
+import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
+import { CategoriesTable } from "@/features/ledger/ui/CategoriesTable";
 import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
 
 const state: LedgerState = {
@@ -249,5 +256,177 @@ describe("CategoryCreateDialog", () => {
 
     expect(screen.queryByRole("dialog", { name: "Add category" })).toBeNull();
     expect(trigger).toHaveFocus();
+  });
+});
+
+function categoriesController(nextState: LedgerState = state): LedgerController {
+  const ledger = controller();
+  const views = createLedgerTableViews();
+  ledger.state = nextState;
+  ledger.tableTabs = (scope) => views[scope];
+  ledger.tableSettings = (scope) => views[scope].draftSettings;
+  return ledger;
+}
+
+const categoryGroups = deriveCategoryGroups(
+  state.categories,
+  defaultLedgerTableSettings("ledger.categories"),
+);
+
+describe("CategoriesTable", () => {
+  it("renders compact columns and activates rows without activating checkboxes", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const onToggle = vi.fn();
+    render(
+      <CategoriesTable
+        groups={categoryGroups}
+        activeRowCount={2}
+        selectedIds={[]}
+        onOpen={onOpen}
+        onToggle={onToggle}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole("columnheader").map(({ textContent }) => textContent))
+      .toEqual(["", "Category", "Type", "Parent category"]);
+    const foodRow = screen.getByRole("button", {
+      name: "Open details for Food, Expense, No parent",
+    });
+    await user.click(foodRow);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "category-food" }));
+
+    onOpen.mockClear();
+    foodRow.focus();
+    await user.keyboard(" ");
+    expect(onOpen).toHaveBeenCalledOnce();
+
+    onOpen.mockClear();
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Food, Expense, No parent",
+    }));
+    expect(onToggle).toHaveBeenCalledWith("category-food");
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.queryByText("Old category")).toBeNull();
+  });
+
+  it.each([
+    [0, "No categories yet."],
+    [1, "No categories match this view."],
+  ])("shows the correct empty state for %i active categories", (activeRowCount, message) => {
+    render(
+      <CategoriesTable
+        groups={[{ key: "all", label: null, rows: [] }]}
+        activeRowCount={activeRowCount}
+        selectedIds={[]}
+        onOpen={vi.fn()}
+        onToggle={vi.fn()}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+  });
+
+  it("renders group headings and an indeterminate visible selection", () => {
+    render(
+      <CategoriesTable
+        groups={[{
+          key: "expense",
+          label: "Expense",
+          rows: categoryGroups[0]!.rows.filter(({ kind }) => kind === "expense"),
+        }, {
+          key: "income",
+          label: "Income",
+          rows: categoryGroups[0]!.rows.filter(({ kind }) => kind === "income"),
+        }]}
+        activeRowCount={2}
+        selectedIds={["category-food"]}
+        onOpen={vi.fn()}
+        onToggle={vi.fn()}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("rowgroup", { name: "Expense group" })).toBeInTheDocument();
+    expect(screen.getByRole("rowgroup", { name: "Income group" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select all visible categories" }))
+      .toHaveProperty("indeterminate", true);
+  });
+});
+
+describe("CategoriesPanel", () => {
+  it("uses the shared header and opens the production create dialog", async () => {
+    const user = userEvent.setup();
+    render(<CategoriesPanel controller={categoriesController()} />);
+
+    const tabs = screen.getByRole("tablist", { name: "Categories views" });
+    expect(tabs.parentElement).toHaveClass("workspace-table-header-row", "ledger-table-header-row");
+    const trigger = screen.getByRole("button", { name: "Add category" });
+    expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Archive|Restore|Purge/ })).toBeNull();
+
+    const filter = screen.getByRole("button", { name: "Filter Categories" });
+    await user.click(filter);
+    await user.click(screen.getByRole("button", { name: "Add filter rule" }));
+    expect(screen.getByRole("option", { name: "Type" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Parent category" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Add category" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("deactivates selected visible categories sequentially and retains failed selections", async () => {
+    const user = userEvent.setup();
+    const nextState: LedgerState = {
+      ...state,
+      categories: [...state.categories, {
+        id: "category-dining",
+        name: "Dining",
+        parentId: "category-food",
+        kind: "expense",
+        active: true,
+      }],
+    };
+    const ledger = categoriesController(nextState);
+    ledger.archiveCategory = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("storage path should not be shown"));
+    render(<CategoriesPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible categories" }));
+    await user.click(screen.getByRole("button", { name: "Delete selected" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(ledger.archiveCategory).toHaveBeenNthCalledWith(1, "category-dining"));
+    expect(ledger.archiveCategory).toHaveBeenNthCalledWith(2, "category-food");
+    expect(ledger.archiveCategory).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not delete selected categories.");
+    expect(screen.queryByText("storage path should not be shown")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Select Dining, Expense, Food", hidden: true }))
+      .not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Food, Expense, No parent", hidden: true }))
+      .toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Salary, Income, No parent", hidden: true }))
+      .toBeChecked();
+  });
+
+  it("prunes selected IDs when refreshed state removes the category", async () => {
+    const user = userEvent.setup();
+    const ledger = categoriesController();
+    const { rerender } = render(<CategoriesPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Food, Expense, No parent" }));
+    expect(screen.getByRole("button", { name: "Delete selected" })).toBeEnabled();
+
+    rerender(<CategoriesPanel controller={categoriesController({ ...state, categories: [] })} />);
+    expect(screen.getByText("No categories yet.")).toBeInTheDocument();
+    rerender(<CategoriesPanel controller={categoriesController()} />);
+
+    expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled();
   });
 });

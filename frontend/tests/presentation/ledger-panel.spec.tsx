@@ -1659,18 +1659,16 @@ describe("LedgerPanel", () => {
     expect(within(header).getByRole("button", { name: "Delete selected" })).toBeDisabled();
   });
 
-  it("preserves the pre-Transactions Categories header structure", () => {
+  it("uses the Transactions header structure for Categories", () => {
     render(<LedgerPanel controller={controller()} leafTabId="categories" />);
 
     const heading = screen.getByRole("heading", { name: "Categories" });
     const header = heading.closest("header")!;
-    const row = within(header).getByRole("group", { name: "Categories controls" }).parentElement!;
     const tabs = screen.getByRole("tablist", { name: "Categories views" });
-    expect(row).toHaveClass("workspace-table-header-row");
-    expect(row).not.toHaveClass("ledger-table-header-row");
-    expect(within(header).queryByRole("tablist")).toBeNull();
-    expect(header.nextElementSibling).toBe(tabs);
-    expect(screen.queryByRole("button", { name: "Archive selected transactions" })).toBeNull();
+    const row = tabs.parentElement!;
+    expect(row).toHaveClass("workspace-table-header-row", "ledger-table-header-row");
+    expect(within(header).getByRole("button", { name: "Add category" })).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Delete selected" })).toBeDisabled();
   });
 
   it("isolates a nested Ledger dialog without hiding its ancestors", async () => {
@@ -2584,32 +2582,6 @@ describe("LedgerPanel", () => {
     expect(within(reportSummary).getByRole("group", { name: "Net" }))
       .toHaveTextContent("10.34 USD");
     expect(screen.queryByRole("region", { name: "Briefing" })).toBeNull();
-  });
-
-  it("reports category lifecycle action failures", async () => {
-    const user = userEvent.setup();
-    const categoryController = controller();
-    categoryController.archiveCategory =
-      vi.fn().mockRejectedValue(new Error("Category conflict"));
-    render(<LedgerPanel leafTabId="categories" controller={categoryController} />);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    await user.click(screen.getByRole("button", { name: "Archive Food" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Category conflict");
-  });
-
-  it("reports category purge preview failures", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    const categoryController = controller();
-    const categoryPreview = deferred<never>();
-    categoryController.previewCategoryPurge = vi.fn(() => categoryPreview.promise);
-    render(<LedgerPanel leafTabId="categories" controller={categoryController} />);
-    const categoryPurge = screen.getByRole("button", { name: "Purge Food" });
-    await user.click(categoryPurge);
-    await user.click(screen.getByRole("button", { name: "Purge permanently" }));
-    await act(async () => categoryPreview.reject(new Error("Category preview failed")));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Category preview failed");
-    await waitFor(() => expect(categoryPurge).toHaveFocus());
   });
 
   it("does not load reports during the initial Ledger refresh", async () => {
