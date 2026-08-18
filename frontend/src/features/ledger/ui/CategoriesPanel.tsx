@@ -4,13 +4,16 @@ import React, { useEffect, useRef, useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
+import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
 import { CategoryCreateDialog } from "@/features/ledger/ui/CategoryCreateDialog";
+import { CategoryDetail } from "@/features/ledger/ui/CategoryDetail";
 import { CategoriesTable } from "@/features/ledger/ui/CategoriesTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 export function CategoriesPanel({ controller }: { controller: LedgerController }) {
+  const [selectedDetailId, setSelectedDetailId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTargets, setDeleteTargets] = useState<string[]>([]);
@@ -25,6 +28,13 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
     controller.tableSettings("ledger.categories"),
   );
   const visibleRows = groups.flatMap((group) => group.rows);
+  const activeRows = deriveCategoryGroups(
+    controller.state.categories,
+    defaultLedgerTableSettings("ledger.categories"),
+  ).flatMap((group) => group.rows);
+  const selectedDetail = selectedDetailId === null
+    ? null
+    : activeRows.find(({ id }) => id === selectedDetailId) ?? null;
   const activeRowCount = controller.state.categories.filter(({ active }) => active).length;
   const selectedVisibleIds = selectedIds.filter((id) =>
     visibleRows.some((row) => row.id === id),
@@ -38,7 +48,24 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-  }, [controller.state.categories]);
+    if (selectedDetailId && !activeIds.has(selectedDetailId)) setSelectedDetailId(null);
+  }, [controller.state.categories, selectedDetailId]);
+
+  function returnToList() {
+    setSelectedDetailId(null);
+    requestAnimationFrame(() => sectionRef.current?.focus());
+  }
+
+  if (selectedDetail) {
+    return (
+      <CategoryDetail
+        controller={controller}
+        row={selectedDetail}
+        onBack={returnToList}
+        onDeleted={returnToList}
+      />
+    );
+  }
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -103,7 +130,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={() => undefined}
+        onOpen={(row) => setSelectedDetailId(row.id)}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
       />

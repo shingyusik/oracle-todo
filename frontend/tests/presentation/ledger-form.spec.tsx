@@ -337,6 +337,23 @@ describe("TransactionForm", () => {
     }));
   });
 
+  it("omits inactive categories from new transaction choices", () => {
+    const ledger = controller();
+    ledger.state.categories = [...ledger.state.categories, {
+      id: "category-retired",
+      name: "Retired label",
+      parentId: null,
+      kind: "expense",
+      active: false,
+    }];
+    render(<TransactionForm controller={ledger} />);
+
+    expect(within(screen.getByLabelText("Category")).queryByRole("option", { name: "Retired label" }))
+      .toBeNull();
+    expect(within(screen.getByLabelText("Category")).getByRole("option", { name: "Food" }))
+      .toBeInTheDocument();
+  });
+
   it("generates writtenAt at submission time", async () => {
     vi.useFakeTimers();
     try {

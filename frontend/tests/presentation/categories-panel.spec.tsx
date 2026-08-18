@@ -12,6 +12,7 @@ import {
   defaultLedgerTableSettings,
 } from "@/features/ledger/model/ledger-table-views";
 import { CategoryCreateDialog } from "@/features/ledger/ui/CategoryCreateDialog";
+import { CategoryDetail } from "@/features/ledger/ui/CategoryDetail";
 import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
 import { CategoriesTable } from "@/features/ledger/ui/CategoriesTable";
 import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
@@ -356,6 +357,132 @@ describe("CategoriesTable", () => {
   });
 });
 
+function detailState(): LedgerState {
+  return {
+    ...state,
+    categories: [...state.categories, {
+      id: "category-dining",
+      name: "Dining",
+      parentId: "category-food",
+      kind: "expense",
+      active: true,
+    }, {
+      id: "category-cafe",
+      name: "Cafe",
+      parentId: "category-dining",
+      kind: "expense",
+      active: true,
+    }],
+  };
+}
+
+function detailRow(id = "category-dining") {
+  return deriveCategoryGroups(
+    detailState().categories,
+    defaultLedgerTableSettings("ledger.categories"),
+  ).flatMap(({ rows }) => rows).find((row) => row.id === id)!;
+}
+
+describe("CategoryDetail", () => {
+  it("shows the ToDo-style actions and ordered editable properties", () => {
+    const ledger = categoriesController(detailState());
+    render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
+
+    expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label")))
+      .toEqual(["< Back", "Undo", "Redo", "Save", "Delete"]);
+    expect(Array.from(screen.getByRole("region", { name: "Edit category properties" })
+      .querySelectorAll("input, select"))).toEqual([
+      screen.getByLabelText("Category name"),
+      screen.getByLabelText("Category type"),
+      screen.getByLabelText("Parent category"),
+    ]);
+    expect(within(screen.getByLabelText("Parent category")).getByRole("option", { name: "Food" }))
+      .toBeInTheDocument();
+    expect(within(screen.getByLabelText("Parent category")).queryByRole("option", { name: "Cafe" }))
+      .toBeNull();
+  });
+
+  it("keeps local history and saves only changed fields", async () => {
+    const user = userEvent.setup();
+    const ledger = categoriesController(detailState());
+    render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
+
+    await user.clear(screen.getByLabelText("Category name"));
+    await user.type(screen.getByLabelText("Category name"), "Restaurants");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Category name")).toHaveValue("Dining");
+    await user.keyboard("{Control>}{Shift>}z{/Shift}{/Control}");
+    await user.keyboard("{Control>}s{/Control}");
+
+    await waitFor(() => expect(ledger.updateCategory).toHaveBeenCalledWith("category-dining", {
+      name: "Restaurants",
+    }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+  });
+
+  it("clears the parent when type changes", async () => {
+    const user = userEvent.setup();
+    const ledger = categoriesController(detailState());
+    render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
+
+    await user.selectOptions(screen.getByLabelText("Category type"), "income");
+    expect(screen.getByLabelText("Parent category")).toHaveValue("");
+    expect(within(screen.getByLabelText("Parent category")).getByRole("option", { name: "Salary" }))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(ledger.updateCategory).toHaveBeenCalledWith("category-dining", {
+      kind: "income",
+      parent: null,
+    }));
+  });
+
+  it("preserves the draft and exposes only a safe conflict after save failure", async () => {
+    const user = userEvent.setup();
+    const ledger = categoriesController(detailState());
+    ledger.updateCategory = vi.fn().mockRejectedValue(new Error("private sqlite path"));
+    render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
+
+    await user.clear(screen.getByLabelText("Category name"));
+    await user.type(screen.getByLabelText("Category name"), "Draft stays");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save category.");
+    expect(screen.getByLabelText("Category name")).toHaveValue("Draft stays");
+    expect(screen.queryByText("private sqlite path")).toBeNull();
+  });
+
+  it("confirms a dirty Back action before discarding the draft", async () => {
+    const user = userEvent.setup();
+    const onBack = vi.fn();
+    render(<CategoryDetail controller={categoriesController(detailState())} row={detailRow()} onBack={onBack} onDeleted={vi.fn()} />);
+
+    await user.type(screen.getByLabelText("Category name"), " draft");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it("blocks deleting a parent with active children and deletes a leaf after confirmation", async () => {
+    const user = userEvent.setup();
+    const ledger = categoriesController(detailState());
+    const { unmount } = render(
+      <CategoryDetail controller={ledger} row={detailRow("category-food")} onBack={vi.fn()} onDeleted={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+
+    const onDeleted = vi.fn();
+    unmount();
+    render(<CategoryDetail controller={ledger} row={detailRow("category-cafe")} onBack={vi.fn()} onDeleted={onDeleted} />);
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Delete Cafe?" }))
+      .getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(ledger.archiveCategory).toHaveBeenCalledWith("category-cafe"));
+    expect(onDeleted).toHaveBeenCalledOnce();
+  });
+});
+
 describe("CategoriesPanel", () => {
   it("uses the shared header and opens the production create dialog", async () => {
     const user = userEvent.setup();
@@ -428,5 +555,30 @@ describe("CategoriesPanel", () => {
     rerender(<CategoriesPanel controller={categoriesController()} />);
 
     expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled();
+  });
+
+  it("opens detail from the active projection and returns when the category disappears", async () => {
+    const user = userEvent.setup();
+    const ledger = categoriesController();
+    const { rerender } = render(<CategoriesPanel controller={ledger} />);
+
+    await user.click(screen.getByRole("button", { name: "Open details for Food, Expense, No parent" }));
+    expect(screen.getByRole("region", { name: "Food details" })).toBeInTheDocument();
+    ledger.tableSettings = vi.fn(() => ({
+      ...defaultLedgerTableSettings("ledger.categories"),
+      filterRules: [{ id: "salary", field: "name" as const, type: "text" as const, operator: "contains" as const, value: "salary" }],
+    }));
+    rerender(<CategoriesPanel controller={ledger} />);
+    expect(screen.getByRole("region", { name: "Food details" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await waitFor(() => expect(screen.getAllByRole("region", { name: "Categories" })
+      .find((element) => element.tabIndex === -1)).toHaveFocus());
+
+    ledger.tableSettings = () => defaultLedgerTableSettings("ledger.categories");
+    rerender(<CategoriesPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: "Open details for Food, Expense, No parent" }));
+    ledger.state = { ...ledger.state, categories: ledger.state.categories.filter(({ id }) => id !== "category-food") };
+    rerender(<CategoriesPanel controller={ledger} />);
+    expect(screen.queryByRole("region", { name: "Food details" })).toBeNull();
   });
 });
