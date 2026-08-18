@@ -9,12 +9,16 @@ import type {
   HealthController,
   HealthState,
 } from "@/features/health/hooks/useHealthController";
+import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { BowelPanel } from "@/features/health/ui/BowelPanel";
 import { DietPanel } from "@/features/health/ui/DietPanel";
 import { HealthMetricsPanel } from "@/features/health/ui/HealthMetricsPanel";
 import { MedicationPanel } from "@/features/health/ui/MedicationPanel";
 
 const loadedState: HealthState = {
+  dietStatus: "loaded",
+  dietError: null,
+  dietEntries: [],
   timelineStatus: "loaded",
   timelineError: null,
   timeline: [],
@@ -27,12 +31,34 @@ const loadedState: HealthState = {
 function controller(
   overrides: Partial<HealthController> = {},
 ): HealthController {
+  const settings = defaultHealthTableSettings("health.diet");
   return {
     state: loadedState,
+    tableViewSaveError: null,
+    retryTableViewSave: vi.fn(),
+    tableViewConfirmation: null,
+    tableTabs: () => ({
+      tabs: [{ id: "health.diet-table", name: "Table", settings }],
+      activeTabId: "health.diet-table",
+      draftSettings: settings,
+    }),
+    tableSettings: () => settings,
+    tableIsDirty: vi.fn(() => false),
+    updateTableSettings: vi.fn(),
+    selectTableTab: vi.fn(),
+    saveTableTab: vi.fn(),
+    createTableTab: vi.fn(() => true),
+    renameTableTab: vi.fn(() => true),
+    requestDeleteTableTab: vi.fn(),
+    confirmTableViewAction: vi.fn(),
+    cancelTableViewAction: vi.fn(),
+    refreshDiet: vi.fn(),
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
     refreshTrends: vi.fn(),
     createDiet: vi.fn(),
+    updateDiet: vi.fn(),
+    archiveDiet: vi.fn(),
     createBowel: vi.fn(),
     createMedication: vi.fn(),
     upsertMetrics: vi.fn(),

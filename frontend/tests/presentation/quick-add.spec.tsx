@@ -35,6 +35,7 @@ function stubLedgerLoaded() {
 
 function stubHealthLoaded() {
   return {
+    diet: vi.spyOn(healthApi, "listDiet").mockResolvedValue([]),
     timeline: vi.spyOn(healthApi, "timeline").mockResolvedValue([]),
     trends: vi.spyOn(healthApi, "trends").mockResolvedValue(
       {} as Awaited<ReturnType<typeof healthApi.trends>>,
@@ -126,12 +127,16 @@ describe("QuickAddDialog", () => {
       deferred<Awaited<ReturnType<typeof healthApi.timeline>>>();
     const refreshedTrends =
       deferred<Awaited<ReturnType<typeof healthApi.trends>>>();
+    const refreshedDiet =
+      deferred<Awaited<ReturnType<typeof healthApi.listDiet>>>();
     vi.spyOn(healthApi, "createDiet").mockReturnValue(create.promise);
     initial.timeline.mockImplementationOnce(() => Promise.resolve([]))
       .mockImplementationOnce(() => refreshedTimeline.promise);
     initial.trends.mockImplementationOnce(() => Promise.resolve(
       {} as Awaited<ReturnType<typeof healthApi.trends>>,
     )).mockImplementationOnce(() => refreshedTrends.promise);
+    initial.diet.mockImplementationOnce(() => Promise.resolve([]))
+      .mockImplementationOnce(() => refreshedDiet.promise);
     const onClose = vi.fn();
     render(
       <QuickAddDialog controller={workbenchController()} onClose={onClose} />,
@@ -155,11 +160,13 @@ describe("QuickAddDialog", () => {
     await waitFor(() => {
       expect(initial.timeline).toHaveBeenCalledTimes(2);
       expect(initial.trends).toHaveBeenCalledTimes(2);
+      expect(initial.diet).toHaveBeenCalledTimes(2);
     });
     expect(onClose).not.toHaveBeenCalled();
 
     await act(async () => {
       refreshedTimeline.resolve([]);
+      refreshedDiet.resolve([]);
       refreshedTrends.resolve(
         {} as Awaited<ReturnType<typeof healthApi.trends>>,
       );
