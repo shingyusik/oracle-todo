@@ -179,6 +179,54 @@ describe("Health wire boundary", () => {
     });
   });
 
+  it("serializes Diet updates identically for JSON and image replacement", async () => {
+    const response = {
+      ...base,
+      meal_type: "dinner",
+      food_name: "Soup",
+      tags: ["warm"],
+      media_id: "00000000-0000-4000-8000-000000000002",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const metadata = {
+      foodName: "Soup",
+      expectedUpdatedAt: base.updated_at,
+      reason: null,
+      removeImage: true,
+    };
+
+    await healthApi.updateDiet(base.id, metadata);
+    const updated = await healthApi.updateDietWithImage(base.id, {
+      image: new Blob(["png"], { type: "image/png" }),
+      metadata,
+    });
+
+    const [, jsonInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [imageUrl, imageInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const expectedBody = {
+      food_name: "Soup",
+      expected_updated_at: base.updated_at,
+      reason: null,
+      remove_image: true,
+    };
+    expect(JSON.parse(String(jsonInit.body))).toEqual(expectedBody);
+    expect(imageUrl).toBe(`/api/v1/health/diet/${base.id}/with-image`);
+    expect(new Headers(imageInit.headers).get("content-type")).toBe("image/png");
+    expect(JSON.parse(
+      new Headers(imageInit.headers).get("x-raven-diet-metadata") ?? "",
+    )).toEqual(expectedBody);
+    expect(updated).toMatchObject({ foodName: "Soup", mediaId: response.media_id });
+  });
+
   it("serializes overall condition as a supported daily metric identity", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       items: [],

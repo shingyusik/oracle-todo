@@ -85,6 +85,7 @@ export type DietInput = {
 export type DietUpdate = Partial<DietInput> & {
   expectedUpdatedAt?: string;
   reason?: string | null;
+  removeImage?: boolean;
 };
 export type EventInput = {
   occurredAt: string;

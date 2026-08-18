@@ -33,6 +33,8 @@ pub struct UpdateDietBody {
     #[serde(default = "default_actor")]
     pub actor: String,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub remove_image: bool,
 }
 
 #[derive(Debug, Deserialize)]

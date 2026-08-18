@@ -11,6 +11,14 @@ const PNG: &[u8] = &[
     0x78, 0x9c, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0d, 0x0a, 0x2d, 0xb4, 0, 0, 0, 0, b'I', b'E', b'N',
     b'D', 0xae, 0x42, 0x60, 0x82,
 ];
+const JPEG: &[u8] = &[
+    0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc0, 0, 11, 8, 0, 1, 0, 1, 1, 1, 0x11, 0, 0xff,
+    0xda, 0, 8, 1, 1, 0, 0, 0x3f, 0, 0, 0xff, 0xd9,
+];
+const WEBP: &[u8] = &[
+    b'R', b'I', b'F', b'F', 14, 0, 0, 0, b'W', b'E', b'B', b'P', b'V', b'P', b'8', b'L', 1, 0, 0,
+    0, 0, 0,
+];
 
 fn app() -> (tempfile::TempDir, axum::Router) {
     let temp = tempfile::tempdir().unwrap();
@@ -41,6 +49,38 @@ fn authenticated(app: axum::Router) -> axum::Router {
 async fn body(response: axum::response::Response) -> Value {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+async fn create_diet(app: &axum::Router) -> Value {
+    let request = Request::post("/api/v1/health/diet")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "occurred_at": "2026-07-31T01:00:00Z",
+                "meal_type": "lunch",
+                "food_name": "Salad",
+                "tags": ["vegetable"]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    body(response).await
+}
+
+async fn get_diet(app: &axum::Router, id: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/v1/health/diet/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    body(response).await
 }
 
 #[tokio::test]
@@ -164,6 +204,130 @@ async fn service_detected_media_mismatch_is_unsupported_media() {
     let error = body(response).await;
     assert_eq!(error["code"], "unsupported_media_type");
     assert!(error["request_id"].is_string());
+}
+
+#[tokio::test]
+async fn diet_image_update_replaces_supported_images_and_removes_image() {
+    let (_temp, app) = app();
+    let created = create_diet(&app).await;
+    let id = created["id"].as_str().unwrap();
+    let mut updated_at = created["updated_at"].as_str().unwrap().to_string();
+    let mut media_id = None::<String>;
+
+    for (content_type, bytes, food_name) in [
+        ("image/png", PNG, "PNG Salad"),
+        ("image/jpeg", JPEG, "JPEG Salad"),
+        ("image/webp", WEBP, "WebP Salad"),
+    ] {
+        let metadata = json!({
+            "food_name": food_name,
+            "expected_updated_at": updated_at,
+            "reason": "replace meal photo"
+        })
+        .to_string();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::patch(format!("/api/v1/health/diet/{id}/with-image"))
+                    .header(header::CONTENT_TYPE, content_type)
+                    .header("x-raven-diet-metadata", metadata)
+                    .body(Body::from(bytes))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let updated = body(response).await;
+        assert_eq!(updated["food_name"], food_name);
+        assert!(updated["media_id"].is_string());
+        assert_ne!(updated["media_id"].as_str(), media_id.as_deref());
+        media_id = updated["media_id"].as_str().map(str::to_string);
+        updated_at = updated["updated_at"].as_str().unwrap().to_string();
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::patch(format!("/api/v1/health/diet/{id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "remove_image": true,
+                        "expected_updated_at": updated_at,
+                        "reason": "remove meal photo"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body(response).await["media_id"].is_null());
+}
+
+#[tokio::test]
+async fn diet_image_update_rejects_invalid_uploads_without_changing_entry() {
+    let (_temp, app) = app();
+    let created = create_diet(&app).await;
+    let id = created["id"].as_str().unwrap();
+    let metadata = json!({"food_name": "Changed"}).to_string();
+    let cases = [
+        (
+            "application/octet-stream",
+            metadata.clone(),
+            PNG.to_vec(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "image/png",
+            metadata.clone(),
+            Vec::new(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "image/png",
+            "{".to_string(),
+            PNG.to_vec(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "image/png",
+            json!({"food_name": "Changed", "remove_image": true}).to_string(),
+            PNG.to_vec(),
+            StatusCode::BAD_REQUEST,
+        ),
+    ];
+
+    for (content_type, metadata, bytes, expected_status) in cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::patch(format!("/api/v1/health/diet/{id}/with-image"))
+                    .header(header::CONTENT_TYPE, content_type)
+                    .header("x-raven-diet-metadata", metadata)
+                    .body(Body::from(bytes))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected_status);
+        assert_eq!(get_diet(&app, id).await, created);
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::patch(format!("/api/v1/health/diet/{id}/with-image"))
+                .header(header::CONTENT_TYPE, "image/png")
+                .header("x-raven-diet-metadata", metadata)
+                .body(Body::from(vec![0_u8; 10 * 1024 * 1024 + 1]))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(get_diet(&app, id).await, created);
 }
 
 #[tokio::test]
