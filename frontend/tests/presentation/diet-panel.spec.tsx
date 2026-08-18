@@ -38,6 +38,35 @@ function mockOtherReads() {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
 }
 
+function readSet() {
+  return {
+    diet: deferred<DietEntry[]>(),
+    timeline: deferred<Awaited<ReturnType<typeof healthApi.timeline>>>(),
+    trends: deferred<HealthTrends>(),
+  };
+}
+
+function mockOverlappingReads() {
+  const older = readSet();
+  const newer = readSet();
+  vi.mocked(healthApi.listDiet).mockReset()
+    .mockImplementationOnce(() => older.diet.promise)
+    .mockImplementationOnce(() => newer.diet.promise);
+  vi.mocked(healthApi.timeline).mockReset()
+    .mockImplementationOnce(() => older.timeline.promise)
+    .mockImplementationOnce(() => newer.timeline.promise);
+  vi.mocked(healthApi.trends).mockReset()
+    .mockImplementationOnce(() => older.trends.promise)
+    .mockImplementationOnce(() => newer.trends.promise);
+  return { older, newer };
+}
+
+function resolveReads(reads: ReturnType<typeof readSet>, dietEntries: DietEntry[] = []) {
+  reads.diet.resolve(dietEntries);
+  reads.timeline.resolve([]);
+  reads.trends.resolve(trends);
+}
+
 describe("Health Diet controller", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -234,4 +263,140 @@ describe("Health Diet controller", () => {
     expect(result.current.state.dietStatus).toBe("loaded");
     expect(result.current.state.dietError).toBeNull();
   });
+
+  it("lets an older aggregate refresh adopt a newer successful mutation refresh", async () => {
+    mockOtherReads();
+    vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "createDiet").mockResolvedValue(entry);
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.state.dietStatus).toBe("loaded"));
+    const { older, newer } = mockOverlappingReads();
+
+    let refresh!: Promise<boolean>;
+    let mutation!: Promise<void>;
+    await act(async () => {
+      refresh = result.current.refresh();
+      await Promise.resolve();
+      mutation = result.current.createDiet({
+        occurredAt: entry.occurredAt,
+        mealType: entry.mealType,
+        foodName: entry.foodName,
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(healthApi.listDiet).toHaveBeenCalledTimes(2));
+    await act(async () => resolveReads(newer, [entry]));
+    await act(async () => mutation);
+    await act(async () => resolveReads(older, [{ ...entry, id: "stale" }]));
+
+    await expect(refresh).resolves.toBe(true);
+    expect(result.current.state.dietEntries).toEqual([entry]);
+  });
+
+  it.each([true, false])(
+    "makes overlapping mutations adopt a newer peer outcome (success: %s)",
+    async (newerSucceeds) => {
+      mockOtherReads();
+      vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+      const create = vi.spyOn(healthApi, "createDiet").mockResolvedValue(entry);
+      const { result } = renderHook(() => useHealthController());
+      await waitFor(() => expect(result.current.state.dietStatus).toBe("loaded"));
+      const { older, newer } = mockOverlappingReads();
+      const input = {
+        occurredAt: entry.occurredAt,
+        mealType: entry.mealType,
+        foodName: entry.foodName,
+      };
+
+      let first!: Promise<void>;
+      let second!: Promise<void>;
+      await act(async () => {
+        first = result.current.createDiet(input);
+        await Promise.resolve();
+        second = result.current.createDiet(input);
+        await Promise.resolve();
+      });
+      const firstOutcome = first.then(() => true, (error: unknown) => error);
+      const secondOutcome = second.then(() => true, (error: unknown) => error);
+      await waitFor(() => expect(healthApi.listDiet).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        if (newerSucceeds) {
+          resolveReads(newer, [entry]);
+        } else {
+          newer.diet.reject(new Error("newer Diet failed"));
+          newer.timeline.resolve([]);
+          newer.trends.resolve(trends);
+        }
+      });
+      await act(async () => resolveReads(older, [{ ...entry, id: "stale" }]));
+
+      if (newerSucceeds) {
+        await expect(firstOutcome).resolves.toBe(true);
+        await expect(secondOutcome).resolves.toBe(true);
+        expect(result.current.state.dietEntries).toEqual([entry]);
+        expect(result.current.state.dietError).toBeNull();
+      } else {
+        await expect(firstOutcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
+        await expect(secondOutcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
+        expect(result.current.state.dietError).toBe("newer Diet failed");
+      }
+      expect(create).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([true, false])(
+    "makes a mutation adopt a later aggregate refresh outcome (success: %s)",
+    async (newerSucceeds) => {
+      mockOtherReads();
+      vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+      const create = vi.spyOn(healthApi, "createDiet").mockResolvedValue(entry);
+      const { result } = renderHook(() => useHealthController());
+      await waitFor(() => expect(result.current.state.dietStatus).toBe("loaded"));
+      const diet = deferred<DietEntry[]>();
+      const older = readSet();
+      const newer = readSet();
+      vi.mocked(healthApi.listDiet).mockReset().mockImplementation(() => diet.promise);
+      vi.mocked(healthApi.timeline).mockReset()
+        .mockImplementationOnce(() => older.timeline.promise)
+        .mockImplementationOnce(() => newer.timeline.promise);
+      vi.mocked(healthApi.trends).mockReset()
+        .mockImplementationOnce(() => older.trends.promise)
+        .mockImplementationOnce(() => newer.trends.promise);
+
+      let mutation!: Promise<void>;
+      let refresh!: Promise<boolean>;
+      await act(async () => {
+        mutation = result.current.createDiet({
+          occurredAt: entry.occurredAt,
+          mealType: entry.mealType,
+          foodName: entry.foodName,
+        });
+        await Promise.resolve();
+        refresh = result.current.refresh();
+        await Promise.resolve();
+      });
+      const mutationOutcome = mutation.then(() => true, (error: unknown) => error);
+      await act(async () => {
+        diet.resolve([entry]);
+        newer.timeline.resolve([]);
+        if (newerSucceeds) newer.trends.resolve(trends);
+        else newer.trends.reject(new Error("newer Trends failed"));
+      });
+      await act(async () => {
+        older.timeline.resolve([]);
+        older.trends.resolve(trends);
+      });
+
+      await expect(refresh).resolves.toBe(newerSucceeds);
+      if (newerSucceeds) {
+        await expect(mutationOutcome).resolves.toBe(true);
+        expect(result.current.state.trendsError).toBeNull();
+      } else {
+        await expect(mutationOutcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
+        expect(result.current.state.trendsError).toBe("newer Trends failed");
+      }
+      expect(create).toHaveBeenCalledOnce();
+      expect(healthApi.listDiet).toHaveBeenCalledOnce();
+    },
+  );
 });

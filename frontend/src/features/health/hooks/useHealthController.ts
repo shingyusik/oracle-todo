@@ -173,9 +173,12 @@ export function useHealthController(): HealthController {
     useState<HealthTableViewConfirmation | null>(null);
   const loadingPage = useRef(false);
   const dietGeneration = useRef(0);
-  const latestDietRefresh = useRef<Promise<boolean> | null>(null);
+  const inFlightDietRefresh = useRef<Promise<boolean> | null>(null);
+  const latestDietOutcome = useRef<Promise<boolean> | null>(null);
   const timelineGeneration = useRef(0);
+  const latestTimelineOutcome = useRef<Promise<RefreshOutcome> | null>(null);
   const trendsGeneration = useRef(0);
+  const latestTrendsOutcome = useRef<Promise<RefreshOutcome> | null>(null);
   const timelineOffset = state.timeline.length;
   tableViewsRef.current = tableViews;
 
@@ -233,7 +236,7 @@ export function useHealthController(): HealthController {
   }, []);
 
   const startDietRefresh = useCallback((force = false): Promise<boolean> => {
-    if (!force && latestDietRefresh.current) return latestDietRefresh.current;
+    if (!force && inFlightDietRefresh.current) return inFlightDietRefresh.current;
     const generation = ++dietGeneration.current;
     setState((current) => current.dietStatus === "loaded"
       ? { ...current, dietError: null }
@@ -248,7 +251,9 @@ export function useHealthController(): HealthController {
           dietEntries.push(...page);
           offset += page.length;
         } while (page.length === DIET_PAGE_SIZE);
-        if (generation !== dietGeneration.current) return false;
+        if (generation !== dietGeneration.current) {
+          return latestDietOutcome.current ?? false;
+        }
         setState((current) => ({
           ...current,
           dietStatus: "loaded",
@@ -257,7 +262,9 @@ export function useHealthController(): HealthController {
         }));
         return true;
       } catch (error) {
-        if (generation !== dietGeneration.current) return false;
+        if (generation !== dietGeneration.current) {
+          return latestDietOutcome.current ?? false;
+        }
         setState((current) => current.dietStatus === "loaded"
           ? { ...current, dietError: errorMessage(error, "Diet request failed") }
           : {
@@ -268,9 +275,10 @@ export function useHealthController(): HealthController {
         return false;
       }
     })();
-    latestDietRefresh.current = request;
+    latestDietOutcome.current = request;
+    inFlightDietRefresh.current = request;
     void request.finally(() => {
-      if (latestDietRefresh.current === request) latestDietRefresh.current = null;
+      if (inFlightDietRefresh.current === request) inFlightDietRefresh.current = null;
     });
     return request;
   }, []);
@@ -280,75 +288,93 @@ export function useHealthController(): HealthController {
     [startDietRefresh],
   );
 
-  const refreshTimelineOutcome = useCallback(async (): Promise<RefreshOutcome> => {
+  const refreshTimelineOutcome = useCallback((): Promise<RefreshOutcome> => {
     const generation = ++timelineGeneration.current;
     setState((current) => ({
       ...current,
       timelineStatus: "loading",
       timelineError: null,
     }));
-    try {
-      const timeline = await healthApi.timeline({
-        includeArchived: true,
-        limit: PAGE_SIZE,
-        offset: 0,
-      });
-      if (generation !== timelineGeneration.current) {
-        return { ok: false, error: "Health timeline request failed" };
+    const request = (async (): Promise<RefreshOutcome> => {
+      try {
+        const timeline = await healthApi.timeline({
+          includeArchived: true,
+          limit: PAGE_SIZE,
+          offset: 0,
+        });
+        if (generation !== timelineGeneration.current) {
+          return latestTimelineOutcome.current ?? {
+            ok: false,
+            error: "Health timeline request failed",
+          };
+        }
+        setState((current) => ({
+          ...current,
+          timelineStatus: "loaded",
+          timelineError: null,
+          timeline,
+          timelineHasMore: timeline.length === PAGE_SIZE,
+        }));
+        return { ok: true };
+      } catch (error) {
+        const message = errorMessage(error, "Health timeline request failed");
+        if (generation !== timelineGeneration.current) {
+          return latestTimelineOutcome.current ?? { ok: false, error: message };
+        }
+        setState((current) => ({
+          ...current,
+          timelineStatus: current.timeline.length === 0 ? "error" : "loaded",
+          timelineError: message,
+        }));
+        return { ok: false, error: message };
       }
-      setState((current) => ({
-        ...current,
-        timelineStatus: "loaded",
-        timelineError: null,
-        timeline,
-        timelineHasMore: timeline.length === PAGE_SIZE,
-      }));
-      return { ok: true };
-    } catch (error) {
-      const message = errorMessage(error, "Health timeline request failed");
-      if (generation !== timelineGeneration.current) return { ok: false, error: message };
-      setState((current) => ({
-        ...current,
-        timelineStatus: current.timeline.length === 0 ? "error" : "loaded",
-        timelineError: message,
-      }));
-      return { ok: false, error: message };
-    }
+    })();
+    latestTimelineOutcome.current = request;
+    return request;
   }, []);
 
   const refreshTimeline = useCallback(async () => {
     await refreshTimelineOutcome();
   }, [refreshTimelineOutcome]);
 
-  const refreshTrendsOutcome = useCallback(async (days = 30): Promise<RefreshOutcome> => {
+  const refreshTrendsOutcome = useCallback((days = 30): Promise<RefreshOutcome> => {
     const generation = ++trendsGeneration.current;
     setState((current) => ({
       ...current,
       trendsStatus: "loading",
       trendsError: null,
     }));
-    try {
-      const trends = await healthApi.trends(days);
-      if (generation !== trendsGeneration.current) {
-        return { ok: false, error: "Health trends request failed" };
+    const request = (async (): Promise<RefreshOutcome> => {
+      try {
+        const trends = await healthApi.trends(days);
+        if (generation !== trendsGeneration.current) {
+          return latestTrendsOutcome.current ?? {
+            ok: false,
+            error: "Health trends request failed",
+          };
+        }
+        setState((current) => ({
+          ...current,
+          trendsStatus: "loaded",
+          trendsError: null,
+          trends,
+        }));
+        return { ok: true };
+      } catch (error) {
+        const message = errorMessage(error, "Health trends request failed");
+        if (generation !== trendsGeneration.current) {
+          return latestTrendsOutcome.current ?? { ok: false, error: message };
+        }
+        setState((current) => ({
+          ...current,
+          trendsStatus: "error",
+          trendsError: message,
+        }));
+        return { ok: false, error: message };
       }
-      setState((current) => ({
-        ...current,
-        trendsStatus: "loaded",
-        trendsError: null,
-        trends,
-      }));
-      return { ok: true };
-    } catch (error) {
-      const message = errorMessage(error, "Health trends request failed");
-      if (generation !== trendsGeneration.current) return { ok: false, error: message };
-      setState((current) => ({
-        ...current,
-        trendsStatus: "error",
-        trendsError: message,
-      }));
-      return { ok: false, error: message };
-    }
+    })();
+    latestTrendsOutcome.current = request;
+    return request;
   }, []);
 
   const refreshTrends = useCallback(async (days = 30) => {
