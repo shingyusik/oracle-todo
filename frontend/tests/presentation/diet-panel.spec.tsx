@@ -572,6 +572,22 @@ describe("DietPanel table", () => {
     expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
   });
 
+  it("caps draft history at 50 distinct steps while retaining the newest states", async () => {
+    const user = userEvent.setup();
+    render(<DietPanel controller={controller()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    const meal = screen.getByLabelText("Meal");
+    for (let index = 0; index < 52; index += 1) {
+      fireEvent.change(meal, { target: { value: index % 2 === 0 ? "breakfast" : "dinner" } });
+    }
+    for (let index = 0; index < 50; index += 1) {
+      await user.click(screen.getByRole("button", { name: "Undo" }));
+    }
+
+    expect(meal).toHaveValue("dinner");
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+  });
+
   it("confirms dirty Back, keeps focus on cancel, and discards on confirmation", async () => {
     const user = userEvent.setup();
     render(<DietPanel controller={controller()} />);
@@ -712,6 +728,30 @@ describe("DietPanel table", () => {
       roundTrip.getFullYear(), roundTrip.getMonth(), roundTrip.getDate(),
       roundTrip.getHours(), roundTrip.getMinutes(), roundTrip.getSeconds(),
     ]).toEqual([2026, 7, 19, 0, 15, 0]);
+  });
+
+  it("rejects a nonexistent Diet detail wall time without losing the draft", async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const health = controller();
+      render(<DietPanel controller={health} />);
+      await userEvent.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+      fireEvent.change(screen.getByLabelText("Time"), {
+        target: { value: "2026-03-08T02:30" },
+      });
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Time must be a valid local date and time",
+      );
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+      expect(health.updateDiet).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Time")).toHaveValue("2026-03-08T02:30");
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
   });
 
   it("keeps draft and history after save failure", async () => {

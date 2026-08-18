@@ -9,6 +9,7 @@ import {
 } from "@/features/health/hooks/useHealthController";
 import type { DietUpdate, MealType } from "@/features/health/model/health-model";
 import type { DietRow } from "@/features/health/model/diet-table";
+import { localDateTimeToRfc3339 } from "@/features/health/ui/HealthForms";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
@@ -57,6 +58,8 @@ const mealTypes: Array<{ value: MealType; label: string }> = [
   { value: "snack", label: "Snack" },
   { value: "late_night", label: "Late night" },
 ];
+const DIET_HISTORY_LIMIT = 50;
+const invalidLocalTimeMessage = "Time must be a valid local date and time";
 
 export function DietDetail({
   controller,
@@ -90,6 +93,9 @@ export function DietDetail({
   const dirty = !sameCanonicalDraft(canonicalPresent, canonicalBaseline) ||
     draft.newImage !== null || draft.removeImage;
   const valid = canonicalPresent.occurredAt !== null && canonicalPresent.foodName !== "";
+  const timeError = draft.occurredAt && canonicalPresent.occurredAt === null
+    ? invalidLocalTimeMessage
+    : null;
   const readOnly = pending || refreshRecovery;
 
   function change<Name extends keyof DietDraft>(
@@ -221,7 +227,9 @@ export function DietDetail({
           <p>Created {formatTimestamp(baseline.row.entry.createdAt)}</p>
           <p>Updated {formatTimestamp(baseline.row.entry.updatedAt)}</p>
         </div>
-        {error ? <p role="alert" className="form-error">{error}</p> : null}
+        {timeError || error
+          ? <p role="alert" className="form-error">{timeError ?? error}</p>
+          : null}
         {refreshRecovery ? (
           <button type="button" disabled={pending} onClick={() => void retryRefresh()}>Retry</button>
         ) : null}
@@ -325,13 +333,13 @@ function historyReducer(state: DraftHistory, action: DraftAction): DraftHistory 
   if (action.type === "redo") {
     const [present, ...future] = state.future;
     return present
-      ? { past: [...state.past, state.present], present, future, coalescingGroup: null }
+      ? { past: pushHistory(state.past, state.present), present, future, coalescingGroup: null }
       : state;
   }
   if (action.type === "image") {
     if (state.present.newImage === action.newImage && state.present.removeImage === action.removeImage) return state;
     return {
-      past: [...state.past, state.present],
+      past: pushHistory(state.past, state.present),
       present: { ...state.present, newImage: action.newImage, removeImage: action.removeImage },
       future: [],
       coalescingGroup: null,
@@ -343,11 +351,15 @@ function historyReducer(state: DraftHistory, action: DraftAction): DraftHistory 
   return action.coalesce && state.coalescingGroup === action.name
     ? { ...state, present, future: [] }
     : {
-        past: [...state.past, state.present],
+        past: pushHistory(state.past, state.present),
         present,
         future: [],
         coalescingGroup: action.coalesce ? action.name : null,
       };
+}
+
+function pushHistory(past: DietDraft[], present: DietDraft): DietDraft[] {
+  return [...past, present].slice(-DIET_HISTORY_LIMIT);
 }
 
 function dietDraft(row: DietRow): DietDraft {
@@ -383,8 +395,11 @@ function canonicalDraft(draft: DietDraft): CanonicalDraft {
 }
 
 function canonicalTime(value: string): string | null {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  try {
+    return localDateTimeToRfc3339(value);
+  } catch {
+    return null;
+  }
 }
 
 function canonicalTagKeys(tags: readonly string[]): Set<string> {

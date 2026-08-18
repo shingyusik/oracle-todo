@@ -58,7 +58,7 @@ export function DietForm({
         throw new Error("Meal image must be an image file");
       }
       const input: DietInput = {
-        occurredAt: toRfc3339(occurredAt),
+        occurredAt: localDateTimeToRfc3339(occurredAt),
         mealType,
         foodName: foodName.trim(),
         note: nullable(note),
@@ -153,7 +153,7 @@ export function BowelForm({
     event.preventDefault();
     await action.run(async () => {
       const input: EventInput = {
-        occurredAt: toRfc3339(occurredAt),
+        occurredAt: localDateTimeToRfc3339(occurredAt),
         details: {
           kind: "bowel",
           bristolScale: Number(bristol),
@@ -225,7 +225,7 @@ export function MedicationForm({
       if (!medicationName) throw new Error("Medication name is required");
       const doseValue = positiveNumber(dose, "Dose");
       const input: EventInput = {
-        occurredAt: toRfc3339(occurredAt),
+        occurredAt: localDateTimeToRfc3339(occurredAt),
         details: {
           kind: "medication",
           medicationName,
@@ -313,7 +313,7 @@ export function MetricsForm({
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await action.run(async () => {
-      const timestamp = toRfc3339(occurredAt);
+      const timestamp = localDateTimeToRfc3339(occurredAt);
       const metrics: DailyMetricInput[] = [];
       if (weight !== "") {
         metrics.push({
@@ -536,8 +536,28 @@ function defaultLocalDateTime(): string {
   return local.toISOString().slice(0, 16);
 }
 
-function toRfc3339(value: string): string {
-  return new Date(value).toISOString();
+export function localDateTimeToRfc3339(value: string): string {
+  const match = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value);
+  if (!match) throw new Error("Time must be a valid local date and time");
+  const [, year, month, day, hour, minute, second = "0", fraction = "0"] = match;
+  const components = [year, month, day, hour, minute, second].map(Number);
+  const [yearValue, monthValue, dayValue, hourValue, minuteValue, secondValue] = components;
+  const millisecondValue = Number(fraction.padEnd(3, "0"));
+  const date = new Date(0);
+  date.setFullYear(yearValue, monthValue - 1, dayValue);
+  date.setHours(hourValue, minuteValue, secondValue, millisecondValue);
+  if (
+    date.getFullYear() !== yearValue ||
+    date.getMonth() !== monthValue - 1 ||
+    date.getDate() !== dayValue ||
+    date.getHours() !== hourValue ||
+    date.getMinutes() !== minuteValue ||
+    date.getSeconds() !== secondValue ||
+    date.getMilliseconds() !== millisecondValue
+  ) {
+    throw new Error("Time must be a valid local date and time");
+  }
+  return date.toISOString();
 }
 
 function positiveNumber(value: string, field: string): number {

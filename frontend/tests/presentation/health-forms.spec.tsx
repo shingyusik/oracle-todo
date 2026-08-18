@@ -551,4 +551,29 @@ describe("Health Journal forms", () => {
       else process.env.TZ = previousTimezone;
     }
   });
+
+  it("rejects a nonexistent Diet creation wall time without losing the draft", async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const health = controller();
+      render(<DietPanel controller={health} />);
+      await userEvent.click(screen.getByRole("button", { name: "Add diet entry" }));
+      fireEvent.change(screen.getByLabelText("Time"), {
+        target: { value: "2026-03-08T02:30" },
+      });
+      await userEvent.type(screen.getByLabelText("Food"), "Early breakfast");
+      fireEvent.submit(screen.getByRole("form", { name: "Diet entry" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Time must be a valid local date and time",
+      );
+      expect(health.createDiet).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Time")).toHaveValue("2026-03-08T02:30");
+      expect(screen.getByLabelText("Food")).toHaveValue("Early breakfast");
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
 });
