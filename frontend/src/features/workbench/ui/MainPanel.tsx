@@ -10,7 +10,6 @@ import {
   Save,
   Trash2,
   Undo2,
-  X,
 } from "lucide-react";
 
 import type {
@@ -89,6 +88,11 @@ import {
 import { TableViewTabs } from "@/features/workbench/ui/TableViewTabs";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
+import {
+  formatTags,
+  parseTagInput,
+  TagsInput,
+} from "@/features/workbench/ui/TagsInput";
 
 type MainPanelProps = {
   controller: WorkbenchController;
@@ -139,18 +143,6 @@ const areaStatusOptions = ["active", "archived"];
 const taskStatusOptions = ["active", "completed"];
 const materializationPolicyOptions = ["single_open", "per_occurrence"];
 const priorityOptions = Array.from({ length: 10 }, (_, index) => (index + 1).toString());
-
-function parseTagInput(value: string): string[] {
-  return value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean)
-    .filter((tag, index, tags) => tags.indexOf(tag) === index);
-}
-
-function formatTags(tags: string[] | null | undefined): string {
-  return (tags ?? []).join(", ");
-}
 
 function sameTags(left: string[] | null | undefined, right: string[] | null | undefined): boolean {
   return formatTags(left) === formatTags(right);
@@ -5503,202 +5495,6 @@ function InlineSelect({
         </option>
       ))}
     </select>
-  );
-}
-
-function TagsInput({
-  label,
-  value,
-  tagOptions,
-  onCommit,
-  propagateEscape = false,
-  portalDropdown = false,
-}: {
-  label: string;
-  value: string[] | null | undefined;
-  tagOptions: string[];
-  onCommit: (value: string[]) => void;
-  propagateEscape?: boolean;
-  portalDropdown?: boolean;
-}) {
-  const currentTags = React.useMemo(() => parseTagInput(formatTags(value)), [value]);
-  const availableTags = React.useMemo(
-    () => tagOptions.filter((tag) => !currentTags.includes(tag)),
-    [currentTags, tagOptions],
-  );
-  const [open, setOpen] = React.useState(false);
-  const [draft, setDraft] = React.useState("");
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const triggerRef = React.useRef<HTMLDivElement>(null);
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
-  const [dropdownStyle, setDropdownStyle] = React.useState<React.CSSProperties>();
-  const normalizedDraft = draft.trim().toLowerCase();
-  const filteredTags = availableTags.filter((tag) =>
-    tag.toLowerCase().includes(normalizedDraft),
-  );
-
-  React.useEffect(() => {
-    setDraft("");
-  }, [currentTags]);
-
-  React.useEffect(() => {
-    if (open) {
-      inputRef.current?.focus();
-    }
-  }, [open]);
-
-  React.useLayoutEffect(() => {
-    if (!open || !portalDropdown) return;
-
-    const updatePosition = () => {
-      if (triggerRef.current && dropdownRef.current) {
-        setDropdownStyle(goalPeriodPopoverStyle(triggerRef.current, dropdownRef.current));
-      }
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open, portalDropdown]);
-
-  function commitTags(tags: string[]) {
-    const normalizedTags = parseTagInput(formatTags(tags));
-    if (!sameTags(normalizedTags, value)) {
-      onCommit(normalizedTags);
-    }
-  }
-
-  function commitDraft() {
-    const draftTags = parseTagInput(draft);
-    setDraft("");
-    if (draftTags.length > 0) {
-      commitTags([...currentTags, ...draftTags]);
-    }
-  }
-
-  function closeDropdown() {
-    commitDraft();
-    setOpen(false);
-  }
-
-  React.useEffect(() => {
-    if (!open || !portalDropdown) return;
-
-    const dismiss = (event: MouseEvent) => {
-      if (!(event.target instanceof Node)) return;
-      if (triggerRef.current?.contains(event.target) || dropdownRef.current?.contains(event.target)) {
-        return;
-      }
-      closeDropdown();
-    };
-
-    document.addEventListener("mousedown", dismiss);
-    return () => document.removeEventListener("mousedown", dismiss);
-  }, [open, portalDropdown, currentTags, draft]);
-
-  const dropdown = (
-    <div
-      ref={dropdownRef}
-      className="tag-dropdown"
-      style={portalDropdown ? { ...dropdownStyle, zIndex: 110 } : undefined}
-      onClick={stopRowEvent}
-    >
-      <input
-        ref={inputRef}
-        aria-label={label}
-        placeholder="Search for an option..."
-        value={draft}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && propagateEscape) {
-            return;
-          }
-          stopRowEvent(event);
-          if (event.key === "Escape") {
-            event.preventDefault();
-            setOpen(false);
-          }
-          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            commitDraft();
-          }
-        }}
-        onChange={(event) => setDraft(event.target.value)}
-      />
-      <div className="tag-option-list" role="listbox" aria-label={`${label} options`}>
-        {filteredTags.map((tag) => (
-          <button
-            key={tag}
-            type="button"
-            role="option"
-            aria-selected="false"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              stopRowEvent(event);
-              commitTags([...currentTags, tag]);
-              setDraft("");
-            }}
-          >
-            <span className="tag-chip">{tag}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  return (
-    <div
-      className="tag-combobox"
-      onBlur={(event) => {
-        if (portalDropdown) return;
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          closeDropdown();
-        }
-      }}
-    >
-      <div
-        ref={triggerRef}
-        className="tag-input"
-        role="button"
-        tabIndex={0}
-        aria-label={label}
-        aria-expanded={open}
-        onClick={(event) => {
-          stopRowEvent(event);
-          setOpen(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && propagateEscape) {
-            return;
-          }
-          stopRowEvent(event);
-          if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-            event.preventDefault();
-            setOpen(true);
-          }
-        }}
-      >
-        {currentTags.map((tag) => (
-          <span className="tag-chip" key={tag}>
-            {tag}
-            <button
-              type="button"
-              aria-label={`Remove ${tag} tag`}
-              onClick={(event) => {
-                stopRowEvent(event);
-                commitTags(currentTags.filter((currentTag) => currentTag !== tag));
-              }}
-            >
-              <X aria-hidden="true" size={14} />
-            </button>
-          </span>
-        ))}
-      </div>
-      {open ? (portalDropdown ? createPortal(dropdown, document.body) : dropdown) : null}
-    </div>
   );
 }
 

@@ -33,9 +33,9 @@ function stubLedgerLoaded() {
   ] as const;
 }
 
-function stubHealthLoaded() {
+function stubHealthLoaded(dietEntries: Awaited<ReturnType<typeof healthApi.listDiet>> = []) {
   return {
-    diet: vi.spyOn(healthApi, "listDiet").mockResolvedValue([]),
+    diet: vi.spyOn(healthApi, "listDiet").mockResolvedValue(dietEntries),
     timeline: vi.spyOn(healthApi, "timeline").mockResolvedValue([]),
     trends: vi.spyOn(healthApi, "trends").mockResolvedValue(
       {} as Awaited<ReturnType<typeof healthApi.trends>>,
@@ -143,7 +143,7 @@ describe("QuickAddDialog", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Diet entry" }));
-    await user.type(screen.getByLabelText("Food name"), "Lunch");
+    await user.type(screen.getByLabelText("Food"), "Lunch");
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
 
     expect(screen.getByRole("button", { name: "Close Quick Add" })).toBeDisabled();
@@ -185,12 +185,35 @@ describe("QuickAddDialog", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Diet entry" }));
-    await user.type(screen.getByLabelText("Food name"), "Lunch");
+    await user.type(screen.getByLabelText("Food"), "Lunch");
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Diet save failed");
-    expect(screen.getByLabelText("Food name")).toHaveValue("Lunch");
+    expect(screen.getByLabelText("Food")).toHaveValue("Lunch");
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("uses loaded Diet tags without leaking ToDo tag options", async () => {
+    const user = userEvent.setup();
+    stubHealthLoaded([{
+      id: "diet-1",
+      occurredAt: "2026-08-18T03:00:00Z",
+      mealType: "lunch",
+      foodName: "Bibimbap",
+      note: null,
+      tags: ["rice"],
+      mediaId: null,
+      createdAt: "2026-08-18T03:00:00Z",
+      updatedAt: "2026-08-18T03:00:00Z",
+      deletedAt: null,
+    }]);
+    render(<QuickAddDialog controller={workbenchController()} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Diet entry" }));
+    await user.click(await screen.findByRole("button", { name: "Tags" }));
+
+    expect(screen.getByRole("option", { name: "rice" })).toBeVisible();
+    expect(screen.queryByRole("option", { name: "todo-only" })).toBeNull();
   });
 
   it("retries only Ledger refresh after a transaction was persisted", async () => {

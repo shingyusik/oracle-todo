@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import type {
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { BowelPanel } from "@/features/health/ui/BowelPanel";
 import { DietPanel } from "@/features/health/ui/DietPanel";
+import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
 import { HealthMetricsPanel } from "@/features/health/ui/HealthMetricsPanel";
 import { MedicationPanel } from "@/features/health/ui/MedicationPanel";
 
@@ -27,6 +28,14 @@ const loadedState: HealthState = {
   trendsError: null,
   trends: null,
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function controller(
   overrides: Partial<HealthController> = {},
@@ -95,10 +104,11 @@ describe("Health Journal forms", () => {
     const image = new File(["photo"], "meal.png", { type: "image/png" });
     render(<DietPanel controller={health} />);
 
-    await user.selectOptions(screen.getByLabelText("Meal type"), "lunch");
-    await user.type(screen.getByLabelText("Food name"), "Bibimbap");
-    await user.type(screen.getByLabelText("Tags"), "rice, spicy, rice");
-    await user.upload(screen.getByLabelText("Meal image"), image);
+    await user.selectOptions(screen.getByLabelText("Meal"), "lunch");
+    await user.type(screen.getByLabelText("Food"), "Bibimbap");
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    await user.type(screen.getByRole("textbox", { name: "Tags" }), "rice, spicy, rice{Enter}");
+    await user.upload(screen.getByLabelText("Photo"), image);
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
 
     expect(health.createDiet).toHaveBeenCalledWith(
@@ -109,7 +119,136 @@ describe("Health Journal forms", () => {
       }),
       image,
     );
-    expect(screen.getByLabelText("Meal image")).toHaveProperty("files.length", 0);
+    expect(screen.getByLabelText("Photo")).toHaveProperty("files.length", 0);
+  });
+
+  it("offers only existing Diet tags and supports selecting, creating, and removing tags", async () => {
+    const user = userEvent.setup();
+    const health = controller({
+      state: {
+        ...loadedState,
+        dietEntries: [{
+          id: "diet-1",
+          occurredAt: "2026-08-18T03:00:00Z",
+          mealType: "lunch",
+          foodName: "Bibimbap",
+          note: null,
+          tags: ["rice", "spicy"],
+          mediaId: null,
+          createdAt: "2026-08-18T03:00:00Z",
+          updatedAt: "2026-08-18T03:00:00Z",
+          deletedAt: null,
+        }],
+      },
+    });
+    render(<DietPanel controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    expect(screen.getByRole("option", { name: "rice" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "spicy" })).toBeVisible();
+    expect(screen.queryByRole("option", { name: "todo-only" })).toBeNull();
+    await user.click(screen.getByRole("option", { name: "rice" }));
+    await user.type(screen.getByRole("textbox", { name: "Tags" }), " fresh, rice, vegan {Enter}");
+    await user.click(screen.getByRole("button", { name: "Remove rice tag" }));
+    await user.type(screen.getByLabelText("Food"), "Lunch");
+    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+
+    expect(health.createDiet).toHaveBeenCalledWith(
+      expect.objectContaining({ tags: ["fresh", "vegan"] }),
+      undefined,
+    );
+  });
+
+  it("renders Diet controls in the requested order", () => {
+    render(<DietPanel controller={controller()} />);
+    const form = screen.getByRole("form", { name: "Diet entry" });
+    const controls = [
+      within(form).getByLabelText("Time"),
+      within(form).getByLabelText("Meal"),
+      within(form).getByLabelText("Food"),
+      within(form).getByRole("button", { name: "Tags" }),
+      within(form).getByLabelText("Photo"),
+      within(form).getByLabelText("Note"),
+    ];
+    for (let index = 1; index < controls.length; index += 1) {
+      expect(controls[index - 1].compareDocumentPosition(controls[index]) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+    }
+  });
+
+  it("keeps the Diet dialog open and preserves all inputs after validation or save failure", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    const health = controller({
+      createDiet: vi.fn().mockRejectedValue(new Error("Diet save failed")),
+    });
+    const returnFocusRef = React.createRef<HTMLButtonElement>();
+    render(<>
+      <button ref={returnFocusRef}>Open diet</button>
+      <DietCreateDialog
+        controller={health}
+        onClose={vi.fn()}
+        returnFocusRef={returnFocusRef}
+        tagOptions={["rice"]}
+      />
+    </>);
+
+    await user.selectOptions(screen.getByLabelText("Meal"), "lunch");
+    await user.type(screen.getByLabelText("Food"), "Bibimbap");
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    await user.click(screen.getByRole("option", { name: "rice" }));
+    await user.type(screen.getByLabelText("Note"), "Keep this");
+    const invalid = new File(["text"], "notes.txt", { type: "text/plain" });
+    await user.upload(screen.getByLabelText("Photo"), invalid);
+    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+
+    expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("Meal image must be an image file");
+    expect(health.createDiet).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Food")).toHaveValue("Bibimbap");
+    expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
+    expect(screen.getByLabelText("Photo")).toHaveProperty("files.length", 1);
+
+    const image = new File(["photo"], "meal.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Photo"), image);
+    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Diet save failed");
+    expect(screen.getByRole("button", { name: "Remove rice tag" })).toBeVisible();
+    expect(screen.getByLabelText("Photo")).toHaveProperty("files.length", 1);
+  });
+
+  it("blocks Diet dialog dismissal and duplicate submission until save resolves", async () => {
+    const user = userEvent.setup();
+    const save = deferred<void>();
+    const onClose = vi.fn();
+    const health = controller({ createDiet: vi.fn(() => save.promise) });
+    function Harness() {
+      const [open, setOpen] = React.useState(true);
+      const returnFocusRef = React.useRef<HTMLButtonElement>(null);
+      return <>
+        <button ref={returnFocusRef}>Open diet</button>
+        {open ? <DietCreateDialog
+          controller={health}
+          onClose={() => {
+            onClose();
+            setOpen(false);
+          }}
+          returnFocusRef={returnFocusRef}
+          tagOptions={[]}
+        /> : null}
+      </>;
+    }
+    render(<Harness />);
+
+    await user.type(screen.getByLabelText("Food"), "Lunch");
+    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(health.createDiet).toHaveBeenCalledOnce();
+
+    save.resolve();
+    expect(await screen.findByRole("button", { name: "Open diet" })).toHaveFocus();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("keeps diet inputs and exposes an accessible error after submission fails", async () => {
@@ -120,12 +259,12 @@ describe("Health Journal forms", () => {
     const image = new File(["photo"], "meal.png", { type: "image/png" });
     render(<DietPanel controller={health} />);
 
-    await user.type(screen.getByLabelText("Food name"), "Lunch");
-    await user.upload(screen.getByLabelText("Meal image"), image);
+    await user.type(screen.getByLabelText("Food"), "Lunch");
+    await user.upload(screen.getByLabelText("Photo"), image);
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
 
-    expect(screen.getByLabelText("Food name")).toHaveValue("Lunch");
-    expect(screen.getByLabelText("Meal image")).toHaveProperty("files.length", 1);
+    expect(screen.getByLabelText("Food")).toHaveValue("Lunch");
+    expect(screen.getByLabelText("Photo")).toHaveProperty("files.length", 1);
     expect(screen.getByRole("alert")).toHaveTextContent("Image is too large");
   });
 
@@ -267,10 +406,10 @@ describe("Health Journal forms", () => {
       const health = controller();
       render(<DietPanel controller={health} />);
 
-      fireEvent.change(screen.getByLabelText("Occurred at"), {
+      fireEvent.change(screen.getByLabelText("Time"), {
         target: { value: "2026-07-30T09:00" },
       });
-      await user.type(screen.getByLabelText("Food name"), "Breakfast");
+      await user.type(screen.getByLabelText("Food"), "Breakfast");
       await user.click(screen.getByRole("button", { name: "Save diet entry" }));
 
       expect(health.createDiet).toHaveBeenCalledWith(

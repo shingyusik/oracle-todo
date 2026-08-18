@@ -10,6 +10,7 @@ import type {
   MealType,
   MedicationUnit,
 } from "@/features/health/model/health-model";
+import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
 const mealTypes: Array<{ value: MealType; label: string }> = [
   { value: "breakfast", label: "Breakfast" },
@@ -39,12 +40,13 @@ export function DietForm({
   controller,
   onSaved,
   onPendingChange,
-}: HealthFormProps) {
+  tagOptions,
+}: HealthFormProps & { tagOptions?: readonly string[] }) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [mealType, setMealType] = useState<MealType>("breakfast");
   const [foodName, setFoodName] = useState("");
   const [note, setNote] = useState("");
-  const [tags, setTags] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [image, setImage] = useState<File | null>(null);
   const imageInput = useRef<HTMLInputElement | null>(null);
   const action = useFormAction(onPendingChange);
@@ -60,23 +62,27 @@ export function DietForm({
         mealType,
         foodName: foodName.trim(),
         note: nullable(note),
-        tags: uniqueCommaList(tags),
+        tags,
       };
       await controller.createDiet(input, image ?? undefined);
       if (!action.isMounted()) return;
       setFoodName("");
       setNote("");
-      setTags("");
+      setTags([]);
       setImage(null);
       if (imageInput.current) imageInput.current.value = "";
       onSaved?.();
     });
   }
 
+  const dietTagOptions = tagOptions ?? Array.from(new Set(
+    controller.state.dietEntries.flatMap((entry) => entry.tags),
+  ));
+
   return (
     <form onSubmit={(event) => void submit(event)} aria-label="Diet entry">
       <label className="field-label">
-        Occurred at
+        Time
         <input
           type="datetime-local"
           value={occurredAt}
@@ -85,7 +91,7 @@ export function DietForm({
         />
       </label>
       <label className="field-label">
-        Meal type
+        Meal
         <select
           value={mealType}
           onChange={(event) => setMealType(event.target.value as MealType)}
@@ -96,7 +102,7 @@ export function DietForm({
         </select>
       </label>
       <label className="field-label">
-        Food name
+        Food
         <input
           value={foodName}
           maxLength={120}
@@ -104,26 +110,27 @@ export function DietForm({
           required
         />
       </label>
-      <label className="field-label">
+      <div className="field-label">
         Tags
-        <input
+        <TagsInput
+          label="Tags"
           value={tags}
-          placeholder="comma, separated"
-          onChange={(event) => setTags(event.target.value)}
+          tagOptions={dietTagOptions}
+          onCommit={setTags}
         />
-      </label>
+      </div>
       <label className="field-label">
-        Diet note
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} />
-      </label>
-      <label className="field-label">
-        Meal image
+        Photo
         <input
           ref={imageInput}
           type="file"
           accept="image/*"
           onChange={(event) => setImage(event.target.files?.[0] ?? null)}
         />
+      </label>
+      <label className="field-label">
+        Note
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
       <FormResult action={action} />
       <button type="submit" disabled={action.pending}>Save diet entry</button>
@@ -516,14 +523,6 @@ function useFormAction(onPendingChange?: (pending: boolean) => void) {
   }
 
   return { pending, error, run, isMounted: () => mounted.current };
-}
-
-function uniqueCommaList(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .filter((item, index, items) => items.indexOf(item) === index);
 }
 
 function nullable(value: string): string | null {
