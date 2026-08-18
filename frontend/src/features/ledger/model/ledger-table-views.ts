@@ -68,8 +68,8 @@ const groupOptions: Record<
   ],
   "ledger.categories": [
     { value: "none", label: "None" },
-    { value: "kind", label: "Kind" },
-    { value: "parent", label: "Parent" },
+    { value: "kind", label: "Type" },
+    { value: "parent", label: "Parent category" },
   ],
 };
 

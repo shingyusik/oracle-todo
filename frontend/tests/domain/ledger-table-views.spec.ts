@@ -44,8 +44,11 @@ describe("ledger table views", () => {
       { value: "category", label: "Category" },
       { value: "entry_type", label: "Type" },
     ]);
-    expect(ledgerGroupOptionsForScope("ledger.categories").map(({ value }) => value))
-      .toEqual(["none", "kind", "parent"]);
+    expect(ledgerGroupOptionsForScope("ledger.categories")).toEqual([
+      { value: "none", label: "None" },
+      { value: "kind", label: "Type" },
+      { value: "parent", label: "Parent category" },
+    ]);
   });
 
   it("uses the agreed defaults for each table", () => {
