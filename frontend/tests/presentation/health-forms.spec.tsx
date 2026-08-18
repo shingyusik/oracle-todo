@@ -15,6 +15,7 @@ import { DietPanel } from "@/features/health/ui/DietPanel";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
 import { HealthMetricsPanel } from "@/features/health/ui/HealthMetricsPanel";
 import { MedicationPanel } from "@/features/health/ui/MedicationPanel";
+import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
 const loadedState: HealthState = {
   dietStatus: "loaded",
@@ -105,6 +106,35 @@ function DietDialogHarness({
 }
 
 describe("Health Journal forms", () => {
+  it("gives each tag popup a distinct valid listbox relationship", async () => {
+    const user = userEvent.setup();
+    render(<>
+      <TagsInput label="First tags" value={[]} tagOptions={["one"]} onCommit={vi.fn()} />
+      <TagsInput label="Second tags" value={[]} tagOptions={["two"]} onCommit={vi.fn()} />
+    </>);
+    const first = screen.getByRole("button", { name: "First tags" });
+    const second = screen.getByRole("button", { name: "Second tags" });
+
+    await user.click(first);
+    const firstSearch = screen.getByRole("combobox", { name: "First tags" });
+    const firstListbox = screen.getByRole("listbox", { name: "First tags options" });
+    expect(first).toHaveAttribute("aria-haspopup", "listbox");
+    expect(first).toHaveAttribute("aria-controls", firstListbox.id);
+    expect(firstSearch).toHaveAttribute("aria-controls", firstListbox.id);
+    expect(firstSearch).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+    expect(first).toHaveFocus();
+    expect(screen.queryByRole("listbox", { name: "First tags options" })).toBeNull();
+
+    await user.click(second);
+    const secondSearch = screen.getByRole("combobox", { name: "Second tags" });
+    const secondListbox = screen.getByRole("listbox", { name: "Second tags options" });
+    expect(second).toHaveAttribute("aria-controls", secondListbox.id);
+    expect(secondSearch).toHaveAttribute("aria-controls", secondListbox.id);
+    expect(secondListbox.id).not.toBe(firstListbox.id);
+  });
+
   it("submits structured bowel fields with a Bristol value from 1 to 7", async () => {
     const user = userEvent.setup();
     const health = controller();
@@ -132,7 +162,7 @@ describe("Health Journal forms", () => {
     await user.selectOptions(screen.getByLabelText("Meal"), "lunch");
     await user.type(screen.getByLabelText("Food"), "Bibimbap");
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.type(screen.getByRole("textbox", { name: "Tags" }), "rice, spicy, rice{Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), "rice, spicy, rice{Enter}");
     await user.upload(screen.getByLabelText("Photo"), image);
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
 
@@ -173,7 +203,7 @@ describe("Health Journal forms", () => {
     expect(screen.getByRole("option", { name: "spicy" })).toBeVisible();
     expect(screen.queryByRole("option", { name: "todo-only" })).toBeNull();
     await user.click(screen.getByRole("option", { name: "rice" }));
-    await user.type(screen.getByRole("textbox", { name: "Tags" }), " fresh, rice, vegan {Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), " fresh, rice, vegan {Enter}");
     await user.click(screen.getByRole("button", { name: "Remove rice tag" }));
     await user.type(screen.getByLabelText("Food"), "Lunch");
     await user.click(screen.getByRole("button", { name: "Save diet entry" }));
@@ -288,6 +318,25 @@ describe("Health Journal forms", () => {
     fireEvent.mouseDown(backdrop!);
     expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the first Escape to close Diet tags and the second to close the dialog", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<DietDialogHarness health={controller()} onClose={onClose} />);
+    const trigger = screen.getByRole("button", { name: "Tags" });
+
+    await user.click(trigger);
+    expect(screen.getByRole("combobox", { name: "Tags" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeVisible();
+    expect(trigger).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open diet" })).toHaveFocus();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("blocks Diet dialog dismissal and duplicate submission until save resolves", async () => {

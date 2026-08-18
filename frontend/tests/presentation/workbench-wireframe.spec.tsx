@@ -2949,7 +2949,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.type(screen.getByRole("textbox", { name: "Tags" }), "focus{Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), "focus{Enter}");
     expect(screen.getByText("focus")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Title"), "Tagged task");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -3014,7 +3014,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.type(screen.getByRole("textbox", { name: "Tags" }), "focus{Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), "focus{Enter}");
     await user.click(screen.getByRole("button", { name: "Remove focus tag" }));
     expect(screen.queryByText("focus")).not.toBeInTheDocument();
   });
@@ -3032,7 +3032,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    expect(screen.getByRole("textbox", { name: "Tags" })).toHaveFocus();
+    expect(screen.getByRole("combobox", { name: "Tags" })).toHaveFocus();
     await user.keyboard("{Escape}");
 
     expect(screen.queryByRole("dialog", { name: "Create Daily item" })).toBeNull();
@@ -3479,7 +3479,7 @@ describe("WorkbenchPageClient", () => {
     await user.selectOptions(screen.getByLabelText("Priority"), "8");
     await user.click(screen.getByRole("button", { name: "Remove focus tag" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    const tagSearch = screen.getByRole("textbox", { name: "Tags" });
+    const tagSearch = screen.getByRole("combobox", { name: "Tags" });
     await user.type(tagSearch, "user{Enter}");
     await user.type(tagSearch, "edited{Enter}");
     await user.type(screen.getByLabelText("Title"), "Filtered event");

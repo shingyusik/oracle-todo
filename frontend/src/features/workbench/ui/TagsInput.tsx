@@ -41,6 +41,7 @@ export function TagsInput({
   const inputRef = React.useRef<HTMLInputElement>(null);
   const triggerRef = React.useRef<HTMLDivElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
+  const listboxId = React.useId();
   const [dropdownStyle, setDropdownStyle] = React.useState<React.CSSProperties>();
   const normalizedDraft = draft.trim().toLowerCase();
   const filteredTags = availableTags.filter((tag) =>
@@ -119,7 +120,11 @@ export function TagsInput({
     >
       <input
         ref={inputRef}
+        role="combobox"
         aria-label={label}
+        aria-controls={listboxId}
+        aria-expanded="true"
+        aria-autocomplete="list"
         placeholder="Search for an option..."
         value={draft}
         onKeyDown={(event) => {
@@ -130,6 +135,7 @@ export function TagsInput({
           if (event.key === "Escape") {
             event.preventDefault();
             setOpen(false);
+            triggerRef.current?.focus();
           }
           if (event.key === "Enter" && !event.nativeEvent.isComposing) {
             event.preventDefault();
@@ -138,7 +144,12 @@ export function TagsInput({
         }}
         onChange={(event) => setDraft(event.target.value)}
       />
-      <div className="tag-option-list" role="listbox" aria-label={`${label} options`}>
+      <div
+        id={listboxId}
+        className="tag-option-list"
+        role="listbox"
+        aria-label={`${label} options`}
+      >
         {filteredTags.map((tag) => (
           <button
             key={tag}
@@ -175,13 +186,15 @@ export function TagsInput({
         role="button"
         tabIndex={0}
         aria-label={label}
+        aria-haspopup="listbox"
+        aria-controls={open ? listboxId : undefined}
         aria-expanded={open}
         onClick={(event) => {
           stopEvent(event);
           setOpen(true);
         }}
         onKeyDown={(event) => {
-          if (event.key === "Escape" && propagateEscape) {
+          if (event.key === "Escape") {
             return;
           }
           stopEvent(event);
