@@ -23,8 +23,8 @@ const entry: DietEntry = {
   note: null,
   tags: ["rice"],
   mediaId: null,
-  createdAt: "2026-08-18T03:00:00Z",
-  updatedAt: "2026-08-18T03:00:00Z",
+  createdAt: "2026-08-18T03:01:02Z",
+  updatedAt: "2026-08-18T04:05:06Z",
   deletedAt: null,
 };
 const trends = { days: 30 } as HealthTrends;
@@ -531,8 +531,10 @@ describe("DietPanel table", () => {
       .closest(".detail-view")!.querySelector("header")!;
     expect(within(detailHeader).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
       .toEqual(["< Back", "Undo", "Redo", "Save", "Delete"]);
-    expect(screen.getByText(/Created/)).toHaveTextContent("2026");
-    expect(screen.getByText(/Updated/)).toHaveTextContent("2026");
+    expect(screen.getByText(`Created ${new Date(entry.createdAt).toLocaleString()}`))
+      .toBeInTheDocument();
+    expect(screen.getByText(`Updated ${new Date(entry.updatedAt).toLocaleString()}`))
+      .toBeInTheDocument();
     expect([...screen.getByRole("region", { name: "Edit diet properties" }).children]
       .map((field) => field.textContent?.trim())).toEqual([
         "Time", "MealBreakfastLunchDinnerSnackLate night", "Food", "Tagsrice", "PhotoNo photo", "Note",
@@ -601,7 +603,7 @@ describe("DietPanel table", () => {
 
     await waitFor(() => expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
       mealType: "dinner",
-      tags: ["rice", "strasse", "wheat"],
+      tags: ["rice", "Straße", "wheat"],
       expectedUpdatedAt: entry.updatedAt,
     }, undefined));
     expect(screen.getByRole("button", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
@@ -666,19 +668,50 @@ describe("DietPanel table", () => {
     }, undefined);
   });
 
+  it("compares engine-equivalent Unicode tag sets without rewriting their spellings", async () => {
+    const user = userEvent.setup();
+    const tagged = { ...entry, tags: ["a", "ffi", "strasse", "σ", "ἃι", "𐐨"] };
+    const health = controller({ ...loadedState, dietEntries: [tagged] });
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    for (const tag of tagged.tags) {
+      await user.click(screen.getByRole("button", { name: `Remove ${tag} tag` }));
+    }
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    await user.type(
+      screen.getByRole("combobox", { name: "Tags" }),
+      "𐐀,ᾃ,ς,ﬃ,ＳＴＲＡＳＳＥ,Straße,a,ᾃ{Enter}",
+    );
+
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(health.updateDiet).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Remove a tag" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
+      tags: ["𐐀", "ᾃ", "ς", "ﬃ", "ＳＴＲＡＳＳＥ", "Straße"],
+      expectedUpdatedAt: entry.updatedAt,
+    }, undefined);
+  });
+
   it("sends an exact RFC3339 instant across the local timezone boundary", async () => {
     const user = userEvent.setup();
     const health = controller();
     render(<DietPanel controller={health} />);
     await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
-    fireEvent.change(screen.getByLabelText("Time"), {
-      target: { value: "2026-08-19T00:15:00" },
-    });
+    const localDate = new Date(2026, 7, 19, 0, 15, 0, 0);
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-08-19T00:15:00" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
+    const submitted = vi.mocked(health.updateDiet).mock.calls[0]![1].occurredAt!;
     expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
-      occurredAt: "2026-08-18T15:15:00.000Z",
+      occurredAt: localDate.toISOString(),
       expectedUpdatedAt: entry.updatedAt,
     }, undefined);
+    const roundTrip = new Date(submitted);
+    expect([
+      roundTrip.getFullYear(), roundTrip.getMonth(), roundTrip.getDate(),
+      roundTrip.getHours(), roundTrip.getMinutes(), roundTrip.getSeconds(),
+    ]).toEqual([2026, 7, 19, 0, 15, 0]);
   });
 
   it("keeps draft and history after save failure", async () => {

@@ -41,7 +41,7 @@ type CanonicalDraft = {
   occurredAt: string | null;
   mealType: MealType;
   foodName: string;
-  tags: string[];
+  tagKeys: Set<string>;
   note: string | null;
 };
 
@@ -377,7 +377,7 @@ function canonicalDraft(draft: DietDraft): CanonicalDraft {
     occurredAt: canonicalTime(draft.occurredAt),
     mealType: draft.mealType,
     foodName: draft.foodName.trim(),
-    tags: canonicalTags(draft.tags),
+    tagKeys: canonicalTagKeys(draft.tags),
     note: draft.note.trim() || null,
   };
 }
@@ -387,23 +387,26 @@ function canonicalTime(value: string): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function canonicalTags(tags: readonly string[]): string[] {
-  return [...new Set(tags.map((tag) => tag
-    .normalize("NFKC")
-    .toLocaleLowerCase("und")
-    .replaceAll("ß", "ss")
-    .replaceAll("ς", "σ")
-    .normalize("NFKC")
-    .trim())
-    .filter(Boolean))]
-    .sort();
+function canonicalTagKeys(tags: readonly string[]): Set<string> {
+  return new Set(tags
+    .map((tag) => tag
+      .normalize("NFKC")
+      .toUpperCase()
+      .toLowerCase()
+      .normalize("NFKC")
+      .trim())
+    .filter(Boolean));
+}
+
+function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function sameCanonicalDraft(left: CanonicalDraft, right: CanonicalDraft): boolean {
   return left.occurredAt === right.occurredAt &&
     left.mealType === right.mealType &&
     left.foodName === right.foodName &&
-    sameValue(left.tags, right.tags) &&
+    sameStringSet(left.tagKeys, right.tagKeys) &&
     left.note === right.note;
 }
 
@@ -423,7 +426,7 @@ function dietPatch(
   if (present.occurredAt !== baseline.occurredAt) patch.occurredAt = present.occurredAt!;
   if (present.mealType !== baseline.mealType) patch.mealType = present.mealType;
   if (present.foodName !== baseline.foodName) patch.foodName = present.foodName;
-  if (!sameValue(present.tags, baseline.tags)) patch.tags = present.tags;
+  if (!sameStringSet(present.tagKeys, baseline.tagKeys)) patch.tags = draft.tags;
   if (present.note !== baseline.note) patch.note = present.note;
   if (!draft.newImage && row.entry.mediaId !== null && draft.removeImage) patch.removeImage = true;
   return patch;
