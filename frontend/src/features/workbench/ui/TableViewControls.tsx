@@ -50,6 +50,7 @@ export type PlannerFilterOptionSet = {
 export type PlannerFilterOptions = {
   tags: Option<string>[];
   daily: PlannerFilterOptionSet;
+  fieldOptions?: Partial<Record<PlannerFilterField, Option<string>[]>>;
   storedRelationLabels?: Partial<
     Record<PlannerFilterField, Record<string, string>>
   >;
@@ -1004,7 +1005,7 @@ function TableViewFilterOptionDropdown({
   );
 }
 
-function tableViewFilterFieldConfigs(
+export function tableViewFilterFieldConfigs(
   filterOptions: PlannerFilterOptions,
   allowedFields: readonly PlannerFilterField[],
   fieldLabels?: Partial<Record<PlannerFilterField, string>>,
@@ -1023,14 +1024,14 @@ function tableViewFilterFieldConfigs(
       field: "meal_type",
       label: "Meal type",
       type: "select",
-      options: filterOptions.daily.statuses,
+      options: filterOptions.fieldOptions?.meal_type ?? [],
     },
     food: { field: "food", label: "Food", type: "text", options: [] },
     has_photo: {
       field: "has_photo",
       label: "Photo",
       type: "select",
-      options: filterOptions.daily.statuses,
+      options: filterOptions.fieldOptions?.has_photo ?? [],
     },
     account: {
       field: "account",

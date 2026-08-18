@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   defaultHealthTableSettings,
+  healthDietFilterSelectOptions,
   healthFilterFieldsForScope,
   healthGroupOptionsForScope,
   healthSortFieldsForScope,
@@ -12,6 +13,7 @@ import { normalizeLedgerTableSettings } from "@/features/ledger/model/ledger-tab
 import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
 import { normalizePlannerTableSettings } from "@/features/workbench/model/planner-model";
 import type { LegacyPlannerControls } from "@/features/workbench/model/workbench-model";
+import { tableViewFilterFieldConfigs } from "@/features/workbench/ui/TableViewControls";
 
 function legacyControls(): LegacyPlannerControls {
   return {
@@ -31,6 +33,32 @@ function legacyControls(): LegacyPlannerControls {
 }
 
 describe("Health table views", () => {
+  it("maps each Health select field to only its own options", () => {
+    const fields = tableViewFilterFieldConfigs({
+      tags: [],
+      daily: {
+        tags: [], areas: [], projects: [], currencies: [], routines: [],
+        statuses: [{ value: "active", label: "Active" }],
+        priorities: [], horizons: [], parents: [], materializationPolicies: [], participants: [],
+      },
+      fieldOptions: healthDietFilterSelectOptions,
+    }, ["meal_type", "has_photo"]);
+
+    expect(fields.map(({ field, options }) => [field, options])).toEqual([
+      ["meal_type", [
+        { value: "breakfast", label: "Breakfast" },
+        { value: "lunch", label: "Lunch" },
+        { value: "dinner", label: "Dinner" },
+        { value: "snack", label: "Snack" },
+        { value: "late_night", label: "Late night" },
+      ]],
+      ["has_photo", [
+        { value: "with-photo", label: "Yes" },
+        { value: "without-photo", label: "No" },
+      ]],
+    ]);
+  });
+
   it("defines the Diet scope controls and defaults", () => {
     expect(healthTableScopeIds).toEqual(["health.diet"]);
     expect(healthFilterFieldsForScope("health.diet")).toEqual([
@@ -84,11 +112,36 @@ describe("Health table views", () => {
 
     expect(normalizePlannerTableSettings("daily.today", healthOnly, legacyControls()).filterRules)
       .toEqual([]);
+    expect(normalizePlannerTableSettings("daily.today", healthOnly, legacyControls()).sortRules)
+      .toEqual([{ id: "daily.today-default-sort", field: "priority", direction: "asc" }]);
     expect(normalizePlannerTableSettings("daily.today", healthOnly, legacyControls()).groupSettings.groupBy)
       .toBe("none");
+    expect(normalizePlannerTableSettings("daily.today", {
+      sortRules: healthOnly.sortRules,
+    }, legacyControls()).sortRules)
+      .toEqual([{ id: "daily.today-default-sort", field: "priority", direction: "asc" }]);
     expect(normalizeLedgerTableSettings("ledger.transactions", healthOnly).filterRules)
+      .toEqual([]);
+    expect(normalizeLedgerTableSettings("ledger.transactions", healthOnly).sortRules)
       .toEqual([]);
     expect(normalizeLedgerTableSettings("ledger.transactions", healthOnly).groupSettings.groupBy)
       .toBe("none");
+  });
+
+  it("rejects Health-only values during Planner legacy migration", () => {
+    const legacy = legacyControls();
+    legacy.filterRules = [{
+      id: "meal", field: "meal_type", type: "select", operator: "is", value: ["lunch"],
+    }];
+    legacy.dailySortRules = [{ id: "photo", field: "has_photo", direction: "asc" }];
+    legacy.groupSettings.daily = {
+      ...defaultPlannerGroupSettings(),
+      groupBy: "meal_type",
+    };
+
+    const migrated = normalizePlannerTableSettings("daily.today", undefined, legacy);
+    expect(migrated.filterRules).toEqual([]);
+    expect(migrated.sortRules).toEqual([]);
+    expect(migrated.groupSettings.groupBy).toBe("none");
   });
 });

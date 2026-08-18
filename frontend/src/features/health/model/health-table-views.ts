@@ -17,6 +17,20 @@ import type { TableViewSettingsAdapter } from "@/features/workbench/model/table-
 export const healthTableScopeIds = ["health.diet"] as const;
 export type HealthTableScopeId = (typeof healthTableScopeIds)[number];
 
+export const healthDietFilterSelectOptions = {
+  meal_type: [
+    { value: "breakfast", label: "Breakfast" },
+    { value: "lunch", label: "Lunch" },
+    { value: "dinner", label: "Dinner" },
+    { value: "snack", label: "Snack" },
+    { value: "late_night", label: "Late night" },
+  ],
+  has_photo: [
+    { value: "with-photo", label: "Yes" },
+    { value: "without-photo", label: "No" },
+  ],
+} satisfies Partial<Record<PlannerFilterField, { value: string; label: string }[]>>;
+
 const filterFields = [
   "date", "meal_type", "food", "tags", "has_photo",
 ] as const satisfies readonly PlannerFilterField[];

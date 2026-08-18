@@ -94,6 +94,49 @@ describe("deriveDietGroups", () => {
     expect(groups[0]!.rows.map(({ id: rowId }) => rowId)).toEqual([id("2"), id("1"), id("3")]);
   });
 
+  it("uses the local date for offset timestamps and relative-date filters", () => {
+    const occurredAt = [
+      "2026-01-02T00:30:00+14:00",
+      "2026-01-02T23:30:00-12:00",
+    ].find((value) => new Date(value).getDate() !== Number(value.slice(8, 10)))!;
+    const instant = new Date(occurredAt);
+    const localNow = new Date(
+      instant.getFullYear(), instant.getMonth(), instant.getDate(), 12,
+    );
+    const groups = deriveDietGroups([diet("1", { occurredAt })], settings({
+      filterRules: [{
+        id: "today",
+        field: "date",
+        type: "date",
+        operator: "is_relative_to_today",
+        value: { amount: "0", unit: "day" },
+      }],
+    }), localNow);
+
+    expect(groups[0]!.rows.map(({ id: rowId }) => rowId)).toEqual([id("1")]);
+    expect(groups[0]!.rows[0]!.date).not.toBe(occurredAt.slice(0, 10));
+  });
+
+  it("filters photo presence and sorts by photo and updated timestamp", () => {
+    const entries = [
+      diet("1", { mediaId: null, updatedAt: "2026-07-08T09:00:00Z" }),
+      diet("2", { mediaId: id("22"), updatedAt: "2026-07-08T10:00:00Z" }),
+      diet("3", { mediaId: id("33"), updatedAt: "2026-07-08T11:00:00+02:00" }),
+    ];
+    const filtered = deriveDietGroups(entries, settings({
+      filterRules: [{
+        id: "photo", field: "has_photo", type: "select", operator: "is", value: ["with-photo"],
+      }],
+    }));
+    const sorted = deriveDietGroups(entries, settings({ sortRules: [
+      { id: "photo", field: "has_photo", direction: "asc" },
+      { id: "updated", field: "updated", direction: "desc" },
+    ] }));
+
+    expect(filtered[0]!.rows.map(({ id: rowId }) => rowId)).toEqual([id("2"), id("3")]);
+    expect(sorted[0]!.rows.map(({ id: rowId }) => rowId)).toEqual([id("1"), id("2"), id("3")]);
+  });
+
   it.each([
     ["day", ["2026-01-05", "2025-12-31"]],
     ["week", ["2026-01-05", "2025-12-29"]],
