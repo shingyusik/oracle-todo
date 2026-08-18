@@ -1019,6 +1019,19 @@ function tableViewFilterFieldConfigs(
       type: "select",
       options: filterOptions.daily.statuses,
     },
+    meal_type: {
+      field: "meal_type",
+      label: "Meal type",
+      type: "select",
+      options: filterOptions.daily.statuses,
+    },
+    food: { field: "food", label: "Food", type: "text", options: [] },
+    has_photo: {
+      field: "has_photo",
+      label: "Photo",
+      type: "select",
+      options: filterOptions.daily.statuses,
+    },
     account: {
       field: "account",
       label: "Account",

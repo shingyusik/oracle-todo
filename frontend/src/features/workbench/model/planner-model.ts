@@ -26,6 +26,9 @@ export type PlannerFilterField =
   | "date"
   | "content"
   | "entry_type"
+  | "meal_type"
+  | "food"
+  | "has_photo"
   | "account"
   | "category"
   | "amount"
@@ -95,6 +98,8 @@ export type PlannerGroupBy =
   | "week"
   | "day"
   | "entry_type"
+  | "meal_type"
+  | "has_photo"
   | "account"
   | "category"
   | "account_type"
@@ -121,6 +126,9 @@ export const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterTy
   date: "date",
   content: "text",
   entry_type: "select",
+  meal_type: "select",
+  food: "text",
+  has_photo: "select",
   account: "relation",
   category: "relation",
   amount: "number",
