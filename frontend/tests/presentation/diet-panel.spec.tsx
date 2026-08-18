@@ -1,4 +1,8 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import React from "react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { healthApi } from "@/features/health/api/health-api";
@@ -7,6 +11,9 @@ import {
   useHealthController,
 } from "@/features/health/hooks/useHealthController";
 import type { DietEntry, HealthTrends } from "@/features/health/model/health-model";
+import type { HealthController, HealthState } from "@/features/health/hooks/useHealthController";
+import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
+import { DietPanel } from "@/features/health/ui/DietPanel";
 
 const entry: DietEntry = {
   id: "diet-1",
@@ -21,6 +28,60 @@ const entry: DietEntry = {
   deletedAt: null,
 };
 const trends = { days: 30 } as HealthTrends;
+
+const loadedState: HealthState = {
+  dietStatus: "loaded",
+  dietError: null,
+  dietEntries: [entry],
+  timelineStatus: "loaded",
+  timelineError: null,
+  timeline: [],
+  timelineHasMore: false,
+  trendsStatus: "loaded",
+  trendsError: null,
+  trends,
+};
+
+function controller(
+  state: HealthState = loadedState,
+  settings = defaultHealthTableSettings("health.diet"),
+): HealthController {
+  return {
+    state,
+    tableViewSaveError: null,
+    retryTableViewSave: vi.fn(),
+    tableViewConfirmation: null,
+    tableTabs: () => ({
+      tabs: [{ id: "health.diet-table", name: "Table", settings }],
+      activeTabId: "health.diet-table",
+      draftSettings: settings,
+    }),
+    tableSettings: () => settings,
+    tableIsDirty: vi.fn(() => false),
+    updateTableSettings: vi.fn(),
+    selectTableTab: vi.fn(),
+    saveTableTab: vi.fn(),
+    createTableTab: vi.fn(() => true),
+    renameTableTab: vi.fn(() => true),
+    requestDeleteTableTab: vi.fn(),
+    confirmTableViewAction: vi.fn(),
+    cancelTableViewAction: vi.fn(),
+    refresh: vi.fn(),
+    refreshDiet: vi.fn().mockResolvedValue(true),
+    refreshTimeline: vi.fn(),
+    loadMoreTimeline: vi.fn(),
+    refreshTrends: vi.fn(),
+    createDiet: vi.fn(),
+    updateDiet: vi.fn(),
+    archiveDiet: vi.fn().mockResolvedValue(undefined),
+    createBowel: vi.fn(),
+    createMedication: vi.fn(),
+    upsertMetrics: vi.fn(),
+    archive: vi.fn(),
+    restore: vi.fn(),
+    purge: vi.fn(),
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -399,4 +460,164 @@ describe("Health Diet controller", () => {
       expect(healthApi.listDiet).toHaveBeenCalledOnce();
     },
   );
+});
+
+describe("DietPanel table", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("renders active Diet rows in the required columns with accessible interaction", async () => {
+    const user = userEvent.setup();
+    const archived = { ...entry, id: "archived", foodName: "Old meal", deletedAt: entry.updatedAt };
+    render(<DietPanel controller={controller({
+      ...loadedState,
+      dietEntries: [{ ...entry, note: "Good", mediaId: "photo-1" }, archived],
+    })} />);
+
+    expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+      "", "Time", "Meal", "Food", "Tags", "Photo", "Note",
+    ]);
+    const row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    expect(within(row).getByText("Lunch")).toBeInTheDocument();
+    expect(within(row).getByText("rice")).toBeInTheDocument();
+    expect(within(row).getByText("Photo")).toBeInTheDocument();
+    expect(within(row).getByText("Good")).toBeInTheDocument();
+    expect(screen.queryByText("Old meal")).toBeNull();
+
+    const checkbox = screen.getByRole("checkbox", { name: /Select Bibimbap/ });
+    await user.click(checkbox);
+    expect(screen.queryByText("Diet entry details")).toBeNull();
+    checkbox.focus();
+    await user.keyboard("{Enter} ");
+    expect(screen.queryByText("Diet entry details")).toBeNull();
+    row.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("Diet entry details")).toBeInTheDocument();
+  });
+
+  it("distinguishes no active entries from no matches", () => {
+    const view = render(<DietPanel controller={controller({
+      ...loadedState,
+      dietEntries: [{ ...entry, deletedAt: entry.updatedAt }],
+    })} />);
+    expect(screen.getByText("No diet entries yet.")).toBeInTheDocument();
+
+    const filtered = defaultHealthTableSettings("health.diet");
+    filtered.filterRules = [{
+      id: "dinner", field: "meal_type", type: "select", operator: "is", value: ["dinner"],
+    }];
+    view.rerender(<DietPanel controller={controller(loadedState, filtered)} />);
+    expect(screen.getByText("No diet entries match this view.")).toBeInTheDocument();
+  });
+
+  it("selects visible rows only, keeps hidden active selections, and reconciles archived truth", async () => {
+    const user = userEvent.setup();
+    const dinner = { ...entry, id: "dinner", mealType: "dinner" as const, foodName: "Soup" };
+    const health = controller({ ...loadedState, dietEntries: [entry, dinner] });
+    const view = render(<DietPanel controller={health} />);
+    const selectAll = screen.getByRole("checkbox", { name: "Select all visible diet entries" });
+    await user.click(screen.getByRole("checkbox", { name: /Select Bibimbap/ }));
+    expect(selectAll).toHaveProperty("indeterminate", true);
+
+    const dinnerOnly = defaultHealthTableSettings("health.diet");
+    dinnerOnly.filterRules = [{
+      id: "dinner", field: "meal_type", type: "select", operator: "is", value: ["dinner"],
+    }];
+    view.rerender(<DietPanel controller={{ ...health, tableSettings: () => dinnerOnly }} />);
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible diet entries" }));
+    view.rerender(<DietPanel controller={health} />);
+    expect(screen.getByRole("checkbox", { name: /Select Bibimbap/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Select Soup/ })).toBeChecked();
+
+    view.rerender(<DietPanel controller={{
+      ...health,
+      state: { ...health.state, dietEntries: [{ ...dinner, deletedAt: dinner.updatedAt }] },
+    }} />);
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: /Select Soup/ })).toBeNull());
+  });
+
+  it("places saved views left and Filter Sort Group Add Delete actions right", () => {
+    render(<DietPanel controller={controller()} />);
+    const tabs = screen.getByRole("tablist", { name: "Diet views" });
+    const actions = screen.getByRole("button", { name: "Add diet entry" }).parentElement!;
+    expect(actions).toHaveClass("workspace-table-header-actions");
+    expect(actions.parentElement?.firstElementChild).toBe(tabs);
+    expect([...actions.children]).toEqual([
+      screen.getByRole("group", { name: "Diet controls" }),
+      screen.getByRole("button", { name: "Add diet entry" }),
+      screen.getByRole("button", { name: "Archive selected diet entries" }),
+    ]);
+  });
+
+  it("shows initial loading/error and retains rows for a refresh error", async () => {
+    const retry = vi.fn();
+    const view = render(<DietPanel controller={{
+      ...controller({ ...loadedState, dietStatus: "loading", dietEntries: [] }),
+      refreshDiet: retry,
+    }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading diet entries");
+    view.rerender(<DietPanel controller={{
+      ...controller({ ...loadedState, dietStatus: "error", dietEntries: [], dietError: "Diet unavailable" }),
+      refreshDiet: retry,
+    }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Diet unavailable");
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledOnce();
+    view.rerender(<DietPanel controller={controller({ ...loadedState, dietError: "Refresh failed" })} />);
+    expect(screen.getByText("Bibimbap")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Refresh failed");
+  });
+
+  it("archives a snapshotted visible selection sequentially and restores focus", async () => {
+    const user = userEvent.setup();
+    const first = deferred<void>();
+    const dinner = { ...entry, id: "dinner", mealType: "dinner" as const, foodName: "Soup" };
+    const health = controller({ ...loadedState, dietEntries: [entry, dinner] });
+    health.archiveDiet = vi.fn((id) => id === entry.id ? first.promise : Promise.resolve());
+    const view = render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("checkbox", { name: /Select Bibimbap/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Select Soup/ }));
+    const remove = screen.getByRole("button", { name: "Archive selected diet entries" });
+    await user.click(remove);
+    const dialog = screen.getByRole("dialog", { name: "Archive selected diet entries?" });
+    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
+    expect(health.archiveDiet).toHaveBeenCalledWith(entry.id);
+    view.rerender(<DietPanel controller={{ ...health, tableSettings: () => ({
+      ...defaultHealthTableSettings("health.diet"),
+      filterRules: [{ id: "none", field: "food", type: "text", operator: "contains", value: "zzz" }],
+    }) }} />);
+    await act(async () => first.resolve());
+    await waitFor(() => expect(health.archiveDiet).toHaveBeenCalledWith(dinner.id));
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add diet entry" })).toHaveFocus());
+  });
+
+  it("removes successes but retains failed and unattempted selections after archive failure", async () => {
+    const user = userEvent.setup();
+    const dinner = { ...entry, id: "dinner", mealType: "dinner" as const, foodName: "Soup" };
+    const snack = { ...entry, id: "snack", mealType: "snack" as const, foodName: "Apple" };
+    const health = controller({ ...loadedState, dietEntries: [entry, dinner, snack] });
+    health.archiveDiet = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Archive failed"));
+    render(<DietPanel controller={health} />);
+    for (const food of ["Bibimbap", "Soup", "Apple"]) {
+      await user.click(screen.getByRole("checkbox", { name: new RegExp(`Select ${food}`) }));
+    }
+    const remove = screen.getByRole("button", { name: "Archive selected diet entries" });
+    await user.click(remove);
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).toBeNull());
+    expect(screen.queryByRole("checkbox", { name: /Select Bibimbap/ })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: /Select Soup/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Select Apple/ })).toBeChecked();
+    expect(screen.getByRole("alert")).toHaveTextContent("Archive failed");
+    await waitFor(() => expect(remove).toHaveFocus());
+  });
 });

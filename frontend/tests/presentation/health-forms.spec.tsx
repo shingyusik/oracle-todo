@@ -158,6 +158,7 @@ describe("Health Journal forms", () => {
     const health = controller();
     const image = new File(["photo"], "meal.png", { type: "image/png" });
     render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
 
     await user.selectOptions(screen.getByLabelText("Meal"), "lunch");
     await user.type(screen.getByLabelText("Food"), "Bibimbap");
@@ -174,6 +175,7 @@ describe("Health Journal forms", () => {
       }),
       image,
     );
+    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
     expect(screen.getByLabelText("Photo")).toHaveProperty("files.length", 0);
   });
 
@@ -197,6 +199,7 @@ describe("Health Journal forms", () => {
       },
     });
     render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
 
     await user.click(screen.getByRole("button", { name: "Tags" }));
     expect(screen.getByRole("option", { name: "rice" })).toBeVisible();
@@ -216,6 +219,7 @@ describe("Health Journal forms", () => {
 
   it("renders Diet controls in the requested order", () => {
     render(<DietPanel controller={controller()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add diet entry" }));
     const form = screen.getByRole("form", { name: "Diet entry" });
     const controls = [
       within(form).getByLabelText("Time"),
@@ -382,6 +386,7 @@ describe("Health Journal forms", () => {
     });
     const image = new File(["photo"], "meal.png", { type: "image/png" });
     render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
 
     await user.type(screen.getByLabelText("Food"), "Lunch");
     await user.upload(screen.getByLabelText("Photo"), image);
@@ -529,6 +534,7 @@ describe("Health Journal forms", () => {
       const user = userEvent.setup();
       const health = controller();
       render(<DietPanel controller={health} />);
+      await user.click(screen.getByRole("button", { name: "Add diet entry" }));
 
       fireEvent.change(screen.getByLabelText("Time"), {
         target: { value: "2026-07-30T09:00" },
