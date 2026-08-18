@@ -9,6 +9,7 @@ import {
 import { deriveDietGroups, type DietRow } from "@/features/health/model/diet-table";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
+import { DietDetail } from "@/features/health/ui/DietDetail";
 import { DietTable } from "@/features/health/ui/DietTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
@@ -40,6 +41,7 @@ export function DietPanel({
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
+  const detailOriginLabelRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (controller.state.dietStatus === "idle") void controller.refreshDiet();
@@ -67,6 +69,13 @@ export function DietPanel({
     () => visibleRows.filter(({ id }) => selectedIds.includes(id)).map(({ id }) => id),
     [selectedIds, visibleRows],
   );
+  const detailTags = useMemo(
+    () => [...new Set(entries.flatMap(({ tags }) => tags))],
+    [entries],
+  );
+  const currentDetailRow = detailRow
+    ? activeRows.find(({ id }) => id === detailRow.id) ?? null
+    : null;
 
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
@@ -74,8 +83,25 @@ export function DietPanel({
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (detailRow && !activeIds.has(detailRow.id)) setDetailRow(null);
+    if (detailRow && !activeIds.has(detailRow.id)) {
+      setDetailRow(null);
+      restoreDetailFocus();
+    }
   }, [activeRows, detailRow]);
+
+  function restoreDetailFocus() {
+    requestAnimationFrame(() => {
+      const label = detailOriginLabelRef.current;
+      const target = [...document.querySelectorAll<HTMLElement>('[role="button"][aria-label]')]
+        .find((element) => element.getAttribute("aria-label") === label);
+      (target ?? addButtonRef.current)?.focus();
+    });
+  }
+
+  function closeDetail() {
+    setDetailRow(null);
+    restoreDetailFocus();
+  }
 
   function toggle(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -141,6 +167,21 @@ export function DietPanel({
     </section>;
   }
 
+  if (currentDetailRow) {
+    return (
+      <DietDetail
+        controller={controller}
+        row={currentDetailRow}
+        tagOptions={detailTags}
+        onBack={closeDetail}
+        onArchived={(warning) => {
+          markArchived(currentDetailRow.id, warning);
+          closeDetail();
+        }}
+      />
+    );
+  }
+
   return (
     <section aria-labelledby="health-diet-heading">
       <HealthTableViewHeader
@@ -155,12 +196,14 @@ export function DietPanel({
         archiveButtonRef={archiveButtonRef}
         archiveDisabled={selectedVisibleIds.length === 0 || archivePending}
       />
-      {detailRow ? <p aria-live="polite"><span>Diet entry details</span>: {detailRow.food}</p> : null}
       <DietTable
         groups={groups}
         activeRowCount={activeRows.length}
         selectedIds={selectedIds}
-        onOpen={setDetailRow}
+        onOpen={(row) => {
+          detailOriginLabelRef.current = `Open details for ${row.food}, ${row.date} ${row.timeLabel}, ${row.mealLabel}`;
+          setDetailRow(row);
+        }}
         onToggle={toggle}
         onToggleAll={toggleAll}
       />
@@ -182,7 +225,7 @@ export function DietPanel({
           controller={controller}
           onClose={() => setCreateOpen(false)}
           returnFocusRef={addButtonRef}
-          tagOptions={[...new Set(entries.flatMap(({ tags }) => tags))]}
+          tagOptions={detailTags}
         />
       ) : null}
       {archiveTargets ? (
