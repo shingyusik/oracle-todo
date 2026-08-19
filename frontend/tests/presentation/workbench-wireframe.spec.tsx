@@ -13,6 +13,10 @@ import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { HealthController } from "@/features/health/hooks/useHealthController";
+import { defaultHealthTableSettings, healthDietFilterSelectOptions } from "@/features/health/model/health-table-views";
+import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
+
 import type {
   LedgerController,
   LedgerState,
@@ -1119,6 +1123,34 @@ describe("WorkbenchPageClient", () => {
       ]);
     expect(screen.queryByRole("button", { name: "Timeline" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
+
+  });
+
+  it("keeps the exact Diet table header after sharing it with Bowel", () => {
+    const settings = defaultHealthTableSettings("health.diet");
+    const health = {
+      tableSettings: vi.fn(() => settings),
+      tableTabs: vi.fn(() => ({ tabs: [{ id: "table", name: "Table", settings }],
+        activeTabId: "table", draftSettings: settings })),
+      tableIsDirty: vi.fn(() => false), updateTableSettings: vi.fn(), selectTableTab: vi.fn(),
+      saveTableTab: vi.fn(), createTableTab: vi.fn(), renameTableTab: vi.fn(),
+      requestDeleteTableTab: vi.fn(),
+    } as unknown as HealthController;
+    render(<HealthTableViewHeader controller={health} scope="health.diet" title="Diet"
+      headingId="health-diet-heading" fieldLabels={{ meal_type: "Meal", has_photo: "Photo" }}
+      fieldOptions={healthDietFilterSelectOptions} candidates={[]}
+      onAdd={vi.fn()} addButtonRef={React.createRef<HTMLButtonElement>()}
+      onArchiveSelected={vi.fn()} archiveButtonRef={React.createRef<HTMLButtonElement>()}
+      archiveDisabled />);
+    const dietActions = screen.getByRole("button", { name: "Add diet entry" }).parentElement!;
+    expect([...dietActions.children]).toEqual([
+      screen.getByRole("group", { name: "Diet controls" }),
+      screen.getByRole("button", { name: "Add diet entry" }),
+      screen.getByRole("button", { name: "Archive selected diet entries" }),
+    ]);
+    expect(screen.getByRole("tablist", { name: "Diet views" })).toBeInTheDocument();
+    expect(health.tableSettings).toHaveBeenCalledWith("health.diet");
+    expect(health.tableTabs).toHaveBeenCalledWith("health.diet");
   });
 
   it("drills a category report into the active Transactions draft and matching rows", async () => {

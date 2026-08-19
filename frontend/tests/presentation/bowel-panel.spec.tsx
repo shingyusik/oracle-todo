@@ -1,4 +1,8 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import React from "react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { healthApi } from "@/features/health/api/health-api";
@@ -13,6 +17,11 @@ import type {
   HealthTrends,
   TimelineItem,
 } from "@/features/health/model/health-model";
+import type { HealthController, HealthState } from "@/features/health/hooks/useHealthController";
+import { deriveBowelGroups } from "@/features/health/model/bowel-table";
+import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
+import { BowelPanel } from "@/features/health/ui/BowelPanel";
+import { BowelTable } from "@/features/health/ui/BowelTable";
 
 const event: HealthEvent = {
   id: "bowel-1",
@@ -367,4 +376,138 @@ describe("Health Bowel controller", () => {
       expect(healthApi.listEvents).toHaveBeenCalledOnce();
     },
   );
+});
+
+const loadedState: HealthState = {
+  bowelStatus: "loaded", bowelError: null, bowelEntries: [event],
+  dietStatus: "loaded", dietError: null, dietEntries: [],
+  timelineStatus: "loaded", timelineError: null, timeline: [], timelineHasMore: false,
+  trendsStatus: "loaded", trendsError: null, trends,
+};
+
+function panelController(
+  state: HealthState = loadedState,
+  settings = defaultHealthTableSettings("health.bowel"),
+): HealthController {
+  return {
+    state,
+    tableViewSaveError: null,
+    retryTableViewSave: vi.fn(),
+    tableViewConfirmation: null,
+    tableTabs: (scope) => ({
+      tabs: [{ id: `${scope}-table`, name: "Table", settings }],
+      activeTabId: `${scope}-table`, draftSettings: settings,
+    }),
+    tableSettings: () => settings,
+    tableIsDirty: vi.fn(() => false), updateTableSettings: vi.fn(),
+    selectTableTab: vi.fn(), saveTableTab: vi.fn(), createTableTab: vi.fn(() => true),
+    renameTableTab: vi.fn(() => true), requestDeleteTableTab: vi.fn(),
+    confirmTableViewAction: vi.fn(), cancelTableViewAction: vi.fn(),
+    refresh: vi.fn(), refreshBowel: vi.fn(), refreshDiet: vi.fn(), refreshTimeline: vi.fn(),
+    loadMoreTimeline: vi.fn(), refreshTrends: vi.fn(),
+    createDiet: vi.fn(), updateDiet: vi.fn(), archiveDiet: vi.fn(),
+    createBowel: vi.fn(), updateBowel: vi.fn(), archiveBowel: vi.fn(),
+    createMedication: vi.fn(), upsertMetrics: vi.fn(), archive: vi.fn(), restore: vi.fn(), purge: vi.fn(),
+  };
+}
+
+describe("Bowel table workflow", () => {
+  it("renders native columns, values, contextual selection, and an optional Time activation", async () => {
+    const user = userEvent.setup();
+    const open = vi.fn();
+    const groups = deriveBowelGroups([event], defaultHealthTableSettings("health.bowel"));
+    render(<BowelTable groups={groups} activeRowCount={1} selectedIds={[]}
+      onOpen={open} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
+    expect(within(screen.getByRole("table", { name: "Bowel entries" }))
+      .getAllByRole("columnheader").map((cell) => cell.textContent))
+      .toEqual(["", "Time", "Bristol Scale", "Blood Visible", "Note"]);
+    expect(screen.getByText("Type 4")).toBeInTheDocument();
+    expect(screen.getByText("No")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Select Type 4.*No/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ id: event.id }), "0-0");
+  });
+
+  it("uses active Bowel truth, exact header controls, and no inline form", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    render(<BowelPanel controller={health} />);
+    expect(screen.getByRole("tablist", { name: "Bowel views" })).toBeInTheDocument();
+    const actions = screen.getByRole("button", { name: "Add bowel entry" }).parentElement!;
+    expect([...actions.children]).toEqual([
+      screen.getByRole("group", { name: "Bowel controls" }),
+      screen.getByRole("button", { name: "Add bowel entry" }),
+      screen.getByRole("button", { name: "Archive selected bowel entries" }),
+    ]);
+    expect(screen.queryByRole("form")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    expect(screen.getByRole("dialog", { name: "Add bowel entry" })).toBeInTheDocument();
+  });
+
+  it("distinguishes loading, blocking error, empty, no-match, and stale refresh error", async () => {
+    const retry = vi.fn();
+    const view = render(<BowelPanel controller={{ ...panelController({
+      ...loadedState, bowelStatus: "loading", bowelEntries: [],
+    }), refreshBowel: retry }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading bowel entries");
+    view.rerender(<BowelPanel controller={{ ...panelController({
+      ...loadedState, bowelStatus: "error", bowelEntries: [], bowelError: "Bowel unavailable",
+    }), refreshBowel: retry }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Bowel unavailable");
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledOnce();
+    view.rerender(<BowelPanel controller={panelController({ ...loadedState, bowelEntries: [] })} />);
+    expect(screen.getByText("No bowel entries yet.")).toBeInTheDocument();
+    const hidden = defaultHealthTableSettings("health.bowel");
+    hidden.filterRules = [{ id: "none", field: "bristol_scale", type: "select", operator: "is", value: ["7"] }];
+    view.rerender(<BowelPanel controller={panelController(loadedState, hidden)} />);
+    expect(screen.getByText("No bowel entries match this view.")).toBeInTheDocument();
+    view.rerender(<BowelPanel controller={panelController({ ...loadedState, bowelError: "Refresh failed" })} />);
+    expect(screen.getByText("Type 4")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Refresh failed");
+  });
+
+  it("snapshots visible logical rows and archives sequentially without repeating successes", async () => {
+    const user = userEvent.setup();
+    const second = { ...event, id: "bowel-2", value: 5,
+      attributes: { kind: "bowel" as const, bristolScale: 5, bloodVisible: true } };
+    const third = { ...event, id: "bowel-3", value: 6,
+      attributes: { kind: "bowel" as const, bristolScale: 6, bloodVisible: false } };
+    const health = panelController({ ...loadedState, bowelEntries: [event, second, third] });
+    health.archiveBowel = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Archive failed"));
+    render(<BowelPanel controller={health} />);
+    await user.click(screen.getByRole("checkbox", { name: /Select Type 4/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Select Type 5/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Select Type 6/ }));
+    const remove = screen.getByRole("button", { name: "Archive selected bowel entries" });
+    await user.click(remove);
+    await user.click(within(screen.getByRole("dialog", { name: "Archive selected bowel entries?" }))
+      .getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(health.archiveBowel).toHaveBeenNthCalledWith(1, "bowel-1");
+    expect(health.archiveBowel).toHaveBeenNthCalledWith(2, "bowel-2");
+    expect(health.archiveBowel).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert")).toHaveTextContent("Archive failed");
+    expect(screen.getByRole("checkbox", { name: /Select Type 5/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Select Type 6/ })).toBeChecked();
+    await waitFor(() => expect(remove).toHaveFocus());
+  });
+
+  it("treats refresh failure as committed, tombstones it, and retries Bowel reads only", async () => {
+    const user = userEvent.setup();
+    const committed = vi.fn();
+    const refresh = vi.fn().mockResolvedValue(true);
+    const health = panelController();
+    health.archiveBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    render(<BowelPanel controller={health} onArchiveCommitted={committed}
+      tombstonedIds={new Set()} refreshWarning="Changes were saved, but Health could not refresh."
+      onRetryRefresh={refresh} />);
+    await user.click(screen.getByRole("checkbox", { name: /Select Type 4/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected bowel entries" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(committed).toHaveBeenCalledWith("bowel-1", expect.any(String)));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(health.archiveBowel).toHaveBeenCalledOnce();
+  });
 });

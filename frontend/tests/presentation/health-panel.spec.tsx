@@ -525,6 +525,40 @@ describe("HealthPanel", () => {
     expect(screen.queryByText("Bibimbap")).toBeNull();
   });
 
+  it("preserves committed Bowel recovery across Bowel to Diet to Bowel lifetime", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.archiveBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshBowel = vi.fn().mockResolvedValue(true);
+    const view = render(<HealthPanel controller={health} leafTabId="bowel" />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Select Type 4/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected bowel entries" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected bowel entries?",
+    })).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("Type 4")).toBeNull());
+
+    view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
+    view.rerender(<HealthPanel controller={health} leafTabId="bowel" />);
+    expect(screen.queryByText("Type 4")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refreshBowel).toHaveBeenCalledOnce();
+    expect(health.refresh).not.toHaveBeenCalled();
+    expect(health.archiveBowel).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Type 4")).toBeNull();
+
+    view.rerender(<HealthPanel controller={{
+      ...health,
+      state: { ...health.state, bowelEntries: [], bowelError: null },
+    }} leafTabId="bowel" />);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByText("No bowel entries yet.")).toBeInTheDocument();
+  });
+
   it("loads, normalizes, edits, and persists Health Diet views", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
     vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
