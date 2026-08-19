@@ -55,6 +55,28 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function controlHistoryForward() {
+  const forward = window.history.forward.bind(window.history);
+  const pending: Array<() => void> = [];
+  const spy = vi.spyOn(window.history, "forward").mockImplementation(() => {
+    pending.push(forward);
+  });
+  return {
+    spy,
+    async releaseNext() {
+      const next = pending.shift();
+      if (!next) throw new Error("No pending history.forward() call");
+      const popped = new Promise<void>((resolve) => {
+        window.addEventListener("popstate", () => resolve(), { once: true });
+      });
+      await act(async () => {
+        next();
+        await popped;
+      });
+    },
+  };
+}
+
 function mockBaseReads() {
   vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
   vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
@@ -876,6 +898,109 @@ describe("Bowel table workflow", () => {
     await screen.findByRole("button", { name: /Open details for Type 4/ });
     expect(health.refreshBowel).toHaveBeenCalledTimes(2);
     expect(health.updateBowel).toHaveBeenCalledOnce();
+  });
+
+  it("defers pending save completion until browser Back restoration settles", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "");
+    const controlledForward = controlHistoryForward();
+    const saved = deferred<void>();
+    const health = panelController();
+    health.updateBowel = vi.fn(() => saved.promise);
+    render(<BowelPanelHarness controller={health} />);
+    const origin = screen.getByRole("button", { name: /Open details for Type 4/ });
+    await user.click(origin);
+    await user.type(screen.getByLabelText("Note"), "saved during restoration");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
+    await act(async () => saved.resolve());
+    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+
+    await controlledForward.releaseNext();
+    const restoredOrigin = await screen.findByRole("button", { name: /Open details for Type 4/ });
+    await waitFor(() => expect(restoredOrigin).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    expect(health.updateBowel).toHaveBeenCalledOnce();
+  });
+
+  it("defers archive cancellation until browser Back restoration settles", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "");
+    const controlledForward = controlHistoryForward();
+    render(<BowelPanelHarness controller={panelController()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: /Archive Bowel/ });
+
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(dialog).toBeInTheDocument();
+
+    await controlledForward.releaseNext();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Archive Bowel/ })).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus());
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("button", { name: /Open details for Type 4/ });
+  });
+
+  it.each(["ordinary", "committed"] as const)(
+    "defers %s archive success until browser Back restoration settles",
+    async (outcome) => {
+      const user = userEvent.setup();
+      window.history.pushState({}, "");
+      const controlledForward = controlHistoryForward();
+      const archived = deferred<void>();
+      const health = panelController();
+      health.archiveBowel = vi.fn(() => archived.promise);
+      render(<BowelPanelHarness controller={health} />);
+      await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+
+      act(() => window.history.back());
+      await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
+      await act(async () => outcome === "ordinary"
+        ? archived.resolve()
+        : archived.reject(new HealthMutationRefreshError()));
+      expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: /Archive Bowel/ })).toBeInTheDocument();
+
+      await controlledForward.releaseNext();
+      await waitFor(() => expect(screen.queryByText("Bowel entry details")).toBeNull());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Add bowel entry" })).toHaveFocus());
+      expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+      expect(health.archiveBowel).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("defers ordinary archive failure cleanup until browser Back restoration settles", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "");
+    const controlledForward = controlHistoryForward();
+    const archived = deferred<void>();
+    const health = panelController();
+    health.archiveBowel = vi.fn(() => archived.promise);
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
+    await act(async () => archived.reject(new Error("Archive unavailable")));
+    expect(screen.getByRole("dialog", { name: /Archive Bowel/ })).toBeInTheDocument();
+
+    await controlledForward.releaseNext();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Archive unavailable");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Archive Bowel/ })).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("button", { name: /Open details for Type 4/ });
   });
 
   it("uses exact clean/dirty archive copy, cancel focus, and ordinary-success history cleanup", async () => {

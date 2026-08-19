@@ -77,8 +77,37 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
   }
 
   function closeCommittedDetail() {
-    detailHistory.setDirty(false);
-    detailHistory.requestBack();
+    const closeDetail = () => {
+      detailHistory.setDirty(false);
+      detailHistory.requestBack();
+    };
+    if (!detailHistory.deferUntilRestored(closeDetail)) closeDetail();
+  }
+
+  function cancelArchive() {
+    if (actionInFlight.current) return;
+    const closeDialog = () => {
+      actionInFlight.current = false;
+      setPending(false);
+      setError(null);
+      detailHistory.setDialogOpen(false);
+      setConfirmation(null);
+    };
+    if (detailHistory.deferUntilRestored(closeDialog)) {
+      actionInFlight.current = true;
+      setPending(true);
+    } else closeDialog();
+  }
+
+  function closeAfterArchive(refreshWarning?: string) {
+    const closeDetail = () => {
+      setPending(false);
+      detailHistory.setDialogOpen(false);
+      onArchived(refreshWarning);
+    };
+    if (detailHistory.deferUntilRestored(closeDetail)) return true;
+    closeDetail();
+    return false;
   }
 
   async function save() {
@@ -128,24 +157,33 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
     setPending(true);
     setError(null);
     let exiting = false;
+    let deferred = false;
     try {
       await controller.archiveBowel(baseline.row.id);
       exiting = true;
       setExitPending(true);
-      onArchived();
+      deferred = closeAfterArchive();
     } catch (cause) {
       if (cause instanceof HealthMutationRefreshError) {
         exiting = true;
         setExitPending(true);
-        onArchived(cause.message);
+        deferred = closeAfterArchive(cause.message);
       } else {
-        setError(cause instanceof Error ? cause.message : "Could not archive bowel entry");
-        setConfirmation(null);
-        requestAnimationFrame(() => deleteButtonRef.current?.focus());
+        const showFailure = () => {
+          actionInFlight.current = false;
+          setPending(false);
+          setError(cause instanceof Error ? cause.message : "Could not archive bowel entry");
+          detailHistory.setDialogOpen(false);
+          setConfirmation(null);
+          requestAnimationFrame(() => deleteButtonRef.current?.focus());
+        };
+        deferred = detailHistory.deferUntilRestored(showFailure);
+        if (deferred) exiting = true;
+        else showFailure();
       }
     } finally {
       actionInFlight.current = exiting;
-      setPending(false);
+      if (!deferred) setPending(false);
     }
   }
 
@@ -260,7 +298,7 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
         ? "Move this bowel entry to Archive? Unsaved changes will be discarded."
         : "Move this bowel entry to Archive?"}
       confirmLabel="Archive" error={error} disabled={pending} fallbackFocusRef={deleteButtonRef}
-      onCancel={() => { setError(null); setConfirmation(null); }} onConfirm={archive} /> : null}
+      onCancel={cancelArchive} onConfirm={archive} /> : null}
   </section>;
 }
 
