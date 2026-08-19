@@ -34,7 +34,9 @@ export const healthDietFilterSelectOptions = {
 const filterFields = [
   "date", "meal_type", "food", "tags", "has_photo",
 ] as const satisfies readonly PlannerFilterField[];
-const sortFields = [...filterFields, "updated"] as const satisfies readonly PlannerSortBy[];
+const sortFields = [
+  "date", "meal_type", "food", "created", "updated",
+] as const satisfies readonly PlannerSortBy[];
 const groupOptions = [
   { value: "none", label: "None" },
   { value: "month", label: "Month" },

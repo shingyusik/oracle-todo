@@ -65,7 +65,7 @@ describe("Health table views", () => {
       "date", "meal_type", "food", "tags", "has_photo",
     ]);
     expect(healthSortFieldsForScope("health.diet")).toEqual([
-      "date", "meal_type", "food", "tags", "has_photo", "updated",
+      "date", "meal_type", "food", "created", "updated",
     ]);
     expect(healthGroupOptionsForScope("health.diet").map(({ value }) => value)).toEqual([
       "none", "month", "week", "day", "meal_type", "tag", "has_photo",
@@ -83,6 +83,8 @@ describe("Health table views", () => {
         { id: "drop", field: "amount", type: "number", operator: "greater_than", value: "1" },
       ],
       sortRules: [
+        { id: "created", field: "created", direction: "desc" },
+        { id: "tag", field: "tags", direction: "asc" },
         { id: "photo", field: "has_photo", direction: "asc" },
         { id: "drop", field: "amount", direction: "desc" },
       ],
@@ -94,7 +96,7 @@ describe("Health table views", () => {
 
     expect(settings.filterMode).toBe("or");
     expect(settings.filterRules.map(({ field }) => field)).toEqual(["food"]);
-    expect(settings.sortRules.map(({ field }) => field)).toEqual(["has_photo"]);
+    expect(settings.sortRules.map(({ field }) => field)).toEqual(["created"]);
     expect(settings.groupSettings).toEqual({
       groupBy: "meal_type", sort: "alphabetical", hideEmpty: false,
       manualOrder: ["dinner"], hiddenGroupKeys: ["snack"],

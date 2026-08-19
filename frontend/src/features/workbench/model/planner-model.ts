@@ -114,7 +114,7 @@ export type PlannerGroupBy =
   | "status";
 
 export type PlannerSortDirection = "asc" | "desc";
-export type PlannerSortBy = PlannerFilterField | "updated";
+export type PlannerSortBy = PlannerFilterField | "created" | "updated";
 export type PlannerSortRule = {
   id: string;
   field: PlannerSortBy;
@@ -460,7 +460,7 @@ function isPlannerFilterType(value: unknown): value is PlannerFilterType {
 }
 
 function isPlannerSortField(value: unknown): value is PlannerSortBy {
-  return value === "updated" || isPlannerFilterField(value);
+  return value === "created" || value === "updated" || isPlannerFilterField(value);
 }
 
 function isPlannerSortDirection(value: unknown): value is PlannerSortDirection {

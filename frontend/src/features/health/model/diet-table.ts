@@ -132,8 +132,7 @@ function dietSortValue(row: DietRow, field: PlannerSortBy): string | number {
   if (field === "date") return Date.parse(row.entry.occurredAt);
   if (field === "meal_type") return row.mealType;
   if (field === "food") return row.food;
-  if (field === "tags") return row.tags.join("\u0000");
-  if (field === "has_photo") return Number(row.hasPhoto);
+  if (field === "created") return Date.parse(row.entry.createdAt);
   if (field === "updated") return Date.parse(row.entry.updatedAt);
   return "";
 }

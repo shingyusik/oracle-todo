@@ -117,7 +117,7 @@ describe("deriveDietGroups", () => {
     expect(groups[0]!.rows[0]!.date).not.toBe(occurredAt.slice(0, 10));
   });
 
-  it("filters photo presence and sorts by photo and updated timestamp", () => {
+  it("filters photo presence and sorts by updated timestamp", () => {
     const entries = [
       diet("1", { mediaId: null, updatedAt: "2026-07-08T09:00:00Z" }),
       diet("2", { mediaId: id("22"), updatedAt: "2026-07-08T10:00:00Z" }),
@@ -129,12 +129,23 @@ describe("deriveDietGroups", () => {
       }],
     }));
     const sorted = deriveDietGroups(entries, settings({ sortRules: [
-      { id: "photo", field: "has_photo", direction: "asc" },
       { id: "updated", field: "updated", direction: "desc" },
     ] }));
 
     expect(filtered[0]!.rows.map(({ id: rowId }) => rowId)).toEqual([id("2"), id("3")]);
-    expect(sorted[0]!.rows.map(({ id: rowId }) => rowId)).toEqual([id("1"), id("2"), id("3")]);
+    expect(sorted[0]!.rows.map(({ id: rowId }) => rowId)).toEqual([id("2"), id("1"), id("3")]);
+  });
+
+  it("sorts created timestamps numerically with id as the final tie-break", () => {
+    const rows = deriveDietGroups([
+      diet("3", { createdAt: "2026-07-08T11:00:00+02:00" }),
+      diet("2", { createdAt: "2026-07-08T10:00:00Z" }),
+      diet("1", { createdAt: "2026-07-08T10:00:00Z" }),
+    ], settings({ sortRules: [
+      { id: "created", field: "created", direction: "asc" },
+    ] }))[0]!.rows;
+
+    expect(rows.map(({ id: rowId }) => rowId)).toEqual([id("3"), id("1"), id("2")]);
   });
 
   it.each([

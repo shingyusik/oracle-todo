@@ -1314,6 +1314,7 @@ function tableViewSortFieldOptions(
   const seen = new Set<PlannerSortBy>();
   const allFields: PlannerSortFieldOption[] = [
     ...fields,
+    { value: "created", label: "Created" },
     { value: "updated", label: "Updated" },
   ];
 
