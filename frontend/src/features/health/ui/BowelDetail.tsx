@@ -70,7 +70,7 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
     canonicalPresent.bristolScale >= 1 && canonicalPresent.bristolScale <= 7;
   const timeError = draft.occurredAt && canonicalPresent.occurredAt === null
     ? invalidLocalTimeMessage : null;
-  const readOnly = pending || refreshRecovery || exitPending;
+  const readOnly = pending || refreshRecovery || exitPending || detailHistory.pendingBack;
 
   function change<Name extends keyof BowelDraft>(name: Name, value: BowelDraft[Name], coalesce = false) {
     dispatch({ type: "change", name, value, coalesce });
@@ -250,7 +250,10 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
       title="Discard unsaved changes?"
       description="Your changes will be lost if you leave this detail."
       confirmLabel="Discard changes" fallbackFocusRef={backButtonRef}
-      onCancel={detailHistory.cancelBack} onConfirm={async () => detailHistory.discardBack()} /> : null}
+      onCancel={() => {
+        detailHistory.cancelBack();
+        requestAnimationFrame(() => requestAnimationFrame(() => backButtonRef.current?.focus()));
+      }} onConfirm={async () => detailHistory.discardBack()} /> : null}
     {confirmation === "archive" ? <DestructiveConfirmationDialog
       title={`Archive Bowel · Type ${draft.bristolScale}?`}
       description={dirty

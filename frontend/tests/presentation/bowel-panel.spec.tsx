@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +22,7 @@ import { deriveBowelGroups, type BowelRowGroup } from "@/features/health/model/b
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { BowelPanel } from "@/features/health/ui/BowelPanel";
 import { BowelTable } from "@/features/health/ui/BowelTable";
+import { localDateTimeToRfc3339 } from "@/features/health/ui/HealthForms";
 
 const event: HealthEvent = {
   id: "bowel-1",
@@ -432,6 +433,7 @@ function BowelPanelHarness({ controller }: { controller: HealthController }) {
 }
 
 describe("Bowel table workflow", () => {
+  afterEach(() => vi.restoreAllMocks());
   it("opens Bowel details from a real contextual Time button without making the row interactive", async () => {
     const user = userEvent.setup();
     const open = vi.fn();
@@ -509,6 +511,357 @@ describe("Bowel table workflow", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Archive failed");
     await waitFor(() => expect(remove).toHaveFocus());
     expect(health.archiveBowel).toHaveBeenCalledOnce();
+  });
+
+  it("renders the exact Bowel detail contract and supports row, button, and checkbox interaction", async () => {
+    const user = userEvent.setup();
+    const distinct = { ...event, createdAt: "2026-08-18T01:00:00Z" };
+    render(<BowelPanelHarness controller={panelController({ ...loadedState, bowelEntries: [distinct] })} />);
+    const checkbox = screen.getByRole("checkbox", { name: /Select Type 4/ });
+    await user.click(checkbox);
+    checkbox.focus();
+    await user.keyboard("{Enter} ");
+    expect(screen.queryByText("Bowel entry details")).toBeNull();
+    await user.click(screen.getByText("Type 4"));
+    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Bowel · Type 4" })).toBeInTheDocument();
+    expect(screen.getByText(`Created ${new Date(distinct.createdAt).toLocaleString()}`)).toBeInTheDocument();
+    expect(screen.getByText(`Updated ${new Date(distinct.updatedAt).toLocaleString()}`)).toBeInTheDocument();
+    const header = screen.getByRole("region", { name: "Edit bowel properties" })
+      .closest(".detail-view")!.querySelector("header")!;
+    expect(within(header).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
+      .toEqual(["< Back", "Undo", "Redo", "Save", "Delete"]);
+    expect(within(header).getByRole("button", { name: "Undo" })).toHaveAttribute("title", "Undo (Ctrl/Cmd+Z)");
+    expect(within(header).getByRole("button", { name: "Redo" })).toHaveAttribute("title", "Redo (Ctrl/Cmd+Shift+Z or Ctrl+Y)");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const open = await screen.findByRole("button", { name: /Open details for Type 4/ });
+    await waitFor(() => expect(open).toHaveFocus());
+    open.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
+  });
+
+  it("uses one browser entry for clean Back/Forward without a push loop", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({ preserved: "bowel" }, "");
+    const pushState = vi.spyOn(window.history, "pushState");
+    render(<BowelPanelHarness controller={panelController()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    expect(pushState).toHaveBeenCalledOnce();
+    expect(window.history.state).toMatchObject({ preserved: "bowel", __ravenHealthBowelDetailId: event.id });
+    act(() => window.history.back());
+    await screen.findByRole("button", { name: /Open details for Type 4/ });
+    act(() => window.history.forward());
+    await screen.findByText("Bowel entry details");
+    expect(pushState).toHaveBeenCalledOnce();
+  });
+
+  it("repairs dirty browser Back on cancel and discards without a loop", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "");
+    const pushState = vi.spyOn(window.history, "pushState");
+    render(<BowelPanelHarness controller={panelController()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.type(screen.getByLabelText("Note"), "draft");
+    act(() => window.history.back());
+    const dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
+    expect(screen.getByLabelText("Note")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save", hidden: true })).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "< Back" })).toHaveFocus());
+    expect(screen.getByLabelText("Note")).toHaveValue("draft");
+    act(() => window.history.back());
+    await user.click(within(await screen.findByRole("dialog", { name: "Discard unsaved changes?" }))
+      .getByRole("button", { name: "Discard changes" }));
+    await screen.findByRole("button", { name: /Open details for Type 4/ });
+    expect(pushState).toHaveBeenCalledOnce();
+  });
+
+  it("normalizes stale or tombstoned Forward history without reopening", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({ preserved: "stale" }, "");
+    const health = panelController();
+    const view = render(<BowelPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    act(() => window.history.back());
+    await screen.findByRole("button", { name: /Open details for Type 4/ });
+    view.rerender(<BowelPanel controller={health} tombstonedIds={new Set([event.id])}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    act(() => window.history.forward());
+    await waitFor(() => expect(window.history.state.__ravenHealthBowelDetailId).toBeNull());
+    expect(screen.queryByText("Bowel entry details")).toBeNull();
+  });
+
+  it.each([
+    ["time", "occurredAt", "2026-08-20T11:30", (value: string) => ({ occurredAt: localDateTimeToRfc3339(value) })],
+    ["Bristol", "bristolScale", "1", () => ({ details: { kind: "bowel", bristolScale: 1, bloodVisible: false } })],
+    ["blood", "bloodVisible", true, () => ({ details: { kind: "bowel", bristolScale: 4, bloodVisible: true } })],
+    ["note", "note", "  changed  ", () => ({ note: "changed" })],
+  ] as const)("sends one minimal %s-only patch", async (_name, field, value, expected) => {
+    const user = userEvent.setup();
+    const health = panelController();
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    const input = screen.getByLabelText(field === "bristolScale" ? "Bristol Scale"
+      : field === "bloodVisible" ? "Blood Visible" : field === "occurredAt" ? "Time" : "Note");
+    if (field === "bristolScale") await user.selectOptions(input, value as string);
+    else if (field === "bloodVisible") await user.click(input);
+    else fireEvent.change(input, { target: { value } });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(health.updateBowel).toHaveBeenCalledWith(event.id, {
+      ...expected(value as string), expectedUpdatedAt: event.updatedAt,
+    }));
+    expect(health.updateBowel).toHaveBeenCalledOnce();
+    await screen.findByRole("button", { name: /Open details for Type 4/ });
+  });
+
+  it("freezes the opened draft and optimistic version across a same-ID refresh", async () => {
+    const user = userEvent.setup();
+    const saved = deferred<void>();
+    const health = panelController();
+    health.updateBowel = vi.fn(() => saved.promise);
+    const view = render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.type(screen.getByLabelText("Note"), "user edit");
+    const refreshed = { ...event, occurredAt: "2026-08-20T03:00:00Z", updatedAt: "2026-08-20T03:01:00Z",
+      attributes: { kind: "bowel" as const, bristolScale: 7, bloodVisible: true } };
+    view.rerender(<BowelPanelHarness controller={{ ...health,
+      state: { ...health.state, bowelEntries: [refreshed] } }} />);
+    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("4");
+    expect(screen.getByLabelText("Blood Visible")).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(health.updateBowel).toHaveBeenCalledWith(event.id, {
+      note: "user edit", expectedUpdatedAt: event.updatedAt,
+    });
+    await act(async () => saved.resolve());
+  });
+
+  it("treats whitespace and equivalent local time as canonical no-ops and offers Type 1 through 7", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    const time = screen.getByLabelText("Time") as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "   " } });
+    fireEvent.change(time, { target: { value: time.value.length === 16 ? `${time.value}:00` : time.value.slice(0, 16) } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(screen.getByLabelText("Bristol Scale")).getAllByRole("option")
+      .map((option) => option.textContent)).toEqual([
+        "Type 1", "Type 2", "Type 3", "Type 4", "Type 5", "Type 6", "Type 7",
+      ]);
+    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "1");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "7");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(health.updateBowel).not.toHaveBeenCalled();
+  });
+
+  it("coalesces Time and Note, keeps Bristol and blood distinct, and invalidates Redo", async () => {
+    const user = userEvent.setup();
+    render(<BowelPanelHarness controller={panelController()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    const time = screen.getByLabelText("Time");
+    const originalTime = (time as HTMLInputElement).value;
+    fireEvent.change(time, { target: { value: "2026-08-20T09:00" } });
+    fireEvent.change(time, { target: { value: "2026-08-20T10:00" } });
+    fireEvent.blur(time);
+    const note = screen.getByLabelText("Note");
+    await user.type(note, "abc");
+    fireEvent.blur(note);
+    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "5");
+    await user.click(screen.getByLabelText("Blood Visible"));
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Blood Visible")).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(screen.getByLabelText("Blood Visible")).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("4");
+    fireEvent.keyDown(window, { key: "z", metaKey: true });
+    expect(note).toHaveValue("");
+    fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+    expect(note).toHaveValue("abc");
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(time).toHaveValue(originalTime);
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+    expect(note).toHaveValue("abc");
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("5");
+    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "6");
+    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+  });
+
+  it("caps all distinct draft history pushes at 50 and retains the newest states", async () => {
+    const user = userEvent.setup();
+    render(<BowelPanelHarness controller={panelController()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    const blood = screen.getByLabelText("Blood Visible");
+    for (let index = 0; index < 52; index += 1) fireEvent.click(blood);
+    for (let index = 0; index < 50; index += 1) {
+      await user.click(screen.getByRole("button", { name: "Undo" }));
+    }
+    expect(blood).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Redo" })).toBeEnabled();
+  });
+
+  it("rejects a nonexistent local wall time without losing the draft", async () => {
+    vi.stubEnv("TZ", "America/New_York");
+    const user = userEvent.setup();
+    const health = panelController();
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-03-08T02:30" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    expect(health.updateBowel).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Time")).toHaveValue("2026-03-08T02:30");
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps draft/history after one ordinary update failure and saves exactly once per action", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    health.updateBowel = vi.fn().mockRejectedValueOnce(new Error("Save failed"));
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.type(screen.getByLabelText("Note"), "draft");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Save failed");
+    expect(screen.getByLabelText("Note")).toHaveValue("draft");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Note")).toHaveValue("");
+    expect(health.updateBowel).toHaveBeenCalledOnce();
+  });
+
+  it("blocks invalid, IME, pending, and confirmation shortcuts and duplicate actions", async () => {
+    const user = userEvent.setup();
+    const saved = deferred<void>();
+    const health = panelController();
+    health.updateBowel = vi.fn(() => saved.promise);
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "" } });
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    expect(health.updateBowel).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-08-20T10:00" } });
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true, isComposing: true });
+    expect(health.updateBowel).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(health.updateBowel).not.toHaveBeenCalled();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    fireEvent.keyDown(window, { key: "s", metaKey: true });
+    await waitFor(() => expect(health.updateBowel).toHaveBeenCalledOnce());
+    for (const name of ["< Back", "Undo", "Redo", "Save", "Delete"]) {
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    }
+    expect(screen.getByLabelText("Time")).toBeDisabled();
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(health.updateBowel).toHaveBeenCalledOnce();
+    await act(async () => saved.resolve());
+  });
+
+  it("freezes committed-update recovery, retries Bowel reads false then true, and never resubmits", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    health.updateBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshBowel = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.type(screen.getByLabelText("Note"), "saved");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes were saved, but Health could not refresh.");
+    for (const label of ["Time", "Bristol Scale", "Blood Visible", "Note"]) {
+      expect(screen.getByLabelText(label)).toBeDisabled();
+    }
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByLabelText("Note")).toHaveValue("saved");
+    expect(health.updateBowel).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByRole("button", { name: /Open details for Type 4/ });
+    expect(health.refreshBowel).toHaveBeenCalledTimes(2);
+    expect(health.updateBowel).toHaveBeenCalledOnce();
+  });
+
+  it("uses exact clean/dirty archive copy, cancel focus, and ordinary-success history cleanup", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "");
+    const health = panelController();
+    const pushState = vi.spyOn(window.history, "pushState");
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    const remove = screen.getByRole("button", { name: "Delete" });
+    await user.click(remove);
+    expect(screen.getByRole("dialog", { name: "Archive Bowel · Type 4?" }))
+      .toHaveTextContent("Move this bowel entry to Archive?");
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("Unsaved changes");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(remove).toHaveFocus());
+    await user.type(screen.getByLabelText("Note"), "draft");
+    await user.click(remove);
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "Move this bowel entry to Archive? Unsaved changes will be discarded.",
+    );
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("Bowel entry details")).toBeNull());
+    expect(health.archiveBowel).toHaveBeenCalledOnce();
+    expect(pushState).toHaveBeenCalledOnce();
+    act(() => window.history.forward());
+    await waitFor(() => expect(window.history.state.__ravenHealthBowelDetailId).toBeNull());
+  });
+
+  it("treats committed detail archive as success and retries without repeating it", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    health.archiveBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshBowel = vi.fn().mockResolvedValue(true);
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes were saved, but Health could not refresh.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refreshBowel).toHaveBeenCalledOnce();
+    expect(health.archiveBowel).toHaveBeenCalledOnce();
+  });
+
+  it.each(["Time", "Bristol Scale", "Blood Visible"])(
+    "restores stable row focus after saving an edit to %s",
+    async (label) => {
+      const user = userEvent.setup();
+      const health = panelController();
+      render(<BowelPanelHarness controller={health} />);
+      await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+      if (label === "Time") {
+        fireEvent.change(screen.getByLabelText(label), { target: { value: "2026-08-20T10:00" } });
+      } else if (label === "Bristol Scale") {
+        await user.selectOptions(screen.getByLabelText(label), "7");
+      } else await user.click(screen.getByLabelText(label));
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      const row = await screen.findByRole("button", { name: /Open details for Type 4/ });
+      await waitFor(() => expect(row).toHaveFocus());
+    },
+  );
+
+  it("exits an open detail when authoritative active truth removes it", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    const view = render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    view.rerender(<BowelPanelHarness controller={{ ...health,
+      state: { ...health.state, bowelEntries: [] } }} />);
+    await waitFor(() => expect(screen.queryByText("Bowel entry details")).toBeNull());
+    expect(screen.getByRole("button", { name: "Add bowel entry" })).toBeInTheDocument();
   });
 
   it("scopes saved views and exposes only Bowel filter, sort, and group choices", async () => {
