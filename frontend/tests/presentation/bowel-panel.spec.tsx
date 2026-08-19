@@ -432,17 +432,24 @@ function BowelPanelHarness({ controller }: { controller: HealthController }) {
 }
 
 describe("Bowel table workflow", () => {
-  it("renders native columns, values, contextual selection, and plain Time text", () => {
+  it("opens Bowel details from a real contextual Time button without making the row interactive", async () => {
+    const user = userEvent.setup();
+    const open = vi.fn();
     const groups = deriveBowelGroups([event], defaultHealthTableSettings("health.bowel"));
     render(<BowelTable groups={groups} activeRowCount={1} selectedIds={[]}
-      onToggle={vi.fn()} onToggleAll={vi.fn()} />);
+      onOpen={open} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
     expect(within(screen.getByRole("table", { name: "Bowel entries" }))
       .getAllByRole("columnheader").map((cell) => cell.textContent))
       .toEqual(["", "Time", "Bristol Scale", "Blood Visible", "Note"]);
     expect(screen.getByText("Type 4")).toBeInTheDocument();
     expect(screen.getByText("No")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Select Type 4.*No/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Open details for Type 4/ })).toBeNull();
+    const button = screen.getByRole("button", { name: /Open details for Type 4/ });
+    expect(button).toHaveAttribute("data-bowel-row-id", event.id);
+    expect(button).toHaveAttribute("data-bowel-occurrence", "all-bowel-1-0");
+    expect(button.closest("tr")).not.toHaveAttribute("tabindex");
+    await user.click(button);
+    expect(open).toHaveBeenCalledWith(groups[0]!.rows[0], "all-bowel-1-0");
   });
 
   it("deduplicates repeated logical rows across constructed groups", async () => {
@@ -455,16 +462,53 @@ describe("Bowel table workflow", () => {
     const toggle = vi.fn();
     const toggleAll = vi.fn();
     const view = render(<BowelTable groups={groups} activeRowCount={1} selectedIds={[]}
-      onToggle={toggle} onToggleAll={toggleAll} />);
+      onOpen={vi.fn()} onToggle={toggle} onToggleAll={toggleAll} />);
     await user.click(screen.getByRole("checkbox", { name: "Select all visible bowel entries" }));
     expect(toggleAll).toHaveBeenCalledOnce();
     view.rerender(<BowelTable groups={groups} activeRowCount={1} selectedIds={[event.id]}
-      onToggle={toggle} onToggleAll={toggleAll} />);
+      onOpen={vi.fn()} onToggle={toggle} onToggleAll={toggleAll} />);
     expect(screen.getByRole("checkbox", { name: "Select all visible bowel entries" })).toBeChecked();
     expect(screen.getAllByRole("checkbox", { name: /Select Type 4/ })).toHaveLength(2);
     await user.click(screen.getAllByRole("checkbox", { name: /Select Type 4/ })[1]!);
     expect(toggle).toHaveBeenCalledOnce();
     expect(toggle).toHaveBeenCalledWith(event.id);
+  });
+
+  it("edits a Bowel entry with canonical dirty state and a minimal optimistic patch", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
+    expect([...screen.getByRole("region", { name: "Edit bowel properties" }).children]
+      .map((node) => node.firstChild?.textContent?.trim()))
+      .toEqual(["Time", "Bristol Scale", "Blood Visible", "Note"]);
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "7");
+    await user.click(screen.getByLabelText("Blood Visible"));
+    await user.click(save);
+    await waitFor(() => expect(health.updateBowel).toHaveBeenCalledWith("bowel-1", {
+      details: { kind: "bowel", bristolScale: 7, bloodVisible: true },
+      expectedUpdatedAt: event.updatedAt,
+    }));
+  });
+
+  it("keeps the detail draft and returns focus to Delete after archive failure", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    health.archiveBowel = vi.fn().mockRejectedValue(new Error("Archive failed"));
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.type(screen.getByLabelText("Note"), "draft");
+    const remove = screen.getByRole("button", { name: "Delete" });
+    await user.click(remove);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByLabelText("Note")).toHaveValue("draft");
+    expect(screen.getByRole("alert")).toHaveTextContent("Archive failed");
+    await waitFor(() => expect(remove).toHaveFocus());
+    expect(health.archiveBowel).toHaveBeenCalledOnce();
   });
 
   it("scopes saved views and exposes only Bowel filter, sort, and group choices", async () => {

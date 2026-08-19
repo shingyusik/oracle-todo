@@ -201,6 +201,27 @@ describe("HealthPanel", () => {
     expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
   });
 
+  it("cleans only Bowel detail history when the Health leaf changes", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({ __ravenHealthDietDetailId: "keep-diet" }, "");
+    const removeEventListener = vi.spyOn(window, "removeEventListener");
+    const health = controller();
+    const view = render(<HealthPanel controller={health} leafTabId="bowel" />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    expect(window.history.state).toMatchObject({
+      __ravenHealthDietDetailId: "keep-diet",
+      __ravenHealthBowelDetailId: bowel.id,
+    });
+
+    view.rerender(<HealthPanel controller={health} leafTabId="trends" />);
+
+    expect(window.history.state).toMatchObject({
+      __ravenHealthDietDetailId: "keep-diet",
+      __ravenHealthBowelDetailId: null,
+    });
+    expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
+  });
+
   it("keeps timeline and trends loading or error states independent", () => {
     const health = controller({
       ...loadedState,

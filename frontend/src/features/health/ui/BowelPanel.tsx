@@ -6,8 +6,10 @@ import { HealthMutationRefreshError, type HealthController } from "@/features/he
 import { deriveBowelGroups, type BowelRow } from "@/features/health/model/bowel-table";
 import { defaultHealthTableSettings, healthBowelFilterSelectOptions } from "@/features/health/model/health-table-views";
 import { BowelCreateDialog } from "@/features/health/ui/BowelCreateDialog";
+import { BowelDetail } from "@/features/health/ui/BowelDetail";
 import { BowelTable } from "@/features/health/ui/BowelTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
+import { useBrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type BowelPanelProps = {
@@ -23,11 +25,14 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
   refreshWarning, refreshPending, onRetryRefresh }: BowelPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<BowelRow | null>(null);
   const [archiveTargets, setArchiveTargets] = useState<string[] | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
+  const tableRef = useRef<HTMLElement>(null);
+  const detailOriginRef = useRef<{ occurrence: string; rowId: string } | null>(null);
 
   useEffect(() => {
     if (controller.state.bowelStatus === "idle") void controller.refreshBowel();
@@ -49,6 +54,25 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
   }).filter(({ label }) => label !== null).map(({ key, label, rows }) => ({
     key, label: label!, count: uniqueRows(rows).length,
   })), [entries, settings.groupSettings]);
+  const currentDetailRow = detailRow
+    ? activeRows.find(({ id }) => id === detailRow.id) ?? null
+    : null;
+  const detailHistory = useBrowserDetailHistory({
+    stateKey: "__ravenHealthBowelDetailId",
+    currentId: currentDetailRow?.id ?? null,
+    resolve: (id) => activeRows.find((row) => row.id === id) ?? null,
+    open: (row) => {
+      if (detailOriginRef.current?.rowId !== row.id) {
+        detailOriginRef.current = { occurrence: "", rowId: row.id };
+      }
+      setDetailRow(row);
+    },
+    close: () => {
+      setDetailRow(null);
+      restoreDetailFocus();
+    },
+    clearOnUnmount: true,
+  });
 
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
@@ -56,7 +80,25 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-  }, [activeRows]);
+    if (detailRow && !activeIds.has(detailRow.id)) {
+      setDetailRow(null);
+      restoreDetailFocus();
+    }
+  }, [activeRows, detailRow]);
+
+  function restoreDetailFocus() {
+    requestAnimationFrame(() => {
+      const origin = detailOriginRef.current;
+      const exact = origin
+        ? tableRef.current?.querySelector<HTMLElement>(`[data-bowel-occurrence="${origin.occurrence}"]`)
+        : null;
+      const target = exact ?? (origin
+        ? [...(tableRef.current?.querySelectorAll<HTMLElement>("[data-bowel-row-id]") ?? [])]
+          .find((element) => element.dataset.bowelRowId === origin.rowId)
+        : null);
+      (target ?? addButtonRef.current)?.focus();
+    });
+  }
 
   function toggle(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -107,7 +149,16 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
       <button type="button" onClick={() => void controller.refreshBowel()}>Retry</button></section>;
   }
 
-  return <section aria-labelledby="health-bowel-heading">
+  if (currentDetailRow) {
+    return <BowelDetail key={currentDetailRow.id} controller={controller} row={currentDetailRow}
+      detailHistory={detailHistory} onArchived={(warning) => {
+        detailHistory.setDirty(false);
+        detailHistory.requestBack();
+        markArchived(currentDetailRow.id, warning);
+      }} />;
+  }
+
+  return <section ref={tableRef} aria-labelledby="health-bowel-heading">
     <HealthTableViewHeader controller={controller} scope="health.bowel" title="Bowel"
       headingId="health-bowel-heading"
       fieldLabels={{ bristol_scale: "Bristol Scale", blood_visible: "Blood Visible" }}
@@ -117,7 +168,10 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleIds.length === 0 || archivePending} />
     <BowelTable groups={groups} activeRowCount={activeRows.length} selectedIds={selectedIds}
-      onToggle={toggle} onToggleAll={toggleAll} />
+      onOpen={(row, occurrence) => {
+        detailOriginRef.current = { occurrence, rowId: row.id };
+        setDetailRow(row);
+      }} onToggle={toggle} onToggleAll={toggleAll} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>
       <button type="button" disabled={refreshPending}
         onClick={() => void onRetryRefresh()}>Retry</button></div>
