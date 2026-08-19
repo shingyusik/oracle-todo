@@ -256,6 +256,50 @@ describe("Health Diet controller", () => {
     }
   });
 
+  it("refreshes only Timeline and Trends after every non-Diet mutation", async () => {
+    mockOtherReads();
+    vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue({} as never);
+    const upsert = vi.spyOn(healthApi, "upsertDailyMetrics").mockResolvedValue([]);
+    const archive = vi.spyOn(healthApi, "archiveEvent").mockResolvedValue({} as never);
+    const restore = vi.spyOn(healthApi, "restoreEvent").mockResolvedValue({} as never);
+    const purge = vi.spyOn(healthApi, "purgeEvent").mockResolvedValue(undefined);
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.state.dietStatus).toBe("loaded"));
+    vi.mocked(healthApi.listDiet).mockClear();
+    vi.mocked(healthApi.listDiet).mockRejectedValue(new Error("Diet unavailable"));
+    vi.mocked(healthApi.timeline).mockClear();
+    vi.mocked(healthApi.trends).mockClear();
+
+    const bowel = {
+      occurredAt: entry.occurredAt,
+      details: { kind: "bowel", bristolScale: 4, bloodVisible: false },
+    } as const;
+    const mutations = [create, upsert, archive, restore, purge];
+    const cases = [
+      () => result.current.createBowel(bowel),
+      () => result.current.createMedication({
+        occurredAt: entry.occurredAt,
+        details: { kind: "medication", medicationName: "Tablet", dose: 1, unit: "tablet" },
+      }),
+      () => result.current.upsertMetrics([]),
+      () => result.current.archive("event", "event-1"),
+      () => result.current.restore("event", "event-1"),
+      () => result.current.purge("event", "event-1", "PURGE"),
+    ];
+
+    for (const run of cases) {
+      for (const mutation of mutations) mutation.mockClear();
+      vi.mocked(healthApi.timeline).mockClear();
+      vi.mocked(healthApi.trends).mockClear();
+      await act(async () => expect(run()).resolves.toBeUndefined());
+      expect(mutations.reduce((count, mutation) => count + mutation.mock.calls.length, 0)).toBe(1);
+      expect(healthApi.listDiet).not.toHaveBeenCalled();
+      expect(healthApi.timeline).toHaveBeenCalledOnce();
+      expect(healthApi.trends).toHaveBeenCalledOnce();
+    }
+  });
+
   it.each(["diet", "timeline", "trends"] as const)(
     "throws after a saved mutation when the %s refresh fails and retries reads only",
     async (failedRead) => {

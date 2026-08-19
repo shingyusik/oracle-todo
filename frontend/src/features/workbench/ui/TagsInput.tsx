@@ -23,6 +23,7 @@ export function TagsInput({
   onCommit,
   propagateEscape = false,
   portalDropdown = false,
+  disabled = false,
 }: {
   label: string;
   value: readonly string[] | null | undefined;
@@ -30,6 +31,7 @@ export function TagsInput({
   onCommit: (value: string[]) => void;
   propagateEscape?: boolean;
   portalDropdown?: boolean;
+  disabled?: boolean;
 }): React.ReactNode {
   const currentTags = React.useMemo(() => parseTagInput(formatTags(value)), [value]);
   const availableTags = React.useMemo(
@@ -189,8 +191,10 @@ export function TagsInput({
         aria-haspopup="listbox"
         aria-controls={open ? listboxId : undefined}
         aria-expanded={open}
+        aria-disabled={disabled}
         onClick={(event) => {
           stopEvent(event);
+          if (disabled) return;
           setOpen(true);
         }}
         onKeyDown={(event) => {
@@ -198,6 +202,7 @@ export function TagsInput({
             return;
           }
           stopEvent(event);
+          if (disabled) return;
           if (event.key === "Enter" || event.key === " " || event.key === "Space") {
             event.preventDefault();
             setOpen(true);

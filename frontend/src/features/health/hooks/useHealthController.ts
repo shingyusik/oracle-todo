@@ -430,9 +430,20 @@ export function useHealthController(): HealthController {
     if (!await refreshAll(true)) throw new HealthMutationRefreshError();
   }, [refreshAll]);
 
-  async function mutate(operation: () => Promise<unknown>) {
+  const refreshAfterEventMutation = useCallback(async () => {
+    const [timeline, trend] = await Promise.all([
+      refreshTimelineOutcome(),
+      refreshTrendsOutcome(),
+    ]);
+    if (!timeline.ok || !trend.ok) throw new HealthMutationRefreshError();
+  }, [refreshTimelineOutcome, refreshTrendsOutcome]);
+
+  async function mutate(
+    operation: () => Promise<unknown>,
+    refreshMutation = refreshAfterMutation,
+  ) {
     await operation();
-    await refreshAfterMutation();
+    await refreshMutation();
   }
 
   function updateTableTabs(
@@ -565,17 +576,20 @@ export function useHealthController(): HealthController {
       ? healthApi.updateDietWithImage(id, { image, metadata: input })
       : healthApi.updateDiet(id, input)),
     archiveDiet: (id) => mutate(() => healthApi.archiveDiet(id)),
-    createBowel: (input) => mutate(() => healthApi.createEvent(input)),
-    createMedication: (input) => mutate(() => healthApi.createEvent(input)),
-    upsertMetrics: (input) => mutate(() => healthApi.upsertDailyMetrics(input)),
+    createBowel: (input) => mutate(() => healthApi.createEvent(input), refreshAfterEventMutation),
+    createMedication: (input) => mutate(() => healthApi.createEvent(input), refreshAfterEventMutation),
+    upsertMetrics: (input) => mutate(() => healthApi.upsertDailyMetrics(input), refreshAfterEventMutation),
     archive: (kind, id) => mutate(() =>
-      kind === "diet" ? healthApi.archiveDiet(id) : healthApi.archiveEvent(id)),
+      kind === "diet" ? healthApi.archiveDiet(id) : healthApi.archiveEvent(id),
+    kind === "diet" ? refreshAfterMutation : refreshAfterEventMutation),
     restore: (kind, id) => mutate(() =>
-      kind === "diet" ? healthApi.restoreDiet(id) : healthApi.restoreEvent(id)),
+      kind === "diet" ? healthApi.restoreDiet(id) : healthApi.restoreEvent(id),
+    kind === "diet" ? refreshAfterMutation : refreshAfterEventMutation),
     purge: (kind, id, confirmation) => mutate(() =>
       kind === "diet"
         ? healthApi.purgeDiet(id, confirmation)
-        : healthApi.purgeEvent(id, confirmation)),
+        : healthApi.purgeEvent(id, confirmation),
+    kind === "diet" ? refreshAfterMutation : refreshAfterEventMutation),
   };
 }
 

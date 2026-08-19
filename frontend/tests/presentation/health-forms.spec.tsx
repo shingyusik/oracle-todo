@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import type {
   HealthController,
   HealthState,
 } from "@/features/health/hooks/useHealthController";
+import { HealthMutationRefreshError } from "@/features/health/hooks/useHealthController";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { BowelPanel } from "@/features/health/ui/BowelPanel";
 import { DietPanel } from "@/features/health/ui/DietPanel";
@@ -377,6 +378,39 @@ describe("Health Journal forms", () => {
     save.resolve();
     expect(await screen.findByRole("button", { name: "Open diet" })).toHaveFocus();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("retries only reads after Diet creation committed and freezes the draft", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const health = controller({
+      createDiet: vi.fn().mockRejectedValue(new HealthMutationRefreshError()),
+      refresh: vi.fn()
+        .mockResolvedValueOnce(false)
+        .mockRejectedValueOnce(new Error("Refresh unavailable"))
+        .mockResolvedValueOnce(true),
+    });
+    render(<DietDialogHarness health={health} onClose={onClose} />);
+
+    await user.type(screen.getByLabelText("Food"), "Lunch");
+    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+    expect(screen.getByLabelText("Food")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save diet entry" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Tags" })).toHaveAttribute("aria-disabled", "true");
+    fireEvent.change(screen.getByLabelText("Food"), { target: { value: "Dinner" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Diet entry" }));
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await user.click(screen.getByRole("button", { name: "Retry refresh" }));
+      await waitFor(() => expect(health.refresh).toHaveBeenCalledTimes(attempt));
+      expect(health.createDiet).toHaveBeenCalledOnce();
+    }
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Open diet" })).toHaveFocus();
   });
 
   it("keeps diet inputs and exposes an accessible error after submission fails", async () => {

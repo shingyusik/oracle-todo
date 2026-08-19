@@ -3,7 +3,10 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import type { DailyMetricInput } from "@/features/health/api/health-api";
-import type { HealthController } from "@/features/health/hooks/useHealthController";
+import {
+  HealthMutationRefreshError,
+  type HealthController,
+} from "@/features/health/hooks/useHealthController";
 import type {
   DietInput,
   EventInput,
@@ -48,11 +51,13 @@ export function DietForm({
   const [note, setNote] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [image, setImage] = useState<File | null>(null);
+  const [refreshRecovery, setRefreshRecovery] = useState(false);
   const imageInput = useRef<HTMLInputElement | null>(null);
   const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (refreshRecovery) return;
     await action.run(async () => {
       if (image && !image.type.startsWith("image/")) {
         throw new Error("Meal image must be an image file");
@@ -64,7 +69,15 @@ export function DietForm({
         note: nullable(note),
         tags,
       };
-      await controller.createDiet(input, image ?? undefined);
+      try {
+        await controller.createDiet(input, image ?? undefined);
+      } catch (cause) {
+        if (cause instanceof HealthMutationRefreshError) {
+          setRefreshRecovery(true);
+          return;
+        }
+        throw cause;
+      }
       if (!action.isMounted()) return;
       setFoodName("");
       setNote("");
@@ -79,8 +92,15 @@ export function DietForm({
     controller.state.dietEntries.flatMap((entry) => entry.tags),
   ));
 
+  async function retryRefresh() {
+    await action.run(async () => {
+      if (await controller.refresh()) onSaved?.();
+    });
+  }
+
   return (
     <form onSubmit={(event) => void submit(event)} aria-label="Diet entry">
+      <fieldset disabled={refreshRecovery || action.pending}>
       <label className="field-label">
         Time
         <input
@@ -117,6 +137,7 @@ export function DietForm({
           value={tags}
           tagOptions={dietTagOptions}
           onCommit={setTags}
+          disabled={refreshRecovery || action.pending}
         />
       </div>
       <label className="field-label">
@@ -134,6 +155,13 @@ export function DietForm({
       </label>
       <FormResult action={action} />
       <button type="submit" disabled={action.pending}>Save diet entry</button>
+      </fieldset>
+      {refreshRecovery ? <div className="items-message">
+        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
+          Retry refresh
+        </button>
+      </div> : null}
     </form>
   );
 }
