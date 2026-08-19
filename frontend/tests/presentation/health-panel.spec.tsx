@@ -29,6 +29,7 @@ import type {
   TimelineItem,
 } from "@/features/health/model/health-model";
 import { HealthPanel } from "@/features/health/ui/HealthPanel";
+import { TimelinePanel } from "@/features/health/ui/TimelinePanel";
 
 const diet: DietEntry = {
   id: "diet-1",
@@ -161,12 +162,15 @@ describe("HealthPanel", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses Timeline as the default leaf and has no Overview", () => {
+  it("uses Diet as the default and fallback leaf and has no Overview", () => {
     render(<HealthPanel controller={controller()} />);
 
-    expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Diet" })).toBeInTheDocument();
     expect(screen.getByText("Bibimbap")).toBeInTheDocument();
     expect(screen.queryByText("Overview")).not.toBeInTheDocument();
+
+    render(<HealthPanel controller={controller()} leafTabId={"missing" as never} />);
+    expect(screen.getAllByRole("heading", { name: "Diet" })).toHaveLength(2);
   });
 
   it("keeps timeline and trends loading or error states independent", () => {
@@ -176,7 +180,7 @@ describe("HealthPanel", () => {
       timelineError: "Timeline unavailable",
       trendsStatus: "loaded",
     });
-    const { rerender } = render(<HealthPanel controller={health} />);
+    const { rerender } = render(<TimelinePanel controller={health} />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Timeline unavailable");
     expect(screen.getByText("Bibimbap")).toBeInTheDocument();
@@ -389,7 +393,7 @@ describe("HealthPanel", () => {
       }],
     });
     health.restore = vi.fn(() => restore.promise);
-    render(<HealthPanel controller={health} />);
+    render(<TimelinePanel controller={health} />);
 
     const restoreButton = screen.getByRole("button", { name: /Restore Bibimbap.*diet-1/ });
     const purgeButton = screen.getByRole("button", { name: /Purge Bibimbap.*diet-1/ });
@@ -418,7 +422,7 @@ describe("HealthPanel", () => {
       }],
     });
     health.purge = vi.fn(() => purge.promise);
-    render(<HealthPanel controller={health} />);
+    render(<TimelinePanel controller={health} />);
 
     const restoreButton = screen.getByRole("button", { name: /Restore Bowel.*event-1/ });
     const purgeButton = screen.getByRole("button", { name: /Purge Bowel.*event-1/ });
@@ -441,7 +445,7 @@ describe("HealthPanel", () => {
   it("gives duplicate record actions unique accessible names", () => {
     const duplicate = { ...diet, id: "diet-2", occurredAt: "2026-07-31T03:00:00Z" };
     render(
-      <HealthPanel
+      <TimelinePanel
         controller={controller({
           ...loadedState,
           timeline: [
@@ -471,7 +475,7 @@ describe("HealthPanel", () => {
     })).getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(screen.queryByText("Bibimbap")).toBeNull());
 
-    view.rerender(<HealthPanel controller={health} leafTabId="timeline" />);
+    view.rerender(<HealthPanel controller={health} leafTabId="bowel" />);
     view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
     expect(screen.queryByText("Bibimbap")).toBeNull();
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -603,6 +607,51 @@ describe("HealthPanel", () => {
     act(() => result.current.retryTableViewSave());
     await waitFor(() => expect(putCount).toBe(3));
     await waitFor(() => expect(result.current.tableViewSaveError).toBeNull());
+  });
+
+  it("renders Health view selection confirmation and supports cancel and confirm", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.tableViewConfirmation = {
+      kind: "select",
+      target: { scope: "health.diet" },
+      targetTabId: "other",
+    };
+    health.tableIsDirty = vi.fn(() => true);
+
+    const view = render(<HealthPanel controller={health} />);
+    const dialog = screen.getByRole("dialog", {
+      name: "Discard unsaved view changes?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(health.cancelTableViewAction).toHaveBeenCalledOnce();
+
+    view.rerender(<HealthPanel controller={{ ...health }} />);
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(health.confirmTableViewAction).toHaveBeenCalledOnce();
+  });
+
+  it("renders Health view delete confirmation and retries save failures", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.tableViewSaveError = "Could not save Health views.";
+    health.tableViewConfirmation = {
+      kind: "delete",
+      target: { scope: "health.diet" },
+      targetTabId: "health.diet-table",
+    };
+    health.tableIsDirty = vi.fn(() => true);
+
+    render(<HealthPanel controller={health} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not save Health views.",
+    );
+    expect(screen.getByText(/unsaved filter, sort, and group changes/i))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry view save" }));
+    expect(health.retryTableViewSave).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(health.confirmTableViewAction).toHaveBeenCalledOnce();
   });
 
   it("ignores an older Health view write failure after a newer save succeeds", async () => {

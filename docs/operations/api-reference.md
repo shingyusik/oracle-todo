@@ -207,17 +207,17 @@ All routes below use prefix `/api/v1/health`.
 | Resource | Routes |
 | --- | --- |
 | Diet | `GET/POST /diet`, `GET/PATCH /diet/:id`, lifecycle `POST /diet/:id/archive|restore`, `DELETE /diet/:id/purge` |
-| Diet image upload | `POST /diet/with-image` with raw image bytes |
+| Diet image upload | `POST /diet/with-image` and `PATCH /diet/:id/with-image` with raw image bytes |
 | Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore`, `DELETE /events/:id/purge` |
 | Metrics | `POST /metrics/daily` |
 | Reads | `GET /timeline`, `/trends`, `/audit/:record_type/:record_id` |
 
-JSON bodies are limited to 128 KiB. `POST /diet/with-image` is not multipart:
+JSON bodies are limited to 128 KiB. The Diet image routes are not multipart:
 
 - Body: raw JPEG, PNG, or WebP bytes, at most 10 MiB
 - `Content-Type`: exactly `image/jpeg`, `image/png`, or `image/webp`
 - `X-Raven-Diet-Metadata`: required strict, HTTP-header-safe ASCII JSON
-  `CreateDietBody`, at most 8 KiB; escape non-ASCII text in the JSON header value
+  metadata, at most 8 KiB; escape non-ASCII text in the JSON header value
 
 The metadata object is:
 
@@ -234,6 +234,15 @@ The metadata object is:
 
 `note` is optional, `tags` defaults to `[]`, and `actor` defaults to `raven-api`. Unknown
 metadata fields are rejected. Declared content type must agree with detected image bytes.
+The same limits, MIME validation, and safe API errors apply to
+`PATCH /diet/:id/with-image`. Its metadata accepts the optional Diet update fields plus
+`expected_updated_at` for optimistic concurrency and `reason` for audit history. The new
+image and record fields are committed by one service mutation. `remove_image:true` is
+rejected because this route replaces the image.
+
+JSON `PATCH /diet/:id` accepts the same update fields. `remove_image` defaults to `false`,
+which preserves the current image; `remove_image:true` removes it. Record and media changes
+commit atomically as one service mutation.
 
 ```bash
 curl -X POST http://127.0.0.1:3002/api/v1/health/diet/with-image \

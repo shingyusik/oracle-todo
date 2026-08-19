@@ -9,11 +9,11 @@ import { DietPanel } from "@/features/health/ui/DietPanel";
 import { HealthMetricsPanel } from "@/features/health/ui/HealthMetricsPanel";
 import { HealthTrendsPanel } from "@/features/health/ui/HealthTrendsPanel";
 import { MedicationPanel } from "@/features/health/ui/MedicationPanel";
-import { TimelinePanel } from "@/features/health/ui/TimelinePanel";
+import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 
 export function HealthPanel({
   controller,
-  leafTabId = "timeline",
+  leafTabId = "diet",
 }: {
   controller: HealthController;
   leafTabId?: HealthTabId;
@@ -79,8 +79,15 @@ export function HealthPanel({
     }
   }
 
-  if (leafTabId === "diet") {
-    return (
+  const panel = leafTabId === "bowel"
+    ? <BowelPanel controller={controller} />
+    : leafTabId === "medication"
+      ? <MedicationPanel controller={controller} />
+      : leafTabId === "health-metrics"
+        ? <HealthMetricsPanel controller={controller} />
+        : leafTabId === "trends"
+          ? <HealthTrendsPanel controller={controller} />
+          : (
       <DietPanel
         controller={controller}
         tombstonedIds={dietTombstonedIds}
@@ -90,12 +97,27 @@ export function HealthPanel({
         onRetryRefresh={retryDietRefresh}
       />
     );
-  }
-  if (leafTabId === "bowel") return <BowelPanel controller={controller} />;
-  if (leafTabId === "medication") return <MedicationPanel controller={controller} />;
-  if (leafTabId === "health-metrics") {
-    return <HealthMetricsPanel controller={controller} />;
-  }
-  if (leafTabId === "trends") return <HealthTrendsPanel controller={controller} />;
-  return <TimelinePanel controller={controller} />;
+
+  return (
+    <>
+      {panel}
+      {controller.tableViewSaveError ? (
+        <div className="items-message">
+          <p role="alert">{controller.tableViewSaveError}</p>
+          <button type="button" onClick={controller.retryTableViewSave}>
+            Retry view save
+          </button>
+        </div>
+      ) : null}
+      <TableViewTabConfirmationDialog
+        adapter={{
+          confirmation: controller.tableViewConfirmation,
+          confirm: controller.confirmTableViewAction,
+          cancel: controller.cancelTableViewAction,
+          isDirty: ({ scope }) => controller.tableIsDirty(scope),
+          activeTabId: ({ scope }) => controller.tableTabs(scope).activeTabId,
+        }}
+      />
+    </>
+  );
 }

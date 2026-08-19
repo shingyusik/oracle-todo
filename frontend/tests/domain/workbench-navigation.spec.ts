@@ -149,7 +149,7 @@ describe("workbench navigation", () => {
     });
     expect(resolveSelection("health")).toMatchObject({
       mainTabId: "health",
-      leafTabId: "timeline",
+      leafTabId: "diet",
       ledgerExpanded: false,
       healthExpanded: true,
     });
@@ -173,7 +173,6 @@ describe("workbench navigation", () => {
       "Reports",
     ]);
     expect(workbenchNavigation.healthTabs.map((tab) => tab.label)).toEqual([
-      "Timeline",
       "Diet",
       "Bowel",
       "Medication",

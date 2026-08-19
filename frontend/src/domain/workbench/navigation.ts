@@ -14,7 +14,6 @@ export type LedgerTabId =
   | "categories"
   | "reports";
 export type HealthTabId =
-  | "timeline"
   | "diet"
   | "bowel"
   | "medication"
@@ -80,7 +79,6 @@ export const workbenchNavigation = {
     { id: "reports", label: "Reports" },
   ] satisfies NavigationTab<LedgerTabId>[],
   healthTabs: [
-    { id: "timeline", label: "Timeline" },
     { id: "diet", label: "Diet" },
     { id: "bowel", label: "Bowel" },
     { id: "medication", label: "Medication" },
@@ -110,7 +108,6 @@ const ledgerLeafTabIds = new Set<WorkbenchTabId>([
   "reports",
 ]);
 const healthLeafTabIds = new Set<WorkbenchTabId>([
-  "timeline",
   "diet",
   "bowel",
   "medication",
@@ -208,7 +205,7 @@ export function resolveSelection(
   }
 
   if (tabId === "health") {
-    return createSelection("health", "timeline");
+    return createSelection("health", "diet");
   }
 
   if (tabId === "workspace") {

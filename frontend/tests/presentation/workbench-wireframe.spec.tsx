@@ -13,6 +13,10 @@ import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  resolveSelection,
+  workbenchNavigation,
+} from "@/domain/workbench/navigation";
 import type {
   LedgerController,
   LedgerState,
@@ -1078,11 +1082,37 @@ describe("WorkbenchPageClient", () => {
     expect(ledger).toHaveAttribute("aria-expanded", "false");
     expect(health).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByRole("button", { name: "Transactions" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Timeline" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Diet" })).toHaveAttribute(
       "aria-current",
       "page",
     );
+    expect(within(screen.getByRole("navigation", { name: "Raven navigation" }))
+      .getAllByRole("button")
+      .filter((button) => ["Diet", "Bowel", "Medication", "Health Metrics", "Trends"]
+        .includes(button.textContent ?? ""))
+      .map((button) => button.textContent)).toEqual([
+        "Diet",
+        "Bowel",
+        "Medication",
+        "Health Metrics",
+        "Trends",
+      ]);
+    expect(screen.queryByRole("button", { name: "Timeline" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
+  });
+
+  it("resolves the Health parent to Diet without exposing Timeline", () => {
+    expect(resolveSelection("health")).toMatchObject({
+      mainTabId: "health",
+      leafTabId: "diet",
+    });
+    expect(workbenchNavigation.healthTabs.map(({ id }) => id)).toEqual([
+      "diet",
+      "bowel",
+      "medication",
+      "health-metrics",
+      "trends",
+    ]);
   });
 
   it("drills a category report into the active Transactions draft and matching rows", async () => {
