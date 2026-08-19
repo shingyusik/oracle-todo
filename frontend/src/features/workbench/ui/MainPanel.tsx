@@ -1059,7 +1059,6 @@ function isLedgerPanel(leafTabId: LeafTabId): leafTabId is LedgerTabId {
 
 function isHealthPanel(leafTabId: LeafTabId): leafTabId is HealthTabId {
   return [
-    "timeline",
     "diet",
     "bowel",
     "medication",

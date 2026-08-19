@@ -635,21 +635,24 @@ describe("HealthPanel", () => {
     const user = userEvent.setup();
     const health = controller();
     health.tableViewSaveError = "Could not save Health views.";
-    health.tableViewConfirmation = {
+    const confirmation = {
       kind: "delete",
       target: { scope: "health.diet" },
       targetTabId: "health.diet-table",
-    };
+    } as const;
     health.tableIsDirty = vi.fn(() => true);
 
-    render(<HealthPanel controller={health} />);
+    const view = render(<HealthPanel controller={health} />);
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Could not save Health views.",
     );
-    expect(screen.getByText(/unsaved filter, sort, and group changes/i))
-      .toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retry view save" }));
     expect(health.retryTableViewSave).toHaveBeenCalledOnce();
+
+    health.tableViewConfirmation = confirmation;
+    view.rerender(<HealthPanel controller={{ ...health }} />);
+    expect(screen.getByText(/unsaved filter, sort, and group changes/i))
+      .toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete" }));
     expect(health.confirmTableViewAction).toHaveBeenCalledOnce();
   });

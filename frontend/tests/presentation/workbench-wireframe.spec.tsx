@@ -13,10 +13,6 @@ import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  resolveSelection,
-  workbenchNavigation,
-} from "@/domain/workbench/navigation";
 import type {
   LedgerController,
   LedgerState,
@@ -889,7 +885,7 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
-  it("uses supplied confirmation lookups without interpreting the target surface", () => {
+  it("isolates the page while using supplied confirmation lookups", () => {
     const target = { surface: "unconventional", scope: "unconventional.scope" };
     const confirmation = {
       kind: "delete" as const,
@@ -904,11 +900,35 @@ describe("WorkbenchPageClient", () => {
       activeTabId: () => "active-view",
     };
 
-    render(<TableViewTabConfirmationDialog adapter={adapter} />);
+    const { container, rerender } = render(
+      <TableViewTabConfirmationDialog adapter={adapter} />,
+    );
 
-    expect(screen.getByRole("dialog", { name: "Delete this view?" })).toHaveTextContent(
+    const dialog = screen.getByRole("dialog", { name: "Delete this view?" });
+    expect(dialog).toHaveTextContent(
       "Its unsaved filter, sort, and group changes will also be discarded.",
     );
+    const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
+    expect(host?.parentElement).toBe(document.body);
+    const background = Array.from(document.body.children).filter(
+      (element) => element !== host,
+    );
+    expect(background).not.toHaveLength(0);
+    for (const element of background) {
+      expect(element).toHaveAttribute("aria-hidden", "true");
+      expect(element).toHaveAttribute("inert", "");
+    }
+    expect(document.body).toHaveStyle({ overflow: "hidden" });
+
+    rerender(
+      <TableViewTabConfirmationDialog
+        adapter={{ ...adapter, confirmation: null }}
+      />,
+    );
+
+    expect(container).not.toHaveAttribute("aria-hidden");
+    expect(container).not.toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("does not render static overview cards", () => {
@@ -1099,20 +1119,6 @@ describe("WorkbenchPageClient", () => {
       ]);
     expect(screen.queryByRole("button", { name: "Timeline" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
-  });
-
-  it("resolves the Health parent to Diet without exposing Timeline", () => {
-    expect(resolveSelection("health")).toMatchObject({
-      mainTabId: "health",
-      leafTabId: "diet",
-    });
-    expect(workbenchNavigation.healthTabs.map(({ id }) => id)).toEqual([
-      "diet",
-      "bowel",
-      "medication",
-      "health-metrics",
-      "trends",
-    ]);
   });
 
   it("drills a category report into the active Transactions draft and matching rows", async () => {
@@ -1736,6 +1742,7 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() =>
       expect(within(todayTabs).getByRole("tab", {
         name: "Stored one, 저장되지 않은 변경사항",
+        hidden: true,
       })).toBeInTheDocument(),
     );
     expect(dialog).toHaveTextContent(
