@@ -198,21 +198,21 @@ export function TagsInput({
             </button>
           </span>
         ))}
+        <button
+          ref={triggerRef}
+          type="button"
+          className="tag-input-trigger"
+          aria-label={label}
+          aria-haspopup="listbox"
+          aria-controls={open ? listboxId : undefined}
+          aria-expanded={open}
+          disabled={disabled}
+          onClick={(event) => {
+            stopEvent(event);
+            setOpen(true);
+          }}
+        >Add</button>
       </div>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="tag-input-trigger"
-        aria-label={label}
-        aria-haspopup="listbox"
-        aria-controls={open ? listboxId : undefined}
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={(event) => {
-          stopEvent(event);
-          setOpen(true);
-        }}
-      >Add</button>
       {open ? (portalDropdown ? createPortal(dropdown, document.body) : dropdown) : null}
     </div>
   );

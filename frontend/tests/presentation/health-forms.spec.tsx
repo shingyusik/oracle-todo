@@ -136,14 +136,19 @@ describe("Health Journal forms", () => {
     expect(secondListbox.id).not.toBe(firstListbox.id);
   });
 
-  it("keeps tag removal buttons outside the picker trigger", () => {
+  it("keeps tag controls as siblings inside the noninteractive input layout", () => {
     render(<TagsInput label="Tags" value={["rice"]} tagOptions={[]} onCommit={vi.fn()} />);
 
     const trigger = screen.getByRole("button", { name: "Tags" });
     const remove = screen.getByRole("button", { name: "Remove rice tag" });
+    const inputLayout = trigger.closest(".tag-input");
     expect(trigger.tagName).toBe("BUTTON");
+    expect(inputLayout).not.toBeNull();
+    expect(inputLayout).not.toHaveAttribute("role");
+    expect(remove.closest(".tag-input")).toBe(inputLayout);
     expect(remove.closest('[role="button"]')).toBeNull();
     expect(trigger.contains(remove)).toBe(false);
+    expect(remove.contains(trigger)).toBe(false);
   });
 
   it("submits structured bowel fields with a Bristol value from 1 to 7", async () => {
