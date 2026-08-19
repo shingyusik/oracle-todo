@@ -579,7 +579,9 @@ describe("Bowel table workflow", () => {
 
   it("repairs dirty browser Forward on cancel and confirm with Back focus", async () => {
     const user = userEvent.setup();
-    window.history.replaceState({}, "");
+    window.history.pushState({ historySide: "back" }, "");
+    const back = vi.spyOn(window.history, "back");
+    const forward = vi.spyOn(window.history, "forward");
     render(<BowelPanelHarness controller={panelController()} />);
     await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
     window.history.pushState({
@@ -587,6 +589,7 @@ describe("Bowel table workflow", () => {
       __ravenHealthBowelDetailId: null,
       __ravenHealthBowelDetailId__index:
         (window.history.state.__ravenHealthBowelDetailId__index as number) + 1,
+      historySide: "forward",
     }, "");
     act(() => window.history.back());
     await waitFor(() => expect(window.history.state.__ravenHealthBowelDetailId).toBe(event.id));
@@ -602,7 +605,12 @@ describe("Bowel table workflow", () => {
     dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
     await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
     await screen.findByRole("button", { name: /Open details for Type 4/ });
-    expect(window.history.state.__ravenHealthBowelDetailId).toBeNull();
+    await waitFor(() => expect(window.history.state).toMatchObject({
+      __ravenHealthBowelDetailId: null,
+      historySide: "forward",
+    }));
+    expect(forward).toHaveBeenCalledTimes(3);
+    expect(back).toHaveBeenCalledTimes(3);
   });
 
   it("normalizes a stale Forward ID independently of tombstones", async () => {

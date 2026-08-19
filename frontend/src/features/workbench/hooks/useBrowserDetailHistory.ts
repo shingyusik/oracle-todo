@@ -169,10 +169,12 @@ export function useBrowserDetailHistory<T>({
         discardAfterRestoreRef.current = true;
         return;
       }
+      const traversal = pendingTraversalRef.current ?? -1;
+      pendingTraversalRef.current = null;
       pendingBackRef.current = false;
       setPendingBack(false);
       dirtyRef.current = false;
-      window.history.back();
+      traverseHistory(traversal);
     },
   };
 }
