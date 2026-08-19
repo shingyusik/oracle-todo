@@ -6744,6 +6744,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const originalUrl = window.location.href;
     window.history.replaceState({ preserved: "keep" }, "", originalUrl);
+    const pushState = vi.spyOn(window.history, "pushState");
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>
@@ -6760,6 +6761,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Areas" }));
     await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
     await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    expect(pushState).toHaveBeenCalledTimes(2);
 
     act(() => window.history.back());
     expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
@@ -6771,6 +6773,7 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByLabelText("Checkup details")).toBeInTheDocument();
     expect(window.location.href).toBe(originalUrl);
     expect(window.history.state).toMatchObject({ preserved: "keep" });
+    expect(pushState).toHaveBeenCalledTimes(2);
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
     expect(await screen.findByRole("table", { name: "Tasks items" })).toBeInTheDocument();

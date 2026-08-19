@@ -536,6 +536,104 @@ describe("Health Diet controller", () => {
 describe("DietPanel table", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("uses one browser history entry for clean Diet Back and Forward", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({ preserved: "diet" }, "");
+    const pushState = vi.spyOn(window.history, "pushState");
+    render(<DietPanel controller={controller()} />);
+
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    expect(pushState).toHaveBeenCalledOnce();
+    expect(window.history.state).toMatchObject({
+      preserved: "diet",
+      __ravenHealthDietDetailId: "diet-1",
+    });
+    act(() => window.history.back());
+    expect(await screen.findByRole("button", { name: /Open details for Bibimbap/ }))
+      .toBeInTheDocument();
+    act(() => window.history.forward());
+    expect(await screen.findByText("Diet entry details")).toBeInTheDocument();
+    expect(pushState).toHaveBeenCalledOnce();
+  });
+
+  it("repairs dirty browser Back on cancel and discards on confirm", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "");
+    render(<DietPanel controller={controller()} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.type(screen.getByLabelText("Note"), "draft");
+
+    act(() => window.history.back());
+    const dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Note")).toHaveValue("draft");
+    act(() => window.history.back());
+    await user.click(within(await screen.findByRole("dialog", {
+      name: "Discard unsaved changes?",
+    })).getByRole("button", { name: "Discard changes" }));
+    expect(await screen.findByRole("button", { name: /Open details for Bibimbap/ }))
+      .toBeInTheDocument();
+  });
+
+  it("normalizes a stale Diet Forward entry without reopening or looping", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({ preserved: "stale" }, "");
+    const view = render(
+      <DietPanelView controller={controller()} tombstonedIds={new Set()} />,
+    );
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    act(() => window.history.back());
+    await screen.findByRole("button", { name: /Open details for Bibimbap/ });
+
+    view.rerender(
+      <DietPanelView controller={controller()} tombstonedIds={new Set(["diet-1"])} />,
+    );
+    act(() => window.history.forward());
+
+    await waitFor(() => expect(window.history.state).toMatchObject({
+      preserved: "stale",
+      __ravenHealthDietDetailId: null,
+    }));
+    expect(screen.queryByText("Diet entry details")).toBeNull();
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByText("Diet entry details")).toBeNull());
+  });
+
+  it("closes a successful save through Diet history without a duplicate entry", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "");
+    const pushState = vi.spyOn(window.history, "pushState");
+    const health = controller();
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.type(screen.getByLabelText("Note"), "saved");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await screen.findByRole("button", { name: /Open details for Bibimbap/ });
+    expect(health.updateDiet).toHaveBeenCalledOnce();
+    expect(pushState).toHaveBeenCalledOnce();
+    act(() => window.history.forward());
+    expect(await screen.findByText("Diet entry details")).toBeInTheDocument();
+    expect(pushState).toHaveBeenCalledOnce();
+  });
+
+  it("removes an archived Diet detail from its Forward history entry", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "");
+    const health = controller();
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive Bibimbap?",
+    })).getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => expect(screen.queryByText("Diet entry details")).toBeNull());
+    act(() => window.history.forward());
+    await waitFor(() => expect(window.history.state.__ravenHealthDietDetailId).toBeNull());
+    expect(screen.queryByText("Diet entry details")).toBeNull();
+  });
+
   it("renders active Diet rows in the required columns with accessible interaction", async () => {
     const user = userEvent.setup();
     const archived = { ...entry, id: "archived", foodName: "Old meal", deletedAt: entry.updatedAt };

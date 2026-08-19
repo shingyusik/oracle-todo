@@ -30,6 +30,10 @@ import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { RavenApiError } from "@/lib/raven-api";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
+  useBrowserDetailHistory,
+  type BrowserDetailHistory,
+} from "@/features/workbench/hooks/useBrowserDetailHistory";
+import {
   buildPlannerGroupCandidates,
   type PlannerGroupCandidate,
   type PlannerGroupSettings,
@@ -98,33 +102,7 @@ type MainPanelProps = {
   controller: WorkbenchController;
 };
 
-const detailHistoryStateKey = "__ravenDetailItemId";
-
-type DetailHistoryController = {
-  pendingBack: boolean;
-  setDirty(dirty: boolean): void;
-  setDialogOpen(open: boolean): void;
-  deferUntilRestored(action: () => void): boolean;
-  requestBack(): void;
-  cancelBack(): void;
-  discardBack(): void;
-};
-
-function detailIdFromHistoryState(state: unknown): string | null {
-  if (!state || typeof state !== "object") {
-    return null;
-  }
-
-  const value = (state as Record<string, unknown>)[detailHistoryStateKey];
-  return typeof value === "string" ? value : null;
-}
-
-function withDetailHistoryState(state: unknown, itemId: string | null) {
-  const existing = state && typeof state === "object" && !Array.isArray(state)
-    ? state as Record<string, unknown>
-    : {};
-  return { ...existing, [detailHistoryStateKey]: itemId };
-}
+type DetailHistoryController = BrowserDetailHistory;
 
 type PlannerCreationSourceContext = Omit<PlannerCreationContext, "tableSettings">;
 
@@ -148,169 +126,14 @@ function sameTags(left: string[] | null | undefined, right: string[] | null | un
   return formatTags(left) === formatTags(right);
 }
 
-function useDetailHistory(controller: WorkbenchController): DetailHistoryController {
-  const controllerRef = useRef(controller);
-  controllerRef.current = controller;
-  const currentDetailIdRef = useRef(controller.detailItem?.id ?? null);
-  const dirtyRef = useRef(false);
-  const applyingHistoryRef = useRef(false);
-  const restoringCurrentEntryRef = useRef(false);
-  const consumeRestorationRef = useRef(false);
-  const deferredRestorationActionRef = useRef<(() => void) | null>(null);
-  const pendingBackRef = useRef(false);
-  const dialogOpenRef = useRef(false);
-  const discardAfterRestoreRef = useRef(false);
-  const [pendingBack, setPendingBack] = React.useState(false);
-
-  useEffect(() => {
-    window.history.replaceState(
-      withDetailHistoryState(window.history.state, currentDetailIdRef.current),
-      "",
-    );
-
-    function restoreCurrentEntry() {
-      restoringCurrentEntryRef.current = true;
-      window.history.forward();
-    }
-
-    function finishDiscard() {
-      pendingBackRef.current = false;
-      setPendingBack(false);
-      dirtyRef.current = false;
-      window.history.back();
-    }
-
-    function handlePopState(event: PopStateEvent) {
-      const currentId = currentDetailIdRef.current;
-      const requestedId = detailIdFromHistoryState(event.state);
-
-      if (restoringCurrentEntryRef.current && requestedId === currentId) {
-        restoringCurrentEntryRef.current = false;
-        const consumeRestoration = consumeRestorationRef.current;
-        consumeRestorationRef.current = false;
-        const deferredAction = deferredRestorationActionRef.current;
-        deferredRestorationActionRef.current = null;
-        if (deferredAction) {
-          discardAfterRestoreRef.current = false;
-          deferredAction();
-        } else if (discardAfterRestoreRef.current) {
-          discardAfterRestoreRef.current = false;
-          finishDiscard();
-        } else if (!consumeRestoration && !dialogOpenRef.current && !pendingBackRef.current) {
-          pendingBackRef.current = true;
-          setPendingBack(true);
-        }
-        return;
-      }
-
-      if (pendingBackRef.current) {
-        restoreCurrentEntry();
-        return;
-      }
-
-      if (dialogOpenRef.current) {
-        restoreCurrentEntry();
-        return;
-      }
-
-      if (currentId && dirtyRef.current) {
-        restoreCurrentEntry();
-        return;
-      }
-
-      const item = requestedId
-        ? controllerRef.current.workspaceItems.allItems.find(({ id }) => id === requestedId)
-        : null;
-      const nextId = item?.id ?? null;
-      if (nextId === currentId) {
-        return;
-      }
-
-      applyingHistoryRef.current = true;
-      if (item) {
-        controllerRef.current.openDetailView(item);
-      } else {
-        controllerRef.current.closeDetailView();
-      }
-    }
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
-  useEffect(() => {
-    const nextId = controller.detailItem?.id ?? null;
-    const previousId = currentDetailIdRef.current;
-    if (nextId === previousId) {
-      return;
-    }
-    currentDetailIdRef.current = nextId;
-
-    if (applyingHistoryRef.current) {
-      applyingHistoryRef.current = false;
-      return;
-    }
-
-    if (nextId) {
-      window.history.pushState(withDetailHistoryState(window.history.state, nextId), "");
-    } else if (previousId) {
-      window.history.replaceState(withDetailHistoryState(window.history.state, null), "");
-    }
-  }, [controller.detailItem?.id]);
-
-  const setDirty = React.useCallback((dirty: boolean) => {
-    dirtyRef.current = dirty;
-  }, []);
-  const setDialogOpen = React.useCallback((open: boolean) => {
-    dialogOpenRef.current = open;
-  }, []);
-
-  return {
-    pendingBack,
-    setDirty,
-    setDialogOpen,
-    deferUntilRestored(action) {
-      if (!restoringCurrentEntryRef.current) {
-        return false;
-      }
-      deferredRestorationActionRef.current ??= action;
-      return true;
-    },
-    requestBack() {
-      if (pendingBackRef.current || restoringCurrentEntryRef.current) {
-        return;
-      }
-      if (dirtyRef.current) {
-        pendingBackRef.current = true;
-        setPendingBack(true);
-      } else {
-        window.history.back();
-      }
-    },
-    cancelBack() {
-      consumeRestorationRef.current = restoringCurrentEntryRef.current;
-      discardAfterRestoreRef.current = false;
-      pendingBackRef.current = false;
-      setPendingBack(false);
-    },
-    discardBack() {
-      if (!pendingBackRef.current) {
-        return;
-      }
-      if (restoringCurrentEntryRef.current) {
-        discardAfterRestoreRef.current = true;
-        return;
-      }
-      pendingBackRef.current = false;
-      setPendingBack(false);
-      dirtyRef.current = false;
-      window.history.back();
-    },
-  };
-}
-
 export function MainPanel({ controller }: MainPanelProps) {
-  const detailHistory = useDetailHistory(controller);
+  const detailHistory = useBrowserDetailHistory({
+    stateKey: "__ravenDetailItemId",
+    currentId: controller.detailItem?.id ?? null,
+    resolve: (id) => controller.workspaceItems.allItems.find((item) => item.id === id) ?? null,
+    open: controller.openDetailView,
+    close: controller.closeDetailView,
+  });
 
   if (controller.detailItem) {
     return (

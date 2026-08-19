@@ -173,6 +173,28 @@ describe("HealthPanel", () => {
     expect(screen.getAllByRole("heading", { name: "Diet" })).toHaveLength(2);
   });
 
+  it("cleans Diet detail history and its listener when the Health leaf changes", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({ preserved: "health" }, "");
+    const removeEventListener = vi.spyOn(window, "removeEventListener");
+    const health = controller();
+    const view = render(<HealthPanel controller={health} leafTabId="diet" />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    expect(window.history.state).toMatchObject({
+      preserved: "health",
+      __ravenHealthDietDetailId: "diet-1",
+    });
+
+    view.rerender(<HealthPanel controller={health} leafTabId="bowel" />);
+
+    expect(screen.getByRole("heading", { name: "Bowel" })).toBeInTheDocument();
+    expect(window.history.state).toMatchObject({
+      preserved: "health",
+      __ravenHealthDietDetailId: null,
+    });
+    expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
+  });
+
   it("keeps timeline and trends loading or error states independent", () => {
     const health = controller({
       ...loadedState,

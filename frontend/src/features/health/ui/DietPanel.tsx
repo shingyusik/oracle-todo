@@ -12,6 +12,7 @@ import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
 import { DietDetail } from "@/features/health/ui/DietDetail";
 import { DietTable } from "@/features/health/ui/DietTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
+import { useBrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type DietPanelProps = {
@@ -78,6 +79,22 @@ export function DietPanel({
   const currentDetailRow = detailRow
     ? activeRows.find(({ id }) => id === detailRow.id) ?? null
     : null;
+  const detailHistory = useBrowserDetailHistory({
+    stateKey: "__ravenHealthDietDetailId",
+    currentId: currentDetailRow?.id ?? null,
+    resolve: (id) => activeRows.find((row) => row.id === id) ?? null,
+    open: (row) => {
+      if (detailOriginRef.current?.rowId !== row.id) {
+        detailOriginRef.current = { occurrence: "", rowId: row.id };
+      }
+      setDetailRow(row);
+    },
+    close: () => {
+      setDetailRow(null);
+      restoreDetailFocus();
+    },
+    clearOnUnmount: true,
+  });
 
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
@@ -103,11 +120,6 @@ export function DietPanel({
         : null);
       (target ?? addButtonRef.current)?.focus();
     });
-  }
-
-  function closeDetail() {
-    setDetailRow(null);
-    restoreDetailFocus();
   }
 
   function toggle(id: string) {
@@ -181,10 +193,11 @@ export function DietPanel({
         controller={controller}
         row={currentDetailRow}
         tagOptions={detailTags}
-        onBack={closeDetail}
+        detailHistory={detailHistory}
         onArchived={(warning) => {
+          detailHistory.setDirty(false);
+          detailHistory.requestBack();
           markArchived(currentDetailRow.id, warning);
-          closeDetail();
         }}
       />
     );

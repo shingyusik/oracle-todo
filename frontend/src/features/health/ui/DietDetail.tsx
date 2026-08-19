@@ -10,6 +10,7 @@ import {
 import type { DietUpdate, MealType } from "@/features/health/model/health-model";
 import type { DietRow } from "@/features/health/model/diet-table";
 import { localDateTimeToRfc3339 } from "@/features/health/ui/HealthForms";
+import type { BrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
@@ -17,7 +18,7 @@ type DietDetailProps = {
   controller: HealthController;
   row: DietRow;
   tagOptions: readonly string[];
-  onBack(): void;
+  detailHistory: BrowserDetailHistory;
   onArchived(refreshWarning?: string): void;
 };
 
@@ -65,7 +66,7 @@ export function DietDetail({
   controller,
   row,
   tagOptions,
-  onBack,
+  detailHistory,
   onArchived,
 }: DietDetailProps) {
   const [baseline] = useState(() => {
@@ -82,7 +83,7 @@ export function DietDetail({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
-  const [confirmation, setConfirmation] = useState<"back" | "archive" | null>(null);
+  const [confirmation, setConfirmation] = useState<"archive" | null>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -108,8 +109,12 @@ export function DietDetail({
 
   function back() {
     if (actionInFlight.current || refreshRecovery) return;
-    if (dirty) setConfirmation("back");
-    else onBack();
+    detailHistory.requestBack();
+  }
+
+  function closeCommittedDetail() {
+    detailHistory.setDirty(false);
+    detailHistory.requestBack();
   }
 
   async function save() {
@@ -124,7 +129,7 @@ export function DietDetail({
         dietPatch(canonicalBaseline, canonicalPresent, draft, baseline.row),
         draft.newImage ?? undefined,
       );
-      onBack();
+      closeCommittedDetail();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save diet entry");
       if (cause instanceof HealthMutationRefreshError) setRefreshRecovery(true);
@@ -139,7 +144,7 @@ export function DietDetail({
     actionInFlight.current = true;
     setPending(true);
     try {
-      if (await controller.refresh()) onBack();
+      if (await controller.refresh()) closeCommittedDetail();
     } finally {
       actionInFlight.current = false;
       setPending(false);
@@ -171,9 +176,19 @@ export function DietDetail({
   }, [draft.newImage]);
 
   useEffect(() => {
+    detailHistory.setDirty(dirty);
+    return () => detailHistory.setDirty(false);
+  }, [detailHistory.setDirty, dirty]);
+
+  useEffect(() => {
+    detailHistory.setDialogOpen(confirmation !== null || detailHistory.pendingBack);
+    return () => detailHistory.setDialogOpen(false);
+  }, [confirmation, detailHistory.pendingBack, detailHistory.setDialogOpen]);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (
-        event.isComposing || actionInFlight.current || refreshRecovery || confirmation ||
+        event.isComposing || actionInFlight.current || refreshRecovery || confirmation || detailHistory.pendingBack ||
         !(event.ctrlKey || event.metaKey)
       ) return;
       const key = event.key.toLowerCase();
@@ -291,14 +306,14 @@ export function DietDetail({
           </label>
         </section>
       </div>
-      {confirmation === "back" ? (
+      {detailHistory.pendingBack ? (
         <DestructiveConfirmationDialog
           title="Discard unsaved changes?"
           description="Your changes will be lost if you leave this detail."
           confirmLabel="Discard changes"
           fallbackFocusRef={backButtonRef}
-          onCancel={() => setConfirmation(null)}
-          onConfirm={async () => onBack()}
+          onCancel={detailHistory.cancelBack}
+          onConfirm={async () => detailHistory.discardBack()}
         />
       ) : null}
       {confirmation === "archive" ? (
