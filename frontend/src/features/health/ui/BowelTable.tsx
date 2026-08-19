@@ -2,13 +2,12 @@
 
 import React, { useLayoutEffect, useRef } from "react";
 
-import type { BowelRow, BowelRowGroup } from "@/features/health/model/bowel-table";
+import type { BowelRowGroup } from "@/features/health/model/bowel-table";
 
-export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onToggle, onToggleAll }: {
+export function BowelTable({ groups, activeRowCount, selectedIds, onToggle, onToggleAll }: {
   groups: BowelRowGroup[];
   activeRowCount: number;
   selectedIds: string[];
-  onOpen?: (row: BowelRow, occurrence: string) => void;
   onToggle(id: string): void;
   onToggleAll(): void;
 }) {
@@ -33,18 +32,16 @@ export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onTogg
         <td className="items-message workspace-table-empty-cell" colSpan={5}>
           {activeRowCount === 0 ? "No bowel entries yet." : "No bowel entries match this view."}
         </td>
-      </tr></tbody> : groups.map((group, groupIndex) =>
+      </tr></tbody> : groups.map((group) =>
         <tbody key={group.key} aria-label={group.label ? `${group.label} group` : undefined}>
           {group.label ? <tr className="workspace-group-heading">
             <th scope="rowgroup" colSpan={5}>{group.label}</th></tr> : null}
           {group.rows.map((row, rowIndex) => {
-            const occurrence = `${groupIndex}-${rowIndex}`;
             const context = `Type ${row.bristolScale}, ${row.date} ${row.timeLabel}, ${row.bloodLabel}`;
-            return <tr key={`${row.id}-${occurrence}`}>
+            return <tr key={`${group.key}-${row.id}-${rowIndex}`}>
               <td className="selection-column"><input type="checkbox" aria-label={`Select ${context}`}
                 checked={selectedIds.includes(row.id)} onChange={() => onToggle(row.id)} /></td>
-              <td>{onOpen ? <button type="button" aria-label={`Open details for ${context}`}
-                onClick={() => onOpen(row, occurrence)}>{row.timeLabel}</button> : row.timeLabel}</td>
+              <td>{row.timeLabel}</td>
               <td>{`Type ${row.bristolScale}`}</td><td>{row.bloodLabel}</td><td>{row.note}</td>
             </tr>;
           })}

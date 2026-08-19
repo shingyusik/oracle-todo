@@ -432,48 +432,39 @@ function BowelPanelHarness({ controller }: { controller: HealthController }) {
 }
 
 describe("Bowel table workflow", () => {
-  it("renders native columns, values, contextual selection, and an optional Time activation", async () => {
-    const user = userEvent.setup();
-    const open = vi.fn();
+  it("renders native columns, values, contextual selection, and plain Time text", () => {
     const groups = deriveBowelGroups([event], defaultHealthTableSettings("health.bowel"));
     render(<BowelTable groups={groups} activeRowCount={1} selectedIds={[]}
-      onOpen={open} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
+      onToggle={vi.fn()} onToggleAll={vi.fn()} />);
     expect(within(screen.getByRole("table", { name: "Bowel entries" }))
       .getAllByRole("columnheader").map((cell) => cell.textContent))
       .toEqual(["", "Time", "Bristol Scale", "Blood Visible", "Note"]);
     expect(screen.getByText("Type 4")).toBeInTheDocument();
     expect(screen.getByText("No")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Select Type 4.*No/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({ id: event.id }), "0-0");
+    expect(screen.queryByRole("button", { name: /Open details for Type 4/ })).toBeNull();
   });
 
-  it("deduplicates repeated logical rows while preserving unique occurrence callbacks", async () => {
+  it("deduplicates repeated logical rows across constructed groups", async () => {
     const user = userEvent.setup();
     const row = deriveBowelGroups([event], defaultHealthTableSettings("health.bowel"))[0]!.rows[0]!;
     const groups: BowelRowGroup[] = [
       { key: "first", label: "First", rows: [row] },
       { key: "second", label: "Second", rows: [row] },
     ];
-    const open = vi.fn();
     const toggle = vi.fn();
     const toggleAll = vi.fn();
     const view = render(<BowelTable groups={groups} activeRowCount={1} selectedIds={[]}
-      onOpen={open} onToggle={toggle} onToggleAll={toggleAll} />);
+      onToggle={toggle} onToggleAll={toggleAll} />);
     await user.click(screen.getByRole("checkbox", { name: "Select all visible bowel entries" }));
     expect(toggleAll).toHaveBeenCalledOnce();
     view.rerender(<BowelTable groups={groups} activeRowCount={1} selectedIds={[event.id]}
-      onOpen={open} onToggle={toggle} onToggleAll={toggleAll} />);
+      onToggle={toggle} onToggleAll={toggleAll} />);
     expect(screen.getByRole("checkbox", { name: "Select all visible bowel entries" })).toBeChecked();
     expect(screen.getAllByRole("checkbox", { name: /Select Type 4/ })).toHaveLength(2);
     await user.click(screen.getAllByRole("checkbox", { name: /Select Type 4/ })[1]!);
     expect(toggle).toHaveBeenCalledOnce();
     expect(toggle).toHaveBeenCalledWith(event.id);
-    const times = screen.getAllByRole("button", { name: /Open details for Type 4/ });
-    await user.click(times[0]!);
-    await user.click(times[1]!);
-    expect(open).toHaveBeenNthCalledWith(1, row, "0-0");
-    expect(open).toHaveBeenNthCalledWith(2, row, "1-0");
   });
 
   it("scopes saved views and exposes only Bowel filter, sort, and group choices", async () => {
