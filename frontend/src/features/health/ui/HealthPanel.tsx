@@ -21,9 +21,16 @@ export function HealthPanel({
   const [dietTombstonedIds, setDietTombstonedIds] = useState<Set<string>>(() => new Set());
   const [dietRefreshWarning, setDietRefreshWarning] = useState<string | null>(null);
   const [dietRefreshPending, setDietRefreshPending] = useState(false);
+  const [bowelTombstonedIds, setBowelTombstonedIds] = useState<Set<string>>(() => new Set());
+  const [bowelRefreshWarning, setBowelRefreshWarning] = useState<string | null>(null);
+  const [bowelRefreshPending, setBowelRefreshPending] = useState(false);
   const dietRecoveryBaselines = useRef(new Map<
     string,
     HealthController["state"]["dietEntries"]
+  >());
+  const bowelRecoveryBaselines = useRef(new Map<
+    string,
+    HealthController["state"]["bowelEntries"]
   >());
 
   useEffect(() => {
@@ -57,6 +64,24 @@ export function HealthPanel({
     dietTombstonedIds,
   ]);
 
+  useEffect(() => {
+    if (controller.state.bowelStatus !== "loaded" || controller.state.bowelError !== null ||
+      bowelRefreshPending || bowelRefreshWarning !== null || bowelTombstonedIds.size === 0) return;
+    const activeIds = new Set(controller.state.bowelEntries
+      .filter(({ deletedAt }) => deletedAt === null).map(({ id }) => id));
+    const next = new Set<string>();
+    for (const id of bowelTombstonedIds) {
+      const baseline = bowelRecoveryBaselines.current.get(id);
+      if (baseline === controller.state.bowelEntries) next.add(id);
+      else {
+        bowelRecoveryBaselines.current.delete(id);
+        if (activeIds.has(id)) next.add(id);
+      }
+    }
+    if (next.size !== bowelTombstonedIds.size) setBowelTombstonedIds(next);
+  }, [controller.state.bowelEntries, controller.state.bowelError, controller.state.bowelStatus,
+    bowelRefreshPending, bowelRefreshWarning, bowelTombstonedIds]);
+
   function archiveCommitted(id: string, refreshWarning?: string) {
     if (refreshWarning) {
       dietRecoveryBaselines.current.set(id, controller.state.dietEntries);
@@ -79,8 +104,30 @@ export function HealthPanel({
     }
   }
 
+  function bowelArchiveCommitted(id: string, refreshWarning?: string) {
+    if (refreshWarning) {
+      bowelRecoveryBaselines.current.set(id, controller.state.bowelEntries);
+      setBowelRefreshWarning(refreshWarning);
+    }
+    setBowelTombstonedIds((current) => current.has(id) ? current : new Set(current).add(id));
+  }
+
+  async function retryBowelRefresh() {
+    for (const id of bowelTombstonedIds) {
+      bowelRecoveryBaselines.current.set(id, controller.state.bowelEntries);
+    }
+    setBowelRefreshPending(true);
+    try {
+      if (await controller.refreshBowel()) setBowelRefreshWarning(null);
+    } finally {
+      setBowelRefreshPending(false);
+    }
+  }
+
   const panel = leafTabId === "bowel"
-    ? <BowelPanel controller={controller} />
+    ? <BowelPanel controller={controller} tombstonedIds={bowelTombstonedIds}
+        onArchiveCommitted={bowelArchiveCommitted} refreshWarning={bowelRefreshWarning}
+        refreshPending={bowelRefreshPending} onRetryRefresh={retryBowelRefresh} />
     : leafTabId === "medication"
       ? <MedicationPanel controller={controller} />
       : leafTabId === "health-metrics"

@@ -29,6 +29,8 @@ export type PlannerFilterField =
   | "meal_type"
   | "food"
   | "has_photo"
+  | "bristol_scale"
+  | "blood_visible"
   | "account"
   | "category"
   | "amount"
@@ -100,6 +102,8 @@ export type PlannerGroupBy =
   | "entry_type"
   | "meal_type"
   | "has_photo"
+  | "bristol_scale"
+  | "blood_visible"
   | "account"
   | "category"
   | "account_type"
@@ -129,6 +133,8 @@ export const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterTy
   meal_type: "select",
   food: "text",
   has_photo: "select",
+  bristol_scale: "select",
+  blood_visible: "select",
   account: "relation",
   category: "relation",
   amount: "number",

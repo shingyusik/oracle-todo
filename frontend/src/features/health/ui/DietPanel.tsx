@@ -7,7 +7,10 @@ import {
   type HealthController,
 } from "@/features/health/hooks/useHealthController";
 import { deriveDietGroups, type DietRow } from "@/features/health/model/diet-table";
-import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
+import {
+  defaultHealthTableSettings,
+  healthDietFilterSelectOptions,
+} from "@/features/health/model/health-table-views";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
 import { DietDetail } from "@/features/health/ui/DietDetail";
 import { DietTable } from "@/features/health/ui/DietTable";
@@ -66,6 +69,15 @@ export function DietPanel({
     () => deriveDietGroups(entries, controller.tableSettings("health.diet")),
     [controller, entries],
   );
+  const candidates = useMemo(() => deriveDietGroups(entries, {
+    ...defaultHealthTableSettings("health.diet"),
+    groupSettings: {
+      ...controller.tableSettings("health.diet").groupSettings,
+      hideEmpty: false, manualOrder: [], hiddenGroupKeys: [],
+    },
+  }).filter(({ label }) => label !== null).map(({ key, label, rows }) => ({
+    key, label: label!, count: rows.length,
+  })), [controller, entries]);
   const visibleRows = useMemo(() => groups.flatMap(({ rows }) => rows), [groups]);
   const logicalVisibleRows = useMemo(() => uniqueRows(visibleRows), [visibleRows]);
   const selectedVisibleIds = useMemo(
@@ -207,7 +219,15 @@ export function DietPanel({
     <section ref={tableRef} aria-labelledby="health-diet-heading">
       <HealthTableViewHeader
         controller={controller}
-        entries={entries}
+        scope="health.diet"
+        title="Diet"
+        headingId="health-diet-heading"
+        fieldLabels={{ meal_type: "Meal", has_photo: "Photo" }}
+        fieldOptions={{
+          ...healthDietFilterSelectOptions,
+          tags: detailTags.map((tag) => ({ value: tag, label: tag })),
+        }}
+        candidates={candidates}
         onAdd={() => setCreateOpen(true)}
         addButtonRef={addButtonRef}
         onArchiveSelected={() => {

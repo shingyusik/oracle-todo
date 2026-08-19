@@ -22,6 +22,7 @@ import {
   plannerTableIds,
   sortPlannerItems,
   type PlannerFilterRule,
+  plannerFilterFieldTypes,
 } from "@/features/workbench/model/planner-model";
 import type {
   LegacyPlannerControls,
@@ -209,6 +210,10 @@ function legacyPlannerControls(): LegacyPlannerControls {
 }
 
 describe("planner model", () => {
+  it("defines Bowel fields as select filters", () => {
+    expect(plannerFilterFieldTypes.bristol_scale).toBe("select");
+    expect(plannerFilterFieldTypes.blood_visible).toBe("select");
+  });
   it("exports the existing value-level filter semantics", () => {
     expect(matchesPlannerFilterValue("Focus block", {
       id: "text", field: "title", type: "text", operator: "contains", value: "focus",

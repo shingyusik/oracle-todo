@@ -1033,6 +1033,18 @@ export function tableViewFilterFieldConfigs(
       type: "select",
       options: filterOptions.fieldOptions?.has_photo ?? [],
     },
+    bristol_scale: {
+      field: "bristol_scale",
+      label: "Bristol Scale",
+      type: "select",
+      options: filterOptions.fieldOptions?.bristol_scale ?? [],
+    },
+    blood_visible: {
+      field: "blood_visible",
+      label: "Blood Visible",
+      type: "select",
+      options: filterOptions.fieldOptions?.blood_visible ?? [],
+    },
     account: {
       field: "account",
       label: "Account",

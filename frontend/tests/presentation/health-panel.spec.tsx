@@ -93,6 +93,9 @@ const trends: HealthTrends = {
 };
 
 const loadedState: HealthState = {
+  bowelStatus: "loaded",
+  bowelError: null,
+  bowelEntries: [bowel],
   dietStatus: "loaded",
   dietError: null,
   dietEntries: [diet],
@@ -131,6 +134,7 @@ function controller(state: HealthState = loadedState): HealthController {
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshBowel: vi.fn(),
     refreshDiet: vi.fn(),
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
@@ -139,6 +143,8 @@ function controller(state: HealthState = loadedState): HealthController {
     updateDiet: vi.fn(),
     archiveDiet: vi.fn(),
     createBowel: vi.fn(),
+    updateBowel: vi.fn(),
+    archiveBowel: vi.fn(),
     createMedication: vi.fn(),
     upsertMetrics: vi.fn(),
     archive: vi.fn(),
@@ -191,6 +197,27 @@ describe("HealthPanel", () => {
     expect(window.history.state).toMatchObject({
       preserved: "health",
       __ravenHealthDietDetailId: null,
+    });
+    expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
+  });
+
+  it("cleans only Bowel detail history when the Health leaf changes", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({ __ravenHealthDietDetailId: "keep-diet" }, "");
+    const removeEventListener = vi.spyOn(window, "removeEventListener");
+    const health = controller();
+    const view = render(<HealthPanel controller={health} leafTabId="bowel" />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    expect(window.history.state).toMatchObject({
+      __ravenHealthDietDetailId: "keep-diet",
+      __ravenHealthBowelDetailId: bowel.id,
+    });
+
+    view.rerender(<HealthPanel controller={health} leafTabId="trends" />);
+
+    expect(window.history.state).toMatchObject({
+      __ravenHealthDietDetailId: "keep-diet",
+      __ravenHealthBowelDetailId: null,
     });
     expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
   });
@@ -519,8 +546,66 @@ describe("HealthPanel", () => {
     expect(screen.queryByText("Bibimbap")).toBeNull();
   });
 
+  it("reconciles committed Bowel recovery only from new authoritative loaded arrays", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.archiveBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshBowel = vi.fn().mockResolvedValue(true);
+    const view = render(<HealthPanel controller={health} leafTabId="bowel" />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Select Type 4/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected bowel entries" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected bowel entries?",
+    })).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("Type 4")).toBeNull());
+
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, bowelStatus: "loading",
+    } }} leafTabId="bowel" />);
+    expect(screen.queryByText("Type 4")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, bowelError: "stale refresh error",
+    } }} leafTabId="bowel" />);
+    expect(screen.queryByText("Type 4")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+    view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
+    view.rerender(<HealthPanel controller={health} leafTabId="bowel" />);
+    expect(screen.queryByText("Type 4")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refreshBowel).toHaveBeenCalledOnce();
+    expect(health.refresh).not.toHaveBeenCalled();
+    expect(health.archiveBowel).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Type 4")).toBeNull();
+
+    const stillActive = [{ ...bowel }];
+    view.rerender(<HealthPanel controller={{
+      ...health,
+      state: { ...health.state, bowelEntries: stillActive, bowelError: null },
+    }} leafTabId="bowel" />);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText("Type 4")).toBeNull();
+
+    const withoutArchived: HealthEvent[] = [];
+    view.rerender(<HealthPanel controller={{
+      ...health,
+      state: { ...health.state, bowelEntries: withoutArchived, bowelError: null },
+    }} leafTabId="bowel" />);
+    expect(screen.getByText("No bowel entries yet.")).toBeInTheDocument();
+    view.rerender(<HealthPanel controller={{
+      ...health,
+      state: { ...health.state, bowelEntries: [{ ...bowel }], bowelError: null },
+    }} leafTabId="bowel" />);
+    await waitFor(() => expect(screen.getByText("Type 4")).toBeInTheDocument());
+  });
+
   it("loads, normalizes, edits, and persists Health Diet views", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
@@ -585,6 +670,7 @@ describe("HealthPanel", () => {
 
   it("replays queued Health view commands over stored preferences", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
     const stored = deferred<Response>();
@@ -608,6 +694,7 @@ describe("HealthPanel", () => {
 
   it("uses last-write-wins Health view errors and retries the current state", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
     let putCount = 0;
@@ -681,6 +768,7 @@ describe("HealthPanel", () => {
 
   it("ignores an older Health view write failure after a newer save succeeds", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
     let putCount = 0;

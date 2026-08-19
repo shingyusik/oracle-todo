@@ -11,6 +11,8 @@ import type {
   DietInput,
   DietUpdate,
   EventInput,
+  EventUpdate,
+  HealthEvent,
   HealthTrends,
   TimelineItem,
 } from "@/features/health/model/health-model";
@@ -57,6 +59,9 @@ export class HealthMutationRefreshError extends Error {
 }
 
 export type HealthState = {
+  bowelStatus: LoadStatus;
+  bowelError: string | null;
+  bowelEntries: HealthEvent[];
   dietStatus: LoadStatus;
   dietError: string | null;
   dietEntries: DietEntry[];
@@ -89,6 +94,7 @@ export type HealthController = {
   confirmTableViewAction(): void;
   cancelTableViewAction(): void;
   refresh(): Promise<boolean>;
+  refreshBowel(): Promise<boolean>;
   refreshDiet(): Promise<boolean>;
   refreshTimeline(): Promise<void>;
   loadMoreTimeline(): Promise<void>;
@@ -97,6 +103,8 @@ export type HealthController = {
   updateDiet(id: string, input: DietUpdate, image?: Blob): Promise<void>;
   archiveDiet(id: string): Promise<void>;
   createBowel(input: EventInput): Promise<void>;
+  updateBowel(id: string, input: EventUpdate): Promise<void>;
+  archiveBowel(id: string): Promise<void>;
   createMedication(input: EventInput): Promise<void>;
   upsertMetrics(input: DailyMetricInput[]): Promise<void>;
   archive(kind: HealthRecordKind, id: string): Promise<void>;
@@ -106,7 +114,11 @@ export type HealthController = {
 
 const PAGE_SIZE = 100;
 const DIET_PAGE_SIZE = 200;
+const BOWEL_PAGE_SIZE = 200;
 const initialState: HealthState = {
+  bowelStatus: "idle",
+  bowelError: null,
+  bowelEntries: [],
   dietStatus: "idle",
   dietError: null,
   dietEntries: [],
@@ -175,6 +187,9 @@ export function useHealthController(): HealthController {
   const dietGeneration = useRef(0);
   const inFlightDietRefresh = useRef<Promise<boolean> | null>(null);
   const latestDietOutcome = useRef<Promise<boolean> | null>(null);
+  const bowelGeneration = useRef(0);
+  const inFlightBowelRefresh = useRef<Promise<boolean> | null>(null);
+  const latestBowelOutcome = useRef<Promise<boolean> | null>(null);
   const timelineGeneration = useRef(0);
   const latestTimelineOutcome = useRef<Promise<RefreshOutcome> | null>(null);
   const trendsGeneration = useRef(0);
@@ -288,6 +303,58 @@ export function useHealthController(): HealthController {
     [startDietRefresh],
   );
 
+  const startBowelRefresh = useCallback((force = false): Promise<boolean> => {
+    if (!force && inFlightBowelRefresh.current) return inFlightBowelRefresh.current;
+    const generation = ++bowelGeneration.current;
+    setState((current) => current.bowelStatus === "loaded"
+      ? { ...current, bowelError: null }
+      : { ...current, bowelStatus: "loading", bowelError: null });
+    const request = (async () => {
+      try {
+        const bowelEntries: HealthEvent[] = [];
+        let offset = 0;
+        let page: HealthEvent[];
+        do {
+          page = await healthApi.listEvents({
+            category: "bowel",
+            limit: BOWEL_PAGE_SIZE,
+            offset,
+          });
+          bowelEntries.push(...page);
+          offset += page.length;
+        } while (page.length === BOWEL_PAGE_SIZE);
+        if (generation !== bowelGeneration.current) {
+          return latestBowelOutcome.current ?? false;
+        }
+        setState((current) => ({
+          ...current,
+          bowelStatus: "loaded",
+          bowelError: null,
+          bowelEntries,
+        }));
+        return true;
+      } catch (error) {
+        if (generation !== bowelGeneration.current) {
+          return latestBowelOutcome.current ?? false;
+        }
+        setState((current) => current.bowelStatus === "loaded"
+          ? { ...current, bowelError: errorMessage(error, "Bowel request failed") }
+          : {
+            ...current,
+            bowelStatus: "error",
+            bowelError: errorMessage(error, "Bowel request failed"),
+          });
+        return false;
+      }
+    })();
+    latestBowelOutcome.current = request;
+    inFlightBowelRefresh.current = request;
+    void request.finally(() => {
+      if (inFlightBowelRefresh.current === request) inFlightBowelRefresh.current = null;
+    });
+    return request;
+  }, []);
+
   const refreshTimelineOutcome = useCallback((): Promise<RefreshOutcome> => {
     const generation = ++timelineGeneration.current;
     setState((current) => ({
@@ -383,9 +450,10 @@ export function useHealthController(): HealthController {
 
   useEffect(() => {
     void refreshDiet();
+    void startBowelRefresh();
     void refreshTimeline();
     void refreshTrends();
-  }, [refreshDiet, refreshTimeline, refreshTrends]);
+  }, [refreshDiet, refreshTimeline, refreshTrends, startBowelRefresh]);
 
   const loadMoreTimeline = useCallback(async () => {
     if (loadingPage.current) return;
@@ -415,7 +483,7 @@ export function useHealthController(): HealthController {
     }
   }, [timelineOffset]);
 
-  const refreshAll = useCallback(async (forceDiet = false) => {
+  const refreshDietReads = useCallback(async (forceDiet = false) => {
     const [dietOk, timeline, trend] = await Promise.all([
       startDietRefresh(forceDiet),
       refreshTimelineOutcome(),
@@ -424,11 +492,37 @@ export function useHealthController(): HealthController {
     return dietOk && timeline.ok && trend.ok;
   }, [startDietRefresh, refreshTimelineOutcome, refreshTrendsOutcome]);
 
-  const refresh = useCallback(() => refreshAll(), [refreshAll]);
+  const refreshBowelReads = useCallback(async (forceBowel = false) => {
+    const [bowelOk, timeline, trend] = await Promise.all([
+      startBowelRefresh(forceBowel),
+      refreshTimelineOutcome(),
+      refreshTrendsOutcome(),
+    ]);
+    return bowelOk && timeline.ok && trend.ok;
+  }, [startBowelRefresh, refreshTimelineOutcome, refreshTrendsOutcome]);
+
+  const refresh = useCallback(async () => {
+    const [dietOk, bowelOk, timeline, trend] = await Promise.all([
+      startDietRefresh(),
+      startBowelRefresh(),
+      refreshTimelineOutcome(),
+      refreshTrendsOutcome(),
+    ]);
+    return dietOk && bowelOk && timeline.ok && trend.ok;
+  }, [startDietRefresh, startBowelRefresh, refreshTimelineOutcome, refreshTrendsOutcome]);
+
+  const refreshBowel = useCallback(
+    () => refreshBowelReads(),
+    [refreshBowelReads],
+  );
 
   const refreshAfterMutation = useCallback(async () => {
-    if (!await refreshAll(true)) throw new HealthMutationRefreshError();
-  }, [refreshAll]);
+    if (!await refreshDietReads(true)) throw new HealthMutationRefreshError();
+  }, [refreshDietReads]);
+
+  const refreshAfterBowelMutation = useCallback(async () => {
+    if (!await refreshBowelReads(true)) throw new HealthMutationRefreshError();
+  }, [refreshBowelReads]);
 
   const refreshAfterEventMutation = useCallback(async () => {
     const [timeline, trend] = await Promise.all([
@@ -564,6 +658,7 @@ export function useHealthController(): HealthController {
     confirmTableViewAction,
     cancelTableViewAction: () => setTableViewConfirmation(null),
     refresh,
+    refreshBowel,
     refreshDiet,
     refreshTimeline,
     loadMoreTimeline,
@@ -576,7 +671,12 @@ export function useHealthController(): HealthController {
       ? healthApi.updateDietWithImage(id, { image, metadata: input })
       : healthApi.updateDiet(id, input)),
     archiveDiet: (id) => mutate(() => healthApi.archiveDiet(id)),
-    createBowel: (input) => mutate(() => healthApi.createEvent(input), refreshAfterEventMutation),
+    createBowel: (input) => mutate(() => healthApi.createEvent(input), refreshAfterBowelMutation),
+    updateBowel: (id, input) => mutate(
+      () => healthApi.updateEvent(id, input),
+      refreshAfterBowelMutation,
+    ),
+    archiveBowel: (id) => mutate(() => healthApi.archiveEvent(id), refreshAfterBowelMutation),
     createMedication: (input) => mutate(() => healthApi.createEvent(input), refreshAfterEventMutation),
     upsertMetrics: (input) => mutate(() => healthApi.upsertDailyMetrics(input), refreshAfterEventMutation),
     archive: (kind, id) => mutate(() =>
