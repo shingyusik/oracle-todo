@@ -525,7 +525,7 @@ describe("HealthPanel", () => {
     expect(screen.queryByText("Bibimbap")).toBeNull();
   });
 
-  it("preserves committed Bowel recovery across Bowel to Diet to Bowel lifetime", async () => {
+  it("reconciles committed Bowel recovery only from new authoritative loaded arrays", async () => {
     const user = userEvent.setup();
     const health = controller();
     health.archiveBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
@@ -539,6 +539,16 @@ describe("HealthPanel", () => {
     })).getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(screen.queryByText("Type 4")).toBeNull());
 
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, bowelStatus: "loading",
+    } }} leafTabId="bowel" />);
+    expect(screen.queryByText("Type 4")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, bowelError: "stale refresh error",
+    } }} leafTabId="bowel" />);
+    expect(screen.queryByText("Type 4")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
     view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
     view.rerender(<HealthPanel controller={health} leafTabId="bowel" />);
     expect(screen.queryByText("Type 4")).toBeNull();
@@ -551,12 +561,25 @@ describe("HealthPanel", () => {
     expect(health.archiveBowel).toHaveBeenCalledOnce();
     expect(screen.queryByText("Type 4")).toBeNull();
 
+    const stillActive = [{ ...bowel }];
     view.rerender(<HealthPanel controller={{
       ...health,
-      state: { ...health.state, bowelEntries: [], bowelError: null },
+      state: { ...health.state, bowelEntries: stillActive, bowelError: null },
     }} leafTabId="bowel" />);
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText("Type 4")).toBeNull();
+
+    const withoutArchived: HealthEvent[] = [];
+    view.rerender(<HealthPanel controller={{
+      ...health,
+      state: { ...health.state, bowelEntries: withoutArchived, bowelError: null },
+    }} leafTabId="bowel" />);
     expect(screen.getByText("No bowel entries yet.")).toBeInTheDocument();
+    view.rerender(<HealthPanel controller={{
+      ...health,
+      state: { ...health.state, bowelEntries: [{ ...bowel }], bowelError: null },
+    }} leafTabId="bowel" />);
+    await waitFor(() => expect(screen.getByText("Type 4")).toBeInTheDocument());
   });
 
   it("loads, normalizes, edits, and persists Health Diet views", async () => {

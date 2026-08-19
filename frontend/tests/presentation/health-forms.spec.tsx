@@ -137,6 +137,18 @@ function BowelDialogHarness({
   </>;
 }
 
+function BowelPanelHarness({ health }: { health: HealthController }) {
+  const [tombstonedIds, setTombstonedIds] = React.useState<Set<string>>(() => new Set());
+  const [refreshWarning, setRefreshWarning] = React.useState<string | null>(null);
+  return <BowelPanel controller={health} tombstonedIds={tombstonedIds}
+    onArchiveCommitted={(id, warning) => {
+      setTombstonedIds((current) => new Set(current).add(id));
+      if (warning) setRefreshWarning(warning);
+    }}
+    refreshWarning={refreshWarning} refreshPending={false}
+    onRetryRefresh={async () => { await health.refreshBowel(); }} />;
+}
+
 describe("Health Journal forms", () => {
   it("gives each tag popup a distinct valid listbox relationship", async () => {
     const user = userEvent.setup();
@@ -185,7 +197,11 @@ describe("Health Journal forms", () => {
   it("submits structured Bowel fields with a Bristol value from 1 to 7", async () => {
     const user = userEvent.setup();
     const health = controller();
-    render(<BowelPanel controller={health} />);
+    render(<BowelPanelHarness health={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    expect(screen.getByRole("option", { name: "Type 1" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Type 7" })).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Bristol Scale"), "4");
     await user.click(screen.getByLabelText("Blood Visible"));
@@ -196,8 +212,11 @@ describe("Health Journal forms", () => {
       details: { kind: "bowel", bristolScale: 4, bloodVisible: true },
       note: "After breakfast",
     }));
-    expect(screen.getByRole("option", { name: "Type 1" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Type 7" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull());
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("4");
+    expect(screen.getByLabelText("Blood Visible")).not.toBeChecked();
+    expect(screen.getByLabelText("Note")).toHaveValue("");
   });
 
   it("freezes a committed Bowel draft and retries only its refresh", async () => {
@@ -205,7 +224,9 @@ describe("Health Journal forms", () => {
       createBowel: vi.fn().mockRejectedValue(new HealthMutationRefreshError()),
       refreshBowel: vi.fn().mockResolvedValue(false),
     });
-    render(<BowelPanel controller={health} />);
+    render(<BowelPanelHarness health={health} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Add bowel entry" }));
 
     fireEvent.change(screen.getByLabelText("Time"), {
       target: { value: "2026-08-17T08:30" },

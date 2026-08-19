@@ -12,16 +12,15 @@ import { DestructiveConfirmationDialog } from "@/features/workbench/ui/Destructi
 
 type BowelPanelProps = {
   controller: HealthController;
-  tombstonedIds?: ReadonlySet<string>;
-  onArchiveCommitted?: (id: string, refreshWarning?: string) => void;
-  refreshWarning?: string | null;
-  refreshPending?: boolean;
-  onRetryRefresh?: () => Promise<void>;
+  tombstonedIds: ReadonlySet<string>;
+  onArchiveCommitted: (id: string, refreshWarning?: string) => void;
+  refreshWarning: string | null;
+  refreshPending: boolean;
+  onRetryRefresh: () => Promise<void>;
 };
-const noTombstones: ReadonlySet<string> = new Set();
 
-export function BowelPanel({ controller, tombstonedIds = noTombstones, onArchiveCommitted,
-  refreshWarning = null, refreshPending = false, onRetryRefresh }: BowelPanelProps) {
+export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
+  refreshWarning, refreshPending, onRetryRefresh }: BowelPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [archiveTargets, setArchiveTargets] = useState<string[] | null>(null);
@@ -70,7 +69,7 @@ export function BowelPanel({ controller, tombstonedIds = noTombstones, onArchive
       ? current.filter((id) => !visibleIds.has(id)) : [...new Set([...current, ...visibleIds])]);
   }
   function markArchived(id: string, warning?: string) {
-    onArchiveCommitted?.(id, warning);
+    onArchiveCommitted(id, warning);
     setSelectedIds((current) => current.filter((candidate) => candidate !== id));
     setArchiveTargets((current) => current?.filter((candidate) => candidate !== id) ?? null);
   }
@@ -121,7 +120,7 @@ export function BowelPanel({ controller, tombstonedIds = noTombstones, onArchive
       onToggle={toggle} onToggleAll={toggleAll} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>
       <button type="button" disabled={refreshPending}
-        onClick={() => void (onRetryRefresh?.() ?? controller.refreshBowel())}>Retry</button></div>
+        onClick={() => void onRetryRefresh()}>Retry</button></div>
       : controller.state.bowelError ? <p role="alert" className="items-message">
         {controller.state.bowelError}</p> : null}
     {archiveError && archiveTargets === null
