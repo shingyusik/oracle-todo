@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   HealthMutationRefreshError,
@@ -42,7 +42,7 @@ export function DietPanel({
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const tableRef = useRef<HTMLElement>(null);
-  const detailOriginIdRef = useRef<string | null>(null);
+  const detailOriginRef = useRef<{ occurrence: string; rowId: string } | null>(null);
 
   useEffect(() => {
     if (controller.state.dietStatus === "idle") void controller.refreshDiet();
@@ -66,9 +66,10 @@ export function DietPanel({
     [controller, entries],
   );
   const visibleRows = useMemo(() => groups.flatMap(({ rows }) => rows), [groups]);
+  const logicalVisibleRows = useMemo(() => uniqueRows(visibleRows), [visibleRows]);
   const selectedVisibleIds = useMemo(
-    () => visibleRows.filter(({ id }) => selectedIds.includes(id)).map(({ id }) => id),
-    [selectedIds, visibleRows],
+    () => logicalVisibleRows.filter(({ id }) => selectedIds.includes(id)).map(({ id }) => id),
+    [logicalVisibleRows, selectedIds],
   );
   const detailTags = useMemo(
     () => [...new Set(entries.flatMap(({ tags }) => tags))],
@@ -77,14 +78,6 @@ export function DietPanel({
   const currentDetailRow = detailRow
     ? activeRows.find(({ id }) => id === detailRow.id) ?? null
     : null;
-
-  useLayoutEffect(() => {
-    const elements = tableRef.current?.querySelectorAll<HTMLElement>('tr[role="button"]');
-    elements?.forEach((element, index) => {
-      const row = visibleRows[index];
-      if (row) element.id = dietRowDomId(row.id);
-    });
-  }, [currentDetailRow, visibleRows]);
 
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
@@ -100,8 +93,14 @@ export function DietPanel({
 
   function restoreDetailFocus() {
     requestAnimationFrame(() => {
-      const id = detailOriginIdRef.current;
-      const target = id ? document.getElementById(id) : null;
+      const origin = detailOriginRef.current;
+      const exact = origin
+        ? tableRef.current?.querySelector<HTMLElement>(`[data-diet-occurrence="${origin.occurrence}"]`)
+        : null;
+      const target = exact ?? (origin
+        ? [...(tableRef.current?.querySelectorAll<HTMLElement>("[data-diet-row-id]") ?? [])]
+          .find((element) => element.dataset.dietRowId === origin.rowId)
+        : null);
       (target ?? addButtonRef.current)?.focus();
     });
   }
@@ -118,8 +117,8 @@ export function DietPanel({
   }
 
   function toggleAll() {
-    const visibleIds = new Set(visibleRows.map(({ id }) => id));
-    const allSelected = visibleRows.length > 0 && visibleRows.every(({ id }) =>
+    const visibleIds = new Set(logicalVisibleRows.map(({ id }) => id));
+    const allSelected = logicalVisibleRows.length > 0 && logicalVisibleRows.every(({ id }) =>
       selectedIds.includes(id));
     setSelectedIds((current) => allSelected
       ? current.filter((id) => !visibleIds.has(id))
@@ -209,8 +208,8 @@ export function DietPanel({
         groups={groups}
         activeRowCount={activeRows.length}
         selectedIds={selectedIds}
-        onOpen={(row) => {
-          detailOriginIdRef.current = dietRowDomId(row.id);
+        onOpen={(row, occurrence) => {
+          detailOriginRef.current = { occurrence, rowId: row.id };
           setDetailRow(row);
         }}
         onToggle={toggle}
@@ -256,6 +255,11 @@ export function DietPanel({
   );
 }
 
-function dietRowDomId(id: string): string {
-  return `diet-row-${id}`;
+function uniqueRows(rows: readonly DietRow[]): DietRow[] {
+  const ids = new Set<string>();
+  return rows.filter(({ id }) => {
+    if (ids.has(id)) return false;
+    ids.add(id);
+    return true;
+  });
 }

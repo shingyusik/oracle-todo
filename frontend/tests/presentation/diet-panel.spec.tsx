@@ -1007,6 +1007,48 @@ describe("DietPanel table", () => {
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: /Select Soup/ })).toBeNull());
   });
 
+  it("treats multi-tag occurrences as one logical selection and archive target", async () => {
+    const user = userEvent.setup();
+    const health = controller({
+      ...loadedState,
+      dietEntries: [{ ...entry, tags: ["rice", "spicy"] }],
+    });
+    const grouped = defaultHealthTableSettings("health.diet");
+    grouped.groupSettings = { ...grouped.groupSettings, groupBy: "tag" };
+    render(<DietPanel controller={{ ...health, tableSettings: () => grouped }} />);
+
+    const occurrences = screen.getAllByRole("button", { name: /Open details for Bibimbap/ });
+    expect(occurrences).toHaveLength(2);
+    expect(occurrences[0]).not.toHaveAttribute("id");
+    expect(occurrences[1]).not.toHaveAttribute("id");
+    await user.click(screen.getAllByRole("checkbox", { name: /Select Bibimbap/ })[1]!);
+    expect(screen.getByRole("checkbox", { name: "Select all visible diet entries" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Archive selected diet entries" }));
+    expect(screen.getByRole("dialog", { name: "Archive selected diet entries?" }))
+      .toHaveTextContent("1 diet entries will be archived");
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(health.archiveDiet).toHaveBeenCalledOnce());
+  });
+
+  it("restores focus to the activated multi-tag occurrence", async () => {
+    const user = userEvent.setup();
+    const grouped = defaultHealthTableSettings("health.diet");
+    grouped.groupSettings = { ...grouped.groupSettings, groupBy: "tag" };
+    render(<DietPanel controller={{
+      ...controller({ ...loadedState, dietEntries: [{ ...entry, tags: ["rice", "spicy"] }] }),
+      tableSettings: () => grouped,
+    }} />);
+
+    const second = screen.getAllByRole("button", { name: /Open details for Bibimbap/ })[1]!;
+    second.focus();
+    await user.keyboard("{Enter}");
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const restored = screen.getAllByRole("button", { name: /Open details for Bibimbap/ })[1]!;
+    await waitFor(() => expect(restored).toHaveFocus());
+  });
+
   it("disables an empty visible archive and snapshots only selected visible rows", async () => {
     const user = userEvent.setup();
     const dinner = { ...entry, id: "dinner", mealType: "dinner" as const, foodName: "Soup" };
