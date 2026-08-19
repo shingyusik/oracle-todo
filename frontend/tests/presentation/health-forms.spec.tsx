@@ -11,6 +11,7 @@ import type {
 } from "@/features/health/hooks/useHealthController";
 import { HealthMutationRefreshError } from "@/features/health/hooks/useHealthController";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
+import { BowelCreateDialog } from "@/features/health/ui/BowelCreateDialog";
 import { BowelPanel } from "@/features/health/ui/BowelPanel";
 import { DietPanel } from "@/features/health/ui/DietPanel";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
@@ -112,6 +113,30 @@ function DietDialogHarness({
   </>;
 }
 
+function BowelDialogHarness({
+  health,
+  onClose = vi.fn(),
+}: {
+  health: HealthController;
+  onClose?: () => void;
+}) {
+  const [open, setOpen] = React.useState(true);
+  const returnFocusRef = React.useRef<HTMLButtonElement>(null);
+  return <>
+    <main data-testid="bowel-dialog-background">
+      <button ref={returnFocusRef}>Open bowel</button>
+    </main>
+    {open ? <BowelCreateDialog
+      controller={health}
+      onClose={() => {
+        onClose();
+        setOpen(false);
+      }}
+      returnFocusRef={returnFocusRef}
+    /> : null}
+  </>;
+}
+
 describe("Health Journal forms", () => {
   it("gives each tag popup a distinct valid listbox relationship", async () => {
     const user = userEvent.setup();
@@ -157,14 +182,14 @@ describe("Health Journal forms", () => {
     expect(remove.contains(trigger)).toBe(false);
   });
 
-  it("submits structured bowel fields with a Bristol value from 1 to 7", async () => {
+  it("submits structured Bowel fields with a Bristol value from 1 to 7", async () => {
     const user = userEvent.setup();
     const health = controller();
     render(<BowelPanel controller={health} />);
 
-    await user.selectOptions(screen.getByLabelText("Bristol scale"), "4");
-    await user.click(screen.getByLabelText("Blood visible"));
-    await user.type(screen.getByLabelText("Bowel note"), "After breakfast");
+    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "4");
+    await user.click(screen.getByLabelText("Blood Visible"));
+    await user.type(screen.getByLabelText("Note"), "After breakfast");
     await user.click(screen.getByRole("button", { name: "Save bowel entry" }));
 
     expect(health.createBowel).toHaveBeenCalledWith(expect.objectContaining({
@@ -173,6 +198,239 @@ describe("Health Journal forms", () => {
     }));
     expect(screen.getByRole("option", { name: "Type 1" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Type 7" })).toBeInTheDocument();
+  });
+
+  it("freezes a committed Bowel draft and retries only its refresh", async () => {
+    const health = controller({
+      createBowel: vi.fn().mockRejectedValue(new HealthMutationRefreshError()),
+      refreshBowel: vi.fn().mockResolvedValue(false),
+    });
+    render(<BowelPanel controller={health} />);
+
+    fireEvent.change(screen.getByLabelText("Time"), {
+      target: { value: "2026-08-17T08:30" },
+    });
+    fireEvent.change(screen.getByLabelText("Bristol Scale"), { target: { value: "6" } });
+    fireEvent.click(screen.getByLabelText("Blood Visible"));
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Keep this" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+    expect(screen.getByLabelText("Time")).toBeDisabled();
+    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("6");
+    expect(screen.getByLabelText("Blood Visible")).toBeChecked();
+    expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
+    await userEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
+    expect(health.refreshBowel).toHaveBeenCalledOnce();
+    expect(health.createBowel).toHaveBeenCalledOnce();
+  });
+
+  it("renders the Bowel dialog fields in order with native defaults", () => {
+    render(<BowelDialogHarness health={controller()} />);
+    const form = screen.getByRole("form", { name: "Bowel entry" });
+    const controls = [
+      within(form).getByLabelText("Time"),
+      within(form).getByLabelText("Bristol Scale"),
+      within(form).getByLabelText("Blood Visible"),
+      within(form).getByLabelText("Note"),
+    ];
+
+    expect(controls[0]).toHaveAttribute("type", "datetime-local");
+    expect(controls[0]).toBeRequired();
+    expect(controls[1].tagName).toBe("SELECT");
+    expect(controls[1]).toBeRequired();
+    expect(controls[1]).toHaveValue("4");
+    expect(within(controls[1]).getAllByRole("option").map((option) => option.textContent))
+      .toEqual(["Type 1", "Type 2", "Type 3", "Type 4", "Type 5", "Type 6", "Type 7"]);
+    expect(controls[2]).toHaveAttribute("type", "checkbox");
+    expect(controls[2]).not.toBeChecked();
+    for (let index = 1; index < controls.length; index += 1) {
+      expect(controls[index - 1].compareDocumentPosition(controls[index]) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+    }
+  });
+
+  it("submits one portable RFC3339 Bowel mutation and trims a blank note", async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "Asia/Seoul";
+    try {
+      const health = controller();
+      render(<BowelDialogHarness health={health} />);
+      fireEvent.change(screen.getByLabelText("Time"), {
+        target: { value: "2026-07-30T09:00" },
+      });
+      fireEvent.change(screen.getByLabelText("Bristol Scale"), { target: { value: "7" } });
+      fireEvent.click(screen.getByLabelText("Blood Visible"));
+      fireEvent.change(screen.getByLabelText("Note"), { target: { value: "   " } });
+      fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+      await waitFor(() => expect(health.createBowel).toHaveBeenCalledOnce());
+      expect(health.createBowel).toHaveBeenCalledWith({
+        occurredAt: "2026-07-30T00:00:00.000Z",
+        details: { kind: "bowel", bristolScale: 7, bloodVisible: true },
+        note: null,
+      });
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
+  it("preserves every Bowel field and exposes a safe error after save failure", async () => {
+    const health = controller({
+      createBowel: vi.fn().mockRejectedValue(new Error("Bowel save failed")),
+    });
+    render(<BowelDialogHarness health={health} />);
+    fireEvent.change(screen.getByLabelText("Time"), {
+      target: { value: "2026-08-17T08:30" },
+    });
+    fireEvent.change(screen.getByLabelText("Bristol Scale"), { target: { value: "6" } });
+    fireEvent.click(screen.getByLabelText("Blood Visible"));
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Keep this" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Bowel save failed");
+    expect(screen.getByLabelText("Time")).toHaveValue("2026-08-17T08:30");
+    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("6");
+    expect(screen.getByLabelText("Blood Visible")).toBeChecked();
+    expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
+  });
+
+  it("rejects a nonexistent Bowel wall time without losing the draft", async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const health = controller();
+      render(<BowelDialogHarness health={health} />);
+      fireEvent.change(screen.getByLabelText("Time"), {
+        target: { value: "2026-03-08T02:30" },
+      });
+      fireEvent.change(screen.getByLabelText("Bristol Scale"), { target: { value: "2" } });
+      fireEvent.click(screen.getByLabelText("Blood Visible"));
+      fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Early" } });
+      fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Time must be a valid local date and time",
+      );
+      expect(health.createBowel).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Time")).toHaveValue("2026-03-08T02:30");
+      expect(screen.getByLabelText("Bristol Scale")).toHaveValue("2");
+      expect(screen.getByLabelText("Blood Visible")).toBeChecked();
+      expect(screen.getByLabelText("Note")).toHaveValue("Early");
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
+  it("portals and isolates the Bowel dialog, then restores the page on close", async () => {
+    const view = render(<BowelDialogHarness health={controller()} />);
+    const dialog = screen.getByRole("dialog", { name: "Add bowel entry" });
+    const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
+
+    expect(host?.parentElement).toBe(document.body);
+    expect(view.container).toHaveAttribute("aria-hidden", "true");
+    expect(view.container).toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("hidden");
+    await userEvent.click(screen.getByRole("button", { name: "Close Add bowel entry" }));
+    expect(document.querySelector("[data-raven-modal-host]")).toBeNull();
+    expect(view.container).not.toHaveAttribute("aria-hidden");
+    expect(view.container).not.toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("");
+    expect(screen.getByRole("button", { name: "Open bowel" })).toHaveFocus();
+  });
+
+  it("wraps Bowel dialog focus and supports each idle dismissal", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<BowelDialogHarness health={controller()} onClose={onClose} />);
+    const close = screen.getByRole("button", { name: "Close Add bowel entry" });
+    const retrylessSave = screen.getByRole("button", { name: "Save bowel entry" });
+    expect(close).toHaveFocus();
+    close.focus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(retrylessSave).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+
+    render(<BowelDialogHarness health={controller()} onClose={onClose} />);
+    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Add bowel entry" }).parentElement!);
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    render(<BowelDialogHarness health={controller()} onClose={onClose} />);
+    await user.click(screen.getByRole("button", { name: "Close Add bowel entry" }));
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  it("locks Bowel dismissal and duplicate submits for the full mutation promise", async () => {
+    const save = deferred<void>();
+    const onClose = vi.fn();
+    const health = controller({ createBowel: vi.fn(() => save.promise) });
+    render(<BowelDialogHarness health={health} onClose={onClose} />);
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+    await waitFor(() => expect(health.createBowel).toHaveBeenCalledOnce());
+    const dialog = screen.getByRole("dialog", { name: "Add bowel entry" });
+    expect(dialog).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByLabelText("Time")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close Add bowel entry" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.mouseDown(dialog.parentElement!);
+    fireEvent.click(screen.getByRole("button", { name: "Close Add bowel entry" }));
+    expect(health.createBowel).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+
+    save.resolve();
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it("freezes committed Bowel fields and retries false then true without remutation", async () => {
+    const firstRefresh = deferred<boolean>();
+    const onClose = vi.fn();
+    const health = controller({
+      createBowel: vi.fn().mockRejectedValue(new HealthMutationRefreshError()),
+      refreshBowel: vi.fn()
+        .mockImplementationOnce(() => firstRefresh.promise)
+        .mockResolvedValueOnce(true),
+    });
+    render(<BowelDialogHarness health={health} onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText("Time"), {
+      target: { value: "2026-08-17T08:30" },
+    });
+    fireEvent.change(screen.getByLabelText("Bristol Scale"), { target: { value: "6" } });
+    fireEvent.click(screen.getByLabelText("Blood Visible"));
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Keep this" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+    for (const label of ["Time", "Bristol Scale", "Blood Visible", "Note"]) {
+      expect(screen.getByLabelText(label)).toBeDisabled();
+    }
+    expect(screen.getByRole("button", { name: "Save bowel entry" })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Note"), "Changed");
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+    expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
+
+    const retry = screen.getByRole("button", { name: "Retry refresh" });
+    fireEvent.click(retry);
+    expect(retry).toBeDisabled();
+    firstRefresh.resolve(false);
+    await waitFor(() => expect(health.refreshBowel).toHaveBeenCalledOnce());
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(screen.getByRole("dialog", { name: "Add bowel entry" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(health.refreshBowel).toHaveBeenCalledTimes(2);
+    expect(health.createBowel).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Open bowel" })).toHaveFocus();
   });
 
   it("submits meal type, unique tags, and an image through the image path", async () => {

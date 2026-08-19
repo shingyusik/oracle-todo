@@ -175,10 +175,12 @@ export function BowelForm({
   const [bristol, setBristol] = useState("4");
   const [bloodVisible, setBloodVisible] = useState(false);
   const [note, setNote] = useState("");
+  const [refreshRecovery, setRefreshRecovery] = useState(false);
   const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (refreshRecovery) return;
     await action.run(async () => {
       const input: EventInput = {
         occurredAt: localDateTimeToRfc3339(occurredAt),
@@ -189,7 +191,15 @@ export function BowelForm({
         },
         note: nullable(note),
       };
-      await controller.createBowel(input);
+      try {
+        await controller.createBowel(input);
+      } catch (cause) {
+        if (cause instanceof HealthMutationRefreshError) {
+          setRefreshRecovery(true);
+          return;
+        }
+        throw cause;
+      }
       if (!action.isMounted()) return;
       setNote("");
       setBloodVisible(false);
@@ -197,10 +207,17 @@ export function BowelForm({
     });
   }
 
+  async function retryRefresh() {
+    await action.run(async () => {
+      if (await controller.refreshBowel()) onSaved?.();
+    });
+  }
+
   return (
     <form onSubmit={(event) => void submit(event)} aria-label="Bowel entry">
+      <fieldset disabled={refreshRecovery || action.pending}>
       <label className="field-label">
-        Occurred at
+        Time
         <input
           type="datetime-local"
           value={occurredAt}
@@ -209,8 +226,12 @@ export function BowelForm({
         />
       </label>
       <label className="field-label">
-        Bristol scale
-        <select value={bristol} onChange={(event) => setBristol(event.target.value)}>
+        Bristol Scale
+        <select
+          value={bristol}
+          onChange={(event) => setBristol(event.target.value)}
+          required
+        >
           {Array.from({ length: 7 }, (_, index) => index + 1).map((value) => (
             <option key={value} value={value}>Type {value}</option>
           ))}
@@ -222,14 +243,21 @@ export function BowelForm({
           checked={bloodVisible}
           onChange={(event) => setBloodVisible(event.target.checked)}
         />
-        Blood visible
+        Blood Visible
       </label>
       <label className="field-label">
-        Bowel note
+        Note
         <textarea value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
       <FormResult action={action} />
       <button type="submit" disabled={action.pending}>Save bowel entry</button>
+      </fieldset>
+      {refreshRecovery ? <div className="items-message">
+        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
+          Retry refresh
+        </button>
+      </div> : null}
     </form>
   );
 }
