@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   defaultHealthTableSettings,
+  healthBowelFilterSelectOptions,
   healthDietFilterSelectOptions,
   healthFilterFieldsForScope,
   healthGroupOptionsForScope,
@@ -11,7 +12,12 @@ import {
 } from "@/features/health/model/health-table-views";
 import { normalizeLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
 import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
-import { normalizePlannerTableSettings } from "@/features/workbench/model/planner-model";
+import {
+  normalizePlannerTableSettings,
+  type PlannerFilterRule,
+  type PlannerGroupBy,
+  type PlannerSortRule,
+} from "@/features/workbench/model/planner-model";
 import type { LegacyPlannerControls } from "@/features/workbench/model/workbench-model";
 import { tableViewFilterFieldConfigs } from "@/features/workbench/ui/TableViewControls";
 
@@ -59,8 +65,31 @@ describe("Health table views", () => {
     ]);
   });
 
+  it("maps each Bowel select field to only its own options", () => {
+    const fields = tableViewFilterFieldConfigs({
+      tags: [],
+      daily: {
+        tags: [], areas: [], projects: [], currencies: [], routines: [], statuses: [],
+        priorities: [], horizons: [], parents: [], materializationPolicies: [], participants: [],
+      },
+      fieldOptions: healthBowelFilterSelectOptions,
+    }, ["bristol_scale", "blood_visible"]);
+
+    expect(fields.map(({ field, label, options }) => [field, label, options])).toEqual([
+      ["bristol_scale", "Bristol Scale", [
+        { value: "1", label: "Type 1" }, { value: "2", label: "Type 2" },
+        { value: "3", label: "Type 3" }, { value: "4", label: "Type 4" },
+        { value: "5", label: "Type 5" }, { value: "6", label: "Type 6" },
+        { value: "7", label: "Type 7" },
+      ]],
+      ["blood_visible", "Blood Visible", [
+        { value: "yes", label: "Yes" }, { value: "no", label: "No" },
+      ]],
+    ]);
+  });
+
   it("defines the Diet scope controls and defaults", () => {
-    expect(healthTableScopeIds).toEqual(["health.diet"]);
+    expect(healthTableScopeIds).toEqual(["health.diet", "health.bowel"]);
     expect(healthFilterFieldsForScope("health.diet")).toEqual([
       "date", "meal_type", "food", "tags", "has_photo",
     ]);
@@ -73,6 +102,41 @@ describe("Health table views", () => {
     expect(defaultHealthTableSettings("health.diet").sortRules).toEqual([{
       id: "health.diet-default-sort", field: "date", direction: "desc",
     }]);
+  });
+
+  it("defines the Bowel scope controls and defaults", () => {
+    expect(healthFilterFieldsForScope("health.bowel")).toEqual([
+      "date", "bristol_scale", "blood_visible",
+    ]);
+    expect(healthSortFieldsForScope("health.bowel")).toEqual([
+      "date", "bristol_scale", "created", "updated",
+    ]);
+    expect(healthGroupOptionsForScope("health.bowel").map(({ value }) => value)).toEqual([
+      "none", "month", "week", "day", "bristol_scale", "blood_visible",
+    ]);
+    expect(defaultHealthTableSettings("health.bowel").sortRules).toEqual([{
+      id: "health.bowel-default-sort", field: "date", direction: "desc",
+    }]);
+  });
+
+  it("normalizes Bowel settings without leaking Diet controls", () => {
+    const settings = normalizeHealthTableSettings("health.bowel", {
+      filterRules: [
+        { id: "scale", field: "bristol_scale", type: "select", operator: "is", value: ["4"] },
+        { id: "diet", field: "meal_type", type: "select", operator: "is", value: ["lunch"] },
+      ],
+      sortRules: [
+        { id: "blood", field: "blood_visible", direction: "asc" },
+        { id: "scale", field: "bristol_scale", direction: "desc" },
+        { id: "diet", field: "food", direction: "asc" },
+      ],
+      groupSettings: { groupBy: "blood_visible", hiddenGroupKeys: ["no"] },
+    });
+
+    expect(settings.filterRules.map(({ field }) => field)).toEqual(["bristol_scale"]);
+    expect(settings.sortRules.map(({ field }) => field)).toEqual(["bristol_scale"]);
+    expect(settings.groupSettings.groupBy).toBe("blood_visible");
+    expect(settings.groupSettings.hiddenGroupKeys).toEqual(["no"]);
   });
 
   it("normalizes every persisted control against the Diet allowlists", () => {
@@ -145,5 +209,45 @@ describe("Health table views", () => {
     expect(migrated.filterRules).toEqual([]);
     expect(migrated.sortRules).toEqual([]);
     expect(migrated.groupSettings.groupBy).toBe("none");
+  });
+
+  it.each([
+    ["bristol_scale", "select", ["4"], "bristol_scale"],
+    ["blood_visible", "select", ["yes"], "blood_visible"],
+  ] as const)("removes persisted Bowel field %s from every non-Bowel scope", (
+    field, type, value, groupBy,
+  ) => {
+    const candidate = {
+      filterRules: [{ id: field, field, type, operator: "is", value: [...value] }],
+      sortRules: [{ id: field, field, direction: "asc" }],
+      groupSettings: { groupBy },
+    } satisfies {
+      filterRules: PlannerFilterRule[];
+      sortRules: PlannerSortRule[];
+      groupSettings: { groupBy: PlannerGroupBy };
+    };
+    const legacy = legacyControls();
+    legacy.filterRules = candidate.filterRules;
+    legacy.dailySortRules = candidate.sortRules;
+    legacy.groupSettings.daily = { ...defaultPlannerGroupSettings(), groupBy };
+
+    for (const scope of ["health.diet"] as const) {
+      const normalized = normalizeHealthTableSettings(scope, candidate);
+      expect(normalized.filterRules).toEqual([]);
+      expect(normalized.sortRules).toEqual([]);
+      expect(normalized.groupSettings.groupBy).toBe("none");
+    }
+    const planner = normalizePlannerTableSettings("daily.today", candidate, legacy);
+    expect(planner.filterRules).toEqual([]);
+    expect(planner.sortRules).toEqual([{ id: "daily.today-default-sort", field: "priority", direction: "asc" }]);
+    expect(planner.groupSettings.groupBy).toBe("none");
+    const migrated = normalizePlannerTableSettings("daily.today", undefined, legacy);
+    expect(migrated.filterRules).toEqual([]);
+    expect(migrated.sortRules).toEqual([]);
+    expect(migrated.groupSettings.groupBy).toBe("none");
+    const ledger = normalizeLedgerTableSettings("ledger.transactions", candidate);
+    expect(ledger.filterRules).toEqual([]);
+    expect(ledger.sortRules).toEqual([]);
+    expect(ledger.groupSettings.groupBy).toBe("none");
   });
 });
