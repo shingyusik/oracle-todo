@@ -78,10 +78,13 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
 
   function closeCommittedDetail() {
     const closeDetail = () => {
+      setPending(false);
       detailHistory.setDirty(false);
       detailHistory.requestBack();
     };
-    if (!detailHistory.deferUntilRestored(closeDetail)) closeDetail();
+    if (detailHistory.deferUntilRestored(closeDetail)) return true;
+    closeDetail();
+    return false;
   }
 
   function cancelArchive() {
@@ -117,6 +120,7 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
     setPending(true);
     setError(null);
     let exiting = false;
+    let deferred = false;
     try {
       await controller.updateBowel(
         baseline.row.id,
@@ -124,13 +128,21 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
       );
       exiting = true;
       setExitPending(true);
-      closeCommittedDetail();
+      deferred = closeCommittedDetail();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save bowel entry");
-      if (cause instanceof HealthMutationRefreshError) setRefreshRecovery(true);
+      const showFailure = () => {
+        actionInFlight.current = false;
+        setPending(false);
+        setError(cause instanceof Error ? cause.message : "Could not save bowel entry");
+        if (cause instanceof HealthMutationRefreshError) setRefreshRecovery(true);
+      };
+      deferred = detailHistory.deferUntilRestored(showFailure);
+      if (!deferred) showFailure();
     } finally {
-      actionInFlight.current = exiting;
-      setPending(false);
+      if (!deferred) {
+        actionInFlight.current = exiting;
+        setPending(false);
+      }
     }
   }
 
@@ -139,15 +151,25 @@ export function BowelDetail({ controller, row, detailHistory, onArchived }: Bowe
     actionInFlight.current = true;
     setPending(true);
     let exiting = false;
+    let deferred = false;
     try {
       if (await controller.refreshBowel()) {
         exiting = true;
         setExitPending(true);
-        closeCommittedDetail();
+        deferred = closeCommittedDetail();
+      } else {
+        const finishRetry = () => {
+          actionInFlight.current = false;
+          setPending(false);
+        };
+        deferred = detailHistory.deferUntilRestored(finishRetry);
+        if (!deferred) finishRetry();
       }
     } finally {
-      actionInFlight.current = exiting;
-      setPending(false);
+      if (!deferred) {
+        actionInFlight.current = exiting;
+        setPending(false);
+      }
     }
   }
 

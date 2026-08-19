@@ -926,6 +926,79 @@ describe("Bowel table workflow", () => {
     expect(health.updateBowel).toHaveBeenCalledOnce();
   });
 
+  it.each(["ordinary", "committed"] as const)(
+    "defers %s save failure state until browser Back restoration settles",
+    async (outcome) => {
+      const user = userEvent.setup();
+      window.history.pushState({}, "");
+      const controlledForward = controlHistoryForward();
+      const saved = deferred<void>();
+      const health = panelController();
+      health.updateBowel = vi.fn(() => saved.promise);
+      render(<BowelPanelHarness controller={health} />);
+      await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+      await user.type(screen.getByLabelText("Note"), "failure draft");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      act(() => window.history.back());
+      await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
+      await act(async () => outcome === "ordinary"
+        ? saved.reject(new Error("Save unavailable"))
+        : saved.reject(new HealthMutationRefreshError()));
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+      expect(screen.getByLabelText("Note")).toBeDisabled();
+      fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+      expect(screen.getByRole("button", { name: "< Back" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "< Back" }));
+      expect(health.updateBowel).toHaveBeenCalledOnce();
+
+      await controlledForward.releaseNext();
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent(outcome === "ordinary"
+        ? "Save unavailable" : "Changes were saved, but Health could not refresh.");
+      expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+      if (outcome === "ordinary") {
+        expect(screen.getByLabelText("Note")).toBeEnabled();
+        expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+      } else {
+        expect(screen.getByLabelText("Note")).toBeDisabled();
+        expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+      }
+    },
+  );
+
+  it("defers refresh recovery Retry=false unlock until browser Back restoration settles", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "");
+    const controlledForward = controlHistoryForward();
+    const refreshed = deferred<boolean>();
+    const health = panelController();
+    health.updateBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshBowel = vi.fn(() => refreshed.promise);
+    render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.type(screen.getByLabelText("Note"), "committed draft");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
+
+    act(() => window.history.back());
+    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
+    await act(async () => refreshed.resolve(false));
+    expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
+    expect(screen.getByLabelText("Note")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByRole("button", { name: "< Back" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "< Back" }));
+    expect(health.refreshBowel).toHaveBeenCalledOnce();
+
+    await controlledForward.releaseNext();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled());
+    expect(screen.getByLabelText("Note")).toBeDisabled();
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
+  });
+
   it("defers archive cancellation until browser Back restoration settles", async () => {
     const user = userEvent.setup();
     window.history.pushState({}, "");
