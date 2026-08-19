@@ -74,17 +74,21 @@ export const healthApi = {
   async updateDiet(id: string, input: DietUpdate): Promise<DietEntry> {
     return mapDietEntry(await requestJson(
       `${ROOT}/diet/${segment(id)}`,
-      jsonRequest("PATCH", clean({
-        occurred_at: input.occurredAt,
-        meal_type: input.mealType,
-        food_name: input.foodName,
-        note: input.note,
-        tags: input.tags,
-        expected_updated_at: input.expectedUpdatedAt,
-        actor: input.actor,
-        reason: input.reason,
-      })),
+      jsonRequest("PATCH", dietUpdateBody(input)),
     ));
+  },
+  async updateDietWithImage(id: string, input: {
+    image: Blob;
+    metadata: DietUpdate;
+  }): Promise<DietEntry> {
+    return mapDietEntry(await requestJson(`${ROOT}/diet/${segment(id)}/with-image`, {
+      method: "PATCH",
+      body: input.image,
+      headers: {
+        "content-type": input.image.type,
+        "x-raven-diet-metadata": asciiJson(dietUpdateBody(input.metadata)),
+      },
+    }));
   },
   async archiveDiet(id: string): Promise<DietEntry> {
     return mapDietEntry(await transition("diet", id, "archive"));
@@ -162,6 +166,20 @@ function dietBody(input: DietInput): JsonObject {
     note: input.note,
     tags: input.tags,
     actor: input.actor,
+  });
+}
+
+function dietUpdateBody(input: DietUpdate): JsonObject {
+  return clean({
+    occurred_at: input.occurredAt,
+    meal_type: input.mealType,
+    food_name: input.foodName,
+    note: input.note,
+    tags: input.tags,
+    expected_updated_at: input.expectedUpdatedAt,
+    actor: input.actor,
+    reason: input.reason,
+    remove_image: input.removeImage,
   });
 }
 

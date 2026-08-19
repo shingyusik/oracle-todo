@@ -3,13 +3,17 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import type { DailyMetricInput } from "@/features/health/api/health-api";
-import type { HealthController } from "@/features/health/hooks/useHealthController";
+import {
+  HealthMutationRefreshError,
+  type HealthController,
+} from "@/features/health/hooks/useHealthController";
 import type {
   DietInput,
   EventInput,
   MealType,
   MedicationUnit,
 } from "@/features/health/model/health-model";
+import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
 const mealTypes: Array<{ value: MealType; label: string }> = [
   { value: "breakfast", label: "Breakfast" },
@@ -39,44 +43,66 @@ export function DietForm({
   controller,
   onSaved,
   onPendingChange,
-}: HealthFormProps) {
+  tagOptions,
+}: HealthFormProps & { tagOptions?: readonly string[] }) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [mealType, setMealType] = useState<MealType>("breakfast");
   const [foodName, setFoodName] = useState("");
   const [note, setNote] = useState("");
-  const [tags, setTags] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [image, setImage] = useState<File | null>(null);
+  const [refreshRecovery, setRefreshRecovery] = useState(false);
   const imageInput = useRef<HTMLInputElement | null>(null);
   const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (refreshRecovery) return;
     await action.run(async () => {
       if (image && !image.type.startsWith("image/")) {
         throw new Error("Meal image must be an image file");
       }
       const input: DietInput = {
-        occurredAt: toRfc3339(occurredAt),
+        occurredAt: localDateTimeToRfc3339(occurredAt),
         mealType,
         foodName: foodName.trim(),
         note: nullable(note),
-        tags: uniqueCommaList(tags),
+        tags,
       };
-      await controller.createDiet(input, image ?? undefined);
+      try {
+        await controller.createDiet(input, image ?? undefined);
+      } catch (cause) {
+        if (cause instanceof HealthMutationRefreshError) {
+          setRefreshRecovery(true);
+          return;
+        }
+        throw cause;
+      }
       if (!action.isMounted()) return;
       setFoodName("");
       setNote("");
-      setTags("");
+      setTags([]);
       setImage(null);
       if (imageInput.current) imageInput.current.value = "";
       onSaved?.();
     });
   }
 
+  const dietTagOptions = tagOptions ?? Array.from(new Set(
+    controller.state.dietEntries.flatMap((entry) => entry.tags),
+  ));
+
+  async function retryRefresh() {
+    await action.run(async () => {
+      if (await controller.refresh()) onSaved?.();
+    });
+  }
+
   return (
     <form onSubmit={(event) => void submit(event)} aria-label="Diet entry">
+      <fieldset disabled={refreshRecovery || action.pending}>
       <label className="field-label">
-        Occurred at
+        Time
         <input
           type="datetime-local"
           value={occurredAt}
@@ -85,7 +111,7 @@ export function DietForm({
         />
       </label>
       <label className="field-label">
-        Meal type
+        Meal
         <select
           value={mealType}
           onChange={(event) => setMealType(event.target.value as MealType)}
@@ -96,7 +122,7 @@ export function DietForm({
         </select>
       </label>
       <label className="field-label">
-        Food name
+        Food
         <input
           value={foodName}
           maxLength={120}
@@ -104,20 +130,18 @@ export function DietForm({
           required
         />
       </label>
-      <label className="field-label">
+      <div className="field-label">
         Tags
-        <input
+        <TagsInput
+          label="Tags"
           value={tags}
-          placeholder="comma, separated"
-          onChange={(event) => setTags(event.target.value)}
+          tagOptions={dietTagOptions}
+          onCommit={setTags}
+          disabled={refreshRecovery || action.pending}
         />
-      </label>
+      </div>
       <label className="field-label">
-        Diet note
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} />
-      </label>
-      <label className="field-label">
-        Meal image
+        Photo
         <input
           ref={imageInput}
           type="file"
@@ -125,8 +149,19 @@ export function DietForm({
           onChange={(event) => setImage(event.target.files?.[0] ?? null)}
         />
       </label>
+      <label className="field-label">
+        Note
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} />
+      </label>
       <FormResult action={action} />
       <button type="submit" disabled={action.pending}>Save diet entry</button>
+      </fieldset>
+      {refreshRecovery ? <div className="items-message">
+        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
+          Retry refresh
+        </button>
+      </div> : null}
     </form>
   );
 }
@@ -146,7 +181,7 @@ export function BowelForm({
     event.preventDefault();
     await action.run(async () => {
       const input: EventInput = {
-        occurredAt: toRfc3339(occurredAt),
+        occurredAt: localDateTimeToRfc3339(occurredAt),
         details: {
           kind: "bowel",
           bristolScale: Number(bristol),
@@ -218,7 +253,7 @@ export function MedicationForm({
       if (!medicationName) throw new Error("Medication name is required");
       const doseValue = positiveNumber(dose, "Dose");
       const input: EventInput = {
-        occurredAt: toRfc3339(occurredAt),
+        occurredAt: localDateTimeToRfc3339(occurredAt),
         details: {
           kind: "medication",
           medicationName,
@@ -306,7 +341,7 @@ export function MetricsForm({
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await action.run(async () => {
-      const timestamp = toRfc3339(occurredAt);
+      const timestamp = localDateTimeToRfc3339(occurredAt);
       const metrics: DailyMetricInput[] = [];
       if (weight !== "") {
         metrics.push({
@@ -518,14 +553,6 @@ function useFormAction(onPendingChange?: (pending: boolean) => void) {
   return { pending, error, run, isMounted: () => mounted.current };
 }
 
-function uniqueCommaList(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .filter((item, index, items) => items.indexOf(item) === index);
-}
-
 function nullable(value: string): string | null {
   const trimmed = value.trim();
   return trimmed || null;
@@ -537,8 +564,28 @@ function defaultLocalDateTime(): string {
   return local.toISOString().slice(0, 16);
 }
 
-function toRfc3339(value: string): string {
-  return new Date(value).toISOString();
+export function localDateTimeToRfc3339(value: string): string {
+  const match = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value);
+  if (!match) throw new Error("Time must be a valid local date and time");
+  const [, year, month, day, hour, minute, second = "0", fraction = "0"] = match;
+  const components = [year, month, day, hour, minute, second].map(Number);
+  const [yearValue, monthValue, dayValue, hourValue, minuteValue, secondValue] = components;
+  const millisecondValue = Number(fraction.padEnd(3, "0"));
+  const date = new Date(0);
+  date.setFullYear(yearValue, monthValue - 1, dayValue);
+  date.setHours(hourValue, minuteValue, secondValue, millisecondValue);
+  if (
+    date.getFullYear() !== yearValue ||
+    date.getMonth() !== monthValue - 1 ||
+    date.getDate() !== dayValue ||
+    date.getHours() !== hourValue ||
+    date.getMinutes() !== minuteValue ||
+    date.getSeconds() !== secondValue ||
+    date.getMilliseconds() !== millisecondValue
+  ) {
+    throw new Error("Time must be a valid local date and time");
+  }
+  return date.toISOString();
 }
 
 function positiveNumber(value: string, field: string): number {

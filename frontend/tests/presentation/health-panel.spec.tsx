@@ -17,7 +17,11 @@ import type {
   HealthController,
   HealthState,
 } from "@/features/health/hooks/useHealthController";
-import { useHealthController } from "@/features/health/hooks/useHealthController";
+import {
+  HealthMutationRefreshError,
+  useHealthController,
+} from "@/features/health/hooks/useHealthController";
+import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import type {
   DietEntry,
   HealthEvent,
@@ -25,6 +29,7 @@ import type {
   TimelineItem,
 } from "@/features/health/model/health-model";
 import { HealthPanel } from "@/features/health/ui/HealthPanel";
+import { TimelinePanel } from "@/features/health/ui/TimelinePanel";
 
 const diet: DietEntry = {
   id: "diet-1",
@@ -88,6 +93,9 @@ const trends: HealthTrends = {
 };
 
 const loadedState: HealthState = {
+  dietStatus: "loaded",
+  dietError: null,
+  dietEntries: [diet],
   timelineStatus: "loaded",
   timelineError: null,
   timeline: [
@@ -101,12 +109,35 @@ const loadedState: HealthState = {
 };
 
 function controller(state: HealthState = loadedState): HealthController {
+  const settings = defaultHealthTableSettings("health.diet");
   return {
     state,
+    tableViewSaveError: null,
+    retryTableViewSave: vi.fn(),
+    tableViewConfirmation: null,
+    tableTabs: () => ({
+      tabs: [{ id: "health.diet-table", name: "Table", settings }],
+      activeTabId: "health.diet-table",
+      draftSettings: settings,
+    }),
+    tableSettings: () => settings,
+    tableIsDirty: vi.fn(() => false),
+    updateTableSettings: vi.fn(),
+    selectTableTab: vi.fn(),
+    saveTableTab: vi.fn(),
+    createTableTab: vi.fn(() => true),
+    renameTableTab: vi.fn(() => true),
+    requestDeleteTableTab: vi.fn(),
+    confirmTableViewAction: vi.fn(),
+    cancelTableViewAction: vi.fn(),
+    refresh: vi.fn(),
+    refreshDiet: vi.fn(),
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
     refreshTrends: vi.fn(),
     createDiet: vi.fn(),
+    updateDiet: vi.fn(),
+    archiveDiet: vi.fn(),
     createBowel: vi.fn(),
     createMedication: vi.fn(),
     upsertMetrics: vi.fn(),
@@ -131,12 +162,37 @@ describe("HealthPanel", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses Timeline as the default leaf and has no Overview", () => {
+  it("uses Diet as the default and fallback leaf and has no Overview", () => {
     render(<HealthPanel controller={controller()} />);
 
-    expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Diet" })).toBeInTheDocument();
     expect(screen.getByText("Bibimbap")).toBeInTheDocument();
     expect(screen.queryByText("Overview")).not.toBeInTheDocument();
+
+    render(<HealthPanel controller={controller()} leafTabId={"missing" as never} />);
+    expect(screen.getAllByRole("heading", { name: "Diet" })).toHaveLength(2);
+  });
+
+  it("cleans Diet detail history and its listener when the Health leaf changes", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({ preserved: "health" }, "");
+    const removeEventListener = vi.spyOn(window, "removeEventListener");
+    const health = controller();
+    const view = render(<HealthPanel controller={health} leafTabId="diet" />);
+    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    expect(window.history.state).toMatchObject({
+      preserved: "health",
+      __ravenHealthDietDetailId: "diet-1",
+    });
+
+    view.rerender(<HealthPanel controller={health} leafTabId="bowel" />);
+
+    expect(screen.getByRole("heading", { name: "Bowel" })).toBeInTheDocument();
+    expect(window.history.state).toMatchObject({
+      preserved: "health",
+      __ravenHealthDietDetailId: null,
+    });
+    expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
   });
 
   it("keeps timeline and trends loading or error states independent", () => {
@@ -146,7 +202,7 @@ describe("HealthPanel", () => {
       timelineError: "Timeline unavailable",
       trendsStatus: "loaded",
     });
-    const { rerender } = render(<HealthPanel controller={health} />);
+    const { rerender } = render(<TimelinePanel controller={health} />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Timeline unavailable");
     expect(screen.getByText("Bibimbap")).toBeInTheDocument();
@@ -359,7 +415,7 @@ describe("HealthPanel", () => {
       }],
     });
     health.restore = vi.fn(() => restore.promise);
-    render(<HealthPanel controller={health} />);
+    render(<TimelinePanel controller={health} />);
 
     const restoreButton = screen.getByRole("button", { name: /Restore Bibimbap.*diet-1/ });
     const purgeButton = screen.getByRole("button", { name: /Purge Bibimbap.*diet-1/ });
@@ -388,7 +444,7 @@ describe("HealthPanel", () => {
       }],
     });
     health.purge = vi.fn(() => purge.promise);
-    render(<HealthPanel controller={health} />);
+    render(<TimelinePanel controller={health} />);
 
     const restoreButton = screen.getByRole("button", { name: /Restore Bowel.*event-1/ });
     const purgeButton = screen.getByRole("button", { name: /Purge Bowel.*event-1/ });
@@ -411,7 +467,7 @@ describe("HealthPanel", () => {
   it("gives duplicate record actions unique accessible names", () => {
     const duplicate = { ...diet, id: "diet-2", occurredAt: "2026-07-31T03:00:00Z" };
     render(
-      <HealthPanel
+      <TimelinePanel
         controller={controller({
           ...loadedState,
           timeline: [
@@ -425,5 +481,223 @@ describe("HealthPanel", () => {
     const actions = screen.getAllByRole("button", { name: /Archive Bibimbap/ });
     expect(actions[0].getAttribute("aria-label"))
       .not.toBe(actions[1].getAttribute("aria-label"));
+  });
+
+  it("preserves committed Diet archive recovery across Health leaf tabs", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.archiveDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refresh = vi.fn().mockResolvedValue(true);
+    const view = render(<HealthPanel controller={health} leafTabId="diet" />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Select Bibimbap/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected diet entries" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected diet entries?",
+    })).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("Bibimbap")).toBeNull());
+
+    view.rerender(<HealthPanel controller={health} leafTabId="bowel" />);
+    view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
+    expect(screen.queryByText("Bibimbap")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refresh).toHaveBeenCalledOnce();
+    expect(health.archiveDiet).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Bibimbap")).toBeNull();
+
+    view.rerender(<HealthPanel controller={{
+      ...health,
+      state: { ...health.state, dietEntries: [], dietError: null },
+    }} leafTabId="diet" />);
+    await waitFor(() => expect(screen.queryByText(
+      "Changes were saved, but Health could not refresh.",
+    )).toBeNull());
+    expect(screen.queryByText("Bibimbap")).toBeNull();
+  });
+
+  it("loads, normalizes, edits, and persists Health Diet views", async () => {
+    vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
+    vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      init
+        ? new Response("{}", { status: 200 })
+        : new Response(JSON.stringify({
+          "health.diet": { tabs: [{
+            id: "meals",
+            name: "Meals",
+            settings: {
+              filterMode: "or",
+              sortRules: [{ id: "food", field: "food", direction: "asc" }],
+              groupSettings: { groupBy: "invalid" },
+            },
+          }] },
+        }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.tableTabs("health.diet").activeTabId)
+      .toBe("meals"));
+    expect(result.current.tableSettings("health.diet").groupSettings.groupBy).toBe("none");
+
+    act(() => expect(result.current.createTableTab("health.diet", "Photos")).toBe(true));
+    const createdId = result.current.tableTabs("health.diet").activeTabId;
+    act(() => {
+      expect(result.current.renameTableTab("health.diet", createdId, "With photos"))
+        .toBe(true);
+      result.current.updateTableSettings("health.diet", (settings) => ({
+        ...settings,
+        groupSettings: { ...settings.groupSettings, groupBy: "has_photo" },
+      }));
+      result.current.saveTableTab("health.diet");
+    });
+    expect(result.current.tableIsDirty("health.diet")).toBe(false);
+    act(() => result.current.updateTableSettings("health.diet", (settings) => ({
+      ...settings,
+      filterMode: "and",
+    })));
+    act(() => result.current.selectTableTab("health.diet", "meals"));
+    expect(result.current.tableViewConfirmation).toMatchObject({
+      kind: "select",
+      target: { scope: "health.diet" },
+      targetTabId: "meals",
+    });
+    act(() => result.current.confirmTableViewAction());
+    act(() => result.current.requestDeleteTableTab("health.diet", createdId));
+    expect(result.current.tableViewConfirmation).toMatchObject({
+      kind: "delete",
+      target: { scope: "health.diet" },
+      targetTabId: createdId,
+    });
+    act(() => result.current.confirmTableViewAction());
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/preferences/health.views.v1",
+      expect.objectContaining({ method: "PUT" }),
+    ));
+    expect(result.current.tableTabs("health.diet").tabs.map(({ name }) => name))
+      .toEqual(["Meals"]);
+  });
+
+  it("replays queued Health view commands over stored preferences", async () => {
+    vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
+    vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
+    const stored = deferred<Response>();
+    const putBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init) return stored.promise;
+      putBodies.push(JSON.parse(String(init.body)));
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }));
+
+    const { result } = renderHook(() => useHealthController());
+    act(() => expect(result.current.createTableTab("health.diet", "Early")).toBe(true));
+    await act(async () => stored.resolve(new Response(JSON.stringify({
+      "health.diet": { tabs: [{ id: "stored", name: "Stored", settings: {} }] },
+    }), { status: 200 })));
+
+    await waitFor(() => expect(result.current.tableTabs("health.diet").tabs
+      .map(({ name }) => name)).toEqual(["Stored", "Early"]));
+    await waitFor(() => expect(putBodies).toHaveLength(1));
+  });
+
+  it("uses last-write-wins Health view errors and retries the current state", async () => {
+    vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
+    vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
+    let putCount = 0;
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init) return Promise.resolve(new Response("{}", { status: 200 }));
+      putCount += 1;
+      return Promise.resolve(new Response("{}", { status: putCount === 2 ? 500 : 200 }));
+    }));
+
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.tableTabs("health.diet").activeTabId)
+      .toBe("health.diet-table"));
+    act(() => result.current.createTableTab("health.diet", "First"));
+    const id = result.current.tableTabs("health.diet").activeTabId;
+    act(() => result.current.renameTableTab("health.diet", id, "Latest"));
+    await waitFor(() => expect(putCount).toBe(2));
+    await waitFor(() => expect(result.current.tableViewSaveError)
+      .toBe("Could not save Health views."));
+    act(() => result.current.retryTableViewSave());
+    await waitFor(() => expect(putCount).toBe(3));
+    await waitFor(() => expect(result.current.tableViewSaveError).toBeNull());
+  });
+
+  it("renders Health view selection confirmation and supports cancel and confirm", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.tableViewConfirmation = {
+      kind: "select",
+      target: { scope: "health.diet" },
+      targetTabId: "other",
+    };
+    health.tableIsDirty = vi.fn(() => true);
+
+    const view = render(<HealthPanel controller={health} />);
+    const dialog = screen.getByRole("dialog", {
+      name: "Discard unsaved view changes?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(health.cancelTableViewAction).toHaveBeenCalledOnce();
+
+    view.rerender(<HealthPanel controller={{ ...health }} />);
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(health.confirmTableViewAction).toHaveBeenCalledOnce();
+  });
+
+  it("renders Health view delete confirmation and retries save failures", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    health.tableViewSaveError = "Could not save Health views.";
+    const confirmation = {
+      kind: "delete",
+      target: { scope: "health.diet" },
+      targetTabId: "health.diet-table",
+    } as const;
+    health.tableIsDirty = vi.fn(() => true);
+
+    const view = render(<HealthPanel controller={health} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not save Health views.",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry view save" }));
+    expect(health.retryTableViewSave).toHaveBeenCalledOnce();
+
+    health.tableViewConfirmation = confirmation;
+    view.rerender(<HealthPanel controller={{ ...health }} />);
+    expect(screen.getByText(/unsaved filter, sort, and group changes/i))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(health.confirmTableViewAction).toHaveBeenCalledOnce();
+  });
+
+  it("ignores an older Health view write failure after a newer save succeeds", async () => {
+    vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
+    vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
+    let putCount = 0;
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init) return Promise.resolve(new Response("{}", { status: 200 }));
+      putCount += 1;
+      return Promise.resolve(new Response("{}", { status: putCount === 1 ? 500 : 200 }));
+    }));
+
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.tableTabs("health.diet").activeTabId)
+      .toBe("health.diet-table"));
+    act(() => result.current.createTableTab("health.diet", "Queued"));
+    const id = result.current.tableTabs("health.diet").activeTabId;
+    act(() => result.current.renameTableTab("health.diet", id, "Queued latest"));
+
+    await waitFor(() => expect(putCount).toBe(2));
+    expect(result.current.tableViewSaveError).toBeNull();
   });
 });

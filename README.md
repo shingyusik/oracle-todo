@@ -29,7 +29,7 @@ Ledger and Health Journal do not repeat an Overview page. Their operational tabs
 available in the main navigation:
 
 - Ledger: Transactions, Accounts, Categories, Reports
-- Health Journal: Timeline, Diet, Bowel, Medication, Health Metrics, Trends
+- Health Journal: Diet, Bowel, Medication, Health Metrics, Trends
 
 ## Stack
 

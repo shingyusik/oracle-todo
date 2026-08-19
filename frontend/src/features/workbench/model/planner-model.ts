@@ -26,6 +26,9 @@ export type PlannerFilterField =
   | "date"
   | "content"
   | "entry_type"
+  | "meal_type"
+  | "food"
+  | "has_photo"
   | "account"
   | "category"
   | "amount"
@@ -95,6 +98,8 @@ export type PlannerGroupBy =
   | "week"
   | "day"
   | "entry_type"
+  | "meal_type"
+  | "has_photo"
   | "account"
   | "category"
   | "account_type"
@@ -109,7 +114,7 @@ export type PlannerGroupBy =
   | "status";
 
 export type PlannerSortDirection = "asc" | "desc";
-export type PlannerSortBy = PlannerFilterField | "updated";
+export type PlannerSortBy = PlannerFilterField | "created" | "updated";
 export type PlannerSortRule = {
   id: string;
   field: PlannerSortBy;
@@ -121,6 +126,9 @@ export const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterTy
   date: "date",
   content: "text",
   entry_type: "select",
+  meal_type: "select",
+  food: "text",
+  has_photo: "select",
   account: "relation",
   category: "relation",
   amount: "number",
@@ -452,7 +460,7 @@ function isPlannerFilterType(value: unknown): value is PlannerFilterType {
 }
 
 function isPlannerSortField(value: unknown): value is PlannerSortBy {
-  return value === "updated" || isPlannerFilterField(value);
+  return value === "created" || value === "updated" || isPlannerFilterField(value);
 }
 
 function isPlannerSortDirection(value: unknown): value is PlannerSortDirection {

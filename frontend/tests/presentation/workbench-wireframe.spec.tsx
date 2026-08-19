@@ -885,7 +885,7 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
-  it("uses supplied confirmation lookups without interpreting the target surface", () => {
+  it("isolates the page while using supplied confirmation lookups", () => {
     const target = { surface: "unconventional", scope: "unconventional.scope" };
     const confirmation = {
       kind: "delete" as const,
@@ -900,11 +900,35 @@ describe("WorkbenchPageClient", () => {
       activeTabId: () => "active-view",
     };
 
-    render(<TableViewTabConfirmationDialog adapter={adapter} />);
+    const { container, rerender } = render(
+      <TableViewTabConfirmationDialog adapter={adapter} />,
+    );
 
-    expect(screen.getByRole("dialog", { name: "Delete this view?" })).toHaveTextContent(
+    const dialog = screen.getByRole("dialog", { name: "Delete this view?" });
+    expect(dialog).toHaveTextContent(
       "Its unsaved filter, sort, and group changes will also be discarded.",
     );
+    const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
+    expect(host?.parentElement).toBe(document.body);
+    const background = Array.from(document.body.children).filter(
+      (element) => element !== host,
+    );
+    expect(background).not.toHaveLength(0);
+    for (const element of background) {
+      expect(element).toHaveAttribute("aria-hidden", "true");
+      expect(element).toHaveAttribute("inert", "");
+    }
+    expect(document.body).toHaveStyle({ overflow: "hidden" });
+
+    rerender(
+      <TableViewTabConfirmationDialog
+        adapter={{ ...adapter, confirmation: null }}
+      />,
+    );
+
+    expect(container).not.toHaveAttribute("aria-hidden");
+    expect(container).not.toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("does not render static overview cards", () => {
@@ -1078,10 +1102,22 @@ describe("WorkbenchPageClient", () => {
     expect(ledger).toHaveAttribute("aria-expanded", "false");
     expect(health).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByRole("button", { name: "Transactions" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Timeline" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Diet" })).toHaveAttribute(
       "aria-current",
       "page",
     );
+    expect(within(screen.getByRole("navigation", { name: "Raven navigation" }))
+      .getAllByRole("button")
+      .filter((button) => ["Diet", "Bowel", "Medication", "Health Metrics", "Trends"]
+        .includes(button.textContent ?? ""))
+      .map((button) => button.textContent)).toEqual([
+        "Diet",
+        "Bowel",
+        "Medication",
+        "Health Metrics",
+        "Trends",
+      ]);
+    expect(screen.queryByRole("button", { name: "Timeline" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
   });
 
@@ -1706,6 +1742,7 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() =>
       expect(within(todayTabs).getByRole("tab", {
         name: "Stored one, 저장되지 않은 변경사항",
+        hidden: true,
       })).toBeInTheDocument(),
     );
     expect(dialog).toHaveTextContent(
@@ -2949,7 +2986,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.type(screen.getByRole("textbox", { name: "Tags" }), "focus{Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), "focus{Enter}");
     expect(screen.getByText("focus")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Title"), "Tagged task");
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -3014,7 +3051,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.type(screen.getByRole("textbox", { name: "Tags" }), "focus{Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Tags" }), "focus{Enter}");
     await user.click(screen.getByRole("button", { name: "Remove focus tag" }));
     expect(screen.queryByText("focus")).not.toBeInTheDocument();
   });
@@ -3032,7 +3069,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Daily" }));
     await user.click(screen.getByRole("button", { name: "Add to Today" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    expect(screen.getByRole("textbox", { name: "Tags" })).toHaveFocus();
+    expect(screen.getByRole("combobox", { name: "Tags" })).toHaveFocus();
     await user.keyboard("{Escape}");
 
     expect(screen.queryByRole("dialog", { name: "Create Daily item" })).toBeNull();
@@ -3472,14 +3509,18 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Area")).toHaveValue("area-1");
     expect(screen.getByLabelText("Project")).toHaveValue("project-1");
     expect(screen.getByLabelText("Priority")).toHaveValue("4");
-    expect(screen.getByRole("button", { name: "Remove focus tag" })).toBeInTheDocument();
+    const tagTrigger = screen.getByRole("button", { name: "Tags" });
+    const removeFocusTag = screen.getByRole("button", { name: "Remove focus tag" });
+    expect(tagTrigger.tagName).toBe("BUTTON");
+    expect(removeFocusTag.closest('[role="button"]')).toBeNull();
+    expect(tagTrigger.contains(removeFocusTag)).toBe(false);
     await user.selectOptions(screen.getByLabelText("Type"), "event");
     await user.selectOptions(screen.getByLabelText("Area"), "area-2");
     await user.selectOptions(screen.getByLabelText("Project"), "project-2");
     await user.selectOptions(screen.getByLabelText("Priority"), "8");
     await user.click(screen.getByRole("button", { name: "Remove focus tag" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
-    const tagSearch = screen.getByRole("textbox", { name: "Tags" });
+    const tagSearch = screen.getByRole("combobox", { name: "Tags" });
     await user.type(tagSearch, "user{Enter}");
     await user.type(tagSearch, "edited{Enter}");
     await user.type(screen.getByLabelText("Title"), "Filtered event");
@@ -6703,6 +6744,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const originalUrl = window.location.href;
     window.history.replaceState({ preserved: "keep" }, "", originalUrl);
+    const pushState = vi.spyOn(window.history, "pushState");
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>
@@ -6719,6 +6761,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Areas" }));
     await user.click(await screen.findByRole("button", { name: "Open details for Health" }));
     await user.click(screen.getByRole("button", { name: "Open Checkup details" }));
+    expect(pushState).toHaveBeenCalledTimes(2);
 
     act(() => window.history.back());
     expect(await screen.findByLabelText("Health details")).toBeInTheDocument();
@@ -6730,6 +6773,7 @@ describe("WorkbenchPageClient", () => {
     expect(await screen.findByLabelText("Checkup details")).toBeInTheDocument();
     expect(window.location.href).toBe(originalUrl);
     expect(window.history.state).toMatchObject({ preserved: "keep" });
+    expect(pushState).toHaveBeenCalledTimes(2);
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
     expect(await screen.findByRole("table", { name: "Tasks items" })).toBeInTheDocument();

@@ -1,5 +1,7 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
 
 export type TableViewConfirmationTarget = {
   scope: string;
@@ -33,19 +35,49 @@ export function TableViewTabConfirmationDialog<
   adapter: TableViewTabConfirmationDialogAdapter<TTarget>;
 }): React.JSX.Element | null {
   const confirmation = adapter.confirmation;
+  const [host, setHost] = useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    const element = document.createElement("div");
+    element.dataset.ravenModalHost = "";
+    document.body.append(element);
+    setHost(element);
+    return () => element.remove();
+  }, []);
+
+  return confirmation && host
+    ? createPortal(
+      <TableViewTabConfirmationDialogContent
+        adapter={adapter}
+        confirmation={confirmation}
+      />,
+      host,
+    )
+    : null;
+}
+
+function TableViewTabConfirmationDialogContent<
+  TTarget extends TableViewConfirmationTarget,
+>({
+  adapter,
+  confirmation,
+}: {
+  adapter: TableViewTabConfirmationDialogAdapter<TTarget>;
+  confirmation: TableViewTabConfirmation<TTarget>;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const actionRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  useModalIsolation(dialogRef, true, "body");
 
   useLayoutEffect(() => {
-    if (!confirmation) return;
     returnFocusRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
     cancelRef.current?.focus();
   }, [confirmation]);
 
-  if (!confirmation) return null;
   const activeConfirmation = confirmation;
   const title = activeConfirmation.kind === "delete"
     ? "Delete this view?"
@@ -90,12 +122,13 @@ export function TableViewTabConfirmationDialog<
     });
   }
 
-  return createPortal(
+  return (
     <div
       className="confirmation-backdrop table-view-tab-confirmation-backdrop planner-tab-confirmation-backdrop"
       data-table-view-confirmation=""
     >
       <section
+        ref={dialogRef}
         className="confirmation-dialog"
         role="dialog"
         aria-modal="true"
@@ -133,7 +166,6 @@ export function TableViewTabConfirmationDialog<
           </button>
         </div>
       </section>
-    </div>,
-    document.body,
+    </div>
   );
 }

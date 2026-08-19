@@ -10,7 +10,6 @@ import {
   Save,
   Trash2,
   Undo2,
-  X,
 } from "lucide-react";
 
 import type {
@@ -30,6 +29,10 @@ import {
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { RavenApiError } from "@/lib/raven-api";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
+import {
+  useBrowserDetailHistory,
+  type BrowserDetailHistory,
+} from "@/features/workbench/hooks/useBrowserDetailHistory";
 import {
   buildPlannerGroupCandidates,
   type PlannerGroupCandidate,
@@ -89,38 +92,17 @@ import {
 import { TableViewTabs } from "@/features/workbench/ui/TableViewTabs";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
+import {
+  formatTags,
+  parseTagInput,
+  TagsInput,
+} from "@/features/workbench/ui/TagsInput";
 
 type MainPanelProps = {
   controller: WorkbenchController;
 };
 
-const detailHistoryStateKey = "__ravenDetailItemId";
-
-type DetailHistoryController = {
-  pendingBack: boolean;
-  setDirty(dirty: boolean): void;
-  setDialogOpen(open: boolean): void;
-  deferUntilRestored(action: () => void): boolean;
-  requestBack(): void;
-  cancelBack(): void;
-  discardBack(): void;
-};
-
-function detailIdFromHistoryState(state: unknown): string | null {
-  if (!state || typeof state !== "object") {
-    return null;
-  }
-
-  const value = (state as Record<string, unknown>)[detailHistoryStateKey];
-  return typeof value === "string" ? value : null;
-}
-
-function withDetailHistoryState(state: unknown, itemId: string | null) {
-  const existing = state && typeof state === "object" && !Array.isArray(state)
-    ? state as Record<string, unknown>
-    : {};
-  return { ...existing, [detailHistoryStateKey]: itemId };
-}
+type DetailHistoryController = BrowserDetailHistory;
 
 type PlannerCreationSourceContext = Omit<PlannerCreationContext, "tableSettings">;
 
@@ -140,185 +122,18 @@ const taskStatusOptions = ["active", "completed"];
 const materializationPolicyOptions = ["single_open", "per_occurrence"];
 const priorityOptions = Array.from({ length: 10 }, (_, index) => (index + 1).toString());
 
-function parseTagInput(value: string): string[] {
-  return value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean)
-    .filter((tag, index, tags) => tags.indexOf(tag) === index);
-}
-
-function formatTags(tags: string[] | null | undefined): string {
-  return (tags ?? []).join(", ");
-}
-
 function sameTags(left: string[] | null | undefined, right: string[] | null | undefined): boolean {
   return formatTags(left) === formatTags(right);
 }
 
-function useDetailHistory(controller: WorkbenchController): DetailHistoryController {
-  const controllerRef = useRef(controller);
-  controllerRef.current = controller;
-  const currentDetailIdRef = useRef(controller.detailItem?.id ?? null);
-  const dirtyRef = useRef(false);
-  const applyingHistoryRef = useRef(false);
-  const restoringCurrentEntryRef = useRef(false);
-  const consumeRestorationRef = useRef(false);
-  const deferredRestorationActionRef = useRef<(() => void) | null>(null);
-  const pendingBackRef = useRef(false);
-  const dialogOpenRef = useRef(false);
-  const discardAfterRestoreRef = useRef(false);
-  const [pendingBack, setPendingBack] = React.useState(false);
-
-  useEffect(() => {
-    window.history.replaceState(
-      withDetailHistoryState(window.history.state, currentDetailIdRef.current),
-      "",
-    );
-
-    function restoreCurrentEntry() {
-      restoringCurrentEntryRef.current = true;
-      window.history.forward();
-    }
-
-    function finishDiscard() {
-      pendingBackRef.current = false;
-      setPendingBack(false);
-      dirtyRef.current = false;
-      window.history.back();
-    }
-
-    function handlePopState(event: PopStateEvent) {
-      const currentId = currentDetailIdRef.current;
-      const requestedId = detailIdFromHistoryState(event.state);
-
-      if (restoringCurrentEntryRef.current && requestedId === currentId) {
-        restoringCurrentEntryRef.current = false;
-        const consumeRestoration = consumeRestorationRef.current;
-        consumeRestorationRef.current = false;
-        const deferredAction = deferredRestorationActionRef.current;
-        deferredRestorationActionRef.current = null;
-        if (deferredAction) {
-          discardAfterRestoreRef.current = false;
-          deferredAction();
-        } else if (discardAfterRestoreRef.current) {
-          discardAfterRestoreRef.current = false;
-          finishDiscard();
-        } else if (!consumeRestoration && !dialogOpenRef.current && !pendingBackRef.current) {
-          pendingBackRef.current = true;
-          setPendingBack(true);
-        }
-        return;
-      }
-
-      if (pendingBackRef.current) {
-        restoreCurrentEntry();
-        return;
-      }
-
-      if (dialogOpenRef.current) {
-        restoreCurrentEntry();
-        return;
-      }
-
-      if (currentId && dirtyRef.current) {
-        restoreCurrentEntry();
-        return;
-      }
-
-      const item = requestedId
-        ? controllerRef.current.workspaceItems.allItems.find(({ id }) => id === requestedId)
-        : null;
-      const nextId = item?.id ?? null;
-      if (nextId === currentId) {
-        return;
-      }
-
-      applyingHistoryRef.current = true;
-      if (item) {
-        controllerRef.current.openDetailView(item);
-      } else {
-        controllerRef.current.closeDetailView();
-      }
-    }
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
-  useEffect(() => {
-    const nextId = controller.detailItem?.id ?? null;
-    const previousId = currentDetailIdRef.current;
-    if (nextId === previousId) {
-      return;
-    }
-    currentDetailIdRef.current = nextId;
-
-    if (applyingHistoryRef.current) {
-      applyingHistoryRef.current = false;
-      return;
-    }
-
-    if (nextId) {
-      window.history.pushState(withDetailHistoryState(window.history.state, nextId), "");
-    } else if (previousId) {
-      window.history.replaceState(withDetailHistoryState(window.history.state, null), "");
-    }
-  }, [controller.detailItem?.id]);
-
-  const setDirty = React.useCallback((dirty: boolean) => {
-    dirtyRef.current = dirty;
-  }, []);
-  const setDialogOpen = React.useCallback((open: boolean) => {
-    dialogOpenRef.current = open;
-  }, []);
-
-  return {
-    pendingBack,
-    setDirty,
-    setDialogOpen,
-    deferUntilRestored(action) {
-      if (!restoringCurrentEntryRef.current) {
-        return false;
-      }
-      deferredRestorationActionRef.current ??= action;
-      return true;
-    },
-    requestBack() {
-      if (pendingBackRef.current || restoringCurrentEntryRef.current) {
-        return;
-      }
-      if (dirtyRef.current) {
-        pendingBackRef.current = true;
-        setPendingBack(true);
-      } else {
-        window.history.back();
-      }
-    },
-    cancelBack() {
-      consumeRestorationRef.current = restoringCurrentEntryRef.current;
-      discardAfterRestoreRef.current = false;
-      pendingBackRef.current = false;
-      setPendingBack(false);
-    },
-    discardBack() {
-      if (!pendingBackRef.current) {
-        return;
-      }
-      if (restoringCurrentEntryRef.current) {
-        discardAfterRestoreRef.current = true;
-        return;
-      }
-      pendingBackRef.current = false;
-      setPendingBack(false);
-      dirtyRef.current = false;
-      window.history.back();
-    },
-  };
-}
-
 export function MainPanel({ controller }: MainPanelProps) {
-  const detailHistory = useDetailHistory(controller);
+  const detailHistory = useBrowserDetailHistory({
+    stateKey: "__ravenDetailItemId",
+    currentId: controller.detailItem?.id ?? null,
+    resolve: (id) => controller.workspaceItems.allItems.find((item) => item.id === id) ?? null,
+    open: controller.openDetailView,
+    close: controller.closeDetailView,
+  });
 
   if (controller.detailItem) {
     return (
@@ -1067,7 +882,6 @@ function isLedgerPanel(leafTabId: LeafTabId): leafTabId is LedgerTabId {
 
 function isHealthPanel(leafTabId: LeafTabId): leafTabId is HealthTabId {
   return [
-    "timeline",
     "diet",
     "bowel",
     "medication",
@@ -5503,202 +5317,6 @@ function InlineSelect({
         </option>
       ))}
     </select>
-  );
-}
-
-function TagsInput({
-  label,
-  value,
-  tagOptions,
-  onCommit,
-  propagateEscape = false,
-  portalDropdown = false,
-}: {
-  label: string;
-  value: string[] | null | undefined;
-  tagOptions: string[];
-  onCommit: (value: string[]) => void;
-  propagateEscape?: boolean;
-  portalDropdown?: boolean;
-}) {
-  const currentTags = React.useMemo(() => parseTagInput(formatTags(value)), [value]);
-  const availableTags = React.useMemo(
-    () => tagOptions.filter((tag) => !currentTags.includes(tag)),
-    [currentTags, tagOptions],
-  );
-  const [open, setOpen] = React.useState(false);
-  const [draft, setDraft] = React.useState("");
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const triggerRef = React.useRef<HTMLDivElement>(null);
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
-  const [dropdownStyle, setDropdownStyle] = React.useState<React.CSSProperties>();
-  const normalizedDraft = draft.trim().toLowerCase();
-  const filteredTags = availableTags.filter((tag) =>
-    tag.toLowerCase().includes(normalizedDraft),
-  );
-
-  React.useEffect(() => {
-    setDraft("");
-  }, [currentTags]);
-
-  React.useEffect(() => {
-    if (open) {
-      inputRef.current?.focus();
-    }
-  }, [open]);
-
-  React.useLayoutEffect(() => {
-    if (!open || !portalDropdown) return;
-
-    const updatePosition = () => {
-      if (triggerRef.current && dropdownRef.current) {
-        setDropdownStyle(goalPeriodPopoverStyle(triggerRef.current, dropdownRef.current));
-      }
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open, portalDropdown]);
-
-  function commitTags(tags: string[]) {
-    const normalizedTags = parseTagInput(formatTags(tags));
-    if (!sameTags(normalizedTags, value)) {
-      onCommit(normalizedTags);
-    }
-  }
-
-  function commitDraft() {
-    const draftTags = parseTagInput(draft);
-    setDraft("");
-    if (draftTags.length > 0) {
-      commitTags([...currentTags, ...draftTags]);
-    }
-  }
-
-  function closeDropdown() {
-    commitDraft();
-    setOpen(false);
-  }
-
-  React.useEffect(() => {
-    if (!open || !portalDropdown) return;
-
-    const dismiss = (event: MouseEvent) => {
-      if (!(event.target instanceof Node)) return;
-      if (triggerRef.current?.contains(event.target) || dropdownRef.current?.contains(event.target)) {
-        return;
-      }
-      closeDropdown();
-    };
-
-    document.addEventListener("mousedown", dismiss);
-    return () => document.removeEventListener("mousedown", dismiss);
-  }, [open, portalDropdown, currentTags, draft]);
-
-  const dropdown = (
-    <div
-      ref={dropdownRef}
-      className="tag-dropdown"
-      style={portalDropdown ? { ...dropdownStyle, zIndex: 110 } : undefined}
-      onClick={stopRowEvent}
-    >
-      <input
-        ref={inputRef}
-        aria-label={label}
-        placeholder="Search for an option..."
-        value={draft}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && propagateEscape) {
-            return;
-          }
-          stopRowEvent(event);
-          if (event.key === "Escape") {
-            event.preventDefault();
-            setOpen(false);
-          }
-          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            commitDraft();
-          }
-        }}
-        onChange={(event) => setDraft(event.target.value)}
-      />
-      <div className="tag-option-list" role="listbox" aria-label={`${label} options`}>
-        {filteredTags.map((tag) => (
-          <button
-            key={tag}
-            type="button"
-            role="option"
-            aria-selected="false"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              stopRowEvent(event);
-              commitTags([...currentTags, tag]);
-              setDraft("");
-            }}
-          >
-            <span className="tag-chip">{tag}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  return (
-    <div
-      className="tag-combobox"
-      onBlur={(event) => {
-        if (portalDropdown) return;
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          closeDropdown();
-        }
-      }}
-    >
-      <div
-        ref={triggerRef}
-        className="tag-input"
-        role="button"
-        tabIndex={0}
-        aria-label={label}
-        aria-expanded={open}
-        onClick={(event) => {
-          stopRowEvent(event);
-          setOpen(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && propagateEscape) {
-            return;
-          }
-          stopRowEvent(event);
-          if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-            event.preventDefault();
-            setOpen(true);
-          }
-        }}
-      >
-        {currentTags.map((tag) => (
-          <span className="tag-chip" key={tag}>
-            {tag}
-            <button
-              type="button"
-              aria-label={`Remove ${tag} tag`}
-              onClick={(event) => {
-                stopRowEvent(event);
-                commitTags(currentTags.filter((currentTag) => currentTag !== tag));
-              }}
-            >
-              <X aria-hidden="true" size={14} />
-            </button>
-          </span>
-        ))}
-      </div>
-      {open ? (portalDropdown ? createPortal(dropdown, document.body) : dropdown) : null}
-    </div>
   );
 }
 

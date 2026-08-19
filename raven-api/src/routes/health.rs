@@ -15,6 +15,7 @@ use health_engine::domain::HealthCategory;
 use health_engine::infrastructure::media::LocalMediaStore;
 use health_engine::infrastructure::sqlite::SqliteHealthRepository;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
@@ -45,10 +46,19 @@ pub fn router() -> Router<RavenApiState> {
         .route("/trends", get(trends))
         .route("/audit/:record_type/:record_id", get(audit))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_JSON_BYTES));
-    json.merge(Router::new().route(
-        "/diet/with-image",
-        post(create_diet_with_image).layer(axum::extract::DefaultBodyLimit::max(MAX_MEDIA_BYTES)),
-    ))
+    json.merge(
+        Router::new()
+            .route(
+                "/diet/with-image",
+                post(create_diet_with_image)
+                    .layer(axum::extract::DefaultBodyLimit::max(MAX_MEDIA_BYTES)),
+            )
+            .route(
+                "/diet/:id/with-image",
+                axum::routing::patch(update_diet_with_image)
+                    .layer(axum::extract::DefaultBodyLimit::max(MAX_MEDIA_BYTES)),
+            ),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,24 +147,14 @@ async fn update_diet(
     body: Result<Json<UpdateDietBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
-    let occurred_at = parse_optional_time(body.occurred_at.as_deref(), "occurred_at")?;
-    let expected_updated_at =
-        parse_optional_time(body.expected_updated_at.as_deref(), "expected_updated_at")?;
+    let media = if body.remove_image {
+        DietMediaUpdate::Remove
+    } else {
+        DietMediaUpdate::Preserve
+    };
+    let update = diet_update(body, media)?;
     let item = health(&state, true, move |service| {
-        service.update_diet(
-            &id,
-            UpdateDietEntry {
-                occurred_at,
-                meal_type: body.meal_type,
-                food_name: body.food_name,
-                note: body.note.optional(),
-                tags: body.tags,
-                media: DietMediaUpdate::Preserve,
-                expected_updated_at,
-                actor: body.actor,
-                reason: body.reason,
-            },
-        )
+        service.update_diet(&id, update)
     })
     .await?;
     Ok(Json(json!(item)))
@@ -366,6 +366,67 @@ async fn create_diet_with_image(
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let (content_type, body) = diet_image(&headers, body)?;
+    let metadata: CreateDietBody = diet_metadata(&headers)?;
+    let occurred_at = parse_time(&metadata.occurred_at, "occurred_at")?;
+    let item = health(&state, true, move |service| {
+        service.create_diet(CreateDietEntry {
+            occurred_at,
+            meal_type: metadata.meal_type,
+            food_name: metadata.food_name,
+            note: metadata.note,
+            tags: metadata.tags,
+            media: Some(MediaUpload::new(content_type, body.to_vec())),
+            actor: metadata.actor,
+        })
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(json!(item))))
+}
+
+async fn update_diet_with_image(
+    State(state): State<RavenApiState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let (content_type, body) = diet_image(&headers, body)?;
+    let metadata: UpdateDietBody = diet_metadata(&headers)?;
+    if metadata.remove_image {
+        return Err(ApiError::validation(Some("metadata")));
+    }
+    let update = diet_update(
+        metadata,
+        DietMediaUpdate::Replace(MediaUpload::new(content_type, body.to_vec())),
+    )?;
+    let item = health(&state, true, move |service| {
+        service.update_diet(&id, update)
+    })
+    .await?;
+    Ok(Json(json!(item)))
+}
+
+fn diet_update(body: UpdateDietBody, media: DietMediaUpdate) -> Result<UpdateDietEntry, ApiError> {
+    Ok(UpdateDietEntry {
+        occurred_at: parse_optional_time(body.occurred_at.as_deref(), "occurred_at")?,
+        meal_type: body.meal_type,
+        food_name: body.food_name,
+        note: body.note.optional(),
+        tags: body.tags,
+        media,
+        expected_updated_at: parse_optional_time(
+            body.expected_updated_at.as_deref(),
+            "expected_updated_at",
+        )?,
+        actor: body.actor,
+        reason: body.reason,
+    })
+}
+
+fn diet_image(
+    headers: &HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(String, Bytes), ApiError> {
     let body = body.map_err(|error| {
         if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
             ApiError::payload_too_large()
@@ -385,6 +446,13 @@ async fn create_diet_with_image(
     if body.is_empty() {
         return Err(ApiError::validation(Some("image")));
     }
+    Ok((
+        content_type.expect("validated content type").to_string(),
+        body,
+    ))
+}
+
+fn diet_metadata<T: DeserializeOwned>(headers: &HeaderMap) -> Result<T, ApiError> {
     let metadata = headers
         .get("x-raven-diet-metadata")
         .ok_or_else(|| ApiError::validation(Some("metadata")))?;
@@ -394,23 +462,7 @@ async fn create_diet_with_image(
     let metadata = metadata
         .to_str()
         .map_err(|_| ApiError::validation(Some("metadata")))?;
-    let metadata: CreateDietBody =
-        serde_json::from_str(metadata).map_err(|_| ApiError::validation(Some("metadata")))?;
-    let occurred_at = parse_time(&metadata.occurred_at, "occurred_at")?;
-    let content_type = content_type.expect("validated content type").to_string();
-    let item = health(&state, true, move |service| {
-        service.create_diet(CreateDietEntry {
-            occurred_at,
-            meal_type: metadata.meal_type,
-            food_name: metadata.food_name,
-            note: metadata.note,
-            tags: metadata.tags,
-            media: Some(MediaUpload::new(content_type, body.to_vec())),
-            actor: metadata.actor,
-        })
-    })
-    .await?;
-    Ok((StatusCode::CREATED, Json(json!(item))))
+    serde_json::from_str(metadata).map_err(|_| ApiError::validation(Some("metadata")))
 }
 
 async fn health<T, F>(state: &RavenApiState, mutation: bool, action: F) -> Result<T, ApiError>
