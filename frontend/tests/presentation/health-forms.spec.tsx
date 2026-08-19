@@ -331,6 +331,7 @@ describe("Health Journal forms", () => {
     const dialog = screen.getByRole("dialog", { name: "Add bowel entry" });
     const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
 
+    expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(host?.parentElement).toBe(document.body);
     expect(view.container).toHaveAttribute("aria-hidden", "true");
     expect(view.container).toHaveAttribute("inert");
@@ -368,6 +369,7 @@ describe("Health Journal forms", () => {
   });
 
   it("locks Bowel dismissal and duplicate submits for the full mutation promise", async () => {
+    const user = userEvent.setup();
     const save = deferred<void>();
     const onClose = vi.fn();
     const health = controller({ createBowel: vi.fn(() => save.promise) });
@@ -376,10 +378,13 @@ describe("Health Journal forms", () => {
 
     await waitFor(() => expect(health.createBowel).toHaveBeenCalledOnce());
     const dialog = screen.getByRole("dialog", { name: "Add bowel entry" });
+    const saveButton = screen.getByRole("button", { name: "Save bowel entry" });
     expect(dialog).toHaveAttribute("aria-busy", "true");
     expect(screen.getByLabelText("Time")).toBeDisabled();
+    expect(saveButton).toBeDisabled();
     expect(screen.getByRole("button", { name: "Close Add bowel entry" })).toBeDisabled();
     fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+    await user.click(saveButton);
     fireEvent.keyDown(dialog, { key: "Escape" });
     fireEvent.mouseDown(dialog.parentElement!);
     fireEvent.click(screen.getByRole("button", { name: "Close Add bowel entry" }));
