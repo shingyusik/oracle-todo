@@ -19,6 +19,9 @@ import { MedicationPanel } from "@/features/health/ui/MedicationPanel";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
 const loadedState: HealthState = {
+  bowelStatus: "loaded",
+  bowelError: null,
+  bowelEntries: [],
   dietStatus: "loaded",
   dietError: null,
   dietEntries: [],
@@ -64,6 +67,7 @@ function controller(
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshBowel: vi.fn(),
     refreshDiet: vi.fn(),
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
@@ -72,6 +76,8 @@ function controller(
     updateDiet: vi.fn(),
     archiveDiet: vi.fn(),
     createBowel: vi.fn(),
+    updateBowel: vi.fn(),
+    archiveBowel: vi.fn(),
     createMedication: vi.fn(),
     upsertMetrics: vi.fn(),
     archive: vi.fn(),

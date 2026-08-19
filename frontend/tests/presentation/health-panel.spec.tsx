@@ -93,6 +93,9 @@ const trends: HealthTrends = {
 };
 
 const loadedState: HealthState = {
+  bowelStatus: "loaded",
+  bowelError: null,
+  bowelEntries: [bowel],
   dietStatus: "loaded",
   dietError: null,
   dietEntries: [diet],
@@ -131,6 +134,7 @@ function controller(state: HealthState = loadedState): HealthController {
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshBowel: vi.fn(),
     refreshDiet: vi.fn(),
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
@@ -139,6 +143,8 @@ function controller(state: HealthState = loadedState): HealthController {
     updateDiet: vi.fn(),
     archiveDiet: vi.fn(),
     createBowel: vi.fn(),
+    updateBowel: vi.fn(),
+    archiveBowel: vi.fn(),
     createMedication: vi.fn(),
     upsertMetrics: vi.fn(),
     archive: vi.fn(),
@@ -521,6 +527,7 @@ describe("HealthPanel", () => {
 
   it("loads, normalizes, edits, and persists Health Diet views", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
@@ -585,6 +592,7 @@ describe("HealthPanel", () => {
 
   it("replays queued Health view commands over stored preferences", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
     const stored = deferred<Response>();
@@ -608,6 +616,7 @@ describe("HealthPanel", () => {
 
   it("uses last-write-wins Health view errors and retries the current state", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
     let putCount = 0;
@@ -681,6 +690,7 @@ describe("HealthPanel", () => {
 
   it("ignores an older Health view write failure after a newer save succeeds", async () => {
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
     let putCount = 0;

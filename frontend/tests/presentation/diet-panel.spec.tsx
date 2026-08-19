@@ -30,6 +30,9 @@ const entry: DietEntry = {
 const trends = { days: 30 } as HealthTrends;
 
 const loadedState: HealthState = {
+  bowelStatus: "loaded",
+  bowelError: null,
+  bowelEntries: [],
   dietStatus: "loaded",
   dietError: null,
   dietEntries: [entry],
@@ -67,6 +70,7 @@ function controller(
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshBowel: vi.fn().mockResolvedValue(true),
     refreshDiet: vi.fn().mockResolvedValue(true),
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
@@ -75,6 +79,8 @@ function controller(
     updateDiet: vi.fn(),
     archiveDiet: vi.fn().mockResolvedValue(undefined),
     createBowel: vi.fn(),
+    updateBowel: vi.fn(),
+    archiveBowel: vi.fn(),
     createMedication: vi.fn(),
     upsertMetrics: vi.fn(),
     archive: vi.fn(),
@@ -121,6 +127,7 @@ function deferred<T>() {
 }
 
 function mockOtherReads() {
+  vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
   vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
   vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
@@ -256,7 +263,7 @@ describe("Health Diet controller", () => {
     }
   });
 
-  it("refreshes only Timeline and Trends after every non-Diet mutation", async () => {
+  it("refreshes Bowel for Bowel creation but not generic event mutations", async () => {
     mockOtherReads();
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
     const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue({} as never);
@@ -268,6 +275,7 @@ describe("Health Diet controller", () => {
     await waitFor(() => expect(result.current.state.dietStatus).toBe("loaded"));
     vi.mocked(healthApi.listDiet).mockClear();
     vi.mocked(healthApi.listDiet).mockRejectedValue(new Error("Diet unavailable"));
+    vi.mocked(healthApi.listEvents).mockClear();
     vi.mocked(healthApi.timeline).mockClear();
     vi.mocked(healthApi.trends).mockClear();
 
@@ -277,24 +285,26 @@ describe("Health Diet controller", () => {
     } as const;
     const mutations = [create, upsert, archive, restore, purge];
     const cases = [
-      () => result.current.createBowel(bowel),
-      () => result.current.createMedication({
+      { bowelRead: true, run: () => result.current.createBowel(bowel) },
+      { bowelRead: false, run: () => result.current.createMedication({
         occurredAt: entry.occurredAt,
         details: { kind: "medication", medicationName: "Tablet", dose: 1, unit: "tablet" },
-      }),
-      () => result.current.upsertMetrics([]),
-      () => result.current.archive("event", "event-1"),
-      () => result.current.restore("event", "event-1"),
-      () => result.current.purge("event", "event-1", "PURGE"),
+      }) },
+      { bowelRead: false, run: () => result.current.upsertMetrics([]) },
+      { bowelRead: false, run: () => result.current.archive("event", "event-1") },
+      { bowelRead: false, run: () => result.current.restore("event", "event-1") },
+      { bowelRead: false, run: () => result.current.purge("event", "event-1", "PURGE") },
     ];
 
-    for (const run of cases) {
+    for (const mutationCase of cases) {
       for (const mutation of mutations) mutation.mockClear();
+      vi.mocked(healthApi.listEvents).mockClear();
       vi.mocked(healthApi.timeline).mockClear();
       vi.mocked(healthApi.trends).mockClear();
-      await act(async () => expect(run()).resolves.toBeUndefined());
+      await act(async () => expect(mutationCase.run()).resolves.toBeUndefined());
       expect(mutations.reduce((count, mutation) => count + mutation.mock.calls.length, 0)).toBe(1);
       expect(healthApi.listDiet).not.toHaveBeenCalled();
+      expect(healthApi.listEvents).toHaveBeenCalledTimes(mutationCase.bowelRead ? 1 : 0);
       expect(healthApi.timeline).toHaveBeenCalledOnce();
       expect(healthApi.trends).toHaveBeenCalledOnce();
     }
