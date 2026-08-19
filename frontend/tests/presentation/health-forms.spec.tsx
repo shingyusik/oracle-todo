@@ -395,6 +395,78 @@ describe("Health Journal forms", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
+  it("closes and restores Bowel focus after a successful StrictMode save", async () => {
+    const onClose = vi.fn();
+    const health = controller();
+    render(
+      <React.StrictMode>
+        <BowelDialogHarness health={health} onClose={onClose} />
+      </React.StrictMode>,
+    );
+
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open bowel" })).toHaveFocus();
+  });
+
+  it("clears Bowel pending and retains the draft after a StrictMode failure", async () => {
+    const health = controller({
+      createBowel: vi.fn().mockRejectedValue(new Error("Bowel save failed")),
+    });
+    render(
+      <React.StrictMode>
+        <BowelDialogHarness health={health} />
+      </React.StrictMode>,
+    );
+    fireEvent.change(screen.getByLabelText("Time"), {
+      target: { value: "2026-08-17T08:30" },
+    });
+    fireEvent.change(screen.getByLabelText("Bristol Scale"), { target: { value: "6" } });
+    fireEvent.click(screen.getByLabelText("Blood Visible"));
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Keep this" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Bowel save failed");
+    expect(screen.getByRole("dialog", { name: "Add bowel entry" }))
+      .toHaveAttribute("aria-busy", "false");
+    expect(screen.getByRole("button", { name: "Save bowel entry" })).toBeEnabled();
+    expect(screen.getByLabelText("Time")).toHaveValue("2026-08-17T08:30");
+    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("6");
+    expect(screen.getByLabelText("Blood Visible")).toBeChecked();
+    expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
+  });
+
+  it("keeps Bowel focus inside the dialog when pending leaves no enabled controls", async () => {
+    const save = deferred<void>();
+    const health = controller({ createBowel: vi.fn(() => save.promise) });
+    render(<BowelDialogHarness health={health} />);
+    fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Add bowel entry" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+    expect(dialog).toHaveAttribute("tabindex", "-1");
+
+    const background = screen.getByRole("button", { name: "Open bowel", hidden: true });
+    background.focus();
+    const forward = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    dialog.dispatchEvent(forward);
+    expect(forward.defaultPrevented).toBe(true);
+    expect(dialog).toHaveFocus();
+
+    background.focus();
+    const reverse = new KeyboardEvent("keydown", {
+      key: "Tab",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    dialog.dispatchEvent(reverse);
+    expect(reverse.defaultPrevented).toBe(true);
+    expect(dialog).toHaveFocus();
+  });
+
   it("freezes committed Bowel fields and retries false then true without remutation", async () => {
     const firstRefresh = deferred<boolean>();
     const onClose = vi.fn();

@@ -45,6 +45,11 @@ function BowelCreateDialogContent({
     };
   }, [returnFocusRef]);
 
+  React.useEffect(() => {
+    const dialog = dialogRef.current;
+    if (pending && dialog?.contains(document.activeElement)) dialog.focus();
+  }, [pending]);
+
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -54,8 +59,18 @@ function BowelCreateDialogContent({
     if (event.key !== "Tab" || !dialogRef.current) return;
     const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
       'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ));
+    )).filter((element) => !element.matches(":disabled"));
+    if (focusables.length === 0) {
+      event.preventDefault();
+      dialogRef.current.focus();
+      return;
+    }
     const index = focusables.indexOf(document.activeElement as HTMLElement);
+    if (index === -1) {
+      event.preventDefault();
+      (event.shiftKey ? focusables.at(-1) : focusables[0])?.focus();
+      return;
+    }
     if (!event.shiftKey && index === focusables.length - 1) {
       event.preventDefault();
       focusables[0]?.focus();
@@ -79,6 +94,7 @@ function BowelCreateDialogContent({
         aria-modal="true"
         aria-label="Add bowel entry"
         aria-busy={pending}
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         <header className="dashboard-widget-header">

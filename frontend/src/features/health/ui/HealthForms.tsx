@@ -553,8 +553,11 @@ function useFormAction(onPendingChange?: (pending: boolean) => void) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => () => {
-    mounted.current = false;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   async function run(operation: () => Promise<void>) {
