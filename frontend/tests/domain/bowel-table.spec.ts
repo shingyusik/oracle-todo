@@ -69,8 +69,11 @@ describe("deriveBowelGroups", () => {
     ["blood is not", { id: "f", field: "blood_visible", type: "select", operator: "is_not", value: ["yes"] }, ["1"]],
   ] as const)("applies %s through the shared matcher", (_name, rule, suffixes) => {
     const groups = deriveBowelGroups([
-      bowel("1"),
-      bowel("2", { attributes: { kind: "bowel", bristolScale: 7, bloodVisible: true } }),
+      bowel("1", { occurredAt: localInstant(2026, 7, 8) }),
+      bowel("2", {
+        occurredAt: localInstant(2026, 7, 8),
+        attributes: { kind: "bowel", bristolScale: 7, bloodVisible: true },
+      }),
     ], settings({ filterRules: [rule as PlannerFilterRule] }));
     expect(groups[0]!.rows.map(({ id: rowId }) => rowId)).toEqual(suffixes.map(id));
   });
@@ -144,6 +147,24 @@ describe("deriveBowelGroups", () => {
         .toEqual([id("1"), id("2"), id("3")]);
     },
   );
+
+  it("applies descending secondary sort and id tie-break after the primary criterion", () => {
+    const rows = deriveBowelGroups([
+      bowel("1", { occurredAt: localInstant(2026, 7, 11), updatedAt: "2026-07-08T08:00:00Z" }),
+      bowel("2", { occurredAt: localInstant(2026, 7, 8), updatedAt: "2026-07-08T10:00:00Z" }),
+      bowel("3", { occurredAt: localInstant(2026, 7, 9), updatedAt: "2026-07-08T10:00:00Z" }),
+      bowel("4", {
+        occurredAt: localInstant(2026, 7, 10),
+        updatedAt: "2026-07-08T11:00:00Z",
+        attributes: { kind: "bowel", bristolScale: 7, bloodVisible: false },
+      }),
+    ], settings({ sortRules: [
+      { id: "scale", field: "bristol_scale", direction: "asc" },
+      { id: "updated", field: "updated", direction: "desc" },
+    ] }))[0]!.rows;
+
+    expect(rows.map(({ id: rowId }) => rowId)).toEqual([id("2"), id("3"), id("1"), id("4")]);
+  });
 
   it.each([
     ["day", ["2026-01-05", "2025-12-31"]],
