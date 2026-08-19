@@ -547,7 +547,11 @@ describe("DietPanel table", () => {
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
       "", "Time", "Meal", "Food", "Tags", "Photo", "Note",
     ]);
-    const row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    let open = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    let row = open.closest("tr")!;
+    expect(open.tagName).toBe("BUTTON");
+    expect(row).not.toHaveAttribute("role");
+    expect(row).toHaveRole("row");
     expect(within(row).getByText("Lunch")).toBeInTheDocument();
     expect(within(row).getByText("rice")).toBeInTheDocument();
     expect(within(row).getByText("Photo")).toBeInTheDocument();
@@ -560,7 +564,12 @@ describe("DietPanel table", () => {
     checkbox.focus();
     await user.keyboard("{Enter} ");
     expect(screen.queryByText("Diet entry details")).toBeNull();
-    row.focus();
+    await user.click(within(row).getByText("Lunch"));
+    expect(screen.getByText("Diet entry details")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    open = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    row = open.closest("tr")!;
+    open.focus();
     await user.keyboard("{Enter}");
     expect(screen.getByText("Diet entry details")).toBeInTheDocument();
   });
@@ -581,7 +590,7 @@ describe("DietPanel table", () => {
       .toBeInTheDocument();
     expect([...screen.getByRole("region", { name: "Edit diet properties" }).children]
       .map((field) => field.textContent?.trim())).toEqual([
-        "Time", "MealBreakfastLunchDinnerSnackLate night", "Food", "Tagsrice", "PhotoNo photo", "Note",
+        "Time", "MealBreakfastLunchDinnerSnackLate night", "Food", "TagsriceAdd", "PhotoNo photo", "Note",
       ]);
 
     await user.click(screen.getByRole("button", { name: "< Back" }));

@@ -136,6 +136,16 @@ describe("Health Journal forms", () => {
     expect(secondListbox.id).not.toBe(firstListbox.id);
   });
 
+  it("keeps tag removal buttons outside the picker trigger", () => {
+    render(<TagsInput label="Tags" value={["rice"]} tagOptions={[]} onCommit={vi.fn()} />);
+
+    const trigger = screen.getByRole("button", { name: "Tags" });
+    const remove = screen.getByRole("button", { name: "Remove rice tag" });
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(remove.closest('[role="button"]')).toBeNull();
+    expect(trigger.contains(remove)).toBe(false);
+  });
+
   it("submits structured bowel fields with a Bristol value from 1 to 7", async () => {
     const user = userEvent.setup();
     const health = controller();
@@ -400,7 +410,7 @@ describe("Health Journal forms", () => {
     );
     expect(screen.getByLabelText("Food")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save diet entry" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Tags" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Tags" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Food"), { target: { value: "Dinner" } });
     fireEvent.submit(screen.getByRole("form", { name: "Diet entry" }));
 

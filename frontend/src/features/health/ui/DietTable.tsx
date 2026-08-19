@@ -97,17 +97,9 @@ function DietTableRow({
   const context = `${row.food}, ${row.date} ${row.timeLabel}, ${row.mealLabel}`;
   return (
     <tr
-      role="button"
-      tabIndex={0}
-      data-diet-row-id={row.id}
-      data-diet-occurrence={occurrence}
-      aria-label={`Open details for ${context}`}
-      onClick={() => onOpen(row, occurrence)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-          event.preventDefault();
-          onOpen(row, occurrence);
-        }
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest("button, input, a, select, textarea")) return;
+        onOpen(row, occurrence);
       }}
     >
       <td className="selection-column"><input
@@ -120,7 +112,13 @@ function DietTableRow({
       /></td>
       <td>{row.timeLabel}</td>
       <td>{row.mealLabel}</td>
-      <td>{row.food}</td>
+      <td><button
+        type="button"
+        data-diet-row-id={row.id}
+        data-diet-occurrence={occurrence}
+        aria-label={`Open details for ${context}`}
+        onClick={() => onOpen(row, occurrence)}
+      >{row.food}</button></td>
       <td>{row.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}</td>
       <td>{row.hasPhoto ? "Photo" : "—"}</td>
       <td>{row.note}</td>

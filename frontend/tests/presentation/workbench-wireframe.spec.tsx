@@ -3509,7 +3509,11 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByLabelText("Area")).toHaveValue("area-1");
     expect(screen.getByLabelText("Project")).toHaveValue("project-1");
     expect(screen.getByLabelText("Priority")).toHaveValue("4");
-    expect(screen.getByRole("button", { name: "Remove focus tag" })).toBeInTheDocument();
+    const tagTrigger = screen.getByRole("button", { name: "Tags" });
+    const removeFocusTag = screen.getByRole("button", { name: "Remove focus tag" });
+    expect(tagTrigger.tagName).toBe("BUTTON");
+    expect(removeFocusTag.closest('[role="button"]')).toBeNull();
+    expect(tagTrigger.contains(removeFocusTag)).toBe(false);
     await user.selectOptions(screen.getByLabelText("Type"), "event");
     await user.selectOptions(screen.getByLabelText("Area"), "area-2");
     await user.selectOptions(screen.getByLabelText("Project"), "project-2");

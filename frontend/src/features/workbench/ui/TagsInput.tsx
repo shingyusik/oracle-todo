@@ -41,7 +41,7 @@ export function TagsInput({
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const triggerRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const listboxId = React.useId();
   const [dropdownStyle, setDropdownStyle] = React.useState<React.CSSProperties>();
@@ -182,33 +182,7 @@ export function TagsInput({
         }
       }}
     >
-      <div
-        ref={triggerRef}
-        className="tag-input"
-        role="button"
-        tabIndex={0}
-        aria-label={label}
-        aria-haspopup="listbox"
-        aria-controls={open ? listboxId : undefined}
-        aria-expanded={open}
-        aria-disabled={disabled}
-        onClick={(event) => {
-          stopEvent(event);
-          if (disabled) return;
-          setOpen(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            return;
-          }
-          stopEvent(event);
-          if (disabled) return;
-          if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-            event.preventDefault();
-            setOpen(true);
-          }
-        }}
-      >
+      <div className="tag-input">
         {currentTags.map((tag) => (
           <span className="tag-chip" key={tag}>
             {tag}
@@ -225,6 +199,20 @@ export function TagsInput({
           </span>
         ))}
       </div>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="tag-input-trigger"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-controls={open ? listboxId : undefined}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={(event) => {
+          stopEvent(event);
+          setOpen(true);
+        }}
+      >Add</button>
       {open ? (portalDropdown ? createPortal(dropdown, document.body) : dropdown) : null}
     </div>
   );
