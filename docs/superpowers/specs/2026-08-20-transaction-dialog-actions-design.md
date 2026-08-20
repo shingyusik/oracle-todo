@@ -1,26 +1,29 @@
-# Transaction Dialog Actions Design
+# Ledger Creation Dialog Actions Design
 
 ## Goal
 
-Make the selected transaction type obvious and keep the dialog actions compact and grouped.
+Make Ledger creation dialogs consistent, and make the selected transaction type obvious.
 
 ## Design
 
-- Remove the Close button from the dialog header.
-- Add a footer below the form with Close and Save aligned to the right.
+- Apply the action layout to Add transaction, Add account, and Add category.
+- Remove the Close button from each creation-dialog header.
+- Add a footer below each form with Close and Save aligned to the right.
 - Give both footer buttons the same compact width; Close is secondary and Save is primary.
-- Label the submit action `Save` for expense, income, and transfer.
+- Label the submit action `Save` in all three creation dialogs.
 - Render Expense, Income, and Transfer as an equal-width segmented control.
 - Show the selected segment with the existing Ledger accent border, stronger text, and a light background; keep unselected segments neutral.
-- Preserve the existing tab semantics, keyboard navigation, focus trap, pending-state dismissal guard, and error/retry behavior.
+- Keep Category type as its existing select; only Transaction has mode tabs.
+- Preserve each dialog's existing keyboard navigation, focus trap, pending-state dismissal guard, error handling, and successful close behavior.
 
 ## Implementation Boundary
 
-Keep the existing dialog and form components. Pass the Close action into the form only for the creation dialog, then render the shared footer there so Save and Close remain adjacent without duplicating submit state.
+Keep the existing dialog and form components. Each dialog continues to own its pending state and actions. Reuse shared CSS classes for the footer and buttons, but do not add a shared React component for three short action blocks. Account settings and detail views remain unchanged.
 
 ## Verification
 
 - The selected transaction type has a distinct visual state and retains `aria-selected`.
-- Close and Save appear together at the bottom, use equal compact widths, and Close remains disabled while saving.
-- Every creation mode uses the visible label `Save`.
-- Existing keyboard navigation, successful close, failed-submit draft preservation, and refresh recovery continue to work.
+- Close and Save appear together at the bottom of all three creation dialogs and use equal compact widths.
+- Every creation dialog uses the visible submit label `Save`.
+- Close remains disabled while the corresponding save is pending.
+- Existing keyboard navigation, successful close, failed-submit draft preservation, and Transaction refresh recovery continue to work.
