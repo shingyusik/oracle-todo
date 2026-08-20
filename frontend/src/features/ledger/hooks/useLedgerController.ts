@@ -137,6 +137,8 @@ export type LedgerController = {
   createAccountCategory(input: AccountCategoryInput): Promise<void>;
   updateAccountCategory(id: string, input: Partial<AccountCategoryInput>): Promise<void>;
   deactivateAccountCategory(id: string): Promise<void>;
+  previewAccountCategoryPurge(id: string): Promise<MasterPurgePreview>;
+  purgeAccountCategory(id: string, confirmation: string): Promise<void>;
   runReports(selection: ReportSelection): Promise<void>;
   retryReports(): Promise<void>;
 };
@@ -540,6 +542,10 @@ export function useLedgerController(): LedgerController {
       mutate(() => ledgerApi.updateAccountCategory(id, input)),
     deactivateAccountCategory: (id) =>
       mutate(() => ledgerApi.updateAccountCategory(id, { active: false })),
+    previewAccountCategoryPurge: (id) =>
+      ledgerApi.previewMasterPurge("account-categories", id),
+    purgeAccountCategory: (id, confirmation) =>
+      mutate(() => ledgerApi.purgeMaster("account-categories", id, confirmation)),
     runReports,
     retryReports,
   };

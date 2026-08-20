@@ -20,6 +20,7 @@ import type {
   LedgerComparison,
   LedgerEntryView,
   LedgerTrend,
+  MasterPurgePreview,
 } from "@/features/ledger/model/ledger-model";
 import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
 import {
@@ -141,6 +142,11 @@ function controller(state: LedgerState = loadedState): LedgerController {
     createAccountCategory: vi.fn(),
     updateAccountCategory: vi.fn(),
     deactivateAccountCategory: vi.fn(),
+    previewAccountCategoryPurge: vi.fn().mockResolvedValue({
+      confirmationId: "account-category-cash",
+      recordType: "account_category",
+    }),
+    purgeAccountCategory: vi.fn(),
     runReports: vi.fn().mockResolvedValue(undefined),
     retryReports: vi.fn().mockResolvedValue(undefined),
   };
@@ -1040,6 +1046,12 @@ describe("LedgerPanel", () => {
       .mockResolvedValue({ items: refreshedCategories, nextOffset: null });
     vi.spyOn(ledgerApi, "createAccountCategory").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "updateAccountCategory").mockResolvedValue({} as never);
+    const purgePreview: MasterPurgePreview = {
+      confirmationId: "account-type-card",
+      recordType: "account_category",
+    };
+    vi.spyOn(ledgerApi, "previewMasterPurge").mockResolvedValue(purgePreview);
+    vi.spyOn(ledgerApi, "purgeMaster").mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
@@ -1063,7 +1075,25 @@ describe("LedgerPanel", () => {
     expect(ledgerApi.updateAccountCategory).toHaveBeenCalledWith("account-type-cash", {
       active: false,
     });
-    expect(ledgerApi.listAccountCategories).toHaveBeenCalledTimes(4);
+    let preview: MasterPurgePreview | undefined;
+    await act(async () => {
+      preview = await result.current.previewAccountCategoryPurge("account-type-card");
+    });
+    expect(preview).toEqual(purgePreview);
+    expect(ledgerApi.previewMasterPurge).toHaveBeenCalledWith(
+      "account-categories",
+      "account-type-card",
+    );
+
+    await act(async () => {
+      await result.current.purgeAccountCategory("account-type-card", "account-type-card");
+    });
+    expect(ledgerApi.purgeMaster).toHaveBeenCalledWith(
+      "account-categories",
+      "account-type-card",
+      "account-type-card",
+    );
+    expect(ledgerApi.listAccountCategories).toHaveBeenCalledTimes(5);
   });
 
   it("uses Transactions as the default leaf and has no Overview", () => {

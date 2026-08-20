@@ -257,6 +257,8 @@ function reportLedgerController() {
     createAccountCategory: vi.fn(),
     updateAccountCategory: vi.fn(),
     deactivateAccountCategory: vi.fn(),
+    previewAccountCategoryPurge: vi.fn(),
+    purgeAccountCategory: vi.fn(),
     runReports: vi.fn(),
     retryReports: vi.fn(),
   } satisfies LedgerController;
