@@ -13,10 +13,18 @@ type MedicationCreateDialogProps = {
   returnFocusRef: React.RefObject<HTMLButtonElement | null>;
 };
 
+function useIsomorphicLayoutEffect(
+  effect: React.EffectCallback,
+  dependencies: React.DependencyList,
+) {
+  const useEffect = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
+  useEffect(effect, dependencies);
+}
+
 export function MedicationCreateDialog(props: MedicationCreateDialogProps): React.ReactNode {
   const [host, setHost] = React.useState<HTMLElement | null>(null);
 
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const element = document.createElement("div");
     element.dataset.ravenModalHost = "";
     document.body.append(element);
@@ -102,16 +110,16 @@ function MedicationCreateDialogContent({
         className="confirmation-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Add medication"
+        aria-label="Add medication entry"
         aria-busy={pending}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         <header className="dashboard-widget-header">
-          <h2>Add medication</h2>
+          <h2>Add medication entry</h2>
           <button
             type="button"
-            aria-label="Close Add medication"
+            aria-label="Close Add medication entry"
             disabled={pending}
             onClick={close}
           >

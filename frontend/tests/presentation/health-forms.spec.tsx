@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { renderToString } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
@@ -156,7 +156,7 @@ function MedicationDialogHarness({
   const returnFocusRef = React.useRef<HTMLButtonElement>(null);
   return <>
     <main data-testid="medication-dialog-background">
-      <button ref={returnFocusRef}>Add medication</button>
+      <button ref={returnFocusRef}>Add medication entry</button>
     </main>
     {open ? <MedicationCreateDialog
       controller={health}
@@ -860,7 +860,9 @@ describe("Health Journal forms", () => {
 
   it("renders the Medication dialog in a body portal with isolated background and ordered fields", () => {
     const view = render(<MedicationDialogHarness health={controller()} />);
-    const dialog = screen.getByRole("dialog", { name: "Add medication" });
+    const dialog = screen.getByRole("dialog", { name: "Add medication entry" });
+    expect(within(dialog).getByRole("heading", { name: "Add medication entry" })).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Close Add medication entry" })).toBeVisible();
     const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
 
     expect(host?.parentElement).toBe(document.body);
@@ -950,7 +952,7 @@ describe("Health Journal forms", () => {
   it("renders the Medication dialog safely without browser globals on the server", () => {
     const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
     const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, "error");
     Object.defineProperty(globalThis, "document", { configurable: true, value: undefined });
     Object.defineProperty(globalThis, "window", { configurable: true, value: undefined });
     try {
@@ -961,6 +963,7 @@ describe("Health Journal forms", () => {
           returnFocusRef={React.createRef<HTMLButtonElement>()}
         />,
       )).toBe("");
+      expect(consoleError).not.toHaveBeenCalled();
     } finally {
       if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
       if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
@@ -994,8 +997,8 @@ describe("Health Journal forms", () => {
       note: "With breakfast",
     });
     expect(onClose).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "Add medication" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Add medication" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Add medication entry" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add medication entry" })).toHaveFocus();
   });
 
   it.each([
@@ -1042,7 +1045,7 @@ describe("Health Journal forms", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<MedicationDialogHarness health={controller()} onClose={onClose} />);
-    const close = screen.getByRole("button", { name: "Close Add medication" });
+    const close = screen.getByRole("button", { name: "Close Add medication entry" });
     const save = screen.getByRole("button", { name: "Save medication" });
     close.focus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
@@ -1053,7 +1056,7 @@ describe("Health Journal forms", () => {
     expect(onClose).toHaveBeenCalledOnce();
 
     render(<MedicationDialogHarness health={controller()} onClose={onClose} />);
-    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Add medication" }).parentElement!);
+    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Add medication entry" }).parentElement!);
     expect(onClose).toHaveBeenCalledTimes(2);
     render(<MedicationDialogHarness health={controller()} onClose={onClose} />);
     await user.keyboard("{Escape}");
@@ -1070,12 +1073,12 @@ describe("Health Journal forms", () => {
     await user.type(screen.getByLabelText("Dose"), "1000");
     await user.click(screen.getByRole("button", { name: "Save medication" }));
 
-    const dialog = screen.getByRole("dialog", { name: "Add medication" });
+    const dialog = screen.getByRole("dialog", { name: "Add medication entry" });
     expect(dialog).toHaveAttribute("aria-busy", "true");
     expect(dialog).toHaveFocus();
     await user.keyboard("{Tab}{Escape}");
     fireEvent.mouseDown(dialog.parentElement!);
-    fireEvent.click(screen.getByRole("button", { name: "Close Add medication" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close Add medication entry" }));
     fireEvent.click(screen.getByRole("button", { name: "Save medication" }));
     fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
     expect(onClose).not.toHaveBeenCalled();
@@ -1097,7 +1100,7 @@ describe("Health Journal forms", () => {
     await user.click(screen.getByRole("button", { name: "Save medication" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Medication save failed");
-    expect(screen.getByRole("dialog", { name: "Add medication" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Add medication entry" })).toBeVisible();
     expect(screen.getByLabelText("Taken at")).toHaveValue("2026-08-17T08:30");
     expect(screen.getByLabelText("Medication name")).toHaveValue("Vitamin D");
     expect(screen.getByLabelText("Dose")).toHaveValue(1000);
@@ -1140,6 +1143,36 @@ describe("Health Journal forms", () => {
     retry.resolve(true);
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
     expect(health.createMedication).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a successful Medication refresh retry after unmount", async () => {
+    const user = userEvent.setup();
+    const retry = deferred<boolean>();
+    const onClose = vi.fn();
+    const consoleError = vi.spyOn(console, "error");
+    const health = controller({
+      createMedication: vi.fn().mockRejectedValue(new HealthMutationRefreshError()),
+      refreshMedication: vi.fn(() => retry.promise),
+    });
+    const view = render(<MedicationDialogHarness health={health} onClose={onClose} />);
+
+    await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
+    await user.type(screen.getByLabelText("Dose"), "1000");
+    await user.click(screen.getByRole("button", { name: "Save medication" }));
+    await user.click(await screen.findByRole("button", { name: "Retry refresh" }));
+    expect(health.refreshMedication).toHaveBeenCalledOnce();
+    view.unmount();
+
+    try {
+      await act(async () => {
+        retry.resolve(true);
+        await retry.promise;
+      });
+      expect(onClose).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("submits a Medication dose using the selected medication unit", async () => {

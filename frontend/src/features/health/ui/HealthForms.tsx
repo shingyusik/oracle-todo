@@ -311,7 +311,7 @@ export function MedicationForm({
 
   async function retryRefresh() {
     await action.run(async () => {
-      if (await controller.refreshMedication()) onSaved?.();
+      if (await controller.refreshMedication() && action.isMounted()) onSaved?.();
     });
   }
 
