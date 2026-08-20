@@ -15,6 +15,10 @@ import {
   mapTimelineItem,
 } from "@/features/health/model/health-model";
 import {
+  mapHealthReport,
+  type HealthReport,
+} from "@/features/health/model/health-reports";
+import {
   apiPath,
   array,
   jsonRequest,
@@ -175,6 +179,10 @@ export const healthApi = {
   },
   async trends(days?: number): Promise<HealthTrends> {
     return mapHealthTrends(await requestJson(apiPath(`${ROOT}/trends`, { days })));
+  },
+  async reports(query: { from: string; to: string }): Promise<HealthReport> {
+    const params = new URLSearchParams({ from: query.from, to: query.to });
+    return mapHealthReport(await requestJson(`${ROOT}/reports?${params}`));
   },
 };
 

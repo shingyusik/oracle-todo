@@ -19,6 +19,78 @@ const base = {
 };
 
 describe("Health wire boundary", () => {
+  it("requests and maps the complete Health report projection", async () => {
+    const metrics = [
+      ["body_weight", "Body weight", "kg", 68, 69],
+      ["sleep_duration", "Sleep", "hours", 7.5, null],
+      ["crp", "CRP", "mg/L", 0.4, null],
+      ["fecal_calprotectin", "Fecal calprotectin", "µg/g", 40, null],
+      ["overall_condition", "Overall condition", null, 8, null],
+    ] as const;
+    const wireReading = (ordinal: number, occurredAt: string, value: number) => ({
+      local_date: [2026, ordinal], occurred_at: occurredAt, value,
+    });
+    const response = {
+      range: { from: [2026, 203], to: [2026, 232] },
+      previous_range: { from: [2026, 173], to: [2026, 202] },
+      metrics: metrics.map(([metric, name, unit, current, previous]) => ({
+        metric, name, unit,
+        current: wireReading(203, "2026-07-22T00:00:00Z", current),
+        previous: previous === null ? null : wireReading(202, "2026-07-21T00:00:00Z", previous),
+      })),
+      diet_count: { current: 1, previous: null },
+      bowel: { current_count: 1, previous_count: null, current_average: 6, previous_average: null },
+      medication_count: { current: 1, previous: null },
+      bowel_points: [{ local_date: [2026, 203], occurred_at: "2026-07-22T04:00:00Z",
+        bristol_scale: 6 }],
+      metric_series: metrics.map(([metric], index) => ({
+        metric,
+        points: [wireReading(203 + index, `2026-07-${String(22 + index).padStart(2, "0")}T00:00:00Z`, index + 1)],
+      })),
+      medication_frequencies: [{ name: "Vitamin D", count: 2 }],
+      diet_tag_frequencies: [{ name: "fiber", count: 3 }],
+      diet_tag_bowel_responses: [{ tag: "fiber", positive_meals: 1,
+        eligible_meals: 2, rate: 0.5 }],
+      reaction_disclaimer: "Observed associations only; they do not establish causation.",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200, headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await healthApi.reports({ from: "2026-07-22", to: "2026-08-20" });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/health/reports?from=2026-07-22&to=2026-08-20",
+    );
+    expect(report).toEqual({
+      range: { from: "2026-07-22", to: "2026-08-20" },
+      previousRange: { from: "2026-06-22", to: "2026-07-21" },
+      metrics: metrics.map(([metric, name, unit, current, previous]) => ({
+        metric, name, unit,
+        current: { localDate: "2026-07-22", occurredAt: "2026-07-22T00:00:00Z", value: current },
+        previous: previous === null ? null : {
+          localDate: "2026-07-21", occurredAt: "2026-07-21T00:00:00Z", value: previous,
+        },
+      })),
+      dietCount: { current: 1, previous: null },
+      bowel: { currentCount: 1, previousCount: null, currentAverage: 6, previousAverage: null },
+      medicationCount: { current: 1, previous: null },
+      bowelPoints: [{ localDate: "2026-07-22", occurredAt: "2026-07-22T04:00:00Z",
+        bristolScale: 6 }],
+      metricSeries: metrics.map(([metric], index) => ({
+        metric,
+        points: [{ localDate: `2026-07-${String(22 + index).padStart(2, "0")}`,
+          occurredAt: `2026-07-${String(22 + index).padStart(2, "0")}T00:00:00Z`,
+          value: index + 1 }],
+      })),
+      medicationFrequencies: [{ name: "Vitamin D", count: 2 }],
+      dietTagFrequencies: [{ name: "fiber", count: 3 }],
+      dietTagBowelResponses: [{ tag: "fiber", positiveMeals: 1, eligibleMeals: 2, rate: 0.5 }],
+      reactionDisclaimer: "Observed associations only; they do not establish causation.",
+    });
+  });
+
   it.each([
     ["weight", "body_weight",
       { metric_key: "body_weight", name: "Body weight", value: 71.5, unit: "kg" },
