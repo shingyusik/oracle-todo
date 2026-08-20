@@ -711,7 +711,7 @@ describe("LedgerPanel", () => {
       const action = within(table).getByRole("button", { name });
       expect(action).toHaveAttribute("title", name);
       expect(action).toContainElement(action.querySelector(`.${iconClass}`));
-      expect(action).not.toHaveTextContent(name);
+      expect(action.textContent?.trim()).toBe("");
     };
     expectIconAction(accountTypeTable, "Edit Cash", "lucide-pencil");
     expectIconAction(accountTypeTable, "Deactivate Cash", "lucide-circle-off");
@@ -788,6 +788,7 @@ describe("LedgerPanel", () => {
     expect(await screen.findByRole("alert"))
       .toHaveTextContent("Could not delete account type.");
     expect(screen.getByRole("alert")).not.toHaveTextContent("sqlite");
+    expect(ledger.purgeAccountCategory).not.toHaveBeenCalled();
   });
 
   it("previews and permanently deletes an unused Account type once", async () => {
@@ -834,6 +835,9 @@ describe("LedgerPanel", () => {
     await waitFor(() => expect(deleteCash).toHaveFocus());
 
     await user.click(deleteCash);
+    expect(ledger.previewAccountCategoryPurge).toHaveBeenCalledTimes(2);
+    expect(ledger.previewAccountCategoryPurge)
+      .toHaveBeenNthCalledWith(2, "account-category-cash");
     const reopened = await screen.findByRole("dialog", {
       name: "Permanently delete Cash?",
     });
@@ -845,6 +849,9 @@ describe("LedgerPanel", () => {
       "account-category-cash",
       "account-category-cash",
     );
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Permanently delete Cash?" }))
+      .toBeInTheDocument();
     await act(async () => purge.resolve(undefined));
     expect(screen.getByRole("form", { name: "New account type" }))
       .toBeInTheDocument();
