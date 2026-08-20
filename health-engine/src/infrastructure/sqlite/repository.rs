@@ -838,3 +838,54 @@ fn ensure_changed(changed: usize, record_type: &str, id: &str) -> HealthResult<(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod report_tests {
+    use rusqlite::params;
+    use time::macros::datetime;
+
+    use super::{SqliteHealthRepository, report_records_on};
+    use crate::application::error::HealthError;
+
+    #[test]
+    fn report_record_limit_is_shared_across_diets_and_events() {
+        let repository = SqliteHealthRepository::open_in_memory().unwrap();
+        for suffix in [1, 2] {
+            repository.connection.execute(
+                "INSERT INTO diet_entries (id, occurred_at, local_date, meal_type, food_name, created_at, updated_at)
+                 VALUES (?1, '2026-07-03T12:00:00.000000000Z', '2026-07-03', 'lunch', 'meal',
+                         '2026-07-03T12:00:00.000000000Z', '2026-07-03T12:00:00.000000000Z')",
+                [format!("00000000-0000-4000-8000-{suffix:012x}")],
+            ).unwrap();
+        }
+        for suffix in [3, 4] {
+            repository
+                .connection
+                .execute(
+                    "INSERT INTO health_events (
+                    id, occurred_at, local_date, category, metric_key, name, value_num,
+                    attributes_json, daily_upsert, created_at, updated_at
+                 ) VALUES (?1, '2026-07-03T12:00:00.000000000Z', '2026-07-03',
+                    'bowel', 'bowel', 'Bowel', 4, ?2, 0,
+                    '2026-07-03T12:00:00.000000000Z', '2026-07-03T12:00:00.000000000Z')",
+                    params![
+                        format!("00000000-0000-4000-8000-{suffix:012x}"),
+                        r#"{"bristol_scale":4,"blood_visible":false}"#
+                    ],
+                )
+                .unwrap();
+        }
+        assert!(matches!(
+            report_records_on(
+                &repository.connection,
+                datetime!(2026-07-01 00:00 UTC),
+                datetime!(2026-07-04 00:00 UTC),
+                3,
+            ),
+            Err(HealthError::Validation {
+                field: "reports.records",
+                ..
+            })
+        ));
+    }
+}

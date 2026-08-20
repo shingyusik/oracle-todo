@@ -81,6 +81,21 @@ fn reports_compare_equal_periods_and_use_preceding_daily_reading() {
     medication(&mut service, datetime!(2026-07-02 11:00 UTC), "A");
     medication(&mut service, datetime!(2026-07-03 11:00 UTC), "B");
     daily_weight(&mut service, datetime!(2026-06-30 09:00 UTC), 70.0);
+    event(
+        &mut service,
+        datetime!(2026-07-01 09:00 UTC),
+        HealthEventDetails::Weight(WeightAttributes::body_weight("ordinary", 69.5, "kg").unwrap()),
+    );
+    let archived_daily = service
+        .upsert_daily_metrics(vec![daily(
+            datetime!(2026-07-02 09:00 UTC),
+            HealthEventDetails::Weight(
+                WeightAttributes::body_weight("archived", 69.0, "kg").unwrap(),
+            ),
+        )])
+        .unwrap()
+        .remove(0);
+    service.archive_event(archived_daily.id().as_str()).unwrap();
     daily_weight(&mut service, datetime!(2026-07-03 09:00 UTC), 68.0);
     event(
         &mut service,

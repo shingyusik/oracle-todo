@@ -417,10 +417,18 @@ fn responses(
     events: &[HealthEvent],
     now: OffsetDateTime,
 ) -> HealthResult<Vec<TagBowelResponse>> {
-    let bowel = events
+    let mut abnormal_bowel = events
         .iter()
-        .filter(|event| event.category() == HealthCategory::Bowel)
+        .filter(|event| {
+            event.category() == HealthCategory::Bowel
+                && matches!(
+                    event.value_num().map(|value| value as u8),
+                    Some(1 | 2 | 6 | 7)
+                )
+        })
+        .map(HealthEvent::occurred_at)
         .collect::<Vec<_>>();
+    abnormal_bowel.sort_unstable();
     let mut counts = BTreeMap::<String, (u32, u32)>::new();
     for diet in diets {
         for tag in diet.tags() {
@@ -438,13 +446,7 @@ fn responses(
         if upper > now {
             continue;
         }
-        let positive = bowel.iter().any(|event| {
-            matches!(
-                event.value_num().map(|value| value as u8),
-                Some(1 | 2 | 6 | 7)
-            ) && event.occurred_at() > diet.occurred_at()
-                && event.occurred_at() <= upper
-        });
+        let positive = has_in_window(&abnormal_bowel, diet.occurred_at(), upper);
         for tag in diet.tags() {
             let entry = counts.entry(tag.clone()).or_default();
             entry.1 += 1;
@@ -464,4 +466,43 @@ fn responses(
             },
         })
         .collect())
+}
+
+fn has_in_window(
+    sorted_instants: &[OffsetDateTime],
+    start_exclusive: OffsetDateTime,
+    end_inclusive: OffsetDateTime,
+) -> bool {
+    let first = sorted_instants.partition_point(|instant| *instant <= start_exclusive);
+    sorted_instants
+        .get(first)
+        .is_some_and(|instant| *instant <= end_inclusive)
+}
+
+#[cfg(test)]
+mod tests {
+    use time::{Duration, macros::datetime};
+
+    use super::has_in_window;
+
+    #[test]
+    fn abnormal_bowel_search_uses_open_start_and_closed_end() {
+        let meal = datetime!(2026-07-03 12:00 UTC);
+        assert!(!has_in_window(&[meal], meal, meal + Duration::hours(24)));
+        assert!(!has_in_window(
+            &[meal + Duration::hours(24) + Duration::nanoseconds(1)],
+            meal,
+            meal + Duration::hours(24)
+        ));
+        assert!(has_in_window(
+            &[meal, meal, meal + Duration::nanoseconds(1)],
+            meal,
+            meal + Duration::hours(24)
+        ));
+        assert!(has_in_window(
+            &[meal + Duration::hours(24)],
+            meal,
+            meal + Duration::hours(24)
+        ));
+    }
 }
