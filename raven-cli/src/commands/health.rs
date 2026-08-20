@@ -335,6 +335,7 @@ fn metric(service: &mut Service, command: MetricCommand) -> HealthResult<()> {
                     details: metric_details(&input)?,
                     note: input.note,
                     actor: ACTOR.to_string(),
+                    expected_updated_at: None,
                 });
             }
             print_json(&service.upsert_daily_metrics(commands)?)

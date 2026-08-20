@@ -85,4 +85,11 @@ pub struct DailyMetricInput {
     pub details: HealthEventDetails,
     pub note: Option<String>,
     pub actor: String,
+    pub expected_updated_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug)]
+pub struct DailyMetricArchive {
+    pub id: String,
+    pub expected_updated_at: Option<OffsetDateTime>,
 }

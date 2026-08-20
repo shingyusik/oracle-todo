@@ -51,6 +51,7 @@ pub struct EventQuery {
     category: Option<HealthCategory>,
     metric_key: Option<MetricKey>,
     class: Option<EventClass>,
+    daily_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +66,7 @@ impl EventQuery {
             category: None,
             metric_key: None,
             class: None,
+            daily_only: false,
         }
     }
 
@@ -83,6 +85,11 @@ impl EventQuery {
         self
     }
 
+    pub const fn daily_only(mut self, daily_only: bool) -> Self {
+        self.daily_only = daily_only;
+        self
+    }
+
     pub const fn page(&self) -> Page {
         self.page
     }
@@ -97,6 +104,10 @@ impl EventQuery {
 
     pub const fn class(&self) -> Option<EventClass> {
         self.class
+    }
+
+    pub const fn is_daily_only(&self) -> bool {
+        self.daily_only
     }
 }
 

@@ -30,6 +30,7 @@ fn lifecycle_rejects_invalid_transitions_and_restore_daily_conflicts() {
         ),
         note: None,
         actor: "test".to_string(),
+        expected_updated_at: None,
     };
     let first = service
         .upsert_daily_metrics(vec![input()])
@@ -116,6 +117,7 @@ fn purged_event_is_gone_but_its_audit_history_remains() {
             ),
             note: None,
             actor: "test".to_string(),
+            expected_updated_at: None,
         }])
         .unwrap()
         .remove(0);

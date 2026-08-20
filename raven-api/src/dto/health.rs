@@ -169,6 +169,8 @@ impl EventDetailsBody {
 #[serde(deny_unknown_fields)]
 pub struct DailyMetricsBody {
     pub metrics: Vec<DailyMetricBody>,
+    #[serde(default)]
+    pub archives: Vec<DailyMetricArchiveBody>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,6 +181,14 @@ pub struct DailyMetricBody {
     pub note: Option<String>,
     #[serde(default = "default_actor")]
     pub actor: String,
+    pub expected_updated_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DailyMetricArchiveBody {
+    pub id: String,
+    pub expected_updated_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -132,6 +132,137 @@ async fn daily_metric_upsert_returns_changed_rows() {
 }
 
 #[tokio::test]
+async fn daily_metrics_support_mixed_atomic_save_and_daily_only_reads() {
+    let (_temp, app) = app();
+    let opened = post_daily(
+        &app,
+        json!({"metrics": [weight_metric(68.2, None), lab_metric("crp", 0.3)]}),
+    )
+    .await;
+    let weight = &opened["items"][0];
+    let crp = &opened["items"][1];
+    let saved = post_daily(
+        &app,
+        json!({
+            "metrics": [weight_metric(67.9, weight["updated_at"].as_str())],
+            "archives": [{
+                "id": crp["id"],
+                "expected_updated_at": crp["updated_at"]
+            }]
+        }),
+    )
+    .await;
+    assert_eq!(saved["items"].as_array().unwrap().len(), 1);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/health/events?daily_only=true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let listed = body(response).await;
+    assert_eq!(listed["items"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["items"][0]["value_num"], 67.9);
+}
+
+#[tokio::test]
+async fn daily_metrics_conflict_rolls_back_every_operation() {
+    let (_temp, app) = app();
+    let opened = post_daily(
+        &app,
+        json!({"metrics": [weight_metric(68.2, None), lab_metric("crp", 0.3)]}),
+    )
+    .await;
+    let stale_weight = &opened["items"][0];
+    let crp = &opened["items"][1];
+    post_daily(
+        &app,
+        json!({"metrics": [weight_metric(68.0, stale_weight["updated_at"].as_str())]}),
+    )
+    .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/health/metrics/daily")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "metrics": [weight_metric(67.9, stale_weight["updated_at"].as_str())],
+                        "archives": [{
+                            "id": crp["id"],
+                            "expected_updated_at": crp["updated_at"]
+                        }]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    let response = app
+        .oneshot(
+            Request::get("/api/v1/health/events?daily_only=true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let listed = body(response).await;
+    assert_eq!(listed["items"].as_array().unwrap().len(), 2);
+    assert!(
+        listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| { event["metric_key"] == "body_weight" && event["value_num"] == 68.0 })
+    );
+    assert!(
+        listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| { event["metric_key"] == "crp" && event["deleted_at"].is_null() })
+    );
+}
+
+async fn post_daily(app: &axum::Router, value: Value) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/health/metrics/daily")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(value.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    body(response).await
+}
+
+fn weight_metric(value: f64, expected_updated_at: Option<&str>) -> Value {
+    json!({
+        "occurred_at": "2026-07-31T01:00:00Z",
+        "details": {"kind": "weight", "value": value, "unit": "kg"},
+        "expected_updated_at": expected_updated_at
+    })
+}
+
+fn lab_metric(key: &str, value: f64) -> Value {
+    json!({
+        "occurred_at": "2026-07-31T01:00:00Z",
+        "details": {"kind": "lab", "key": key, "name": key.to_uppercase(), "value": value}
+    })
+}
+
+#[tokio::test]
 async fn media_upload_rejects_paths_and_oversized_bytes() {
     let (_temp, app) = app();
     let path = Request::post("/api/v1/health/diet/with-image")

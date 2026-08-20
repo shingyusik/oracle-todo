@@ -212,6 +212,35 @@ All routes below use prefix `/api/v1/health`.
 | Metrics | `POST /metrics/daily` |
 | Reads | `GET /timeline`, `/trends`, `/audit/:record_type/:record_id` |
 
+`GET /events` accepts `offset`, `limit`, `category`, `metric_key`, and
+`daily_only=true|false`. `daily_only=true` returns only active events created through the
+daily-upsert workflow; ordinary metric events are excluded.
+
+`POST /metrics/daily` atomically saves one local date. The body contains 1 through 366
+combined `metrics` and `archives` operations. `archives` defaults to `[]`, and the existing
+metrics-only body remains valid. Each operation may include `expected_updated_at` for
+optimistic concurrency:
+
+```json
+{
+  "metrics": [{
+    "occurred_at": "2026-08-20T09:00:00+09:00",
+    "details": {"kind": "weight", "value": 68.2, "unit": "kg"},
+    "expected_updated_at": "2026-08-20T01:00:00Z"
+  }],
+  "archives": [{
+    "id": "00000000-0000-4000-8000-000000000001",
+    "expected_updated_at": "2026-08-20T01:00:00Z"
+  }]
+}
+```
+
+All operations must target the same local date. The service rejects stale versions,
+ordinary or inactive archive targets, duplicate identities, and an identity present in both
+arrays. Any validation, conflict, audit, or storage failure rolls back the entire request.
+The response `items` contains the created or updated active events; archived events are not
+included.
+
 JSON bodies are limited to 128 KiB. The Diet image routes are not multipart:
 
 - Body: raw JPEG, PNG, or WebP bytes, at most 10 MiB

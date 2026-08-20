@@ -3,7 +3,9 @@ use std::collections::BTreeSet;
 use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
-use crate::application::commands::{CreateHealthEvent, DailyMetricInput, UpdateHealthEvent};
+use crate::application::commands::{
+    CreateHealthEvent, DailyMetricArchive, DailyMetricInput, UpdateHealthEvent,
+};
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::media::MediaStore;
 use crate::application::ports::{
@@ -136,15 +138,60 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
         &mut self,
         inputs: Vec<DailyMetricInput>,
     ) -> HealthResult<Vec<HealthEvent>> {
+        self.save_daily_metrics(inputs, Vec::new())
+    }
+
+    pub fn save_daily_metrics(
+        &mut self,
+        inputs: Vec<DailyMetricInput>,
+        archives: Vec<DailyMetricArchive>,
+    ) -> HealthResult<Vec<HealthEvent>> {
+        let operation_count = inputs.len() + archives.len();
+        if !(1..=366).contains(&operation_count) {
+            return Err(validation(
+                "daily_metrics",
+                "must contain between 1 and 366 operations",
+            ));
+        }
         let validated = inputs
             .into_iter()
             .map(|input| ValidatedDailyMetric::new(input, self.local_offset))
             .collect::<HealthResult<Vec<_>>>()?;
         reject_duplicate_daily_identities(&validated)?;
+        for archive in &archives {
+            HealthRecordId::parse(&archive.id)?;
+        }
 
         let request_id = Uuid::new_v4().to_string();
         let mut transaction = self.repository.begin_transaction()?;
-        let result = upsert_daily_batch(&mut *transaction, validated, &request_id);
+        let result = (|| {
+            let resolved_inputs = validated
+                .into_iter()
+                .map(|input| {
+                    let before = transaction.get_daily_event(
+                        input.local_date,
+                        input.input.category(),
+                        input.input.metric_key(),
+                    )?;
+                    if let Some(before) = &before {
+                        ensure_expected_version(before, input.expected_updated_at)?;
+                    } else if input.expected_updated_at.is_some() {
+                        return Err(HealthError::Conflict(
+                            "daily metric no longer exists".to_string(),
+                        ));
+                    }
+                    Ok((input, before))
+                })
+                .collect::<HealthResult<Vec<_>>>()?;
+            let resolved_archives = archives
+                .into_iter()
+                .map(|archive| resolve_daily_archive(&*transaction, archive, self.local_offset))
+                .collect::<HealthResult<Vec<_>>>()?;
+            validate_daily_save_identities(&resolved_inputs, &resolved_archives)?;
+            let events = upsert_daily_batch(&mut *transaction, resolved_inputs, &request_id)?;
+            archive_daily_batch(&mut *transaction, resolved_archives, &request_id)?;
+            Ok(events)
+        })();
         match result {
             Ok(events) => {
                 transaction.commit()?;
@@ -159,6 +206,7 @@ struct ValidatedDailyMetric {
     input: NewHealthEvent,
     local_date: Date,
     actor: String,
+    expected_updated_at: Option<OffsetDateTime>,
 }
 
 impl ValidatedDailyMetric {
@@ -176,6 +224,7 @@ impl ValidatedDailyMetric {
             input: event,
             local_date,
             actor: input.actor,
+            expected_updated_at: input.expected_updated_at,
         })
     }
 }
@@ -212,16 +261,11 @@ fn reject_duplicate_daily_identities(inputs: &[ValidatedDailyMetric]) -> HealthR
 
 fn upsert_daily_batch(
     transaction: &mut dyn HealthTransaction,
-    inputs: Vec<ValidatedDailyMetric>,
+    inputs: Vec<(ValidatedDailyMetric, Option<HealthEvent>)>,
     request_id: &str,
 ) -> HealthResult<Vec<HealthEvent>> {
     let mut events = Vec::with_capacity(inputs.len());
-    for input in inputs {
-        let before = transaction.get_daily_event(
-            input.local_date,
-            input.input.category(),
-            input.input.metric_key(),
-        )?;
+    for (input, before) in inputs {
         let now = match &before {
             Some(before) => next_update_time(before.updated_at(), "health event")?,
             None => OffsetDateTime::now_utc(),
@@ -254,6 +298,109 @@ fn upsert_daily_batch(
         events.push(after);
     }
     Ok(events)
+}
+
+struct ResolvedDailyArchive {
+    before: HealthEvent,
+    local_date: Date,
+}
+
+fn resolve_daily_archive(
+    transaction: &dyn HealthTransaction,
+    archive: DailyMetricArchive,
+    local_offset: time::UtcOffset,
+) -> HealthResult<ResolvedDailyArchive> {
+    let candidate = transaction
+        .get_event(&archive.id, false)?
+        .ok_or_else(|| HealthError::NotFound(format!("health event {}", archive.id)))?;
+    ensure_expected_version(&candidate, archive.expected_updated_at)?;
+    let local_date = checked_local_date(candidate.occurred_at(), local_offset)?;
+    let active =
+        transaction.get_daily_event(local_date, candidate.category(), candidate.metric_key())?;
+    if active.as_ref().map(|event| event.id()) != Some(candidate.id()) {
+        return Err(validation(
+            "daily_metrics.archives",
+            "must reference an active daily metric",
+        ));
+    }
+    Ok(ResolvedDailyArchive {
+        before: candidate,
+        local_date,
+    })
+}
+
+fn validate_daily_save_identities(
+    inputs: &[(ValidatedDailyMetric, Option<HealthEvent>)],
+    archives: &[ResolvedDailyArchive],
+) -> HealthResult<()> {
+    let mut dates = BTreeSet::new();
+    let mut identities = BTreeSet::new();
+    for (input, _) in inputs {
+        dates.insert(input.local_date);
+        identities.insert((
+            input.input.category(),
+            input.input.metric_key().as_str().to_string(),
+        ));
+    }
+    for archive in archives {
+        dates.insert(archive.local_date);
+        if !identities.insert((
+            archive.before.category(),
+            archive.before.metric_key().as_str().to_string(),
+        )) {
+            return Err(validation(
+                "daily_metrics",
+                "cannot upsert and archive the same identity",
+            ));
+        }
+    }
+    if dates.len() != 1 {
+        return Err(validation(
+            "daily_metrics",
+            "all operations must use the same local date",
+        ));
+    }
+    Ok(())
+}
+
+fn archive_daily_batch(
+    transaction: &mut dyn HealthTransaction,
+    archives: Vec<ResolvedDailyArchive>,
+    request_id: &str,
+) -> HealthResult<()> {
+    for archive in archives {
+        let now = next_update_time(archive.before.updated_at(), "health event")?;
+        let after = event_with_deleted(&archive.before, now)?;
+        transaction.update_event(&after, archive.local_date)?;
+        transaction.insert_audit_event(&event_audit(
+            request_id,
+            now,
+            "local",
+            "archive",
+            Some(&archive.before),
+            Some(&after),
+            None,
+        )?)?;
+    }
+    Ok(())
+}
+
+fn event_with_deleted(before: &HealthEvent, now: OffsetDateTime) -> HealthResult<HealthEvent> {
+    HealthEvent::rehydrate(HealthEventRehydration {
+        id: before.id().as_str().to_string(),
+        occurred_at: before.occurred_at(),
+        category: before.category(),
+        metric_key: before.metric_key().as_str().to_string(),
+        name: before.name().to_string(),
+        value_num: before.value_num(),
+        unit: before.unit().map(str::to_string),
+        note: before.note().map(str::to_string),
+        attributes: before.attributes().clone(),
+        created_at: before.created_at(),
+        updated_at: now,
+        deleted_at: Some(now),
+    })
+    .map_err(Into::into)
 }
 
 fn new_event(input: &NewHealthEvent, now: OffsetDateTime) -> HealthResult<HealthEvent> {
