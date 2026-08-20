@@ -1056,6 +1056,34 @@ describe("LedgerPanel", () => {
     expect(screen.getByText("No transactions yet.")).toBeInTheDocument();
   });
 
+  it("renders icon-only actions with accessible names and tooltips", async () => {
+    const expectIconButton = (name: string, iconClass: string) => {
+      const button = screen.getByRole("button", { name });
+      expect(button).toHaveAttribute("title", name);
+      expect(button).toContainElement(button.querySelector(`.${iconClass}`));
+      expect(button).not.toHaveTextContent(name);
+    };
+    const { rerender } = render(<LedgerPanel controller={controller({
+      ...loadedState,
+      entries: transactionEntries(),
+    })} />);
+
+    expectIconButton("Add transaction", "lucide-plus");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select all visible transactions" }));
+    expectIconButton("Archive selected transactions", "lucide-trash-2");
+
+    rerender(<LedgerPanel leafTabId="accounts" controller={controller()} />);
+    expectIconButton("Account settings", "lucide-settings");
+    expectIconButton("Add account", "lucide-plus");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select all visible accounts" }));
+    expectIconButton("Delete selected", "lucide-trash-2");
+
+    rerender(<LedgerPanel leafTabId="categories" controller={controller()} />);
+    expectIconButton("Add category", "lucide-plus");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select all visible categories" }));
+    expectIconButton("Delete selected", "lucide-trash-2");
+  });
+
   it("renders compact active logical transactions in default date order", () => {
     render(<LedgerPanel controller={controller({
       ...loadedState,

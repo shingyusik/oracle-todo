@@ -1,5 +1,5 @@
 import React from "react";
-import { Trash2 } from "lucide-react";
+import { Plus, Settings, Trash2 } from "lucide-react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {
@@ -96,6 +96,9 @@ export function LedgerTableViewHeader({
   );
 
   const isAccounts = scope === "ledger.accounts";
+  const resolvedSettingsLabel = settingsLabel ?? "Account settings";
+  const resolvedAddLabel = addLabel ?? "Add transaction";
+  const resolvedArchiveLabel = archiveSelectedLabel ?? "Archive selected transactions";
 
   return (
     <>
@@ -111,9 +114,11 @@ export function LedgerTableViewHeader({
                 className="items-toolbar-button"
                 type="button"
                 aria-haspopup="dialog"
+                aria-label={resolvedSettingsLabel}
+                title={resolvedSettingsLabel}
                 onClick={onSettings}
               >
-                {settingsLabel}
+                <Settings size={16} aria-hidden="true" />
               </button>
             ) : null}
             {onAdd ? (
@@ -122,20 +127,23 @@ export function LedgerTableViewHeader({
                 className="items-toolbar-button"
                 type="button"
                 aria-haspopup="dialog"
+                aria-label={resolvedAddLabel}
+                title={resolvedAddLabel}
                 onClick={onAdd}
               >
-                {addLabel ?? "Add transaction"}
+                <Plus size={16} aria-hidden="true" />
               </button>
             ) : null}
             {onArchiveSelected ? (
               <button
                 className="items-toolbar-button"
                 type="button"
-                aria-label={archiveSelectedLabel ?? "Archive selected transactions"}
+                aria-label={resolvedArchiveLabel}
+                title={resolvedArchiveLabel}
                 disabled={archiveDisabled}
                 onClick={onArchiveSelected}
               >
-                {archiveSelectedLabel ?? <Trash2 size={16} aria-hidden="true" />}
+                <Trash2 size={16} aria-hidden="true" />
               </button>
             ) : null}
           </div>
