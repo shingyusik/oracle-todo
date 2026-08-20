@@ -4,6 +4,7 @@ use time::{Date, OffsetDateTime};
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::media::validate_media_relative_path;
 use crate::application::queries::{HealthQuery, TimelineItem};
+use crate::application::reports::ReportRecords;
 use crate::application::trends::TrendRecords;
 use crate::domain::{DietEntry, HealthCategory, HealthEvent, HealthRecordId, MetricKey};
 
@@ -337,6 +338,12 @@ pub(crate) trait HealthReadRepository: HealthRepository {
         end_inclusive: OffsetDateTime,
         limit: u32,
     ) -> HealthResult<TrendRecords>;
+    fn report_records(
+        &self,
+        start_inclusive: OffsetDateTime,
+        end_inclusive: OffsetDateTime,
+        limit: u32,
+    ) -> HealthResult<ReportRecords>;
 }
 
 #[allow(dead_code)]
