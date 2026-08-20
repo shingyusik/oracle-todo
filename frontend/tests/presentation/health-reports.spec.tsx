@@ -526,8 +526,8 @@ describe("Health Reports workspace", () => {
     value.metrics = value.metrics.map((metric) =>
       metric.metric === "crp" ? {
         ...metric,
-        current: { localDate: "2026-08-20", occurredAt: "2026-08-20T12:00:00Z", value: 0.04 },
-        previous: { localDate: "2026-07-31", occurredAt: "2026-07-31T12:00:00Z", value: 0.01 },
+        current: { localDate: "2026-08-20", occurredAt: "2026-08-20T12:00:00Z", value: 68.2 },
+        previous: { localDate: "2026-07-31", occurredAt: "2026-07-31T12:00:00Z", value: 68.1 },
       } : metric.metric === "overall_condition" ? {
         ...metric,
         current: { localDate: "2026-08-20", occurredAt: "2026-08-20T12:00:00Z", value: -0 },
@@ -564,7 +564,7 @@ describe("Health Reports workspace", () => {
       name: `${new Date("2026-08-20T12:00:00Z").toLocaleString()}: 0.123456789012345 mg/L`,
     })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "CRP" }))
-      .toHaveTextContent("0.04 mg/L2026-08-20Previous 0.01 mg/L · +0.03 mg/L");
+      .toHaveTextContent("68.2 mg/L2026-08-20Previous 68.1 mg/L · +0.1 mg/L");
     expect(screen.getByRole("group", { name: "Condition" }))
       .toHaveTextContent("02026-08-20Previous 0 · 0");
   });

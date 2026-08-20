@@ -391,7 +391,8 @@ function number(value: number): string {
 }
 
 function signed(value: number): string {
-  return `${value > 0 ? "+" : ""}${number(value)}`;
+  const rounded = Number(value.toPrecision(12));
+  return `${rounded > 0 ? "+" : ""}${number(rounded)}`;
 }
 
 function dateTime(value: string): string {
