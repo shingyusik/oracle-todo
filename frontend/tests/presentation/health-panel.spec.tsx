@@ -156,6 +156,10 @@ const loadedState: HealthState = {
   trendsStatus: "loaded",
   trendsError: null,
   trends,
+  reportStatus: "idle",
+  reportError: null,
+  report: null,
+  reportSelection: { preset: 30 },
 };
 
 function controller(state: HealthState = loadedState): HealthController {
@@ -188,6 +192,8 @@ function controller(state: HealthState = loadedState): HealthController {
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
     refreshTrends: vi.fn(),
+    runReports: vi.fn(),
+    retryReports: vi.fn(),
     createDiet: vi.fn(),
     updateDiet: vi.fn(),
     archiveDiet: vi.fn(),
@@ -375,6 +381,7 @@ describe("HealthPanel", () => {
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
 
     const { result } = renderHook(() => useHealthController());
+    await act(async () => result.current.refreshTimeline());
     await waitFor(() => expect(result.current.state.timelineStatus).toBe("loaded"));
     expect(result.current.state.timelineHasMore).toBe(true);
 
@@ -408,6 +415,7 @@ describe("HealthPanel", () => {
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
 
     const { result } = renderHook(() => useHealthController());
+    await act(async () => result.current.refreshTimeline());
     await waitFor(() => expect(result.current.state.timelineHasMore).toBe(true));
 
     let pageRequest!: Promise<void>;
@@ -441,6 +449,7 @@ describe("HealthPanel", () => {
     vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
 
     const { result } = renderHook(() => useHealthController());
+    await act(async () => result.current.refreshTimeline());
     await waitFor(() => expect(result.current.state.timelineHasMore).toBe(true));
     await act(async () => {
       await expect(result.current.loadMoreTimeline()).resolves.toBeUndefined();
@@ -461,6 +470,7 @@ describe("HealthPanel", () => {
       .mockImplementationOnce(() => latest.promise);
 
     const { result } = renderHook(() => useHealthController());
+    await act(async () => result.current.refreshTrends());
     await waitFor(() => expect(result.current.state.trendsStatus).toBe("loaded"));
 
     let olderRequest!: Promise<void>;

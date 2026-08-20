@@ -129,12 +129,6 @@ describe("QuickAddDialog", () => {
       metricReads += 1;
       return metricReads === 1 ? [weight] : [refreshedWeight];
     });
-    const timelineRefresh = deferred<Awaited<ReturnType<typeof healthApi.timeline>>>();
-    const trendsRefresh = deferred<Awaited<ReturnType<typeof healthApi.trends>>>();
-    health.timeline.mockResolvedValueOnce([]).mockReturnValueOnce(timelineRefresh.promise);
-    health.trends.mockResolvedValueOnce(
-      {} as Awaited<ReturnType<typeof healthApi.trends>>,
-    ).mockReturnValueOnce(trendsRefresh.promise);
     const save = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([refreshedWeight]);
     const onClose = vi.fn();
     render(<QuickAddDialog controller={workbenchController()} onClose={onClose} />);
@@ -152,14 +146,9 @@ describe("QuickAddDialog", () => {
       expectedUpdatedAt: weight.updatedAt,
     }], archives: [] }));
     await waitFor(() => expect(metricReads).toBe(2));
-    expect(screen.getByLabelText("Weight")).toHaveValue(70);
-    expect(onClose).not.toHaveBeenCalled();
-
-    await act(async () => {
-      timelineRefresh.resolve([]);
-      trendsRefresh.resolve({} as Awaited<ReturnType<typeof healthApi.trends>>);
-    });
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(health.timeline).not.toHaveBeenCalled();
+    expect(health.trends).not.toHaveBeenCalled();
   });
 
   it("shows Ledger reference failure and retries before rendering the form", async () => {
@@ -196,18 +185,9 @@ describe("QuickAddDialog", () => {
     const user = userEvent.setup();
     const initial = stubHealthLoaded();
     const create = deferred<Awaited<ReturnType<typeof healthApi.createDiet>>>();
-    const refreshedTimeline =
-      deferred<Awaited<ReturnType<typeof healthApi.timeline>>>();
-    const refreshedTrends =
-      deferred<Awaited<ReturnType<typeof healthApi.trends>>>();
     const refreshedDiet =
       deferred<Awaited<ReturnType<typeof healthApi.listDiet>>>();
     vi.spyOn(healthApi, "createDiet").mockReturnValue(create.promise);
-    initial.timeline.mockImplementationOnce(() => Promise.resolve([]))
-      .mockImplementationOnce(() => refreshedTimeline.promise);
-    initial.trends.mockImplementationOnce(() => Promise.resolve(
-      {} as Awaited<ReturnType<typeof healthApi.trends>>,
-    )).mockImplementationOnce(() => refreshedTrends.promise);
     initial.diet.mockImplementationOnce(() => Promise.resolve([]))
       .mockImplementationOnce(() => refreshedDiet.promise);
     const onClose = vi.fn();
@@ -231,18 +211,14 @@ describe("QuickAddDialog", () => {
       {} as Awaited<ReturnType<typeof healthApi.createDiet>>,
     ));
     await waitFor(() => {
-      expect(initial.timeline).toHaveBeenCalledTimes(2);
-      expect(initial.trends).toHaveBeenCalledTimes(2);
       expect(initial.diet).toHaveBeenCalledTimes(2);
     });
+    expect(initial.timeline).not.toHaveBeenCalled();
+    expect(initial.trends).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
 
     await act(async () => {
-      refreshedTimeline.resolve([]);
       refreshedDiet.resolve([]);
-      refreshedTrends.resolve(
-        {} as Awaited<ReturnType<typeof healthApi.trends>>,
-      );
     });
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });

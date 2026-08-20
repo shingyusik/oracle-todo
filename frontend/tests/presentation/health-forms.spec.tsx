@@ -42,6 +42,10 @@ const loadedState: HealthState = {
   trendsStatus: "idle",
   trendsError: null,
   trends: null,
+  reportStatus: "idle",
+  reportError: null,
+  report: null,
+  reportSelection: { preset: 30 },
 };
 
 function deferred<T>() {
@@ -84,6 +88,8 @@ function controller(
     refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(),
     refreshTrends: vi.fn(),
+    runReports: vi.fn(),
+    retryReports: vi.fn(),
     createDiet: vi.fn(),
     updateDiet: vi.fn(),
     archiveDiet: vi.fn(),
