@@ -45,10 +45,11 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
         let actual = listener.local_addr()?;
         validate_public_origin(public_origin.as_deref(), actual)?;
         let app = raven_api::ui_router(config, artifact, session, actual, public_origin.as_deref())?;
-        let url = format!("http://{actual}");
+        let (url, session_url) = ui_urls(actual);
         println!("Raven UI listening on {url}");
+        println!("Open Raven UI: {session_url}");
         if !args.no_open {
-            if let Err(error) = open_browser(&format!("{url}/__raven/session")) {
+            if let Err(error) = open_browser(&session_url) {
                 tracing::warn!(event = "browser_open_failed", %error, "browser could not be opened");
             }
         }
@@ -88,6 +89,12 @@ fn resolve_ui_path(explicit: Option<PathBuf>) -> anyhow::Result<PathBuf> {
         .parent()
         .map(|parent| parent.join("ui"))
         .ok_or_else(|| anyhow::anyhow!("UI artifact is missing"))
+}
+
+fn ui_urls(actual: SocketAddr) -> (String, String) {
+    let url = format!("http://{actual}");
+    let session_url = format!("{url}/__raven/session");
+    (url, session_url)
 }
 
 fn open_browser(url: &str) -> std::io::Result<()> {
@@ -134,5 +141,15 @@ mod tests {
 
         let status = reap_child(child).join().unwrap().unwrap();
         assert!(status.success());
+    }
+
+    #[test]
+    fn ui_urls_include_session_bootstrap() {
+        let actual = SocketAddr::from((Ipv4Addr::LOCALHOST, 4321));
+
+        let (url, session_url) = ui_urls(actual);
+
+        assert_eq!(url, "http://127.0.0.1:4321");
+        assert_eq!(session_url, "http://127.0.0.1:4321/__raven/session");
     }
 }
