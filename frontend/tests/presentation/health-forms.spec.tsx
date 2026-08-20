@@ -17,6 +17,7 @@ import { DietPanel } from "@/features/health/ui/DietPanel";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
 import { HealthMetricsPanel } from "@/features/health/ui/HealthMetricsPanel";
 import { MedicationPanel } from "@/features/health/ui/MedicationPanel";
+import { MedicationCreateDialog } from "@/features/health/ui/MedicationCreateDialog";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
 const loadedState: HealthState = {
@@ -133,6 +134,30 @@ function BowelDialogHarness({
       <button ref={returnFocusRef}>Open bowel</button>
     </main>
     {open ? <BowelCreateDialog
+      controller={health}
+      onClose={() => {
+        onClose();
+        setOpen(false);
+      }}
+      returnFocusRef={returnFocusRef}
+    /> : null}
+  </>;
+}
+
+function MedicationDialogHarness({
+  health,
+  onClose = vi.fn(),
+}: {
+  health: HealthController;
+  onClose?: () => void;
+}) {
+  const [open, setOpen] = React.useState(true);
+  const returnFocusRef = React.useRef<HTMLButtonElement>(null);
+  return <>
+    <main data-testid="medication-dialog-background">
+      <button ref={returnFocusRef}>Add medication</button>
+    </main>
+    {open ? <MedicationCreateDialog
       controller={health}
       onClose={() => {
         onClose();
@@ -814,14 +839,219 @@ describe("Health Journal forms", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Image is too large");
   });
 
-  it("submits a medication dose using the selected medication unit", async () => {
+  it("renders the Medication dialog in a body portal with isolated background and ordered fields", () => {
+    const view = render(<MedicationDialogHarness health={controller()} />);
+    const dialog = screen.getByRole("dialog", { name: "Add medication" });
+    const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
+
+    expect(host?.parentElement).toBe(document.body);
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-busy", "false");
+    expect(view.container).toHaveAttribute("aria-hidden", "true");
+    expect(view.container).toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(screen.getByLabelText("Taken at")).toHaveFocus();
+    const form = screen.getByRole("form", { name: "Medication entry" });
+    const controls = ["Taken at", "Medication name", "Dose", "Unit", "Note"]
+      .map((label) => within(form).getByLabelText(label));
+    for (let index = 1; index < controls.length; index += 1) {
+      expect(controls[index - 1].compareDocumentPosition(controls[index]) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+    }
+    expect(screen.getByLabelText("Unit")).toHaveValue("tablet");
+    expect(within(screen.getByLabelText("Unit")).getAllByRole("option").map((option) => [
+      option.getAttribute("value"), option.textContent,
+    ])).toEqual([
+      ["tablet", "정"], ["capsule", "캡슐"], ["packet", "포"], ["mg", "mg"],
+      ["g", "g"], ["ml", "ml"], ["drop", "방울"], ["dose", "회"],
+    ]);
+
+    view.unmount();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("submits the exact Medication payload and converts local time portably", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    const onClose = vi.fn();
+    render(<MedicationDialogHarness health={health} onClose={onClose} />);
+    const localTime = "2026-07-30T09:00";
+    const expectedRfc3339 = new Date(2026, 6, 30, 9, 0).toISOString();
+
+    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: localTime } });
+    await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
+    await user.type(screen.getByLabelText("Dose"), "1000");
+    await user.selectOptions(screen.getByLabelText("Unit"), "mg");
+    await user.type(screen.getByLabelText("Note"), "With breakfast");
+    await user.click(screen.getByRole("button", { name: "Save medication" }));
+
+    expect(health.createMedication).toHaveBeenCalledWith({
+      occurredAt: expectedRfc3339,
+      details: {
+        kind: "medication",
+        medicationName: "Vitamin D",
+        dose: 1000,
+        unit: "mg",
+      },
+      note: "With breakfast",
+    });
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Add medication" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add medication" })).toHaveFocus();
+  });
+
+  it.each([
+    ["name", "   ", "1000", "Medication name is required"],
+    ["dose", "Vitamin D", "", "Dose must be a number"],
+    ["dose", "Vitamin D", "0", "Dose must be greater than zero"],
+    ["dose", "Vitamin D", "-1", "Dose must be greater than zero"],
+    ["dose", "Vitamin D", "Infinity", "Dose must be a number"],
+  ])("rejects invalid Medication %s drafts without calling the controller", async (_, name, dose, message) => {
+    const health = controller();
+    render(<MedicationDialogHarness health={health} />);
+    fireEvent.change(screen.getByLabelText("Medication name"), { target: { value: name } });
+    fireEvent.change(screen.getByLabelText("Dose"), { target: { value: dose } });
+    fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(health.createMedication).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Medication name")).toHaveValue(name);
+    expect(screen.getByLabelText("Dose")).toHaveValue(dose === "" || dose === "Infinity" ? null : Number(dose));
+  });
+
+  it("rejects a nonexistent Medication wall time and retains the draft", async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const health = controller();
+      render(<MedicationDialogHarness health={health} />);
+      fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
+      fireEvent.change(screen.getByLabelText("Medication name"), { target: { value: "Vitamin D" } });
+      fireEvent.change(screen.getByLabelText("Dose"), { target: { value: "1000" } });
+      fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
+      expect(health.createMedication).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Taken at")).toHaveValue("2026-03-08T02:30");
+      expect(screen.getByLabelText("Medication name")).toHaveValue("Vitamin D");
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
+  it("wraps Medication focus and closes from idle controls", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<MedicationDialogHarness health={controller()} onClose={onClose} />);
+    const close = screen.getByRole("button", { name: "Close Add medication" });
+    const save = screen.getByRole("button", { name: "Save medication" });
+    close.focus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(save).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.click(close);
+    expect(onClose).toHaveBeenCalledOnce();
+
+    render(<MedicationDialogHarness health={controller()} onClose={onClose} />);
+    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Add medication" }).parentElement!);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    render(<MedicationDialogHarness health={controller()} onClose={onClose} />);
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  it("blocks Medication dismissal and duplicate submission while pending, including zero focusables", async () => {
+    const user = userEvent.setup();
+    const save = deferred<void>();
+    const onClose = vi.fn();
+    const health = controller({ createMedication: vi.fn(() => save.promise) });
+    render(<MedicationDialogHarness health={health} onClose={onClose} />);
+    await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
+    await user.type(screen.getByLabelText("Dose"), "1000");
+    await user.click(screen.getByRole("button", { name: "Save medication" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Add medication" });
+    expect(dialog).toHaveAttribute("aria-busy", "true");
+    expect(dialog).toHaveFocus();
+    await user.keyboard("{Tab}{Escape}");
+    fireEvent.mouseDown(dialog.parentElement!);
+    fireEvent.click(screen.getByRole("button", { name: "Close Add medication" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save medication" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(health.createMedication).toHaveBeenCalledOnce();
+
+    save.resolve();
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it("keeps the Medication dialog usable with every draft field after an ordinary failure", async () => {
+    const user = userEvent.setup();
+    const health = controller({ createMedication: vi.fn().mockRejectedValue(new Error("Medication save failed")) });
+    render(<MedicationDialogHarness health={health} />);
+    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-08-17T08:30" } });
+    await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
+    await user.type(screen.getByLabelText("Dose"), "1000");
+    await user.selectOptions(screen.getByLabelText("Unit"), "mg");
+    await user.type(screen.getByLabelText("Note"), "Keep this");
+    await user.click(screen.getByRole("button", { name: "Save medication" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Medication save failed");
+    expect(screen.getByRole("dialog", { name: "Add medication" })).toBeVisible();
+    expect(screen.getByLabelText("Taken at")).toHaveValue("2026-08-17T08:30");
+    expect(screen.getByLabelText("Medication name")).toHaveValue("Vitamin D");
+    expect(screen.getByLabelText("Dose")).toHaveValue(1000);
+    expect(screen.getByLabelText("Unit")).toHaveValue("mg");
+    expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
+    expect(screen.getByLabelText("Medication name")).toBeEnabled();
+    screen.getByLabelText("Medication name").focus();
+    expect(screen.getByLabelText("Medication name")).toHaveFocus();
+  });
+
+  it("freezes committed Medication creation and retries refresh without resubmitting", async () => {
+    const user = userEvent.setup();
+    const retry = deferred<boolean>();
+    const onClose = vi.fn();
+    const health = controller({
+      createMedication: vi.fn().mockRejectedValue(new HealthMutationRefreshError()),
+      refreshMedication: vi.fn()
+        .mockResolvedValueOnce(false)
+        .mockImplementationOnce(() => retry.promise)
+        .mockResolvedValueOnce(true),
+    });
+    render(<MedicationDialogHarness health={health} onClose={onClose} />);
+    await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
+    await user.type(screen.getByLabelText("Dose"), "1000");
+    await user.click(screen.getByRole("button", { name: "Save medication" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes were saved, but Health could not refresh.");
+    expect(screen.getByLabelText("Medication name")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save medication" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
+    expect(health.createMedication).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
+    expect(health.refreshMedication).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
+    expect(screen.getByRole("button", { name: "Retry refresh" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
+    expect(health.refreshMedication).toHaveBeenCalledTimes(2);
+    retry.resolve(true);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(health.createMedication).toHaveBeenCalledOnce();
+  });
+
+  it("submits a Medication dose using the selected medication unit", async () => {
     const user = userEvent.setup();
     const health = controller();
     render(<MedicationPanel controller={health} />);
 
     await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
     await user.type(screen.getByLabelText("Dose"), "1000");
-    await user.selectOptions(screen.getByLabelText("Medication unit"), "mg");
+    await user.selectOptions(screen.getByLabelText("Unit"), "mg");
     await user.click(screen.getByRole("button", { name: "Save medication" }));
 
     expect(health.createMedication).toHaveBeenCalledWith(expect.objectContaining({
