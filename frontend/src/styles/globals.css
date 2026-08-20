@@ -31,6 +31,7 @@
   --dashboard-donut-incomplete-end: 0%;
   --dashboard-donut-missed-end: 0%;
   --dashboard-heatmap-intensity: 0;
+  --health-report-bar: 0;
   --font-display: Inter Display, Inter, Helvetica, Arial, sans-serif;
   --font-body: Inter, Helvetica, Arial, sans-serif;
   --font-mono: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;

@@ -14,7 +14,7 @@ export function HealthSummaryCard({
       <header className="dashboard-widget-header">
         <div className="dashboard-widget-heading">
           <h2>Health Journal</h2>
-          <p>Latest recorded values. Detailed analysis is available in Trends.</p>
+          <p>Latest recorded values. Detailed analysis is available in Reports.</p>
         </div>
       </header>
       {projection.status === "error" ? (

@@ -50,6 +50,9 @@ describe("design system boundaries", () => {
     expect(designTokens.colors.aloe).toBe("#c1fbd4");
     expect(designTokens.colors.aloeStrong).toBe("#3fae6a");
     expect(workbenchCopy.brandName).toBe("Raven");
+    expect(workbenchCopy.panels).not.toHaveProperty("timeline");
+    expect(workbenchCopy.panels).not.toHaveProperty("trends");
+    expect(workbenchCopy.panels.reports.title).toBe("Reports");
     expect(workbenchLayout.mainSidebarWidthPx).toBe(64);
   });
 

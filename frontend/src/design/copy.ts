@@ -65,9 +65,6 @@ export const workbenchCopy = {
     reports: {
       title: "Reports",
     },
-    timeline: {
-      title: "Timeline",
-    },
     diet: {
       title: "Diet",
     },
@@ -79,9 +76,6 @@ export const workbenchCopy = {
     },
     "health-metrics": {
       title: "Health Metrics",
-    },
-    trends: {
-      title: "Trends",
     },
   },
 } as const;
