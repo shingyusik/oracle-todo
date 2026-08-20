@@ -2024,6 +2024,18 @@ describe("LedgerPanel", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("skips inactive transaction tabs in the Add transaction focus order", async () => {
+    const user = userEvent.setup();
+    render(<LedgerPanel controller={controller()} />);
+
+    await user.click(screen.getByRole("button", { name: "Add transaction" }));
+    await user.tab();
+    expect(screen.getByRole("tab", { name: "Expense" })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByLabelText("Date")).toHaveFocus();
+  });
+
   it("renders blocking load errors and non-blocking loaded errors", async () => {
     const user = userEvent.setup();
     const loadedErrorController = controller({

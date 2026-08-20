@@ -1995,7 +1995,7 @@ button {
 
 .transaction-type-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border-radius: var(--radius-md);
@@ -2010,7 +2010,7 @@ button {
 .transaction-type-tab[aria-selected="true"] {
   border-color: var(--color-accent-strong);
   background: var(--color-accent-soft);
-  color: var(--color-accent-strong);
+  color: var(--color-ink);
   font-weight: 700;
 }
 
@@ -2030,7 +2030,13 @@ button {
 .ledger-create-dialog-save {
   border-color: var(--color-accent-strong);
   background: var(--color-accent-strong);
-  color: var(--color-on-dark);
+  color: var(--color-ink);
+}
+
+.ledger-create-dialog-save:disabled {
+  border-color: var(--color-hairline-light);
+  background: var(--color-shade-30);
+  color: var(--color-shade-60);
 }
 
 .ledger-account-settings-dialog {

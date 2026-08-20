@@ -68,7 +68,7 @@ function TransactionCreateDialogContent({
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
     const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-      'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      'input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"]):not([disabled])',
     ));
     const closeIndex = focusables.findIndex(
       (element) => element.getAttribute("aria-label") === "Close Add transaction",
