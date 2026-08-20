@@ -108,7 +108,14 @@ describe("Health table views", () => {
   it("defines Medication controls, units, and defaults", () => {
     expect(healthFilterFieldsForScope("health.medication")).toEqual(["date", "medication_name", "medication_unit"]);
     expect(healthSortFieldsForScope("health.medication")).toEqual(["date", "medication_name", "dose", "created", "updated"]);
-    expect(healthGroupOptionsForScope("health.medication").map(({ value }) => value)).toEqual(["none", "month", "week", "day", "medication_name", "medication_unit"]);
+    expect(healthGroupOptionsForScope("health.medication")).toEqual([
+      { value: "none", label: "None" },
+      { value: "month", label: "Month" },
+      { value: "week", label: "Week" },
+      { value: "day", label: "Day" },
+      { value: "medication_name", label: "Medication" },
+      { value: "medication_unit", label: "Unit" },
+    ]);
     expect(healthMedicationFilterSelectOptions.medication_unit).toEqual([
       { value: "tablet", label: "정" }, { value: "capsule", label: "캡슐" },
       { value: "packet", label: "포" }, { value: "mg", label: "mg" },

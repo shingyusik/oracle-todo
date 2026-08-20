@@ -94,7 +94,7 @@ const medicationGroupOptions = [
   { value: "month", label: "Month" },
   { value: "week", label: "Week" },
   { value: "day", label: "Day" },
-  { value: "medication_name", label: "Medication name" },
+  { value: "medication_name", label: "Medication" },
   { value: "medication_unit", label: "Unit" },
 ] as const satisfies readonly { value: PlannerGroupBy; label: string }[];
 

@@ -81,17 +81,17 @@ describe("deriveMedicationGroups", () => {
   });
 
   it.each([
-    ["day", ["2026-01-05", "2025-12-31"]],
-    ["week", ["2026-01-05", "2025-12-29"]],
-    ["month", ["2026-01", "2025-12"]],
-    ["medication_name", ["Vitamin C", "Aspirin"]],
-    ["medication_unit", ["capsule", "tablet"]],
-  ] as const)("groups by %s using local dates or Medication attributes", (groupBy, keys) => {
+    ["day", [["2026-01-05", "2026-01-05"], ["2025-12-31", "2025-12-31"]]],
+    ["week", [["2026-01-05", "Week of 2026-01-05"], ["2025-12-29", "Week of 2025-12-29"]]],
+    ["month", [["2026-01", "January 2026"], ["2025-12", "December 2025"]]],
+    ["medication_name", [["Vitamin C", "Vitamin C"], ["Aspirin", "Aspirin"]]],
+    ["medication_unit", [["capsule", "캡슐"], ["tablet", "정"]]],
+  ] as const)("groups by %s using local dates or Medication attributes", (groupBy, expected) => {
     const groups = deriveMedicationGroups([
       medication("1", { occurredAt: localInstant(2025, 12, 31) }),
       medication("2", { occurredAt: localInstant(2026, 1, 5), attributes: { kind: "medication", medicationName: "Vitamin C", dose: 2, unit: "capsule" } }),
     ], settings({ groupSettings: { groupBy } }));
-    expect(groups.map(({ key }) => key).sort().reverse()).toEqual([...keys].sort().reverse());
+    expect(groups.map(({ key, label }) => [key, label])).toEqual(expected);
   });
 
   it("honors alphabetical, reverse, manual, and hidden group ordering", () => {
