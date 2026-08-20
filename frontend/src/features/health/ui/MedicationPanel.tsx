@@ -15,8 +15,10 @@ import {
   healthMedicationFilterSelectOptions,
 } from "@/features/health/model/health-table-views";
 import { MedicationCreateDialog } from "@/features/health/ui/MedicationCreateDialog";
+import { MedicationDetail } from "@/features/health/ui/MedicationDetail";
 import { MedicationTable } from "@/features/health/ui/MedicationTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
+import { useBrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type MedicationPanelProps = {
@@ -38,11 +40,14 @@ export function MedicationPanel({
 }: MedicationPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<MedicationRow | null>(null);
   const [archiveTargets, setArchiveTargets] = useState<string[] | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
+  const tableRef = useRef<HTMLElement>(null);
+  const detailOriginRef = useRef<{ occurrence: string; rowId: string } | null>(null);
 
   const entries = useMemo(() => controller.state.medicationEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)),
@@ -66,6 +71,25 @@ export function MedicationPanel({
   }).filter(({ label }) => label !== null).map(({ key, label, rows }) => ({
     key, label: label!, count: uniqueRows(rows).length,
   })), [entries, settings.groupSettings]);
+  const currentDetailRow = detailRow
+    ? activeRows.find(({ id }) => id === detailRow.id) ?? null
+    : null;
+  const detailHistory = useBrowserDetailHistory({
+    stateKey: "__ravenHealthMedicationDetailId",
+    currentId: currentDetailRow?.id ?? null,
+    resolve: (id) => activeRows.find((row) => row.id === id) ?? null,
+    open: (row) => {
+      if (detailOriginRef.current?.rowId !== row.id) {
+        detailOriginRef.current = { occurrence: "", rowId: row.id };
+      }
+      setDetailRow(row);
+    },
+    close: () => {
+      setDetailRow(null);
+      restoreDetailFocus();
+    },
+    clearOnUnmount: true,
+  });
 
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
@@ -73,7 +97,25 @@ export function MedicationPanel({
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-  }, [activeRows]);
+    if (detailRow && !activeIds.has(detailRow.id)) {
+      setDetailRow(null);
+      restoreDetailFocus();
+    }
+  }, [activeRows, detailRow]);
+
+  function restoreDetailFocus() {
+    requestAnimationFrame(() => {
+      const origin = detailOriginRef.current;
+      const exact = origin
+        ? tableRef.current?.querySelector<HTMLElement>(`[data-medication-occurrence="${origin.occurrence}"]`)
+        : null;
+      const target = exact ?? (origin
+        ? [...(tableRef.current?.querySelectorAll<HTMLElement>("[data-medication-row-id]") ?? [])]
+          .find((element) => element.dataset.medicationRowId === origin.rowId)
+        : null);
+      (target ?? addButtonRef.current)?.focus();
+    });
+  }
 
   function toggle(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -137,7 +179,16 @@ export function MedicationPanel({
     </section>;
   }
 
-  return <section aria-labelledby="health-medication-heading">
+  if (currentDetailRow) {
+    return <MedicationDetail key={currentDetailRow.id} controller={controller} row={currentDetailRow}
+      detailHistory={detailHistory} onArchived={(warning) => {
+        detailHistory.setDirty(false);
+        detailHistory.requestBack();
+        markArchived(currentDetailRow.id, warning);
+      }} />;
+  }
+
+  return <section ref={tableRef} aria-labelledby="health-medication-heading">
     <HealthTableViewHeader controller={controller} scope="health.medication" title="Medication"
       headingId="health-medication-heading"
       fieldLabels={{ medication_name: "Medication", medication_unit: "Unit", dose: "Dose" }}
@@ -147,7 +198,10 @@ export function MedicationPanel({
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleIds.length === 0 || archivePending} />
     <MedicationTable groups={groups} activeRowCount={activeRows.length} selectedIds={selectedIds}
-      onToggle={toggle} onToggleAll={toggleAll} />
+      onOpen={(row, occurrence) => {
+        detailOriginRef.current = { occurrence, rowId: row.id };
+        setDetailRow(row);
+      }} onToggle={toggle} onToggleAll={toggleAll} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>
       <button type="button" disabled={refreshPending}
         onClick={() => void retryRefresh()}>Retry</button></div>

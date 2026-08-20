@@ -11,12 +11,14 @@ export function MedicationTable({
   groups,
   activeRowCount,
   selectedIds,
+  onOpen,
   onToggle,
   onToggleAll,
 }: {
   groups: MedicationRowGroup[];
   activeRowCount: number;
   selectedIds: string[];
+  onOpen?(row: MedicationRow, occurrence: string): void;
   onToggle(id: string): void;
   onToggleAll(): void;
 }) {
@@ -50,24 +52,36 @@ export function MedicationTable({
         <tbody key={group.key} aria-label={group.label ? `${group.label} group` : undefined}>
           {group.label ? <tr className="workspace-group-heading">
             <th scope="rowgroup" colSpan={6}>{group.label}</th></tr> : null}
-          {group.rows.map((row, rowIndex) => <MedicationTableRow key={
-            `${group.key}-${row.id}-${rowIndex}`
-          } row={row} selected={selectedIds.includes(row.id)} onToggle={onToggle} />)}
+          {group.rows.map((row, rowIndex) => {
+            const occurrence = `${group.key}-${row.id}-${rowIndex}`;
+            return <MedicationTableRow key={occurrence} row={row}
+              occurrence={occurrence} selected={selectedIds.includes(row.id)}
+              onOpen={onOpen} onToggle={onToggle} />;
+          })}
         </tbody>)}
     </table>
   </section>;
 }
 
-function MedicationTableRow({ row, selected, onToggle }: {
+function MedicationTableRow({ row, occurrence, selected, onOpen, onToggle }: {
   row: MedicationRow;
+  occurrence: string;
   selected: boolean;
+  onOpen?(row: MedicationRow, occurrence: string): void;
   onToggle(id: string): void;
 }) {
   const context = `${row.medicationName}, ${row.date} ${row.takenAtLabel}, ${row.dose} ${row.unitLabel}`;
-  return <tr>
+  return <tr onClick={onOpen ? (event) => {
+    if (!(event.target as HTMLElement).closest("button, input, select, textarea, a")) {
+      onOpen(row, occurrence);
+    }
+  } : undefined}>
     <td className="selection-column"><input type="checkbox" aria-label={`Select ${context}`}
       checked={selected} onChange={() => onToggle(row.id)} /></td>
-    <td>{row.takenAtLabel}</td><td>{row.medicationName}</td><td>{String(row.dose)}</td>
+    <td>{onOpen ? <button type="button" aria-label={`Open details for ${context}`}
+      data-medication-row-id={row.id} data-medication-occurrence={occurrence}
+      onClick={() => onOpen(row, occurrence)}>{row.takenAtLabel}</button> : row.takenAtLabel}</td>
+    <td>{row.medicationName}</td><td>{String(row.dose)}</td>
     <td>{row.unitLabel}</td><td>{row.note}</td>
   </tr>;
 }

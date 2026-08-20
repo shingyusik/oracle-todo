@@ -625,6 +625,32 @@ describe("HealthPanel", () => {
     await waitFor(() => expect(screen.getByText("Type 4")).toBeInTheDocument());
   });
 
+  it("cleans only Medication detail history and its listener when the Health leaf changes", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({
+      __ravenHealthDietDetailId: "keep-diet",
+      __ravenHealthBowelDetailId: "keep-bowel",
+    }, "");
+    const removeEventListener = vi.spyOn(window, "removeEventListener");
+    const health = controller({ ...loadedState, medicationEntries: [medication] });
+    const view = render(<HealthPanel controller={health} leafTabId="medication" />);
+    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    expect(window.history.state).toMatchObject({
+      __ravenHealthDietDetailId: "keep-diet",
+      __ravenHealthBowelDetailId: "keep-bowel",
+      __ravenHealthMedicationDetailId: medication.id,
+    });
+
+    view.rerender(<HealthPanel controller={health} leafTabId="trends" />);
+
+    expect(window.history.state).toMatchObject({
+      __ravenHealthDietDetailId: "keep-diet",
+      __ravenHealthBowelDetailId: "keep-bowel",
+      __ravenHealthMedicationDetailId: null,
+    });
+    expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
+  });
+
   it("preserves and reconciles committed Medication recovery across Health leaf tabs", async () => {
     const user = userEvent.setup();
     const health = controller({ ...loadedState, medicationEntries: [medication] });
