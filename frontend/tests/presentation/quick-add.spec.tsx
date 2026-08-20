@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 
 import {
   act,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -11,6 +12,7 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { healthApi } from "@/features/health/api/health-api";
+import type { HealthEvent } from "@/features/health/model/health-model";
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { QuickAddDialog } from "@/features/workbench/ui/QuickAddDialog";
@@ -33,9 +35,14 @@ function stubLedgerLoaded() {
   ] as const;
 }
 
-function stubHealthLoaded(dietEntries: Awaited<ReturnType<typeof healthApi.listDiet>> = []) {
+function stubHealthLoaded(
+  dietEntries: Awaited<ReturnType<typeof healthApi.listDiet>> = [],
+  metricsEntries: HealthEvent[] = [],
+) {
   return {
     diet: vi.spyOn(healthApi, "listDiet").mockResolvedValue(dietEntries),
+    events: vi.spyOn(healthApi, "listEvents").mockImplementation(async (query) =>
+      query?.dailyOnly ? metricsEntries : []),
     timeline: vi.spyOn(healthApi, "timeline").mockResolvedValue([]),
     trends: vi.spyOn(healthApi, "trends").mockResolvedValue(
       {} as Awaited<ReturnType<typeof healthApi.trends>>,
@@ -87,6 +94,72 @@ describe("QuickAddDialog", () => {
     expect(ledgerSpies.every((spy) => spy.mock.calls.length === 1)).toBe(true);
     expect(healthSpies.timeline).not.toHaveBeenCalled();
     expect(healthSpies.trends).not.toHaveBeenCalled();
+  });
+
+  it("preloads existing Metrics and preserves its snapshot through mutation refresh", async () => {
+    const user = userEvent.setup();
+    const weight: HealthEvent = {
+      id: "weight-1",
+      occurredAt: "2026-08-19T03:00:00Z",
+      category: "weight",
+      metricKey: "body_weight",
+      name: "Body weight",
+      value: 72.5,
+      unit: "kg",
+      note: null,
+      attributes: {
+        kind: "weight", metricKey: "body_weight", name: "Body weight", value: 72.5, unit: "kg",
+      },
+      createdAt: "2026-08-19T03:00:00Z",
+      updatedAt: "2026-08-19T03:00:00Z",
+      deletedAt: null,
+    };
+    const refreshedWeight = {
+      ...weight,
+      value: 80,
+      attributes: {
+        kind: "weight", metricKey: "body_weight", name: "Body weight", value: 80, unit: "kg",
+      },
+      updatedAt: "2026-08-20T03:00:00Z",
+    } as HealthEvent;
+    const health = stubHealthLoaded([], [weight]);
+    let metricReads = 0;
+    health.events.mockImplementation(async (query) => {
+      if (!query?.dailyOnly) return [];
+      metricReads += 1;
+      return metricReads === 1 ? [weight] : [refreshedWeight];
+    });
+    const timelineRefresh = deferred<Awaited<ReturnType<typeof healthApi.timeline>>>();
+    const trendsRefresh = deferred<Awaited<ReturnType<typeof healthApi.trends>>>();
+    health.timeline.mockResolvedValueOnce([]).mockReturnValueOnce(timelineRefresh.promise);
+    health.trends.mockResolvedValueOnce(
+      {} as Awaited<ReturnType<typeof healthApi.trends>>,
+    ).mockReturnValueOnce(trendsRefresh.promise);
+    const save = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([refreshedWeight]);
+    const onClose = vi.fn();
+    render(<QuickAddDialog controller={workbenchController()} onClose={onClose} />);
+
+    await user.click(screen.getByRole("button", { name: "Health metrics" }));
+    await screen.findByRole("form", { name: "Daily metrics" });
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-19" } });
+    await waitFor(() => expect(screen.getByLabelText("Weight")).toHaveValue(72.5));
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ metrics: [{
+      occurredAt: expect.any(String),
+      details: { kind: "weight", value: 70, unit: "kg" },
+      expectedUpdatedAt: weight.updatedAt,
+    }], archives: [] }));
+    await waitFor(() => expect(metricReads).toBe(2));
+    expect(screen.getByLabelText("Weight")).toHaveValue(70);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      timelineRefresh.resolve([]);
+      trendsRefresh.resolve({} as Awaited<ReturnType<typeof healthApi.trends>>);
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
   it("shows Ledger reference failure and retries before rendering the form", async () => {

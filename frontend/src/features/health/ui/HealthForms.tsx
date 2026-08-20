@@ -383,7 +383,7 @@ export function MedicationForm({
 
 export function MetricsForm({
   controller,
-  metricsEntries = [],
+  metricsEntries = controller.state.metricsEntries,
   initialRow,
   mode = "create",
   onSaved,
