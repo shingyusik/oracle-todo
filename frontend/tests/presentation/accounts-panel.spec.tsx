@@ -232,11 +232,14 @@ describe("AccountCreateDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Add account" }));
     await fillDraft(user);
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    await user.click(save);
 
     expect(screen.getByRole("dialog", { name: "Add account" })).toHaveAttribute("aria-busy", "true");
     expect(screen.getByLabelText("Account name")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(save).toBeDisabled();
+    expect(save).toHaveAccessibleName("Saving…");
+    expect(save).toHaveTextContent("Saving…");
     expect(screen.getByRole("button", { name: "Close Add account" })).toBeDisabled();
     await user.keyboard("{Escape}");
     expect(screen.getByRole("dialog", { name: "Add account" })).toBeInTheDocument();
@@ -252,17 +255,20 @@ describe("AccountCreateDialog", () => {
     const trigger = screen.getByRole("button", { name: "Add account" });
     await user.click(trigger);
     const name = screen.getByLabelText("Account name");
+    const openingBalance = screen.getByLabelText("Opening balance");
     const close = screen.getByRole("button", { name: "Close Add account" });
     const create = screen.getByRole("button", { name: "Save" });
     expect(name).toHaveFocus();
 
-    close.focus();
-    await user.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(create).toHaveFocus();
+    openingBalance.focus();
     await user.tab();
     expect(close).toHaveFocus();
     await user.tab();
+    expect(create).toHaveFocus();
+    await user.tab();
     expect(name).toHaveFocus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(create).toHaveFocus();
     await user.keyboard("{Escape}");
 
     expect(screen.queryByRole("dialog", { name: "Add account" })).toBeNull();

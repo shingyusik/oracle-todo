@@ -117,13 +117,14 @@ function CategoryCreateDialogContent({
     const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
       'input:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ));
-    const closeIndex = focusables.findIndex((element) => element.getAttribute("aria-label") === "Close Add category");
-    if (closeIndex >= 0) focusables.push(focusables.splice(closeIndex, 1)[0]!);
     const index = focusables.indexOf(document.activeElement as HTMLElement);
-    if (index < 0 || focusables.length === 0) return;
-    event.preventDefault();
-    const offset = event.shiftKey ? -1 : 1;
-    focusables[(index + offset + focusables.length) % focusables.length]?.focus();
+    if (!event.shiftKey && index === focusables.length - 1) {
+      event.preventDefault();
+      focusables[0]?.focus();
+    } else if (event.shiftKey && index === 0) {
+      event.preventDefault();
+      focusables.at(-1)?.focus();
+    }
   }
 
   const parents = categoryParentOptions(controller.state.categories, draft.kind);
@@ -190,7 +191,6 @@ function CategoryCreateDialogContent({
             <button
               type="submit"
               className="items-toolbar-button ledger-create-dialog-save"
-              aria-label="Save"
               disabled={pending}
             >
               {pending ? "Saving…" : "Save"}
