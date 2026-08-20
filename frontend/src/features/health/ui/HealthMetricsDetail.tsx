@@ -23,7 +23,7 @@ type Canonical = { date: string | null; weight: number | null; sleep: number | n
   crp: number | null; calprotectin: number | null; condition: number | null; note: string | null };
 type History = { past: Draft[]; present: Draft; future: Draft[]; coalescing: keyof Draft | null };
 type Action = { type: "change"; name: keyof Draft; value: string; coalesce?: boolean }
-  | { type: "undo" | "redo" | "close-group" };
+  | { type: "undo" | "redo" | "close-group" | "clear-condition" };
 
 export const HEALTH_METRICS_HISTORY_LIMIT = 50;
 const fields: HealthMetricField[] = ["weight", "sleep", "crp", "calprotectin", "condition"];
@@ -213,8 +213,8 @@ export function HealthMetricsDetail({ controller, row, detailHistory, onSaved, o
           min="0" onChange={(value) => change("calprotectin", value, true)} />
         <label className="field-label">Condition<select disabled={readOnly} value={draft.condition}
           onChange={(event) => {
-            change("condition", event.target.value);
-            if (!event.target.value) change("note", "");
+            if (event.target.value) change("condition", event.target.value);
+            else dispatch({ type: "clear-condition" });
           }}><option value="">None</option>{Array.from({ length: 10 }, (_, i) => i + 1)
             .map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         <label className="field-label">Note<textarea disabled={readOnly || !draft.condition}
@@ -245,6 +245,11 @@ function MetricInput({ label, unit, value, disabled, onChange, min = Number.MIN_
 
 function reducer(state: History, action: Action): History {
   if (action.type === "close-group") return { ...state, coalescing: null };
+  if (action.type === "clear-condition") {
+    if (state.present.condition === "" && state.present.note === "") return state;
+    return { past: push(state.past, state.present),
+      present: { ...state.present, condition: "", note: "" }, future: [], coalescing: null };
+  }
   if (action.type === "undo") {
     const present = state.past.at(-1);
     return present ? { past: state.past.slice(0, -1), present,
@@ -305,7 +310,7 @@ function buildMutation(original: Canonical, present: Canonical, row: HealthMetri
       continue;
     }
     metrics.push({ occurredAt, details: details(field, present[field]!, present.note),
-      expectedUpdatedAt: existing?.updatedAt });
+      ...(existing ? { expectedUpdatedAt: existing.updatedAt } : {}) });
   }
   return { metrics, archives };
 }

@@ -356,6 +356,12 @@ describe("Health Metrics table", () => {
     fireEvent.keyDown(window, { key: "y", ctrlKey: true });
     expect(screen.getByLabelText("Weight")).toHaveValue(69);
     fireEvent.change(screen.getByLabelText("Sleep"), { target: { value: "8" } });
+    fireEvent.keyDown(window, { key: "z", metaKey: true });
+    expect(screen.getByLabelText("Sleep")).toHaveValue(7.5);
+    fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+    expect(screen.getByLabelText("Sleep")).toHaveValue(8);
+    fireEvent.keyDown(window, { key: "z", metaKey: true });
+    fireEvent.change(screen.getByLabelText("Sleep"), { target: { value: "9" } });
     expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
 
     for (let index = 0; index < 52; index += 1) {
@@ -368,6 +374,23 @@ describe("Health Metrics table", () => {
     }
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
     expect(screen.getByLabelText("Weight")).toHaveValue(69);
+  });
+
+  it("clears and restores Condition plus Note as one atomic history transition", async () => {
+    const user = userEvent.setup();
+    render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.selectOptions(screen.getByLabelText("Condition"), "");
+    expect(screen.getByLabelText("Condition")).toHaveValue("");
+    expect(screen.getByLabelText("Note")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByLabelText("Condition")).toHaveValue("8");
+    expect(screen.getByLabelText("Note")).toHaveValue("Steady");
+    fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+    expect(screen.getByLabelText("Condition")).toHaveValue("");
+    expect(screen.getByLabelText("Note")).toHaveValue("");
   });
 
   it("isolates one Metrics browser entry and traverses clean Back and Forward without a push loop", async () => {
@@ -476,6 +499,22 @@ describe("Health Metrics table", () => {
     }], archives: [] }));
   });
 
+  it("creates a newly populated member without an optimistic version property", async () => {
+    const user = userEvent.setup();
+    const health = panelController([weight]);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    fireEvent.change(screen.getByLabelText("CRP"), { target: { value: "1.5" } });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledOnce());
+    const input = vi.mocked(health.saveMetrics).mock.calls[0][0].metrics[0];
+    expect(input).toMatchObject({ occurredAt: expect.any(String),
+      details: { kind: "lab", key: "crp", name: "CRP", value: 1.5, unit: "mg/L" } });
+    expect(input).not.toHaveProperty("expectedUpdatedAt");
+  });
+
   it("keeps opened member values and versions immutable across same-date refreshes and filters", async () => {
     const user = userEvent.setup();
     const original = panelController();
@@ -499,6 +538,31 @@ describe("Health Metrics table", () => {
       occurredAt: expect.any(String), expectedUpdatedAt: weight.updatedAt,
       details: { kind: "weight", value: 71, unit: "kg" },
     }], archives: [] }));
+  });
+
+  it("falls focus from the exact occurrence to the same date after regrouping, then Add after removal", async () => {
+    const user = userEvent.setup();
+    const plain = panelController([weight]);
+    const view = render(<HealthMetricsPanel controller={plain} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    const groupedSettings = defaultHealthTableSettings("health.metrics");
+    groupedSettings.groupSettings.groupBy = "month";
+    const grouped = panelController([weight], groupedSettings);
+    view.rerender(<HealthMetricsPanel controller={grouped} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const sameDate = await screen.findByRole("button", { name: /Open health metrics/ });
+    expect(sameDate.dataset.healthMetricsOccurrence).not.toBe("all-2026-08-19-0");
+    await waitFor(() => expect(sameDate).toHaveFocus());
+    await user.click(sameDate);
+    view.rerender(<HealthMetricsPanel controller={grouped} tombstonedIds={new Set([weight.id])}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add health metrics entry" }))
+      .toHaveFocus());
   });
 
   it("blocks all-empty and invalid drafts, IME shortcuts, and duplicate pending saves", async () => {
@@ -612,6 +676,35 @@ describe("Health Metrics table", () => {
     expect(health.saveMetrics).toHaveBeenCalledOnce();
   });
 
+  it.each(["ordinary", "committed"] as const)(
+    "defers %s save failure until browser-pop restoration completes",
+    async (outcome) => {
+      const user = userEvent.setup();
+      window.history.pushState({}, "");
+      const controlled = controlHistoryForward();
+      const saved = deferred<void>();
+      const health = panelController();
+      vi.mocked(health.saveMetrics).mockImplementation(() => saved.promise);
+      render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+        onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+        onRetryRefresh={vi.fn()} />);
+      await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+      fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      act(() => window.history.back());
+      await waitFor(() => expect(controlled.spy).toHaveBeenCalledOnce());
+      await act(async () => saved.reject(outcome === "ordinary"
+        ? new Error("save unavailable") : new HealthMutationRefreshError()));
+      expect(screen.queryByRole("alert")).toBeNull();
+      await controlled.releaseNext();
+      expect(await screen.findByRole("alert")).toHaveTextContent(outcome === "ordinary"
+        ? "save unavailable" : "Changes were saved, but Health could not refresh.");
+      if (outcome === "ordinary") expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+      else expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+      expect(health.saveMetrics).toHaveBeenCalledOnce();
+    },
+  );
+
   it("defers refresh-recovery Retry=false until browser-pop restoration completes", async () => {
     const user = userEvent.setup();
     window.history.pushState({}, "");
@@ -633,6 +726,31 @@ describe("Health Metrics table", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
     await controlled.releaseNext();
     await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled());
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
+    expect(health.refreshMetrics).toHaveBeenCalledOnce();
+  });
+
+  it("defers refresh-recovery Retry=true close until browser-pop restoration completes", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "");
+    const controlled = controlHistoryForward();
+    const refreshed = deferred<boolean>();
+    const health = panelController();
+    vi.mocked(health.saveMetrics).mockRejectedValue(new HealthMutationRefreshError());
+    vi.mocked(health.refreshMetrics).mockImplementation(() => refreshed.promise);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
+    act(() => window.history.back());
+    await waitFor(() => expect(controlled.spy).toHaveBeenCalledOnce());
+    await act(async () => refreshed.resolve(true));
+    expect(screen.getByRole("heading", { name: /Health Metrics ·/ })).toBeInTheDocument();
+    await controlled.releaseNext();
+    await screen.findByRole("button", { name: /Open health metrics/ });
     expect(health.saveMetrics).toHaveBeenCalledOnce();
     expect(health.refreshMetrics).toHaveBeenCalledOnce();
   });
@@ -661,6 +779,55 @@ describe("Health Metrics table", () => {
     expect(health.saveMetrics).toHaveBeenCalledOnce();
     await waitFor(() => expect(screen.getByRole("button", { name: /Open health metrics/ }))
       .toHaveFocus());
+  });
+
+  it("defers ordinary archive success until browser-pop restoration completes", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "");
+    const controlled = controlHistoryForward();
+    const archived = deferred<void>();
+    const health = panelController();
+    vi.mocked(health.saveMetrics).mockImplementation(() => archived.promise);
+    const committed = vi.fn();
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={committed} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    act(() => window.history.back());
+    await waitFor(() => expect(controlled.spy).toHaveBeenCalledOnce());
+    await act(async () => archived.resolve());
+    expect(committed).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: /Archive Health Metrics/ })).toBeInTheDocument();
+    await controlled.releaseNext();
+    await waitFor(() => expect(committed).toHaveBeenCalledOnce());
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
+  });
+
+  it("defers ordinary archive failure cleanup until browser-pop restoration completes", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "");
+    const controlled = controlHistoryForward();
+    const archived = deferred<void>();
+    const health = panelController();
+    vi.mocked(health.saveMetrics).mockImplementation(() => archived.promise);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    act(() => window.history.back());
+    await waitFor(() => expect(controlled.spy).toHaveBeenCalledOnce());
+    await act(async () => archived.reject(new Error("archive unavailable")));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("dialog", { name: /Archive Health Metrics/ })).toBeInTheDocument();
+    await controlled.releaseNext();
+    expect(await screen.findByRole("alert")).toHaveTextContent("archive unavailable");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Archive Health Metrics/ })).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus());
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
   });
 
   it("defers archive cancellation during browser-pop repair and unlocks after restoration", async () => {
