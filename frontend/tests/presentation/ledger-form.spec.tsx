@@ -138,6 +138,10 @@ describe("TransactionForm", () => {
     render(<TransactionForm controller={controller()} />);
 
     const tabs = screen.getByRole("tablist", { name: "Transaction type" });
+    expect(tabs).toHaveClass("transaction-type-tabs");
+    within(tabs).getAllByRole("tab").forEach((tab) => {
+      expect(tab).toHaveClass("transaction-type-tab");
+    });
     expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Expense",
       "Income",

@@ -133,14 +133,6 @@ function AccountCreateDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Add account</h2>
-          <button
-            type="button"
-            aria-label="Close Add account"
-            disabled={pending}
-            onClick={onClose}
-          >
-            Close
-          </button>
         </header>
         <form aria-label="New account" onSubmit={submit}>
           <label className="field-label">
@@ -191,7 +183,24 @@ function AccountCreateDialogContent({
             />
           </label>
           {error ? <p role="alert" className="items-message">{error}</p> : null}
-          <button type="submit" disabled={pending}>Create account</button>
+          <div className="ledger-create-dialog-actions">
+            <button
+              type="button"
+              className="items-toolbar-button"
+              aria-label="Close Add account"
+              disabled={pending}
+              onClick={onClose}
+            >
+              Close
+            </button>
+            <button
+              type="submit"
+              className="items-toolbar-button ledger-create-dialog-save"
+              disabled={pending}
+            >
+              {pending ? "Saving…" : "Save"}
+            </button>
+          </div>
         </form>
       </div>
     </div>

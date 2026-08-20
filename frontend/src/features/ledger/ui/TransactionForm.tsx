@@ -22,6 +22,7 @@ import {
 type TransactionFormProps = {
   controller: LedgerController;
   entry?: LedgerEntryView | null;
+  onClose?: () => void;
   onSaved?: () => void;
   onPendingChange?: (pending: boolean) => void;
 };
@@ -32,6 +33,7 @@ const creationModes: CreationMode[] = ["expense", "income", "transfer"];
 export function TransactionForm({
   controller,
   entry = null,
+  onClose,
   onSaved,
   onPendingChange,
 }: TransactionFormProps) {
@@ -171,7 +173,7 @@ export function TransactionForm({
   return (
     <form aria-label={entry ? "Edit transaction" : "New transaction"} onSubmit={submit}>
       {!entry && (
-        <div role="tablist" aria-label="Transaction type" className="items-toolbar">
+        <div role="tablist" aria-label="Transaction type" className="transaction-type-tabs">
           {creationModes.map((type, index) => (
             <button
               key={type}
@@ -182,7 +184,7 @@ export function TransactionForm({
               id={`${tabPanelId}-${type}`}
               type="button"
               role="tab"
-              className="items-toolbar-button"
+              className="items-toolbar-button transaction-type-tab"
               aria-selected={mode === type}
               aria-controls={tabPanelId}
               tabIndex={focusedMode === type ? 0 : -1}
@@ -371,19 +373,36 @@ export function TransactionForm({
       </label>
       </div>
       {error && <p role="alert" className="items-message">{error}</p>}
-      <button
-        type="submit"
-        className="items-toolbar-button"
-        disabled={pending || refreshRecovery}
-      >
-        {refreshRecovery
-          ? "Saved"
-          : pending
-            ? "Saving…"
-          : mode === "transfer"
-            ? "Save transfer"
-            : "Save transaction"}
-      </button>
+      <footer className="ledger-create-dialog-actions">
+        {onClose && (
+          <button
+            type="button"
+            aria-label="Close Add transaction"
+            className="items-toolbar-button"
+            disabled={pending || refreshRecovery}
+            onClick={onClose}
+          >
+            Close
+          </button>
+        )}
+        <button
+          type="submit"
+          className="items-toolbar-button ledger-create-dialog-save"
+          disabled={pending || refreshRecovery}
+        >
+          {refreshRecovery
+            ? "Saved"
+            : pending
+              ? "Saving…"
+              : entry
+                ? "Save transaction"
+                : onClose
+                  ? "Save"
+                  : mode === "transfer"
+                    ? "Save transfer"
+                    : "Save transaction"}
+        </button>
+      </footer>
       {refreshRecovery && (
         <button
           type="button"

@@ -142,14 +142,6 @@ function CategoryCreateDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Add category</h2>
-          <button
-            type="button"
-            aria-label="Close Add category"
-            disabled={pending}
-            onClick={onClose}
-          >
-            Close
-          </button>
         </header>
         <form aria-label="New category" onSubmit={submit}>
           <label className="field-label">
@@ -186,7 +178,24 @@ function CategoryCreateDialogContent({
             </select>
           </label>
           {error ? <p role="alert" className="items-message">{error}</p> : null}
-          <button type="submit" disabled={pending}>Add</button>
+          <div className="ledger-create-dialog-actions">
+            <button
+              type="button"
+              className="items-toolbar-button"
+              aria-label="Close Add category"
+              disabled={pending}
+              onClick={onClose}
+            >
+              Close
+            </button>
+            <button
+              type="submit"
+              className="items-toolbar-button ledger-create-dialog-save"
+              disabled={pending}
+            >
+              {pending ? "Saving…" : "Save"}
+            </button>
+          </div>
         </form>
       </div>
     </div>

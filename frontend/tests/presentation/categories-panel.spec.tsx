@@ -145,7 +145,15 @@ describe("CategoryCreateDialog", () => {
     await user.click(screen.getByRole("button", { name: "Add category" }));
     const dialog = screen.getByRole("dialog", { name: "Add category" });
     const parent = screen.getByLabelText("Parent category");
+    const header = within(dialog).getByRole("heading", { name: "Add category" }).closest("header")!;
+    const close = within(dialog).getByRole("button", { name: "Close Add category" });
+    const save = within(dialog).getByRole("button", { name: "Save" });
+    const actions = close.parentElement!;
 
+    expect(within(header).queryByRole("button")).toBeNull();
+    expect(actions).toHaveClass("ledger-create-dialog-actions");
+    expect(within(actions).getByRole("button", { name: "Save" })).toBe(save);
+    expect(save).toHaveClass("ledger-create-dialog-save");
     expect(screen.getByLabelText("Category name")).toHaveFocus();
     expect(Array.from(dialog.querySelectorAll("input, select"))).toEqual([
       screen.getByLabelText("Category name"),
@@ -182,7 +190,7 @@ describe("CategoryCreateDialog", () => {
     const trigger = screen.getByRole("button", { name: "Add category" });
     await user.click(trigger);
     await fillDraft(user);
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(ledger.createCategory).toHaveBeenCalledWith({
       name: "Dining",
@@ -206,7 +214,7 @@ describe("CategoryCreateDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Add category" }));
     await fillDraft(user);
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(screen.getByLabelText("Category name")).toHaveValue("Dining");
@@ -223,11 +231,14 @@ describe("CategoryCreateDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Add category" }));
     await fillDraft(user);
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    await user.click(save);
 
     expect(screen.getByRole("dialog", { name: "Add category" })).toHaveAttribute("aria-busy", "true");
     expect(screen.getByLabelText("Category name")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    expect(save).toBeDisabled();
+    expect(save).toHaveAccessibleName("Saving…");
+    expect(save).toHaveTextContent("Saving…");
     expect(screen.getByRole("button", { name: "Close Add category" })).toBeDisabled();
     await user.keyboard("{Escape}");
     expect(screen.getByRole("dialog", { name: "Add category" })).toBeInTheDocument();
@@ -243,16 +254,19 @@ describe("CategoryCreateDialog", () => {
     const trigger = screen.getByRole("button", { name: "Add category" });
     await user.click(trigger);
     const name = screen.getByLabelText("Category name");
+    const parent = screen.getByLabelText("Parent category");
     const close = screen.getByRole("button", { name: "Close Add category" });
-    const add = screen.getByRole("button", { name: "Add" });
+    const add = screen.getByRole("button", { name: "Save" });
 
-    close.focus();
-    await user.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(add).toHaveFocus();
+    parent.focus();
     await user.tab();
     expect(close).toHaveFocus();
     await user.tab();
+    expect(add).toHaveFocus();
+    await user.tab();
     expect(name).toHaveFocus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(add).toHaveFocus();
     await user.keyboard("{Escape}");
 
     expect(screen.queryByRole("dialog", { name: "Add category" })).toBeNull();
