@@ -107,14 +107,13 @@ function AccountCreateDialogContent({
     const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
       'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ));
+    const closeIndex = focusables.findIndex((element) => element.getAttribute("aria-label") === "Close Add account");
+    if (closeIndex >= 0) focusables.push(focusables.splice(closeIndex, 1)[0]!);
     const index = focusables.indexOf(document.activeElement as HTMLElement);
-    if (!event.shiftKey && index === focusables.length - 1) {
-      event.preventDefault();
-      focusables[0]?.focus();
-    } else if (event.shiftKey && index === 0) {
-      event.preventDefault();
-      focusables.at(-1)?.focus();
-    }
+    if (index < 0 || focusables.length === 0) return;
+    event.preventDefault();
+    const offset = event.shiftKey ? -1 : 1;
+    focusables[(index + offset + focusables.length) % focusables.length]?.focus();
   }
 
   const accountTypes = controller.state.accountCategories.filter(({ active }) => active);
@@ -133,14 +132,6 @@ function AccountCreateDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Add account</h2>
-          <button
-            type="button"
-            aria-label="Close Add account"
-            disabled={pending}
-            onClick={onClose}
-          >
-            Close
-          </button>
         </header>
         <form aria-label="New account" onSubmit={submit}>
           <label className="field-label">
@@ -191,7 +182,25 @@ function AccountCreateDialogContent({
             />
           </label>
           {error ? <p role="alert" className="items-message">{error}</p> : null}
-          <button type="submit" disabled={pending}>Create account</button>
+          <div className="ledger-create-dialog-actions">
+            <button
+              type="button"
+              className="items-toolbar-button"
+              aria-label="Close Add account"
+              disabled={pending}
+              onClick={onClose}
+            >
+              Close
+            </button>
+            <button
+              type="submit"
+              className="items-toolbar-button ledger-create-dialog-save"
+              aria-label="Save"
+              disabled={pending}
+            >
+              {pending ? "Saving…" : "Save"}
+            </button>
+          </div>
         </form>
       </div>
     </div>
