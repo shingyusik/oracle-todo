@@ -1,5 +1,8 @@
 import "@testing-library/jest-dom/vitest";
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import React, { StrictMode, type PropsWithChildren } from "react";
 import userEvent from "@testing-library/user-event";
@@ -323,6 +326,14 @@ describe("Health Reports workspace", () => {
       .toEqual(["7 days", "14 days", "30 days", "90 days"]);
 
     vi.mocked(value.runReports).mockClear();
+    for (const preset of [7, 14, 30, 90] as const) {
+      await user.click(screen.getByRole("button", { name: `${preset} days` }));
+    }
+    expect(value.runReports).toHaveBeenCalledTimes(4);
+    expect(vi.mocked(value.runReports).mock.calls.map(([selection]) => selection))
+      .toEqual([{ preset: 7 }, { preset: 14 }, { preset: 30 }, { preset: 90 }]);
+
+    vi.mocked(value.runReports).mockClear();
     await user.click(screen.getByRole("button", { name: "Apply" }));
     expect(screen.getByRole("alert")).toHaveTextContent("valid From and To dates");
     expect(value.runReports).not.toHaveBeenCalled();
@@ -338,6 +349,15 @@ describe("Health Reports workspace", () => {
     await user.click(screen.getByRole("button", { name: "Apply" }));
     expect(screen.getByRole("alert")).toHaveTextContent("366 days or fewer");
     expect(value.runReports).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByLabelText("From"));
+    await user.type(screen.getByLabelText("From"), "2026-08-01");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(value.runReports).toHaveBeenCalledOnce();
+    expect(value.runReports).toHaveBeenCalledWith({
+      preset: "custom", from: "2026-08-01", to: "2026-08-19",
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("renders blocking loading and retry states, then retains busy analysis on refresh errors", async () => {
@@ -412,9 +432,15 @@ describe("Health Reports workspace", () => {
       tab: "diet", range: { start: "2026-08-01", end: "2026-08-20" },
     });
 
-    expect(screen.getByRole("group", {
+    const bowelChart = screen.getByRole("group", {
       name: "Bowel Bristol scale. Typical Bristol band 3 to 5",
-    })).toBeInTheDocument();
+    });
+    expect(bowelChart).toBeInTheDocument();
+    expect(within(bowelChart).getAllByRole("img").map((point) =>
+      point.getAttribute("aria-label"))).toEqual([
+      "2026-08-10 08:30: Bristol 4",
+      "2026-08-12 09:45: Bristol 6",
+    ]);
     expect(screen.getByRole("img", { name: /2026-08-10 08:30.*Bristol 4/ }))
       .toBeInTheDocument();
 
@@ -443,16 +469,55 @@ describe("Health Reports workspace", () => {
       range: { start: "2026-08-01", end: "2026-08-20" },
     });
 
+    const dietTags = screen.getByRole("region", { name: "Diet tag frequency" });
+    expect(within(dietTags).getAllByRole("button").map((button) => button.textContent))
+      .toEqual(["spicy2", "fiber1"]);
+    const spicyFrequency = within(dietTags).getByRole("button", {
+      name: "spicy, 2 records",
+    });
+    spicyFrequency.focus();
+    await user.keyboard("{Enter}");
+    expect(onDrilldown).toHaveBeenLastCalledWith({
+      tab: "diet", field: "tags", value: "spicy",
+      range: { start: "2026-08-01", end: "2026-08-20" },
+    });
+
     const responses = screen.getByRole("region", { name: "Diet-tag bowel response" });
-    expect(within(responses).getByRole("button", { name: "fiber, 0 / 0 (0%)" }))
-      .toHaveTextContent("fiber0 / 0 (0%)");
+    const zeroEligible = within(responses).getByRole("button", {
+      name: "fiber, 0 / 0 (0%)",
+    });
+    expect(zeroEligible).toHaveTextContent("fiber0 / 0 (0%)");
     expect(within(responses).getByRole("button", { name: "spicy, 1 / 2 (50%)" }))
       .toHaveTextContent("spicy1 / 2 (50%)");
+    zeroEligible.focus();
+    await user.keyboard("{Enter}");
+    expect(onDrilldown).toHaveBeenLastCalledWith({
+      tab: "diet", field: "tags", value: "fiber",
+      range: { start: "2026-08-01", end: "2026-08-20" },
+    });
     expect(within(responses).getByText(
       "Observed associations only; they do not establish causation.",
     )).toBeInTheDocument();
     expect(document.querySelector(".health-report-chart-grid")).toBeInTheDocument();
     expect(document.querySelector(".health-report-summary-metrics")).toBeInTheDocument();
+  });
+
+  it("defaults to the first metric with points and keeps later units isolated", async () => {
+    const user = userEvent.setup();
+    const value = populatedReport();
+    value.metricSeries = value.metricSeries.map((series) =>
+      series.metric === "body_weight" ? { ...series, points: [] } : series);
+    render(<HealthReports controller={controller({ report: value })} />);
+
+    const selector = screen.getByRole("combobox", { name: "Metric" });
+    expect(selector).toHaveValue("sleep_duration");
+    expect(screen.getByRole("group", { name: "Sleep (hours)" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /Weight.*kg/ })).toBeNull();
+
+    await user.selectOptions(selector, "fecal_calprotectin");
+    expect(screen.getByRole("group", { name: "Calprotectin (µg/g)" }))
+      .toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /hours/ })).toBeNull();
   });
 
   it("shows the exact whole-report empty copy and source-specific chart copy", async () => {
@@ -484,6 +549,13 @@ describe("Health Reports workspace", () => {
 
     rerender(<DashboardLineChart chart={chart} />);
     expect(container.querySelector(".dashboard-line-reference-band")).toBeNull();
+  });
+
+  it("stacks every report grid at the existing narrow breakpoint", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/styles/globals.css"), "utf8");
+    expect(css).toMatch(
+      /@media \(max-width: 760px\) \{\s*\.health-report-summary-metrics,\s*\.health-report-summary-counts,\s*\.health-report-chart-grid,\s*\.health-report-list-grid \{\s*grid-template-columns: 1fr;\s*\}\s*\}/,
+    );
   });
 });
 
