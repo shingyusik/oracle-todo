@@ -168,7 +168,9 @@ export function HealthPanel({
     }
     setMedicationRefreshPending(true);
     try {
-      if (await controller.refreshMedication()) setMedicationRefreshWarning(null);
+      const refreshed = await controller.refreshMedication();
+      if (refreshed) setMedicationRefreshWarning(null);
+      return refreshed;
     } finally {
       setMedicationRefreshPending(false);
     }

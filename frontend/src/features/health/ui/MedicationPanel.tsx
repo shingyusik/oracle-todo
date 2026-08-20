@@ -25,7 +25,7 @@ type MedicationPanelProps = {
   onArchiveCommitted: (id: string, refreshWarning?: string) => void;
   refreshWarning: string | null;
   refreshPending: boolean;
-  onRetryRefresh: () => Promise<void>;
+  onRetryRefresh: () => Promise<boolean>;
 };
 
 export function MedicationPanel({
@@ -96,6 +96,10 @@ export function MedicationPanel({
     setArchiveTargets((current) => current?.filter((candidate) => candidate !== id) ?? null);
   }
 
+  async function retryRefresh() {
+    if (await onRetryRefresh()) addButtonRef.current?.focus();
+  }
+
   async function archiveSelected() {
     if (!archiveTargets || archivePending) return;
     setArchivePending(true);
@@ -146,7 +150,7 @@ export function MedicationPanel({
       onToggle={toggle} onToggleAll={toggleAll} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>
       <button type="button" disabled={refreshPending}
-        onClick={() => void onRetryRefresh()}>Retry</button></div>
+        onClick={() => void retryRefresh()}>Retry</button></div>
       : controller.state.medicationError ? <p role="alert" className="items-message">
         {controller.state.medicationError}</p> : null}
     {archiveError && archiveTargets === null

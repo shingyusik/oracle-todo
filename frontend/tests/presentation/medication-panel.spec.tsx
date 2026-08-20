@@ -12,6 +12,7 @@ import {
   type HealthState,
   useHealthController,
 } from "@/features/health/hooks/useHealthController";
+import * as medicationTableModel from "@/features/health/model/medication-table";
 import { deriveMedicationGroups } from "@/features/health/model/medication-table";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import type { EventInput, EventUpdate, HealthEvent, HealthTrends, TimelineItem } from "@/features/health/model/health-model";
@@ -273,7 +274,7 @@ function panelController(
 
 const recoveryProps = {
   tombstonedIds: new Set<string>(), onArchiveCommitted: vi.fn(), refreshWarning: null,
-  refreshPending: false, onRetryRefresh: vi.fn(async () => undefined),
+  refreshPending: false, onRetryRefresh: vi.fn(async () => false),
 };
 
 describe("MedicationPanel", () => {
@@ -294,8 +295,10 @@ describe("MedicationPanel", () => {
     expect(screen.getByText("mg")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Open details/ })).toBeNull();
     const actions = screen.getByRole("button", { name: "Add medication entry" }).parentElement!;
-    expect([...actions.children]).toEqual([
-      screen.getByRole("group", { name: "Medication controls" }),
+    expect(within(actions).getAllByRole("button")).toEqual([
+      screen.getByRole("button", { name: "Filter Medication" }),
+      screen.getByRole("button", { name: "Sort Medication" }),
+      screen.getByRole("button", { name: "Group Medication" }),
       screen.getByRole("button", { name: "Add medication entry" }),
       screen.getByRole("button", { name: "Archive selected medication entries" }),
     ]);
@@ -414,6 +417,52 @@ describe("MedicationPanel", () => {
     expect(toggle).toHaveBeenCalledWith(event.id);
   });
 
+  it("deduplicates a valid logical row projected into two panel occurrences", async () => {
+    const user = userEvent.setup();
+    const projected = deriveMedicationGroups(
+      [event], defaultHealthTableSettings("health.medication"),
+    )[0].rows[0];
+    vi.spyOn(medicationTableModel, "deriveMedicationGroups").mockReturnValue([
+      { key: "first", label: "First", rows: [projected] },
+      { key: "second", label: "Second", rows: [projected] },
+    ]);
+    const health = panelController();
+    render(<MedicationPanel controller={health} {...recoveryProps} />);
+
+    expect(screen.getAllByRole("checkbox", { name: /Select Vitamin D/ })).toHaveLength(2);
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible medication entries" }));
+    for (const checkbox of screen.getAllByRole("checkbox", { name: /Select Vitamin D/ })) {
+      expect(checkbox).toBeChecked();
+    }
+    await user.click(screen.getByRole("button", { name: "Archive selected medication entries" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "1 medication entries will be archived and removed from Health views.",
+    );
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(health.archiveMedication).toHaveBeenCalledOnce());
+    expect(health.archiveMedication).toHaveBeenCalledWith(event.id);
+  });
+
+  it("uses native table semantics and an indeterminate visible select-all state", () => {
+    const second = { ...event, id: "medication-2",
+      attributes: { kind: "medication" as const, medicationName: "Calcium", dose: 2, unit: "tablet" as const } };
+    const settings = defaultHealthTableSettings("health.medication");
+    settings.groupSettings.groupBy = "medication_name";
+    const groups = deriveMedicationGroups([event, second], settings);
+    render(<MedicationTable groups={groups} activeRowCount={2} selectedIds={[event.id]}
+      onToggle={vi.fn()} onToggleAll={vi.fn()} />);
+
+    const table = screen.getByRole("table", { name: "Medication entries" });
+    expect(table.tagName).toBe("TABLE");
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent))
+      .toEqual(["", "Taken At", "Medication", "Dose", "Unit", "Note"]);
+    expect(within(table).getByRole("rowheader", { name: "Vitamin D" }))
+      .toHaveAttribute("scope", "rowgroup");
+    expect(within(table).getByRole("checkbox", {
+      name: "Select all visible medication entries",
+    })).toBePartiallyChecked();
+  });
+
   it("archives a stable display-order snapshot sequentially and retains failed and unattempted selection", async () => {
     const user = userEvent.setup();
     const second = { ...event, id: "medication-2", occurredAt: "2026-08-19T02:00:00Z",
@@ -480,7 +529,7 @@ describe("MedicationPanel", () => {
   it("treats refresh failure as committed and retries reads without repeating archive", async () => {
     const user = userEvent.setup();
     const committed = vi.fn();
-    const retry = vi.fn(async () => undefined);
+    const retry = vi.fn(async () => false);
     const health = panelController();
     health.archiveMedication = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
     render(<MedicationPanel controller={health} tombstonedIds={new Set()}

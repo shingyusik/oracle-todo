@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 
 import {
   act,
+  fireEvent,
   render,
   renderHook,
   screen,
@@ -669,6 +670,40 @@ describe("HealthPanel", () => {
       ...health.state, medicationEntries: [{ ...medication }], medicationError: null,
     } }} leafTabId="medication" />);
     await waitFor(() => expect(screen.getByText("Vitamin D")).toBeInTheDocument());
+  });
+
+  it("locks committed Medication refresh Retry and restores Add focus after recovery", async () => {
+    const user = userEvent.setup();
+    const first = deferred<boolean>();
+    const second = deferred<boolean>();
+    const health = controller({ ...loadedState, medicationEntries: [medication] });
+    health.archiveMedication = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshMedication = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    render(<HealthPanel controller={health} leafTabId="medication" />);
+    await user.click(screen.getByRole("checkbox", { name: /Select Vitamin D/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected medication entries" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    await user.click(retry);
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveFocus();
+    fireEvent.click(retry);
+    expect(health.refreshMedication).toHaveBeenCalledOnce();
+    await act(async () => first.resolve(false));
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(retry).toHaveFocus();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+
+    await user.click(retry);
+    expect(retry).toBeDisabled();
+    await act(async () => second.resolve(true));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(health.refreshMedication).toHaveBeenCalledTimes(2);
+    expect(health.archiveMedication).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Add medication entry" })).toHaveFocus();
   });
 
   it("loads, normalizes, edits, and persists Health Diet views", async () => {
