@@ -27,19 +27,29 @@ import {
 const ROOT = "/api/v1/health";
 
 export type PageQuery = { offset?: number; limit?: number };
-export type EventQuery = PageQuery & { category?: HealthCategory; metricKey?: string };
+export type EventQuery = PageQuery & {
+  category?: HealthCategory;
+  metricKey?: string;
+  dailyOnly?: boolean;
+};
 export type TimelineQuery = PageQuery & {
   from?: string;
   to?: string;
   category?: HealthCategory;
   includeArchived?: boolean;
 };
-type DailyMetricDetailsInput = Extract<
+export type DailyMetricDetailsInput = Extract<
   HealthEventDetailsInput,
   { kind: "weight" | "sleep" | "lab" | "overall_condition" }
 >;
 export type DailyMetricInput = Omit<EventInput, "details"> & {
   details: DailyMetricDetailsInput;
+  expectedUpdatedAt?: string;
+};
+export type DailyMetricArchiveInput = { id: string; expectedUpdatedAt?: string };
+export type DailyMetricsMutation = {
+  metrics: DailyMetricInput[];
+  archives: DailyMetricArchiveInput[];
 };
 
 export const healthApi = {
@@ -105,6 +115,7 @@ export const healthApi = {
       limit: query.limit,
       category: query.category,
       metric_key: query.metricKey,
+      daily_only: query.dailyOnly,
     })), mapHealthEvent);
   },
   async getEvent(id: string): Promise<HealthEvent> {
@@ -140,7 +151,16 @@ export const healthApi = {
   },
   async upsertDailyMetrics(input: DailyMetricInput[]): Promise<HealthEvent[]> {
     return mapItems(await requestJson(`${ROOT}/metrics/daily`, jsonRequest("POST", {
-      metrics: input.map(eventBody),
+      metrics: input.map(dailyMetricBody),
+    })), mapHealthEvent);
+  },
+  async saveDailyMetrics(input: DailyMetricsMutation): Promise<HealthEvent[]> {
+    return mapItems(await requestJson(`${ROOT}/metrics/daily`, jsonRequest("POST", {
+      metrics: input.metrics.map(dailyMetricBody),
+      archives: input.archives.map((archive) => clean({
+        id: archive.id,
+        expected_updated_at: archive.expectedUpdatedAt,
+      })),
     })), mapHealthEvent);
   },
   async timeline(query: TimelineQuery = {}): Promise<TimelineItem[]> {
@@ -166,6 +186,13 @@ function dietBody(input: DietInput): JsonObject {
     note: input.note,
     tags: input.tags,
     actor: input.actor,
+  });
+}
+
+function dailyMetricBody(input: DailyMetricInput): JsonObject {
+  return clean({
+    ...eventBody(input),
+    expected_updated_at: input.expectedUpdatedAt,
   });
 }
 

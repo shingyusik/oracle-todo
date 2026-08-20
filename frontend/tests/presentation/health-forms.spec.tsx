@@ -22,6 +22,9 @@ import { MedicationCreateDialog } from "@/features/health/ui/MedicationCreateDia
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
 const loadedState: HealthState = {
+  metricsStatus: "loaded",
+  metricsError: null,
+  metricsEntries: [],
   medicationStatus: "loaded",
   medicationError: null,
   medicationEntries: [],
@@ -73,6 +76,7 @@ function controller(
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshMetrics: vi.fn(),
     refreshMedication: vi.fn(),
     refreshBowel: vi.fn(),
     refreshDiet: vi.fn(),
@@ -89,6 +93,7 @@ function controller(
     updateMedication: vi.fn(),
     archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(),
+    saveMetrics: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
     purge: vi.fn(),

@@ -30,6 +30,7 @@ const entry: DietEntry = {
 const trends = { days: 30 } as HealthTrends;
 
 const loadedState: HealthState = {
+  metricsStatus: "loaded", metricsError: null, metricsEntries: [],
   medicationStatus: "loaded", medicationError: null, medicationEntries: [],
   bowelStatus: "loaded",
   bowelError: null,
@@ -71,6 +72,7 @@ function controller(
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshMetrics: vi.fn().mockResolvedValue(true),
     refreshMedication: vi.fn().mockResolvedValue(true),
     refreshBowel: vi.fn().mockResolvedValue(true),
     refreshDiet: vi.fn().mockResolvedValue(true),
@@ -86,6 +88,7 @@ function controller(
     createMedication: vi.fn(),
     updateMedication: vi.fn(), archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(),
+    saveMetrics: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
     purge: vi.fn(),

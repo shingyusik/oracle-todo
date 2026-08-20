@@ -427,6 +427,7 @@ describe("Health Bowel controller", () => {
 });
 
 const loadedState: HealthState = {
+  metricsStatus: "loaded", metricsError: null, metricsEntries: [],
   medicationStatus: "loaded", medicationError: null, medicationEntries: [],
   bowelStatus: "loaded", bowelError: null, bowelEntries: [event],
   dietStatus: "loaded", dietError: null, dietEntries: [],
@@ -452,12 +453,12 @@ function panelController(
     selectTableTab: vi.fn(), saveTableTab: vi.fn(), createTableTab: vi.fn(() => true),
     renameTableTab: vi.fn(() => true), requestDeleteTableTab: vi.fn(),
     confirmTableViewAction: vi.fn(), cancelTableViewAction: vi.fn(),
-    refresh: vi.fn(), refreshMedication: vi.fn(), refreshBowel: vi.fn(), refreshDiet: vi.fn(), refreshTimeline: vi.fn(),
+    refresh: vi.fn(), refreshMetrics: vi.fn(), refreshMedication: vi.fn(), refreshBowel: vi.fn(), refreshDiet: vi.fn(), refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(), refreshTrends: vi.fn(),
     createDiet: vi.fn(), updateDiet: vi.fn(), archiveDiet: vi.fn(),
     createBowel: vi.fn(), updateBowel: vi.fn(), archiveBowel: vi.fn(),
     createMedication: vi.fn(), updateMedication: vi.fn(), archiveMedication: vi.fn(),
-    upsertMetrics: vi.fn(), archive: vi.fn(), restore: vi.fn(), purge: vi.fn(),
+    upsertMetrics: vi.fn(), saveMetrics: vi.fn(), archive: vi.fn(), restore: vi.fn(), purge: vi.fn(),
   };
 }
 

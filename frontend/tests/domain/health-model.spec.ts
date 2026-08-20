@@ -254,4 +254,33 @@ describe("Health wire boundary", () => {
       }],
     });
   });
+
+  it("serializes daily-only event reads and atomic daily metric mutations", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+      items: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await healthApi.listEvents({ dailyOnly: true, limit: 200, offset: 0 });
+    await healthApi.saveDailyMetrics({
+      metrics: [{
+        occurredAt: "2026-07-31T03:00:00Z",
+        details: { kind: "weight", value: 68.2, unit: "kg" },
+        expectedUpdatedAt: base.updated_at,
+      }],
+      archives: [{ id: base.id, expectedUpdatedAt: base.updated_at }],
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/v1/health/events?offset=0&limit=200&daily_only=true",
+    );
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toEqual({
+      metrics: [{
+        occurred_at: "2026-07-31T03:00:00Z",
+        details: { kind: "weight", value: 68.2, unit: "kg" },
+        expected_updated_at: base.updated_at,
+      }],
+      archives: [{ id: base.id, expected_updated_at: base.updated_at }],
+    });
+  });
 });
