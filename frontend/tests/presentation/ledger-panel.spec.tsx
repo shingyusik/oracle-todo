@@ -761,6 +761,7 @@ describe("LedgerPanel", () => {
     expect(currencyEditorHeading).toHaveClass("ledger-account-settings-editor-header");
     expect(within(currencyEditorHeading).getByRole("button", { name: "Cancel edit" }))
       .toBeInTheDocument();
+    currencies.focus();
     await user.keyboard("{ArrowLeft}");
     expect(accountTypes).toHaveFocus();
   });
