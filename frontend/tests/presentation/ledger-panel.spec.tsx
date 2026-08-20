@@ -1713,12 +1713,14 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Add transaction" }));
     const dialog = screen.getByRole("dialog", { name: "Add transaction" });
     const header = within(dialog).getByRole("heading", { name: "Add transaction" }).closest("header")!;
-    const close = screen.getByRole("button", { name: "Close Add transaction" });
+    const close = within(dialog).getByRole("button", { name: "Close Add transaction" });
+    const save = within(dialog).getByRole("button", { name: "Save" });
     const actions = close.parentElement!;
 
     expect(within(header).queryByRole("button")).toBeNull();
     expect(actions).toHaveClass("ledger-create-dialog-actions");
-    expect(within(actions).getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(within(actions).getByRole("button", { name: "Save" })).toBe(save);
+    expect(save).toHaveClass("ledger-create-dialog-save");
     expect(view.container).toHaveAttribute("aria-hidden", "true");
     expect(view.container).toHaveAttribute("inert");
     let ancestor = dialog.parentElement;

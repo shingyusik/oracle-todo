@@ -146,12 +146,14 @@ describe("CategoryCreateDialog", () => {
     const dialog = screen.getByRole("dialog", { name: "Add category" });
     const parent = screen.getByLabelText("Parent category");
     const header = within(dialog).getByRole("heading", { name: "Add category" }).closest("header")!;
-    const close = screen.getByRole("button", { name: "Close Add category" });
+    const close = within(dialog).getByRole("button", { name: "Close Add category" });
+    const save = within(dialog).getByRole("button", { name: "Save" });
     const actions = close.parentElement!;
 
     expect(within(header).queryByRole("button")).toBeNull();
     expect(actions).toHaveClass("ledger-create-dialog-actions");
-    expect(within(actions).getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(within(actions).getByRole("button", { name: "Save" })).toBe(save);
+    expect(save).toHaveClass("ledger-create-dialog-save");
     expect(screen.getByLabelText("Category name")).toHaveFocus();
     expect(Array.from(dialog.querySelectorAll("input, select"))).toEqual([
       screen.getByLabelText("Category name"),

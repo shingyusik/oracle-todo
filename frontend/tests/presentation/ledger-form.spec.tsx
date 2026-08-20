@@ -139,7 +139,9 @@ describe("TransactionForm", () => {
 
     const tabs = screen.getByRole("tablist", { name: "Transaction type" });
     expect(tabs).toHaveClass("transaction-type-tabs");
-    expect(screen.getByRole("tab", { name: "Expense" })).toHaveClass("transaction-type-tab");
+    within(tabs).getAllByRole("tab").forEach((tab) => {
+      expect(tab).toHaveClass("transaction-type-tab");
+    });
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Expense",
