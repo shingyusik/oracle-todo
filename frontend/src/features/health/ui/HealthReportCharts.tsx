@@ -384,7 +384,7 @@ function hasUsableData(report: HealthReport): boolean {
 }
 
 function number(value: number): string {
-  return Number(value.toPrecision(12)).toString();
+  return Object.is(value, -0) ? "0" : value.toString();
 }
 
 function signed(value: number): string {

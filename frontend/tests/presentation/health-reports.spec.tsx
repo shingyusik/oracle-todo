@@ -542,13 +542,17 @@ describe("Health Reports workspace", () => {
         series.metric === "crp" ? {
           ...series,
           points: [{
-            localDate: "2026-08-20", occurredAt: "2026-08-20T12:00:00Z", value: 0.04,
+            localDate: "2026-08-20", occurredAt: "2026-08-20T12:00:00Z",
+            value: 0.123456789012345,
           }],
         } : series),
     };
     view.rerender(<HealthReports controller={controller({ report: replacement })} />);
     expect(selector).toHaveValue("crp");
     expect(screen.getByRole("group", { name: "CRP (mg/L)" })).toBeInTheDocument();
+    expect(screen.getByRole("img", {
+      name: `${new Date("2026-08-20T12:00:00Z").toLocaleString()}: 0.123456789012345 mg/L`,
+    })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "CRP" }))
       .toHaveTextContent("0.04 mg/L2026-08-20Previous 0.01 mg/L · +0.03 mg/L");
     expect(screen.getByRole("group", { name: "Condition" }))
