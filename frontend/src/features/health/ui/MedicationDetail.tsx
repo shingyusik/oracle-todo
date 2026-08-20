@@ -77,7 +77,8 @@ export function MedicationDetail({ controller, row, detailHistory, onArchived }:
     canonicalPresent.dose !== null;
   const timeError = draft.occurredAt && canonicalPresent.occurredAt === null
     ? invalidLocalTimeMessage : null;
-  const readOnly = pending || refreshRecovery || exitPending || detailHistory.pendingBack;
+  const readOnly = pending || refreshRecovery || exitPending || confirmation !== null ||
+    detailHistory.pendingBack;
 
   function change<Name extends keyof MedicationDraft>(name: Name, value: MedicationDraft[Name], coalesce = false) {
     dispatch({ type: "change", name, value, coalesce });
