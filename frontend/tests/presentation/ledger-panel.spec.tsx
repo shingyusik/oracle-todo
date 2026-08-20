@@ -1712,7 +1712,13 @@ describe("LedgerPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Add transaction" }));
     const dialog = screen.getByRole("dialog", { name: "Add transaction" });
+    const header = within(dialog).getByRole("heading", { name: "Add transaction" }).closest("header")!;
+    const close = screen.getByRole("button", { name: "Close Add transaction" });
+    const actions = close.parentElement!;
 
+    expect(within(header).queryByRole("button")).toBeNull();
+    expect(actions).toHaveClass("ledger-create-dialog-actions");
+    expect(within(actions).getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(view.container).toHaveAttribute("aria-hidden", "true");
     expect(view.container).toHaveAttribute("inert");
     let ancestor = dialog.parentElement;
@@ -1736,7 +1742,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
     await user.type(screen.getByLabelText("Amount"), "12000");
-    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(dialog).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close Add transaction" })).toBeDisabled();
@@ -1785,7 +1791,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
     await user.type(screen.getByLabelText("Amount"), "12000");
-    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
     act(() => {
       void liveController.refresh();
@@ -1829,7 +1835,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
     await user.type(screen.getByLabelText("Amount"), "12000");
-    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Transaction could not be saved",
@@ -1837,7 +1843,7 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("dialog", { name: "Add transaction" })).toBeInTheDocument();
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
     expect(screen.getByLabelText("Amount")).toHaveValue("12000");
-    const submit = screen.getByRole("button", { name: "Save transaction" });
+    const submit = screen.getByRole("button", { name: "Save" });
     expect(submit).not.toBeDisabled();
     expect(submit).toHaveFocus();
   });
@@ -1871,7 +1877,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
     await user.type(screen.getByLabelText("Amount"), "12000");
-    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Transaction saved, but the list could not refresh.",
@@ -1939,9 +1945,9 @@ describe("LedgerPanel", () => {
           ordinary = liveController.archive("entry-existing");
         });
         await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
-        await user.click(screen.getByRole("button", { name: "Save transaction" }));
+        await user.click(screen.getByRole("button", { name: "Save" }));
       } else {
-        await user.click(screen.getByRole("button", { name: "Save transaction" }));
+        await user.click(screen.getByRole("button", { name: "Save" }));
         await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
         act(() => {
           ordinary = liveController.archive("entry-existing");
@@ -1982,7 +1988,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
     await user.type(screen.getByLabelText("Amount"), "12000");
-    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await act(async () => save.reject(new Error("Transaction could not be saved")));
 
     expect(screen.getByRole("dialog", { name: "Add transaction" })).toBeInTheDocument();
@@ -2003,7 +2009,7 @@ describe("LedgerPanel", () => {
     const trigger = screen.getByRole("button", { name: "Add transaction" });
     await user.click(trigger);
     const close = screen.getByRole("button", { name: "Close Add transaction" });
-    const save = screen.getByRole("button", { name: "Save transaction" });
+    const save = screen.getByRole("button", { name: "Save" });
     expect(close).toHaveFocus();
 
     await user.keyboard("{Shift>}{Tab}{/Shift}");
