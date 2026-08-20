@@ -648,7 +648,7 @@ button {
   .health-report-summary-counts,
   .health-report-chart-grid,
   .health-report-list-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

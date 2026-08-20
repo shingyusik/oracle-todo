@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 
 import type { LineChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
@@ -204,8 +204,8 @@ function BowelChart({
 }) {
   const points = [...report.bowelPoints]
     .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))
-    .map((point) => ({
-      id: point.occurredAt,
+    .map((point, index) => ({
+      id: `${point.occurredAt}-${index}`,
       label: point.localDate,
       value: point.bristolScale,
       ariaLabel: `${dateTime(point.occurredAt)}: Bristol ${point.bristolScale}`,
@@ -247,13 +247,12 @@ function MetricChart({
   onDrilldown?: Drilldown;
 }) {
   const [selected, setSelected] = useState<HealthReportMetric>(() => defaultMetric(report));
-  useEffect(() => setSelected(defaultMetric(report)), [report]);
   const definition = metrics.find(({ metric }) => metric === selected) ?? metrics[0];
   const summary = report.metrics.find(({ metric }) => metric === selected);
   const series = report.metricSeries.find(({ metric }) => metric === selected);
   const label = `${definition.label}${summary?.unit ? ` (${summary.unit})` : ""}`;
-  const points: LineChartSpec["points"] = (series?.points ?? []).map((point) => ({
-    id: point.occurredAt,
+  const points: LineChartSpec["points"] = (series?.points ?? []).map((point, index) => ({
+    id: `${selected}-${point.occurredAt}-${index}`,
     label: point.localDate,
     value: point.value,
     ariaLabel: `${dateTime(point.occurredAt)}: ${number(point.value)}${summary?.unit ? ` ${summary.unit}` : ""}`,
@@ -339,7 +338,7 @@ function DietTagResponses({
   return (
     <section className="health-report-section" aria-label="Diet-tag bowel response">
       <h2>Diet-tag bowel response</h2>
-      <p>Observed associations only; they do not establish causation.</p>
+      <p>{report.reactionDisclaimer}</p>
       {report.dietTagBowelResponses.length === 0 ? (
         <p className="items-message">No diet-tag bowel response data are available for this period.</p>
       ) : (
@@ -385,7 +384,7 @@ function hasUsableData(report: HealthReport): boolean {
 }
 
 function number(value: number): string {
-  return Number.isInteger(value) ? value.toString() : value.toFixed(1).replace(/\.0$/, "");
+  return Number(value.toPrecision(12)).toString();
 }
 
 function signed(value: number): string {
@@ -393,5 +392,5 @@ function signed(value: number): string {
 }
 
 function dateTime(value: string): string {
-  return value.slice(0, 16).replace("T", " ");
+  return new Date(value).toLocaleString();
 }

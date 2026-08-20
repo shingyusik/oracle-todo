@@ -102,7 +102,10 @@ export function HealthReports({
               type="date"
               value={range.from}
               disabled={loading}
-              onChange={(event) => setRange((current) => ({ ...current, from: event.target.value }))}
+              onChange={(event) => {
+                setRangeError(null);
+                setRange((current) => ({ ...current, from: event.target.value }));
+              }}
             />
           </label>
           <label>
@@ -111,7 +114,10 @@ export function HealthReports({
               type="date"
               value={range.to}
               disabled={loading}
-              onChange={(event) => setRange((current) => ({ ...current, to: event.target.value }))}
+              onChange={(event) => {
+                setRangeError(null);
+                setRange((current) => ({ ...current, to: event.target.value }));
+              }}
             />
           </label>
           <button type="submit" disabled={loading}>Apply</button>

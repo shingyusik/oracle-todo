@@ -339,11 +339,16 @@ describe("Health Reports workspace", () => {
     expect(value.runReports).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText("From"), "2026-08-20");
+    expect(screen.queryByRole("alert")).toBeNull();
     await user.type(screen.getByLabelText("To"), "2026-08-19");
     await user.click(screen.getByRole("button", { name: "Apply" }));
     expect(screen.getByRole("alert")).toHaveTextContent("start on or before");
     expect(value.runReports).not.toHaveBeenCalled();
 
+    await user.clear(screen.getByLabelText("To"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.type(screen.getByLabelText("To"), "2026-08-19");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
     await user.clear(screen.getByLabelText("From"));
     await user.type(screen.getByLabelText("From"), "2025-08-18");
     await user.click(screen.getByRole("button", { name: "Apply" }));
@@ -438,11 +443,12 @@ describe("Health Reports workspace", () => {
     expect(bowelChart).toBeInTheDocument();
     expect(within(bowelChart).getAllByRole("img").map((point) =>
       point.getAttribute("aria-label"))).toEqual([
-      "2026-08-10 08:30: Bristol 4",
-      "2026-08-12 09:45: Bristol 6",
+      `${new Date("2026-08-10T08:30:00Z").toLocaleString()}: Bristol 4`,
+      `${new Date("2026-08-12T09:45:00Z").toLocaleString()}: Bristol 6`,
     ]);
-    expect(screen.getByRole("img", { name: /2026-08-10 08:30.*Bristol 4/ }))
-      .toBeInTheDocument();
+    expect(within(bowelChart).queryByRole("img", {
+      name: "2026-08-12 09:45: Bristol 6",
+    })).toBeNull();
 
     const selector = screen.getByRole("combobox", { name: "Metric" });
     expect(within(selector).getAllByRole("option").map((option) => option.textContent))
@@ -507,7 +513,17 @@ describe("Health Reports workspace", () => {
     const value = populatedReport();
     value.metricSeries = value.metricSeries.map((series) =>
       series.metric === "body_weight" ? { ...series, points: [] } : series);
-    render(<HealthReports controller={controller({ report: value })} />);
+    value.metrics = value.metrics.map((metric) =>
+      metric.metric === "crp" ? {
+        ...metric,
+        current: { localDate: "2026-08-20", occurredAt: "2026-08-20T12:00:00Z", value: 0.04 },
+        previous: { localDate: "2026-07-31", occurredAt: "2026-07-31T12:00:00Z", value: 0.01 },
+      } : metric.metric === "overall_condition" ? {
+        ...metric,
+        current: { localDate: "2026-08-20", occurredAt: "2026-08-20T12:00:00Z", value: -0 },
+        previous: { localDate: "2026-07-31", occurredAt: "2026-07-31T12:00:00Z", value: -0 },
+      } : metric);
+    const view = render(<HealthReports controller={controller({ report: value })} />);
 
     const selector = screen.getByRole("combobox", { name: "Metric" });
     expect(selector).toHaveValue("sleep_duration");
@@ -518,6 +534,64 @@ describe("Health Reports workspace", () => {
     expect(screen.getByRole("group", { name: "Calprotectin (µg/g)" }))
       .toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /hours/ })).toBeNull();
+
+    await user.selectOptions(selector, "crp");
+    const replacement = {
+      ...value,
+      metricSeries: value.metricSeries.map((series) =>
+        series.metric === "crp" ? {
+          ...series,
+          points: [{
+            localDate: "2026-08-20", occurredAt: "2026-08-20T12:00:00Z", value: 0.04,
+          }],
+        } : series),
+    };
+    view.rerender(<HealthReports controller={controller({ report: replacement })} />);
+    expect(selector).toHaveValue("crp");
+    expect(screen.getByRole("group", { name: "CRP (mg/L)" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "CRP" }))
+      .toHaveTextContent("0.04 mg/L2026-08-20Previous 0.01 mg/L · +0.03 mg/L");
+    expect(screen.getByRole("group", { name: "Condition" }))
+      .toHaveTextContent("02026-08-20Previous 0 · 0");
+  });
+
+  it("uses unique chart point keys when timestamps repeat", () => {
+    const value = populatedReport();
+    value.bowelPoints = [
+      { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", bristolScale: 3 },
+      { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", bristolScale: 4 },
+    ];
+    value.metricSeries = value.metricSeries.map((series) =>
+      series.metric === "body_weight" ? {
+        ...series,
+        points: [
+          { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", value: 71 },
+          { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", value: 72 },
+        ],
+      } : series);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(<HealthReports controller={controller({ report: value })} />);
+
+    expect(within(screen.getByRole("group", {
+      name: "Bowel Bristol scale. Typical Bristol band 3 to 5",
+    })).getAllByRole("img")).toHaveLength(2);
+    expect(within(screen.getByRole("group", { name: "Weight (kg)" }))
+      .getAllByRole("img")).toHaveLength(2);
+    const errors = consoleError.mock.calls.flat().join(" ");
+    consoleError.mockRestore();
+    expect(errors).not.toMatch(/same key|unique.*key/i);
+  });
+
+  it("renders the disclaimer supplied by the report", () => {
+    const value = populatedReport();
+    value.reactionDisclaimer = "Typed association disclaimer.";
+    render(<HealthReports controller={controller({ report: value })} />);
+
+    expect(screen.getByText("Typed association disclaimer.")).toBeInTheDocument();
+    expect(screen.queryByText(
+      "Observed associations only; they do not establish causation.",
+    )).toBeNull();
   });
 
   it("shows the exact whole-report empty copy and source-specific chart copy", async () => {
@@ -553,9 +627,14 @@ describe("Health Reports workspace", () => {
 
   it("stacks every report grid at the existing narrow breakpoint", () => {
     const css = readFileSync(resolve(process.cwd(), "src/styles/globals.css"), "utf8");
-    expect(css).toMatch(
-      /@media \(max-width: 760px\) \{\s*\.health-report-summary-metrics,\s*\.health-report-summary-counts,\s*\.health-report-chart-grid,\s*\.health-report-list-grid \{\s*grid-template-columns: 1fr;\s*\}\s*\}/,
-    );
+    const narrow = cssBlock(css, "@media (max-width: 760px)", css.indexOf(".health-reports"));
+    for (const selector of [
+      ".health-report-summary-metrics",
+      ".health-report-summary-counts",
+      ".health-report-chart-grid",
+      ".health-report-list-grid",
+    ]) expect(narrow).toContain(selector);
+    expect(narrow).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   });
 });
 
@@ -596,4 +675,14 @@ function populatedReport(): HealthReport {
     ],
     reactionDisclaimer: "Observed associations only; they do not establish causation.",
   };
+}
+
+function cssBlock(source: string, marker: string, from = 0): string {
+  const start = source.indexOf("{", source.indexOf(marker, from));
+  let depth = 1;
+  for (let index = start + 1; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}" && --depth === 0) return source.slice(start + 1, index);
+  }
+  throw new Error(`Unclosed CSS block: ${marker}`);
 }
