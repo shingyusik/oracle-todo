@@ -14,7 +14,7 @@ import {
 } from "@/features/workbench/model/planner-model";
 import type { TableViewSettingsAdapter } from "@/features/workbench/model/table-view-tabs";
 
-export const healthTableScopeIds = ["health.diet", "health.bowel"] as const;
+export const healthTableScopeIds = ["health.diet", "health.bowel", "health.medication"] as const;
 export type HealthTableScopeId = (typeof healthTableScopeIds)[number];
 
 export const healthDietFilterSelectOptions = {
@@ -41,17 +41,36 @@ export const healthBowelFilterSelectOptions = {
   ],
 } satisfies Partial<Record<PlannerFilterField, { value: string; label: string }[]>>;
 
+export const healthMedicationFilterSelectOptions = {
+  medication_unit: [
+    { value: "tablet", label: "정" },
+    { value: "capsule", label: "캡슐" },
+    { value: "packet", label: "포" },
+    { value: "mg", label: "mg" },
+    { value: "g", label: "g" },
+    { value: "ml", label: "ml" },
+    { value: "drop", label: "방울" },
+    { value: "dose", label: "회" },
+  ],
+} satisfies Partial<Record<PlannerFilterField, { value: string; label: string }[]>>;
+
 const dietFilterFields = [
   "date", "meal_type", "food", "tags", "has_photo",
 ] as const satisfies readonly PlannerFilterField[];
 const bowelFilterFields = [
   "date", "bristol_scale", "blood_visible",
 ] as const satisfies readonly PlannerFilterField[];
+const medicationFilterFields = [
+  "date", "medication_name", "medication_unit",
+] as const satisfies readonly PlannerFilterField[];
 const dietSortFields = [
   "date", "meal_type", "food", "created", "updated",
 ] as const satisfies readonly PlannerSortBy[];
 const bowelSortFields = [
   "date", "bristol_scale", "created", "updated",
+] as const satisfies readonly PlannerSortBy[];
+const medicationSortFields = [
+  "date", "medication_name", "dose", "created", "updated",
 ] as const satisfies readonly PlannerSortBy[];
 const dietGroupOptions = [
   { value: "none", label: "None" },
@@ -70,17 +89,31 @@ const bowelGroupOptions = [
   { value: "bristol_scale", label: "Bristol Scale" },
   { value: "blood_visible", label: "Blood Visible" },
 ] as const satisfies readonly { value: PlannerGroupBy; label: string }[];
+const medicationGroupOptions = [
+  { value: "none", label: "None" },
+  { value: "month", label: "Month" },
+  { value: "week", label: "Week" },
+  { value: "day", label: "Day" },
+  { value: "medication_name", label: "Medication name" },
+  { value: "medication_unit", label: "Unit" },
+] as const satisfies readonly { value: PlannerGroupBy; label: string }[];
 
 export function healthFilterFieldsForScope(scope: HealthTableScopeId): readonly PlannerFilterField[] {
-  return scope === "health.bowel" ? bowelFilterFields : dietFilterFields;
+  if (scope === "health.bowel") return bowelFilterFields;
+  if (scope === "health.medication") return medicationFilterFields;
+  return dietFilterFields;
 }
 
 export function healthSortFieldsForScope(scope: HealthTableScopeId): readonly PlannerSortBy[] {
-  return scope === "health.bowel" ? bowelSortFields : dietSortFields;
+  if (scope === "health.bowel") return bowelSortFields;
+  if (scope === "health.medication") return medicationSortFields;
+  return dietSortFields;
 }
 
 export function healthGroupOptionsForScope(scope: HealthTableScopeId) {
-  return scope === "health.bowel" ? bowelGroupOptions : dietGroupOptions;
+  if (scope === "health.bowel") return bowelGroupOptions;
+  if (scope === "health.medication") return medicationGroupOptions;
+  return dietGroupOptions;
 }
 
 export function defaultHealthTableSettings(

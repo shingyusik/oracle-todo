@@ -4,6 +4,7 @@ import {
   defaultHealthTableSettings,
   healthBowelFilterSelectOptions,
   healthDietFilterSelectOptions,
+  healthMedicationFilterSelectOptions,
   healthFilterFieldsForScope,
   healthGroupOptionsForScope,
   healthSortFieldsForScope,
@@ -89,7 +90,7 @@ describe("Health table views", () => {
   });
 
   it("defines the Diet scope controls and defaults", () => {
-    expect(healthTableScopeIds).toEqual(["health.diet", "health.bowel"]);
+    expect(healthTableScopeIds).toEqual(["health.diet", "health.bowel", "health.medication"]);
     expect(healthFilterFieldsForScope("health.diet")).toEqual([
       "date", "meal_type", "food", "tags", "has_photo",
     ]);
@@ -102,6 +103,18 @@ describe("Health table views", () => {
     expect(defaultHealthTableSettings("health.diet").sortRules).toEqual([{
       id: "health.diet-default-sort", field: "date", direction: "desc",
     }]);
+  });
+
+  it("defines Medication controls, units, and defaults", () => {
+    expect(healthFilterFieldsForScope("health.medication")).toEqual(["date", "medication_name", "medication_unit"]);
+    expect(healthSortFieldsForScope("health.medication")).toEqual(["date", "medication_name", "dose", "created", "updated"]);
+    expect(healthGroupOptionsForScope("health.medication").map(({ value }) => value)).toEqual(["none", "month", "week", "day", "medication_name", "medication_unit"]);
+    expect(healthMedicationFilterSelectOptions.medication_unit).toEqual([
+      { value: "tablet", label: "정" }, { value: "capsule", label: "캡슐" },
+      { value: "packet", label: "포" }, { value: "mg", label: "mg" },
+      { value: "g", label: "g" }, { value: "ml", label: "ml" },
+      { value: "drop", label: "방울" }, { value: "dose", label: "회" },
+    ]);
   });
 
   it("defines the Bowel scope controls and defaults", () => {
@@ -231,7 +244,7 @@ describe("Health table views", () => {
     legacy.dailySortRules = candidate.sortRules;
     legacy.groupSettings.daily = { ...defaultPlannerGroupSettings(), groupBy };
 
-    for (const scope of ["health.diet"] as const) {
+    for (const scope of ["health.diet", "health.medication"] as const) {
       const normalized = normalizeHealthTableSettings(scope, candidate);
       expect(normalized.filterRules).toEqual([]);
       expect(normalized.sortRules).toEqual([]);
@@ -249,5 +262,26 @@ describe("Health table views", () => {
     expect(ledger.filterRules).toEqual([]);
     expect(ledger.sortRules).toEqual([]);
     expect(ledger.groupSettings.groupBy).toBe("none");
+  });
+
+  it.each([
+    ["medication_name", "text", "Aspirin", "medication_name"],
+    ["medication_unit", "select", ["tablet"], "medication_unit"],
+    ["dose", "number", "2", "none"],
+  ] as const)("removes Medication-only field %s from every non-Medication scope", (field, type, value, groupBy) => {
+    const candidate = {
+      filterRules: [{ id: field, field, type, operator: type === "text" ? "contains" : "is", value }],
+      sortRules: [{ id: field, field, direction: "asc" }], groupSettings: { groupBy },
+    };
+    for (const scope of ["health.diet", "health.bowel"] as const) {
+      expect(normalizeHealthTableSettings(scope, candidate)).toMatchObject({ filterRules: [], sortRules: [], groupSettings: { groupBy: "none" } });
+    }
+    expect(normalizeLedgerTableSettings("ledger.transactions", candidate)).toMatchObject({ filterRules: [], sortRules: [], groupSettings: { groupBy: "none" } });
+    expect(normalizePlannerTableSettings("daily.today", candidate, legacyControls())).toMatchObject({ filterRules: [], groupSettings: { groupBy: "none" } });
+    const legacy = legacyControls();
+    legacy.filterRules = candidate.filterRules as PlannerFilterRule[];
+    legacy.dailySortRules = candidate.sortRules as PlannerSortRule[];
+    legacy.groupSettings.daily = { ...defaultPlannerGroupSettings(), groupBy: groupBy as PlannerGroupBy };
+    expect(normalizePlannerTableSettings("daily.today", undefined, legacy)).toMatchObject({ filterRules: [], sortRules: [], groupSettings: { groupBy: "none" } });
   });
 });

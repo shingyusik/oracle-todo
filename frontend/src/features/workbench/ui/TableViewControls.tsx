@@ -1045,6 +1045,14 @@ export function tableViewFilterFieldConfigs(
       type: "select",
       options: filterOptions.fieldOptions?.blood_visible ?? [],
     },
+    medication_name: {
+      field: "medication_name", label: "Medication name", type: "text", options: [],
+    },
+    medication_unit: {
+      field: "medication_unit", label: "Unit", type: "select",
+      options: filterOptions.fieldOptions?.medication_unit ?? [],
+    },
+    dose: { field: "dose", label: "Dose", type: "number", options: [] },
     account: {
       field: "account",
       label: "Account",
