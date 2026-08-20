@@ -397,7 +397,7 @@ function BowelPanelHarness({ controller }: { controller: HealthController }) {
 
 describe("Bowel table workflow", () => {
   afterEach(() => vi.restoreAllMocks());
-  it("opens Bowel details from a real contextual Time button without making the row interactive", async () => {
+  it("opens Bowel details from the accessible row and isolates its checkbox", async () => {
     const user = userEvent.setup();
     const open = vi.fn();
     const groups = deriveBowelGroups([event], defaultHealthTableSettings("health.bowel"));
@@ -409,12 +409,26 @@ describe("Bowel table workflow", () => {
     expect(screen.getByText("Type 4")).toBeInTheDocument();
     expect(screen.getByText("No")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Select Type 4.*No/ })).toBeInTheDocument();
-    const button = screen.getByRole("button", { name: /Open details for Type 4/ });
-    expect(button).toHaveAttribute("data-bowel-row-id", event.id);
-    expect(button).toHaveAttribute("data-bowel-occurrence", "all-bowel-1-0");
-    expect(button.closest("tr")).not.toHaveAttribute("tabindex");
-    await user.click(button);
+    const row = screen.getByRole("button", { name: /Open details for Type 4/ });
+    expect(row.tagName).toBe("TR");
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(row).toHaveAttribute("data-bowel-row-id", event.id);
+    expect(row).toHaveAttribute("data-bowel-occurrence", "all-bowel-1-0");
+    expect(within(row).queryByRole("button")).toBeNull();
+    await user.click(within(row).getByText(groups[0]!.rows[0]!.timeLabel));
     expect(open).toHaveBeenCalledWith(groups[0]!.rows[0], "all-bowel-1-0");
+    open.mockClear();
+    row.focus();
+    for (const key of ["Enter", " ", "Space"]) {
+      fireEvent.keyDown(row, { key });
+      expect(open).toHaveBeenCalledOnce();
+      open.mockClear();
+    }
+    const checkbox = within(row).getByRole("checkbox");
+    await user.click(checkbox);
+    fireEvent.keyDown(checkbox, { key: "Enter" });
+    fireEvent.keyDown(checkbox, { key: " " });
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("deduplicates repeated logical rows across constructed groups", async () => {

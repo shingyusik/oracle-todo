@@ -45,14 +45,21 @@ export function HealthMetricsTable({ groups, activeRowCount, selectedDates, onOp
             <th scope="rowgroup" colSpan={8}>{group.label}</th></tr> : null}
           {group.rows.map((row, index) => {
             const occurrence = `${group.key}-${row.date}-${index}`;
-            return <tr key={occurrence}>
+            return <tr key={occurrence} role="button" tabIndex={0}
+              data-health-metrics-date={row.date} data-health-metrics-occurrence={occurrence}
+              aria-label={`Open health metrics for ${row.date}`}
+              onClick={() => onOpen(row, occurrence)} onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+                  event.preventDefault();
+                  onOpen(row, occurrence);
+                }
+              }}>
               <td className="selection-column"><input type="checkbox"
                 aria-label={`Select health metrics for ${row.date}`}
-                checked={selectedDates.includes(row.date)} onChange={() => onToggle(row.date)} /></td>
-              <td><button type="button" data-health-metrics-date={row.date}
-                data-health-metrics-occurrence={occurrence}
-                aria-label={`Open health metrics for ${row.date}`}
-                onClick={() => onOpen(row, occurrence)}>{row.date}</button></td>
+                checked={selectedDates.includes(row.date)} onChange={() => onToggle(row.date)}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()} /></td>
+              <td>{row.date}</td>
               <td>{metric(row.weight, "kg")}</td><td>{metric(row.sleep, "hours")}</td>
               <td>{metric(row.crp, "mg/L")}</td><td>{metric(row.calprotectin, "µg/g")}</td>
               <td>{row.condition ?? "-"}</td><td>{row.note}</td>

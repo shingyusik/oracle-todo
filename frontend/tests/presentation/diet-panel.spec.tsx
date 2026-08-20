@@ -563,11 +563,10 @@ describe("DietPanel table", () => {
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
       "", "Time", "Meal", "Food", "Tags", "Photo", "Note",
     ]);
-    let open = screen.getByRole("button", { name: /Open details for Bibimbap/ });
-    let row = open.closest("tr")!;
-    expect(open.tagName).toBe("BUTTON");
-    expect(row).not.toHaveAttribute("role");
-    expect(row).toHaveRole("row");
+    let row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    expect(row.tagName).toBe("TR");
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(within(row).queryByRole("button")).toBeNull();
     expect(within(row).getByText("Lunch")).toBeInTheDocument();
     expect(within(row).getByText("rice")).toBeInTheDocument();
     expect(within(row).getByText("Photo")).toBeInTheDocument();
@@ -583,9 +582,8 @@ describe("DietPanel table", () => {
     await user.click(within(row).getByText("Lunch"));
     expect(screen.getByText("Diet entry details")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    open = screen.getByRole("button", { name: /Open details for Bibimbap/ });
-    row = open.closest("tr")!;
-    open.focus();
+    row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    row.focus();
     await user.keyboard("{Enter}");
     expect(screen.getByText("Diet entry details")).toBeInTheDocument();
   });

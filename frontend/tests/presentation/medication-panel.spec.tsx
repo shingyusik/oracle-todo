@@ -1322,7 +1322,7 @@ describe("MedicationPanel", () => {
       .toEqual(["None", "Month", "Week", "Day", "Medication", "Unit"]);
   });
 
-  it("renders duplicate occurrences with isolated checkboxes and a native non-interactive row", async () => {
+  it("renders duplicate occurrences with isolated checkboxes and interactive rows", async () => {
     const groups = deriveMedicationGroups([event], defaultHealthTableSettings("health.medication"));
     const toggle = vi.fn();
     const open = vi.fn();
@@ -1331,7 +1331,7 @@ describe("MedicationPanel", () => {
       onToggle={toggle} onToggleAll={vi.fn()} />);
     const checkboxes = screen.getAllByRole("checkbox", { name: /Select Vitamin D/ });
     expect(checkboxes).toHaveLength(2);
-    expect(checkboxes[0].closest("tr")).not.toHaveAttribute("tabindex");
+    expect(checkboxes[0].closest("tr")).toHaveAttribute("tabindex", "0");
     await userEvent.click(checkboxes[1]);
     expect(toggle).toHaveBeenCalledOnce();
     expect(toggle).toHaveBeenCalledWith(event.id);
@@ -1343,25 +1343,30 @@ describe("MedicationPanel", () => {
     expect(open).toHaveBeenCalledWith(groups[0].rows[0], "duplicate-medication-1-0");
   });
 
-  it("opens from native row pointer and Taken At keyboard activation but never from checkbox", async () => {
+  it("opens from row pointer and keyboard activation but never from checkbox", async () => {
     const user = userEvent.setup();
     const groups = deriveMedicationGroups([event], defaultHealthTableSettings("health.medication"));
     const open = vi.fn();
     render(<MedicationTable groups={groups} activeRowCount={1} selectedIds={[]}
       onOpen={open} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
-    const button = screen.getByRole("button", { name: /Open details for Vitamin D/ });
-    const row = button.closest("tr")!;
-    expect(row).not.toHaveAttribute("role");
-    expect(row).not.toHaveAttribute("tabindex");
+    const row = screen.getByRole("button", { name: /Open details for Vitamin D/ });
+    expect(row.tagName).toBe("TR");
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(within(row).queryByRole("button")).toBeNull();
     await user.click(screen.getByText("Vitamin D"));
+    expect(open).toHaveBeenCalledOnce();
     expect(open).toHaveBeenLastCalledWith(groups[0].rows[0], "all-medication-1-0");
     open.mockClear();
-    button.focus();
-    await user.keyboard("{Enter}");
-    await user.keyboard(" ");
-    expect(open).toHaveBeenCalledTimes(2);
-    open.mockClear();
-    await user.click(screen.getByRole("checkbox", { name: /Select Vitamin D/ }));
+    row.focus();
+    for (const key of ["Enter", " ", "Space"]) {
+      fireEvent.keyDown(row, { key });
+      expect(open).toHaveBeenCalledOnce();
+      open.mockClear();
+    }
+    const checkbox = screen.getByRole("checkbox", { name: /Select Vitamin D/ });
+    await user.click(checkbox);
+    fireEvent.keyDown(checkbox, { key: "Enter" });
+    fireEvent.keyDown(checkbox, { key: " " });
     expect(open).not.toHaveBeenCalled();
   });
 

@@ -977,7 +977,7 @@ describe("Health Metrics table", () => {
     expect(screen.getByText("No health metrics match this view.")).toBeInTheDocument();
   });
 
-  it("isolates duplicate occurrence checkboxes from native date buttons", async () => {
+  it("isolates duplicate occurrence checkboxes from detail rows", async () => {
     const groups = deriveHealthMetricsGroups([weight], defaultHealthTableSettings("health.metrics"));
     const toggle = vi.fn();
     const open = vi.fn();
@@ -986,7 +986,7 @@ describe("Health Metrics table", () => {
       onToggleAll={vi.fn()} />);
     const checkboxes = screen.getAllByRole("checkbox", { name: /Select health metrics for/ });
     expect(checkboxes).toHaveLength(2);
-    expect(checkboxes[0].closest("tr")).not.toHaveAttribute("tabindex");
+    expect(checkboxes[0].closest("tr")).toHaveAttribute("tabindex", "0");
     await userEvent.click(checkboxes[1]);
     expect(toggle).toHaveBeenCalledWith("2026-08-19");
     expect(open).not.toHaveBeenCalled();
@@ -1076,7 +1076,7 @@ describe("Health Metrics table", () => {
       .toEqual(["None", "Month", "Week"]);
   });
 
-  it("uses native grouped table semantics and native date activation", async () => {
+  it("uses native grouped table semantics and accessible row activation", async () => {
     const user = userEvent.setup();
     const settings = defaultHealthTableSettings("health.metrics");
     settings.groupSettings.groupBy = "month";
@@ -1087,15 +1087,23 @@ describe("Health Metrics table", () => {
     const table = screen.getByRole("table", { name: "Health metrics" });
     expect(table.tagName).toBe("TABLE");
     expect(within(table).getByRole("rowheader")).toHaveAttribute("scope", "rowgroup");
-    const button = within(table).getByRole("button", { name: /Open health metrics/ });
-    expect(button.closest("tr")).not.toHaveAttribute("tabindex");
-    button.focus();
-    await user.keyboard("{Enter}");
-    await user.keyboard(" ");
-    await user.click(button);
-    expect(open).toHaveBeenCalledTimes(3);
+    const row = within(table).getByRole("button", { name: /Open health metrics/ });
+    expect(row.tagName).toBe("TR");
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(within(row).queryByRole("button")).toBeNull();
+    await user.click(within(row).getByText("2026-08-19"));
+    expect(open).toHaveBeenCalledOnce();
     open.mockClear();
-    await user.click(within(table).getByRole("checkbox", { name: /Select health metrics for/ }));
+    row.focus();
+    for (const key of ["Enter", " ", "Space"]) {
+      fireEvent.keyDown(row, { key });
+      expect(open).toHaveBeenCalledOnce();
+      open.mockClear();
+    }
+    const checkbox = within(table).getByRole("checkbox", { name: /Select health metrics for/ });
+    await user.click(checkbox);
+    fireEvent.keyDown(checkbox, { key: "Enter" });
+    fireEvent.keyDown(checkbox, { key: " " });
     expect(open).not.toHaveBeenCalled();
   });
 
