@@ -1053,6 +1053,13 @@ export function tableViewFilterFieldConfigs(
       options: filterOptions.fieldOptions?.medication_unit ?? [],
     },
     dose: { field: "dose", label: "Dose", type: "number", options: [] },
+    weight: { field: "weight", label: "Weight", type: "number", options: [] },
+    sleep: { field: "sleep", label: "Sleep", type: "number", options: [] },
+    crp: { field: "crp", label: "CRP", type: "number", options: [] },
+    calprotectin: {
+      field: "calprotectin", label: "Calprotectin", type: "number", options: [],
+    },
+    condition: { field: "condition", label: "Condition", type: "number", options: [] },
     account: {
       field: "account",
       label: "Account",
