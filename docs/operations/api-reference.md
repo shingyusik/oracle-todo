@@ -282,7 +282,7 @@ curl -X POST http://127.0.0.1:3002/api/v1/health/diet/with-image \
 ```
 
 Event category plus attributes determine bowel, medication, weight, sleep, lab, or symptom
-validation. Daily metric input is bounded to 366 objects. Timeline supports range,
+validation. Daily metric mutations contain 1 through 366 combined metric and archive operations. Timeline supports range,
 category, archive, and page filters; trends defaults to 30 days and has a bounded window.
 
 Archive and restore support optimistic timestamps. Health API has no purge-preview route.
