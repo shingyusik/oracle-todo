@@ -396,7 +396,11 @@ export function TransactionForm({
               ? "Saving…"
               : entry
                 ? "Save transaction"
-                : "Save"}
+                : onClose
+                  ? "Save"
+                  : mode === "transfer"
+                    ? "Save transfer"
+                    : "Save transaction"}
         </button>
       </footer>
       {refreshRecovery && (

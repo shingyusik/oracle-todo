@@ -142,7 +142,6 @@ describe("TransactionForm", () => {
     within(tabs).getAllByRole("tab").forEach((tab) => {
       expect(tab).toHaveClass("transaction-type-tab");
     });
-    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Expense",
       "Income",
@@ -280,7 +279,7 @@ describe("TransactionForm", () => {
     await user.type(screen.getByLabelText("Amount"), "12000");
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
 
     expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
     expect(onPendingChange).toHaveBeenLastCalledWith(true);
@@ -311,7 +310,7 @@ describe("TransactionForm", () => {
     if (entryType === "expense") {
       await user.selectOptions(screen.getByLabelText("Category"), "category-food");
     }
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
 
     expect(ledger.createEntry).toHaveBeenCalledWith(expect.objectContaining({
       entryType,
@@ -334,7 +333,7 @@ describe("TransactionForm", () => {
     await user.type(screen.getByLabelText("Amount"), "1000");
     await user.type(screen.getByLabelText("Content"), "Refund");
     await user.selectOptions(screen.getByLabelText("Account"), "account-bank");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
 
     expect(ledger.createEntry).toHaveBeenCalledWith(expect.objectContaining({
       entryType: "income",
@@ -373,7 +372,7 @@ describe("TransactionForm", () => {
       });
       vi.setSystemTime(new Date("2026-08-14T00:05:00.000Z"));
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        fireEvent.click(screen.getByRole("button", { name: "Save transaction" }));
       });
 
       expect(ledger.createEntry).toHaveBeenCalledWith(expect.objectContaining({
@@ -394,7 +393,7 @@ describe("TransactionForm", () => {
     await user.type(screen.getByLabelText("Content"), "Move savings");
     await user.selectOptions(screen.getByLabelText("Source account"), "account-cash");
     await user.selectOptions(screen.getByLabelText("Destination account"), "account-savings");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save transfer" }));
 
     expect(ledger.transfer).toHaveBeenCalledWith(expect.objectContaining({
       amount: "45000",
@@ -417,7 +416,7 @@ describe("TransactionForm", () => {
     await user.type(screen.getByLabelText("Content"), "Move savings");
     await user.selectOptions(screen.getByLabelText("Destination account"), "account-bank");
     await user.selectOptions(screen.getByLabelText("Source account"), "account-bank");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save transfer" }));
 
     expect(ledger.transfer).not.toHaveBeenCalled();
 
@@ -435,7 +434,7 @@ describe("TransactionForm", () => {
     await user.type(screen.getByLabelText("Amount"), "bad");
     await user.type(screen.getByLabelText("Content"), "Lunch");
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
 
     expect(screen.getByLabelText("Amount")).toHaveValue("bad");
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
