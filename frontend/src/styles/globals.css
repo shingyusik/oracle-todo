@@ -2076,8 +2076,16 @@ button {
   min-width: 0;
 }
 
-.ledger-account-settings-dialog [role="tabpanel"] form h3 {
-  margin-top: 0;
+.ledger-account-settings-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ledger-account-settings-editor-header h3 {
+  margin: 0;
 }
 
 .ledger-account-settings-checkbox {
@@ -2096,8 +2104,72 @@ button {
   margin: 0;
 }
 
-.ledger-account-settings-dialog [role="tabpanel"] td button + button {
-  margin-left: 6px;
+.ledger-account-settings-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.items-table.ledger-account-settings-account-types-table :is(th, td):nth-child(1) {
+  width: 29%;
+  max-width: none;
+}
+
+.ledger-account-settings-account-types-table :is(th, td):nth-child(2) {
+  width: 27%;
+}
+
+.ledger-account-settings-account-types-table :is(th, td):nth-child(3) {
+  width: 16%;
+}
+
+.ledger-account-settings-account-types-table :is(th, td):nth-child(4) {
+  width: 28%;
+}
+
+.items-table.ledger-account-settings-currencies-table :is(th, td):nth-child(1) {
+  width: 16%;
+  max-width: none;
+}
+
+.ledger-account-settings-currencies-table :is(th, td):nth-child(2) {
+  width: 26%;
+}
+
+.ledger-account-settings-currencies-table :is(th, td):nth-child(3) {
+  width: 14%;
+}
+
+.ledger-account-settings-currencies-table :is(th, td):nth-child(4) {
+  width: 20%;
+}
+
+.ledger-account-settings-currencies-table :is(th, td):nth-child(5) {
+  width: 24%;
+}
+
+.ledger-account-settings-actions-cell {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.ledger-account-settings-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.ledger-account-settings-icon-button {
+  display: inline-grid;
+  width: 32px;
+  min-height: 32px;
+  place-items: center;
+  padding: 0;
+}
+
+.ledger-account-settings-delete-button {
+  border-color: var(--color-danger-text);
+  color: var(--color-danger-text);
 }
 
 .field-label {
@@ -3031,6 +3103,10 @@ button {
 
   .ledger-account-settings-dialog [role="tabpanel"] {
     grid-template-columns: 1fr;
+  }
+
+  .ledger-account-settings-table {
+    min-width: 520px;
   }
 
   .detail-properties-list .field-label,

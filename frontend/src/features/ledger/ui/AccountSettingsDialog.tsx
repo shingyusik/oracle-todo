@@ -2,6 +2,7 @@
 
 import React from "react";
 import { createPortal } from "react-dom";
+import { CircleOff, Pencil, Trash2 } from "lucide-react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type {
@@ -58,6 +59,11 @@ type DeactivationTarget =
   | { kind: "account-type"; item: AccountCategory }
   | { kind: "currency"; item: Currency };
 
+type AccountCategoryPurgeTarget = {
+  item: AccountCategory;
+  confirmationId: string;
+};
+
 export function AccountSettingsDialog({
   controller,
   onClose,
@@ -98,11 +104,18 @@ function AccountSettingsDialogContent({
   const [deactivationTarget, setDeactivationTarget] = React.useState<DeactivationTarget | null>(
     null,
   );
+  const [accountPurgeTarget, setAccountPurgeTarget] =
+    React.useState<AccountCategoryPurgeTarget | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   const dialogRef = React.useRef<HTMLDivElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
-  useModalIsolation(dialogRef, deactivationTarget === null, "body");
+  const deleteButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  useModalIsolation(
+    dialogRef,
+    deactivationTarget === null && accountPurgeTarget === null,
+    "body",
+  );
 
   React.useEffect(() => {
     dialogRef.current?.querySelector<HTMLElement>(
@@ -130,6 +143,7 @@ function AccountSettingsDialogContent({
     resetAccountEditor();
     resetCurrencyEditor();
     setDeactivationTarget(null);
+    setAccountPurgeTarget(null);
     setError(null);
   }
 
@@ -231,7 +245,54 @@ function AccountSettingsDialogContent({
     }
   }
 
+  async function prepareAccountCategoryPurge(
+    item: AccountCategory,
+    trigger: HTMLButtonElement,
+  ) {
+    if (pending) return;
+    deleteButtonRef.current = trigger;
+    setError(null);
+    setPending(true);
+    try {
+      const preview = await controller.previewAccountCategoryPurge(item.id);
+      setAccountPurgeTarget({ item, confirmationId: preview.confirmationId });
+    } catch (cause) {
+      setError(safeLedgerErrorMessage(cause, "Could not delete account type."));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function purgeAccountCategory() {
+    const target = accountPurgeTarget;
+    if (!target || pending) return;
+    setError(null);
+    setPending(true);
+    try {
+      await controller.purgeAccountCategory(target.item.id, target.confirmationId);
+      if (accountEditing?.id === target.item.id) resetAccountEditor();
+      setAccountPurgeTarget(null);
+    } catch (cause) {
+      setError(safeLedgerErrorMessage(cause, "Could not delete account type."));
+    } finally {
+      setPending(false);
+    }
+  }
+
   function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (
+      (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+      event.target instanceof HTMLElement &&
+      event.target.closest(".ledger-account-settings-row-actions")
+    ) {
+      event.preventDefault();
+      const index = tabs.findIndex(({ id }) => id === activeTab);
+      const offset = event.key === "ArrowRight" ? 1 : -1;
+      const next = tabs[(index + offset + tabs.length) % tabs.length]!;
+      selectTab(next.id);
+      document.getElementById(`${next.id}-tab`)?.focus();
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       if (!pending) onClose();
@@ -320,6 +381,9 @@ function AccountSettingsDialogContent({
                 setError(null);
                 setDeactivationTarget({ kind: "account-type", item });
               }}
+              onDelete={(item, trigger) => {
+                void prepareAccountCategoryPurge(item, trigger);
+              }}
               onEdit={editAccountCategory}
               onSubmit={saveAccountCategory}
             />
@@ -380,6 +444,23 @@ function AccountSettingsDialogContent({
           onConfirm={deactivate}
         />
       ) : null}
+      {accountPurgeTarget ? (
+        <DestructiveConfirmationDialog
+          title={`Permanently delete ${accountPurgeTarget.item.name}?`}
+          description="This Account type will be permanently deleted and cannot be recovered."
+          confirmLabel="Delete"
+          error={error}
+          disabled={pending}
+          fallbackFocusRef={deleteButtonRef}
+          onCancel={() => {
+            if (!pending) {
+              setAccountPurgeTarget(null);
+              setError(null);
+            }
+          }}
+          onConfirm={purgeAccountCategory}
+        />
+      ) : null}
     </div>
   );
 }
@@ -394,6 +475,7 @@ function AccountTypes({
   onCancel,
   onChange,
   onDeactivate,
+  onDelete,
   onEdit,
   onSubmit,
 }: {
@@ -406,6 +488,7 @@ function AccountTypes({
   onCancel(): void;
   onChange(value: React.SetStateAction<AccountCategoryDraft>): void;
   onDeactivate(item: AccountCategory): void;
+  onDelete(item: AccountCategory, trigger: HTMLButtonElement): void;
   onEdit(item: AccountCategory): void;
   onSubmit(event: React.FormEvent<HTMLFormElement>): void;
 }) {
@@ -417,7 +500,19 @@ function AccountTypes({
         aria-label={editing ? "Edit account type" : "New account type"}
         onSubmit={onSubmit}
       >
-        <h3>{editing ? "Edit account type" : "New account type"}</h3>
+        <div className="ledger-account-settings-editor-header">
+          <h3>{editing ? "Edit account type" : "New account type"}</h3>
+          {editing ? (
+            <button
+              className="items-toolbar-button"
+              type="button"
+              disabled={pending}
+              onClick={onCancel}
+            >
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
         <label className="field-label">
           Account type name
           <input
@@ -450,13 +545,10 @@ function AccountTypes({
           Liability
         </label>
         {error ? <p role="alert" className="items-message">{error}</p> : null}
-        {editing ? (
-          <button type="button" disabled={pending} onClick={onCancel}>Cancel edit</button>
-        ) : null}
       </form>
       {items.length === 0 ? <p className="items-message">No account types yet.</p> : (
         <div className="items-section">
-          <table className="items-table">
+          <table className="items-table ledger-account-settings-table ledger-account-settings-account-types-table">
             <thead>
               <tr><th>Name</th><th>Parent</th><th>Liability</th><th>Actions</th></tr>
             </thead>
@@ -466,13 +558,42 @@ function AccountTypes({
                   <td>{item.name}</td>
                   <td>{item.parentId ? names.get(item.parentId) ?? "—" : "—"}</td>
                   <td>{item.liability ? "Yes" : "No"}</td>
-                  <td>
-                    <button type="button" disabled={pending} onClick={() => onEdit(item)}>
-                      Edit {item.name}
-                    </button>
-                    <button type="button" disabled={pending} onClick={() => onDeactivate(item)}>
-                      Deactivate {item.name}
-                    </button>
+                  <td
+                    className="ledger-account-settings-actions-cell"
+                    aria-label={`Edit ${item.name}, Deactivate ${item.name}, Delete ${item.name}`}
+                  >
+                    <div className="ledger-account-settings-row-actions">
+                      <button
+                        type="button"
+                        className="ledger-account-settings-icon-button"
+                        aria-label={`Edit ${item.name}`}
+                        title={`Edit ${item.name}`}
+                        disabled={pending}
+                        onClick={() => onEdit(item)}
+                      >
+                        <Pencil size={16} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="ledger-account-settings-icon-button"
+                        aria-label={`Deactivate ${item.name}`}
+                        title={`Deactivate ${item.name}`}
+                        disabled={pending}
+                        onClick={() => onDeactivate(item)}
+                      >
+                        <CircleOff size={16} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="ledger-account-settings-icon-button ledger-account-settings-delete-button"
+                        aria-label={`Delete ${item.name}`}
+                        title={`Delete ${item.name}`}
+                        disabled={pending}
+                        onClick={(event) => onDelete(item, event.currentTarget)}
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -517,7 +638,19 @@ function Currencies({
         aria-label={editing ? "Edit currency" : "New currency"}
         onSubmit={onSubmit}
       >
-        <h3>{editing ? "Edit currency" : "New currency"}</h3>
+        <div className="ledger-account-settings-editor-header">
+          <h3>{editing ? "Edit currency" : "New currency"}</h3>
+          {editing ? (
+            <button
+              className="items-toolbar-button"
+              type="button"
+              disabled={pending}
+              onClick={onCancel}
+            >
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
         <label className="field-label">
           Currency code
           <input
@@ -562,13 +695,10 @@ function Currencies({
           />
         </label>
         {error ? <p role="alert" className="items-message">{error}</p> : null}
-        {editing ? (
-          <button type="button" disabled={pending} onClick={onCancel}>Cancel edit</button>
-        ) : null}
       </form>
       {items.length === 0 ? <p className="items-message">No currencies yet.</p> : (
         <div className="items-section">
-          <table className="items-table">
+          <table className="items-table ledger-account-settings-table ledger-account-settings-currencies-table">
             <thead>
               <tr><th>Code</th><th>Name</th><th>Symbol</th><th>Decimal places</th><th>Actions</th></tr>
             </thead>
@@ -579,13 +709,32 @@ function Currencies({
                   <td>{item.name}</td>
                   <td>{item.symbol}</td>
                   <td>{item.decimalPlaces}</td>
-                  <td>
-                    <button type="button" disabled={pending} onClick={() => onEdit(item)}>
-                      Edit {item.code}
-                    </button>
-                    <button type="button" disabled={pending} onClick={() => onDeactivate(item)}>
-                      Deactivate {item.code}
-                    </button>
+                  <td
+                    className="ledger-account-settings-actions-cell"
+                    aria-label={`Edit ${item.code}, Deactivate ${item.code}`}
+                  >
+                    <div className="ledger-account-settings-row-actions">
+                      <button
+                        type="button"
+                        className="ledger-account-settings-icon-button"
+                        aria-label={`Edit ${item.code}`}
+                        title={`Edit ${item.code}`}
+                        disabled={pending}
+                        onClick={() => onEdit(item)}
+                      >
+                        <Pencil size={16} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="ledger-account-settings-icon-button"
+                        aria-label={`Deactivate ${item.code}`}
+                        title={`Deactivate ${item.code}`}
+                        disabled={pending}
+                        onClick={() => onDeactivate(item)}
+                      >
+                        <CircleOff size={16} aria-hidden="true" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
