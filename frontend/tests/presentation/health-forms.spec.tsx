@@ -248,6 +248,24 @@ function MetricsDialogHarness({
   </>;
 }
 
+function MetricsDialogLifecycleHarness({
+  health,
+  open,
+}: {
+  health: HealthController;
+  open: boolean;
+}) {
+  const returnFocusRef = React.useRef<HTMLButtonElement>(null);
+  return <main>
+    <button ref={returnFocusRef}>Add metrics lifecycle</button>
+    {open ? <HealthMetricsCreateDialog
+      controller={health}
+      onClose={vi.fn()}
+      returnFocusRef={returnFocusRef}
+    /> : null}
+  </main>;
+}
+
 function BowelPanelHarness({ health }: { health: HealthController }) {
   const [tombstonedIds, setTombstonedIds] = React.useState<Set<string>>(() => new Set());
   const [refreshWarning, setRefreshWarning] = React.useState<string | null>(null);
@@ -1320,6 +1338,26 @@ describe("Health Journal forms", () => {
     }
   });
 
+  it("uses the browser-local date on both sides of local midnight", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-20T06:59:59.000Z"));
+      const beforeMidnight = render(<MetricsDialogHarness health={controller()} />);
+      expect(screen.getByLabelText("Date")).toHaveValue("2026-08-19");
+      beforeMidnight.unmount();
+
+      vi.setSystemTime(new Date("2026-08-20T07:00:00.000Z"));
+      render(<MetricsDialogHarness health={controller()} />);
+      expect(screen.getByLabelText("Date")).toHaveValue("2026-08-20");
+    } finally {
+      vi.useRealTimers();
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
   it("portals and isolates Health Metrics, wraps focus, closes only while idle, and restores focus", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
@@ -1341,6 +1379,60 @@ describe("Health Journal forms", () => {
     expect(onClose).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Add health metrics" })).toHaveFocus();
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes Health Metrics from an idle backdrop click", () => {
+    const onClose = vi.fn();
+    render(<MetricsDialogHarness health={controller()} onClose={onClose} />);
+    const backdrop = screen.getByRole("dialog", { name: "Add health metrics" }).parentElement!;
+    fireEvent.mouseDown(backdrop);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Add health metrics" })).not.toBeInTheDocument();
+  });
+
+  it("restores preexisting isolation state across Health Metrics StrictMode mounts", () => {
+    const previousOverflow = document.body.style.overflow;
+    const external = document.createElement("aside");
+    document.body.append(external);
+    document.body.style.overflow = "scroll";
+    const health = controller();
+    const view = render(
+      <React.StrictMode>
+        <MetricsDialogLifecycleHarness health={health} open={false} />
+      </React.StrictMode>,
+    );
+    view.container.setAttribute("aria-hidden", "false");
+    view.container.setAttribute("inert", "existing");
+
+    try {
+      view.rerender(
+        <React.StrictMode>
+          <MetricsDialogLifecycleHarness health={health} open />
+        </React.StrictMode>,
+      );
+      expect(document.querySelectorAll("[data-raven-modal-host]")).toHaveLength(1);
+      expect(view.container).toHaveAttribute("aria-hidden", "true");
+      expect(view.container).toHaveAttribute("inert", "");
+      expect(external).toHaveAttribute("aria-hidden", "true");
+      expect(external).toHaveAttribute("inert", "");
+      expect(document.body.style.overflow).toBe("hidden");
+
+      view.rerender(
+        <React.StrictMode>
+          <MetricsDialogLifecycleHarness health={health} open={false} />
+        </React.StrictMode>,
+      );
+      expect(document.querySelectorAll("[data-raven-modal-host]")).toHaveLength(0);
+      expect(view.container).toHaveAttribute("aria-hidden", "false");
+      expect(view.container).toHaveAttribute("inert", "existing");
+      expect(external).not.toHaveAttribute("aria-hidden");
+      expect(external).not.toHaveAttribute("inert");
+      expect(document.body.style.overflow).toBe("scroll");
+    } finally {
+      view.unmount();
+      external.remove();
+      document.body.style.overflow = previousOverflow;
+    }
   });
 
   it("blocks Health Metrics duplicate submission and dismissal synchronously while pending", async () => {
@@ -1490,6 +1582,40 @@ describe("Health Journal forms", () => {
     fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Enter at least one daily metric");
     expect(health.saveMetrics).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["CRP", "-0.1", "CRP must not be negative"],
+    ["Calprotectin", "-1", "Calprotectin must not be negative"],
+  ])("rejects invalid %s values without saving", async (label, value, message) => {
+    const health = controller();
+    render(<MetricsDialogHarness health={health} />);
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(health.saveMetrics).not.toHaveBeenCalled();
+  });
+
+  it.each(["CRP", "Calprotectin"])("rejects a non-finite %s value at the native number boundary", async (label) => {
+    const health = controller();
+    render(<MetricsDialogHarness health={health} />);
+    const input = screen.getByLabelText(label);
+    fireEvent.change(input, { target: { value: "1e309" } });
+    expect(input).toHaveValue(null);
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter at least one daily metric");
+    expect(health.saveMetrics).not.toHaveBeenCalled();
+  });
+
+  it("offers exactly the optional Condition values 1 through 10", () => {
+    render(<MetricsDialogHarness health={controller()} />);
+    const condition = screen.getByLabelText("Condition");
+    expect(within(condition).getAllByRole("option").map((option) => [
+      option.getAttribute("value"), option.textContent,
+    ])).toEqual([
+      ["", "None"],
+      ...Array.from({ length: 10 }, (_, index) => String(index + 1)).map((value) => [value, value]),
+    ]);
   });
 
   it("rejects a skipped local Health Metrics date instead of shifting it", async () => {
