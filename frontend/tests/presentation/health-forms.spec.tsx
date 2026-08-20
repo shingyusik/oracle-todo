@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
+import { renderToString } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -166,6 +167,24 @@ function MedicationDialogHarness({
       returnFocusRef={returnFocusRef}
     /> : null}
   </>;
+}
+
+function MedicationDialogLifecycleHarness({
+  health,
+  open,
+}: {
+  health: HealthController;
+  open: boolean;
+}) {
+  const returnFocusRef = React.useRef<HTMLButtonElement>(null);
+  return <main>
+    <button ref={returnFocusRef}>Add medication lifecycle</button>
+    {open ? <MedicationCreateDialog
+      controller={health}
+      onClose={vi.fn()}
+      returnFocusRef={returnFocusRef}
+    /> : null}
+  </main>;
 }
 
 function BowelPanelHarness({ health }: { health: HealthController }) {
@@ -868,6 +887,85 @@ describe("Health Journal forms", () => {
 
     view.unmount();
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("restores the Medication dialog lifecycle exactly across StrictMode remounts", () => {
+    const previousOverflow = document.body.style.overflow;
+    const external = document.createElement("aside");
+    document.body.append(external);
+    document.body.style.overflow = "scroll";
+    const view = render(
+      <React.StrictMode>
+        <MedicationDialogLifecycleHarness health={controller()} open={false} />
+      </React.StrictMode>,
+    );
+    view.container.setAttribute("aria-hidden", "false");
+    view.container.setAttribute("inert", "existing");
+
+    try {
+      view.rerender(
+        <React.StrictMode>
+          <MedicationDialogLifecycleHarness health={controller()} open />
+        </React.StrictMode>,
+      );
+      expect(document.querySelectorAll("[data-raven-modal-host]")).toHaveLength(1);
+      expect(view.container).toHaveAttribute("aria-hidden", "true");
+      expect(view.container).toHaveAttribute("inert", "");
+      expect(external).toHaveAttribute("aria-hidden", "true");
+      expect(external).toHaveAttribute("inert", "");
+      expect(document.body.style.overflow).toBe("hidden");
+
+      view.rerender(
+        <React.StrictMode>
+          <MedicationDialogLifecycleHarness health={controller()} open={false} />
+        </React.StrictMode>,
+      );
+      expect(document.querySelectorAll("[data-raven-modal-host]")).toHaveLength(0);
+      expect(view.container).toHaveAttribute("aria-hidden", "false");
+      expect(view.container).toHaveAttribute("inert", "existing");
+      expect(external).not.toHaveAttribute("aria-hidden");
+      expect(external).not.toHaveAttribute("inert");
+      expect(document.body.style.overflow).toBe("scroll");
+
+      view.rerender(
+        <React.StrictMode>
+          <MedicationDialogLifecycleHarness health={controller()} open />
+        </React.StrictMode>,
+      );
+      expect(document.querySelectorAll("[data-raven-modal-host]")).toHaveLength(1);
+      view.unmount();
+      expect(document.querySelectorAll("[data-raven-modal-host]")).toHaveLength(0);
+      expect(view.container).toHaveAttribute("aria-hidden", "false");
+      expect(view.container).toHaveAttribute("inert", "existing");
+      expect(external).not.toHaveAttribute("aria-hidden");
+      expect(external).not.toHaveAttribute("inert");
+      expect(document.body.style.overflow).toBe("scroll");
+    } finally {
+      view.unmount();
+      external.remove();
+      document.body.style.overflow = previousOverflow;
+    }
+  });
+
+  it("renders the Medication dialog safely without browser globals on the server", () => {
+    const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    Object.defineProperty(globalThis, "document", { configurable: true, value: undefined });
+    Object.defineProperty(globalThis, "window", { configurable: true, value: undefined });
+    try {
+      expect(renderToString(
+        <MedicationCreateDialog
+          controller={controller()}
+          onClose={vi.fn()}
+          returnFocusRef={React.createRef<HTMLButtonElement>()}
+        />,
+      )).toBe("");
+    } finally {
+      if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
+      if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+      consoleError.mockRestore();
+    }
   });
 
   it("submits the exact Medication payload and converts local time portably", async () => {
