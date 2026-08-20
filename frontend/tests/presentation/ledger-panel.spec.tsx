@@ -1084,6 +1084,7 @@ describe("LedgerPanel", () => {
       "account-categories",
       "account-type-card",
     );
+    expect(ledgerApi.listAccountCategories).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       await result.current.purgeAccountCategory("account-type-card", "account-type-card");
