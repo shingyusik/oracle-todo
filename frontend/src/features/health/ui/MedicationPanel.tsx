@@ -44,10 +44,6 @@ export function MedicationPanel({
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (controller.state.medicationStatus === "idle") void controller.refreshMedication();
-  }, [controller]);
-
   const entries = useMemo(() => controller.state.medicationEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)),
   [controller.state.medicationEntries, tombstonedIds]);

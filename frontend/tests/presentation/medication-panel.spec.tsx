@@ -66,6 +66,25 @@ function settle(set: Reads, ok: boolean, entries: HealthEvent[] = []) {
 describe("Health Medication controller", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("lets controller composition own exactly one Medication initial read cycle", async () => {
+    mockBaseReads();
+
+    function MedicationComposition() {
+      const health = useHealthController();
+      return <MedicationPanel controller={health} tombstonedIds={new Set()}
+        onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+        onRetryRefresh={vi.fn()} />;
+    }
+
+    render(<MedicationComposition />);
+    await screen.findByText("No medication entries yet.");
+
+    expect(vi.mocked(healthApi.listEvents).mock.calls
+      .filter(([request]) => request?.category === "medication")).toHaveLength(1);
+    expect(healthApi.timeline).toHaveBeenCalledOnce();
+    expect(healthApi.trends).toHaveBeenCalledOnce();
+  });
+
   it("loads one short Medication page once without duplicating related initial reads", async () => {
     mockBaseReads();
     vi.mocked(healthApi.listEvents).mockImplementation(async (query) =>
