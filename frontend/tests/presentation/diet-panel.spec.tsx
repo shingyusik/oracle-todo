@@ -252,6 +252,7 @@ describe("Health Diet controller", () => {
     for (const mutationCase of cases) {
       for (const mutation of mutations) mutation.mockClear();
       vi.mocked(healthApi.listDiet).mockClear();
+      vi.mocked(healthApi.listEvents).mockClear();
       vi.mocked(healthApi.timeline).mockClear();
       vi.mocked(healthApi.trends).mockClear();
 
@@ -261,6 +262,8 @@ describe("Health Diet controller", () => {
       expect(mutations.reduce((total, mutation) => total + mutation.mock.calls.length, 0))
         .toBe(1);
       expect(healthApi.listDiet).toHaveBeenCalledOnce();
+      expect(vi.mocked(healthApi.listEvents).mock.calls
+        .filter(([request]) => request?.category === "medication")).toHaveLength(0);
       expect(healthApi.timeline).toHaveBeenCalledOnce();
       expect(healthApi.trends).toHaveBeenCalledOnce();
     }
@@ -288,15 +291,15 @@ describe("Health Diet controller", () => {
     } as const;
     const mutations = [create, upsert, archive, restore, purge];
     const cases = [
-      { eventRead: true, run: () => result.current.createBowel(bowel) },
-      { eventRead: true, run: () => result.current.createMedication({
+      { eventRead: true, medicationReads: 0, run: () => result.current.createBowel(bowel) },
+      { eventRead: true, medicationReads: 1, run: () => result.current.createMedication({
         occurredAt: entry.occurredAt,
         details: { kind: "medication", medicationName: "Tablet", dose: 1, unit: "tablet" },
       }) },
-      { eventRead: false, run: () => result.current.upsertMetrics([]) },
-      { eventRead: false, run: () => result.current.archive("event", "event-1") },
-      { eventRead: false, run: () => result.current.restore("event", "event-1") },
-      { eventRead: false, run: () => result.current.purge("event", "event-1", "PURGE") },
+      { eventRead: false, medicationReads: 0, run: () => result.current.upsertMetrics([]) },
+      { eventRead: false, medicationReads: 0, run: () => result.current.archive("event", "event-1") },
+      { eventRead: false, medicationReads: 0, run: () => result.current.restore("event", "event-1") },
+      { eventRead: false, medicationReads: 0, run: () => result.current.purge("event", "event-1", "PURGE") },
     ];
 
     for (const mutationCase of cases) {
@@ -308,6 +311,9 @@ describe("Health Diet controller", () => {
       expect(mutations.reduce((count, mutation) => count + mutation.mock.calls.length, 0)).toBe(1);
       expect(healthApi.listDiet).not.toHaveBeenCalled();
       expect(healthApi.listEvents).toHaveBeenCalledTimes(mutationCase.eventRead ? 1 : 0);
+      expect(vi.mocked(healthApi.listEvents).mock.calls
+        .filter(([request]) => request?.category === "medication"))
+        .toHaveLength(mutationCase.medicationReads);
       expect(healthApi.timeline).toHaveBeenCalledOnce();
       expect(healthApi.trends).toHaveBeenCalledOnce();
     }

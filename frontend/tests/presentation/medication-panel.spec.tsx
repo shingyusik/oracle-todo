@@ -56,7 +56,22 @@ function settle(set: Reads, ok: boolean, entries: HealthEvent[] = []) {
 describe("Health Medication controller", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("loads Medication first and drains 200-row pages", async () => {
+  it("loads one short Medication page once without duplicating related initial reads", async () => {
+    mockBaseReads();
+    vi.mocked(healthApi.listEvents).mockImplementation(async (query) =>
+      query?.category === "medication" ? [event] : []);
+
+    const { result } = renderHook(() => useHealthController());
+    await waitFor(() => expect(result.current.state.medicationStatus).toBe("loaded"));
+
+    expect(vi.mocked(healthApi.listEvents).mock.calls
+      .filter(([request]) => request?.category === "medication")).toHaveLength(1);
+    expect(healthApi.timeline).toHaveBeenCalledOnce();
+    expect(healthApi.trends).toHaveBeenCalledOnce();
+    expect(result.current.state.medicationEntries).toEqual([event]);
+  });
+
+  it("drains every 200-row Medication page", async () => {
     mockBaseReads();
     const events = Array.from({ length: 200 }, (_, index) => ({ ...event, id: `med-${index}` }));
     let medicationPage = 0;
@@ -74,6 +89,25 @@ describe("Health Medication controller", () => {
     }]);
     expect(result.current.state.medicationEntries).toEqual(events);
     expect(result.current.state.medicationStatus).toBe("loaded");
+  });
+
+  it("aggregate refresh reads each collection exactly once", async () => {
+    mockBaseReads();
+    const { result } = await mountedController();
+    vi.mocked(healthApi.listDiet).mockClear();
+    vi.mocked(healthApi.listEvents).mockClear();
+    vi.mocked(healthApi.timeline).mockClear();
+    vi.mocked(healthApi.trends).mockClear();
+
+    await act(async () => expect(result.current.refresh()).resolves.toBe(true));
+
+    expect(healthApi.listDiet).toHaveBeenCalledOnce();
+    expect(vi.mocked(healthApi.listEvents).mock.calls
+      .filter(([request]) => request?.category === "bowel")).toHaveLength(1);
+    expect(vi.mocked(healthApi.listEvents).mock.calls
+      .filter(([request]) => request?.category === "medication")).toHaveLength(1);
+    expect(healthApi.timeline).toHaveBeenCalledOnce();
+    expect(healthApi.trends).toHaveBeenCalledOnce();
   });
 
   it("coalesces ordinary refreshes and retains loaded data with a nonblocking error", async () => {
