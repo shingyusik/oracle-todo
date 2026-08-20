@@ -739,16 +739,19 @@ describe("HealthPanel", () => {
     await user.click(screen.getByRole("button", { name: "Archive selected health metrics entries" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(screen.queryByText("72.5 kg")).toBeNull());
+    expect(screen.queryByText("7.5 hours")).toBeNull();
 
     view.rerender(<HealthPanel controller={{ ...health, state: {
       ...health.state, metricsStatus: "loading",
     } }} leafTabId="health-metrics" />);
     expect(screen.queryByText("72.5 kg")).toBeNull();
+    expect(screen.queryByText("7.5 hours")).toBeNull();
     expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
     view.rerender(<HealthPanel controller={{ ...health, state: {
       ...health.state, metricsError: "stale refresh error",
     } }} leafTabId="health-metrics" />);
     expect(screen.queryByText("72.5 kg")).toBeNull();
+    expect(screen.queryByText("7.5 hours")).toBeNull();
     expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
 
     view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
@@ -763,20 +766,22 @@ describe("HealthPanel", () => {
     expect(health.refreshMetrics).toHaveBeenCalledTimes(2);
 
     view.rerender(<HealthPanel controller={{ ...health, state: {
-      ...health.state, metricsEntries: [metric], metricsError: null,
+      ...health.state, metricsEntries: [metricSleep], metricsError: null,
     } }} leafTabId="health-metrics" />);
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(screen.queryByText("72.5 kg")).toBeNull();
+    expect(screen.queryByText("7.5 hours")).toBeNull();
 
     view.rerender(<HealthPanel controller={{ ...health, state: {
-      ...health.state, metricsEntries: [], metricsError: null,
+      ...health.state, metricsEntries: [metric], metricsError: null,
     } }} leafTabId="health-metrics" />);
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
-    expect(screen.getByText("No health metrics yet.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("72.5 kg")).toBeInTheDocument());
+    expect(screen.queryByText("7.5 hours")).toBeNull();
     view.rerender(<HealthPanel controller={{ ...health, state: {
       ...health.state, metricsEntries: [metric, metricSleep], metricsError: null,
     } }} leafTabId="health-metrics" />);
     await waitFor(() => expect(screen.getByText("72.5 kg")).toBeInTheDocument());
+    expect(screen.getByText("7.5 hours")).toBeInTheDocument();
   });
 
   it("locks Metrics refresh recovery and restores Add focus without repeating mutation", async () => {

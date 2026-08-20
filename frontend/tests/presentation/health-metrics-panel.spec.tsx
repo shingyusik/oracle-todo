@@ -299,6 +299,26 @@ describe("Health Metrics table", () => {
       .toBeDisabled();
   });
 
+  it("opens the real Add dialog and restores focus after closing", async () => {
+    const user = userEvent.setup();
+    render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    const add = screen.getByRole("button", { name: "Add health metrics entry" });
+    await user.click(add);
+    const dialog = screen.getByRole("dialog", { name: "Add health metrics" });
+    expect(within(dialog).getByLabelText("Date")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Weight")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Sleep")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("CRP")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Calprotectin")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Condition")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Note")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Close Add health metrics" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull());
+    expect(add).toHaveFocus();
+  });
+
   it("archives every member of one selected date in one atomic mutation", async () => {
     const user = userEvent.setup();
     const health = panelController();
