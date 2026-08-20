@@ -100,6 +100,24 @@ describe("Health Metrics daily table", () => {
     expect(tied.map(({ id: rowId }) => rowId)).toEqual(["2026-07-08", "2026-07-09", "2026-07-10"]);
   });
 
+  it("selects earliest and latest timestamps by instant while preserving their strings", () => {
+    const earlierCreated = "2026-07-08T09:00:00+09:00";
+    const laterCreated = "2026-07-08T01:00:00Z";
+    const earlierUpdated = "2026-07-08T09:30:00+09:00";
+    const laterUpdated = "2026-07-08T01:00:00Z";
+    const row = deriveHealthMetricsGroups([
+      metric("weight", "1", 68, localInstant(2026, 7, 8), {
+        createdAt: earlierCreated, updatedAt: earlierUpdated,
+      }),
+      metric("sleep", "2", 8, localInstant(2026, 7, 8), {
+        createdAt: laterCreated, updatedAt: laterUpdated,
+      }),
+    ], settings())[0]!.rows[0]!;
+
+    expect(row.createdAt).toBe(earlierCreated);
+    expect(row.updatedAt).toBe(laterUpdated);
+  });
+
   it("sorts numeric values with missing values last in either direction", () => {
     const events = [
       metric("weight", "1", 70, localInstant(2026, 7, 8)),

@@ -98,8 +98,10 @@ function projectRows(events: readonly HealthEvent[]): HealthMetricsRow[] {
       note: condition?.attributes.kind === "symptom"
         ? condition.attributes.conditionNote ?? ""
         : "",
-      createdAt: members.map(({ createdAt }) => createdAt).sort()[0]!,
-      updatedAt: members.map(({ updatedAt }) => updatedAt).sort().at(-1)!,
+      createdAt: members.reduce((earliest, event) =>
+        Date.parse(event.createdAt) < Date.parse(earliest.createdAt) ? event : earliest).createdAt,
+      updatedAt: members.reduce((latest, event) =>
+        Date.parse(event.updatedAt) > Date.parse(latest.updatedAt) ? event : latest).updatedAt,
     };
   });
 }
