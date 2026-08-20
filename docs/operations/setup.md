@@ -98,6 +98,9 @@ raven ui --no-open
 raven ui --port 3202
 ```
 
+The command prints both the listening address and an `Open Raven UI` session URL. With
+`--no-open`, open the latter URL manually to establish the authenticated UI session.
+
 For a source build:
 
 ```bash
