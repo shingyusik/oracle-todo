@@ -50,9 +50,11 @@ function TransactionCreateDialogContent({
   useModalIsolation(dialogRef, true, "body");
 
   React.useEffect(() => {
-    dialogRef.current?.querySelector<HTMLElement>(
-      'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])',
-    )?.focus();
+    const dialog = dialogRef.current;
+    (dialog?.querySelector<HTMLElement>('[aria-label="Close Add transaction"]') ??
+      dialog?.querySelector<HTMLElement>(
+        'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])',
+      ))?.focus();
     return () => {
       if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
     };
@@ -68,14 +70,17 @@ function TransactionCreateDialogContent({
     const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
       'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ));
+    const closeIndex = focusables.findIndex(
+      (element) => element.getAttribute("aria-label") === "Close Add transaction",
+    );
+    if (closeIndex > 0) focusables.unshift(...focusables.splice(closeIndex, 1));
     const index = focusables.indexOf(document.activeElement as HTMLElement);
-    if (!event.shiftKey && index === focusables.length - 1) {
-      event.preventDefault();
-      focusables[0]?.focus();
-    } else if (event.shiftKey && index === 0) {
-      event.preventDefault();
-      focusables.at(-1)?.focus();
-    }
+    if (index < 0) return;
+    event.preventDefault();
+    const nextIndex = event.shiftKey
+      ? (index - 1 + focusables.length) % focusables.length
+      : (index + 1) % focusables.length;
+    focusables[nextIndex]?.focus();
   }
 
   return (
@@ -90,17 +95,10 @@ function TransactionCreateDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Add transaction</h2>
-          <button
-            type="button"
-            aria-label="Close Add transaction"
-            disabled={pending}
-            onClick={onClose}
-          >
-            Close
-          </button>
         </header>
         <TransactionForm
           controller={controller}
+          onClose={onClose}
           onSaved={onClose}
           onPendingChange={setPending}
         />
