@@ -186,7 +186,10 @@ function drilldownRule(target: HealthReportDrilldown): PlannerFilterRule | null 
     ? []
     : Array.isArray(target.value) ? [...target.value] : [target.value];
   if (target.field === "tags") return targetRule(target.field, "multiSelect", "contains", value);
-  if (target.field === "medication_name") return targetRule(target.field, "text", "is", value);
+  if (target.field === "medication_name") {
+    const name = Array.isArray(target.value) ? target.value[0] ?? "" : target.value ?? "";
+    return targetRule(target.field, "text", "is", name);
+  }
   if (target.field === "bristol_scale") {
     return targetRule(target.field, "select", "is", ["1", "2", "6", "7"]);
   }

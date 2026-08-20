@@ -83,7 +83,7 @@ describe("Health report drilldowns", () => {
     [{ tab: "medication", range: { start: "2026-08-14", end: "2026-08-20" },
       field: "medication_name", value: "Vitamin D" },
     { id: "health-report-medication_name", field: "medication_name", type: "text",
-      operator: "is", value: ["Vitamin D"] }],
+      operator: "is", value: "Vitamin D" }],
     [{ tab: "bowel", range: { start: "2026-08-14", end: "2026-08-20" },
       field: "bristol_scale" },
     { id: "health-report-bristol_scale", field: "bristol_scale", type: "select",
@@ -128,9 +128,9 @@ describe("Health report drilldowns", () => {
         "health.diet", "health.bowel", "health.medication", "health.metrics",
       ] as const) {
         const normalized = normalizeHealthTableSettings(scope, settings);
-        if (scope !== expectedScope) {
-          expect(normalized.filterRules.map(({ field }) => field)).toEqual(["date"]);
-        }
+        expect(normalized.filterRules).toEqual(
+          scope === expectedScope ? settings.filterRules : [settings.filterRules[0]],
+        );
         expect(healthFilterFieldsForScope(scope).includes(targetField)).toBe(scope === expectedScope);
       }
     }
