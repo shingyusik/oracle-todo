@@ -56,6 +56,12 @@ describe("Health report ranges", () => {
     expect(resolveHealthReportRange({
       preset: "custom", from: "2024-02-29", to: "2025-03-01",
     })).toEqual({ ok: false, error: "range_too_long" });
+    expect(resolveHealthReportRange({
+      preset: "custom", from: "0000-01-01", to: "0000-01-01",
+    })).toEqual({ ok: false, error: "invalid_date" });
+    expect(resolveHealthReportRange({
+      preset: "custom", from: "0001-01-01", to: "0001-01-01",
+    })).toEqual({ ok: true, range: { start: "0001-01-01", end: "0001-01-01" } });
   });
 });
 
@@ -133,6 +139,39 @@ describe("Health report drilldowns", () => {
         );
         expect(healthFilterFieldsForScope(scope).includes(targetField)).toBe(scope === expectedScope);
       }
+    }
+  });
+
+  it("supports explicit date-only drilldowns", () => {
+    expect(applyHealthReportDrilldown(base, {
+      tab: "medication", range: { start: "2026-08-14", end: "2026-08-20" },
+    }).filterRules).toEqual([{
+      id: "health-report-date", field: "date", type: "date", operator: "is_between",
+      value: { start: "2026-08-14", end: "2026-08-20" },
+    }]);
+  });
+
+  it("rejects invalid drilldown combinations even when a caller bypasses TypeScript", () => {
+    const invalidField: HealthReportDrilldown = {
+      tab: "diet", range: { start: "2026-08-14", end: "2026-08-20" },
+      // @ts-expect-error Diet drilldowns cannot target metrics.
+      field: "crp",
+    };
+    // @ts-expect-error Targeted Diet drilldowns require a tag value.
+    const missingValue: HealthReportDrilldown = {
+      tab: "diet", range: { start: "2026-08-14", end: "2026-08-20" }, field: "tags",
+    };
+    // @ts-expect-error Date-only drilldowns cannot carry orphan values.
+    const orphanValue: HealthReportDrilldown = {
+      tab: "bowel", range: { start: "2026-08-14", end: "2026-08-20" }, value: "4",
+    };
+    const invalidTab: HealthReportDrilldown = {
+      // @ts-expect-error Health reports expose only Health workspace tabs.
+      tab: "ledger", range: { start: "2026-08-14", end: "2026-08-20" },
+    };
+
+    for (const target of [invalidField, missingValue, orphanValue, invalidTab]) {
+      expect(() => applyHealthReportDrilldown(base, target)).toThrow(TypeError);
     }
   });
 });

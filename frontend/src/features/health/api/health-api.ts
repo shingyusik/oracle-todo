@@ -181,8 +181,7 @@ export const healthApi = {
     return mapHealthTrends(await requestJson(apiPath(`${ROOT}/trends`, { days })));
   },
   async reports(query: { from: string; to: string }): Promise<HealthReport> {
-    const params = new URLSearchParams({ from: query.from, to: query.to });
-    return mapHealthReport(await requestJson(`${ROOT}/reports?${params}`));
+    return mapHealthReport(await requestJson(apiPath(`${ROOT}/reports`, query)));
   },
 };
 

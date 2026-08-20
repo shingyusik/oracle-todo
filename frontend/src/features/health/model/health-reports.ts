@@ -20,13 +20,20 @@ export type HealthReportSelection =
   | { preset: 7 | 14 | 30 | 90 }
   | { preset: "custom"; from: string; to: string };
 
-export type HealthReportDrilldown = {
-  tab: "diet" | "bowel" | "medication" | "health-metrics";
+type HealthReportDrilldownRange = {
   range: { start: string; end: string };
-  field?: "tags" | "medication_name" | "bristol_scale"
-    | "weight" | "sleep" | "crp" | "calprotectin" | "condition";
-  value?: string | string[];
 };
+type HealthMetricDrilldownField = "weight" | "sleep" | "crp" | "calprotectin" | "condition";
+export type HealthReportDrilldown = HealthReportDrilldownRange & (
+  | { tab: "diet"; field?: never; value?: never }
+  | { tab: "diet"; field: "tags"; value: string }
+  | { tab: "bowel"; field?: never; value?: never }
+  | { tab: "bowel"; field: "bristol_scale"; value?: never }
+  | { tab: "medication"; field?: never; value?: never }
+  | { tab: "medication"; field: "medication_name"; value: string }
+  | { tab: "health-metrics"; field?: never; value?: never }
+  | { tab: "health-metrics"; field: HealthMetricDrilldownField; value?: never }
+);
 
 export type HealthReportRangeResult =
   | { ok: true; range: { start: string; end: string } }
@@ -168,10 +175,21 @@ export function mapHealthReport(value: unknown): HealthReport {
       const row = record(value, "health report tag bowel response");
       const rate = finiteNumber(row.rate, "health report tag bowel response.rate");
       if (rate < 0 || rate > 1) throw new TypeError("invalid health report tag bowel response.rate");
+      const positiveMeals = u32(
+        row.positive_meals, "health report tag bowel response.positive_meals",
+      );
+      const eligibleMeals = u32(
+        row.eligible_meals, "health report tag bowel response.eligible_meals",
+      );
+      if (positiveMeals > eligibleMeals
+        || (eligibleMeals === 0 && rate !== 0)
+        || (eligibleMeals > 0 && Math.abs(rate - positiveMeals / eligibleMeals) > 1e-12)) {
+        throw new TypeError("invalid health report tag bowel response aggregate");
+      }
       return {
         tag: nonEmptyString(row.tag, "health report tag bowel response.tag"),
-        positiveMeals: u32(row.positive_meals, "health report tag bowel response.positive_meals"),
-        eligibleMeals: u32(row.eligible_meals, "health report tag bowel response.eligible_meals"),
+        positiveMeals,
+        eligibleMeals,
         rate,
       };
     }),
@@ -182,20 +200,35 @@ export function mapHealthReport(value: unknown): HealthReport {
 }
 
 function drilldownRule(target: HealthReportDrilldown): PlannerFilterRule | null {
-  const value = target.value === undefined
-    ? []
-    : Array.isArray(target.value) ? [...target.value] : [target.value];
-  if (target.field === "tags") return targetRule(target.field, "multiSelect", "contains", value);
-  if (target.field === "medication_name") {
-    const name = Array.isArray(target.value) ? target.value[0] ?? "" : target.value ?? "";
-    return targetRule(target.field, "text", "is", name);
+  const value = target as { tab: string; field?: string; value?: unknown };
+  if (!["diet", "bowel", "medication", "health-metrics"].includes(value.tab)) {
+    throw new TypeError("invalid health report drilldown");
   }
-  if (target.field === "bristol_scale") {
-    return targetRule(target.field, "select", "is", ["1", "2", "6", "7"]);
+  if (value.field === undefined) {
+    if (value.value !== undefined) throw new TypeError("invalid health report drilldown");
+    return null;
   }
-  if (target.field) return targetRule(target.field, "number", "is_not_empty", null);
-  return null;
+  if (value.tab === "diet" && value.field === "tags"
+    && typeof value.value === "string" && value.value.length > 0) {
+    return targetRule("tags", "multiSelect", "contains", [value.value]);
+  }
+  if (value.tab === "bowel" && value.field === "bristol_scale" && value.value === undefined) {
+    return targetRule("bristol_scale", "select", "is", ["1", "2", "6", "7"]);
+  }
+  if (value.tab === "medication" && value.field === "medication_name"
+    && typeof value.value === "string" && value.value.length > 0) {
+    return targetRule("medication_name", "text", "is", value.value);
+  }
+  if (value.tab === "health-metrics" && metricDrilldownFields.has(value.field)
+    && value.value === undefined) {
+    return targetRule(value.field as HealthMetricDrilldownField, "number", "is_not_empty", null);
+  }
+  throw new TypeError("invalid health report drilldown");
 }
+
+const metricDrilldownFields = new Set<string>([
+  "weight", "sleep", "crp", "calprotectin", "condition",
+]);
 
 function targetRule(
   field: PlannerFilterField,
@@ -230,12 +263,15 @@ function mapCountComparison(value: unknown) {
 
 function mapBowel(value: unknown) {
   const row = record(value, "health report bowel");
-  return {
+  const result = {
     currentCount: nullable(row.current_count, u32),
     previousCount: nullable(row.previous_count, u32),
     currentAverage: nullable(row.current_average, (item) => finiteNumber(item, "health report bowel.current_average")),
     previousAverage: nullable(row.previous_average, (item) => finiteNumber(item, "health report bowel.previous_average")),
   };
+  validBowelAggregate(result.currentCount, result.currentAverage);
+  validBowelAggregate(result.previousCount, result.previousAverage);
+  return result;
 }
 
 function mapNamedCount(value: unknown) {
@@ -273,7 +309,8 @@ function integer(value: unknown, field: string, min: number, max: number): numbe
 }
 
 function chronological<T extends { occurredAt: string }>(points: T[]): T[] {
-  if (points.some((point, index) => index > 0 && point.occurredAt < points[index - 1]!.occurredAt)) {
+  if (points.some((point, index) => index > 0
+    && Date.parse(point.occurredAt) < Date.parse(points[index - 1]!.occurredAt))) {
     throw new TypeError("invalid health report point order");
   }
   return points;
@@ -296,7 +333,14 @@ function validIsoDate(value: string): boolean {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
+}
+
+function validBowelAggregate(count: number | null, average: number | null): void {
+  if ((count === null) !== (average === null)
+    || (average !== null && (average < 1 || average > 7))) {
+    throw new TypeError("invalid health report bowel aggregate");
+  }
 }
 
 function calendarDay(value: string): number {
