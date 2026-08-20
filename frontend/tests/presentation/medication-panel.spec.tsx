@@ -942,28 +942,26 @@ describe("MedicationPanel", () => {
       .not.toBe(oldOccurrence);
   });
 
-  it("uses row-ID focus after a grouped unit and group-setting rerender changes occurrence", async () => {
+  it("uses row-ID focus when only the saved-view grouping changes the occurrence", async () => {
     const user = userEvent.setup();
-    const grouped = defaultHealthTableSettings("health.medication");
-    grouped.groupSettings = { ...grouped.groupSettings, groupBy: "medication_unit" };
-    const health = panelController(loadedState, grouped);
+    const health = panelController();
     const view = render(<MedicationPanelHarness controller={health} />);
     const origin = screen.getByRole("button", { name: /Open details for Vitamin D/ });
     const oldOccurrence = origin.dataset.medicationOccurrence;
+    expect(oldOccurrence).toBe("all-medication-1-0");
     await user.click(origin);
-    const tablet = { ...event, unit: "tablet",
-      attributes: { ...event.attributes, unit: "tablet" as const } };
-    const rerendered = { ...grouped, groupSettings: {
-      ...grouped.groupSettings, hideEmpty: !grouped.groupSettings.hideEmpty,
-    } };
-    view.rerender(<MedicationPanelHarness controller={panelController({
-      ...loadedState, medicationEntries: [tablet],
-    }, rerendered)} />);
+    const grouped = defaultHealthTableSettings("health.medication");
+    grouped.groupSettings = { ...grouped.groupSettings, groupBy: "medication_unit" };
+    view.rerender(<MedicationPanelHarness controller={panelController(loadedState, grouped)} />);
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    await waitFor(() => expect((document.activeElement as HTMLElement).dataset.medicationRowId)
-      .toBe(event.id));
+    const regrouped = await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    expect(regrouped.dataset.medicationOccurrence).toBe("mg-medication-1-0");
+    expect(regrouped.dataset.medicationOccurrence).not.toBe(oldOccurrence);
+    expect(document.querySelector(`[data-medication-occurrence="${oldOccurrence}"]`)).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(regrouped));
+    expect((document.activeElement as HTMLElement).dataset.medicationRowId).toBe(event.id);
     expect((document.activeElement as HTMLElement).dataset.medicationOccurrence)
-      .not.toBe(oldOccurrence);
+      .toBe("mg-medication-1-0");
   });
 
   it("exits a tombstoned open Medication detail and focuses Add", async () => {
