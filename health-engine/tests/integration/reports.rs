@@ -58,7 +58,15 @@ fn reports_validate_ranges_and_preserve_missing_values() {
         (None, None)
     );
     assert_eq!(report.medication_count.current, None);
-    assert!(report.metrics.iter().all(|metric| metric.current.is_none()));
+    assert_eq!(report.medication_count.previous, None);
+    assert_eq!(report.bowel.previous_count, None);
+    assert_eq!(report.bowel.previous_average, None);
+    assert!(
+        report
+            .metrics
+            .iter()
+            .all(|metric| metric.current.is_none() && metric.previous.is_none())
+    );
 }
 
 #[test]
@@ -165,6 +173,7 @@ fn bowel_responses_obey_boundaries_eligibility_and_ordering() {
             .collect::<Vec<_>>(),
         vec![
             ("alpha", 1, 1, 1.0),
+            ("incomplete", 0, 0, 0.0),
             ("shared", 2, 2, 1.0),
             ("zeta", 1, 1, 1.0)
         ]
@@ -175,7 +184,12 @@ fn bowel_responses_obey_boundaries_eligibility_and_ordering() {
 fn bowel_responses_classify_every_bristol_value_and_exact_window_edge() {
     let fixture = Fixture::new(UtcOffset::UTC);
     let mut service = fixture.service();
-    let instant = datetime!(2026-07-01 12:00 UTC);
+    for scale in 1..=7 {
+        let meal = datetime!(2026-07-01 12:00 UTC) + Duration::days(i64::from(scale - 1) * 2);
+        diet(&mut service, meal, &[&format!("scale_{scale}")]);
+        bowel(&mut service, meal + Duration::hours(1), scale);
+    }
+    let instant = datetime!(2026-07-16 12:00 UTC);
     diet(&mut service, instant, &["instant_or_after"]);
     bowel(&mut service, instant, 1);
     bowel(
@@ -183,30 +197,20 @@ fn bowel_responses_classify_every_bristol_value_and_exact_window_edge() {
         instant + Duration::hours(24) + Duration::nanoseconds(1),
         7,
     );
-    let after = datetime!(2026-07-03 12:00 UTC);
+    let after = datetime!(2026-07-19 12:00 UTC);
     diet(&mut service, after, &["after_start"]);
     bowel(&mut service, after + Duration::nanoseconds(1), 2);
-    let exact_end = datetime!(2026-07-05 12:00 UTC);
+    let exact_end = datetime!(2026-07-22 12:00 UTC);
     diet(&mut service, exact_end, &["exact_end"]);
     bowel(&mut service, exact_end + Duration::hours(24), 6);
-    let normal = datetime!(2026-07-07 12:00 UTC);
-    diet(&mut service, normal, &["normal"]);
-    for (hours, scale) in [(1, 3), (2, 4), (3, 5)] {
-        bowel(&mut service, normal + Duration::hours(hours), scale);
-    }
-    let abnormal = datetime!(2026-07-09 12:00 UTC);
-    diet(&mut service, abnormal, &["abnormal"]);
-    for (hours, scale) in [(1, 1), (2, 2), (3, 6), (4, 7)] {
-        bowel(&mut service, abnormal + Duration::hours(hours), scale);
-    }
 
     let report = service
         .reports_at(
             HealthReportRange {
                 from: date(1),
-                to: date(9),
+                to: date(23),
             },
-            datetime!(2026-07-11 00:00 UTC),
+            datetime!(2026-07-30 00:00 UTC),
         )
         .unwrap();
     assert_eq!(
@@ -216,12 +220,45 @@ fn bowel_responses_classify_every_bristol_value_and_exact_window_edge() {
             .map(|row| (row.tag.as_str(), row.positive_meals, row.eligible_meals))
             .collect::<Vec<_>>(),
         vec![
-            ("abnormal", 1, 1),
             ("after_start", 1, 1),
             ("exact_end", 1, 1),
             ("instant_or_after", 0, 1),
-            ("normal", 0, 1),
+            ("scale_1", 1, 1),
+            ("scale_2", 1, 1),
+            ("scale_3", 0, 1),
+            ("scale_4", 0, 1),
+            ("scale_5", 0, 1),
+            ("scale_6", 1, 1),
+            ("scale_7", 1, 1),
         ]
+    );
+}
+
+#[test]
+fn bowel_response_rate_uses_all_eligible_meals() {
+    let fixture = Fixture::new(UtcOffset::UTC);
+    let mut service = fixture.service();
+    let first = datetime!(2026-07-01 12:00 UTC);
+    diet(&mut service, first, &["rate"]);
+    bowel(&mut service, first + Duration::hours(1), 1);
+    diet(&mut service, first + Duration::days(3), &["rate"]);
+    let report = service
+        .reports_at(
+            HealthReportRange {
+                from: date(1),
+                to: date(4),
+            },
+            datetime!(2026-07-10 00:00 UTC),
+        )
+        .unwrap();
+    let response = &report.diet_tag_bowel_responses[0];
+    assert_eq!(
+        (
+            response.positive_meals,
+            response.eligible_meals,
+            response.rate
+        ),
+        (1, 2, 0.5)
     );
 }
 
@@ -229,11 +266,11 @@ fn bowel_responses_classify_every_bristol_value_and_exact_window_edge() {
 fn reports_use_historical_lookahead_active_rows_and_fixed_offset_dates() {
     let fixture = Fixture::new(UtcOffset::from_hms(9, 0, 0).unwrap());
     let mut service = fixture.service();
-    let meal = datetime!(2026-07-03 23:00 +09:00);
+    let meal = datetime!(2026-07-03 00:30 +09:00);
     diet(&mut service, meal, &["late"]);
     let archived_diet = diet(&mut service, meal, &["archived"]);
     service.archive_diet(archived_diet.id().as_str()).unwrap();
-    bowel(&mut service, meal + Duration::hours(23), 7);
+    bowel(&mut service, meal + Duration::hours(24), 7);
     let archived = medication(&mut service, datetime!(2026-07-03 15:30 UTC), "archived");
     service.archive_event(archived.id().as_str()).unwrap();
     let report = service
@@ -243,6 +280,76 @@ fn reports_use_historical_lookahead_active_rows_and_fixed_offset_dates() {
     assert_eq!(report.medication_count.current, None);
     assert_eq!(report.diet_tag_bowel_responses[0].positive_meals, 1);
     assert!(report.bowel_points.is_empty());
+}
+
+#[test]
+fn report_points_break_equal_instant_ties_by_id() {
+    let fixture = Fixture::new(UtcOffset::UTC);
+    let mut service = fixture.service();
+    let at = datetime!(2026-07-03 12:00 UTC);
+    let bowel_events = [
+        bowel_event(&mut service, at, 4),
+        bowel_event(&mut service, at, 6),
+    ];
+    let mut expected_bowel_ids = bowel_events.map(|event| event.id().as_str().to_string());
+    expected_bowel_ids.sort();
+
+    let connection = Connection::open(&fixture.database).unwrap();
+    connection
+        .execute_batch("DROP INDEX uq_health_daily_metric;")
+        .unwrap();
+    for (id, value) in [
+        ("00000000-0000-4000-8000-000000000002", 68.0),
+        ("00000000-0000-4000-8000-000000000001", 67.0),
+    ] {
+        let attributes = serde_json::json!({
+            "metric_key": "body_weight", "name": "Weight", "value": value, "unit": "kg"
+        })
+        .to_string();
+        connection
+            .execute(
+                "INSERT INTO health_events (
+                id, occurred_at, local_date, category, metric_key, name, value_num,
+                unit, attributes_json, daily_upsert, created_at, updated_at
+             ) VALUES (
+                ?1, '2026-07-03T09:00:00.000000000Z', '2026-07-03',
+                'weight', 'body_weight', 'Weight', ?2, 'kg', ?3, 1,
+                '2026-07-03T09:00:00.000000000Z', '2026-07-03T09:00:00.000000000Z'
+             )",
+                rusqlite::params![id, value, attributes],
+            )
+            .unwrap();
+    }
+    let report = service
+        .reports_at(range(3, 3), datetime!(2026-07-10 00:00 UTC))
+        .unwrap();
+    assert_eq!(
+        report
+            .bowel_points
+            .iter()
+            .map(|point| point.id.as_str())
+            .collect::<Vec<_>>(),
+        expected_bowel_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+    );
+    let weight = report
+        .metric_series
+        .iter()
+        .find(|series| series.metric == FixedMetric::BodyWeight)
+        .unwrap();
+    assert_eq!(
+        weight
+            .points
+            .iter()
+            .map(|point| point.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002"
+        ]
+    );
 }
 
 #[test]
@@ -389,11 +496,18 @@ fn event(
         .unwrap()
 }
 fn bowel(service: &mut Service, occurred_at: time::OffsetDateTime, scale: u8) {
+    bowel_event(service, occurred_at, scale);
+}
+fn bowel_event(
+    service: &mut Service,
+    occurred_at: time::OffsetDateTime,
+    scale: u8,
+) -> health_engine::domain::HealthEvent {
     event(
         service,
         occurred_at,
         HealthEventDetails::Bowel(BowelAttributes::new(scale, false).unwrap()),
-    );
+    )
 }
 fn medication(
     service: &mut Service,

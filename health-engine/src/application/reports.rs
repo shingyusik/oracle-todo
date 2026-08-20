@@ -67,6 +67,7 @@ pub enum FixedMetric {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MetricReading {
+    pub id: String,
     pub local_date: Date,
     #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: OffsetDateTime,
@@ -84,6 +85,7 @@ pub struct MetricSummary {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BowelPoint {
+    pub id: String,
     pub local_date: Date,
     #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: OffsetDateTime,
@@ -242,13 +244,18 @@ fn project(
         .iter()
         .map(|event| {
             Ok(BowelPoint {
+                id: event.id().as_str().to_string(),
                 local_date: checked_local_date(event.occurred_at(), offset)?,
                 occurred_at: event.occurred_at(),
                 bristol_scale: event.value_num().unwrap_or_default() as u8,
             })
         })
         .collect::<HealthResult<Vec<_>>>()?;
-    bowel_points.sort_by_key(|point| point.occurred_at);
+    bowel_points.sort_by(|left, right| {
+        left.occurred_at
+            .cmp(&right.occurred_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
     let mut metrics = Vec::new();
     let mut metric_series = Vec::new();
     for metric in FixedMetric::ALL {
@@ -351,6 +358,7 @@ fn reading(
     offset: time::UtcOffset,
 ) -> HealthResult<MetricReading> {
     Ok(MetricReading {
+        id: event.id().as_str().to_string(),
         local_date: checked_local_date(event.occurred_at(), offset)?,
         occurred_at: event.occurred_at(),
         value: event
@@ -419,6 +427,9 @@ fn responses(
         .collect::<Vec<_>>();
     let mut counts = BTreeMap::<String, (u32, u32)>::new();
     for diet in diets {
+        for tag in diet.tags() {
+            counts.entry(tag.clone()).or_default();
+        }
         let upper = diet
             .occurred_at()
             .checked_add(Duration::hours(24))
@@ -450,7 +461,11 @@ fn responses(
             tag,
             positive_meals,
             eligible_meals,
-            rate: f64::from(positive_meals) / f64::from(eligible_meals),
+            rate: if eligible_meals == 0 {
+                0.0
+            } else {
+                f64::from(positive_meals) / f64::from(eligible_meals)
+            },
         })
         .collect())
 }
