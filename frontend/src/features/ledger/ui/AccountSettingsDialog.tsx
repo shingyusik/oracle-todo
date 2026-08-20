@@ -280,19 +280,6 @@ function AccountSettingsDialogContent({
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
-    if (
-      (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
-      event.target instanceof HTMLElement &&
-      event.target.closest(".ledger-account-settings-row-actions")
-    ) {
-      event.preventDefault();
-      const index = tabs.findIndex(({ id }) => id === activeTab);
-      const offset = event.key === "ArrowRight" ? 1 : -1;
-      const next = tabs[(index + offset + tabs.length) % tabs.length]!;
-      selectTab(next.id);
-      document.getElementById(`${next.id}-tab`)?.focus();
-      return;
-    }
     if (event.key === "Escape") {
       event.preventDefault();
       if (!pending) onClose();
