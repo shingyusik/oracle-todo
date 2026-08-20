@@ -258,14 +258,17 @@ function mapReading(value: unknown): HealthReportReading {
 
 function mapCountComparison(value: unknown) {
   const row = record(value, "health report count comparison");
-  return { current: nullable(row.current, u32), previous: nullable(row.previous, u32) };
+  return {
+    current: nullable(row.current, positiveU32),
+    previous: nullable(row.previous, positiveU32),
+  };
 }
 
 function mapBowel(value: unknown) {
   const row = record(value, "health report bowel");
   const result = {
-    currentCount: nullable(row.current_count, u32),
-    previousCount: nullable(row.previous_count, u32),
+    currentCount: nullable(row.current_count, positiveU32),
+    previousCount: nullable(row.previous_count, positiveU32),
     currentAverage: nullable(row.current_average, (item) => finiteNumber(item, "health report bowel.current_average")),
     previousAverage: nullable(row.previous_average, (item) => finiteNumber(item, "health report bowel.previous_average")),
   };
@@ -278,7 +281,7 @@ function mapNamedCount(value: unknown) {
   const row = record(value, "health report named count");
   return {
     name: nonEmptyString(row.name, "health report named count.name"),
-    count: u32(row.count, "health report named count.count"),
+    count: positiveU32(row.count, "health report named count.count"),
   };
 }
 
@@ -302,6 +305,10 @@ function u32(value: unknown, field = "health report count"): number {
   return integer(value, field, 0, 4_294_967_295);
 }
 
+function positiveU32(value: unknown, field = "health report count"): number {
+  return integer(value, field, 1, 4_294_967_295);
+}
+
 function integer(value: unknown, field: string, min: number, max: number): number {
   const result = safeInteger(value, field);
   if (result < min || result > max) throw new TypeError(`invalid ${field}`);
@@ -319,7 +326,7 @@ function chronological<T extends { occurredAt: string }>(points: T[]): T[] {
 function wireDate(value: unknown, field: string): string {
   const parts = array(value, field);
   if (parts.length !== 2) throw new TypeError(`invalid ${field}`);
-  const year = integer(parts[0], field, 1, 9_999);
+  const year = integer(parts[0], field, 0, 9_999);
   const ordinal = integer(parts[1], field, 1, leapYear(year) ? 366 : 365);
   let month = 1;
   let day = ordinal;

@@ -112,6 +112,43 @@ describe("Health wire boundary", () => {
     expect(() => mapHealthReport(descending)).toThrow(TypeError);
   });
 
+  it("maps year-zero previous ranges and readings produced by a year-one request", () => {
+    const response = healthReportWire();
+    response.range = { from: [1, 1], to: [1, 1] };
+    response.previous_range = { from: [0, 366], to: [0, 366] };
+    response.metrics[0]!.current!.local_date = [1, 1];
+    response.metrics[0]!.previous!.local_date = [0, 366];
+
+    const report = mapHealthReport(response);
+
+    expect(report.range).toEqual({ from: "0001-01-01", to: "0001-01-01" });
+    expect(report.previousRange).toEqual({ from: "0000-12-31", to: "0000-12-31" });
+    expect(report.metrics[0]).toMatchObject({
+      current: { localDate: "0001-01-01" },
+      previous: { localDate: "0000-12-31" },
+    });
+  });
+
+  it.each([
+    ["diet_count", "current"],
+    ["diet_count", "previous"],
+    ["medication_count", "current"],
+    ["medication_count", "previous"],
+  ] as const)("rejects zero non-null report count comparisons", (comparison, side) => {
+    const response = healthReportWire();
+    Object.assign(response[comparison], { [side]: 0 });
+    expect(() => mapHealthReport(response)).toThrow(TypeError);
+  });
+
+  it.each(["medication_frequencies", "diet_tag_frequencies"] as const)(
+    "rejects zero named frequency counts",
+    (field) => {
+      const response = healthReportWire();
+      response[field] = [{ name: "fiber", count: 0 }];
+      expect(() => mapHealthReport(response)).toThrow(TypeError);
+    },
+  );
+
   it.each([
     [2, 1, 2],
     [0, 0, 0.1],
@@ -130,6 +167,7 @@ describe("Health wire boundary", () => {
     ["previous_count", "previous_average", 1, null],
     ["previous_count", "previous_average", null, 4],
     ["current_count", "current_average", 1, 8],
+    ["current_count", "current_average", 0, 4],
   ] as const)("rejects inconsistent bowel aggregates", (countField, averageField, count, average) => {
     const response = healthReportWire();
     Object.assign(response.bowel, { [countField]: count, [averageField]: average });
