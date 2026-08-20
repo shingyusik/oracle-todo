@@ -14,7 +14,9 @@ import {
 } from "@/features/workbench/model/planner-model";
 import type { TableViewSettingsAdapter } from "@/features/workbench/model/table-view-tabs";
 
-export const healthTableScopeIds = ["health.diet", "health.bowel", "health.medication"] as const;
+export const healthTableScopeIds = [
+  "health.diet", "health.bowel", "health.medication", "health.metrics",
+] as const;
 export type HealthTableScopeId = (typeof healthTableScopeIds)[number];
 
 export const healthDietFilterSelectOptions = {
@@ -63,6 +65,9 @@ const bowelFilterFields = [
 const medicationFilterFields = [
   "date", "medication_name", "medication_unit",
 ] as const satisfies readonly PlannerFilterField[];
+const metricsFields = [
+  "date", "weight", "sleep", "crp", "calprotectin", "condition",
+] as const satisfies readonly PlannerFilterField[];
 const dietSortFields = [
   "date", "meal_type", "food", "created", "updated",
 ] as const satisfies readonly PlannerSortBy[];
@@ -71,6 +76,9 @@ const bowelSortFields = [
 ] as const satisfies readonly PlannerSortBy[];
 const medicationSortFields = [
   "date", "medication_name", "dose", "created", "updated",
+] as const satisfies readonly PlannerSortBy[];
+const metricsSortFields = [
+  "date", "weight", "sleep", "crp", "calprotectin", "condition",
 ] as const satisfies readonly PlannerSortBy[];
 const dietGroupOptions = [
   { value: "none", label: "None" },
@@ -97,20 +105,28 @@ const medicationGroupOptions = [
   { value: "medication_name", label: "Medication" },
   { value: "medication_unit", label: "Unit" },
 ] as const satisfies readonly { value: PlannerGroupBy; label: string }[];
+const metricsGroupOptions = [
+  { value: "none", label: "None" },
+  { value: "month", label: "Month" },
+  { value: "week", label: "Week" },
+] as const satisfies readonly { value: PlannerGroupBy; label: string }[];
 
 export function healthFilterFieldsForScope(scope: HealthTableScopeId): readonly PlannerFilterField[] {
+  if (scope === "health.metrics") return metricsFields;
   if (scope === "health.bowel") return bowelFilterFields;
   if (scope === "health.medication") return medicationFilterFields;
   return dietFilterFields;
 }
 
 export function healthSortFieldsForScope(scope: HealthTableScopeId): readonly PlannerSortBy[] {
+  if (scope === "health.metrics") return metricsSortFields;
   if (scope === "health.bowel") return bowelSortFields;
   if (scope === "health.medication") return medicationSortFields;
   return dietSortFields;
 }
 
 export function healthGroupOptionsForScope(scope: HealthTableScopeId) {
+  if (scope === "health.metrics") return metricsGroupOptions;
   if (scope === "health.bowel") return bowelGroupOptions;
   if (scope === "health.medication") return medicationGroupOptions;
   return dietGroupOptions;

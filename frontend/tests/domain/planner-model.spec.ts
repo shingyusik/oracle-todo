@@ -288,6 +288,13 @@ describe("planner model", () => {
     expect(plannerFilterFieldTypes.medication_name).toBe("text");
     expect(plannerFilterFieldTypes.medication_unit).toBe("select");
     expect(plannerFilterFieldTypes.dose).toBe("number");
+    expect([
+      plannerFilterFieldTypes.weight,
+      plannerFilterFieldTypes.sleep,
+      plannerFilterFieldTypes.crp,
+      plannerFilterFieldTypes.calprotectin,
+      plannerFilterFieldTypes.condition,
+    ]).toEqual(["number", "number", "number", "number", "number"]);
     expect(plannerFilterFieldsForTable("weekly.week-goals")).toContain("horizon");
     expect(plannerFilterFieldsForTable("weekly.week-goals")).not.toContain("project");
     expect(plannerSortFieldsForTable("weekly.week-goals")).toContain("updated");

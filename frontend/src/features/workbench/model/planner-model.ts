@@ -34,6 +34,11 @@ export type PlannerFilterField =
   | "medication_name"
   | "medication_unit"
   | "dose"
+  | "weight"
+  | "sleep"
+  | "crp"
+  | "calprotectin"
+  | "condition"
   | "account"
   | "category"
   | "amount"
@@ -143,6 +148,11 @@ export const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterTy
   medication_name: "text",
   medication_unit: "select",
   dose: "number",
+  weight: "number",
+  sleep: "number",
+  crp: "number",
+  calprotectin: "number",
+  condition: "number",
   account: "relation",
   category: "relation",
   amount: "number",

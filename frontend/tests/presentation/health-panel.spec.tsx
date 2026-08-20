@@ -75,6 +75,31 @@ const medication: HealthEvent = {
   deletedAt: null,
 };
 
+const metric: HealthEvent = {
+  id: "weight-1",
+  occurredAt: "2026-07-30T03:00:00Z",
+  category: "weight",
+  metricKey: "body_weight",
+  name: "Body weight",
+  value: 72.5,
+  unit: "kg",
+  note: null,
+  attributes: { kind: "weight", metricKey: "body_weight", name: "Body weight", value: 72.5, unit: "kg" },
+  createdAt: "2026-07-30T03:00:00Z",
+  updatedAt: "2026-07-30T03:00:00Z",
+  deletedAt: null,
+};
+const metricSleep: HealthEvent = {
+  ...metric,
+  id: "sleep-1",
+  category: "sleep",
+  metricKey: "sleep_duration",
+  name: "Sleep",
+  value: 7.5,
+  unit: "hours",
+  attributes: { kind: "sleep", metricKey: "sleep_duration", name: "Sleep", hours: 7.5 },
+};
+
 const trends: HealthTrends = {
   days: 30,
   topDietTags: [{ name: "rice", count: 2 }],
@@ -109,6 +134,9 @@ const trends: HealthTrends = {
 };
 
 const loadedState: HealthState = {
+  metricsStatus: "loaded",
+  metricsError: null,
+  metricsEntries: [],
   medicationStatus: "loaded",
   medicationError: null,
   medicationEntries: [],
@@ -153,6 +181,7 @@ function controller(state: HealthState = loadedState): HealthController {
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshMetrics: vi.fn(),
     refreshMedication: vi.fn(),
     refreshBowel: vi.fn(),
     refreshDiet: vi.fn(),
@@ -169,6 +198,7 @@ function controller(state: HealthState = loadedState): HealthController {
     updateMedication: vi.fn(),
     archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(),
+    saveMetrics: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
     purge: vi.fn(),
@@ -696,6 +726,99 @@ describe("HealthPanel", () => {
       ...health.state, medicationEntries: [{ ...medication }], medicationError: null,
     } }} leafTabId="medication" />);
     await waitFor(() => expect(screen.getByText("Vitamin D")).toBeInTheDocument());
+  });
+
+  it("preserves committed Metrics member tombstones across Health leaf tabs", async () => {
+    const user = userEvent.setup();
+    const health = controller({ ...loadedState, metricsEntries: [metric, metricSleep] });
+    health.saveMetrics = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshMetrics = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const view = render(<HealthPanel controller={health} leafTabId="health-metrics" />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Select health metrics for 2026-07-30/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected health metrics entries" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("72.5 kg")).toBeNull());
+    expect(screen.queryByText("7.5 hours")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-07-30" } });
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText("Weight")).toHaveValue(null);
+    expect(screen.getByLabelText("Sleep")).toHaveValue(null);
+    await user.click(screen.getByRole("button", { name: "Close Add health metrics" }));
+
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, metricsStatus: "loading",
+    } }} leafTabId="health-metrics" />);
+    expect(screen.queryByText("72.5 kg")).toBeNull();
+    expect(screen.queryByText("7.5 hours")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, metricsError: "stale refresh error",
+    } }} leafTabId="health-metrics" />);
+    expect(screen.queryByText("72.5 kg")).toBeNull();
+    expect(screen.queryByText("7.5 hours")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+
+    view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
+    view.rerender(<HealthPanel controller={health} leafTabId="health-metrics" />);
+    expect(screen.queryByText("72.5 kg")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refreshMetrics).toHaveBeenCalledOnce();
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refreshMetrics).toHaveBeenCalledTimes(2);
+
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, metricsEntries: [metricSleep], metricsError: null,
+    } }} leafTabId="health-metrics" />);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText("72.5 kg")).toBeNull();
+    expect(screen.queryByText("7.5 hours")).toBeNull();
+
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, metricsEntries: [metric], metricsError: null,
+    } }} leafTabId="health-metrics" />);
+    await waitFor(() => expect(screen.getByText("72.5 kg")).toBeInTheDocument());
+    expect(screen.queryByText("7.5 hours")).toBeNull();
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, metricsEntries: [metric, metricSleep], metricsError: null,
+    } }} leafTabId="health-metrics" />);
+    await waitFor(() => expect(screen.getByText("72.5 kg")).toBeInTheDocument());
+    expect(screen.getByText("7.5 hours")).toBeInTheDocument();
+  });
+
+  it("locks Metrics refresh recovery and restores Add focus without repeating mutation", async () => {
+    const user = userEvent.setup();
+    const first = deferred<boolean>();
+    const second = deferred<boolean>();
+    const health = controller({ ...loadedState, metricsEntries: [metric, metricSleep] });
+    health.saveMetrics = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshMetrics = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    render(<HealthPanel controller={health} leafTabId="health-metrics" />);
+    await user.click(screen.getByRole("checkbox", { name: /Select health metrics for/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected health metrics entries" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    await user.click(retry);
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveFocus();
+    fireEvent.click(retry);
+    expect(health.refreshMetrics).toHaveBeenCalledOnce();
+    await act(async () => first.resolve(false));
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(retry).toHaveFocus();
+    await user.click(retry);
+    await act(async () => second.resolve(true));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(health.refreshMetrics).toHaveBeenCalledTimes(2);
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Add health metrics entry" })).toHaveFocus();
   });
 
   it("locks committed Medication refresh Retry and restores Add focus after recovery", async () => {

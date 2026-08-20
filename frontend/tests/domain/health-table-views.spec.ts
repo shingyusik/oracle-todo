@@ -90,7 +90,9 @@ describe("Health table views", () => {
   });
 
   it("defines the Diet scope controls and defaults", () => {
-    expect(healthTableScopeIds).toEqual(["health.diet", "health.bowel", "health.medication"]);
+    expect(healthTableScopeIds).toEqual([
+      "health.diet", "health.bowel", "health.medication", "health.metrics",
+    ]);
     expect(healthFilterFieldsForScope("health.diet")).toEqual([
       "date", "meal_type", "food", "tags", "has_photo",
     ]);
@@ -103,6 +105,24 @@ describe("Health table views", () => {
     expect(defaultHealthTableSettings("health.diet").sortRules).toEqual([{
       id: "health.diet-default-sort", field: "date", direction: "desc",
     }]);
+  });
+
+  it("defines exact Health Metrics controls without day grouping", () => {
+    expect(healthFilterFieldsForScope("health.metrics")).toEqual([
+      "date", "weight", "sleep", "crp", "calprotectin", "condition",
+    ]);
+    expect(healthSortFieldsForScope("health.metrics")).toEqual([
+      "date", "weight", "sleep", "crp", "calprotectin", "condition",
+    ]);
+    expect(healthGroupOptionsForScope("health.metrics").map(({ value }) => value)).toEqual([
+      "none", "month", "week",
+    ]);
+    expect(defaultHealthTableSettings("health.metrics").sortRules).toEqual([{
+      id: "health.metrics-default-sort", field: "date", direction: "desc",
+    }]);
+    expect(normalizeHealthTableSettings("health.metrics", {
+      groupSettings: { groupBy: "day" },
+    }).groupSettings.groupBy).toBe("none");
   });
 
   it("defines Medication controls, units, and defaults", () => {
@@ -213,6 +233,30 @@ describe("Health table views", () => {
     expect(normalizeLedgerTableSettings("ledger.transactions", healthOnly).groupSettings.groupBy)
       .toBe("none");
   });
+
+  it.each(["weight", "sleep", "crp", "calprotectin", "condition"] as const)(
+    "removes Metrics-only field %s from every other scope",
+    (field) => {
+      const candidate = {
+        filterRules: [{ id: field, field, type: "number", operator: "is_not_empty", value: null }],
+        sortRules: [{ id: field, field, direction: "asc" }],
+        groupSettings: { groupBy: "none" },
+      };
+      for (const scope of ["health.diet", "health.bowel", "health.medication"] as const) {
+        expect(normalizeHealthTableSettings(scope, candidate)).toMatchObject({
+          filterRules: [], sortRules: [], groupSettings: { groupBy: "none" },
+        });
+      }
+      expect(normalizeLedgerTableSettings("ledger.transactions", candidate)).toMatchObject({
+        filterRules: [], sortRules: [], groupSettings: { groupBy: "none" },
+      });
+      expect(normalizePlannerTableSettings("daily.today", candidate, legacyControls())).toMatchObject({
+        filterRules: [],
+        sortRules: [{ id: "daily.today-default-sort", field: "priority", direction: "asc" }],
+        groupSettings: { groupBy: "none" },
+      });
+    },
+  );
 
   it("rejects Health-only values during Planner legacy migration", () => {
     const legacy = legacyControls();

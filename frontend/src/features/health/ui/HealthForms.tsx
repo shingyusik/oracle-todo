@@ -10,9 +10,15 @@ import {
 import type {
   DietInput,
   EventInput,
+  HealthEvent,
   MealType,
   MedicationUnit,
 } from "@/features/health/model/health-model";
+import {
+  deriveHealthMetricsGroups,
+  type HealthMetricsRow,
+} from "@/features/health/model/health-metrics-table";
+import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
 const mealTypes: Array<{ value: MealType; label: string }> = [
@@ -37,6 +43,7 @@ type HealthFormProps = {
   controller: HealthController;
   onSaved?: () => void;
   onPendingChange?: (pending: boolean) => void;
+  onRecoveryChange?: (recovering: boolean) => void;
 };
 
 export function DietForm({
@@ -376,41 +383,101 @@ export function MedicationForm({
 
 export function MetricsForm({
   controller,
+  metricsEntries = controller.state.metricsEntries,
+  initialRow,
+  mode = "create",
   onSaved,
   onPendingChange,
-}: HealthFormProps) {
-  const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
+  onRecoveryChange,
+}: HealthFormProps & {
+  metricsEntries?: readonly HealthEvent[];
+  initialRow?: HealthMetricsRow;
+  mode?: "create" | "edit";
+}) {
+  const rows = React.useMemo(() => deriveHealthMetricsGroups(
+    metricsEntries,
+    defaultHealthTableSettings("health.metrics"),
+  ).flatMap((group) => group.rows), [metricsEntries]);
+  const [date, setDate] = useState(initialRow?.date ?? defaultLocalDate);
   const [weight, setWeight] = useState("");
   const [sleep, setSleep] = useState("");
+  const [crp, setCrp] = useState("");
+  const [calprotectin, setCalprotectin] = useState("");
   const [conditionScore, setConditionScore] = useState("");
   const [conditionNote, setConditionNote] = useState("");
-  const [labKey, setLabKey] = useState("");
-  const [labName, setLabName] = useState("");
-  const [labValue, setLabValue] = useState("");
-  const [labUnit, setLabUnit] = useState("");
+  const [refreshRecovery, setRefreshRecovery] = useState(false);
   const action = useFormAction(onPendingChange);
+  const selectedDateRef = useRef<string | null>(null);
+  const snapshotRef = useRef<HealthMetricsRow | undefined>(undefined);
+  const pristineRef = useRef(true);
+
+  React.useEffect(() => {
+    const row = rows.find((candidate) => candidate.date === date)
+      ?? (initialRow?.date === date ? initialRow : undefined);
+    const selectedNewDate = selectedDateRef.current !== date;
+    const receivedInitialRow = !snapshotRef.current && pristineRef.current && Boolean(row);
+    if ((!selectedNewDate && !receivedInitialRow) || action.pending || refreshRecovery) return;
+    selectedDateRef.current = date;
+    snapshotRef.current = row;
+    pristineRef.current = true;
+    setWeight(metricDraft(row?.weight));
+    setSleep(metricDraft(row?.sleep));
+    setCrp(metricDraft(row?.crp));
+    setCalprotectin(metricDraft(row?.calprotectin));
+    setConditionScore(metricDraft(row?.condition));
+    setConditionNote(row?.note ?? "");
+  }, [action.pending, date, initialRow, refreshRecovery, rows]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (refreshRecovery) return;
     await action.run(async () => {
-      const timestamp = localDateTimeToRfc3339(occurredAt);
+      const timestamp = localDateTimeToRfc3339(`${date}T12:00`);
+      const row = snapshotRef.current;
       const metrics: DailyMetricInput[] = [];
       if (weight !== "") {
         metrics.push({
           occurredAt: timestamp,
           details: { kind: "weight", value: positiveNumber(weight, "Weight"), unit: "kg" },
+          ...(row?.events.weight
+            ? { expectedUpdatedAt: row.events.weight.updatedAt }
+            : {}),
         });
       }
       if (sleep !== "") {
-        const hours = positiveNumber(sleep, "Sleep hours");
-        if (hours > 24) throw new Error("Sleep hours must not exceed 24");
+        const hours = positiveNumber(sleep, "Sleep");
+        if (hours > 24) throw new Error("Sleep must not exceed 24");
         metrics.push({
           occurredAt: timestamp,
           details: { kind: "sleep", value: hours },
+          ...(row?.events.sleep
+            ? { expectedUpdatedAt: row.events.sleep.updatedAt }
+            : {}),
         });
       }
-      if (conditionNote.trim() && conditionScore === "") {
-        throw new Error("Overall condition requires a score");
+      if (crp !== "") {
+        metrics.push({
+          occurredAt: timestamp,
+          details: {
+            kind: "lab", key: "crp", name: "CRP",
+            value: nonNegativeNumber(crp, "CRP"), unit: "mg/L",
+          },
+          ...(row?.events.crp
+            ? { expectedUpdatedAt: row.events.crp.updatedAt }
+            : {}),
+        });
+      }
+      if (calprotectin !== "") {
+        metrics.push({
+          occurredAt: timestamp,
+          details: {
+            kind: "lab", key: "fecal_calprotectin", name: "Fecal calprotectin",
+            value: nonNegativeNumber(calprotectin, "Calprotectin"), unit: "µg/g",
+          },
+          ...(row?.events.calprotectin
+            ? { expectedUpdatedAt: row.events.calprotectin.updatedAt }
+            : {}),
+        });
       }
       if (conditionScore !== "") {
         const score = integerInRange(
@@ -426,43 +493,41 @@ export function MetricsForm({
             score,
             conditionNote: nullable(conditionNote),
           },
-        });
-      }
-      const hasAnyLabValue =
-        Boolean(labKey.trim() || labName.trim() || labValue || labUnit.trim());
-      if (hasAnyLabValue) {
-        const key = labKey.trim();
-        const name = labName.trim();
-        if (!key || !name || labValue === "") {
-          throw new Error("Lab requires metric key, name, and value");
-        }
-        if (!/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(key)) {
-          throw new Error("Lab metric key must use lower snake case");
-        }
-        const value = finiteNumericValue(labValue, "Lab value");
-        metrics.push({
-          occurredAt: timestamp,
-          details: {
-            kind: "lab",
-            key,
-            name,
-            value,
-            unit: nullable(labUnit),
-          },
+          ...(row?.events.condition
+            ? { expectedUpdatedAt: row.events.condition.updatedAt }
+            : {}),
         });
       }
       if (metrics.length === 0) throw new Error("Enter at least one daily metric");
-      await controller.upsertMetrics(metrics);
+      try {
+        await controller.saveMetrics({ metrics, archives: [] });
+      } catch (cause) {
+        if (cause instanceof HealthMutationRefreshError) {
+          if (action.isMounted()) {
+            setRefreshRecovery(true);
+            onRecoveryChange?.(true);
+          }
+          return;
+        }
+        throw cause;
+      }
       if (!action.isMounted()) return;
       setWeight("");
       setSleep("");
+      setCrp("");
+      setCalprotectin("");
       setConditionScore("");
       setConditionNote("");
-      setLabKey("");
-      setLabName("");
-      setLabValue("");
-      setLabUnit("");
       onSaved?.();
+    });
+  }
+
+  async function retryRefresh() {
+    await action.run(async () => {
+      if (await controller.refreshMetrics() && action.isMounted()) {
+        onRecoveryChange?.(false);
+        onSaved?.();
+      }
     });
   }
 
@@ -472,94 +537,107 @@ export function MetricsForm({
       onSubmit={(event) => void submit(event)}
       aria-label="Daily metrics"
     >
+      <fieldset disabled={refreshRecovery || action.pending}>
       <label className="field-label">
-        Occurred at
+        Date
         <input
-          type="datetime-local"
-          value={occurredAt}
-          onChange={(event) => setOccurredAt(event.target.value)}
+          type="date"
+          value={date}
+          onChange={(event) => setDate(event.target.value)}
           required
         />
       </label>
-      <fieldset>
-        <legend>Weight</legend>
-        <label className="field-label">
+      <label className="field-label">
           Weight
           <input
             type="number"
             min={Number.MIN_VALUE}
             step="any"
             value={weight}
-            onChange={(event) => setWeight(event.target.value)}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setWeight(event.target.value);
+            }}
           />
-        </label>
-        <p>Unit: kg</p>
-      </fieldset>
-      <fieldset>
-        <legend>Sleep</legend>
-        <label className="field-label">
-          Sleep hours
+      </label>
+      <label className="field-label">
+          Sleep
           <input
             type="number"
             min={Number.MIN_VALUE}
             max="24"
             step="any"
             value={sleep}
-            onChange={(event) => setSleep(event.target.value)}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setSleep(event.target.value);
+            }}
           />
-        </label>
-      </fieldset>
-      <fieldset>
-        <legend>Overall condition</legend>
-        <label className="field-label">
-          Overall condition score
+      </label>
+      <label className="field-label">
+          CRP
           <input
             type="number"
-            min="1"
-            max="10"
-            step="1"
-            value={conditionScore}
-            onChange={(event) => setConditionScore(event.target.value)}
+            min="0"
+            step="any"
+            value={crp}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setCrp(event.target.value);
+            }}
           />
-        </label>
-        <label className="field-label">
-          Condition note
+      </label>
+      <label className="field-label">
+          Calprotectin
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={calprotectin}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setCalprotectin(event.target.value);
+            }}
+          />
+      </label>
+      <label className="field-label">
+          Condition
+          <select
+            value={conditionScore}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setConditionScore(event.target.value);
+              if (!event.target.value) setConditionNote("");
+            }}
+          >
+            <option value="">None</option>
+            {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+      </label>
+      <label className="field-label">
+          Note
           <textarea
             value={conditionNote}
-            onChange={(event) => setConditionNote(event.target.value)}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setConditionNote(event.target.value);
+            }}
+            disabled={!conditionScore}
           />
-        </label>
-      </fieldset>
-      <fieldset>
-        <legend>Lab</legend>
-        <label className="field-label">
-          Lab metric key
-          <input
-            pattern="[a-z][a-z0-9]*(?:_[a-z0-9]+)*"
-            value={labKey}
-            onChange={(event) => setLabKey(event.target.value)}
-          />
-        </label>
-        <label className="field-label">
-          Lab name
-          <input value={labName} onChange={(event) => setLabName(event.target.value)} />
-        </label>
-        <label className="field-label">
-          Lab value
-          <input
-            type="number"
-            step="any"
-            value={labValue}
-            onChange={(event) => setLabValue(event.target.value)}
-          />
-        </label>
-        <label className="field-label">
-          Lab unit
-          <input value={labUnit} onChange={(event) => setLabUnit(event.target.value)} />
-        </label>
-      </fieldset>
+      </label>
       <FormResult action={action} />
-      <button type="submit" disabled={action.pending}>Save daily metrics</button>
+      <button type="submit" disabled={action.pending}>
+        {mode === "create" ? "Save daily metrics" : "Save health metrics"}
+      </button>
+      </fieldset>
+      {refreshRecovery ? <div className="items-message">
+        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
+          Retry refresh
+        </button>
+      </div> : null}
     </form>
   );
 }
@@ -619,6 +697,14 @@ function defaultLocalDateTime(): string {
   return local.toISOString().slice(0, 16);
 }
 
+function defaultLocalDate(): string {
+  return defaultLocalDateTime().slice(0, 10);
+}
+
+function metricDraft(value: number | null | undefined): string {
+  return value === null || value === undefined ? "" : String(value);
+}
+
 export function localDateTimeToRfc3339(value: string): string {
   const match = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value);
   if (!match) throw new Error("Time must be a valid local date and time");
@@ -646,6 +732,12 @@ export function localDateTimeToRfc3339(value: string): string {
 function positiveNumber(value: string, field: string): number {
   const result = finiteNumericValue(value, field);
   if (result <= 0) throw new Error(`${field} must be greater than zero`);
+  return result;
+}
+
+function nonNegativeNumber(value: string, field: string): number {
+  const result = finiteNumericValue(value, field);
+  if (result < 0) throw new Error(`${field} must not be negative`);
   return result;
 }
 

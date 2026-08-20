@@ -11,17 +11,21 @@ import type {
   HealthState,
 } from "@/features/health/hooks/useHealthController";
 import { HealthMutationRefreshError } from "@/features/health/hooks/useHealthController";
+import type { HealthEvent } from "@/features/health/model/health-model";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { BowelCreateDialog } from "@/features/health/ui/BowelCreateDialog";
 import { BowelPanel } from "@/features/health/ui/BowelPanel";
 import { DietPanel } from "@/features/health/ui/DietPanel";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
-import { HealthMetricsPanel } from "@/features/health/ui/HealthMetricsPanel";
+import { HealthMetricsCreateDialog } from "@/features/health/ui/HealthMetricsCreateDialog";
 import { MedicationPanel } from "@/features/health/ui/MedicationPanel";
 import { MedicationCreateDialog } from "@/features/health/ui/MedicationCreateDialog";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
 
 const loadedState: HealthState = {
+  metricsStatus: "loaded",
+  metricsError: null,
+  metricsEntries: [],
   medicationStatus: "loaded",
   medicationError: null,
   medicationEntries: [],
@@ -73,6 +77,7 @@ function controller(
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshMetrics: vi.fn(),
     refreshMedication: vi.fn(),
     refreshBowel: vi.fn(),
     refreshDiet: vi.fn(),
@@ -89,6 +94,7 @@ function controller(
     updateMedication: vi.fn(),
     archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(),
+    saveMetrics: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
     purge: vi.fn(),
@@ -181,6 +187,81 @@ function MedicationDialogLifecycleHarness({
     <button ref={returnFocusRef}>Add medication lifecycle</button>
     {open ? <MedicationCreateDialog
       controller={health}
+      onClose={vi.fn()}
+      returnFocusRef={returnFocusRef}
+    /> : null}
+  </main>;
+}
+
+function metricEvent(
+  id: string,
+  occurredAt: string,
+  field: "weight" | "sleep" | "crp" | "calprotectin" | "condition",
+  value: number,
+  updatedAt = occurredAt,
+): HealthEvent {
+  const fixed = {
+    weight: ["weight", "body_weight", "Body weight", "kg"],
+    sleep: ["sleep", "sleep_duration", "Sleep", "hours"],
+    crp: ["lab", "crp", "CRP", "mg/L"],
+    calprotectin: ["lab", "fecal_calprotectin", "Fecal calprotectin", "µg/g"],
+    condition: ["symptom", "overall_condition", "Overall condition", null],
+  } as const;
+  const [category, metricKey, name, unit] = fixed[field];
+  let attributes: HealthEvent["attributes"];
+  if (field === "weight") {
+    attributes = { kind: "weight", metricKey, name, value, unit: unit! };
+  } else if (field === "sleep") {
+    attributes = { kind: "sleep", metricKey, name, hours: value };
+  } else if (field === "condition") {
+    attributes = { kind: "symptom", metricKey, name, score: value, conditionNote: "Stable" };
+  } else {
+    attributes = { kind: "lab", metricKey, name, value, unit: unit! };
+  }
+  return {
+    id, occurredAt, category, metricKey, name, value, unit,
+    note: null, attributes, createdAt: occurredAt, updatedAt, deletedAt: null,
+  };
+}
+
+function MetricsDialogHarness({
+  health,
+  onClose = vi.fn(),
+}: {
+  health: HealthController;
+  onClose?: () => void;
+}) {
+  const [open, setOpen] = React.useState(true);
+  const returnFocusRef = React.useRef<HTMLButtonElement>(null);
+  return <>
+    <main data-testid="metrics-dialog-background">
+      <button ref={returnFocusRef}>Add health metrics</button>
+    </main>
+    {open ? <HealthMetricsCreateDialog
+      controller={health}
+      metricsEntries={health.state.metricsEntries}
+      onClose={() => {
+        onClose();
+        setOpen(false);
+      }}
+      returnFocusRef={returnFocusRef}
+    /> : null}
+  </>;
+}
+
+function MetricsDialogLifecycleHarness({
+  health,
+  open,
+}: {
+  health: HealthController;
+  open: boolean;
+}) {
+  const returnFocusRef = React.useRef<HTMLButtonElement>(null);
+  return <main>
+    <button ref={returnFocusRef}>Add metrics lifecycle</button>
+    {open ? <HealthMetricsCreateDialog
+      controller={health}
+      metricsEntries={health.state.metricsEntries}
       onClose={vi.fn()}
       returnFocusRef={returnFocusRef}
     /> : null}
@@ -1198,45 +1279,316 @@ describe("Health Journal forms", () => {
     }));
   });
 
-  it("batches weight, sleep, overall condition, and lab daily metrics", async () => {
-    const user = userEvent.setup();
+  it("renders fixed Health Metrics fields in order and submits the exact daily payload", async () => {
     const health = controller();
-    render(<HealthMetricsPanel controller={health} />);
+    render(<MetricsDialogHarness health={health} />);
+    const form = screen.getByRole("form", { name: "Daily metrics" });
+    const controls = ["Date", "Weight", "Sleep", "CRP", "Calprotectin", "Condition", "Note"]
+      .map((label) => within(form).getByLabelText(label));
+    for (let index = 1; index < controls.length; index += 1) {
+      expect(controls[index - 1].compareDocumentPosition(controls[index]) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+    }
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-19" } });
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68.2" } });
+    fireEvent.change(screen.getByLabelText("Sleep"), { target: { value: "7.5" } });
+    fireEvent.change(screen.getByLabelText("CRP"), { target: { value: "0.4" } });
+    fireEvent.change(screen.getByLabelText("Calprotectin"), { target: { value: "80" } });
+    fireEvent.change(screen.getByLabelText("Condition"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "  Good  " } });
+    fireEvent.submit(form);
+    const occurredAt = new Date(2026, 7, 19, 12).toISOString();
+    await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledWith({
+      metrics: [
+        { occurredAt, details: { kind: "weight", value: 68.2, unit: "kg" } },
+        { occurredAt, details: { kind: "sleep", value: 7.5 } },
+        { occurredAt, details: { kind: "lab", key: "crp", name: "CRP", value: 0.4, unit: "mg/L" } },
+        { occurredAt, details: { kind: "lab", key: "fecal_calprotectin", name: "Fecal calprotectin", value: 80, unit: "µg/g" } },
+        { occurredAt, details: { kind: "overall_condition", score: 8, conditionNote: "Good" } },
+      ],
+      archives: [],
+    }));
+  });
 
-    await user.type(screen.getByLabelText("Weight"), "72.5");
-    await user.type(screen.getByLabelText("Sleep hours"), "7.25");
-    await user.type(screen.getByLabelText("Overall condition score"), "3");
-    await user.type(screen.getByLabelText("Condition note"), "Mild headache");
-    await user.type(screen.getByLabelText("Lab metric key"), "fasting_glucose");
-    await user.type(screen.getByLabelText("Lab name"), "Fasting glucose");
-    await user.type(screen.getByLabelText("Lab value"), "92.4");
-    await user.type(screen.getByLabelText("Lab unit"), "mg/dL");
-    await user.click(screen.getByRole("button", { name: "Save daily metrics" }));
+  it("defaults Health Metrics to the local date and preloads another date with optimistic timestamps", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 20, 23, 30));
+    const first = metricEvent("weight-1", new Date(2026, 7, 18, 12).toISOString(), "weight", 67.1, "2026-08-18T04:00:00.000Z");
+    const second = metricEvent("weight-2", new Date(2026, 7, 19, 12).toISOString(), "weight", 68.2, "2026-08-19T04:00:00.000Z");
+    const health = controller({ state: { ...loadedState, metricsEntries: [first, second] } });
+    try {
+      render(<MetricsDialogHarness health={health} />);
+      expect(screen.getByLabelText("Date")).toHaveValue("2026-08-20");
+      fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-18" } });
+      await act(async () => Promise.resolve());
+      expect(screen.getByLabelText("Weight")).toHaveValue(67.1);
+      fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-19" } });
+      await act(async () => Promise.resolve());
+      expect(screen.getByLabelText("Weight")).toHaveValue(68.2);
+      fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+      await act(async () => Promise.resolve());
+      expect(health.saveMetrics).toHaveBeenCalledWith({
+        metrics: [{
+          occurredAt: new Date(2026, 7, 19, 12).toISOString(),
+          details: { kind: "weight", value: 68.2, unit: "kg" },
+          expectedUpdatedAt: "2026-08-19T04:00:00.000Z",
+        }],
+        archives: [],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-    expect(health.upsertMetrics).toHaveBeenCalledWith([
-      expect.objectContaining({
-        details: { kind: "weight", value: 72.5, unit: "kg" },
-      }),
-      expect.objectContaining({
-        details: { kind: "sleep", value: 7.25 },
-      }),
-      expect.objectContaining({
-        details: {
-          kind: "overall_condition",
-          score: 3,
-          conditionNote: "Mild headache",
-        },
-      }),
-      expect.objectContaining({
-        details: {
-          kind: "lab",
-          key: "fasting_glucose",
-          name: "Fasting glucose",
-          value: 92.4,
-          unit: "mg/dL",
-        },
-      }),
-    ]);
+  it("keeps the selected-date draft and original optimistic token across background refresh", async () => {
+    const date = "2026-08-18";
+    const occurredAt = new Date(2026, 7, 18, 12).toISOString();
+    const original = metricEvent("weight-1", occurredAt, "weight", 67.1, "2026-08-18T04:00:00.000Z");
+    const refreshed = metricEvent("weight-1", occurredAt, "weight", 72.4, "2026-08-18T05:00:00.000Z");
+    const initial = controller({ state: { ...loadedState, metricsEntries: [original] } });
+    const latest = controller({ state: { ...loadedState, metricsEntries: [refreshed] } });
+    const view = render(<MetricsDialogHarness health={initial} />);
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: date } });
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText("Weight")).toHaveValue(67.1);
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68.2" } });
+
+    view.rerender(<MetricsDialogHarness health={latest} />);
+    expect(screen.getByLabelText("Weight")).toHaveValue(68.2);
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    await waitFor(() => expect(latest.saveMetrics).toHaveBeenCalledWith({
+      metrics: [{
+        occurredAt,
+        details: { kind: "weight", value: 68.2, unit: "kg" },
+        expectedUpdatedAt: "2026-08-18T04:00:00.000Z",
+      }],
+      archives: [],
+    }));
+  });
+
+  it("hydrates a late selected-date row once while pristine, then preserves edits", async () => {
+    const date = "2026-08-18";
+    const occurredAt = new Date(2026, 7, 18, 12).toISOString();
+    const loaded = metricEvent("weight-1", occurredAt, "weight", 67.1, "2026-08-18T04:00:00.000Z");
+    const refreshed = metricEvent("weight-1", occurredAt, "weight", 72.4, "2026-08-18T05:00:00.000Z");
+    const empty = controller();
+    const firstLoad = controller({ state: { ...loadedState, metricsEntries: [loaded] } });
+    const latest = controller({ state: { ...loadedState, metricsEntries: [refreshed] } });
+    const view = render(<MetricsDialogHarness health={empty} />);
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: date } });
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText("Weight")).toHaveValue(null);
+    view.rerender(<MetricsDialogHarness health={firstLoad} />);
+    await waitFor(() => expect(screen.getByLabelText("Weight")).toHaveValue(67.1));
+
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68.2" } });
+    view.rerender(<MetricsDialogHarness health={latest} />);
+    expect(screen.getByLabelText("Weight")).toHaveValue(68.2);
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    await waitFor(() => expect(latest.saveMetrics).toHaveBeenCalledWith({
+      metrics: [{
+        occurredAt,
+        details: { kind: "weight", value: 68.2, unit: "kg" },
+        expectedUpdatedAt: "2026-08-18T04:00:00.000Z",
+      }],
+      archives: [],
+    }));
+  });
+
+  it("uses the browser-local date on both sides of local midnight", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-20T06:59:59.000Z"));
+      const beforeMidnight = render(<MetricsDialogHarness health={controller()} />);
+      expect(screen.getByLabelText("Date")).toHaveValue("2026-08-19");
+      beforeMidnight.unmount();
+
+      vi.setSystemTime(new Date("2026-08-20T07:00:00.000Z"));
+      render(<MetricsDialogHarness health={controller()} />);
+      expect(screen.getByLabelText("Date")).toHaveValue("2026-08-20");
+    } finally {
+      vi.useRealTimers();
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
+  it("portals and isolates Health Metrics, wraps focus, closes only while idle, and restores focus", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const view = render(<MetricsDialogHarness health={controller()} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog", { name: "Add health metrics" });
+    const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
+    expect(host?.parentElement).toBe(document.body);
+    expect(view.container).toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(screen.getByLabelText("Date")).toHaveFocus();
+    const close = screen.getByRole("button", { name: "Close Add health metrics" });
+    const save = screen.getByRole("button", { name: "Save daily metrics" });
+    close.focus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(save).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Add health metrics" })).toHaveFocus();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes Health Metrics from an idle backdrop click", () => {
+    const onClose = vi.fn();
+    render(<MetricsDialogHarness health={controller()} onClose={onClose} />);
+    const backdrop = screen.getByRole("dialog", { name: "Add health metrics" }).parentElement!;
+    fireEvent.mouseDown(backdrop);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Add health metrics" })).not.toBeInTheDocument();
+  });
+
+  it("restores preexisting isolation state across Health Metrics StrictMode mounts", () => {
+    const previousOverflow = document.body.style.overflow;
+    const external = document.createElement("aside");
+    document.body.append(external);
+    document.body.style.overflow = "scroll";
+    const health = controller();
+    const view = render(
+      <React.StrictMode>
+        <MetricsDialogLifecycleHarness health={health} open={false} />
+      </React.StrictMode>,
+    );
+    view.container.setAttribute("aria-hidden", "false");
+    view.container.setAttribute("inert", "existing");
+
+    try {
+      view.rerender(
+        <React.StrictMode>
+          <MetricsDialogLifecycleHarness health={health} open />
+        </React.StrictMode>,
+      );
+      expect(document.querySelectorAll("[data-raven-modal-host]")).toHaveLength(1);
+      expect(view.container).toHaveAttribute("aria-hidden", "true");
+      expect(view.container).toHaveAttribute("inert", "");
+      expect(external).toHaveAttribute("aria-hidden", "true");
+      expect(external).toHaveAttribute("inert", "");
+      expect(document.body.style.overflow).toBe("hidden");
+
+      view.rerender(
+        <React.StrictMode>
+          <MetricsDialogLifecycleHarness health={health} open={false} />
+        </React.StrictMode>,
+      );
+      expect(document.querySelectorAll("[data-raven-modal-host]")).toHaveLength(0);
+      expect(view.container).toHaveAttribute("aria-hidden", "false");
+      expect(view.container).toHaveAttribute("inert", "existing");
+      expect(external).not.toHaveAttribute("aria-hidden");
+      expect(external).not.toHaveAttribute("inert");
+      expect(document.body.style.overflow).toBe("scroll");
+    } finally {
+      view.unmount();
+      external.remove();
+      document.body.style.overflow = previousOverflow;
+    }
+  });
+
+  it("blocks Health Metrics duplicate submission and dismissal synchronously while pending", async () => {
+    const save = deferred<void>();
+    const onClose = vi.fn();
+    const health = controller({ saveMetrics: vi.fn(() => save.promise) });
+    render(<MetricsDialogHarness health={health} onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68" } });
+    const form = screen.getByRole("form", { name: "Daily metrics" });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    const dialog = screen.getByRole("dialog", { name: "Add health metrics" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.mouseDown(dialog.parentElement!);
+    fireEvent.click(screen.getByRole("button", { name: "Close Add health metrics" }));
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(dialog).toHaveAttribute("aria-busy", "true");
+    expect(dialog).toHaveFocus();
+    save.resolve();
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it("retains Health Metrics fields after an ordinary failure", async () => {
+    const health = controller({ saveMetrics: vi.fn().mockRejectedValue(new Error("Metrics save failed")) });
+    render(<MetricsDialogHarness health={health} />);
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68.2" } });
+    fireEvent.change(screen.getByLabelText("Condition"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Keep this" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Metrics save failed");
+    expect(screen.getByLabelText("Weight")).toHaveValue(68.2);
+    expect(screen.getByLabelText("Condition")).toHaveValue("8");
+    expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
+    expect(screen.getByLabelText("Weight")).toBeEnabled();
+  });
+
+  it("freezes committed Health Metrics and retries reads without saving again", async () => {
+    const retry = deferred<boolean>();
+    const onClose = vi.fn();
+    const health = controller({
+      saveMetrics: vi.fn().mockRejectedValue(new HealthMutationRefreshError()),
+      refreshMetrics: vi.fn().mockResolvedValueOnce(false).mockImplementationOnce(() => retry.promise),
+    });
+    render(<MetricsDialogHarness health={health} onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes were saved, but Health could not refresh.");
+    expect(screen.getByLabelText("Weight")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close Add health metrics" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Add health metrics" }), { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
+    expect(health.refreshMetrics).toHaveBeenCalledTimes(2);
+    retry.resolve(true);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
+  });
+
+  it("settles a Health Metrics refresh retry safely after unmount", async () => {
+    const retry = deferred<boolean>();
+    const onClose = vi.fn();
+    const health = controller({
+      saveMetrics: vi.fn().mockRejectedValue(new HealthMutationRefreshError()),
+      refreshMetrics: vi.fn(() => retry.promise),
+    });
+    const view = render(<MetricsDialogHarness health={health} onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Retry refresh" }));
+    view.unmount();
+    await act(async () => { retry.resolve(true); await retry.promise; });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("renders the Health Metrics dialog without browser globals on the server", () => {
+    const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const consoleError = vi.spyOn(console, "error");
+    Object.defineProperty(globalThis, "document", { configurable: true, value: undefined });
+    Object.defineProperty(globalThis, "window", { configurable: true, value: undefined });
+    try {
+      expect(renderToString(<HealthMetricsCreateDialog
+        controller={controller()}
+        metricsEntries={[]}
+        onClose={vi.fn()}
+        returnFocusRef={React.createRef<HTMLButtonElement>()}
+      />)).toBe("");
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
+      if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+      consoleError.mockRestore();
+    }
   });
 
   it("rejects non-positive medication doses before the controller call", async () => {
@@ -1258,57 +1610,90 @@ describe("Health Journal forms", () => {
     expect(screen.getByLabelText("Dose")).toHaveValue(0);
   });
 
-  it("rejects partial daily groups without losing valid or invalid inputs", async () => {
+  it("validates fixed Health Metrics values and keeps the draft", async () => {
     const health = controller();
-    render(<HealthMetricsPanel controller={health} />);
-
-    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "72.5" } });
-    fireEvent.change(screen.getByLabelText("Condition note"), {
-      target: { value: "Tired" },
-    });
-    fireEvent.change(screen.getByLabelText("Lab metric key"), {
-      target: { value: "fasting_glucose" },
-    });
+    render(<MetricsDialogHarness health={health} />);
+    fireEvent.change(screen.getByLabelText("Sleep"), { target: { value: "25" } });
     fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Overall condition requires a score",
-    );
-    expect(health.upsertMetrics).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Weight")).toHaveValue(72.5);
-    expect(screen.getByLabelText("Condition note")).toHaveValue("Tired");
-    expect(screen.getByLabelText("Lab metric key")).toHaveValue("fasting_glucose");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sleep must not exceed 24");
+    expect(health.saveMetrics).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Sleep")).toHaveValue(25);
   });
 
   it.each([
     ["Weight", "Weight must be greater than zero"],
-    ["Sleep hours", "Sleep hours must be greater than zero"],
-  ])("rejects a zero %s before daily upsert", async (label, message) => {
+    ["Sleep", "Sleep must be greater than zero"],
+  ])("rejects a zero %s before daily save", async (label, message) => {
     const health = controller();
-    render(<HealthMetricsPanel controller={health} />);
+    render(<MetricsDialogHarness health={health} />);
 
     fireEvent.change(screen.getByLabelText(label), { target: { value: "0" } });
     fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
-    expect(health.upsertMetrics).not.toHaveBeenCalled();
+    expect(health.saveMetrics).not.toHaveBeenCalled();
     expect(screen.getByLabelText(label)).toHaveValue(0);
   });
 
-  it("rejects a partial lab group before daily upsert", async () => {
+  it("requires a measurement and gates Note behind Condition", async () => {
     const health = controller();
-    render(<HealthMetricsPanel controller={health} />);
-
-    fireEvent.change(screen.getByLabelText("Lab metric key"), {
-      target: { value: "fasting_glucose" },
-    });
+    render(<MetricsDialogHarness health={health} />);
+    expect(screen.getByLabelText("Note")).toBeDisabled();
     fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter at least one daily metric");
+    expect(health.saveMetrics).not.toHaveBeenCalled();
+  });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Lab requires metric key, name, and value",
-    );
-    expect(health.upsertMetrics).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Lab metric key")).toHaveValue("fasting_glucose");
+  it.each([
+    ["CRP", "-0.1", "CRP must not be negative"],
+    ["Calprotectin", "-1", "Calprotectin must not be negative"],
+  ])("rejects invalid %s values without saving", async (label, value, message) => {
+    const health = controller();
+    render(<MetricsDialogHarness health={health} />);
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(health.saveMetrics).not.toHaveBeenCalled();
+  });
+
+  it.each(["CRP", "Calprotectin"])("rejects a non-finite %s value at the native number boundary", async (label) => {
+    const health = controller();
+    render(<MetricsDialogHarness health={health} />);
+    const input = screen.getByLabelText(label);
+    fireEvent.change(input, { target: { value: "1e309" } });
+    expect(input).toHaveValue(null);
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter at least one daily metric");
+    expect(health.saveMetrics).not.toHaveBeenCalled();
+  });
+
+  it("offers exactly the optional Condition values 1 through 10", () => {
+    render(<MetricsDialogHarness health={controller()} />);
+    const condition = screen.getByLabelText("Condition");
+    expect(within(condition).getAllByRole("option").map((option) => [
+      option.getAttribute("value"), option.textContent,
+    ])).toEqual([
+      ["", "None"],
+      ...Array.from({ length: 10 }, (_, index) => String(index + 1)).map((value) => [value, value]),
+    ]);
+  });
+
+  it("rejects a skipped local Health Metrics date instead of shifting it", async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "Pacific/Apia";
+    try {
+      const health = controller();
+      render(<MetricsDialogHarness health={health} />);
+      fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2011-12-30" } });
+      fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68" } });
+      fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
+      expect(health.saveMetrics).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Date")).toHaveValue("2011-12-30");
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
   });
 
   it("converts browser-local health times to RFC3339 without changing the instant", async () => {

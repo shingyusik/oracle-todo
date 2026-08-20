@@ -29,6 +29,9 @@ export function HealthPanel({
   );
   const [medicationRefreshWarning, setMedicationRefreshWarning] = useState<string | null>(null);
   const [medicationRefreshPending, setMedicationRefreshPending] = useState(false);
+  const [metricsTombstonedIds, setMetricsTombstonedIds] = useState<Set<string>>(() => new Set());
+  const [metricsRefreshWarning, setMetricsRefreshWarning] = useState<string | null>(null);
+  const [metricsRefreshPending, setMetricsRefreshPending] = useState(false);
   const dietRecoveryBaselines = useRef(new Map<
     string,
     HealthController["state"]["dietEntries"]
@@ -40,6 +43,10 @@ export function HealthPanel({
   const medicationRecoveryBaselines = useRef(new Map<
     string,
     HealthController["state"]["medicationEntries"]
+  >());
+  const metricsRecoveryBaselines = useRef(new Map<
+    string,
+    HealthController["state"]["metricsEntries"]
   >());
 
   useEffect(() => {
@@ -111,6 +118,25 @@ export function HealthPanel({
     controller.state.medicationStatus,
     medicationRefreshPending, medicationRefreshWarning, medicationTombstonedIds]);
 
+  useEffect(() => {
+    if (controller.state.metricsStatus !== "loaded" || controller.state.metricsError !== null ||
+      metricsRefreshPending || metricsRefreshWarning !== null || metricsTombstonedIds.size === 0) return;
+    const activeIds = new Set(controller.state.metricsEntries
+      .filter(({ deletedAt }) => deletedAt === null).map(({ id }) => id));
+    const next = new Set<string>();
+    for (const id of metricsTombstonedIds) {
+      const baseline = metricsRecoveryBaselines.current.get(id);
+      if (baseline === controller.state.metricsEntries) next.add(id);
+      else {
+        metricsRecoveryBaselines.current.delete(id);
+        if (activeIds.has(id)) next.add(id);
+      }
+    }
+    if (next.size !== metricsTombstonedIds.size) setMetricsTombstonedIds(next);
+  }, [controller.state.metricsEntries, controller.state.metricsError,
+    controller.state.metricsStatus, metricsRefreshPending, metricsRefreshWarning,
+    metricsTombstonedIds]);
+
   function archiveCommitted(id: string, refreshWarning?: string) {
     if (refreshWarning) {
       dietRecoveryBaselines.current.set(id, controller.state.dietEntries);
@@ -176,6 +202,32 @@ export function HealthPanel({
     }
   }
 
+  function metricsArchiveCommitted(ids: readonly string[], refreshWarning?: string) {
+    if (refreshWarning) {
+      for (const id of ids) metricsRecoveryBaselines.current.set(id, controller.state.metricsEntries);
+      setMetricsRefreshWarning(refreshWarning);
+    }
+    setMetricsTombstonedIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  async function retryMetricsRefresh() {
+    for (const id of metricsTombstonedIds) {
+      metricsRecoveryBaselines.current.set(id, controller.state.metricsEntries);
+    }
+    setMetricsRefreshPending(true);
+    try {
+      const refreshed = await controller.refreshMetrics();
+      if (refreshed) setMetricsRefreshWarning(null);
+      return refreshed;
+    } finally {
+      setMetricsRefreshPending(false);
+    }
+  }
+
   const panel = leafTabId === "bowel"
     ? <BowelPanel controller={controller} tombstonedIds={bowelTombstonedIds}
         onArchiveCommitted={bowelArchiveCommitted} refreshWarning={bowelRefreshWarning}
@@ -187,7 +239,10 @@ export function HealthPanel({
           refreshPending={medicationRefreshPending}
           onRetryRefresh={retryMedicationRefresh} />
       : leafTabId === "health-metrics"
-        ? <HealthMetricsPanel controller={controller} />
+        ? <HealthMetricsPanel controller={controller} tombstonedIds={metricsTombstonedIds}
+            onArchiveCommitted={metricsArchiveCommitted}
+            refreshWarning={metricsRefreshWarning} refreshPending={metricsRefreshPending}
+            onRetryRefresh={retryMetricsRefresh} />
         : leafTabId === "trends"
           ? <HealthTrendsPanel controller={controller} />
           : (

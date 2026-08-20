@@ -590,8 +590,9 @@ fn list_events_on(
            AND (?1 IS NULL OR category = ?1)
            AND (?2 IS NULL OR metric_key = ?2)
            AND (?3 = 0 OR category NOT IN ('bowel', 'medication'))
+           AND (?4 = 0 OR daily_upsert = 1)
          ORDER BY occurred_at DESC, id DESC
-         LIMIT ?4 OFFSET ?5"
+         LIMIT ?5 OFFSET ?6"
     );
     collect_rows(
         connection,
@@ -600,6 +601,7 @@ fn list_events_on(
             query.category().map(category_value),
             query.metric_key().map(MetricKey::as_str),
             i64::from(matches!(query.class(), Some(EventClass::Metric))),
+            i64::from(query.is_daily_only()),
             i64::from(page.limit()),
             i64::from(page.offset())
         ],

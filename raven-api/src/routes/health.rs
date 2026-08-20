@@ -5,8 +5,8 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use health_engine::application::commands::{
-    CreateDietEntry, CreateHealthEvent, DailyMetricInput, DietMediaUpdate, MediaUpload,
-    UpdateDietEntry, UpdateHealthEvent,
+    CreateDietEntry, CreateHealthEvent, DailyMetricArchive, DailyMetricInput, DietMediaUpdate,
+    MediaUpload, UpdateDietEntry, UpdateHealthEvent,
 };
 use health_engine::application::ports::{EventQuery, Page};
 use health_engine::application::queries::HealthQuery;
@@ -79,6 +79,8 @@ struct EventListQuery {
     limit: u16,
     category: Option<HealthCategory>,
     metric_key: Option<String>,
+    #[serde(default)]
+    daily_only: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -229,6 +231,7 @@ async fn list_events(
     if let Some(metric_key) = query.metric_key {
         events = events.with_metric_key(metric_key)?;
     }
+    events = events.daily_only(query.daily_only);
     let items = health(&state, false, move |service| service.list_events(events)).await?;
     Ok(Json(json!({"items": items})))
 }
@@ -238,7 +241,8 @@ async fn upsert_daily_metrics(
     body: Result<Json<DailyMetricsBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
-    if body.metrics.is_empty() || body.metrics.len() > MAX_DAILY_METRICS {
+    let operation_count = body.metrics.len() + body.archives.len();
+    if operation_count == 0 || operation_count > MAX_DAILY_METRICS {
         return Err(ApiError::validation(Some("metrics")));
     }
     let metrics = body
@@ -250,11 +254,28 @@ async fn upsert_daily_metrics(
                 details: metric.details.into_domain()?,
                 note: metric.note,
                 actor: metric.actor,
+                expected_updated_at: parse_optional_time(
+                    metric.expected_updated_at.as_deref(),
+                    "expected_updated_at",
+                )?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    let archives = body
+        .archives
+        .into_iter()
+        .map(|archive| {
+            Ok(DailyMetricArchive {
+                id: archive.id,
+                expected_updated_at: parse_optional_time(
+                    archive.expected_updated_at.as_deref(),
+                    "expected_updated_at",
+                )?,
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
     let items = health(&state, true, move |service| {
-        service.upsert_daily_metrics(metrics)
+        service.save_daily_metrics(metrics, archives)
     })
     .await?;
     Ok(Json(json!({"items": items})))
