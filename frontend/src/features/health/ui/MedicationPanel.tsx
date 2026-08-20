@@ -107,7 +107,8 @@ export function MedicationPanel({
     requestAnimationFrame(() => {
       const origin = detailOriginRef.current;
       const exact = origin
-        ? tableRef.current?.querySelector<HTMLElement>(`[data-medication-occurrence="${origin.occurrence}"]`)
+        ? [...(tableRef.current?.querySelectorAll<HTMLElement>("[data-medication-occurrence]") ?? [])]
+          .find((element) => element.dataset.medicationOccurrence === origin.occurrence)
         : null;
       const target = exact ?? (origin
         ? [...(tableRef.current?.querySelectorAll<HTMLElement>("[data-medication-row-id]") ?? [])]

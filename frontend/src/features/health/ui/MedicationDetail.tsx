@@ -46,6 +46,8 @@ type DraftAction =
 
 export const MEDICATION_HISTORY_LIMIT = 50;
 const invalidLocalTimeMessage = "Time must be a valid local date and time";
+const invalidDoseMessage = "Dose must be a finite number greater than zero";
+const doseErrorId = "medication-dose-error";
 const medicationUnits: Array<{ value: MedicationUnit; label: string }> = [
   { value: "tablet", label: "정" }, { value: "capsule", label: "캡슐" },
   { value: "packet", label: "포" }, { value: "mg", label: "mg" },
@@ -77,6 +79,8 @@ export function MedicationDetail({ controller, row, detailHistory, onArchived }:
     canonicalPresent.dose !== null;
   const timeError = draft.occurredAt && canonicalPresent.occurredAt === null
     ? invalidLocalTimeMessage : null;
+  const doseError = draft.dose.trim() !== "" && canonicalPresent.dose === null
+    ? invalidDoseMessage : null;
   const readOnly = pending || refreshRecovery || exitPending || confirmation !== null ||
     detailHistory.pendingBack;
 
@@ -288,7 +292,10 @@ export function MedicationDetail({ controller, row, detailHistory, onArchived }:
         <p>Created {formatTimestamp(baseline.row.event.createdAt)}</p>
         <p>Updated {formatTimestamp(baseline.row.event.updatedAt)}</p>
       </div>
-      {timeError || error ? <p role="alert" className="form-error">{timeError ?? error}</p> : null}
+      {error || timeError ? <div role="alert" className="form-error">
+        {error ? <p>{error}</p> : null}
+        {timeError && timeError !== error ? <p>{timeError}</p> : null}
+      </div> : null}
       {refreshRecovery ? <button type="button" disabled={pending}
         onClick={() => void retryRefresh()}>Retry</button> : null}
       <section className="detail-properties-list" aria-label="Edit medication properties"
@@ -302,9 +309,12 @@ export function MedicationDetail({ controller, row, detailHistory, onArchived }:
             onChange={(event) => change("medicationName", event.target.value, true)} />
         </label>
         <label className="field-label">Dose
-          <input type="number" min="0" step="any" required disabled={readOnly} value={draft.dose}
+          <input type="number" min={Number.MIN_VALUE} step="any" required disabled={readOnly}
+            aria-invalid={doseError ? "true" : undefined}
+            aria-describedby={doseError ? doseErrorId : undefined} value={draft.dose}
             onChange={(event) => change("dose", event.target.value, true)} />
         </label>
+        {doseError ? <p id={doseErrorId} className="form-error">{doseError}</p> : null}
         <label className="field-label">Unit
           <select disabled={readOnly} value={draft.unit}
             onChange={(event) => change("unit", event.target.value as MedicationUnit)}>

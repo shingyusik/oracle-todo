@@ -425,6 +425,30 @@ describe("MedicationPanel", () => {
     expect(health.updateMedication).not.toHaveBeenCalled();
   });
 
+  it("exposes native and accessible positive-dose validation", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    render(<MedicationPanel controller={health} {...recoveryProps} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    const dose = screen.getByLabelText("Dose");
+    expect(dose).toHaveAttribute("min", String(Number.MIN_VALUE));
+    expect(dose).toHaveAttribute("step", "any");
+    fireEvent.change(dose, { target: { value: "0" } });
+    expect(dose).toHaveAttribute("aria-invalid", "true");
+    const descriptionId = dose.getAttribute("aria-describedby");
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId!)).toHaveTextContent(
+      "Dose must be a finite number greater than zero",
+    );
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    expect(health.updateMedication).not.toHaveBeenCalled();
+    fireEvent.change(dose, { target: { value: "0.25" } });
+    expect(dose).not.toHaveAttribute("aria-invalid");
+    expect(dose).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
   it("pushes once and traverses clean browser Back/Forward without a loop", async () => {
     const user = userEvent.setup();
     window.history.replaceState({ preserved: "medication" }, "");
@@ -688,6 +712,7 @@ describe("MedicationPanel", () => {
   });
 
   it("retains draft and history after an ordinary save failure", async () => {
+    vi.stubEnv("TZ", "America/New_York");
     const user = userEvent.setup();
     const health = panelController();
     health.updateMedication = vi.fn().mockRejectedValueOnce(new Error("Save unavailable"));
@@ -699,6 +724,11 @@ describe("MedicationPanel", () => {
     expect(screen.getByLabelText("Note")).toHaveValue("draft");
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(screen.getByLabelText("Note")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Save unavailable");
+    expect(alert).toHaveTextContent("Time must be a valid local date and time");
+    vi.unstubAllEnvs();
   });
 
   it("locks every detail action and field while archive confirmation remains usable", async () => {
@@ -964,6 +994,25 @@ describe("MedicationPanel", () => {
       .toBe("mg-medication-1-0");
   });
 
+  it("restores focus without parsing a quoted medication occurrence as CSS", async () => {
+    const user = userEvent.setup();
+    const quoted = { ...event, metricKey: 'Vitamin "D', name: 'Vitamin "D',
+      attributes: { ...event.attributes, medicationName: 'Vitamin "D' } };
+    const grouped = defaultHealthTableSettings("health.medication");
+    grouped.groupSettings = { ...grouped.groupSettings, groupBy: "medication_name" };
+    render(<MedicationPanelHarness controller={panelController({
+      ...loadedState, medicationEntries: [quoted],
+    }, grouped)} />);
+    const origin = screen.getByRole("button", { name: /Open details for Vitamin "D/ });
+    expect(origin.dataset.medicationOccurrence).toBe('Vitamin "D-medication-1-0');
+    await user.click(origin);
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    const restored = await screen.findByRole("button", { name: /Open details for Vitamin "D/ });
+    await waitFor(() => expect(document.activeElement).toBe(restored));
+    expect((document.activeElement as HTMLElement).dataset.medicationOccurrence)
+      .toBe('Vitamin "D-medication-1-0');
+  });
+
   it("exits a tombstoned open Medication detail and focuses Add", async () => {
     const user = userEvent.setup();
     const health = panelController();
@@ -1038,6 +1087,27 @@ describe("MedicationPanel", () => {
     expect(screen.getByLabelText("Note")).toHaveValue("draft");
     await waitFor(() => expect(remove).toHaveFocus());
     expect(health.archiveMedication).toHaveBeenCalledOnce();
+  });
+
+  it("keeps archive and invalid-time errors visible with the retained draft", async () => {
+    vi.stubEnv("TZ", "America/New_York");
+    const user = userEvent.setup();
+    const health = panelController();
+    health.archiveMedication = vi.fn().mockRejectedValue(new Error("Archive unavailable"));
+    render(<MedicationPanelHarness controller={health} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
+    await user.type(screen.getByLabelText("Note"), "draft");
+    const remove = screen.getByRole("button", { name: "Delete" });
+    await user.click(remove);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Archive unavailable");
+    expect(alert).toHaveTextContent("Time must be a valid local date and time");
+    expect(screen.getByLabelText("Taken at")).toHaveValue("2026-03-08T02:30");
+    expect(screen.getByLabelText("Note")).toHaveValue("draft");
+    await waitFor(() => expect(remove).toHaveFocus());
+    vi.unstubAllEnvs();
   });
 
   it("treats committed detail archive as tombstoned success and retries reads only", async () => {
