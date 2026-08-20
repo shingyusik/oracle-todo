@@ -14,6 +14,7 @@ import type { HealthEvent, HealthTrends, TimelineItem } from "@/features/health/
 import type { HealthController, HealthState } from "@/features/health/hooks/useHealthController";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { deriveHealthMetricsGroups } from "@/features/health/model/health-metrics-table";
+import * as healthMetricsTableModel from "@/features/health/model/health-metrics-table";
 import { HealthMetricsPanel } from "@/features/health/ui/HealthMetricsPanel";
 import { HealthMetricsTable } from "@/features/health/ui/HealthMetricsTable";
 
@@ -246,8 +247,12 @@ const condition = { ...event, id: "condition-1", category: "symptom",
   metricKey: "overall_condition", name: "Overall condition", value: 8, unit: null,
   attributes: { kind: "symptom", metricKey: "overall_condition", name: "Overall condition",
     score: 8, conditionNote: "Steady" } } as HealthEvent;
+const calprotectin = { ...event, id: "calprotectin-1", metricKey: "fecal_calprotectin",
+  name: "Fecal calprotectin", value: 120, unit: "µg/g",
+  attributes: { kind: "lab", metricKey: "fecal_calprotectin",
+    name: "Fecal calprotectin", value: 120, unit: "µg/g" } } as HealthEvent;
 
-function panelController(entries: HealthEvent[] = [weight, sleep, event, condition],
+function panelController(entries: HealthEvent[] = [weight, sleep, event, calprotectin, condition],
   settings = defaultHealthTableSettings("health.metrics")): HealthController {
   const state = {
     metricsStatus: "loaded", metricsError: null, metricsEntries: entries,
@@ -259,8 +264,8 @@ function panelController(entries: HealthEvent[] = [weight, sleep, event, conditi
   } satisfies HealthState;
   return {
     state, tableViewSaveError: null, tableViewConfirmation: null,
-    retryTableViewSave: vi.fn(), tableTabs: () => ({ tabs: [{ id: "metrics", name: "Table", settings }],
-      activeTabId: "metrics", draftSettings: settings }), tableSettings: () => settings,
+    retryTableViewSave: vi.fn(), tableTabs: vi.fn(() => ({ tabs: [{ id: "metrics", name: "Table", settings }],
+      activeTabId: "metrics", draftSettings: settings })), tableSettings: vi.fn(() => settings),
     tableIsDirty: vi.fn(() => false), updateTableSettings: vi.fn(), selectTableTab: vi.fn(),
     saveTableTab: vi.fn(), createTableTab: vi.fn(() => true), renameTableTab: vi.fn(() => true),
     requestDeleteTableTab: vi.fn(), confirmTableViewAction: vi.fn(), cancelTableViewAction: vi.fn(),
@@ -287,6 +292,7 @@ describe("Health Metrics table", () => {
     expect(screen.getByText("72.5 kg")).toBeInTheDocument();
     expect(screen.getByText("7.5 hours")).toBeInTheDocument();
     expect(screen.getByText("0.4 mg/L")).toBeInTheDocument();
+    expect(screen.getByText("120 µg/g")).toBeInTheDocument();
     expect(screen.getByText("Steady")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add health metrics entry" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Archive selected health metrics entries" }))
@@ -307,6 +313,7 @@ describe("Health Metrics table", () => {
       { id: "weight-1", expectedUpdatedAt: weight.updatedAt },
       { id: "sleep-1", expectedUpdatedAt: sleep.updatedAt },
       { id: "metric-1", expectedUpdatedAt: event.updatedAt },
+      { id: "calprotectin-1", expectedUpdatedAt: calprotectin.updatedAt },
       { id: "condition-1", expectedUpdatedAt: condition.updatedAt },
     ] }));
   });
@@ -393,5 +400,194 @@ describe("Health Metrics table", () => {
       refreshPending={false} onRetryRefresh={vi.fn()} />);
     expect(screen.getAllByRole("checkbox", { name: /Select health metrics for/ })
       .every((checkbox) => (checkbox as HTMLInputElement).checked)).toBe(true);
+  });
+
+  it("shows exact loading, blocking error, and stale loaded-error states", () => {
+    const loading = panelController([]);
+    loading.state.metricsStatus = "loading";
+    const view = render(<HealthMetricsPanel controller={loading} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading health metrics…");
+    const blocked = panelController([]);
+    blocked.state.metricsStatus = "error";
+    blocked.state.metricsError = "Metrics unavailable";
+    view.rerender(<HealthMetricsPanel controller={blocked} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Metrics unavailable");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    const stale = panelController();
+    stale.state.metricsError = "Refresh failed";
+    view.rerender(<HealthMetricsPanel controller={stale} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    expect(screen.getByRole("table", { name: "Health metrics" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Refresh failed");
+  });
+
+  it("scopes saved views and exposes exact Metrics filter, sort, and group options", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    const { container } = render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    expect(vi.mocked(health.tableSettings)).toHaveBeenCalledWith("health.metrics");
+    expect(vi.mocked(health.tableTabs)).toHaveBeenCalledWith("health.metrics");
+    expect([...container.querySelectorAll(".workspace-table-header-actions button")]
+      .map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual([
+        "Filter Health Metrics", "Sort Health Metrics", "Group Health Metrics",
+        "Add health metrics entry", "Archive selected health metrics entries",
+      ]);
+    await user.click(screen.getByRole("button", { name: "Filter Health Metrics" }));
+    let dialog = screen.getByRole("dialog", { name: "Filter Health Metrics" });
+    await user.click(within(dialog).getByRole("button", { name: "Add filter rule" }));
+    expect(within(dialog).getAllByRole("option").map((option) => option.textContent))
+      .toEqual(["Date", "Weight", "Sleep", "CRP", "Calprotectin", "Condition"]);
+    await user.click(screen.getByRole("button", { name: "Filter Health Metrics" }));
+    await user.click(screen.getByRole("button", { name: "Sort Health Metrics" }));
+    dialog = screen.getByRole("dialog", { name: "Sort Health Metrics" });
+    expect(within(within(dialog).getByLabelText("Sort field")).getAllByRole("option")
+      .map((option) => option.textContent))
+      .toEqual(["Date", "Weight", "Sleep", "CRP", "Calprotectin", "Condition"]);
+    await user.click(screen.getByRole("button", { name: "Sort Health Metrics" }));
+    await user.click(screen.getByRole("button", { name: "Group Health Metrics" }));
+    dialog = screen.getByRole("dialog", { name: "Group Health Metrics" });
+    await user.click(within(dialog).getByRole("button", { name: "Choose group property" }));
+    expect(within(dialog).getAllByRole("option").map((option) => option.textContent))
+      .toEqual(["None", "Month", "Week"]);
+  });
+
+  it("uses native grouped table semantics and native date activation", async () => {
+    const user = userEvent.setup();
+    const settings = defaultHealthTableSettings("health.metrics");
+    settings.groupSettings.groupBy = "month";
+    const groups = deriveHealthMetricsGroups([weight], settings);
+    const open = vi.fn();
+    render(<HealthMetricsTable groups={groups} activeRowCount={1} selectedDates={[]}
+      onOpen={open} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
+    const table = screen.getByRole("table", { name: "Health metrics" });
+    expect(table.tagName).toBe("TABLE");
+    expect(within(table).getByRole("rowheader")).toHaveAttribute("scope", "rowgroup");
+    const button = within(table).getByRole("button", { name: /Open health metrics/ });
+    expect(button.closest("tr")).not.toHaveAttribute("tabindex");
+    button.focus();
+    await user.keyboard("{Enter}");
+    await user.keyboard(" ");
+    await user.click(button);
+    expect(open).toHaveBeenCalledTimes(3);
+    open.mockClear();
+    await user.click(within(table).getByRole("checkbox", { name: /Select health metrics for/ }));
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("builds group candidates from unfiltered active Metrics truth", async () => {
+    const user = userEvent.setup();
+    const older = { ...weight, id: "weight-old", occurredAt: "2026-07-20T03:00:00Z" };
+    const settings = defaultHealthTableSettings("health.metrics");
+    settings.filterRules = [{ id: "none", field: "weight", type: "number",
+      operator: "greater_than", value: "999" }];
+    settings.groupSettings.groupBy = "month";
+    render(<HealthMetricsPanel controller={panelController([weight, older], settings)}
+      tombstonedIds={new Set()} onArchiveCommitted={vi.fn()} refreshWarning={null}
+      refreshPending={false} onRetryRefresh={vi.fn()} />);
+    expect(screen.getByText("No health metrics match this view.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Group Health Metrics" }));
+    const dialog = screen.getByRole("dialog", { name: "Group Health Metrics" });
+    expect(within(dialog).getByText("August 2026")).toBeInTheDocument();
+    expect(within(dialog).getByText("July 2026")).toBeInTheDocument();
+  });
+
+  it("deduplicates duplicate grouped occurrences for selection and one daily archive", async () => {
+    const user = userEvent.setup();
+    const projected = deriveHealthMetricsGroups([weight],
+      defaultHealthTableSettings("health.metrics"))[0].rows[0];
+    vi.spyOn(healthMetricsTableModel, "deriveHealthMetricsGroups").mockReturnValue([
+      { key: "first", label: "First", rows: [projected] },
+      { key: "second", label: "Second", rows: [projected] },
+    ]);
+    const health = panelController([weight]);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    expect(screen.getAllByRole("checkbox", { name: /Select health metrics for/ })).toHaveLength(2);
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible health metrics" }));
+    await user.click(screen.getByRole("button", { name: "Archive selected health metrics entries" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("1 health metric dates");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledOnce());
+  });
+
+  it("keeps the archive snapshot through an in-flight filtered authoritative rerender", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<void>();
+    const newer = { ...weight, id: "weight-2", occurredAt: "2026-08-20T03:00:00Z",
+      updatedAt: "2026-08-20T03:00:00Z" };
+    const health = panelController([weight, newer]);
+    vi.mocked(health.saveMetrics).mockImplementationOnce(() => pending.promise)
+      .mockResolvedValueOnce(undefined);
+    const view = render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible health metrics" }));
+    await user.click(screen.getByRole("button", { name: "Archive selected health metrics entries" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    expect(health.saveMetrics).toHaveBeenNthCalledWith(1, { metrics: [], archives: [
+      { id: "weight-2", expectedUpdatedAt: newer.updatedAt },
+    ] });
+    const hidden = panelController([], { ...defaultHealthTableSettings("health.metrics"),
+      filterRules: [{ id: "none", field: "weight", type: "number",
+        operator: "greater_than", value: "999" }] });
+    hidden.saveMetrics = health.saveMetrics;
+    view.rerender(<HealthMetricsPanel controller={hidden} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await act(async () => pending.resolve());
+    await waitFor(() => expect(health.saveMetrics).toHaveBeenNthCalledWith(2, {
+      metrics: [], archives: [{ id: "weight-1", expectedUpdatedAt: weight.updatedAt }],
+    }));
+  });
+
+  it("stops committed archive recovery, retains unattempted dates, and never resubmits", async () => {
+    const user = userEvent.setup();
+    const newer = { ...weight, id: "weight-2", occurredAt: "2026-08-20T03:00:00Z" };
+    const health = panelController([weight, newer]);
+    vi.mocked(health.saveMetrics).mockRejectedValue(new HealthMutationRefreshError());
+    const committed = vi.fn();
+    const retry = vi.fn(async () => false);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={committed} refreshWarning="Changes were saved, but Health could not refresh."
+      refreshPending={false} onRetryRefresh={retry} />);
+    await user.click(screen.getByRole("checkbox", { name: "Select all visible health metrics" }));
+    await user.click(screen.getByRole("button", { name: "Archive selected health metrics entries" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(committed).toHaveBeenCalledWith(["weight-2"], expect.any(String)));
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
+    expect(screen.getByRole("checkbox", { name: /2026-08-19/ })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(health.saveMetrics).toHaveBeenCalledOnce();
+  });
+
+  it("returns cancel and ordinary failure to Delete and full success to Add", async () => {
+    const user = userEvent.setup();
+    const health = panelController([weight]);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("checkbox", { name: /Select health metrics for/ }));
+    const remove = screen.getByRole("button", { name: "Archive selected health metrics entries" });
+    await user.click(remove);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(remove).toHaveFocus());
+    vi.mocked(health.saveMetrics).mockRejectedValueOnce(new Error("failed"));
+    await user.click(remove);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(remove).toHaveFocus());
+    vi.mocked(health.saveMetrics).mockResolvedValueOnce(undefined);
+    await user.click(remove);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add health metrics entry" }))
+      .toHaveFocus());
   });
 });
