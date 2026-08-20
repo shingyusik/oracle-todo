@@ -1338,6 +1338,63 @@ describe("Health Journal forms", () => {
     }
   });
 
+  it("keeps the selected-date draft and original optimistic token across background refresh", async () => {
+    const date = "2026-08-18";
+    const occurredAt = new Date(2026, 7, 18, 12).toISOString();
+    const original = metricEvent("weight-1", occurredAt, "weight", 67.1, "2026-08-18T04:00:00.000Z");
+    const refreshed = metricEvent("weight-1", occurredAt, "weight", 72.4, "2026-08-18T05:00:00.000Z");
+    const initial = controller({ state: { ...loadedState, metricsEntries: [original] } });
+    const latest = controller({ state: { ...loadedState, metricsEntries: [refreshed] } });
+    const view = render(<MetricsDialogHarness health={initial} />);
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: date } });
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText("Weight")).toHaveValue(67.1);
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68.2" } });
+
+    view.rerender(<MetricsDialogHarness health={latest} />);
+    expect(screen.getByLabelText("Weight")).toHaveValue(68.2);
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    await waitFor(() => expect(latest.saveMetrics).toHaveBeenCalledWith({
+      metrics: [{
+        occurredAt,
+        details: { kind: "weight", value: 68.2, unit: "kg" },
+        expectedUpdatedAt: "2026-08-18T04:00:00.000Z",
+      }],
+      archives: [],
+    }));
+  });
+
+  it("hydrates a late selected-date row once while pristine, then preserves edits", async () => {
+    const date = "2026-08-18";
+    const occurredAt = new Date(2026, 7, 18, 12).toISOString();
+    const loaded = metricEvent("weight-1", occurredAt, "weight", 67.1, "2026-08-18T04:00:00.000Z");
+    const refreshed = metricEvent("weight-1", occurredAt, "weight", 72.4, "2026-08-18T05:00:00.000Z");
+    const empty = controller();
+    const firstLoad = controller({ state: { ...loadedState, metricsEntries: [loaded] } });
+    const latest = controller({ state: { ...loadedState, metricsEntries: [refreshed] } });
+    const view = render(<MetricsDialogHarness health={empty} />);
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: date } });
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText("Weight")).toHaveValue(null);
+    view.rerender(<MetricsDialogHarness health={firstLoad} />);
+    await waitFor(() => expect(screen.getByLabelText("Weight")).toHaveValue(67.1));
+
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68.2" } });
+    view.rerender(<MetricsDialogHarness health={latest} />);
+    expect(screen.getByLabelText("Weight")).toHaveValue(68.2);
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    await waitFor(() => expect(latest.saveMetrics).toHaveBeenCalledWith({
+      metrics: [{
+        occurredAt,
+        details: { kind: "weight", value: 68.2, unit: "kg" },
+        expectedUpdatedAt: "2026-08-18T04:00:00.000Z",
+      }],
+      archives: [],
+    }));
+  });
+
   it("uses the browser-local date on both sides of local midnight", () => {
     const previousTimezone = process.env.TZ;
     process.env.TZ = "America/Los_Angeles";

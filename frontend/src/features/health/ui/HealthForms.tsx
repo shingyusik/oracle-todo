@@ -401,25 +401,33 @@ export function MetricsForm({
   const [conditionNote, setConditionNote] = useState("");
   const [refreshRecovery, setRefreshRecovery] = useState(false);
   const action = useFormAction(onPendingChange);
+  const selectedDateRef = useRef<string | null>(null);
+  const snapshotRef = useRef<HealthMetricsRow | undefined>(undefined);
+  const pristineRef = useRef(true);
 
   React.useEffect(() => {
     const row = rows.find((candidate) => candidate.date === date)
       ?? (initialRow?.date === date ? initialRow : undefined);
+    const selectedNewDate = selectedDateRef.current !== date;
+    const receivedInitialRow = !snapshotRef.current && pristineRef.current && Boolean(row);
+    if ((!selectedNewDate && !receivedInitialRow) || action.pending || refreshRecovery) return;
+    selectedDateRef.current = date;
+    snapshotRef.current = row;
+    pristineRef.current = true;
     setWeight(metricDraft(row?.weight));
     setSleep(metricDraft(row?.sleep));
     setCrp(metricDraft(row?.crp));
     setCalprotectin(metricDraft(row?.calprotectin));
     setConditionScore(metricDraft(row?.condition));
     setConditionNote(row?.note ?? "");
-  }, [date, initialRow, rows]);
+  }, [action.pending, date, initialRow, refreshRecovery, rows]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (refreshRecovery) return;
     await action.run(async () => {
       const timestamp = localDateTimeToRfc3339(`${date}T12:00`);
-      const row = rows.find((candidate) => candidate.date === date)
-        ?? (initialRow?.date === date ? initialRow : undefined);
+      const row = snapshotRef.current;
       const metrics: DailyMetricInput[] = [];
       if (weight !== "") {
         metrics.push({
@@ -530,7 +538,10 @@ export function MetricsForm({
             min={Number.MIN_VALUE}
             step="any"
             value={weight}
-            onChange={(event) => setWeight(event.target.value)}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setWeight(event.target.value);
+            }}
           />
       </label>
       <label className="field-label">
@@ -541,7 +552,10 @@ export function MetricsForm({
             max="24"
             step="any"
             value={sleep}
-            onChange={(event) => setSleep(event.target.value)}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setSleep(event.target.value);
+            }}
           />
       </label>
       <label className="field-label">
@@ -551,7 +565,10 @@ export function MetricsForm({
             min="0"
             step="any"
             value={crp}
-            onChange={(event) => setCrp(event.target.value)}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setCrp(event.target.value);
+            }}
           />
       </label>
       <label className="field-label">
@@ -561,7 +578,10 @@ export function MetricsForm({
             min="0"
             step="any"
             value={calprotectin}
-            onChange={(event) => setCalprotectin(event.target.value)}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setCalprotectin(event.target.value);
+            }}
           />
       </label>
       <label className="field-label">
@@ -569,6 +589,7 @@ export function MetricsForm({
           <select
             value={conditionScore}
             onChange={(event) => {
+              pristineRef.current = false;
               setConditionScore(event.target.value);
               if (!event.target.value) setConditionNote("");
             }}
@@ -583,7 +604,10 @@ export function MetricsForm({
           Note
           <textarea
             value={conditionNote}
-            onChange={(event) => setConditionNote(event.target.value)}
+            onChange={(event) => {
+              pristineRef.current = false;
+              setConditionNote(event.target.value);
+            }}
             disabled={!conditionScore}
           />
       </label>
