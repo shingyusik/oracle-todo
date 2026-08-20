@@ -938,6 +938,29 @@ describe("Health Metrics table", () => {
     expect(add).toHaveFocus();
   });
 
+  it("preloads only non-tombstoned members and omits stale optimistic versions", async () => {
+    const user = userEvent.setup();
+    const health = panelController([weight, sleep]);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set([weight.id])}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-19" } });
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText("Weight")).toHaveValue(null);
+    expect(screen.getByLabelText("Sleep")).toHaveValue(7.5);
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+    await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledWith({ metrics: [
+      expect.objectContaining({ details: { kind: "weight", value: 70, unit: "kg" } }),
+      expect.objectContaining({ details: { kind: "sleep", value: 7.5 },
+        expectedUpdatedAt: sleep.updatedAt }),
+    ], archives: [] }));
+    const payload = vi.mocked(health.saveMetrics).mock.calls[0]?.[0];
+    expect(payload?.metrics[0]).not.toHaveProperty("id");
+    expect(payload?.metrics[0]).not.toHaveProperty("expectedUpdatedAt");
+  });
+
   it("archives every member of one selected date in one atomic mutation", async () => {
     const user = userEvent.setup();
     const health = panelController();

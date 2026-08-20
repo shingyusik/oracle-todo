@@ -10,6 +10,7 @@ import {
 import type {
   DietInput,
   EventInput,
+  HealthEvent,
   MealType,
   MedicationUnit,
 } from "@/features/health/model/health-model";
@@ -382,16 +383,21 @@ export function MedicationForm({
 
 export function MetricsForm({
   controller,
+  metricsEntries = [],
   initialRow,
   mode = "create",
   onSaved,
   onPendingChange,
   onRecoveryChange,
-}: HealthFormProps & { initialRow?: HealthMetricsRow; mode?: "create" | "edit" }) {
+}: HealthFormProps & {
+  metricsEntries?: readonly HealthEvent[];
+  initialRow?: HealthMetricsRow;
+  mode?: "create" | "edit";
+}) {
   const rows = React.useMemo(() => deriveHealthMetricsGroups(
-    controller.state.metricsEntries,
+    metricsEntries,
     defaultHealthTableSettings("health.metrics"),
-  ).flatMap((group) => group.rows), [controller.state.metricsEntries]);
+  ).flatMap((group) => group.rows), [metricsEntries]);
   const [date, setDate] = useState(initialRow?.date ?? defaultLocalDate);
   const [weight, setWeight] = useState("");
   const [sleep, setSleep] = useState("");
@@ -433,7 +439,9 @@ export function MetricsForm({
         metrics.push({
           occurredAt: timestamp,
           details: { kind: "weight", value: positiveNumber(weight, "Weight"), unit: "kg" },
-          expectedUpdatedAt: row?.events.weight?.updatedAt,
+          ...(row?.events.weight
+            ? { expectedUpdatedAt: row.events.weight.updatedAt }
+            : {}),
         });
       }
       if (sleep !== "") {
@@ -442,7 +450,9 @@ export function MetricsForm({
         metrics.push({
           occurredAt: timestamp,
           details: { kind: "sleep", value: hours },
-          expectedUpdatedAt: row?.events.sleep?.updatedAt,
+          ...(row?.events.sleep
+            ? { expectedUpdatedAt: row.events.sleep.updatedAt }
+            : {}),
         });
       }
       if (crp !== "") {
@@ -452,7 +462,9 @@ export function MetricsForm({
             kind: "lab", key: "crp", name: "CRP",
             value: nonNegativeNumber(crp, "CRP"), unit: "mg/L",
           },
-          expectedUpdatedAt: row?.events.crp?.updatedAt,
+          ...(row?.events.crp
+            ? { expectedUpdatedAt: row.events.crp.updatedAt }
+            : {}),
         });
       }
       if (calprotectin !== "") {
@@ -462,7 +474,9 @@ export function MetricsForm({
             kind: "lab", key: "fecal_calprotectin", name: "Fecal calprotectin",
             value: nonNegativeNumber(calprotectin, "Calprotectin"), unit: "µg/g",
           },
-          expectedUpdatedAt: row?.events.calprotectin?.updatedAt,
+          ...(row?.events.calprotectin
+            ? { expectedUpdatedAt: row.events.calprotectin.updatedAt }
+            : {}),
         });
       }
       if (conditionScore !== "") {
@@ -479,7 +493,9 @@ export function MetricsForm({
             score,
             conditionNote: nullable(conditionNote),
           },
-          expectedUpdatedAt: row?.events.condition?.updatedAt,
+          ...(row?.events.condition
+            ? { expectedUpdatedAt: row.events.condition.updatedAt }
+            : {}),
         });
       }
       if (metrics.length === 0) throw new Error("Enter at least one daily metric");

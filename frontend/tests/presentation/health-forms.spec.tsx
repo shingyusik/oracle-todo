@@ -239,6 +239,7 @@ function MetricsDialogHarness({
     </main>
     {open ? <HealthMetricsCreateDialog
       controller={health}
+      metricsEntries={health.state.metricsEntries}
       onClose={() => {
         onClose();
         setOpen(false);
@@ -260,6 +261,7 @@ function MetricsDialogLifecycleHarness({
     <button ref={returnFocusRef}>Add metrics lifecycle</button>
     {open ? <HealthMetricsCreateDialog
       controller={health}
+      metricsEntries={health.state.metricsEntries}
       onClose={vi.fn()}
       returnFocusRef={returnFocusRef}
     /> : null}
@@ -1577,6 +1579,7 @@ describe("Health Journal forms", () => {
     try {
       expect(renderToString(<HealthMetricsCreateDialog
         controller={controller()}
+        metricsEntries={[]}
         onClose={vi.fn()}
         returnFocusRef={React.createRef<HTMLButtonElement>()}
       />)).toBe("");

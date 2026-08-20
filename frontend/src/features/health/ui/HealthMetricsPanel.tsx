@@ -177,7 +177,7 @@ export function HealthMetricsPanel({
         {controller.state.metricsError}</p> : null}
     {archiveError && archiveTargets === null
       ? <p role="alert" className="items-message">{archiveError}</p> : null}
-    {createOpen ? <HealthMetricsCreateDialog controller={controller}
+    {createOpen ? <HealthMetricsCreateDialog controller={controller} metricsEntries={entries}
       onClose={() => setCreateOpen(false)} returnFocusRef={addButtonRef} /> : null}
     {archiveTargets ? <DestructiveConfirmationDialog title="Archive selected health metrics?"
       description={`${archiveTargets.length} health metric dates will be archived and removed from Health views.`}

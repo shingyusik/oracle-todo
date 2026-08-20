@@ -4,11 +4,13 @@ import React from "react";
 import { createPortal } from "react-dom";
 
 import type { HealthController } from "@/features/health/hooks/useHealthController";
+import type { HealthEvent } from "@/features/health/model/health-model";
 import { MetricsForm } from "@/features/health/ui/HealthForms";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
 
 type HealthMetricsCreateDialogProps = {
   controller: HealthController;
+  metricsEntries: readonly HealthEvent[];
   onClose(): void;
   returnFocusRef: React.RefObject<HTMLButtonElement | null>;
 };
@@ -39,6 +41,7 @@ export function HealthMetricsCreateDialog(
 
 function HealthMetricsCreateDialogContent({
   controller,
+  metricsEntries,
   onClose,
   returnFocusRef,
 }: HealthMetricsCreateDialogProps) {
@@ -137,6 +140,7 @@ function HealthMetricsCreateDialogContent({
         </header>
         <MetricsForm
           controller={controller}
+          metricsEntries={metricsEntries}
           mode="create"
           onSaved={onClose}
           onPendingChange={updatePending}

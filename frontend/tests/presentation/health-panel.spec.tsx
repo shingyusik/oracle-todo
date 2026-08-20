@@ -740,6 +740,12 @@ describe("HealthPanel", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(screen.queryByText("72.5 kg")).toBeNull());
     expect(screen.queryByText("7.5 hours")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-07-30" } });
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText("Weight")).toHaveValue(null);
+    expect(screen.getByLabelText("Sleep")).toHaveValue(null);
+    await user.click(screen.getByRole("button", { name: "Close Add health metrics" }));
 
     view.rerender(<HealthPanel controller={{ ...health, state: {
       ...health.state, metricsStatus: "loading",
