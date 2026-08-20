@@ -440,7 +440,7 @@ function AccountTypes({
             ))}
           </select>
         </label>
-        <label className="field-label">
+        <label className="ledger-account-settings-checkbox">
           <input
             type="checkbox"
             disabled={pending}

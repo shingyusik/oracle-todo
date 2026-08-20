@@ -2080,6 +2080,22 @@ button {
   margin-top: 0;
 }
 
+.ledger-account-settings-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--color-shade-70);
+  cursor: pointer;
+}
+
+.ledger-account-settings-checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 .ledger-account-settings-dialog [role="tabpanel"] td button + button {
   margin-left: 6px;
 }

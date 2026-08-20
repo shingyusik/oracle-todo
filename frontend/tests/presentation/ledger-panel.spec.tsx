@@ -681,6 +681,8 @@ describe("LedgerPanel", () => {
       .toHaveAttribute("aria-labelledby", "account-types-tab");
     expect(within(dialog).getByRole("heading", { name: "New account type" }))
       .toBeInTheDocument();
+    expect(within(dialog).getByRole("checkbox", { name: "Liability" }).parentElement)
+      .toHaveClass("ledger-account-settings-checkbox");
     const close = within(dialog).getByRole("button", { name: "Close" });
     const actions = close.parentElement!;
     expect(actions).toHaveClass("ledger-create-dialog-actions");
