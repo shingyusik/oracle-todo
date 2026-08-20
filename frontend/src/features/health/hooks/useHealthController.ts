@@ -59,6 +59,9 @@ export class HealthMutationRefreshError extends Error {
 }
 
 export type HealthState = {
+  medicationStatus: LoadStatus;
+  medicationError: string | null;
+  medicationEntries: HealthEvent[];
   bowelStatus: LoadStatus;
   bowelError: string | null;
   bowelEntries: HealthEvent[];
@@ -94,6 +97,7 @@ export type HealthController = {
   confirmTableViewAction(): void;
   cancelTableViewAction(): void;
   refresh(): Promise<boolean>;
+  refreshMedication(): Promise<boolean>;
   refreshBowel(): Promise<boolean>;
   refreshDiet(): Promise<boolean>;
   refreshTimeline(): Promise<void>;
@@ -106,6 +110,8 @@ export type HealthController = {
   updateBowel(id: string, input: EventUpdate): Promise<void>;
   archiveBowel(id: string): Promise<void>;
   createMedication(input: EventInput): Promise<void>;
+  updateMedication(id: string, input: EventUpdate): Promise<void>;
+  archiveMedication(id: string): Promise<void>;
   upsertMetrics(input: DailyMetricInput[]): Promise<void>;
   archive(kind: HealthRecordKind, id: string): Promise<void>;
   restore(kind: HealthRecordKind, id: string): Promise<void>;
@@ -114,8 +120,11 @@ export type HealthController = {
 
 const PAGE_SIZE = 100;
 const DIET_PAGE_SIZE = 200;
-const BOWEL_PAGE_SIZE = 200;
+const EVENT_PAGE_SIZE = 200;
 const initialState: HealthState = {
+  medicationStatus: "idle",
+  medicationError: null,
+  medicationEntries: [],
   bowelStatus: "idle",
   bowelError: null,
   bowelEntries: [],
@@ -190,6 +199,9 @@ export function useHealthController(): HealthController {
   const bowelGeneration = useRef(0);
   const inFlightBowelRefresh = useRef<Promise<boolean> | null>(null);
   const latestBowelOutcome = useRef<Promise<boolean> | null>(null);
+  const medicationGeneration = useRef(0);
+  const inFlightMedicationRefresh = useRef<Promise<boolean> | null>(null);
+  const latestMedicationOutcome = useRef<Promise<boolean> | null>(null);
   const timelineGeneration = useRef(0);
   const latestTimelineOutcome = useRef<Promise<RefreshOutcome> | null>(null);
   const trendsGeneration = useRef(0);
@@ -317,12 +329,12 @@ export function useHealthController(): HealthController {
         do {
           page = await healthApi.listEvents({
             category: "bowel",
-            limit: BOWEL_PAGE_SIZE,
+            limit: EVENT_PAGE_SIZE,
             offset,
           });
           bowelEntries.push(...page);
           offset += page.length;
-        } while (page.length === BOWEL_PAGE_SIZE);
+        } while (page.length === EVENT_PAGE_SIZE);
         if (generation !== bowelGeneration.current) {
           return latestBowelOutcome.current ?? false;
         }
@@ -351,6 +363,58 @@ export function useHealthController(): HealthController {
     inFlightBowelRefresh.current = request;
     void request.finally(() => {
       if (inFlightBowelRefresh.current === request) inFlightBowelRefresh.current = null;
+    });
+    return request;
+  }, []);
+
+  const startMedicationRefresh = useCallback((force = false): Promise<boolean> => {
+    if (!force && inFlightMedicationRefresh.current) return inFlightMedicationRefresh.current;
+    const generation = ++medicationGeneration.current;
+    setState((current) => current.medicationStatus === "loaded"
+      ? { ...current, medicationError: null }
+      : { ...current, medicationStatus: "loading", medicationError: null });
+    const request = (async () => {
+      try {
+        const medicationEntries: HealthEvent[] = [];
+        let offset = 0;
+        let page: HealthEvent[];
+        do {
+          page = await healthApi.listEvents({
+            category: "medication",
+            limit: EVENT_PAGE_SIZE,
+            offset,
+          });
+          medicationEntries.push(...page);
+          offset += page.length;
+        } while (page.length === EVENT_PAGE_SIZE);
+        if (generation !== medicationGeneration.current) {
+          return latestMedicationOutcome.current ?? false;
+        }
+        setState((current) => ({
+          ...current,
+          medicationStatus: "loaded",
+          medicationError: null,
+          medicationEntries,
+        }));
+        return true;
+      } catch (error) {
+        if (generation !== medicationGeneration.current) {
+          return latestMedicationOutcome.current ?? false;
+        }
+        setState((current) => current.medicationStatus === "loaded"
+          ? { ...current, medicationError: errorMessage(error, "Medication request failed") }
+          : {
+            ...current,
+            medicationStatus: "error",
+            medicationError: errorMessage(error, "Medication request failed"),
+          });
+        return false;
+      }
+    })();
+    latestMedicationOutcome.current = request;
+    inFlightMedicationRefresh.current = request;
+    void request.finally(() => {
+      if (inFlightMedicationRefresh.current === request) inFlightMedicationRefresh.current = null;
     });
     return request;
   }, []);
@@ -451,9 +515,10 @@ export function useHealthController(): HealthController {
   useEffect(() => {
     void refreshDiet();
     void startBowelRefresh();
+    void startMedicationRefresh();
     void refreshTimeline();
     void refreshTrends();
-  }, [refreshDiet, refreshTimeline, refreshTrends, startBowelRefresh]);
+  }, [refreshDiet, refreshTimeline, refreshTrends, startBowelRefresh, startMedicationRefresh]);
 
   const loadMoreTimeline = useCallback(async () => {
     if (loadingPage.current) return;
@@ -501,15 +566,30 @@ export function useHealthController(): HealthController {
     return bowelOk && timeline.ok && trend.ok;
   }, [startBowelRefresh, refreshTimelineOutcome, refreshTrendsOutcome]);
 
-  const refresh = useCallback(async () => {
-    const [dietOk, bowelOk, timeline, trend] = await Promise.all([
-      startDietRefresh(),
-      startBowelRefresh(),
+  const refreshMedicationRelated = useCallback(async (force = false) => {
+    const [medicationOk, timeline, trends] = await Promise.all([
+      startMedicationRefresh(force),
       refreshTimelineOutcome(),
       refreshTrendsOutcome(),
     ]);
-    return dietOk && bowelOk && timeline.ok && trend.ok;
-  }, [startDietRefresh, startBowelRefresh, refreshTimelineOutcome, refreshTrendsOutcome]);
+    return medicationOk && timeline.ok && trends.ok;
+  }, [startMedicationRefresh, refreshTimelineOutcome, refreshTrendsOutcome]);
+
+  const refresh = useCallback(async () => {
+    const [dietOk, bowelOk, medicationOk, timeline, trend] = await Promise.all([
+      startDietRefresh(),
+      startBowelRefresh(),
+      startMedicationRefresh(),
+      refreshTimelineOutcome(),
+      refreshTrendsOutcome(),
+    ]);
+    return dietOk && bowelOk && medicationOk && timeline.ok && trend.ok;
+  }, [startDietRefresh, startBowelRefresh, startMedicationRefresh, refreshTimelineOutcome, refreshTrendsOutcome]);
+
+  const refreshMedication = useCallback(
+    () => refreshMedicationRelated(),
+    [refreshMedicationRelated],
+  );
 
   const refreshBowel = useCallback(
     () => refreshBowelReads(),
@@ -523,6 +603,10 @@ export function useHealthController(): HealthController {
   const refreshAfterBowelMutation = useCallback(async () => {
     if (!await refreshBowelReads(true)) throw new HealthMutationRefreshError();
   }, [refreshBowelReads]);
+
+  const refreshAfterMedicationMutation = useCallback(async () => {
+    if (!await refreshMedicationRelated(true)) throw new HealthMutationRefreshError();
+  }, [refreshMedicationRelated]);
 
   const refreshAfterEventMutation = useCallback(async () => {
     const [timeline, trend] = await Promise.all([
@@ -658,6 +742,7 @@ export function useHealthController(): HealthController {
     confirmTableViewAction,
     cancelTableViewAction: () => setTableViewConfirmation(null),
     refresh,
+    refreshMedication,
     refreshBowel,
     refreshDiet,
     refreshTimeline,
@@ -677,7 +762,18 @@ export function useHealthController(): HealthController {
       refreshAfterBowelMutation,
     ),
     archiveBowel: (id) => mutate(() => healthApi.archiveEvent(id), refreshAfterBowelMutation),
-    createMedication: (input) => mutate(() => healthApi.createEvent(input), refreshAfterEventMutation),
+    createMedication: (input) => mutate(
+      () => healthApi.createEvent(input),
+      refreshAfterMedicationMutation,
+    ),
+    updateMedication: (id, input) => mutate(
+      () => healthApi.updateEvent(id, input),
+      refreshAfterMedicationMutation,
+    ),
+    archiveMedication: (id) => mutate(
+      () => healthApi.archiveEvent(id),
+      refreshAfterMedicationMutation,
+    ),
     upsertMetrics: (input) => mutate(() => healthApi.upsertDailyMetrics(input), refreshAfterEventMutation),
     archive: (kind, id) => mutate(() =>
       kind === "diet" ? healthApi.archiveDiet(id) : healthApi.archiveEvent(id),

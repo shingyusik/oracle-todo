@@ -133,19 +133,23 @@ describe("Health Bowel controller", () => {
     mockBaseReads();
     const first = Array.from({ length: 200 }, (_, index) => ({ ...event, id: `bowel-${index}` }));
     const archived = { ...event, id: "archived", deletedAt: event.updatedAt };
-    vi.mocked(healthApi.listEvents)
-      .mockResolvedValueOnce(first)
-      .mockResolvedValueOnce([archived]);
+    let bowelPage = 0;
+    vi.mocked(healthApi.listEvents).mockImplementation(async (query) => {
+      if (query?.category !== "bowel") return [];
+      return bowelPage++ === 0 ? first : [archived];
+    });
 
     const { result } = renderHook(() => useHealthController());
     await waitFor(() => expect(result.current.state.bowelStatus).toBe("loaded"));
 
-    expect(healthApi.listEvents).toHaveBeenNthCalledWith(1, {
+    const bowelCalls = vi.mocked(healthApi.listEvents).mock.calls
+      .filter(([request]) => request?.category === "bowel");
+    expect(bowelCalls[0]).toEqual([{
       category: "bowel", limit: 200, offset: 0,
-    });
-    expect(healthApi.listEvents).toHaveBeenNthCalledWith(2, {
+    }]);
+    expect(bowelCalls[1]).toEqual([{
       category: "bowel", limit: 200, offset: 200,
-    });
+    }]);
     expect(result.current.state.bowelEntries).toHaveLength(201);
     expect(result.current.state.bowelEntries.at(-1)).toEqual(archived);
   });
@@ -260,7 +264,9 @@ describe("Health Bowel controller", () => {
     const metrics = vi.spyOn(healthApi, "upsertDailyMetrics").mockResolvedValue([]);
     const { result } = await mountedController();
     vi.mocked(healthApi.listEvents).mockClear();
-    vi.mocked(healthApi.listEvents).mockRejectedValue(new Error("Bowel unavailable"));
+    vi.mocked(healthApi.listEvents).mockImplementation((query) => query?.category === "bowel"
+      ? Promise.reject(new Error("Bowel unavailable"))
+      : Promise.resolve([]));
 
     await act(async () => expect(result.current.createDiet({
       occurredAt: event.occurredAt, mealType: "lunch", foodName: "Soup",
@@ -274,7 +280,10 @@ describe("Health Bowel controller", () => {
     expect(createDiet).toHaveBeenCalledOnce();
     expect(createEvent).toHaveBeenCalledOnce();
     expect(metrics).toHaveBeenCalledOnce();
-    expect(healthApi.listEvents).not.toHaveBeenCalled();
+    expect(vi.mocked(healthApi.listEvents).mock.calls
+      .filter(([request]) => request?.category === "bowel")).toHaveLength(0);
+    expect(vi.mocked(healthApi.listEvents).mock.calls
+      .filter(([request]) => request?.category === "medication")).toHaveLength(1);
   });
 
   it.each([true, false])(
@@ -396,12 +405,14 @@ describe("Health Bowel controller", () => {
       if (newerSucceeds) await expect(mutationOutcome).resolves.toBe(true);
       else await expect(mutationOutcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
       expect(create).toHaveBeenCalledOnce();
-      expect(healthApi.listEvents).toHaveBeenCalledOnce();
+      expect(vi.mocked(healthApi.listEvents).mock.calls
+        .filter(([request]) => request?.category === "bowel")).toHaveLength(1);
     },
   );
 });
 
 const loadedState: HealthState = {
+  medicationStatus: "loaded", medicationError: null, medicationEntries: [],
   bowelStatus: "loaded", bowelError: null, bowelEntries: [event],
   dietStatus: "loaded", dietError: null, dietEntries: [],
   timelineStatus: "loaded", timelineError: null, timeline: [], timelineHasMore: false,
@@ -426,11 +437,12 @@ function panelController(
     selectTableTab: vi.fn(), saveTableTab: vi.fn(), createTableTab: vi.fn(() => true),
     renameTableTab: vi.fn(() => true), requestDeleteTableTab: vi.fn(),
     confirmTableViewAction: vi.fn(), cancelTableViewAction: vi.fn(),
-    refresh: vi.fn(), refreshBowel: vi.fn(), refreshDiet: vi.fn(), refreshTimeline: vi.fn(),
+    refresh: vi.fn(), refreshMedication: vi.fn(), refreshBowel: vi.fn(), refreshDiet: vi.fn(), refreshTimeline: vi.fn(),
     loadMoreTimeline: vi.fn(), refreshTrends: vi.fn(),
     createDiet: vi.fn(), updateDiet: vi.fn(), archiveDiet: vi.fn(),
     createBowel: vi.fn(), updateBowel: vi.fn(), archiveBowel: vi.fn(),
-    createMedication: vi.fn(), upsertMetrics: vi.fn(), archive: vi.fn(), restore: vi.fn(), purge: vi.fn(),
+    createMedication: vi.fn(), updateMedication: vi.fn(), archiveMedication: vi.fn(),
+    upsertMetrics: vi.fn(), archive: vi.fn(), restore: vi.fn(), purge: vi.fn(),
   };
 }
 

@@ -30,6 +30,7 @@ const entry: DietEntry = {
 const trends = { days: 30 } as HealthTrends;
 
 const loadedState: HealthState = {
+  medicationStatus: "loaded", medicationError: null, medicationEntries: [],
   bowelStatus: "loaded",
   bowelError: null,
   bowelEntries: [],
@@ -70,6 +71,7 @@ function controller(
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshMedication: vi.fn().mockResolvedValue(true),
     refreshBowel: vi.fn().mockResolvedValue(true),
     refreshDiet: vi.fn().mockResolvedValue(true),
     refreshTimeline: vi.fn(),
@@ -82,6 +84,7 @@ function controller(
     updateBowel: vi.fn(),
     archiveBowel: vi.fn(),
     createMedication: vi.fn(),
+    updateMedication: vi.fn(), archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
@@ -285,15 +288,15 @@ describe("Health Diet controller", () => {
     } as const;
     const mutations = [create, upsert, archive, restore, purge];
     const cases = [
-      { bowelRead: true, run: () => result.current.createBowel(bowel) },
-      { bowelRead: false, run: () => result.current.createMedication({
+      { eventRead: true, run: () => result.current.createBowel(bowel) },
+      { eventRead: true, run: () => result.current.createMedication({
         occurredAt: entry.occurredAt,
         details: { kind: "medication", medicationName: "Tablet", dose: 1, unit: "tablet" },
       }) },
-      { bowelRead: false, run: () => result.current.upsertMetrics([]) },
-      { bowelRead: false, run: () => result.current.archive("event", "event-1") },
-      { bowelRead: false, run: () => result.current.restore("event", "event-1") },
-      { bowelRead: false, run: () => result.current.purge("event", "event-1", "PURGE") },
+      { eventRead: false, run: () => result.current.upsertMetrics([]) },
+      { eventRead: false, run: () => result.current.archive("event", "event-1") },
+      { eventRead: false, run: () => result.current.restore("event", "event-1") },
+      { eventRead: false, run: () => result.current.purge("event", "event-1", "PURGE") },
     ];
 
     for (const mutationCase of cases) {
@@ -304,7 +307,7 @@ describe("Health Diet controller", () => {
       await act(async () => expect(mutationCase.run()).resolves.toBeUndefined());
       expect(mutations.reduce((count, mutation) => count + mutation.mock.calls.length, 0)).toBe(1);
       expect(healthApi.listDiet).not.toHaveBeenCalled();
-      expect(healthApi.listEvents).toHaveBeenCalledTimes(mutationCase.bowelRead ? 1 : 0);
+      expect(healthApi.listEvents).toHaveBeenCalledTimes(mutationCase.eventRead ? 1 : 0);
       expect(healthApi.timeline).toHaveBeenCalledOnce();
       expect(healthApi.trends).toHaveBeenCalledOnce();
     }

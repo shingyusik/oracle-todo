@@ -93,6 +93,9 @@ const trends: HealthTrends = {
 };
 
 const loadedState: HealthState = {
+  medicationStatus: "loaded",
+  medicationError: null,
+  medicationEntries: [],
   bowelStatus: "loaded",
   bowelError: null,
   bowelEntries: [bowel],
@@ -134,6 +137,7 @@ function controller(state: HealthState = loadedState): HealthController {
     confirmTableViewAction: vi.fn(),
     cancelTableViewAction: vi.fn(),
     refresh: vi.fn(),
+    refreshMedication: vi.fn(),
     refreshBowel: vi.fn(),
     refreshDiet: vi.fn(),
     refreshTimeline: vi.fn(),
@@ -146,6 +150,8 @@ function controller(state: HealthState = loadedState): HealthController {
     updateBowel: vi.fn(),
     archiveBowel: vi.fn(),
     createMedication: vi.fn(),
+    updateMedication: vi.fn(),
+    archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
