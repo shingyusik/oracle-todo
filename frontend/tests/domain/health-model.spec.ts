@@ -6,6 +6,7 @@ import {
   mapHealthTrends,
   mapTimelineItem,
 } from "@/features/health/model/health-model";
+import { mapHealthReport } from "@/features/health/model/health-reports";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -18,7 +19,161 @@ const base = {
   note: null,
 };
 
+const reportMetrics = [
+  ["body_weight", "Body weight", "kg", 68, 69],
+  ["sleep_duration", "Sleep", "hours", 7.5, null],
+  ["crp", "CRP", "mg/L", 0.4, null],
+  ["fecal_calprotectin", "Fecal calprotectin", "µg/g", 40, null],
+  ["overall_condition", "Overall condition", null, 8, null],
+] as const;
+
+function healthReportWire() {
+  const reading = (ordinal: number, occurredAt: string, value: number) => ({
+    local_date: [2026, ordinal], occurred_at: occurredAt, value,
+  });
+  return {
+    range: { from: [2026, 203], to: [2026, 232] },
+    previous_range: { from: [2026, 173], to: [2026, 202] },
+    metrics: reportMetrics.map(([metric, name, unit, current, previous]) => ({
+      metric, name, unit,
+      current: reading(203, "2026-07-22T00:00:00Z", current),
+      previous: previous === null ? null : reading(202, "2026-07-21T00:00:00Z", previous),
+    })),
+    diet_count: { current: 1, previous: null },
+    bowel: { current_count: 1, previous_count: null,
+      current_average: 6 as number | null, previous_average: null as number | null },
+    medication_count: { current: 1, previous: null },
+    bowel_points: [{ local_date: [2026, 203], occurred_at: "2026-07-22T04:00:00Z",
+      bristol_scale: 6 }],
+    metric_series: reportMetrics.map(([metric], index) => ({
+      metric,
+      points: [reading(203 + index,
+        `2026-07-${String(22 + index).padStart(2, "0")}T00:00:00Z`, index + 1)],
+    })),
+    medication_frequencies: [{ name: "Vitamin D", count: 2 }],
+    diet_tag_frequencies: [{ name: "fiber", count: 3 }],
+    diet_tag_bowel_responses: [{ tag: "fiber", positive_meals: 1,
+      eligible_meals: 2, rate: 0.5 }],
+    reaction_disclaimer: "Observed associations only; they do not establish causation.",
+  };
+}
+
 describe("Health wire boundary", () => {
+  it("requests and maps the complete Health report projection", async () => {
+    const response = healthReportWire();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200, headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await healthApi.reports({ from: "2026-07-22", to: "2026-08-20" });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/health/reports?from=2026-07-22&to=2026-08-20",
+    );
+    expect(report).toEqual({
+      range: { from: "2026-07-22", to: "2026-08-20" },
+      previousRange: { from: "2026-06-22", to: "2026-07-21" },
+      metrics: reportMetrics.map(([metric, name, unit, current, previous]) => ({
+        metric, name, unit,
+        current: { localDate: "2026-07-22", occurredAt: "2026-07-22T00:00:00Z", value: current },
+        previous: previous === null ? null : {
+          localDate: "2026-07-21", occurredAt: "2026-07-21T00:00:00Z", value: previous,
+        },
+      })),
+      dietCount: { current: 1, previous: null },
+      bowel: { currentCount: 1, previousCount: null, currentAverage: 6, previousAverage: null },
+      medicationCount: { current: 1, previous: null },
+      bowelPoints: [{ localDate: "2026-07-22", occurredAt: "2026-07-22T04:00:00Z",
+        bristolScale: 6 }],
+      metricSeries: reportMetrics.map(([metric], index) => ({
+        metric,
+        points: [{ localDate: `2026-07-${String(22 + index).padStart(2, "0")}`,
+          occurredAt: `2026-07-${String(22 + index).padStart(2, "0")}T00:00:00Z`,
+          value: index + 1 }],
+      })),
+      medicationFrequencies: [{ name: "Vitamin D", count: 2 }],
+      dietTagFrequencies: [{ name: "fiber", count: 3 }],
+      dietTagBowelResponses: [{ tag: "fiber", positiveMeals: 1, eligibleMeals: 2, rate: 0.5 }],
+      reactionDisclaimer: "Observed associations only; they do not establish causation.",
+    });
+  });
+
+  it("orders report points by parsed RFC3339 instants including fractional seconds", () => {
+    const ascending = healthReportWire();
+    ascending.metric_series[0]!.points = [
+      { local_date: [2026, 203], occurred_at: "2026-07-22T00:00:00Z", value: 1 },
+      { local_date: [2026, 203], occurred_at: "2026-07-22T00:00:00.1Z", value: 2 },
+    ];
+    expect(() => mapHealthReport(ascending)).not.toThrow();
+
+    const descending = healthReportWire();
+    descending.metric_series[0]!.points = [...ascending.metric_series[0]!.points].reverse();
+    expect(() => mapHealthReport(descending)).toThrow(TypeError);
+  });
+
+  it("maps year-zero previous ranges and readings produced by a year-one request", () => {
+    const response = healthReportWire();
+    response.range = { from: [1, 1], to: [1, 1] };
+    response.previous_range = { from: [0, 366], to: [0, 366] };
+    response.metrics[0]!.current!.local_date = [1, 1];
+    response.metrics[0]!.previous!.local_date = [0, 366];
+
+    const report = mapHealthReport(response);
+
+    expect(report.range).toEqual({ from: "0001-01-01", to: "0001-01-01" });
+    expect(report.previousRange).toEqual({ from: "0000-12-31", to: "0000-12-31" });
+    expect(report.metrics[0]).toMatchObject({
+      current: { localDate: "0001-01-01" },
+      previous: { localDate: "0000-12-31" },
+    });
+  });
+
+  it.each([
+    ["diet_count", "current"],
+    ["diet_count", "previous"],
+    ["medication_count", "current"],
+    ["medication_count", "previous"],
+  ] as const)("rejects zero non-null report count comparisons", (comparison, side) => {
+    const response = healthReportWire();
+    Object.assign(response[comparison], { [side]: 0 });
+    expect(() => mapHealthReport(response)).toThrow(TypeError);
+  });
+
+  it.each(["medication_frequencies", "diet_tag_frequencies"] as const)(
+    "rejects zero named frequency counts",
+    (field) => {
+      const response = healthReportWire();
+      response[field] = [{ name: "fiber", count: 0 }];
+      expect(() => mapHealthReport(response)).toThrow(TypeError);
+    },
+  );
+
+  it.each([
+    [2, 1, 2],
+    [0, 0, 0.1],
+    [1, 2, 0.4],
+  ])("rejects inconsistent tag response aggregates", (positive, eligible, rate) => {
+    const response = healthReportWire();
+    response.diet_tag_bowel_responses = [{
+      tag: "fiber", positive_meals: positive, eligible_meals: eligible, rate,
+    }];
+    expect(() => mapHealthReport(response)).toThrow(TypeError);
+  });
+
+  it.each([
+    ["current_count", "current_average", 1, null],
+    ["current_count", "current_average", null, 4],
+    ["previous_count", "previous_average", 1, null],
+    ["previous_count", "previous_average", null, 4],
+    ["current_count", "current_average", 1, 8],
+    ["current_count", "current_average", 0, 4],
+  ] as const)("rejects inconsistent bowel aggregates", (countField, averageField, count, average) => {
+    const response = healthReportWire();
+    Object.assign(response.bowel, { [countField]: count, [averageField]: average });
+    expect(() => mapHealthReport(response)).toThrow(TypeError);
+  });
+
   it.each([
     ["weight", "body_weight",
       { metric_key: "body_weight", name: "Body weight", value: 71.5, unit: "kg" },

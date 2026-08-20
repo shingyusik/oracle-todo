@@ -10,6 +10,8 @@ mod lifecycle;
 mod media;
 #[path = "integration/mutation_boundary.rs"]
 mod mutation_boundary;
+#[path = "integration/reports.rs"]
+mod reports;
 #[path = "integration/repository.rs"]
 mod repository;
 #[path = "integration/schema.rs"]

@@ -18,7 +18,7 @@ export type HealthTabId =
   | "bowel"
   | "medication"
   | "health-metrics"
-  | "trends";
+  | "reports";
 export type LeafTabId =
   | MainTabId
   | WorkspaceChildTabId
@@ -83,7 +83,7 @@ export const workbenchNavigation = {
     { id: "bowel", label: "Bowel" },
     { id: "medication", label: "Medication" },
     { id: "health-metrics", label: "Health Metrics" },
-    { id: "trends", label: "Trends" },
+    { id: "reports", label: "Reports" },
   ] satisfies NavigationTab<HealthTabId>[],
 } as const;
 
@@ -112,7 +112,7 @@ const healthLeafTabIds = new Set<WorkbenchTabId>([
   "bowel",
   "medication",
   "health-metrics",
-  "trends",
+  "reports",
 ]);
 
 function createSelection(
@@ -214,6 +214,12 @@ export function resolveSelection(
 
   if (tabId === "planner") {
     return createSelection("todo", "yearly", false, true);
+  }
+
+  if (tabId === "reports") {
+    return currentSelection?.mainTabId === "ledger"
+      ? createSelection("ledger", "reports")
+      : createSelection("health", "reports");
   }
 
   if (ledgerLeafTabIds.has(tabId)) {

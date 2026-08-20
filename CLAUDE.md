@@ -25,7 +25,7 @@ do no I/O and never depend on another engine.
 | `raven-api` | Auth, `/api/v1` composition, safe errors, Dashboard, UI session/static serving |
 | `todo-engine` | ToDo item graph, recurrence, lifecycle, SQLite, reusable adapters |
 | `ledger-engine` | Money/master data, entries, transfers, reports, audit, SQLite |
-| `health-engine` | Diet/media, health events, timeline/trends, audit, SQLite |
+| `health-engine` | Diet/media, health events, timeline/trends/reports, audit, SQLite |
 | `frontend` | Static ToDo Dashboard and ToDo/Ledger/Health workspaces |
 | `backend` | Namespaced presentation preferences stored in `todo.sqlite` |
 
@@ -85,3 +85,5 @@ Project skills live under `.claude/plugins/` and are mirrored under `.codex/skil
 Treat `.claude/plugins/` as source of truth. Use docs skills after code changes, verification
 skills before completion, and structured-commit rules when committing. Codex hooks are in
 `.codex/hooks.json`.
+
+- When creating a Linear issue for this project, always assign it to the authenticated user (`me`).

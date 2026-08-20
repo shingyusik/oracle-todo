@@ -21,7 +21,7 @@ adapters call those services; they do not write domain tables directly.
 - **Ledger** — currencies, account categories, accounts, transaction categories, entries,
   atomic transfers, balances, reports, briefing, diagnostics, and deterministic export.
 - **Health Journal** — diet and images, bowel and medication events, health metrics, daily
-  metric upsert, a combined timeline, and bounded trends.
+  metric upsert, Reports, a combined timeline, and bounded trends.
 - **Dashboard** — a read-only ToDo analytics screen for today's work, completion history,
   Area status, and Project status.
 
@@ -29,7 +29,7 @@ Ledger and Health Journal do not repeat an Overview page. Their operational tabs
 available in the main navigation:
 
 - Ledger: Transactions, Accounts, Categories, Reports
-- Health Journal: Diet, Bowel, Medication, Health Metrics, Trends
+- Health Journal: Diet, Bowel, Medication, Health Metrics, Reports
 
 ## Stack
 

@@ -8,7 +8,7 @@ served by `raven ui` from the same origin as the authenticated API.
 - Dashboard: ToDo analytics for Today's work, Completion history, Area status, and Project status
 - ToDo: Workspace and Planner
 - Ledger: Transactions, Accounts, Categories, Reports
-- Health Journal: Diet / Bowel / Medication / Health Metrics / Trends
+- Health Journal: Diet / Bowel / Medication / Health Metrics / Reports
 
 Dashboard shows ToDo analytics only. Ledger and Health Journal start directly at their
 operational views.
@@ -79,5 +79,5 @@ authenticated browser integration through the Raven UI session.
   unified models, and cards remain available but are not wired into `DashboardPanel`
 - `src/features/workbench` — ToDo Workspace and Planner
 - `src/features/ledger` — entries, master data, and reports
-- `src/features/health` — timeline, diet, events, metrics, and trends
+- `src/features/health` — diet, events, metrics, and reports
 - `tests` — architecture, model, controller, and presentation checks

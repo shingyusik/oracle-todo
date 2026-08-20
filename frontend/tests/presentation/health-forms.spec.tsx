@@ -35,13 +35,10 @@ const loadedState: HealthState = {
   dietStatus: "loaded",
   dietError: null,
   dietEntries: [],
-  timelineStatus: "loaded",
-  timelineError: null,
-  timeline: [],
-  timelineHasMore: false,
-  trendsStatus: "idle",
-  trendsError: null,
-  trends: null,
+  reportStatus: "idle",
+  reportError: null,
+  report: null,
+  reportSelection: { preset: 30 },
 };
 
 function deferred<T>() {
@@ -81,9 +78,8 @@ function controller(
     refreshMedication: vi.fn(),
     refreshBowel: vi.fn(),
     refreshDiet: vi.fn(),
-    refreshTimeline: vi.fn(),
-    loadMoreTimeline: vi.fn(),
-    refreshTrends: vi.fn(),
+    runReports: vi.fn(),
+    retryReports: vi.fn(),
     createDiet: vi.fn(),
     updateDiet: vi.fn(),
     archiveDiet: vi.fn(),
@@ -95,9 +91,6 @@ function controller(
     archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(),
     saveMetrics: vi.fn(),
-    archive: vi.fn(),
-    restore: vi.fn(),
-    purge: vi.fn(),
     ...overrides,
   };
 }

@@ -210,7 +210,7 @@ All routes below use prefix `/api/v1/health`.
 | Diet image upload | `POST /diet/with-image` and `PATCH /diet/:id/with-image` with raw image bytes |
 | Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore`, `DELETE /events/:id/purge` |
 | Metrics | `POST /metrics/daily` |
-| Reads | `GET /timeline`, `/trends`, `/audit/:record_type/:record_id` |
+| Reads | `GET /timeline`, `/trends`, `/reports`, `/audit/:record_type/:record_id` |
 
 `GET /events` accepts `offset`, `limit`, `category`, `metric_key`, and
 `daily_only=true|false`. `daily_only=true` returns only active events created through the
@@ -240,6 +240,35 @@ ordinary or inactive archive targets, duplicate identities, and an identity pres
 arrays. Any validation, conflict, audit, or storage failure rolls back the entire request.
 The response `items` contains the created or updated active events; archived events are not
 included.
+
+### Health reports
+
+`GET /reports` requires exact local calendar dates `from` and `to` in `YYYY-MM-DD` format:
+
+```bash
+curl 'http://127.0.0.1:3002/api/v1/health/reports?from=2026-07-22&to=2026-08-20' \
+  -H "Authorization: Bearer $RAVEN_API_TOKEN"
+```
+
+The range is inclusive and may contain at most 366 days. The response also includes the
+immediately preceding period of equal inclusive length. Only active Diet and Health records
+contribute to reports; archived records are excluded.
+
+The five fixed daily metrics are body weight, sleep duration, CRP, fecal calprotectin, and
+overall condition. Each summary returns the latest reading in the selected range as `current`
+and that reading's immediate predecessor as `previous`; series contain the selected-range
+readings. A missing count, average, or metric reading is `null`, not zero.
+
+Bowel points and medication and Diet-tag frequencies cover the selected range. Diet-tag bowel
+response rows include every tag plus `positive_meals`, `eligible_meals`, and `rate`. A response
+uses bowel events in the interval `(meal, meal + 24 hours]`; a meal whose full response window
+has not elapsed is excluded from both numerator and denominator. Historical ranges therefore
+read through the selected end plus 24 hours so complete boundary responses remain visible.
+The response includes this exact interpretation warning:
+
+```text
+Observed associations only; they do not establish causation.
+```
 
 JSON bodies are limited to 128 KiB. The Diet image routes are not multipart:
 

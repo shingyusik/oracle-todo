@@ -10,6 +10,7 @@ use health_engine::application::commands::{
 };
 use health_engine::application::ports::{EventQuery, Page};
 use health_engine::application::queries::HealthQuery;
+use health_engine::application::reports::HealthReportRange;
 use health_engine::application::service::HealthService;
 use health_engine::domain::HealthCategory;
 use health_engine::infrastructure::media::LocalMediaStore;
@@ -17,7 +18,7 @@ use health_engine::infrastructure::sqlite::SqliteHealthRepository;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 
 use crate::dto::health::{
     CreateDietBody, DailyMetricsBody, EventBody, PurgeBody, UpdateDietBody, UpdateEventBody,
@@ -42,6 +43,7 @@ pub fn router() -> Router<RavenApiState> {
         .route("/events/:id/restore", post(restore_event))
         .route("/events/:id/purge", delete(purge_event))
         .route("/metrics/daily", post(upsert_daily_metrics))
+        .route("/reports", get(reports))
         .route("/timeline", get(timeline))
         .route("/trends", get(trends))
         .route("/audit/:record_type/:record_id", get(audit))
@@ -102,6 +104,13 @@ struct TimelineQuery {
 struct TrendsQuery {
     #[serde(default = "default_trend_days")]
     days: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReportsQuery {
+    from: String,
+    to: String,
 }
 
 async fn list_diet(
@@ -351,6 +360,19 @@ async fn trends(
     Ok(Json(json!(value)))
 }
 
+async fn reports(
+    State(state): State<RavenApiState>,
+    query: Result<Query<ReportsQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let query = query_value(query)?;
+    let range = HealthReportRange {
+        from: parse_date(&query.from, "from")?,
+        to: parse_date(&query.to, "to")?,
+    };
+    let value = health(&state, false, move |service| service.reports(range)).await?;
+    Ok(Json(json!(value)))
+}
+
 async fn audit(
     State(state): State<RavenApiState>,
     Path((record_type, record_id)): Path<(String, String)>,
@@ -497,14 +519,16 @@ where
 {
     let db = state.health_db().to_path_buf();
     let media = state.health_media_dir().to_path_buf();
+    let local_offset = state.local_offset();
     tokio::task::spawn_blocking(move || {
         let repository = SqliteHealthRepository::open(db)?;
         let store = LocalMediaStore::new(media)?;
-        let mut service = if mutation {
+        let mut service = (if mutation {
             HealthService::start(repository, store)?
         } else {
             HealthService::new(repository, store)
-        };
+        })
+        .with_local_offset(local_offset);
         action(&mut service)
     })
     .await
@@ -530,6 +554,11 @@ fn json_value<T>(body: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
 
 fn parse_time(value: &str, field: &'static str) -> Result<OffsetDateTime, ApiError> {
     OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+        .map_err(|_| ApiError::validation(Some(field)))
+}
+
+fn parse_date(value: &str, field: &'static str) -> Result<Date, ApiError> {
+    Date::parse(value, &time::format_description::well_known::Iso8601::DATE)
         .map_err(|_| ApiError::validation(Some(field)))
 }
 

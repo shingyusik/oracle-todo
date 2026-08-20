@@ -52,6 +52,46 @@ async fn body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+async fn post_health_event(app: &axum::Router, occurred_at: &str, details: Value) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/health/events")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({"occurred_at": occurred_at, "details": details}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    body(response).await
+}
+
+async fn post_health_diet(app: &axum::Router, occurred_at: &str, tags: &[&str]) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/health/diet")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "occurred_at": occurred_at,
+                        "meal_type": "lunch",
+                        "food_name": "Report meal",
+                        "tags": tags
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    body(response).await
+}
+
 async fn create_diet(app: &axum::Router) -> Value {
     let request = Request::post("/api/v1/health/diet")
         .header(header::CONTENT_TYPE, "application/json")
@@ -567,4 +607,200 @@ async fn health_event_lifecycle_roundtrip_uses_service_policy() {
         app.oneshot(purge).await.unwrap().status(),
         StatusCode::NO_CONTENT
     );
+}
+
+#[tokio::test]
+async fn health_reports_return_complete_engine_projection() {
+    let (_temp, app) = app();
+    post_health_diet(&app, "2026-07-21T03:00:00Z", &["previous"]).await;
+    post_health_diet(&app, "2026-07-22T03:00:00Z", &["shared", "fiber"]).await;
+    post_health_event(
+        &app,
+        "2026-07-22T04:00:00Z",
+        json!({"kind": "bowel", "bristol_scale": 6}),
+    )
+    .await;
+    post_health_event(
+        &app,
+        "2026-07-22T05:00:00Z",
+        json!({
+            "kind": "medication",
+            "medication_name": "Vitamin D",
+            "dose": 1.0,
+            "unit": "tablet"
+        }),
+    )
+    .await;
+    post_daily(
+        &app,
+        json!({"metrics": [{
+            "occurred_at": "2026-07-21T00:00:00Z",
+            "details": {"kind": "weight", "value": 69.0, "unit": "kg"}
+        }]}),
+    )
+    .await;
+    post_daily(
+        &app,
+        json!({"metrics": [
+            {
+                "occurred_at": "2026-07-22T00:00:00Z",
+                "details": {"kind": "weight", "value": 68.0, "unit": "kg"}
+            },
+            {
+                "occurred_at": "2026-07-22T00:00:00Z",
+                "details": {"kind": "sleep", "value": 7.5}
+            },
+            {
+                "occurred_at": "2026-07-22T00:00:00Z",
+                "details": {"kind": "lab", "key": "crp", "name": "CRP", "value": 0.4, "unit": "mg/L"}
+            },
+            {
+                "occurred_at": "2026-07-22T00:00:00Z",
+                "details": {"kind": "lab", "key": "fecal_calprotectin", "name": "Fecal calprotectin", "value": 40.0, "unit": "ug/g"}
+            },
+            {
+                "occurred_at": "2026-07-22T00:00:00Z",
+                "details": {"kind": "overall_condition", "score": 8}
+            }
+        ]}),
+    )
+    .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/health/reports?from=2026-07-22&to=2026-08-20")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let report = body(response).await;
+    assert_eq!(
+        report["range"],
+        json!({"from": [2026, 203], "to": [2026, 232]})
+    );
+    assert_eq!(
+        report["previous_range"],
+        json!({"from": [2026, 173], "to": [2026, 202]})
+    );
+    assert_eq!(report["diet_count"], json!({"current": 1, "previous": 1}));
+    assert_eq!(
+        report["bowel"],
+        json!({
+            "current_count": 1,
+            "previous_count": null,
+            "current_average": 6.0,
+            "previous_average": null
+        })
+    );
+    assert_eq!(
+        report["medication_count"],
+        json!({"current": 1, "previous": null})
+    );
+    let metrics = report["metrics"].as_array().unwrap();
+    assert_eq!(metrics.len(), 5);
+    assert_eq!(metrics[0]["metric"], "body_weight");
+    assert_eq!(metrics[0]["current"]["value"], 68.0);
+    assert_eq!(metrics[0]["previous"]["value"], 69.0);
+    assert!(
+        metrics[1..]
+            .iter()
+            .all(|metric| metric["previous"].is_null())
+    );
+    let series = report["metric_series"].as_array().unwrap();
+    assert_eq!(series.len(), 5);
+    assert_eq!(
+        series
+            .iter()
+            .map(|item| item["metric"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "body_weight",
+            "sleep_duration",
+            "crp",
+            "fecal_calprotectin",
+            "overall_condition"
+        ]
+    );
+    assert!(
+        series
+            .iter()
+            .all(|item| item["points"].as_array().unwrap().len() == 1)
+    );
+    assert_eq!(
+        report["bowel_points"],
+        json!([{
+            "local_date": [2026, 203],
+            "occurred_at": "2026-07-22T04:00:00Z",
+            "bristol_scale": 6
+        }])
+    );
+    assert_eq!(
+        report["medication_frequencies"],
+        json!([{"name": "Vitamin D", "count": 1}])
+    );
+    assert_eq!(
+        report["diet_tag_frequencies"],
+        json!([
+            {"name": "fiber", "count": 1},
+            {"name": "shared", "count": 1}
+        ])
+    );
+    assert_eq!(
+        report["diet_tag_bowel_responses"],
+        json!([
+            {"tag": "fiber", "positive_meals": 1, "eligible_meals": 1, "rate": 1.0},
+            {"tag": "shared", "positive_meals": 1, "eligible_meals": 1, "rate": 1.0}
+        ])
+    );
+    assert_eq!(
+        report["reaction_disclaimer"],
+        "Observed associations only; they do not establish causation."
+    );
+}
+
+#[tokio::test]
+async fn health_reports_reject_invalid_queries_without_leaking_details() {
+    let (_temp, app) = app();
+    let cases = [
+        ("to=2026-08-20", None),
+        ("from=2026-07-22", None),
+        ("from=2026-7-22&to=2026-08-20", Some("from")),
+        ("from=2026-07-22&to=2026-02-30", Some("to")),
+        ("from=2026-08-20&to=2026-07-22", None),
+        ("from=2025-08-19&to=2026-08-20", None),
+        (
+            "from=2026-07-22&to=2026-08-20&path=C%3A%5Csecret.sqlite",
+            None,
+        ),
+    ];
+    for (query, expected_field) in cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/api/v1/health/reports?{query}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
+        let error = body(response).await;
+        assert_eq!(error["code"], "validation_error", "{query}");
+        assert_eq!(error["message"], "The request is invalid.", "{query}");
+        assert!(error["request_id"].is_string(), "{query}");
+        assert_eq!(
+            error["fields"],
+            expected_field
+                .map(|field| json!({field: ["invalid"]}))
+                .unwrap_or_else(|| json!({})),
+            "{query}"
+        );
+        let rendered = error.to_string();
+        assert!(!rendered.contains("secret.sqlite"), "{query}");
+        assert!(!rendered.contains("SELECT"), "{query}");
+        assert!(!rendered.contains("raven_session"), "{query}");
+    }
 }

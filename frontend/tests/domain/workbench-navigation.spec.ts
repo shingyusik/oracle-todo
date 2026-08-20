@@ -172,17 +172,30 @@ describe("workbench navigation", () => {
       "Categories",
       "Reports",
     ]);
-    expect(workbenchNavigation.healthTabs.map((tab) => tab.label)).toEqual([
-      "Diet",
-      "Bowel",
-      "Medication",
-      "Health Metrics",
-      "Trends",
+    expect(workbenchNavigation.healthTabs.map(({ id, label }) => [id, label])).toEqual([
+      ["diet", "Diet"],
+      ["bowel", "Bowel"],
+      ["medication", "Medication"],
+      ["health-metrics", "Health Metrics"],
+      ["reports", "Reports"],
     ]);
     expect([
       ...workbenchNavigation.ledgerTabs,
       ...workbenchNavigation.healthTabs,
     ]).not.toContainEqual(expect.objectContaining({ label: "Overview" }));
+  });
+
+  it("resolves Reports under Health while retaining Ledger Reports in Ledger context", () => {
+    expect(resolveSelection("reports")).toMatchObject({
+      mainTabId: "health",
+      leafTabId: "reports",
+      healthExpanded: true,
+    });
+    expect(resolveSelection("reports", resolveSelection("ledger"))).toMatchObject({
+      mainTabId: "ledger",
+      leafTabId: "reports",
+      ledgerExpanded: true,
+    });
   });
 
   it("defines workspace and planner as sibling todo tabs", () => {

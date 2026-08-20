@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import { HealthSummaryCard } from "@/features/dashboard/ui/HealthSummaryCard";
 import { RecentActivityCard } from "@/features/dashboard/ui/RecentActivityCard";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
@@ -205,6 +206,17 @@ describe("DashboardPanel", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("points Health Journal detailed analysis to Reports", () => {
+    render(
+      <HealthSummaryCard
+        projection={{ status: "ok", data: { metrics: [], recentDietTags: [] } }}
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Health Journal summary" }))
+      .toHaveTextContent("Detailed analysis is available in Reports.");
   });
 
   it("renders only ToDo analytics without requesting unified summaries", async () => {

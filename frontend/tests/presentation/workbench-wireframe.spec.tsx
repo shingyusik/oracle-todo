@@ -14,6 +14,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HealthController } from "@/features/health/hooks/useHealthController";
+import * as healthControllerHooks from "@/features/health/hooks/useHealthController";
+import type { HealthReport } from "@/features/health/model/health-reports";
 import { defaultHealthTableSettings, healthDietFilterSelectOptions } from "@/features/health/model/health-table-views";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
 
@@ -264,6 +266,70 @@ function reportLedgerController() {
   } satisfies LedgerController;
 
   return { ledger, savedSettings };
+}
+
+function reportHealthController() {
+  const range = { from: "2026-07-22", to: "2026-08-20" };
+  const metricDefinitions = [
+    ["body_weight", "Weight", "kg"],
+    ["sleep_duration", "Sleep", "hours"],
+    ["crp", "CRP", "mg/L"],
+    ["fecal_calprotectin", "Calprotectin", "µg/g"],
+    ["overall_condition", "Condition", null],
+  ] as const;
+  const report: HealthReport = {
+    range,
+    previousRange: range,
+    metrics: metricDefinitions.map(([metric, name, unit]) => ({
+      metric, name, unit,
+      current: { localDate: range.to, occurredAt: `${range.to}T12:00:00Z`, value: 1 },
+      previous: null,
+    })),
+    dietCount: { current: 1, previous: null },
+    bowel: { currentCount: 1, previousCount: null, currentAverage: 6, previousAverage: null },
+    medicationCount: { current: 1, previous: null },
+    bowelPoints: [{ localDate: range.to, occurredAt: `${range.to}T12:00:00Z`, bristolScale: 6 }],
+    metricSeries: metricDefinitions.map(([metric]) => ({ metric, points: [] })),
+    medicationFrequencies: [{ name: "Mesalamine", count: 1 }],
+    dietTagFrequencies: [{ name: "spicy", count: 1 }],
+    dietTagBowelResponses: [],
+    reactionDisclaimer: "Observed associations only; they do not establish causation.",
+  };
+  const scopes = ["health.diet", "health.bowel", "health.medication", "health.metrics"] as const;
+  const drafts = Object.fromEntries(scopes.map((scope) => {
+    const settings = {
+      ...defaultHealthTableSettings(scope),
+      sortRules: [{ id: `${scope}-sort`, field: "date" as const, direction: "asc" as const }],
+      groupSettings: { ...defaultHealthTableSettings(scope).groupSettings, groupBy: "month" as const },
+    };
+    return [scope, settings];
+  })) as Record<(typeof scopes)[number], ReturnType<typeof defaultHealthTableSettings>>;
+  const saved = structuredClone(drafts);
+  const controller = {
+    state: {
+      metricsStatus: "loaded", metricsError: null, metricsEntries: [],
+      medicationStatus: "loaded", medicationError: null, medicationEntries: [],
+      bowelStatus: "loaded", bowelError: null, bowelEntries: [],
+      dietStatus: "loaded", dietError: null, dietEntries: [],
+      reportStatus: "loaded", reportError: null, report, reportSelection: { preset: 30 },
+    },
+    tableViewSaveError: null,
+    tableViewConfirmation: null,
+    tableTabs: (scope: (typeof scopes)[number]) => ({
+      tabs: [{ id: `${scope}-saved`, name: "Saved", settings: saved[scope] }],
+      activeTabId: `${scope}-saved`, draftSettings: drafts[scope],
+    }),
+    tableSettings: (scope: (typeof scopes)[number]) => drafts[scope],
+    updateTableSettings: (scope: (typeof scopes)[number], updater: (settings: typeof drafts[typeof scope]) => typeof drafts[typeof scope]) => {
+      drafts[scope] = updater(drafts[scope]);
+    },
+    selectTableTab: vi.fn(),
+    saveTableTab: vi.fn(),
+    createTableTab: vi.fn(),
+    runReports: vi.fn(),
+    retryReports: vi.fn(),
+  } as unknown as HealthController;
+  return { controller, drafts, saved };
 }
 
 async function statusOptions(title: string): Promise<string[]> {
@@ -1114,14 +1180,14 @@ describe("WorkbenchPageClient", () => {
     );
     expect(within(screen.getByRole("navigation", { name: "Raven navigation" }))
       .getAllByRole("button")
-      .filter((button) => ["Diet", "Bowel", "Medication", "Health Metrics", "Trends"]
+      .filter((button) => ["Diet", "Bowel", "Medication", "Health Metrics", "Reports"]
         .includes(button.textContent ?? ""))
       .map((button) => button.textContent)).toEqual([
         "Diet",
         "Bowel",
         "Medication",
         "Health Metrics",
-        "Trends",
+        "Reports",
       ]);
     expect(screen.queryByRole("button", { name: "Timeline" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
@@ -1228,6 +1294,65 @@ describe("WorkbenchPageClient", () => {
     expect(within(transactions).queryByText("Card lunch")).toBeNull();
     expect(within(transactions).queryByText("July lunch")).toBeNull();
     expect(within(transactions).queryByText("Dollar lunch")).toBeNull();
+  });
+
+  it("drills every Health report target into the active saved-view draft", async () => {
+    const user = userEvent.setup();
+    const workbench = renderHook(() => useWorkbenchController());
+    const { controller: health, drafts, saved } = reportHealthController();
+    vi.spyOn(healthControllerHooks, "useHealthController").mockReturnValue(health);
+    render(<MainPanel controller={{
+      ...workbench.result.current,
+      selection: {
+        ...workbench.result.current.selection,
+        mainTabId: "health",
+        leafTabId: "reports",
+        healthExpanded: true,
+      },
+    }} />);
+
+    const rangeRule = {
+      id: "health-report-date", field: "date", type: "date", operator: "is_between",
+      value: { start: "2026-07-22", end: "2026-08-20" },
+    };
+    const cases = [
+      ["spicy, 1 records", "health.diet", "diet",
+        { id: "health-report-tags", field: "tags", type: "multiSelect", operator: "contains", value: ["spicy"] }],
+      ["Mesalamine, 1 records", "health.medication", "medication",
+        { id: "health-report-medication_name", field: "medication_name", type: "text", operator: "is", value: "Mesalamine" }],
+      ["View abnormal bowel records", "health.bowel", "bowel",
+        { id: "health-report-bristol_scale", field: "bristol_scale", type: "select", operator: "is", value: ["1", "2", "6", "7"] }],
+      ["View Weight records for selected period", "health.metrics", "health-metrics",
+        { id: "health-report-weight", field: "weight", type: "number", operator: "is_not_empty", value: null }],
+      ["View Sleep records for selected period", "health.metrics", "health-metrics",
+        { id: "health-report-sleep", field: "sleep", type: "number", operator: "is_not_empty", value: null }],
+      ["View CRP records for selected period", "health.metrics", "health-metrics",
+        { id: "health-report-crp", field: "crp", type: "number", operator: "is_not_empty", value: null }],
+      ["View Calprotectin records for selected period", "health.metrics", "health-metrics",
+        { id: "health-report-calprotectin", field: "calprotectin", type: "number", operator: "is_not_empty", value: null }],
+      ["View Condition records for selected period", "health.metrics", "health-metrics",
+        { id: "health-report-condition", field: "condition", type: "number", operator: "is_not_empty", value: null }],
+      ["View Diet count records for selected period", "health.diet", "diet", null],
+      ["View Bowel count records for selected period", "health.bowel", "bowel", null],
+      ["View Medication count records for selected period", "health.medication", "medication", null],
+    ] as const;
+
+    for (const [button, scope, tab, targetRule] of cases) {
+      await user.click(screen.getByRole("button", { name: button }));
+      expect(workbench.result.current.selection.leafTabId).toBe(tab);
+      expect(drafts[scope]).toMatchObject({
+        filterMode: "and",
+        filterRules: targetRule ? [rangeRule, targetRule] : [rangeRule],
+        sortRules: [{ id: `${scope}-sort`, field: "date", direction: "asc" }],
+        groupSettings: { groupBy: "month" },
+      });
+      expect(health.selectTableTab).toHaveBeenLastCalledWith(scope, `${scope}-saved`);
+    }
+    for (const scope of Object.keys(saved) as Array<keyof typeof saved>) {
+      expect(health.tableTabs(scope).tabs[0]!.settings).toEqual(saved[scope]);
+    }
+    expect(health.saveTableTab).not.toHaveBeenCalled();
+    expect(health.createTableTab).not.toHaveBeenCalled();
   });
 
   it("keeps top-level navigation in keyboard focus order", async () => {

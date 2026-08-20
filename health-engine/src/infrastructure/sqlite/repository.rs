@@ -15,6 +15,7 @@ use crate::application::ports::{
     HealthReadRepository, HealthRepository, HealthTransaction, MediaFileRecord, Page,
 };
 use crate::application::queries::{HealthQuery, TimelineItem};
+use crate::application::reports::ReportRecords;
 use crate::application::trends::TrendRecords;
 use crate::domain::{DietEntry, HealthCategory, HealthEvent, MetricKey};
 
@@ -121,6 +122,15 @@ impl HealthReadRepository for SqliteHealthRepository {
         limit: u32,
     ) -> HealthResult<TrendRecords> {
         trend_records_on(&self.connection, start_exclusive, end_inclusive, limit)
+    }
+
+    fn report_records(
+        &self,
+        start_inclusive: time::OffsetDateTime,
+        end_inclusive: time::OffsetDateTime,
+        limit: u32,
+    ) -> HealthResult<ReportRecords> {
+        report_records_on(&self.connection, start_inclusive, end_inclusive, limit)
     }
 }
 
@@ -722,6 +732,77 @@ fn trend_records_on(
     Ok(TrendRecords { diets, events })
 }
 
+fn report_records_on(
+    connection: &Connection,
+    start_inclusive: time::OffsetDateTime,
+    end_inclusive: time::OffsetDateTime,
+    limit: u32,
+) -> HealthResult<ReportRecords> {
+    let start = format_time(start_inclusive)?;
+    let end = format_time(end_inclusive)?;
+    let requested = i64::from(limit) + 1;
+    let diet_sql = format!(
+        "SELECT {DIET_COLUMNS}
+         FROM diet_entries
+         WHERE deleted_at IS NULL AND occurred_at >= ?1 AND occurred_at <= ?2
+         ORDER BY occurred_at, id
+         LIMIT ?3"
+    );
+    let mut statement = connection.prepare(&diet_sql).map_err(storage_error)?;
+    let mut rows = statement
+        .query(params![start, end, requested])
+        .map_err(storage_error)?;
+    let mut diets = Vec::new();
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        let id = row.get::<_, String>(0).map_err(storage_error)?;
+        diets.push(row_to_diet(row, diet_tags_on(connection, &id)?)?);
+    }
+    if diets.len() > limit as usize {
+        return Err(report_limit_error(limit));
+    }
+    let remaining = limit - diets.len() as u32;
+    let fixed = "(
+        (category = 'weight' AND metric_key = 'body_weight') OR
+        (category = 'sleep' AND metric_key = 'sleep_duration') OR
+        (category = 'lab' AND metric_key IN ('crp', 'fecal_calprotectin')) OR
+        (category = 'symptom' AND metric_key = 'overall_condition')
+    )";
+    let event_sql = format!(
+        "SELECT {EVENT_COLUMNS}
+         FROM health_events
+         WHERE deleted_at IS NULL AND (
+             (occurred_at >= ?1 AND occurred_at <= ?2 AND (
+                 category IN ('bowel', 'medication') OR (daily_upsert = 1 AND {fixed})
+             )) OR id IN (
+                 SELECT id FROM (
+                     SELECT id, ROW_NUMBER() OVER (PARTITION BY category, metric_key ORDER BY occurred_at DESC, id DESC) AS rank
+                     FROM health_events
+                     WHERE deleted_at IS NULL AND daily_upsert = 1 AND occurred_at < ?1 AND {fixed}
+                 ) WHERE rank = 1
+             )
+         )
+         ORDER BY occurred_at, id
+         LIMIT ?3"
+    );
+    let events = collect_rows(
+        connection,
+        &event_sql,
+        params![start, end, i64::from(remaining) + 1],
+        row_to_event,
+    )?;
+    if events.len() > remaining as usize {
+        return Err(report_limit_error(limit));
+    }
+    Ok(ReportRecords { diets, events })
+}
+
+fn report_limit_error(limit: u32) -> HealthError {
+    HealthError::Validation {
+        field: "reports.records",
+        message: format!("result exceeds the {limit} record limit"),
+    }
+}
+
 fn collect_rows<T, P>(
     connection: &Connection,
     sql: &str,
@@ -756,4 +837,55 @@ fn ensure_changed(changed: usize, record_type: &str, id: &str) -> HealthResult<(
         return Err(HealthError::NotFound(format!("{record_type} {id}")));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod report_tests {
+    use rusqlite::params;
+    use time::macros::datetime;
+
+    use super::{SqliteHealthRepository, report_records_on};
+    use crate::application::error::HealthError;
+
+    #[test]
+    fn report_record_limit_is_shared_across_diets_and_events() {
+        let repository = SqliteHealthRepository::open_in_memory().unwrap();
+        for suffix in [1, 2] {
+            repository.connection.execute(
+                "INSERT INTO diet_entries (id, occurred_at, local_date, meal_type, food_name, created_at, updated_at)
+                 VALUES (?1, '2026-07-03T12:00:00.000000000Z', '2026-07-03', 'lunch', 'meal',
+                         '2026-07-03T12:00:00.000000000Z', '2026-07-03T12:00:00.000000000Z')",
+                [format!("00000000-0000-4000-8000-{suffix:012x}")],
+            ).unwrap();
+        }
+        for suffix in [3, 4] {
+            repository
+                .connection
+                .execute(
+                    "INSERT INTO health_events (
+                    id, occurred_at, local_date, category, metric_key, name, value_num,
+                    attributes_json, daily_upsert, created_at, updated_at
+                 ) VALUES (?1, '2026-07-03T12:00:00.000000000Z', '2026-07-03',
+                    'bowel', 'bowel', 'Bowel', 4, ?2, 0,
+                    '2026-07-03T12:00:00.000000000Z', '2026-07-03T12:00:00.000000000Z')",
+                    params![
+                        format!("00000000-0000-4000-8000-{suffix:012x}"),
+                        r#"{"bristol_scale":4,"blood_visible":false}"#
+                    ],
+                )
+                .unwrap();
+        }
+        assert!(matches!(
+            report_records_on(
+                &repository.connection,
+                datetime!(2026-07-01 00:00 UTC),
+                datetime!(2026-07-04 00:00 UTC),
+                3,
+            ),
+            Err(HealthError::Validation {
+                field: "reports.records",
+                ..
+            })
+        ));
+    }
 }

@@ -5,15 +5,17 @@ import type { LineChartSpec } from "@/features/dashboard/model/dashboard-widgets
 type DashboardLineChartProps = {
   chart: LineChartSpec;
   scale?: "automatic" | "percentage";
+  referenceBand?: { minimum: number; maximum: number; label: string };
 };
 
 export function DashboardLineChart({
   chart,
   scale = "automatic",
+  referenceBand,
 }: DashboardLineChartProps) {
   const maximum = scale === "percentage"
     ? 100
-    : Math.max(1, ...chart.points.map((point) => point.value));
+    : Math.max(1, referenceBand?.maximum ?? 0, ...chart.points.map((point) => point.value));
   const coordinates = chart.points.map((point, index) => ({
     ...point,
     x:
@@ -64,6 +66,18 @@ export function DashboardLineChart({
           ))}
         </div>
         <div className="dashboard-line-plot">
+          {referenceBand && (
+            <div
+              className="dashboard-line-reference-band"
+              aria-hidden="true"
+              style={{
+                top: `${94 - (referenceBand.maximum / maximum) * 84}%`,
+                height: `${((referenceBand.maximum - referenceBand.minimum) / maximum) * 84}%`,
+              }}
+            >
+              <span>{referenceBand.label}</span>
+            </div>
+          )}
           <svg
             className="dashboard-line-svg"
             viewBox="0 0 100 100"
