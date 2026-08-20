@@ -531,14 +531,15 @@ describe("LedgerPanel", () => {
     render(<LedgerPanel controller={ledger} leafTabId="accounts" />);
 
     await user.click(screen.getByRole("button", { name: "Account settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Account settings" });
     await user.type(screen.getByLabelText("Account type name"), "Wallet");
-    await user.click(screen.getByRole("button", { name: "Add account type" }));
+    const save = within(dialog).getByRole("button", { name: "Save" });
+    await user.click(save);
 
-    expect(screen.getByRole("dialog", { name: "Account settings" })).toHaveAttribute(
-      "aria-busy",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(dialog).toHaveAttribute("aria-busy", "true");
+    expect(save).toBeDisabled();
+    expect(save).toHaveAccessibleName("Saving…");
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
     await user.keyboard("{Escape}");
     expect(screen.getByRole("dialog", { name: "Account settings" })).toBeInTheDocument();
 
@@ -559,18 +560,18 @@ describe("LedgerPanel", () => {
       </>,
     );
 
-    const close = screen.getByRole("button", { name: "Close" });
-    const lastControl = screen.getByRole("button", { name: "Deactivate Cash" });
+    const dialog = screen.getByRole("dialog", { name: "Account settings" });
+    const accountTypes = within(dialog).getByRole("tab", { name: "Account types" });
+    const save = within(dialog).getByRole("button", { name: "Save" });
     expect(view.container).toHaveAttribute("aria-hidden", "true");
     expect(view.container).toHaveAttribute("inert");
     expect(document.body.style.overflow).toBe("hidden");
-    expect(close).toHaveFocus();
+    expect(accountTypes).toHaveFocus();
 
-    close.focus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(lastControl).toHaveFocus();
+    expect(save).toHaveFocus();
     await user.keyboard("{Tab}");
-    expect(close).toHaveFocus();
+    expect(accountTypes).toHaveFocus();
   });
 
   it("keeps Account settings open and returns focus when Escape cancels deactivation", async () => {
@@ -659,7 +660,13 @@ describe("LedgerPanel", () => {
       </>,
     );
 
-    const tabs = screen.getByRole("tablist", { name: "Account settings sections" });
+    const dialog = screen.getByRole("dialog", { name: "Account settings" });
+    expect(within(dialog.querySelector("header")!).queryByRole("button")).toBeNull();
+    const tabs = within(dialog).getByRole("tablist", { name: "Account settings sections" });
+    expect(tabs).toHaveClass("ledger-account-settings-tabs");
+    for (const tab of within(tabs).getAllByRole("tab")) {
+      expect(tab).toHaveClass("ledger-account-settings-tab");
+    }
     const accountTypes = within(tabs).getByRole("tab", { name: "Account types" });
     const currencies = within(tabs).getByRole("tab", { name: "Currencies" });
     expect(accountTypes).toHaveAttribute("id", "account-types-tab");
@@ -672,6 +679,14 @@ describe("LedgerPanel", () => {
     expect(currencies).toHaveAttribute("tabindex", "-1");
     expect(screen.getByRole("tabpanel", { name: "Account types" }))
       .toHaveAttribute("aria-labelledby", "account-types-tab");
+    expect(within(dialog).getByRole("heading", { name: "New account type" }))
+      .toBeInTheDocument();
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    const actions = close.parentElement!;
+    expect(actions).toHaveClass("ledger-create-dialog-actions");
+    const save = within(actions).getByRole("button", { name: "Save" });
+    expect(save).toHaveClass("ledger-create-dialog-save");
+    expect(save).toHaveAttribute("form", "account-settings-account-type-form");
     expect(screen.getAllByText("Cash")).not.toHaveLength(0);
     expect(screen.queryByText("Old category")).toBeNull();
 
@@ -680,6 +695,9 @@ describe("LedgerPanel", () => {
     expect(currencies).toHaveFocus();
     expect(screen.getByRole("tabpanel", { name: "Currencies" }))
       .toHaveAttribute("aria-labelledby", "currencies-tab");
+    expect(within(dialog).getByRole("heading", { name: "New currency" }))
+      .toBeInTheDocument();
+    expect(save).toHaveAttribute("form", "account-settings-currency-form");
     expect(screen.getByText("KRW")).toBeInTheDocument();
     expect(screen.queryByText("OLD")).toBeNull();
     await user.keyboard("{ArrowLeft}");
@@ -709,7 +727,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Account type name"), "Card");
     await user.selectOptions(screen.getByLabelText("Parent account type"), "account-category-bank");
     await user.click(screen.getByLabelText("Liability"));
-    await user.click(screen.getByRole("button", { name: "Add account type" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(ledger.createAccountCategory).toHaveBeenCalledWith({
       name: "Card",
       parent: "account-category-bank",
@@ -724,7 +742,8 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Account type name"), "Wallet");
     await user.selectOptions(screen.getByLabelText("Parent account type"), "account-category-bank");
     await user.click(screen.getByLabelText("Liability"));
-    await user.click(screen.getByRole("button", { name: "Update account type" }));
+    expect(screen.getByRole("heading", { name: "Edit account type" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(ledger.updateAccountCategory).toHaveBeenCalledWith("account-category-cash", {
       name: "Wallet",
       parent: "account-category-bank",
@@ -754,7 +773,7 @@ describe("LedgerPanel", () => {
 
     await user.type(screen.getByLabelText("Account type name"), "Wallet");
     await user.click(screen.getByLabelText("Liability"));
-    await user.click(screen.getByRole("button", { name: "Add account type" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save account type.");
     expect(screen.getByRole("alert")).not.toHaveTextContent("sqlite");
@@ -782,7 +801,7 @@ describe("LedgerPanel", () => {
     await user.clear(screen.getByLabelText("Account type name"));
     await user.type(screen.getByLabelText("Account type name"), "Wallet");
     expect(screen.getByLabelText("Account type name")).toHaveValue("Wallet");
-    await user.click(screen.getByRole("button", { name: "Add account type" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(ledger.createAccountCategory).toHaveBeenCalledTimes(1);
     expect(ledger.updateAccountCategory).not.toHaveBeenCalled();
 
@@ -799,7 +818,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Currency name"), "Japanese yen");
     await user.clear(screen.getByLabelText("Currency symbol"));
     await user.type(screen.getByLabelText("Currency symbol"), "¥");
-    await user.click(screen.getByRole("button", { name: "Add currency" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(ledger.createCurrency).toHaveBeenCalledTimes(1);
     expect(ledger.updateCurrency).not.toHaveBeenCalled();
   });
@@ -852,17 +871,20 @@ describe("LedgerPanel", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Edit Cash" }));
-    await user.click(screen.getByRole("button", { name: "Update account type" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save account type.");
     await user.click(screen.getByRole("button", { name: "Cancel edit" }));
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("heading", { name: "New account type" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Currencies" }));
     await user.click(screen.getByRole("button", { name: "Edit KRW" }));
-    await user.click(screen.getByRole("button", { name: "Update currency" }));
+    expect(screen.getByRole("heading", { name: "Edit currency" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save currency.");
     await user.click(screen.getByRole("button", { name: "Cancel edit" }));
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("heading", { name: "New currency" })).toBeInTheDocument();
   });
 
   it("creates, edits, validates, and deactivates currencies with the exact payload", async () => {
@@ -882,7 +904,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Currency symbol"), "¥");
     await user.clear(screen.getByLabelText("Decimal places"));
     await user.type(screen.getByLabelText("Decimal places"), "0");
-    await user.click(screen.getByRole("button", { name: "Add currency" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(ledger.createCurrency).toHaveBeenCalledWith({
       code: "JPY",
       name: "Japanese yen",
@@ -899,7 +921,7 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Currency symbol"), "W");
     await user.clear(screen.getByLabelText("Decimal places"));
     await user.type(screen.getByLabelText("Decimal places"), "3");
-    await user.click(screen.getByRole("button", { name: "Update currency" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(ledger.updateCurrency).toHaveBeenCalledWith("currency-krw", {
       code: "KWR",
       name: "Korean won updated",
@@ -910,7 +932,7 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Edit USD" }));
     await user.clear(screen.getByLabelText("Decimal places"));
     await user.type(screen.getByLabelText("Decimal places"), "19");
-    await user.click(screen.getByRole("button", { name: "Update currency" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert"))
       .toHaveTextContent("Decimal places must be an integer from 0 to 18.");
     expect(ledger.updateCurrency).toHaveBeenCalledTimes(1);
@@ -942,9 +964,12 @@ describe("LedgerPanel", () => {
     await user.type(screen.getByLabelText("Currency code"), "JPY");
     await user.type(screen.getByLabelText("Currency name"), "Japanese yen");
     await user.type(screen.getByLabelText("Currency symbol"), "¥");
-    await user.click(screen.getByRole("button", { name: "Add currency" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    await user.click(save);
     await user.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
+    expect(save).toBeDisabled();
+    expect(save).toHaveAccessibleName("Saving…");
     expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
 
     await act(async () => request.reject(new Error("raw storage error")));

@@ -2043,19 +2043,26 @@ button {
   width: min(920px, calc(100vw - 32px));
 }
 
-.ledger-account-settings-dialog > [role="tablist"] {
-  display: flex;
-  gap: 6px;
+.ledger-account-settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
   margin-block: 16px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  background: var(--color-canvas-cream);
 }
 
-.ledger-account-settings-dialog [role="tab"] {
-  border: 1px solid var(--color-hairline-light);
-  background: var(--color-canvas-light);
+.ledger-account-settings-tab {
+  border: 1px solid transparent;
+  background: transparent;
 }
 
-.ledger-account-settings-dialog [role="tab"][aria-selected="true"] {
-  background: var(--color-pistachio);
+.ledger-account-settings-tab[aria-selected="true"] {
+  border-color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-ink);
+  font-weight: 700;
 }
 
 .ledger-account-settings-dialog [role="tabpanel"] {
@@ -2067,6 +2074,10 @@ button {
 
 .ledger-account-settings-dialog [role="tabpanel"] form {
   min-width: 0;
+}
+
+.ledger-account-settings-dialog [role="tabpanel"] form h3 {
+  margin-top: 0;
 }
 
 .ledger-account-settings-dialog [role="tabpanel"] td button + button {

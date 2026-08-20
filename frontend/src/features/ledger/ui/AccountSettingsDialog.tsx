@@ -25,6 +25,9 @@ const tabs = [
   { id: "currencies", label: "Currencies" },
 ] as const;
 
+const accountTypeFormId = "account-settings-account-type-form";
+const currencyFormId = "account-settings-currency-form";
+
 type AccountCategoryDraft = {
   name: string;
   parent: string;
@@ -236,7 +239,7 @@ function AccountSettingsDialogContent({
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
     const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-      'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
     ));
     const index = focusables.indexOf(document.activeElement as HTMLElement);
     if (!event.shiftKey && index === focusables.length - 1) {
@@ -251,6 +254,7 @@ function AccountSettingsDialogContent({
   const activeAccountCategories = controller.state.accountCategories.filter(({ active }) => active);
   const activeCurrencies = controller.state.currencies.filter(({ active }) => active);
   const currentTab = tabs.find(({ id }) => id === activeTab)!;
+  const activeFormId = activeTab === "account-types" ? accountTypeFormId : currencyFormId;
 
   return (
     <div className="confirmation-backdrop">
@@ -265,20 +269,16 @@ function AccountSettingsDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Account settings</h2>
-          <button
-            ref={closeButtonRef}
-            type="button"
-            aria-label="Close"
-            disabled={pending}
-            onClick={onClose}
-          >
-            Close
-          </button>
         </header>
-        <div role="tablist" aria-label="Account settings sections">
+        <div
+          className="ledger-account-settings-tabs"
+          role="tablist"
+          aria-label="Account settings sections"
+        >
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              className="items-toolbar-button ledger-account-settings-tab"
               id={`${tab.id}-tab`}
               type="button"
               role="tab"
@@ -308,6 +308,7 @@ function AccountSettingsDialogContent({
         >
           {activeTab === "account-types" ? (
             <AccountTypes
+              formId={accountTypeFormId}
               items={activeAccountCategories}
               draft={accountDraft}
               editing={accountEditing}
@@ -324,6 +325,7 @@ function AccountSettingsDialogContent({
             />
           ) : (
             <Currencies
+              formId={currencyFormId}
               items={activeCurrencies}
               draft={currencyDraft}
               editing={currencyEditing}
@@ -340,6 +342,26 @@ function AccountSettingsDialogContent({
             />
           )}
         </section>
+        <div className="ledger-create-dialog-actions">
+          <button
+            ref={closeButtonRef}
+            className="items-toolbar-button"
+            type="button"
+            aria-label="Close"
+            disabled={pending}
+            onClick={onClose}
+          >
+            Close
+          </button>
+          <button
+            className="items-toolbar-button ledger-create-dialog-save"
+            type="submit"
+            form={activeFormId}
+            disabled={pending}
+          >
+            {pending ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
       {deactivationTarget ? (
         <DestructiveConfirmationDialog
@@ -363,6 +385,7 @@ function AccountSettingsDialogContent({
 }
 
 function AccountTypes({
+  formId,
   items,
   draft,
   editing,
@@ -374,6 +397,7 @@ function AccountTypes({
   onEdit,
   onSubmit,
 }: {
+  formId: string;
   items: AccountCategory[];
   draft: AccountCategoryDraft;
   editing: AccountCategory | null;
@@ -388,7 +412,12 @@ function AccountTypes({
   const names = new Map(items.map((item) => [item.id, item.name]));
   return (
     <>
-      <form aria-label={editing ? "Edit account type" : "New account type"} onSubmit={onSubmit}>
+      <form
+        id={formId}
+        aria-label={editing ? "Edit account type" : "New account type"}
+        onSubmit={onSubmit}
+      >
+        <h3>{editing ? "Edit account type" : "New account type"}</h3>
         <label className="field-label">
           Account type name
           <input
@@ -421,9 +450,6 @@ function AccountTypes({
           Liability
         </label>
         {error ? <p role="alert" className="items-message">{error}</p> : null}
-        <button type="submit" disabled={pending}>
-          {editing ? "Update account type" : "Add account type"}
-        </button>
         {editing ? (
           <button type="button" disabled={pending} onClick={onCancel}>Cancel edit</button>
         ) : null}
@@ -459,6 +485,7 @@ function AccountTypes({
 }
 
 function Currencies({
+  formId,
   items,
   draft,
   editing,
@@ -470,6 +497,7 @@ function Currencies({
   onEdit,
   onSubmit,
 }: {
+  formId: string;
   items: Currency[];
   draft: CurrencyDraft;
   editing: Currency | null;
@@ -484,10 +512,12 @@ function Currencies({
   return (
     <>
       <form
+        id={formId}
         noValidate
         aria-label={editing ? "Edit currency" : "New currency"}
         onSubmit={onSubmit}
       >
+        <h3>{editing ? "Edit currency" : "New currency"}</h3>
         <label className="field-label">
           Currency code
           <input
@@ -532,9 +562,6 @@ function Currencies({
           />
         </label>
         {error ? <p role="alert" className="items-message">{error}</p> : null}
-        <button type="submit" disabled={pending}>
-          {editing ? "Update currency" : "Add currency"}
-        </button>
         {editing ? (
           <button type="button" disabled={pending} onClick={onCancel}>Cancel edit</button>
         ) : null}
