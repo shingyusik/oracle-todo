@@ -136,7 +136,7 @@ export function MedicationDetail({ controller, row, detailHistory, onArchived }:
     try {
       await controller.updateMedication(
         baseline.row.id,
-        medicationPatch(canonicalBaseline, canonicalPresent, draft, baseline.row),
+        medicationPatch(canonicalBaseline, canonicalPresent, baseline.row),
       );
       exiting = true;
       setExitPending(true);
@@ -416,17 +416,16 @@ function sameCanonicalDraft(left: CanonicalMedicationDraft, right: CanonicalMedi
 function medicationPatch(
   baseline: CanonicalMedicationDraft,
   present: CanonicalMedicationDraft,
-  draft: MedicationDraft,
   row: MedicationRow,
 ): EventUpdate {
   const patch: EventUpdate = { expectedUpdatedAt: row.event.updatedAt };
   if (present.occurredAt !== baseline.occurredAt) patch.occurredAt = present.occurredAt!;
   if (present.medicationName !== baseline.medicationName || present.dose !== baseline.dose ||
     present.unit !== baseline.unit) {
-    patch.details = { kind: "medication", medicationName: draft.medicationName,
+    patch.details = { kind: "medication", medicationName: present.medicationName,
       dose: present.dose!, unit: present.unit };
   }
-  if (present.note !== baseline.note) patch.note = draft.note.trim() === "" ? null : draft.note;
+  if (present.note !== baseline.note) patch.note = present.note;
   return patch;
 }
 

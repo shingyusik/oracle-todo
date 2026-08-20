@@ -363,7 +363,7 @@ describe("MedicationPanel", () => {
     await waitFor(() => expect(health.updateMedication).toHaveBeenCalledOnce());
     expect(health.updateMedication).toHaveBeenCalledWith(event.id, {
       expectedUpdatedAt: event.updatedAt,
-      details: { kind: "medication", medicationName: "  Calcium  ", dose: 1000, unit: "mg" },
+      details: { kind: "medication", medicationName: "Calcium", dose: 1000, unit: "mg" },
     });
   });
 
@@ -378,13 +378,13 @@ describe("MedicationPanel", () => {
     ["Taken at", "2026-08-20T10:30", {
       occurredAt: localDateTimeToRfc3339("2026-08-20T10:30"),
     }],
-    ["Medication name", "Calcium", {
+    ["Medication name", "  Calcium  ", {
       details: { kind: "medication", medicationName: "Calcium", dose: 1000, unit: "mg" },
     }],
     ["Dose", "2.5", {
       details: { kind: "medication", medicationName: "Vitamin D", dose: 2.5, unit: "mg" },
     }],
-    ["Note", " after food ", { note: " after food " }],
+    ["Note", " after food ", { note: "after food" }],
   ] as const)("sends only the changed %s field with the original optimistic token",
     async (label, value, expected) => {
       const user = userEvent.setup();
@@ -1249,7 +1249,7 @@ describe("MedicationPanel", () => {
       expectedUpdatedAt: event.updatedAt,
       occurredAt: localDateTimeToRfc3339("2026-08-20T10:30"),
       details: { kind: "medication", medicationName: "Calcium", dose: 2.5, unit: "tablet" },
-      note: " after food ",
+      note: "after food",
     });
   });
 
