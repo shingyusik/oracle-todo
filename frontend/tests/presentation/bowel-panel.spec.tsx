@@ -14,8 +14,6 @@ import type {
   EventInput,
   EventUpdate,
   HealthEvent,
-  HealthTrends,
-  TimelineItem,
 } from "@/features/health/model/health-model";
 import type { HealthController, HealthState } from "@/features/health/hooks/useHealthController";
 import { deriveBowelGroups, type BowelRowGroup } from "@/features/health/model/bowel-table";
@@ -38,7 +36,6 @@ const event: HealthEvent = {
   updatedAt: "2026-08-19T01:00:00Z",
   deletedAt: null,
 };
-const trends = { days: 30 } as HealthTrends;
 const input: EventInput = {
   occurredAt: event.occurredAt,
   details: { kind: "bowel", bristolScale: 4, bloodVisible: false },
@@ -80,30 +77,22 @@ function controlHistoryForward() {
 function mockBaseReads() {
   vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
   vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
-  vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
-  vi.spyOn(healthApi, "trends").mockResolvedValue(trends);
   vi.spyOn(healthApi, "reports").mockResolvedValue({} as never);
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
 }
 
 type Reads = {
   bowel: ReturnType<typeof deferred<HealthEvent[]>>;
-  timeline: ReturnType<typeof deferred<TimelineItem[]>>;
-  trends: ReturnType<typeof deferred<HealthTrends>>;
 };
 
 function reads(): Reads {
   return {
     bowel: deferred<HealthEvent[]>(),
-    timeline: deferred<TimelineItem[]>(),
-    trends: deferred<HealthTrends>(),
   };
 }
 
 function resolveReads(set: Reads, entries: HealthEvent[] = []) {
   set.bowel.resolve(entries);
-  set.timeline.resolve([]);
-  set.trends.resolve(trends);
 }
 
 function mockOverlappingReads() {
@@ -186,15 +175,11 @@ describe("Health Bowel controller", () => {
     const { result } = await mountedController();
     vi.mocked(healthApi.listDiet).mockClear();
     vi.mocked(healthApi.listEvents).mockClear();
-    vi.mocked(healthApi.timeline).mockClear();
-    vi.mocked(healthApi.trends).mockClear();
 
     await act(async () => expect(result.current.refreshBowel()).resolves.toBe(true));
 
     expect(healthApi.listDiet).not.toHaveBeenCalled();
     expect(healthApi.listEvents).toHaveBeenCalledOnce();
-    expect(healthApi.timeline).not.toHaveBeenCalled();
-    expect(healthApi.trends).not.toHaveBeenCalled();
     expect(healthApi.reports).not.toHaveBeenCalled();
   });
 
@@ -208,8 +193,6 @@ describe("Health Bowel controller", () => {
       const { result } = await mountedController();
       for (const spy of [create, updateEvent, archive]) spy.mockClear();
       vi.mocked(healthApi.listEvents).mockClear();
-      vi.mocked(healthApi.timeline).mockClear();
-      vi.mocked(healthApi.trends).mockClear();
 
       await act(async () => {
         if (kind === "create") await result.current.createBowel(input);
@@ -224,8 +207,6 @@ describe("Health Bowel controller", () => {
       expect(healthApi.listEvents).toHaveBeenCalledOnce();
       expect(vi.mocked(healthApi.listEvents).mock.calls
         .filter(([request]) => request?.category === "medication")).toHaveLength(0);
-      expect(healthApi.timeline).not.toHaveBeenCalled();
-      expect(healthApi.trends).not.toHaveBeenCalled();
       expect(healthApi.reports).not.toHaveBeenCalled();
     },
   );
@@ -235,8 +216,6 @@ describe("Health Bowel controller", () => {
       const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
       const { result } = await mountedController();
       vi.mocked(healthApi.listEvents).mockClear();
-      vi.mocked(healthApi.timeline).mockClear();
-      vi.mocked(healthApi.trends).mockClear();
       vi.mocked(healthApi.listEvents).mockRejectedValueOnce(new Error("bowel failed"));
 
       await act(async () => {
@@ -247,8 +226,6 @@ describe("Health Bowel controller", () => {
 
       expect(create).toHaveBeenCalledOnce();
       expect(healthApi.listEvents).toHaveBeenCalledTimes(2);
-      expect(healthApi.timeline).not.toHaveBeenCalled();
-      expect(healthApi.trends).not.toHaveBeenCalled();
   });
 
   it("keeps Diet, Medication, Metrics, and generic event read boundaries explicit", async () => {
@@ -256,16 +233,13 @@ describe("Health Bowel controller", () => {
     const createDiet = vi.spyOn(healthApi, "createDiet").mockResolvedValue({} as never);
     const createEvent = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
     const metrics = vi.spyOn(healthApi, "upsertDailyMetrics").mockResolvedValue([]);
-    const archive = vi.spyOn(healthApi, "archiveEvent").mockResolvedValue(event);
-    const restore = vi.spyOn(healthApi, "restoreEvent").mockResolvedValue(event);
-    const purge = vi.spyOn(healthApi, "purgeEvent").mockResolvedValue(undefined);
     const { result } = await mountedController();
     vi.mocked(healthApi.listEvents).mockClear();
     vi.mocked(healthApi.listEvents).mockImplementation((query) => query?.category === "bowel"
       ? Promise.reject(new Error("Bowel unavailable"))
       : Promise.resolve([]));
 
-    const mutations = [createDiet, createEvent, metrics, archive, restore, purge];
+    const mutations = [createDiet, createEvent, metrics];
     const cases = [
       { expected: createDiet, medicationReads: 0, run: () => result.current.createDiet({
         occurredAt: event.occurredAt, mealType: "lunch", foodName: "Soup",
@@ -275,9 +249,6 @@ describe("Health Bowel controller", () => {
         details: { kind: "medication", medicationName: "Tablet", dose: 1, unit: "tablet" },
       }) },
       { expected: metrics, medicationReads: 0, run: () => result.current.upsertMetrics([]) },
-      { expected: archive, medicationReads: 0, run: () => result.current.archive("event", event.id) },
-      { expected: restore, medicationReads: 0, run: () => result.current.restore("event", event.id) },
-      { expected: purge, medicationReads: 0, run: () => result.current.purge("event", event.id, "PURGE") },
     ];
 
     for (const mutationCase of cases) {
@@ -315,8 +286,6 @@ describe("Health Bowel controller", () => {
         if (newerSucceeds) resolveReads(newer, [event]);
         else {
           newer.bowel.reject(new Error("newer failed"));
-          newer.timeline.resolve([]);
-          newer.trends.resolve(trends);
         }
       });
       await act(async () => resolveReads(older, [{ ...event, id: "stale" }]));
@@ -355,8 +324,6 @@ describe("Health Bowel controller", () => {
       if (newerSucceeds) resolveReads(newer, [event]);
       else {
         newer.bowel.reject(new Error("forced Bowel failed"));
-        newer.timeline.resolve([]);
-        newer.trends.resolve(trends);
       }
     });
     await act(async () => resolveReads(older, [{ ...event, id: "stale" }]));
@@ -378,8 +345,6 @@ const loadedState: HealthState = {
   medicationStatus: "loaded", medicationError: null, medicationEntries: [],
   bowelStatus: "loaded", bowelError: null, bowelEntries: [event],
   dietStatus: "loaded", dietError: null, dietEntries: [],
-  timelineStatus: "loaded", timelineError: null, timeline: [], timelineHasMore: false,
-  trendsStatus: "loaded", trendsError: null, trends,
   reportStatus: "idle", reportError: null, report: null, reportSelection: { preset: 30 },
 };
 
@@ -401,13 +366,12 @@ function panelController(
     selectTableTab: vi.fn(), saveTableTab: vi.fn(), createTableTab: vi.fn(() => true),
     renameTableTab: vi.fn(() => true), requestDeleteTableTab: vi.fn(),
     confirmTableViewAction: vi.fn(), cancelTableViewAction: vi.fn(),
-    refresh: vi.fn(), refreshMetrics: vi.fn(), refreshMedication: vi.fn(), refreshBowel: vi.fn(), refreshDiet: vi.fn(), refreshTimeline: vi.fn(),
-    loadMoreTimeline: vi.fn(), refreshTrends: vi.fn(),
+    refresh: vi.fn(), refreshMetrics: vi.fn(), refreshMedication: vi.fn(), refreshBowel: vi.fn(), refreshDiet: vi.fn(),
     runReports: vi.fn(), retryReports: vi.fn(),
     createDiet: vi.fn(), updateDiet: vi.fn(), archiveDiet: vi.fn(),
     createBowel: vi.fn(), updateBowel: vi.fn(), archiveBowel: vi.fn(),
     createMedication: vi.fn(), updateMedication: vi.fn(), archiveMedication: vi.fn(),
-    upsertMetrics: vi.fn(), saveMetrics: vi.fn(), archive: vi.fn(), restore: vi.fn(), purge: vi.fn(),
+    upsertMetrics: vi.fn(), saveMetrics: vi.fn(),
   };
 }
 

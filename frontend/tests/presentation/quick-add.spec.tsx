@@ -43,10 +43,6 @@ function stubHealthLoaded(
     diet: vi.spyOn(healthApi, "listDiet").mockResolvedValue(dietEntries),
     events: vi.spyOn(healthApi, "listEvents").mockImplementation(async (query) =>
       query?.dailyOnly ? metricsEntries : []),
-    timeline: vi.spyOn(healthApi, "timeline").mockResolvedValue([]),
-    trends: vi.spyOn(healthApi, "trends").mockResolvedValue(
-      {} as Awaited<ReturnType<typeof healthApi.trends>>,
-    ),
   };
 }
 
@@ -75,8 +71,6 @@ describe("QuickAddDialog", () => {
     );
 
     expect(ledgerSpies.every((spy) => spy.mock.calls.length === 0)).toBe(true);
-    expect(healthSpies.timeline).not.toHaveBeenCalled();
-    expect(healthSpies.trends).not.toHaveBeenCalled();
   });
 
   it("loads only Ledger references before showing the transaction form", async () => {
@@ -92,8 +86,6 @@ describe("QuickAddDialog", () => {
     expect(await screen.findByRole("form", { name: "New transaction" }))
       .toBeVisible();
     expect(ledgerSpies.every((spy) => spy.mock.calls.length === 1)).toBe(true);
-    expect(healthSpies.timeline).not.toHaveBeenCalled();
-    expect(healthSpies.trends).not.toHaveBeenCalled();
   });
 
   it("preloads existing Metrics and preserves its snapshot through mutation refresh", async () => {
@@ -147,8 +139,6 @@ describe("QuickAddDialog", () => {
     }], archives: [] }));
     await waitFor(() => expect(metricReads).toBe(2));
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
-    expect(health.timeline).not.toHaveBeenCalled();
-    expect(health.trends).not.toHaveBeenCalled();
   });
 
   it("shows Ledger reference failure and retries before rendering the form", async () => {
@@ -213,8 +203,6 @@ describe("QuickAddDialog", () => {
     await waitFor(() => {
       expect(initial.diet).toHaveBeenCalledTimes(2);
     });
-    expect(initial.timeline).not.toHaveBeenCalled();
-    expect(initial.trends).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
 
     await act(async () => {

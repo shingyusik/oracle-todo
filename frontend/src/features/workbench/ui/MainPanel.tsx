@@ -20,6 +20,11 @@ import type {
 } from "@/domain/workbench/navigation";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
 import { useHealthController } from "@/features/health/hooks/useHealthController";
+import {
+  applyHealthReportDrilldown,
+  type HealthReportDrilldown,
+} from "@/features/health/model/health-reports";
+import type { HealthTableScopeId } from "@/features/health/model/health-table-views";
 import { HealthPanel } from "@/features/health/ui/HealthPanel";
 import { useLedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {
@@ -155,7 +160,7 @@ export function MainPanel({ controller }: MainPanelProps) {
     );
   }
 
-  if (isLedgerPanel(controller.selection.leafTabId)) {
+  if (controller.selection.mainTabId === "ledger" && isLedgerPanel(controller.selection.leafTabId)) {
     return (
       <main className="main-panel">
         <LedgerWorkspace
@@ -166,10 +171,10 @@ export function MainPanel({ controller }: MainPanelProps) {
     );
   }
 
-  if (isHealthPanel(controller.selection.leafTabId)) {
+  if (controller.selection.mainTabId === "health" && isHealthPanel(controller.selection.leafTabId)) {
     return (
       <main className="main-panel">
-        <HealthWorkspace leafTabId={controller.selection.leafTabId} />
+        <HealthWorkspace leafTabId={controller.selection.leafTabId} workbench={controller} />
       </main>
     );
   }
@@ -211,9 +216,30 @@ function LedgerWorkspace({
   );
 }
 
-function HealthWorkspace({ leafTabId }: { leafTabId: HealthTabId }) {
+function HealthWorkspace({
+  leafTabId,
+  workbench,
+}: {
+  leafTabId: HealthTabId;
+  workbench: WorkbenchController;
+}) {
   const controller = useHealthController();
-  return <HealthPanel controller={controller} leafTabId={leafTabId} />;
+  function drilldown(target: HealthReportDrilldown) {
+    const scope = (
+      `health.${target.tab === "health-metrics" ? "metrics" : target.tab}`
+    ) as HealthTableScopeId;
+    controller.updateTableSettings(scope, (settings) =>
+      applyHealthReportDrilldown(settings, target));
+    controller.selectTableTab(scope, controller.tableTabs(scope).activeTabId);
+    workbench.selectTab(target.tab);
+  }
+  return (
+    <HealthPanel
+      controller={controller}
+      leafTabId={leafTabId}
+      onReportDrilldown={drilldown}
+    />
+  );
 }
 
 function DetailView({
@@ -886,7 +912,7 @@ function isHealthPanel(leafTabId: LeafTabId): leafTabId is HealthTabId {
     "bowel",
     "medication",
     "health-metrics",
-    "trends",
+    "reports",
   ].includes(leafTabId);
 }
 

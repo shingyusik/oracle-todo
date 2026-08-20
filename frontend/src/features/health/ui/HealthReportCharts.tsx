@@ -215,8 +215,11 @@ function BowelChart({
       <div className="health-report-section-heading">
         <h2>Bowel Bristol scale</h2>
         {onDrilldown && (
-          <button type="button" onClick={() => onDrilldown({ tab: "bowel", range })}>
-            View bowel records
+          <button
+            type="button"
+            onClick={() => onDrilldown({ tab: "bowel", field: "bristol_scale", range })}
+          >
+            View abnormal bowel records
           </button>
         )}
       </div>

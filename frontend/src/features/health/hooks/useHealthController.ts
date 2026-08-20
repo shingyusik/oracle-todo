@@ -14,8 +14,6 @@ import type {
   EventInput,
   EventUpdate,
   HealthEvent,
-  HealthTrends,
-  TimelineItem,
 } from "@/features/health/model/health-model";
 import {
   resolveHealthReportRange,
@@ -41,8 +39,6 @@ import {
 } from "@/features/workbench/model/table-view-tabs";
 
 export type LoadStatus = "idle" | "loading" | "loaded" | "error";
-export type HealthRecordKind = "diet" | "event";
-type RefreshOutcome = { ok: true } | { ok: false; error: string };
 type InFlightReport = {
   generation: number;
   raw: Promise<HealthReport>;
@@ -82,13 +78,6 @@ export type HealthState = {
   dietStatus: LoadStatus;
   dietError: string | null;
   dietEntries: DietEntry[];
-  timelineStatus: LoadStatus;
-  timelineError: string | null;
-  timeline: TimelineItem[];
-  timelineHasMore: boolean;
-  trendsStatus: LoadStatus;
-  trendsError: string | null;
-  trends: HealthTrends | null;
   reportStatus: LoadStatus;
   reportError: string | null;
   report: HealthReport | null;
@@ -119,9 +108,6 @@ export type HealthController = {
   refreshMedication(): Promise<boolean>;
   refreshBowel(): Promise<boolean>;
   refreshDiet(): Promise<boolean>;
-  refreshTimeline(): Promise<void>;
-  loadMoreTimeline(): Promise<void>;
-  refreshTrends(days?: number): Promise<void>;
   runReports(selection: HealthReportSelection): Promise<boolean>;
   retryReports(): Promise<boolean>;
   createDiet(input: DietInput, image?: Blob): Promise<void>;
@@ -135,12 +121,8 @@ export type HealthController = {
   archiveMedication(id: string): Promise<void>;
   upsertMetrics(input: DailyMetricInput[]): Promise<void>;
   saveMetrics(input: DailyMetricsMutation): Promise<void>;
-  archive(kind: HealthRecordKind, id: string): Promise<void>;
-  restore(kind: HealthRecordKind, id: string): Promise<void>;
-  purge(kind: HealthRecordKind, id: string, confirmation: string): Promise<void>;
 };
 
-const PAGE_SIZE = 100;
 const DIET_PAGE_SIZE = 200;
 const EVENT_PAGE_SIZE = 200;
 const initialState: HealthState = {
@@ -156,13 +138,6 @@ const initialState: HealthState = {
   dietStatus: "idle",
   dietError: null,
   dietEntries: [],
-  timelineStatus: "idle",
-  timelineError: null,
-  timeline: [],
-  timelineHasMore: false,
-  trendsStatus: "idle",
-  trendsError: null,
-  trends: null,
   reportStatus: "idle",
   reportError: null,
   report: null,
@@ -222,7 +197,6 @@ export function useHealthController(): HealthController {
   const [tableViewConfirmation, setTableViewConfirmation] =
     useState<HealthTableViewConfirmation | null>(null);
   const mounted = useRef(true);
-  const stateRef = useRef(state);
   const dietGeneration = useRef(0);
   const inFlightDietRefresh = useRef<Promise<boolean> | null>(null);
   const latestDietOutcome = useRef<Promise<boolean> | null>(null);
@@ -235,17 +209,10 @@ export function useHealthController(): HealthController {
   const metricsGeneration = useRef(0);
   const inFlightMetricsRefresh = useRef<Promise<boolean> | null>(null);
   const latestMetricsOutcome = useRef<Promise<boolean> | null>(null);
-  const loadingPage = useRef(false);
-  const timelineGeneration = useRef(0);
-  const latestTimelineOutcome = useRef<Promise<RefreshOutcome> | null>(null);
-  const trendsGeneration = useRef(0);
-  const latestTrendsOutcome = useRef<Promise<RefreshOutcome> | null>(null);
   const reportGeneration = useRef(0);
   const inFlightReports = useRef(new Map<string, InFlightReport>());
   const latestReportOutcome = useRef<Promise<boolean> | null>(null);
   const reportSelection = useRef<HealthReportSelection>({ preset: 30 });
-  const timelineOffset = state.timeline.length;
-  stateRef.current = state;
   tableViewsRef.current = tableViews;
 
   useEffect(() => {
@@ -517,102 +484,6 @@ export function useHealthController(): HealthController {
     return request;
   }, []);
 
-  const refreshTimelineOutcome = useCallback((): Promise<RefreshOutcome> => {
-    const generation = ++timelineGeneration.current;
-    setState((current) => ({ ...current, timelineStatus: "loading", timelineError: null }));
-    const request = (async (): Promise<RefreshOutcome> => {
-      try {
-        const timeline = await healthApi.timeline({
-          includeArchived: true, limit: PAGE_SIZE, offset: 0,
-        });
-        if (generation !== timelineGeneration.current) {
-          return latestTimelineOutcome.current ?? { ok: false, error: "Health timeline request failed" };
-        }
-        setState((current) => ({
-          ...current,
-          timelineStatus: "loaded",
-          timelineError: null,
-          timeline,
-          timelineHasMore: timeline.length === PAGE_SIZE,
-        }));
-        return { ok: true };
-      } catch (error) {
-        const message = errorMessage(error, "Health timeline request failed");
-        if (generation !== timelineGeneration.current) {
-          return latestTimelineOutcome.current ?? { ok: false, error: message };
-        }
-        setState((current) => ({
-          ...current,
-          timelineStatus: current.timeline.length === 0 ? "error" : "loaded",
-          timelineError: message,
-        }));
-        return { ok: false, error: message };
-      }
-    })();
-    latestTimelineOutcome.current = request;
-    return request;
-  }, []);
-
-  const refreshTimeline = useCallback(async () => {
-    await refreshTimelineOutcome();
-  }, [refreshTimelineOutcome]);
-
-  const refreshTrendsOutcome = useCallback((days = 30): Promise<RefreshOutcome> => {
-    const generation = ++trendsGeneration.current;
-    setState((current) => ({ ...current, trendsStatus: "loading", trendsError: null }));
-    const request = (async (): Promise<RefreshOutcome> => {
-      try {
-        const trends = await healthApi.trends(days);
-        if (generation !== trendsGeneration.current) {
-          return latestTrendsOutcome.current ?? { ok: false, error: "Health trends request failed" };
-        }
-        setState((current) => ({
-          ...current, trendsStatus: "loaded", trendsError: null, trends,
-        }));
-        return { ok: true };
-      } catch (error) {
-        const message = errorMessage(error, "Health trends request failed");
-        if (generation !== trendsGeneration.current) {
-          return latestTrendsOutcome.current ?? { ok: false, error: message };
-        }
-        setState((current) => ({ ...current, trendsStatus: "error", trendsError: message }));
-        return { ok: false, error: message };
-      }
-    })();
-    latestTrendsOutcome.current = request;
-    return request;
-  }, []);
-
-  const refreshTrends = useCallback(async (days = 30) => {
-    await refreshTrendsOutcome(days);
-  }, [refreshTrendsOutcome]);
-
-  const loadMoreTimeline = useCallback(async () => {
-    if (loadingPage.current) return;
-    loadingPage.current = true;
-    const generation = timelineGeneration.current;
-    setState((current) => ({ ...current, timelineError: null }));
-    try {
-      const page = await healthApi.timeline({
-        includeArchived: true, limit: PAGE_SIZE, offset: timelineOffset,
-      });
-      if (generation !== timelineGeneration.current) return;
-      setState((current) => ({
-        ...current,
-        timeline: appendUnique(current.timeline, page),
-        timelineHasMore: page.length === PAGE_SIZE,
-      }));
-    } catch (error) {
-      if (generation !== timelineGeneration.current) return;
-      setState((current) => ({
-        ...current,
-        timelineError: errorMessage(error, "More health records could not be loaded"),
-      }));
-    } finally {
-      loadingPage.current = false;
-    }
-  }, [timelineOffset]);
-
   useEffect(() => {
     void refreshDiet();
     void startBowelRefresh();
@@ -772,18 +643,6 @@ export function useHealthController(): HealthController {
     if (!await refreshMedicationRelated(true)) throw new HealthMutationRefreshError();
   }, [refreshMedicationRelated]);
 
-  const refreshAfterEventMutation = useCallback(async (id: string) => {
-    const current = stateRef.current;
-    const refresh = current.bowelEntries.some((entry) => entry.id === id)
-      ? startBowelRefresh
-      : current.medicationEntries.some((entry) => entry.id === id)
-        ? startMedicationRefresh
-        : current.metricsEntries.some((entry) => entry.id === id)
-          ? startMetricsRefresh
-          : null;
-    if (refresh && !await refresh(true)) throw new HealthMutationRefreshError();
-  }, [startBowelRefresh, startMedicationRefresh, startMetricsRefresh]);
-
   const refreshAfterMetricsMutation = useCallback(async () => {
     if (!await refreshMetricsReads(true)) throw new HealthMutationRefreshError();
   }, [refreshMetricsReads]);
@@ -918,9 +777,6 @@ export function useHealthController(): HealthController {
     refreshMedication,
     refreshBowel,
     refreshDiet,
-    refreshTimeline,
-    loadMoreTimeline,
-    refreshTrends,
     runReports,
     retryReports,
     createDiet: (input, image) =>
@@ -957,30 +813,7 @@ export function useHealthController(): HealthController {
       () => healthApi.saveDailyMetrics(input),
       refreshAfterMetricsMutation,
     ),
-    archive: (kind, id) => mutate(() =>
-      kind === "diet" ? healthApi.archiveDiet(id) : healthApi.archiveEvent(id),
-    kind === "diet" ? refreshAfterMutation : () => refreshAfterEventMutation(id)),
-    restore: (kind, id) => mutate(() =>
-      kind === "diet" ? healthApi.restoreDiet(id) : healthApi.restoreEvent(id),
-    kind === "diet" ? refreshAfterMutation : () => refreshAfterEventMutation(id)),
-    purge: (kind, id, confirmation) => mutate(() =>
-      kind === "diet"
-        ? healthApi.purgeDiet(id, confirmation)
-        : healthApi.purgeEvent(id, confirmation),
-    kind === "diet" ? refreshAfterMutation : () => refreshAfterEventMutation(id)),
   };
-}
-
-function appendUnique(
-  current: TimelineItem[],
-  page: TimelineItem[],
-): TimelineItem[] {
-  const ids = new Set(current.map(timelineKey));
-  return current.concat(page.filter((item) => !ids.has(timelineKey(item))));
-}
-
-function timelineKey(item: TimelineItem): string {
-  return `${item.kind}:${item.record.id}`;
 }
 
 function errorMessage(error: unknown, fallback: string): string {

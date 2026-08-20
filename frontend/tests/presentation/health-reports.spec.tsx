@@ -95,6 +95,13 @@ describe("Health Reports controller", () => {
     expect(healthApi.timeline).not.toHaveBeenCalled();
     expect(healthApi.trends).not.toHaveBeenCalled();
     expect(healthApi.reports).not.toHaveBeenCalled();
+    for (const legacyMember of [
+      "timeline", "timelineStatus", "timelineError", "timelineHasMore",
+      "trends", "trendsStatus", "trendsError",
+    ]) expect(result.current.state).not.toHaveProperty(legacyMember);
+    for (const legacyMethod of [
+      "refreshTimeline", "loadMoreTimeline", "refreshTrends", "archive", "restore", "purge",
+    ]) expect(result.current).not.toHaveProperty(legacyMethod);
   });
 
   it("runs the local 30-day range and rejects invalid custom ranges without a request", async () => {
@@ -299,8 +306,6 @@ describe("Health Reports workspace", () => {
       medicationStatus: "loaded", medicationError: null, medicationEntries: [],
       bowelStatus: "loaded", bowelError: null, bowelEntries: [],
       dietStatus: "loaded", dietError: null, dietEntries: [],
-      timelineStatus: "idle", timelineError: null, timeline: [], timelineHasMore: false,
-      trendsStatus: "idle", trendsError: null, trends: null,
       reportStatus: "loaded", reportError: null, report: populatedReport(),
       reportSelection: { preset: 30 },
       ...overrides,
@@ -449,6 +454,11 @@ describe("Health Reports workspace", () => {
     expect(within(bowelChart).queryByRole("img", {
       name: "2026-08-12 09:45: Bristol 6",
     })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "View abnormal bowel records" }));
+    expect(onDrilldown).toHaveBeenLastCalledWith({
+      tab: "bowel", field: "bristol_scale",
+      range: { start: "2026-08-01", end: "2026-08-20" },
+    });
 
     const selector = screen.getByRole("combobox", { name: "Metric" });
     expect(within(selector).getAllByRole("option").map((option) => option.textContent))
