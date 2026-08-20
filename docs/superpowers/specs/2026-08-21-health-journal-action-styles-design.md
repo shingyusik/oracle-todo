@@ -7,6 +7,11 @@ without changing Health behavior.
 
 ## Table And Detail Actions
 
+- Make each Diet, Bowel, Medication, and Health Metrics data row the single detail-opening target.
+- Open detail from a row click or keyboard Enter/Space, matching Ledger table behavior.
+- Render Time, Food, Taken At, and Date as plain cell text instead of nested buttons.
+- Keep native checkboxes isolated from row activation and retain occurrence data on the row for
+  deterministic focus restoration.
 - Render each Health table Add action as the installed Lucide `Plus` icon.
 - Render each Health table selected-row archive action as the installed Lucide `Trash2` icon.
 - Keep the existing accessible names and expose the same text through `title` tooltips.
@@ -41,6 +46,8 @@ is introduced.
 ## Verification
 
 - Presentation tests prove Health table actions render `Plus` and `Trash2` without visible labels.
+- Table tests prove the row, rather than a nested cell button, owns pointer and keyboard detail
+  activation while checkboxes remain isolated.
 - Detail tests continue to prove icon-only Delete actions.
 - Dialog tests prove the header has no Close action and the footer contains equal-width Close and
   Save actions using the Ledger classes.
