@@ -1320,12 +1320,13 @@ function newTableViewSortRule(field: PlannerSortBy): PlannerSortRule {
 function tableViewSortFieldOptions(
   adapter: Pick<
     TableViewControlsAdapter,
-    "filterFields" | "sortFields" | "filterOptions" | "fieldLabels"
+    "sortFields" | "filterOptions" | "fieldLabels"
   >,
 ): PlannerSortFieldOption[] {
   const fields: PlannerSortFieldOption[] = tableViewFilterFieldConfigs(
     adapter.filterOptions,
-    adapter.filterFields,
+    adapter.sortFields.filter((field): field is PlannerFilterField =>
+      field !== "created" && field !== "updated"),
     adapter.fieldLabels,
   ).map((field) => ({
     value: field.field as PlannerSortBy,

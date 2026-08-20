@@ -1,0 +1,73 @@
+"use client";
+
+import React, { useLayoutEffect, useRef } from "react";
+
+import type {
+  MedicationRow,
+  MedicationRowGroup,
+} from "@/features/health/model/medication-table";
+
+export function MedicationTable({
+  groups,
+  activeRowCount,
+  selectedIds,
+  onToggle,
+  onToggleAll,
+}: {
+  groups: MedicationRowGroup[];
+  activeRowCount: number;
+  selectedIds: string[];
+  onToggle(id: string): void;
+  onToggleAll(): void;
+}) {
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  const rows = groups.flatMap(({ rows: groupRows }) => groupRows);
+  const logicalIds = [...new Set(rows.map(({ id }) => id))];
+  const selectedCount = logicalIds.filter((id) => selectedIds.includes(id)).length;
+  const allSelected = logicalIds.length > 0 && selectedCount === logicalIds.length;
+  useLayoutEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected;
+    }
+  }, [allSelected, selectedCount]);
+
+  return <section className="items-section" aria-label="Medication entries">
+    <table className="items-table" aria-label="Medication entries">
+      <thead><tr>
+        <th scope="col" className="selection-column"><input ref={selectAllRef} type="checkbox"
+          aria-label="Select all visible medication entries" checked={allSelected}
+          onChange={onToggleAll} /></th>
+        <th scope="col">Taken At</th><th scope="col">Medication</th><th scope="col">Dose</th>
+        <th scope="col">Unit</th><th scope="col">Note</th>
+      </tr></thead>
+      {rows.length === 0 ? <tbody><tr className="workspace-table-empty-row">
+        <td className="items-message workspace-table-empty-cell" colSpan={6}>
+          {activeRowCount === 0
+            ? "No medication entries yet."
+            : "No medication entries match this view."}
+        </td>
+      </tr></tbody> : groups.map((group) =>
+        <tbody key={group.key} aria-label={group.label ? `${group.label} group` : undefined}>
+          {group.label ? <tr className="workspace-group-heading">
+            <th scope="rowgroup" colSpan={6}>{group.label}</th></tr> : null}
+          {group.rows.map((row, rowIndex) => <MedicationTableRow key={
+            `${group.key}-${row.id}-${rowIndex}`
+          } row={row} selected={selectedIds.includes(row.id)} onToggle={onToggle} />)}
+        </tbody>)}
+    </table>
+  </section>;
+}
+
+function MedicationTableRow({ row, selected, onToggle }: {
+  row: MedicationRow;
+  selected: boolean;
+  onToggle(id: string): void;
+}) {
+  const context = `${row.medicationName}, ${row.date} ${row.takenAtLabel}, ${row.dose} ${row.unitLabel}`;
+  return <tr>
+    <td className="selection-column"><input type="checkbox" aria-label={`Select ${context}`}
+      checked={selected} onChange={() => onToggle(row.id)} /></td>
+    <td>{row.takenAtLabel}</td><td>{row.medicationName}</td><td>{String(row.dose)}</td>
+    <td>{row.unitLabel}</td><td>{row.note}</td>
+  </tr>;
+}

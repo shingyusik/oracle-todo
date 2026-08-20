@@ -1178,7 +1178,10 @@ describe("Health Journal forms", () => {
   it("submits a Medication dose using the selected medication unit", async () => {
     const user = userEvent.setup();
     const health = controller();
-    render(<MedicationPanel controller={health} />);
+    render(<MedicationPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Add medication entry" }));
 
     await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
     await user.type(screen.getByLabelText("Dose"), "1000");
@@ -1238,7 +1241,10 @@ describe("Health Journal forms", () => {
 
   it("rejects non-positive medication doses before the controller call", async () => {
     const health = controller();
-    render(<MedicationPanel controller={health} />);
+    render(<MedicationPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Add medication entry" }));
 
     fireEvent.change(screen.getByLabelText("Medication name"), {
       target: { value: "Vitamin D" },

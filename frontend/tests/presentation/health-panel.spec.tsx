@@ -59,6 +59,21 @@ const bowel: HealthEvent = {
   deletedAt: null,
 };
 
+const medication: HealthEvent = {
+  id: "medication-1",
+  occurredAt: "2026-07-30T05:00:00Z",
+  category: "medication",
+  metricKey: "Vitamin D",
+  name: "Vitamin D",
+  value: 1000,
+  unit: "mg",
+  note: null,
+  attributes: { kind: "medication", medicationName: "Vitamin D", dose: 1000, unit: "mg" },
+  createdAt: "2026-07-30T05:00:00Z",
+  updatedAt: "2026-07-30T05:00:00Z",
+  deletedAt: null,
+};
+
 const trends: HealthTrends = {
   days: 30,
   topDietTags: [{ name: "rice", count: 2 }],
@@ -607,6 +622,53 @@ describe("HealthPanel", () => {
       state: { ...health.state, bowelEntries: [{ ...bowel }], bowelError: null },
     }} leafTabId="bowel" />);
     await waitFor(() => expect(screen.getByText("Type 4")).toBeInTheDocument());
+  });
+
+  it("preserves and reconciles committed Medication recovery across Health leaf tabs", async () => {
+    const user = userEvent.setup();
+    const health = controller({ ...loadedState, medicationEntries: [medication] });
+    health.archiveMedication = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
+    health.refreshMedication = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const view = render(<HealthPanel controller={health} leafTabId="medication" />);
+    await user.click(screen.getByRole("checkbox", { name: /Select Vitamin D/ }));
+    await user.click(screen.getByRole("button", { name: "Archive selected medication entries" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("Vitamin D")).toBeNull());
+
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, medicationStatus: "loading",
+    } }} leafTabId="medication" />);
+    expect(screen.queryByText("Vitamin D")).toBeNull();
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, medicationError: "stale refresh error",
+    } }} leafTabId="medication" />);
+    expect(screen.queryByText("Vitamin D")).toBeNull();
+    view.rerender(<HealthPanel controller={health} leafTabId="diet" />);
+    view.rerender(<HealthPanel controller={health} leafTabId="medication" />);
+    expect(screen.queryByText("Vitamin D")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refreshMedication).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert")).toHaveTextContent("could not refresh");
+    expect(health.archiveMedication).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(health.refreshMedication).toHaveBeenCalledTimes(2);
+
+    const stillActive = [{ ...medication }];
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, medicationEntries: stillActive, medicationError: null,
+    } }} leafTabId="medication" />);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText("Vitamin D")).toBeNull();
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, medicationEntries: [], medicationError: null,
+    } }} leafTabId="medication" />);
+    expect(screen.getByText("No medication entries yet.")).toBeInTheDocument();
+    view.rerender(<HealthPanel controller={{ ...health, state: {
+      ...health.state, medicationEntries: [{ ...medication }], medicationError: null,
+    } }} leafTabId="medication" />);
+    await waitFor(() => expect(screen.getByText("Vitamin D")).toBeInTheDocument());
   });
 
   it("loads, normalizes, edits, and persists Health Diet views", async () => {
