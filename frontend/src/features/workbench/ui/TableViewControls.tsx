@@ -1045,6 +1045,14 @@ export function tableViewFilterFieldConfigs(
       type: "select",
       options: filterOptions.fieldOptions?.blood_visible ?? [],
     },
+    medication_name: {
+      field: "medication_name", label: "Medication name", type: "text", options: [],
+    },
+    medication_unit: {
+      field: "medication_unit", label: "Unit", type: "select",
+      options: filterOptions.fieldOptions?.medication_unit ?? [],
+    },
+    dose: { field: "dose", label: "Dose", type: "number", options: [] },
     account: {
       field: "account",
       label: "Account",
@@ -1312,12 +1320,13 @@ function newTableViewSortRule(field: PlannerSortBy): PlannerSortRule {
 function tableViewSortFieldOptions(
   adapter: Pick<
     TableViewControlsAdapter,
-    "filterFields" | "sortFields" | "filterOptions" | "fieldLabels"
+    "sortFields" | "filterOptions" | "fieldLabels"
   >,
 ): PlannerSortFieldOption[] {
   const fields: PlannerSortFieldOption[] = tableViewFilterFieldConfigs(
     adapter.filterOptions,
-    adapter.filterFields,
+    adapter.sortFields.filter((field): field is PlannerFilterField =>
+      field !== "created" && field !== "updated"),
     adapter.fieldLabels,
   ).map((field) => ({
     value: field.field as PlannerSortBy,

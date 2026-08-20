@@ -24,6 +24,11 @@ export function HealthPanel({
   const [bowelTombstonedIds, setBowelTombstonedIds] = useState<Set<string>>(() => new Set());
   const [bowelRefreshWarning, setBowelRefreshWarning] = useState<string | null>(null);
   const [bowelRefreshPending, setBowelRefreshPending] = useState(false);
+  const [medicationTombstonedIds, setMedicationTombstonedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [medicationRefreshWarning, setMedicationRefreshWarning] = useState<string | null>(null);
+  const [medicationRefreshPending, setMedicationRefreshPending] = useState(false);
   const dietRecoveryBaselines = useRef(new Map<
     string,
     HealthController["state"]["dietEntries"]
@@ -31,6 +36,10 @@ export function HealthPanel({
   const bowelRecoveryBaselines = useRef(new Map<
     string,
     HealthController["state"]["bowelEntries"]
+  >());
+  const medicationRecoveryBaselines = useRef(new Map<
+    string,
+    HealthController["state"]["medicationEntries"]
   >());
 
   useEffect(() => {
@@ -82,6 +91,26 @@ export function HealthPanel({
   }, [controller.state.bowelEntries, controller.state.bowelError, controller.state.bowelStatus,
     bowelRefreshPending, bowelRefreshWarning, bowelTombstonedIds]);
 
+  useEffect(() => {
+    if (controller.state.medicationStatus !== "loaded" || controller.state.medicationError !== null ||
+      medicationRefreshPending || medicationRefreshWarning !== null ||
+      medicationTombstonedIds.size === 0) return;
+    const activeIds = new Set(controller.state.medicationEntries
+      .filter(({ deletedAt }) => deletedAt === null).map(({ id }) => id));
+    const next = new Set<string>();
+    for (const id of medicationTombstonedIds) {
+      const baseline = medicationRecoveryBaselines.current.get(id);
+      if (baseline === controller.state.medicationEntries) next.add(id);
+      else {
+        medicationRecoveryBaselines.current.delete(id);
+        if (activeIds.has(id)) next.add(id);
+      }
+    }
+    if (next.size !== medicationTombstonedIds.size) setMedicationTombstonedIds(next);
+  }, [controller.state.medicationEntries, controller.state.medicationError,
+    controller.state.medicationStatus,
+    medicationRefreshPending, medicationRefreshWarning, medicationTombstonedIds]);
+
   function archiveCommitted(id: string, refreshWarning?: string) {
     if (refreshWarning) {
       dietRecoveryBaselines.current.set(id, controller.state.dietEntries);
@@ -124,12 +153,39 @@ export function HealthPanel({
     }
   }
 
+  function medicationArchiveCommitted(id: string, refreshWarning?: string) {
+    if (refreshWarning) {
+      medicationRecoveryBaselines.current.set(id, controller.state.medicationEntries);
+      setMedicationRefreshWarning(refreshWarning);
+    }
+    setMedicationTombstonedIds((current) => current.has(id)
+      ? current : new Set(current).add(id));
+  }
+
+  async function retryMedicationRefresh() {
+    for (const id of medicationTombstonedIds) {
+      medicationRecoveryBaselines.current.set(id, controller.state.medicationEntries);
+    }
+    setMedicationRefreshPending(true);
+    try {
+      const refreshed = await controller.refreshMedication();
+      if (refreshed) setMedicationRefreshWarning(null);
+      return refreshed;
+    } finally {
+      setMedicationRefreshPending(false);
+    }
+  }
+
   const panel = leafTabId === "bowel"
     ? <BowelPanel controller={controller} tombstonedIds={bowelTombstonedIds}
         onArchiveCommitted={bowelArchiveCommitted} refreshWarning={bowelRefreshWarning}
         refreshPending={bowelRefreshPending} onRetryRefresh={retryBowelRefresh} />
     : leafTabId === "medication"
-      ? <MedicationPanel controller={controller} />
+      ? <MedicationPanel controller={controller} tombstonedIds={medicationTombstonedIds}
+          onArchiveCommitted={medicationArchiveCommitted}
+          refreshWarning={medicationRefreshWarning}
+          refreshPending={medicationRefreshPending}
+          onRetryRefresh={retryMedicationRefresh} />
       : leafTabId === "health-metrics"
         ? <HealthMetricsPanel controller={controller} />
         : leafTabId === "trends"

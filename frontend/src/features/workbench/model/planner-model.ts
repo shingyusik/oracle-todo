@@ -31,6 +31,9 @@ export type PlannerFilterField =
   | "has_photo"
   | "bristol_scale"
   | "blood_visible"
+  | "medication_name"
+  | "medication_unit"
+  | "dose"
   | "account"
   | "category"
   | "amount"
@@ -104,6 +107,8 @@ export type PlannerGroupBy =
   | "has_photo"
   | "bristol_scale"
   | "blood_visible"
+  | "medication_name"
+  | "medication_unit"
   | "account"
   | "category"
   | "account_type"
@@ -135,6 +140,9 @@ export const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterTy
   has_photo: "select",
   bristol_scale: "select",
   blood_visible: "select",
+  medication_name: "text",
+  medication_unit: "select",
+  dose: "number",
   account: "relation",
   category: "relation",
   amount: "number",

@@ -285,6 +285,9 @@ describe("planner model", () => {
   );
 
   it("defines table-specific filter and sort field capabilities in the model", () => {
+    expect(plannerFilterFieldTypes.medication_name).toBe("text");
+    expect(plannerFilterFieldTypes.medication_unit).toBe("select");
+    expect(plannerFilterFieldTypes.dose).toBe("number");
     expect(plannerFilterFieldsForTable("weekly.week-goals")).toContain("horizon");
     expect(plannerFilterFieldsForTable("weekly.week-goals")).not.toContain("project");
     expect(plannerSortFieldsForTable("weekly.week-goals")).toContain("updated");

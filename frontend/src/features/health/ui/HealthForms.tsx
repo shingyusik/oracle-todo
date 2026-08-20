@@ -22,15 +22,15 @@ const mealTypes: Array<{ value: MealType; label: string }> = [
   { value: "snack", label: "Snack" },
   { value: "late_night", label: "Late night" },
 ];
-const medicationUnits: MedicationUnit[] = [
-  "tablet",
-  "capsule",
-  "packet",
-  "mg",
-  "g",
-  "ml",
-  "drop",
-  "dose",
+const medicationUnits: Array<{ value: MedicationUnit; label: string }> = [
+  { value: "tablet", label: "정" },
+  { value: "capsule", label: "캡슐" },
+  { value: "packet", label: "포" },
+  { value: "mg", label: "mg" },
+  { value: "g", label: "g" },
+  { value: "ml", label: "ml" },
+  { value: "drop", label: "방울" },
+  { value: "dose", label: "회" },
 ];
 
 type HealthFormProps = {
@@ -272,10 +272,12 @@ export function MedicationForm({
   const [dose, setDose] = useState("");
   const [unit, setUnit] = useState<MedicationUnit>("tablet");
   const [note, setNote] = useState("");
+  const [refreshRecovery, setRefreshRecovery] = useState(false);
   const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (refreshRecovery) return;
     await action.run(async () => {
       const medicationName = name.trim();
       if (!medicationName) throw new Error("Medication name is required");
@@ -290,12 +292,26 @@ export function MedicationForm({
         },
         note: nullable(note),
       };
-      await controller.createMedication(input);
+      try {
+        await controller.createMedication(input);
+      } catch (cause) {
+        if (cause instanceof HealthMutationRefreshError) {
+          if (action.isMounted()) setRefreshRecovery(true);
+          return;
+        }
+        throw cause;
+      }
       if (!action.isMounted()) return;
       setName("");
       setDose("");
       setNote("");
       onSaved?.();
+    });
+  }
+
+  async function retryRefresh() {
+    await action.run(async () => {
+      if (await controller.refreshMedication() && action.isMounted()) onSaved?.();
     });
   }
 
@@ -305,8 +321,9 @@ export function MedicationForm({
       onSubmit={(event) => void submit(event)}
       aria-label="Medication entry"
     >
+      <fieldset disabled={refreshRecovery || action.pending}>
       <label className="field-label">
-        Occurred at
+        Taken at
         <input
           type="datetime-local"
           value={occurredAt}
@@ -330,22 +347,29 @@ export function MedicationForm({
         />
       </label>
       <label className="field-label">
-        Medication unit
+        Unit
         <select
           value={unit}
           onChange={(event) => setUnit(event.target.value as MedicationUnit)}
         >
-          {medicationUnits.map((value) => (
-            <option key={value} value={value}>{value}</option>
+          {medicationUnits.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
       </label>
       <label className="field-label">
-        Medication note
+        Note
         <textarea value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
       <FormResult action={action} />
       <button type="submit" disabled={action.pending}>Save medication</button>
+      </fieldset>
+      {refreshRecovery ? <div className="items-message">
+        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
+          Retry refresh
+        </button>
+      </div> : null}
     </form>
   );
 }
