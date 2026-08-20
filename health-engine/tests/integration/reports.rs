@@ -285,19 +285,33 @@ fn reports_use_historical_lookahead_active_rows_and_fixed_offset_dates() {
 #[test]
 fn report_points_break_equal_instant_ties_by_id() {
     let fixture = Fixture::new(UtcOffset::UTC);
-    let mut service = fixture.service();
-    let at = datetime!(2026-07-03 12:00 UTC);
-    let bowel_events = [
-        bowel_event(&mut service, at, 4),
-        bowel_event(&mut service, at, 6),
-    ];
-    let mut expected_bowel_ids = bowel_events.map(|event| event.id().as_str().to_string());
-    expected_bowel_ids.sort();
-
+    let service = fixture.service();
     let connection = Connection::open(&fixture.database).unwrap();
     connection
         .execute_batch("DROP INDEX uq_health_daily_metric;")
         .unwrap();
+    for (id, scale) in [
+        ("00000000-0000-4000-8000-000000000012", 6),
+        ("00000000-0000-4000-8000-000000000011", 4),
+    ] {
+        let attributes = serde_json::json!({
+            "bristol_scale": scale, "blood_visible": false
+        })
+        .to_string();
+        connection
+            .execute(
+                "INSERT INTO health_events (
+                    id, occurred_at, local_date, category, metric_key, name, value_num,
+                    attributes_json, daily_upsert, created_at, updated_at
+                 ) VALUES (
+                    ?1, '2026-07-03T12:00:00.000000000Z', '2026-07-03',
+                    'bowel', 'bowel', 'Bowel', ?2, ?3, 0,
+                    '2026-07-03T12:00:00.000000000Z', '2026-07-03T12:00:00.000000000Z'
+                 )",
+                rusqlite::params![id, scale, attributes],
+            )
+            .unwrap();
+    }
     for (id, value) in [
         ("00000000-0000-4000-8000-000000000002", 68.0),
         ("00000000-0000-4000-8000-000000000001", 67.0),
@@ -327,12 +341,9 @@ fn report_points_break_equal_instant_ties_by_id() {
         report
             .bowel_points
             .iter()
-            .map(|point| point.id.as_str())
+            .map(|point| point.bristol_scale)
             .collect::<Vec<_>>(),
-        expected_bowel_ids
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
+        vec![4, 6]
     );
     let weight = report
         .metric_series
@@ -343,12 +354,21 @@ fn report_points_break_equal_instant_ties_by_id() {
         weight
             .points
             .iter()
-            .map(|point| point.id.as_str())
+            .map(|point| point.value)
             .collect::<Vec<_>>(),
-        vec![
-            "00000000-0000-4000-8000-000000000001",
-            "00000000-0000-4000-8000-000000000002"
-        ]
+        vec![67.0, 68.0]
+    );
+    assert!(
+        serde_json::to_value(&report.bowel_points[0])
+            .unwrap()
+            .get("id")
+            .is_none()
+    );
+    assert!(
+        serde_json::to_value(&weight.points[0])
+            .unwrap()
+            .get("id")
+            .is_none()
     );
 }
 
@@ -496,18 +516,11 @@ fn event(
         .unwrap()
 }
 fn bowel(service: &mut Service, occurred_at: time::OffsetDateTime, scale: u8) {
-    bowel_event(service, occurred_at, scale);
-}
-fn bowel_event(
-    service: &mut Service,
-    occurred_at: time::OffsetDateTime,
-    scale: u8,
-) -> health_engine::domain::HealthEvent {
     event(
         service,
         occurred_at,
         HealthEventDetails::Bowel(BowelAttributes::new(scale, false).unwrap()),
-    )
+    );
 }
 fn medication(
     service: &mut Service,

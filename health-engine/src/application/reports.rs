@@ -67,7 +67,6 @@ pub enum FixedMetric {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MetricReading {
-    pub id: String,
     pub local_date: Date,
     #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: OffsetDateTime,
@@ -85,7 +84,6 @@ pub struct MetricSummary {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BowelPoint {
-    pub id: String,
     pub local_date: Date,
     #[serde(with = "time::serde::rfc3339")]
     pub occurred_at: OffsetDateTime,
@@ -207,13 +205,18 @@ fn project(
                 .count(),
         )?),
     };
-    let current_bowel = dated_events
+    let mut current_bowel = dated_events
         .iter()
         .filter(|(event, date)| {
             event.category() == HealthCategory::Bowel && in_range(*date, &range)
         })
         .map(|(event, _)| *event)
         .collect::<Vec<_>>();
+    current_bowel.sort_by(|left, right| {
+        left.occurred_at()
+            .cmp(&right.occurred_at())
+            .then_with(|| left.id().as_str().cmp(right.id().as_str()))
+    });
     let previous_bowel = dated_events
         .iter()
         .filter(|(event, date)| {
@@ -240,22 +243,16 @@ fn project(
         previous: optional_count(count(previous_medications)?),
     };
 
-    let mut bowel_points = current_bowel
+    let bowel_points = current_bowel
         .iter()
         .map(|event| {
             Ok(BowelPoint {
-                id: event.id().as_str().to_string(),
                 local_date: checked_local_date(event.occurred_at(), offset)?,
                 occurred_at: event.occurred_at(),
                 bristol_scale: event.value_num().unwrap_or_default() as u8,
             })
         })
         .collect::<HealthResult<Vec<_>>>()?;
-    bowel_points.sort_by(|left, right| {
-        left.occurred_at
-            .cmp(&right.occurred_at)
-            .then_with(|| left.id.cmp(&right.id))
-    });
     let mut metrics = Vec::new();
     let mut metric_series = Vec::new();
     for metric in FixedMetric::ALL {
@@ -358,7 +355,6 @@ fn reading(
     offset: time::UtcOffset,
 ) -> HealthResult<MetricReading> {
     Ok(MetricReading {
-        id: event.id().as_str().to_string(),
         local_date: checked_local_date(event.occurred_at(), offset)?,
         occurred_at: event.occurred_at(),
         value: event
