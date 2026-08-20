@@ -634,7 +634,7 @@ describe("LedgerPanel", () => {
     await act(async () => request.resolve(undefined));
   });
 
-  it("uses complete, keyboard-operable tabs and shows only active settings", async () => {
+  it("uses complete Account settings tabs and shows only active settings", async () => {
     const user = userEvent.setup();
     const inactiveState = {
       ...loadedState,
@@ -698,6 +698,40 @@ describe("LedgerPanel", () => {
     expect(screen.getAllByText("Cash")).not.toHaveLength(0);
     expect(screen.queryByText("Old category")).toBeNull();
 
+    const accountTypeTable = within(dialog).getByRole("table");
+    expect(accountTypeTable).toHaveClass(
+      "ledger-account-settings-table",
+      "ledger-account-settings-account-types-table",
+    );
+    const expectIconAction = (
+      table: HTMLElement,
+      name: string,
+      iconClass: string,
+    ) => {
+      const action = within(table).getByRole("button", { name });
+      expect(action).toHaveAttribute("title", name);
+      expect(action).toContainElement(action.querySelector(`.${iconClass}`));
+      expect(action).not.toHaveTextContent(name);
+    };
+    expectIconAction(accountTypeTable, "Edit Cash", "lucide-pencil");
+    expectIconAction(accountTypeTable, "Deactivate Cash", "lucide-circle-off");
+    expectIconAction(accountTypeTable, "Delete Cash", "lucide-trash-2");
+    expect(within(accountTypeTable).getByRole("cell", { name: /Edit Cash/ }))
+      .toHaveClass("ledger-account-settings-actions-cell");
+
+    await user.click(within(accountTypeTable).getByRole("button", { name: "Edit Cash" }));
+    const accountEditorHeading = screen.getByRole("heading", {
+      name: "Edit account type",
+    }).parentElement!;
+    expect(accountEditorHeading).toHaveClass("ledger-account-settings-editor-header");
+    const cancelAccountEdit = within(accountEditorHeading).getByRole("button", {
+      name: "Cancel edit",
+    });
+    expect(cancelAccountEdit).toBeInTheDocument();
+    expect(screen.getByLabelText("Liability").parentElement?.nextElementSibling)
+      .not.toBe(cancelAccountEdit);
+    await user.click(cancelAccountEdit);
+
     accountTypes.focus();
     await user.keyboard("{ArrowRight}");
     expect(currencies).toHaveFocus();
@@ -708,8 +742,112 @@ describe("LedgerPanel", () => {
     expect(save).toHaveAttribute("form", "account-settings-currency-form");
     expect(screen.getByText("KRW")).toBeInTheDocument();
     expect(screen.queryByText("OLD")).toBeNull();
+
+    const currencyTable = within(dialog).getByRole("table");
+    expect(currencyTable).toHaveClass(
+      "ledger-account-settings-table",
+      "ledger-account-settings-currencies-table",
+    );
+    expectIconAction(currencyTable, "Edit KRW", "lucide-pencil");
+    expectIconAction(currencyTable, "Deactivate KRW", "lucide-circle-off");
+    expect(within(currencyTable).queryByRole("button", { name: "Delete KRW" })).toBeNull();
+    expect(within(currencyTable).getByRole("cell", { name: /Edit KRW/ }))
+      .toHaveClass("ledger-account-settings-actions-cell");
+
+    await user.click(within(currencyTable).getByRole("button", { name: "Edit KRW" }));
+    const currencyEditorHeading = screen.getByRole("heading", {
+      name: "Edit currency",
+    }).parentElement!;
+    expect(currencyEditorHeading).toHaveClass("ledger-account-settings-editor-header");
+    expect(within(currencyEditorHeading).getByRole("button", { name: "Cancel edit" }))
+      .toBeInTheDocument();
     await user.keyboard("{ArrowLeft}");
     expect(accountTypes).toHaveFocus();
+  });
+
+  it("keeps referenced Account types and shows only a safe purge-preview failure", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    ledger.previewAccountCategoryPurge = vi.fn().mockRejectedValue(
+      new Error("sqlite /private/raven.sqlite: referenced"),
+    );
+    render(
+      <AccountSettingsDialog
+        controller={ledger}
+        onClose={vi.fn()}
+        returnFocusRef={React.createRef<HTMLButtonElement>()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Delete Cash" }));
+
+    expect(ledger.previewAccountCategoryPurge)
+      .toHaveBeenCalledWith("account-category-cash");
+    expect(screen.queryByRole("dialog", { name: "Permanently delete Cash?" }))
+      .toBeNull();
+    expect(await screen.findByRole("alert"))
+      .toHaveTextContent("Could not delete account type.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("sqlite");
+  });
+
+  it("previews and permanently deletes an unused Account type once", async () => {
+    const user = userEvent.setup();
+    const preview = deferred<MasterPurgePreview>();
+    const purge = deferred<void>();
+    const ledger = controller();
+    ledger.previewAccountCategoryPurge = vi.fn()
+      .mockReturnValueOnce(preview.promise)
+      .mockResolvedValue({
+        confirmationId: "account-category-cash",
+        recordType: "account_category",
+      });
+    ledger.purgeAccountCategory = vi.fn(() => purge.promise);
+    const onClose = vi.fn();
+    render(
+      <AccountSettingsDialog
+        controller={ledger}
+        onClose={onClose}
+        returnFocusRef={React.createRef<HTMLButtonElement>()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Cash" }));
+    const deleteCash = screen.getByRole("button", { name: "Delete Cash" });
+    await user.click(deleteCash);
+    await user.click(deleteCash);
+    expect(ledger.previewAccountCategoryPurge).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog", { name: "Account settings" }))
+      .toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => preview.resolve({
+      confirmationId: "account-category-cash",
+      recordType: "account_category",
+    }));
+    const confirmation = await screen.findByRole("dialog", {
+      name: "Permanently delete Cash?",
+    });
+    expect(within(confirmation).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(deleteCash).toHaveFocus());
+
+    await user.click(deleteCash);
+    const reopened = await screen.findByRole("dialog", {
+      name: "Permanently delete Cash?",
+    });
+    const confirm = within(reopened).getByRole("button", { name: "Delete" });
+    await user.click(confirm);
+    await user.click(confirm);
+    expect(ledger.purgeAccountCategory).toHaveBeenCalledTimes(1);
+    expect(ledger.purgeAccountCategory).toHaveBeenCalledWith(
+      "account-category-cash",
+      "account-category-cash",
+    );
+    await act(async () => purge.resolve(undefined));
+    expect(screen.getByRole("form", { name: "New account type" }))
+      .toBeInTheDocument();
   });
 
   it("creates, edits, and deactivates account types with the exact payload", async () => {
