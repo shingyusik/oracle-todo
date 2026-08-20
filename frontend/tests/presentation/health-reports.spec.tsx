@@ -578,8 +578,8 @@ function populatedReport(): HealthReport {
     bowel: { currentCount: 5, previousCount: 4, currentAverage: 3.6, previousAverage: 4 },
     medicationCount: { current: 4, previous: 3 },
     bowelPoints: [
-      { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", bristolScale: 4 },
       { localDate: "2026-08-12", occurredAt: "2026-08-12T09:45:00Z", bristolScale: 6 },
+      { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", bristolScale: 4 },
     ],
     metricSeries: [
       { metric: "body_weight", points: [reading("2026-08-10", 71.5), reading("2026-08-20", 72)] },
