@@ -6,8 +6,10 @@ import { HealthMutationRefreshError, type HealthController } from "@/features/he
 import { deriveHealthMetricsGroups, type HealthMetricsRow } from "@/features/health/model/health-metrics-table";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { HealthMetricsCreateDialog } from "@/features/health/ui/HealthMetricsCreateDialog";
+import { HealthMetricsDetail } from "@/features/health/ui/HealthMetricsDetail";
 import { HealthMetricsTable } from "@/features/health/ui/HealthMetricsTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
+import { useBrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type HealthMetricsPanelProps = {
@@ -25,11 +27,14 @@ export function HealthMetricsPanel({
 }: HealthMetricsPanelProps) {
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<HealthMetricsRow | null>(null);
   const [archiveTargets, setArchiveTargets] = useState<HealthMetricsRow[] | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
+  const tableRef = useRef<HTMLElement>(null);
+  const detailOriginRef = useRef<{ occurrence: string; date: string } | null>(null);
   const entries = useMemo(() => controller.state.metricsEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)), [controller.state.metricsEntries, tombstonedIds]);
   const settings = controller.tableSettings("health.metrics");
@@ -44,6 +49,22 @@ export function HealthMetricsPanel({
   }).filter(({ label }) => label !== null).map(({ key, label, rows }) => ({
     key, label: label!, count: uniqueRows(rows).length,
   })), [entries, settings.groupSettings]);
+  const currentDetailRow = detailRow
+    ? activeRows.find(({ date }) => date === detailRow.date) ?? null
+    : null;
+  const detailHistory = useBrowserDetailHistory({
+    stateKey: "__ravenHealthMetricsDetailDate",
+    currentId: currentDetailRow?.date ?? null,
+    resolve: (date) => activeRows.find((row) => row.date === date) ?? null,
+    open: (row) => {
+      if (detailOriginRef.current?.date !== row.date) {
+        detailOriginRef.current = { occurrence: "", date: row.date };
+      }
+      setDetailRow(row);
+    },
+    close: () => { setDetailRow(null); restoreDetailFocus(); },
+    clearOnUnmount: true,
+  });
 
   useEffect(() => {
     const activeDates = new Set(activeRows.map(({ date }) => date));
@@ -51,7 +72,25 @@ export function HealthMetricsPanel({
       const next = current.filter((date) => activeDates.has(date));
       return next.length === current.length ? current : next;
     });
+    if (detailRow && !activeDates.has(detailRow.date)) {
+      setDetailRow(null);
+      restoreDetailFocus();
+    }
   }, [activeRows]);
+
+  function restoreDetailFocus() {
+    requestAnimationFrame(() => {
+      const origin = detailOriginRef.current;
+      const exact = origin
+        ? tableRef.current?.querySelector<HTMLElement>(`[data-health-metrics-occurrence="${origin.occurrence}"]`)
+        : null;
+      const sameDate = origin
+        ? [...(tableRef.current?.querySelectorAll<HTMLElement>("[data-health-metrics-date]") ?? [])]
+          .find((element) => element.dataset.healthMetricsDate === origin.date)
+        : null;
+      (exact ?? sameDate ?? addButtonRef.current)?.focus();
+    });
+  }
 
   function toggle(date: string) {
     setSelectedDates((current) => current.includes(date)
@@ -107,7 +146,18 @@ export function HealthMetricsPanel({
       <button type="button" onClick={() => void controller.refreshMetrics()}>Retry</button></section>;
   }
 
-  return <section aria-labelledby="health-metrics-heading">
+  if (currentDetailRow) {
+    return <HealthMetricsDetail key={currentDetailRow.date} controller={controller}
+      row={currentDetailRow} detailHistory={detailHistory}
+      onSaved={(date) => { detailOriginRef.current = { occurrence: "", date }; }}
+      onArchived={(warning) => {
+        detailHistory.setDirty(false);
+        detailHistory.requestBack();
+        markArchived(currentDetailRow, warning);
+      }} />;
+  }
+
+  return <section ref={tableRef} aria-labelledby="health-metrics-heading">
     <HealthTableViewHeader controller={controller} scope="health.metrics" title="Health Metrics"
       headingId="health-metrics-heading"
       fieldLabels={{ weight: "Weight", sleep: "Sleep", crp: "CRP",
@@ -117,7 +167,10 @@ export function HealthMetricsPanel({
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleRows.length === 0 || archivePending} />
     <HealthMetricsTable groups={groups} activeRowCount={activeRows.length}
-      selectedDates={selectedDates} onOpen={() => undefined} onToggle={toggle} onToggleAll={toggleAll} />
+      selectedDates={selectedDates} onOpen={(row, occurrence) => {
+        detailOriginRef.current = { occurrence, date: row.date };
+        setDetailRow(row);
+      }} onToggle={toggle} onToggleAll={toggleAll} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>
       <button type="button" disabled={refreshPending} onClick={() => void retryRefresh()}>Retry</button></div>
       : controller.state.metricsError ? <p role="alert" className="items-message">
