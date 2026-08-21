@@ -81,7 +81,7 @@ fn page_sql(query: &HealthTableQuery) -> (String, Vec<Value>) {
         query.group_settings().group_by(),
         HealthTableGroup::Diet(DietTableGroup::Tag)
     ) {
-        "SELECT filtered.*,COALESCE(t.name,'untagged') group_key,COALESCE(t.name,'Untagged') group_label FROM filtered LEFT JOIN diet_entry_tags l ON l.diet_entry_id=filtered.id LEFT JOIN diet_tags t ON t.id=l.tag_id".to_string()
+        "SELECT filtered.*,CASE WHEN t.name IS NULL THEN 'untagged' WHEN t.name='untagged' OR substr(t.name,1,1)='\\' THEN '\\'||t.name ELSE t.name END group_key,COALESCE(t.name,'Untagged') group_label FROM filtered LEFT JOIN diet_entry_tags l ON l.diet_entry_id=filtered.id LEFT JOIN diet_tags t ON t.id=l.tag_id".to_string()
     } else {
         format!("SELECT filtered.*,{key} group_key,{label} group_label FROM filtered")
     };
@@ -100,7 +100,11 @@ fn base_sql(group: HealthTableGroup) -> (String, String, String) {
         HealthTableGroup::Diet(g) => {
             let (k, l) = date_group(g, "local_date");
             let (k,l)=match g{DietTableGroup::MealType=>("meal_type".into(),"CASE meal_type WHEN 'late_night' THEN 'Late night' ELSE upper(substr(meal_type,1,1))||substr(meal_type,2) END".into()),DietTableGroup::HasPhoto=>("CASE WHEN media_id IS NULL THEN 'without-photo' ELSE 'with-photo' END".into(),"CASE WHEN media_id IS NULL THEN 'Without photo' ELSE 'With photo' END".into()),DietTableGroup::Tag=>("''".into(),"''".into()),_ =>(k,l)};
-            ("SELECT d.id logical_id,d.*,COALESCE((SELECT group_concat(t.name,char(31)) FROM diet_entry_tags l JOIN diet_tags t ON t.id=l.tag_id WHERE l.diet_entry_id=d.id),'') tags_text FROM diet_entries d WHERE deleted_at IS NULL".into(),k,l)
+            (
+                "SELECT d.id logical_id,d.* FROM diet_entries d WHERE deleted_at IS NULL".into(),
+                k,
+                l,
+            )
         }
         HealthTableGroup::Bowel(g) => {
             let (k, l) = date_group_bowel(g, "local_date");
@@ -234,6 +238,14 @@ fn one_filter(
     reference: Option<Date>,
     values: &mut Vec<Value>,
 ) -> String {
+    if let HealthTableFilter::Diet {
+        field: DietTableFilterField::Tags,
+        operator,
+        value,
+    } = filter
+    {
+        return tag_filter(*operator, value, values);
+    }
     let (expr, op, val) = match filter {
         HealthTableFilter::Diet {
             field,
@@ -244,7 +256,7 @@ fn one_filter(
                 DietTableFilterField::Date => "local_date",
                 DietTableFilterField::MealType => "meal_type",
                 DietTableFilterField::Food => "food_name",
-                DietTableFilterField::Tags => "tags_text",
+                DietTableFilterField::Tags => unreachable!("tag filters are handled above"),
                 DietTableFilterField::HasPhoto => {
                     "CASE WHEN media_id IS NULL THEN 'without-photo' ELSE 'with-photo' END"
                 }
@@ -304,6 +316,34 @@ fn one_filter(
         ),
     };
     scalar(expr, op, val, reference, values)
+}
+fn tag_filter(
+    operator: HealthFilterOperator,
+    value: &HealthTableFilterValue,
+    values: &mut Vec<Value>,
+) -> String {
+    use HealthFilterOperator as O;
+    let exists = "EXISTS (SELECT 1 FROM diet_entry_tags links JOIN diet_tags tags ON tags.id=links.tag_id WHERE links.diet_entry_id=base.id";
+    match operator {
+        O::IsEmpty => format!("NOT {exists})"),
+        O::IsNotEmpty => format!("{exists})"),
+        O::Is | O::Contains | O::IsNot | O::DoesNotContain => {
+            let HealthTableFilterValue::TextList(tags) = value else {
+                unreachable!()
+            };
+            values.extend(tags.iter().cloned().map(Value::Text));
+            let predicate = format!(
+                "{exists} AND tags.name IN ({}))",
+                vec!["?"; tags.len()].join(",")
+            );
+            if matches!(operator, O::IsNot | O::DoesNotContain) {
+                format!("NOT {predicate}")
+            } else {
+                predicate
+            }
+        }
+        _ => unreachable!("validated tag filter operator"),
+    }
 }
 fn scalar(
     expr: &str,

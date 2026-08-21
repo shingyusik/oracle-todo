@@ -684,7 +684,10 @@ impl HealthTableRow {
             ));
         }
         let group = group_key.as_deref().unwrap_or_default();
-        if group.len() > MAX_GROUP_KEY || record.logical_id().is_empty() {
+        if group_key.as_deref().is_some_and(str::is_empty)
+            || group.len() > MAX_GROUP_KEY
+            || record.logical_id().is_empty()
+        {
             return Err(validation("row", "invalid row identity"));
         }
         let key = format!("{}:{group}:{}", group.len(), record.logical_id());

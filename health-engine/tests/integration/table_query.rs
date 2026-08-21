@@ -1085,3 +1085,170 @@ fn medication_group_labels_and_partial_manual_order_match_ui() {
         vec!["alpha", "gamma", "beta"]
     );
 }
+
+#[test]
+fn literal_untagged_and_synthetic_untagged_have_distinct_stable_occurrences() {
+    let (_directory, mut service) = test_service();
+    for (food, tags) in [
+        ("Literal", vec!["untagged"]),
+        ("Escaped", vec!["\\untagged"]),
+        ("Missing", vec![]),
+    ] {
+        service
+            .create_diet(CreateDietEntry {
+                occurred_at: datetime!(2025-01-01 00:00 UTC),
+                meal_type: MealType::Breakfast,
+                food_name: food.into(),
+                note: None,
+                tags: tags.into_iter().map(str::to_string).collect(),
+                media: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    let settings = |hidden| {
+        HealthTableGroupSettings::new(
+            HealthTableGroup::Diet(DietTableGroup::Tag),
+            GroupSort::Alphabetical,
+            false,
+            vec![],
+            hidden,
+        )
+        .unwrap()
+    };
+    let query = |offset, limit, hidden| {
+        HealthTableQuery::new(
+            HealthTableScope::Diet,
+            offset,
+            limit,
+            FilterMode::And,
+            vec![],
+            vec![HealthTableSort::Diet {
+                field: DietTableSortField::Food,
+                direction: SortDirection::Asc,
+            }],
+            settings(hidden),
+            None,
+        )
+        .unwrap()
+    };
+    let page = service.query_table(&query(0, 50, vec![])).unwrap();
+    let by_food = page
+        .items
+        .iter()
+        .map(|row| match row.record() {
+            HealthTableRecord::Diet(record) => {
+                (record.food.as_str(), row.group_key().unwrap(), row.key())
+            }
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        by_food.iter().find(|row| row.0 == "Missing").unwrap().1,
+        "untagged"
+    );
+    assert_eq!(
+        by_food.iter().find(|row| row.0 == "Literal").unwrap().1,
+        "\\untagged"
+    );
+    assert_eq!(
+        by_food.iter().find(|row| row.0 == "Escaped").unwrap().1,
+        "\\\\untagged"
+    );
+    let keys = by_food
+        .iter()
+        .map(|row| row.2)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(keys.len(), 3);
+    assert_eq!(
+        service
+            .query_table(&query(0, 50, vec!["untagged".into()]))
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    assert_eq!(
+        service
+            .query_table(&query(0, 50, vec!["\\untagged".into()]))
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    let first = service.query_table(&query(0, 1, vec![])).unwrap();
+    let second = service.query_table(&query(1, 1, vec![])).unwrap();
+    let third = service.query_table(&query(2, 1, vec![])).unwrap();
+    assert_eq!(first.next_offset, Some(1));
+    assert_eq!(second.next_offset, Some(2));
+    assert_eq!(third.next_offset, None);
+    assert_ne!(first.items[0].key(), second.items[0].key());
+    assert_ne!(second.items[0].key(), third.items[0].key());
+}
+
+#[test]
+fn tag_filters_compare_normalized_rows_without_separator_collisions() {
+    let (_directory, mut service) = test_service();
+    for (food, tags) in [("Split", vec!["a", "b"]), ("Literal", vec!["a\u{1f}b"])] {
+        service
+            .create_diet(CreateDietEntry {
+                occurred_at: datetime!(2025-01-01 00:00 UTC),
+                meal_type: MealType::Breakfast,
+                food_name: food.into(),
+                note: None,
+                tags: tags.into_iter().map(str::to_string).collect(),
+                media: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    let filter = HealthTableFilter::Diet {
+        field: DietTableFilterField::Tags,
+        operator: HealthFilterOperator::Contains,
+        value: HealthTableFilterValue::TextList(vec!["a\u{1f}b".into()]),
+    };
+    let page = service
+        .query_table(
+            &HealthTableQuery::new(
+                HealthTableScope::Diet,
+                0,
+                50,
+                FilterMode::And,
+                vec![filter],
+                vec![],
+                groups(
+                    HealthTableScope::Diet,
+                    HealthTableGroup::Diet(DietTableGroup::None),
+                ),
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        matches!(page.items.as_slice(), [row] if matches!(row.record(), HealthTableRecord::Diet(record) if record.food == "Literal"))
+    );
+}
+
+#[test]
+fn occurrence_key_is_unambiguous_for_delimiters_and_rejects_empty_groups() {
+    let record = |id: &str| {
+        HealthTableRecord::Metrics(HealthMetricsTableRecord {
+            id: id.into(),
+            date: "2025-01-01".into(),
+            events: vec![],
+            weight: None,
+            sleep: None,
+            crp: None,
+            calprotectin: None,
+            condition: None,
+            note: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+    };
+    let left = HealthTableRow::new(Some("a".into()), Some("a".into()), record("b:c")).unwrap();
+    let right = HealthTableRow::new(Some("a:b".into()), Some("a:b".into()), record("c")).unwrap();
+    assert_ne!(left.key(), right.key());
+    assert!(HealthTableRow::new(Some(String::new()), Some(String::new()), record("id")).is_err());
+}
