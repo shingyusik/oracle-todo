@@ -861,7 +861,7 @@ describe("Health Metrics table", () => {
       const button = screen.getByRole("button", { name });
       expect(button).toHaveAttribute("title", name);
       expect(button).toContainElement(button.querySelector(`.${iconClass}`));
-      expect(button).not.toHaveTextContent(name);
+      expect(button).toHaveTextContent(/^\s*$/);
     };
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
