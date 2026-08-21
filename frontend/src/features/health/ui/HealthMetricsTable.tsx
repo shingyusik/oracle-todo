@@ -45,9 +45,10 @@ export function HealthMetricsTable({ groups, activeRowCount, selectedDates, onOp
             <th scope="rowgroup" colSpan={8}>{group.label}</th></tr> : null}
           {group.rows.map((row, index) => {
             const occurrence = `${group.key}-${row.date}-${index}`;
-            return <tr key={occurrence} role="button" tabIndex={0}
+            return <tr key={occurrence} tabIndex={0}
               data-health-metrics-date={row.date} data-health-metrics-occurrence={occurrence}
               aria-label={`Open health metrics for ${row.date}`}
+              aria-description="Press Enter or Space to open details."
               onClick={() => onOpen(row, occurrence)} onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " " || event.key === "Space") {
                   event.preventDefault();

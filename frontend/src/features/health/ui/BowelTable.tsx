@@ -40,8 +40,9 @@ export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onTogg
           {group.rows.map((row, rowIndex) => {
             const context = `Type ${row.bristolScale}, ${row.date} ${row.timeLabel}, ${row.bloodLabel}`;
             const occurrence = `${group.key}-${row.id}-${rowIndex}`;
-            return <tr key={occurrence} role="button" tabIndex={0}
+            return <tr key={occurrence} tabIndex={0}
               aria-label={`Open details for ${context}`}
+              aria-description="Press Enter or Space to open details."
               data-bowel-row-id={row.id} data-bowel-occurrence={occurrence}
               onClick={() => onOpen(row, occurrence)} onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " " || event.key === "Space") {

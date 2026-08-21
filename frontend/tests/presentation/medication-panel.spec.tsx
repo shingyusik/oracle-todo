@@ -300,7 +300,7 @@ describe("MedicationPanel", () => {
     expect(screen.getAllByText("Vitamin D")).toHaveLength(1);
     expect(screen.getByText("1000")).toBeInTheDocument();
     expect(screen.getByText("mg")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Open details for Vitamin D/ }))
+    expect(screen.getByRole("row", { name: /Open details for Vitamin D/ }))
       .toHaveAttribute("data-medication-row-id", event.id);
     const actions = screen.getByRole("button", { name: "Add medication entry" }).parentElement!;
     expect(within(actions).getAllByRole("button")).toEqual([
@@ -317,7 +317,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     render(<MedicationPanel controller={health} {...recoveryProps} />);
 
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     expect(screen.getByText("Medication entry")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Vitamin D" })).toBeInTheDocument();
     expect([...screen.getByRole("region", { name: "Edit medication properties" }).children]
@@ -359,7 +359,7 @@ describe("MedicationPanel", () => {
       const user = userEvent.setup();
       const health = panelController();
       render(<MedicationPanel controller={health} {...recoveryProps} />);
-      await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+      await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
       const field = screen.getByLabelText(label);
       await user.clear(field);
       await user.type(field, value);
@@ -374,7 +374,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.selectOptions(screen.getByLabelText("Unit"), "tablet");
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(health.updateMedication).toHaveBeenCalledWith(event.id, {
@@ -387,7 +387,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     fireEvent.change(screen.getByLabelText("Dose"), { target: { value: dose } });
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
@@ -398,7 +398,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     const dose = screen.getByLabelText("Dose");
     expect(dose).toHaveAttribute("min", String(Number.MIN_VALUE));
     expect(dose).toHaveAttribute("step", "any");
@@ -423,13 +423,13 @@ describe("MedicationPanel", () => {
     window.history.replaceState({ preserved: "medication" }, "");
     const pushState = vi.spyOn(window.history, "pushState");
     render(<MedicationPanel controller={panelController()} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     expect(pushState).toHaveBeenCalledOnce();
     expect(window.history.state).toMatchObject({
       preserved: "medication", __ravenHealthMedicationDetailId: event.id,
     });
     act(() => window.history.back());
-    await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     act(() => window.history.forward());
     await screen.findByText("Medication entry");
     expect(pushState).toHaveBeenCalledOnce();
@@ -439,7 +439,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "");
     render(<MedicationPanel controller={panelController()} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "draft");
     act(() => window.history.back());
     let dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
@@ -451,7 +451,7 @@ describe("MedicationPanel", () => {
     act(() => window.history.back());
     dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
     await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
-    await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    await screen.findByRole("row", { name: /Open details for Vitamin D/ });
   });
 
   it("repairs dirty browser Forward in the exact direction without a loop", async () => {
@@ -460,7 +460,7 @@ describe("MedicationPanel", () => {
     const back = vi.spyOn(window.history, "back");
     const forward = vi.spyOn(window.history, "forward");
     render(<MedicationPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     window.history.pushState({ ...window.history.state,
       __ravenHealthMedicationDetailId: null,
       __ravenHealthMedicationDetailId__index:
@@ -479,7 +479,7 @@ describe("MedicationPanel", () => {
     act(() => window.history.forward());
     dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
     await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
-    await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     await waitFor(() => expect(window.history.state).toMatchObject({
       __ravenHealthMedicationDetailId: null, historySide: "forward",
     }));
@@ -491,15 +491,15 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     window.history.replaceState({ preserved: "stale-id" }, "");
     render(<MedicationPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     act(() => window.history.back());
-    await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     act(() => window.history.forward());
     await screen.findByText("Medication entry");
     window.history.replaceState({ ...window.history.state,
       __ravenHealthMedicationDetailId: "missing-medication" }, "");
     act(() => window.history.back());
-    await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     act(() => window.history.forward());
     await waitFor(() => expect(window.history.state).toMatchObject({
       preserved: "stale-id", __ravenHealthMedicationDetailId: null,
@@ -512,9 +512,9 @@ describe("MedicationPanel", () => {
     window.history.replaceState({ preserved: "tombstone" }, "");
     const health = panelController();
     const view = render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     act(() => window.history.back());
-    await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     view.rerender(<MedicationPanel controller={health} {...recoveryProps}
       tombstonedIds={new Set([event.id])} />);
     act(() => window.history.forward());
@@ -528,10 +528,10 @@ describe("MedicationPanel", () => {
     const pushState = vi.spyOn(window.history, "pushState");
     const health = panelController();
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "saved");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    const row = await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    const row = await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     await waitFor(() => expect(row).toHaveFocus());
     expect(pushState).toHaveBeenCalledOnce();
     expect(health.updateMedication).toHaveBeenCalledOnce();
@@ -539,13 +539,13 @@ describe("MedicationPanel", () => {
     await screen.findByText("Medication entry");
     expect(pushState).toHaveBeenCalledOnce();
     act(() => window.history.back());
-    await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    await screen.findByRole("row", { name: /Open details for Vitamin D/ });
   });
 
   it("coalesces text history, keeps unit distinct, and invalidates Redo", async () => {
     const user = userEvent.setup();
     render(<MedicationPanel controller={panelController()} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Medication name"), " AB");
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(screen.getByLabelText("Medication name")).toHaveValue("Vitamin D");
@@ -561,7 +561,7 @@ describe("MedicationPanel", () => {
   it("coalesces each Medication text field, keeps every unit transition distinct, and caps history at 50", async () => {
     const user = userEvent.setup();
     render(<MedicationPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     const takenAt = screen.getByLabelText("Taken at");
     const originalTakenAt = (takenAt as HTMLInputElement).value;
     fireEvent.change(takenAt, { target: { value: "2026-08-20T09:00" } });
@@ -617,7 +617,7 @@ describe("MedicationPanel", () => {
     render(<MedicationPanelHarness controller={panelController({
       ...loadedState, medicationEntries: [distinct],
     })} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     const time = screen.getByLabelText("Taken at") as HTMLInputElement;
     fireEvent.change(screen.getByLabelText("Medication name"), { target: { value: " Vitamin D " } });
     fireEvent.change(screen.getByLabelText("Dose"), { target: { value: "1000.0" } });
@@ -643,7 +643,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     health.updateMedication = vi.fn(() => saved.promise);
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
     expect(screen.getByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
@@ -673,7 +673,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     fireEvent.change(screen.getByLabelText("Medication name"), { target: { value: "   " } });
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
@@ -686,7 +686,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     health.updateMedication = vi.fn().mockRejectedValueOnce(new Error("Save unavailable"));
     render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "draft");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Save unavailable");
@@ -706,7 +706,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     health.archiveMedication = vi.fn(() => archived.promise);
     render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "draft");
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("dialog", { name: "Archive Vitamin D?" });
@@ -738,7 +738,7 @@ describe("MedicationPanel", () => {
     health.updateMedication = vi.fn(() => saved.promise);
     health.archiveMedication = vi.fn();
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "pending");
     await user.click(screen.getByRole("button", { name: "Save" }));
     for (const label of ["Taken at", "Medication name", "Dose", "Unit", "Note"]) {
@@ -768,7 +768,7 @@ describe("MedicationPanel", () => {
     health.refreshMedication = vi.fn().mockResolvedValueOnce(false)
       .mockImplementationOnce(() => recovered.promise);
     render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "committed");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("could not refresh");
@@ -793,7 +793,7 @@ describe("MedicationPanel", () => {
     expect(health.refreshMedication).toHaveBeenCalledTimes(2);
     expect(health.updateMedication).toHaveBeenCalledOnce();
     await act(async () => recovered.resolve(true));
-    await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     expect(health.updateMedication).toHaveBeenCalledOnce();
   });
 
@@ -805,7 +805,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     health.updateMedication = vi.fn(() => saved.promise);
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "saved during restoration");
     await user.click(screen.getByRole("button", { name: "Save" }));
     act(() => window.history.back());
@@ -814,7 +814,7 @@ describe("MedicationPanel", () => {
     expect(screen.getByText("Medication entry")).toBeInTheDocument();
     expect(screen.getByLabelText("Note")).toBeDisabled();
     await controlledForward.releaseNext();
-    const origin = await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    const origin = await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     await waitFor(() => expect(origin).toHaveFocus());
     expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
     expect(health.updateMedication).toHaveBeenCalledOnce();
@@ -829,7 +829,7 @@ describe("MedicationPanel", () => {
       const health = panelController();
       health.updateMedication = vi.fn(() => saved.promise);
       render(<MedicationPanelHarness controller={health} />);
-      await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+      await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
       await user.type(screen.getByLabelText("Note"), "failure draft");
       await user.click(screen.getByRole("button", { name: "Save" }));
       act(() => window.history.back());
@@ -859,7 +859,7 @@ describe("MedicationPanel", () => {
     health.updateMedication = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
     health.refreshMedication = vi.fn(() => refreshed.promise);
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "committed draft");
     await user.click(screen.getByRole("button", { name: "Save" }));
     await user.click(await screen.findByRole("button", { name: "Retry" }));
@@ -872,7 +872,7 @@ describe("MedicationPanel", () => {
     expect(health.updateMedication).toHaveBeenCalledOnce();
     await controlledForward.releaseNext();
     if (ok) {
-      await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+      await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     } else {
       await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled());
       expect(screen.getByText("Medication entry")).toBeInTheDocument();
@@ -886,13 +886,13 @@ describe("MedicationPanel", () => {
     settings.groupSettings.groupBy = "medication_name";
     const health = panelController(loadedState, settings);
     const view = render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     const renamed = { ...event, attributes: { ...event.attributes, medicationName: "Calcium" } };
     view.rerender(<MedicationPanel controller={{ ...health, state: {
       ...health.state, medicationEntries: [renamed],
     } }} {...recoveryProps} />);
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    const renamedOpen = await screen.findByRole("button", { name: /Open details for Calcium/ });
+    const renamedOpen = await screen.findByRole("row", { name: /Open details for Calcium/ });
     await waitFor(() => expect(renamedOpen).toHaveFocus());
     await user.click(renamedOpen);
     view.rerender(<MedicationPanel controller={{ ...health, state: {
@@ -911,12 +911,12 @@ describe("MedicationPanel", () => {
       { key: "second", label: "Second", rows: [projected] },
     ]);
     render(<MedicationPanelHarness controller={panelController()} />);
-    const occurrences = screen.getAllByRole("button", { name: /Open details for Vitamin D/ });
+    const occurrences = screen.getAllByRole("row", { name: /Open details for Vitamin D/ });
     expect(occurrences[1]).toHaveAttribute("data-medication-occurrence", "second-medication-1-0");
     await user.click(occurrences[1]);
     await user.click(screen.getByRole("button", { name: "< Back" }));
     await waitFor(() => expect(document.activeElement).toBe(
-      screen.getAllByRole("button", { name: /Open details for Vitamin D/ })[1],
+      screen.getAllByRole("row", { name: /Open details for Vitamin D/ })[1],
     ));
     expect((document.activeElement as HTMLElement).dataset.medicationOccurrence)
       .toBe("second-medication-1-0");
@@ -928,7 +928,7 @@ describe("MedicationPanel", () => {
     grouped.groupSettings = { ...grouped.groupSettings, groupBy: "day" };
     const health = panelController(loadedState, grouped);
     const view = render(<MedicationPanelHarness controller={health} />);
-    const origin = screen.getByRole("button", { name: /Open details for Vitamin D/ });
+    const origin = screen.getByRole("row", { name: /Open details for Vitamin D/ });
     const oldOccurrence = origin.dataset.medicationOccurrence;
     await user.click(origin);
     const moved = { ...event, occurredAt: "2026-08-20T01:00:00Z" };
@@ -945,7 +945,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     const view = render(<MedicationPanelHarness controller={health} />);
-    const origin = screen.getByRole("button", { name: /Open details for Vitamin D/ });
+    const origin = screen.getByRole("row", { name: /Open details for Vitamin D/ });
     const oldOccurrence = origin.dataset.medicationOccurrence;
     expect(oldOccurrence).toBe("all-medication-1-0");
     await user.click(origin);
@@ -953,7 +953,7 @@ describe("MedicationPanel", () => {
     grouped.groupSettings = { ...grouped.groupSettings, groupBy: "medication_unit" };
     view.rerender(<MedicationPanelHarness controller={panelController(loadedState, grouped)} />);
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    const regrouped = await screen.findByRole("button", { name: /Open details for Vitamin D/ });
+    const regrouped = await screen.findByRole("row", { name: /Open details for Vitamin D/ });
     expect(regrouped.dataset.medicationOccurrence).toBe("mg-medication-1-0");
     expect(regrouped.dataset.medicationOccurrence).not.toBe(oldOccurrence);
     expect(document.querySelector(`[data-medication-occurrence="${oldOccurrence}"]`)).toBeNull();
@@ -972,11 +972,11 @@ describe("MedicationPanel", () => {
     render(<MedicationPanelHarness controller={panelController({
       ...loadedState, medicationEntries: [quoted],
     }, grouped)} />);
-    const origin = screen.getByRole("button", { name: /Open details for Vitamin "D/ });
+    const origin = screen.getByRole("row", { name: /Open details for Vitamin "D/ });
     expect(origin.dataset.medicationOccurrence).toBe('Vitamin "D-medication-1-0');
     await user.click(origin);
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    const restored = await screen.findByRole("button", { name: /Open details for Vitamin "D/ });
+    const restored = await screen.findByRole("row", { name: /Open details for Vitamin "D/ });
     await waitFor(() => expect(document.activeElement).toBe(restored));
     expect((document.activeElement as HTMLElement).dataset.medicationOccurrence)
       .toBe('Vitamin "D-medication-1-0');
@@ -986,7 +986,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     const view = render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     view.rerender(<MedicationPanel controller={health} {...recoveryProps}
       tombstonedIds={new Set([event.id])} />);
     await waitFor(() => expect(screen.queryByText("Medication entry")).toBeNull());
@@ -997,7 +997,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     const view = render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     const filtered = defaultHealthTableSettings("health.medication");
     filtered.filterRules = [{ id: "hide-vitamin", field: "medication_name", type: "text",
       operator: "is", value: "Calcium" }];
@@ -1019,7 +1019,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     const pushState = vi.spyOn(window.history, "pushState");
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     const remove = screen.getByRole("button", { name: "Delete" });
     await user.click(remove);
     expect(screen.getByRole("dialog", { name: "Archive Vitamin D?" }))
@@ -1047,7 +1047,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     health.archiveMedication = vi.fn().mockRejectedValue(new Error("Archive unavailable"));
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "draft");
     const remove = screen.getByRole("button", { name: "Delete" });
     await user.click(remove);
@@ -1064,7 +1064,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     health.archiveMedication = vi.fn().mockRejectedValue(new Error("Archive unavailable"));
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
     await user.type(screen.getByLabelText("Note"), "draft");
     const remove = screen.getByRole("button", { name: "Delete" });
@@ -1085,7 +1085,7 @@ describe("MedicationPanel", () => {
     health.archiveMedication = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
     health.refreshMedication = vi.fn().mockResolvedValue(true);
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("could not refresh");
@@ -1101,7 +1101,7 @@ describe("MedicationPanel", () => {
     window.history.pushState({}, "");
     const controlledForward = controlHistoryForward();
     render(<MedicationPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("dialog", { name: "Archive Vitamin D?" });
     act(() => window.history.back());
@@ -1122,7 +1122,7 @@ describe("MedicationPanel", () => {
       const health = panelController();
       health.archiveMedication = vi.fn(() => archived.promise);
       render(<MedicationPanelHarness controller={health} />);
-      await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+      await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
       await user.click(screen.getByRole("button", { name: "Delete" }));
       await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
       act(() => window.history.back());
@@ -1146,7 +1146,7 @@ describe("MedicationPanel", () => {
     const health = panelController();
     health.archiveMedication = vi.fn(() => archived.promise);
     render(<MedicationPanelHarness controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     act(() => window.history.back());
@@ -1164,7 +1164,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     const view = render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "draft");
     const refreshed = { ...event, updatedAt: "2026-08-20T01:00:00Z",
       attributes: { kind: "medication" as const, medicationName: "Server name",
@@ -1189,11 +1189,11 @@ describe("MedicationPanel", () => {
     render(<MedicationPanelHarness controller={panelController({
       ...loadedState, medicationEntries: [event, second],
     })} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     await user.type(screen.getByLabelText("Note"), "first draft");
     await user.click(screen.getByRole("button", { name: "< Back" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Discard changes" }));
-    await user.click(await screen.findByRole("button", { name: /Open details for Calcium/ }));
+    await user.click(await screen.findByRole("row", { name: /Open details for Calcium/ }));
     expect(screen.getByRole("heading", { name: "Calcium" })).toBeInTheDocument();
     expect(screen.getByLabelText("Note")).toHaveValue("server note");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -1203,7 +1203,7 @@ describe("MedicationPanel", () => {
     const user = userEvent.setup();
     const health = panelController();
     render(<MedicationPanel controller={health} {...recoveryProps} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     for (const [label, value] of [["Medication name", "Calcium"], ["Dose", "2.5"],
       ["Note", " after food "]] as const) {
       await user.clear(screen.getByLabelText(label));
@@ -1336,7 +1336,7 @@ describe("MedicationPanel", () => {
     expect(toggle).toHaveBeenCalledOnce();
     expect(toggle).toHaveBeenCalledWith(event.id);
     expect(open).not.toHaveBeenCalled();
-    const occurrences = screen.getAllByRole("button", { name: /Open details for Vitamin D/ });
+    const occurrences = screen.getAllByRole("row", { name: /Open details for Vitamin D/ });
     expect(occurrences.map((button) => button.dataset.medicationOccurrence))
       .toEqual(["all-medication-1-0", "duplicate-medication-1-0"]);
     await userEvent.click(occurrences[1]);
@@ -1349,9 +1349,11 @@ describe("MedicationPanel", () => {
     const open = vi.fn();
     render(<MedicationTable groups={groups} activeRowCount={1} selectedIds={[]}
       onOpen={open} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
-    const row = screen.getByRole("button", { name: /Open details for Vitamin D/ });
+    const row = screen.getByRole("row", { name: /Open details for Vitamin D/ });
     expect(row.tagName).toBe("TR");
+    expect(row).toHaveRole("row");
     expect(row).toHaveAttribute("tabindex", "0");
+    expect(row).toHaveAttribute("aria-description", "Press Enter or Space to open details.");
     expect(within(row).queryByRole("button")).toBeNull();
     await user.click(screen.getByText("Vitamin D"));
     expect(open).toHaveBeenCalledOnce();

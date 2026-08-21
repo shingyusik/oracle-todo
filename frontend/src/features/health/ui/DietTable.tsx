@@ -97,11 +97,11 @@ function DietTableRow({
   const context = `${row.food}, ${row.date} ${row.timeLabel}, ${row.mealLabel}`;
   return (
     <tr
-      role="button"
       tabIndex={0}
       data-diet-row-id={row.id}
       data-diet-occurrence={occurrence}
       aria-label={`Open details for ${context}`}
+      aria-description="Press Enter or Space to open details."
       onClick={() => onOpen(row, occurrence)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " " || event.key === "Space") {

@@ -462,14 +462,14 @@ describe("DietPanel table", () => {
     const pushState = vi.spyOn(window.history, "pushState");
     render(<DietPanel controller={controller()} />);
 
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     expect(pushState).toHaveBeenCalledOnce();
     expect(window.history.state).toMatchObject({
       preserved: "diet",
       __ravenHealthDietDetailId: "diet-1",
     });
     act(() => window.history.back());
-    expect(await screen.findByRole("button", { name: /Open details for Bibimbap/ }))
+    expect(await screen.findByRole("row", { name: /Open details for Bibimbap/ }))
       .toBeInTheDocument();
     act(() => window.history.forward());
     expect(await screen.findByText("Diet entry details")).toBeInTheDocument();
@@ -480,7 +480,7 @@ describe("DietPanel table", () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "");
     render(<DietPanel controller={controller()} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.type(screen.getByLabelText("Note"), "draft");
 
     act(() => window.history.back());
@@ -491,7 +491,7 @@ describe("DietPanel table", () => {
     await user.click(within(await screen.findByRole("dialog", {
       name: "Discard unsaved changes?",
     })).getByRole("button", { name: "Discard changes" }));
-    expect(await screen.findByRole("button", { name: /Open details for Bibimbap/ }))
+    expect(await screen.findByRole("row", { name: /Open details for Bibimbap/ }))
       .toBeInTheDocument();
   });
 
@@ -501,9 +501,9 @@ describe("DietPanel table", () => {
     const view = render(
       <DietPanelView controller={controller()} tombstonedIds={new Set()} />,
     );
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     act(() => window.history.back());
-    await screen.findByRole("button", { name: /Open details for Bibimbap/ });
+    await screen.findByRole("row", { name: /Open details for Bibimbap/ });
 
     view.rerender(
       <DietPanelView controller={controller()} tombstonedIds={new Set(["diet-1"])} />,
@@ -525,11 +525,11 @@ describe("DietPanel table", () => {
     const pushState = vi.spyOn(window.history, "pushState");
     const health = controller();
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.type(screen.getByLabelText("Note"), "saved");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await screen.findByRole("button", { name: /Open details for Bibimbap/ });
+    await screen.findByRole("row", { name: /Open details for Bibimbap/ });
     expect(health.updateDiet).toHaveBeenCalledOnce();
     expect(pushState).toHaveBeenCalledOnce();
     act(() => window.history.forward());
@@ -542,7 +542,7 @@ describe("DietPanel table", () => {
     window.history.replaceState({}, "");
     const health = controller();
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog", {
       name: "Archive Bibimbap?",
@@ -565,9 +565,11 @@ describe("DietPanel table", () => {
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
       "", "Time", "Meal", "Food", "Tags", "Photo", "Note",
     ]);
-    let row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    let row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
     expect(row.tagName).toBe("TR");
+    expect(row).toHaveRole("row");
     expect(row).toHaveAttribute("tabindex", "0");
+    expect(row).toHaveAttribute("aria-description", "Press Enter or Space to open details.");
     expect(within(row).queryByRole("button")).toBeNull();
     expect(within(row).getByText("Lunch")).toBeInTheDocument();
     expect(within(row).getByText("rice")).toBeInTheDocument();
@@ -584,7 +586,7 @@ describe("DietPanel table", () => {
     await user.click(within(row).getByText("Lunch"));
     expect(screen.getByText("Diet entry details")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
     row.focus();
     await user.keyboard("{Enter}");
     expect(screen.getByText("Diet entry details")).toBeInTheDocument();
@@ -595,7 +597,7 @@ describe("DietPanel table", () => {
     const open = vi.fn();
     render(<DietTable groups={groups} activeRowCount={1} selectedIds={[]}
       onOpen={open} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
-    const row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    const row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
 
     for (const key of [" ", "Space"]) {
       fireEvent.keyDown(row, { key });
@@ -607,7 +609,7 @@ describe("DietPanel table", () => {
   it("opens detail by click or Enter, renders the approved editor order, and restores row focus", async () => {
     const user = userEvent.setup();
     render(<DietPanel controller={controller()} />);
-    const row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+    const row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
 
     await user.click(row);
     const detailHeader = screen.getByRole("region", { name: "Edit diet properties" })
@@ -624,7 +626,7 @@ describe("DietPanel table", () => {
       ]);
 
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    const restoredRow = await screen.findByRole("button", { name: /Open details for Bibimbap/ });
+    const restoredRow = await screen.findByRole("row", { name: /Open details for Bibimbap/ });
     await waitFor(() => expect(restoredRow).toHaveFocus());
     restoredRow.focus();
     await user.keyboard("{Enter}");
@@ -635,7 +637,7 @@ describe("DietPanel table", () => {
     const user = userEvent.setup();
     const dinner = { ...entry, id: "dinner", foodName: "Soup", tags: ["warm"] };
     render(<DietPanel controller={controller({ ...loadedState, dietEntries: [entry, dinner] })} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     const food = screen.getByLabelText("Food");
 
     await user.clear(food);
@@ -658,7 +660,7 @@ describe("DietPanel table", () => {
   it("caps draft history at 50 distinct steps while retaining the newest states", async () => {
     const user = userEvent.setup();
     render(<DietPanel controller={controller()} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     const meal = screen.getByLabelText("Meal");
     for (let index = 0; index < 52; index += 1) {
       fireEvent.change(meal, { target: { value: index % 2 === 0 ? "breakfast" : "dinner" } });
@@ -674,7 +676,7 @@ describe("DietPanel table", () => {
   it("confirms dirty Back, keeps focus on cancel, and discards on confirmation", async () => {
     const user = userEvent.setup();
     render(<DietPanel controller={controller()} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.type(screen.getByLabelText("Note"), "changed");
     const back = screen.getByRole("button", { name: "< Back" });
     await user.click(back);
@@ -686,14 +688,14 @@ describe("DietPanel table", () => {
     await user.click(within(screen.getByRole("dialog", {
       name: "Discard unsaved changes?",
     })).getByRole("button", { name: "Discard changes" }));
-    expect(screen.getByRole("button", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
   });
 
   it("saves only changed scalar and tag fields with the current row version", async () => {
     const user = userEvent.setup();
     const health = controller();
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("Meal"), "dinner");
     await user.click(screen.getByRole("button", { name: "Tags" }));
@@ -705,7 +707,7 @@ describe("DietPanel table", () => {
       tags: ["rice", "Straße", "wheat"],
       expectedUpdatedAt: entry.updatedAt,
     }, undefined));
-    expect(screen.getByRole("button", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
   });
 
   it("freezes the opened version and restores focus by ID after refreshed labels change", async () => {
@@ -714,7 +716,7 @@ describe("DietPanel table", () => {
     const health = controller();
     health.updateDiet = vi.fn(() => saved.promise);
     const view = render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.type(screen.getByLabelText("Note"), "user edit");
 
     const refreshed = {
@@ -737,7 +739,7 @@ describe("DietPanel table", () => {
     }, undefined);
 
     await act(async () => saved.resolve());
-    const refreshedRow = await screen.findByRole("button", { name: /Open details for Server meal/ });
+    const refreshedRow = await screen.findByRole("row", { name: /Open details for Server meal/ });
     await waitFor(() => expect(refreshedRow).toHaveFocus());
   });
 
@@ -746,7 +748,7 @@ describe("DietPanel table", () => {
     const tagged = { ...entry, tags: ["rice", "warm", "𐐨"] };
     const health = controller({ ...loadedState, dietEntries: [tagged] });
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     fireEvent.change(screen.getByLabelText("Food"), { target: { value: "  Bibimbap  " } });
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "   " } });
     const time = screen.getByLabelText("Time") as HTMLInputElement;
@@ -779,7 +781,7 @@ describe("DietPanel table", () => {
     const tagged = { ...entry, tags: [original] };
     const health = controller({ ...loadedState, dietEntries: [tagged] });
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.click(screen.getByRole("button", { name: `Remove ${original} tag` }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
     await user.type(screen.getByRole("combobox", { name: "Tags" }), `${changed}{Enter}`);
@@ -796,7 +798,7 @@ describe("DietPanel table", () => {
     const user = userEvent.setup();
     const health = controller();
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     const localDate = new Date(2026, 7, 19, 0, 15, 0, 0);
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-08-19T00:15:00" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -818,7 +820,7 @@ describe("DietPanel table", () => {
     try {
       const health = controller();
       render(<DietPanel controller={health} />);
-      await userEvent.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+      await userEvent.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
       fireEvent.change(screen.getByLabelText("Time"), {
         target: { value: "2026-03-08T02:30" },
       });
@@ -841,7 +843,7 @@ describe("DietPanel table", () => {
     const health = controller();
     health.updateDiet = vi.fn().mockRejectedValue(new Error("Save failed"));
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.type(screen.getByLabelText("Note"), "first");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Save failed");
@@ -855,7 +857,7 @@ describe("DietPanel table", () => {
     const withPhoto = { ...entry, mediaId: "media-1" };
     const health = controller({ ...loadedState, dietEntries: [withPhoto] });
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     const photo = screen.getByLabelText("Photo");
     const invalid = new File(["text"], "notes.txt", { type: "text/plain" });
     await user.upload(photo, invalid);
@@ -870,7 +872,7 @@ describe("DietPanel table", () => {
       expectedUpdatedAt: entry.updatedAt,
     }, undefined);
 
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.click(screen.getByRole("button", { name: "Remove photo" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(health.updateDiet).toHaveBeenLastCalledWith("diet-1", {
@@ -878,7 +880,7 @@ describe("DietPanel table", () => {
       removeImage: true,
     }, undefined);
 
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     const image = new File(["photo"], "meal.png", { type: "image/png" });
     await user.click(screen.getByRole("button", { name: "Remove photo" }));
     await user.upload(screen.getByLabelText("Photo"), image);
@@ -900,7 +902,7 @@ describe("DietPanel table", () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.type(screen.getByLabelText("Note"), "saved");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -918,7 +920,7 @@ describe("DietPanel table", () => {
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(health.refresh).toHaveBeenCalledTimes(2);
     expect(health.updateDiet).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
   });
 
   it("blocks invalid and pending edits, actions, shortcuts, and duplicate saves", async () => {
@@ -927,7 +929,7 @@ describe("DietPanel table", () => {
     const health = controller();
     health.updateDiet = vi.fn(() => saved.promise);
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.clear(screen.getByLabelText("Food"));
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
@@ -950,7 +952,7 @@ describe("DietPanel table", () => {
   it("supports Meta undo, Shift redo, and the established Ctrl+Y alternative", async () => {
     const user = userEvent.setup();
     render(<DietPanel controller={controller()} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     fireEvent.change(screen.getByLabelText("Food"), { target: { value: "Dinner" } });
     fireEvent.keyDown(window, { key: "z", metaKey: true });
     expect(screen.getByLabelText("Food")).toHaveValue("Bibimbap");
@@ -967,7 +969,7 @@ describe("DietPanel table", () => {
     health.archiveDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
     health.refresh = vi.fn().mockResolvedValue(true);
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog", {
       name: "Archive Bibimbap?",
@@ -985,7 +987,7 @@ describe("DietPanel table", () => {
     const user = userEvent.setup();
     const health = controller();
     const view = render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog", {
       name: "Archive Bibimbap?",
@@ -995,7 +997,7 @@ describe("DietPanel table", () => {
 
     view.unmount();
     const activeView = render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     activeView.rerender(<DietPanel controller={{
       ...health,
       state: { ...health.state, dietEntries: [] },
@@ -1056,7 +1058,7 @@ describe("DietPanel table", () => {
     grouped.groupSettings = { ...grouped.groupSettings, groupBy: "tag" };
     render(<DietPanel controller={{ ...health, tableSettings: () => grouped }} />);
 
-    const occurrences = screen.getAllByRole("button", { name: /Open details for Bibimbap/ });
+    const occurrences = screen.getAllByRole("row", { name: /Open details for Bibimbap/ });
     expect(occurrences).toHaveLength(2);
     expect(occurrences[0]).not.toHaveAttribute("id");
     expect(occurrences[1]).not.toHaveAttribute("id");
@@ -1080,11 +1082,11 @@ describe("DietPanel table", () => {
       tableSettings: () => grouped,
     }} />);
 
-    const second = screen.getAllByRole("button", { name: /Open details for Bibimbap/ })[1]!;
+    const second = screen.getAllByRole("row", { name: /Open details for Bibimbap/ })[1]!;
     second.focus();
     await user.keyboard("{Enter}");
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    const restored = screen.getAllByRole("button", { name: /Open details for Bibimbap/ })[1]!;
+    const restored = screen.getAllByRole("row", { name: /Open details for Bibimbap/ })[1]!;
     await waitFor(() => expect(restored).toHaveFocus());
   });
 

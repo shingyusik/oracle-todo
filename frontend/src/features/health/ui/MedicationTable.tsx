@@ -71,8 +71,9 @@ function MedicationTableRow({ row, occurrence, selected, onOpen, onToggle }: {
   onToggle(id: string): void;
 }) {
   const context = `${row.medicationName}, ${row.date} ${row.takenAtLabel}, ${row.dose} ${row.unitLabel}`;
-  return <tr role={onOpen ? "button" : undefined} tabIndex={onOpen ? 0 : undefined}
+  return <tr tabIndex={onOpen ? 0 : undefined}
     aria-label={onOpen ? `Open details for ${context}` : undefined}
+    aria-description={onOpen ? "Press Enter or Space to open details." : undefined}
     data-medication-row-id={onOpen ? row.id : undefined}
     data-medication-occurrence={onOpen ? occurrence : undefined}
     onClick={onOpen ? () => onOpen(row, occurrence) : undefined}
