@@ -102,6 +102,7 @@ export type TodoTablePageState = {
   moreStatus: "idle" | "loading" | "error";
   moreError: string | null;
   generation: number;
+  referenceDate: string;
 };
 
 export type WorkspaceItemsModel = {

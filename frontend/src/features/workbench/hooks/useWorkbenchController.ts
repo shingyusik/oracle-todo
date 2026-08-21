@@ -55,6 +55,7 @@ import {
   addYears,
   clonePlannerTableSettings,
   isoWeekStart,
+  localCalendarDate,
   monthStart,
   plannerTableIds,
   type PlannerTableId,
@@ -534,6 +535,11 @@ function todoTableKey(
   });
 }
 
+function todoTableTargetIdentity(target: TodoTableTarget): string {
+  if (target.surface === "planner") return `planner:${target.tableId}`;
+  return `${target.surface}:${target.scope}`;
+}
+
 function dedupeTodoOccurrences(items: TodoTableOccurrence[]): TodoTableOccurrence[] {
   const seen = new Set<string>();
   return items.filter((item) => !seen.has(item.key) && Boolean(seen.add(item.key)));
@@ -816,7 +822,7 @@ export function useWorkbenchController(): WorkbenchController {
   const [todoTablePages, setTodoTablePages] = useState<Record<string, TodoTablePageState>>({});
   const todoTablePagesRef = useRef(todoTablePages);
   const initializedTodoTables = useRef(new Set<string>());
-  const initializedTodoTargets = useRef(new Map<string, TodoTableTarget>());
+  const activeTodoTargets = useRef(new Map<string, TodoTableTarget>());
   const pendingTodoMore = useRef(new Set<string>());
   const [todoLookups, setTodoLookups] = useState<Partial<Record<TodoTableScope, TodoTableLookups>>>({});
   todoTablePagesRef.current = todoTablePages;
@@ -892,8 +898,11 @@ export function useWorkbenchController(): WorkbenchController {
     return { scope, context, settings, key: todoTableKey(scope, context, settings) };
   };
 
-  const emptyTodoPage = (generation = 0): TodoTablePageState => ({
-    items: [], nextOffset: 0, moreStatus: "idle", moreError: null, generation,
+  const emptyTodoPage = (
+    generation = 0,
+    referenceDate = localCalendarDate(new Date()),
+  ): TodoTablePageState => ({
+    items: [], nextOffset: 0, moreStatus: "idle", moreError: null, generation, referenceDate,
   });
   const setTodoPage = (key: string, page: TodoTablePageState) => {
     todoTablePagesRef.current = { ...todoTablePagesRef.current, [key]: page };
@@ -901,48 +910,52 @@ export function useWorkbenchController(): WorkbenchController {
   };
   const ensureTodoTable = async (target: TodoTableTarget): Promise<void> => {
     const descriptor = todoTableDescriptor(target);
+    activeTodoTargets.current.set(todoTableTargetIdentity(target), target);
     if (initializedTodoTables.current.has(descriptor.key)) return;
     initializedTodoTables.current.add(descriptor.key);
-    initializedTodoTargets.current.set(descriptor.key, target);
     const previous = todoTablePagesRef.current[descriptor.key] ?? emptyTodoPage();
-    const generation = previous.generation + 1;
-    setTodoPage(descriptor.key, { ...emptyTodoPage(generation), moreStatus: "loading" });
+    const retry = previous.generation > 0 && previous.nextOffset === 0 && previous.moreStatus === "error";
+    const generation = retry ? previous.generation : previous.generation + 1;
+    const referenceDate = retry ? previous.referenceDate : localCalendarDate(new Date());
+    setTodoPage(descriptor.key, retry
+      ? { ...previous, moreStatus: "loading", moreError: null }
+      : { ...emptyTodoPage(generation, referenceDate), moreStatus: "loading" });
     try {
       const [page, lookups] = await Promise.all([
-        queryTodoTable({ ...descriptor, offset: 0 }),
+        queryTodoTable({ ...descriptor, offset: 0 }, referenceDate),
         loadTodoTableLookups(descriptor.scope),
       ]);
       if (todoTablePagesRef.current[descriptor.key]?.generation !== generation) return;
-      setTodoPage(descriptor.key, { items: dedupeTodoOccurrences(page.items), nextOffset: page.nextOffset, moreStatus: "idle", moreError: null, generation });
+      setTodoPage(descriptor.key, { items: dedupeTodoOccurrences(page.items), nextOffset: page.nextOffset, moreStatus: "idle", moreError: null, generation, referenceDate });
       setTodoLookups((current) => ({ ...current, [descriptor.scope]: lookups }));
     } catch {
       if (todoTablePagesRef.current[descriptor.key]?.generation !== generation) return;
       initializedTodoTables.current.delete(descriptor.key);
-      initializedTodoTargets.current.delete(descriptor.key);
-      setTodoPage(descriptor.key, { ...previous, nextOffset: 0, moreStatus: "error", moreError: "Could not load rows.", generation });
+      setTodoPage(descriptor.key, { ...previous, nextOffset: 0, moreStatus: "error", moreError: "Could not load rows.", generation, referenceDate });
     }
   };
   const loadMoreTodoTable = async (target: TodoTableTarget): Promise<void> => {
     const descriptor = todoTableDescriptor(target);
     const current = todoTablePagesRef.current[descriptor.key] ?? emptyTodoPage();
-    if (current.nextOffset === null || pendingTodoMore.current.has(descriptor.key)) return;
-    pendingTodoMore.current.add(descriptor.key);
+    const pendingKey = `${descriptor.key}:${current.generation}`;
+    if (current.nextOffset === null || pendingTodoMore.current.has(pendingKey)) return;
+    pendingTodoMore.current.add(pendingKey);
     const offset = current.nextOffset;
     const generation = current.generation;
     setTodoPage(descriptor.key, { ...current, moreStatus: "loading", moreError: null });
     try {
-      const page = await queryTodoTable({ ...descriptor, offset });
+      const page = await queryTodoTable({ ...descriptor, offset }, current.referenceDate);
       if (todoTablePagesRef.current[descriptor.key]?.generation !== generation) return;
       setTodoPage(descriptor.key, { ...current, items: dedupeTodoOccurrences([...current.items, ...page.items]), nextOffset: page.nextOffset, moreStatus: "idle", moreError: null });
     } catch {
       if (todoTablePagesRef.current[descriptor.key]?.generation !== generation) return;
       setTodoPage(descriptor.key, { ...current, moreStatus: "idle", moreError: "Could not load more rows." });
     } finally {
-      pendingTodoMore.current.delete(descriptor.key);
+      pendingTodoMore.current.delete(pendingKey);
     }
   };
   const reloadInitializedTodoTables = (): void => {
-    const targets = [...initializedTodoTargets.current.values()];
+    const targets = [...activeTodoTargets.current.values()];
     if (targets.length === 0) return;
     const invalidated = Object.fromEntries(Object.entries(todoTablePagesRef.current).map(
       ([key, page]) => [key, { ...page, generation: page.generation + 1 }],
@@ -950,7 +963,6 @@ export function useWorkbenchController(): WorkbenchController {
     todoTablePagesRef.current = invalidated;
     setTodoTablePages(invalidated);
     initializedTodoTables.current.clear();
-    initializedTodoTargets.current.clear();
     for (const target of targets) void ensureTodoTable(target);
   };
 

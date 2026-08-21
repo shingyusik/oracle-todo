@@ -20,7 +20,7 @@ export type TodoTablePage = { items: TodoTableOccurrence[]; nextOffset: number |
 
 export async function queryTodoTable(
   query: { scope: TodoTableScope; context: TodoTableContext; settings: PlannerTableSettings; offset?: number },
-  referenceDate: Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date(),
+  referenceDate: string | Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date(),
 ): Promise<TodoTablePage> {
   const value = await requestJson("/api/v1/todo/table/query", jsonRequest("POST", {
     scope: query.scope,
@@ -38,7 +38,10 @@ export async function queryTodoTable(
       manual_order: query.settings.groupSettings.manualOrder,
       hidden_group_keys: query.settings.groupSettings.hiddenGroupKeys,
     },
-    context: contextBody(query.context, localCalendarDate(referenceDate)),
+    context: contextBody(
+      query.context,
+      typeof referenceDate === "string" ? referenceDate : localCalendarDate(referenceDate),
+    ),
   }));
   const page = record(value, "todo table page");
   const nextOffset = page.next_offset === null ? null : safeInteger(page.next_offset, "todo table page.next_offset");

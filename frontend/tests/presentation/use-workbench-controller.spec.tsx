@@ -175,6 +175,12 @@ describe("useWorkbenchController", () => {
     await act(() => result.current.ensureTodoTable(workspace));
     expect(bodies.filter((body) => body.scope === "workspace.task")).toHaveLength(4);
     expect(bodies.filter((body) => body.scope === "workspace.task").at(-1)?.offset).toBe(0);
+    const parentId = (body: Record<string, unknown>) =>
+      (body.context as { parent_id?: string }).parent_id;
+    expect(bodies.filter((body) => parentId(body) === "p1")).toHaveLength(1);
+    await act(() => result.current.ensureTodoTable(linkedA));
+    expect(bodies.filter((body) => parentId(body) === "p1")).toHaveLength(2);
+    expect(bodies.at(-1)).toMatchObject({ offset: 0, context: { parent_id: "p1" } });
     const legacyNavigationCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/items?type="));
     expect(legacyNavigationCalls).toHaveLength(0);
   });
@@ -298,6 +304,79 @@ describe("useWorkbenchController", () => {
     expect(result.current.todoTablePage(target)).toMatchObject({ nextOffset: 0, moreStatus: "error", moreError: "Could not load rows." });
     await act(() => result.current.ensureTodoTable(target));
     expect(result.current.todoTablePage(target)).toMatchObject({ items: [{ key: "0::recovered" }], nextOffset: null, moreStatus: "idle", moreError: null });
+  });
+
+  it("freezes the browser-local reference date for one page generation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 22, 23, 59));
+    const bodies: Array<{ offset: number; context: { reference_date: string } }> = [];
+    let failMore = true;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body));
+        bodies.push(body);
+        if (body.offset === 50 && failMore) {
+          failMore = false;
+          return Promise.reject(new TypeError("offline"));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ items: [], next_offset: body.offset === 0 ? 50 : null }), { headers: { "content-type": "application/json" } }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return Promise.resolve(new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } }));
+      if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    try {
+      const { result } = renderHook(() => useWorkbenchController());
+      const target = { surface: "workspace", scope: "workspace.task" } as const;
+      await act(() => result.current.ensureTodoTable(target));
+      vi.setSystemTime(new Date(2026, 7, 23, 0, 1));
+      await act(() => result.current.loadMoreTodoTable(target));
+      await act(() => result.current.loadMoreTodoTable(target));
+      expect(bodies.slice(0, 3).map((body) => body.context.reference_date)).toEqual([
+        "2026-08-22", "2026-08-22", "2026-08-22",
+      ]);
+
+      act(() => result.current.updateWorkspaceTableSettings("workspace.task", (settings) => ({ ...settings, filterMode: "or" })));
+      await act(() => result.current.ensureTodoTable(target));
+      expect(bodies.at(-1)?.context.reference_date).toBe("2026-08-23");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let a stale append latch block a new generation append", async () => {
+    const pendingMore: Array<(value: Response) => void> = [];
+    const bodies: Array<{ offset: number }> = [];
+    let initialCount = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body));
+        bodies.push(body);
+        if (body.offset === 50) return new Promise<Response>((resolve) => pendingMore.push(resolve));
+        initialCount += 1;
+        return Promise.resolve(new Response(JSON.stringify({ items: [], next_offset: 50 }), { headers: { "content-type": "application/json" } }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return Promise.resolve(new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } }));
+      if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+      if (url === "/api/v1/todo/items/task-1") return Promise.resolve({ ok: true, json: async () => ({ id: "task-1", type: "task", title: "changed", status: "active" }) });
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+    const target = { surface: "workspace", scope: "workspace.task" } as const;
+    await act(() => result.current.ensureTodoTable(target));
+    let stale!: Promise<void>;
+    act(() => { stale = result.current.loadMoreTodoTable(target); });
+    await act(() => result.current.patchWorkspaceItem("task-1", { title: "changed" }));
+    await waitFor(() => expect(initialCount).toBe(2));
+    let current!: Promise<void>;
+    act(() => { current = result.current.loadMoreTodoTable(target); });
+    expect(pendingMore).toHaveLength(2);
+    await act(async () => pendingMore[1]?.(new Response(JSON.stringify({ items: [], next_offset: null }), { headers: { "content-type": "application/json" } })));
+    await current;
+    await act(async () => pendingMore[0]?.(new Response(JSON.stringify({ items: [{ key: "0::stale", group_key: null, group_label: null, record: todoTableRecord("stale") }], next_offset: null }), { headers: { "content-type": "application/json" } })));
+    await stale;
+    expect(result.current.todoTablePage(target).items).toEqual([]);
+    expect(bodies.map((body) => body.offset)).toEqual([0, 50, 0, 50]);
   });
 
   it("opens Task creation only after navigation reaches the Tasks leaf", async () => {
