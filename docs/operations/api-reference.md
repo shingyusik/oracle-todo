@@ -300,10 +300,33 @@ and `hidden_group_keys`. Fields are validated against the selected scope. Filter
 grouping, hidden-group removal, and sorting apply to the complete active dataset before the
 requested offset page is selected.
 
-The response is exactly `{"items":[{"key":"...","group_key":null,"group_label":null,
-"record":{}}],"next_offset":null}`. Records are display-ready and discriminated by `kind`
-(`diet`, `bowel`, `medication`, or `metrics`); Metrics dates are projected in Raven's local
-calendar. `key` identifies a displayed occurrence, including separate tag-group occurrences.
+The response has the following envelope; `next_offset` is `null` after the final page:
+
+```json
+{
+  "items": [{
+    "key": "8:untagged:record-id",
+    "group_key": "untagged",
+    "group_label": "Untagged",
+    "record": {"kind": "diet", "id": "record-id"}
+  }],
+  "next_offset": 50
+}
+```
+
+Every row has `key`, nullable `group_key`, nullable `group_label`, and `record`. `key`
+identifies a displayed occurrence, including separate tag-group occurrences. Records use
+these exact snake-case fields:
+
+| `kind` | Record fields |
+| --- | --- |
+| `diet` | `kind`, `id`, `entry`, `date`, `meal_label`, `food`, `tags`, `has_photo`, `note` |
+| `bowel` | `kind`, `id`, `event`, `date`, `bristol_scale`, `blood_visible`, `blood_label`, `note` |
+| `medication` | `kind`, `id`, `event`, `date`, `medication_name`, `dose`, `unit`, `unit_label`, `note` |
+| `metrics` | `kind`, `id`, `date`, `events`, `weight`, `sleep`, `crp`, `calprotectin`, `condition`, `note`, `created_at`, `updated_at` |
+
+`date` is an ISO `YYYY-MM-DD` local calendar date. A Metrics record combines all active
+fixed-metric events for that local date; missing metric columns are `null`.
 
 `GET /table/lookups?scope=...` returns compact `{id,label}` arrays only. Diet exposes active
 normalized tags plus fixed meal and photo choices; Bowel exposes Bristol-scale and blood

@@ -389,7 +389,7 @@ async fn table_lookups(
             "blood_visible": options(&[("yes", "Yes"), ("no", "No")]),
         }),
         HealthTableScope::Medication => json!({
-            "medication_unit": options(&[("tablet", "Tablet"), ("capsule", "Capsule"), ("packet", "Packet"), ("mg", "mg"), ("g", "g"), ("ml", "ml"), ("drop", "Drop"), ("dose", "Dose")]),
+            "medication_unit": options(&[("tablet", "정"), ("capsule", "캡슐"), ("packet", "포"), ("mg", "mg"), ("g", "g"), ("ml", "ml"), ("drop", "방울"), ("dose", "회")]),
         }),
         HealthTableScope::Metrics => json!({
             "metric": options(&[("weight", "Weight"), ("sleep", "Sleep"), ("crp", "CRP"), ("calprotectin", "Calprotectin"), ("condition", "Condition")]),

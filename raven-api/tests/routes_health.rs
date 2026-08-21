@@ -52,6 +52,19 @@ async fn body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+fn assert_keys(value: &Value, expected: &[&str]) {
+    let mut actual = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let mut expected = expected.to_vec();
+    actual.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(actual, expected);
+}
+
 fn health_table_query(scope: &str) -> Value {
     let sort = if scope == "health.diet" {
         "food"
@@ -104,7 +117,17 @@ async fn health_table_query_serves_all_scopes_and_keeps_legacy_list_shapes() {
         json!({"kind":"medication", "medication_name":"A", "dose":2, "unit":"tablet"}),
     )
     .await;
-    post_daily(&app, json!({"metrics":[weight_metric(68.2, None)]})).await;
+    post_daily(
+        &app,
+        json!({"metrics":[
+        weight_metric(68.2, None),
+        {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"sleep","name":"Sleep","value":7.5}},
+        {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"lab","key":"crp","name":"CRP","value":0.2,"unit":"mg/L"}},
+        {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"lab","key":"fecal_calprotectin","name":"Fecal calprotectin","value":42.0,"unit":"µg/g"}},
+            {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"overall_condition","score":8}}
+        ]}),
+    )
+    .await;
 
     for (scope, kind) in [
         ("health.diet", "diet"),
@@ -123,14 +146,107 @@ async fn health_table_query_serves_all_scopes_and_keeps_legacy_list_shapes() {
         assert_eq!(value.as_object().unwrap().len(), 2);
         assert!(value.get("next_offset").is_some());
         let first = &value["items"][0];
-        assert!(first["key"].is_string());
+        assert_keys(first, &["key", "group_key", "group_label", "record"]);
+        assert_eq!(first["group_key"], Value::Null);
+        assert_eq!(first["group_label"], Value::Null);
         assert_eq!(first["record"]["kind"], kind);
-        assert!(
-            first["record"]["date"]
-                .as_str()
-                .unwrap()
-                .starts_with("2026-")
+        assert_eq!(first["record"]["date"], "2026-07-31");
+        assert!(first["record"]["note"].is_string());
+        assert_eq!(
+            first["key"],
+            format!("0::{}", first["record"]["id"].as_str().unwrap())
         );
+        match scope {
+            "health.diet" => {
+                assert_keys(
+                    &first["record"],
+                    &[
+                        "kind",
+                        "id",
+                        "entry",
+                        "date",
+                        "meal_label",
+                        "food",
+                        "tags",
+                        "has_photo",
+                        "note",
+                    ],
+                );
+                assert_eq!(first["record"]["food"], "Salad");
+                assert_eq!(first["record"]["meal_label"], "Lunch");
+                assert_eq!(first["record"]["tags"], json!(["vegetable"]));
+                assert_eq!(first["record"]["has_photo"], false);
+                assert!(first["record"]["entry"].is_object());
+            }
+            "health.bowel" => {
+                assert_keys(
+                    &first["record"],
+                    &[
+                        "kind",
+                        "id",
+                        "event",
+                        "date",
+                        "bristol_scale",
+                        "blood_visible",
+                        "blood_label",
+                        "note",
+                    ],
+                );
+                assert_eq!(first["record"]["bristol_scale"], 4);
+                assert_eq!(first["record"]["blood_visible"], true);
+                assert_eq!(first["record"]["blood_label"], "Yes");
+                assert!(first["record"]["event"].is_object());
+            }
+            "health.medication" => {
+                assert_keys(
+                    &first["record"],
+                    &[
+                        "kind",
+                        "id",
+                        "event",
+                        "date",
+                        "medication_name",
+                        "dose",
+                        "unit",
+                        "unit_label",
+                        "note",
+                    ],
+                );
+                assert_eq!(first["record"]["medication_name"], "A");
+                assert_eq!(first["record"]["dose"], 2.0);
+                assert_eq!(first["record"]["unit"], "tablet");
+                assert_eq!(first["record"]["unit_label"], "정");
+                assert!(first["record"]["event"].is_object());
+            }
+            "health.metrics" => {
+                assert_keys(
+                    &first["record"],
+                    &[
+                        "kind",
+                        "id",
+                        "date",
+                        "events",
+                        "weight",
+                        "sleep",
+                        "crp",
+                        "calprotectin",
+                        "condition",
+                        "note",
+                        "created_at",
+                        "updated_at",
+                    ],
+                );
+                assert_eq!(first["record"]["weight"], 68.2);
+                assert_eq!(first["record"]["sleep"], 7.5);
+                assert_eq!(first["record"]["crp"], 0.2);
+                assert_eq!(first["record"]["calprotectin"], 42.0);
+                assert_eq!(first["record"]["condition"], 8.0);
+                assert_eq!(first["record"]["events"].as_array().unwrap().len(), 5);
+                assert!(first["record"]["created_at"].is_string());
+                assert!(first["record"]["updated_at"].is_string());
+            }
+            _ => unreachable!(),
+        }
     }
 
     for path in ["/api/v1/health/diet", "/api/v1/health/events"] {
@@ -353,6 +469,26 @@ async fn health_table_lookups_are_scope_bounded_compact_and_do_not_conflate_unta
             .iter()
             .any(|v| v["id"] == "upper")
     );
+    let medication = body(
+        app.clone()
+            .oneshot(
+                Request::get("/api/v1/health/table/lookups?scope=health.medication")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        medication["medication_unit"],
+        json!([
+            {"id":"tablet","label":"정"}, {"id":"capsule","label":"캡슐"},
+            {"id":"packet","label":"포"}, {"id":"mg","label":"mg"},
+            {"id":"g","label":"g"}, {"id":"ml","label":"ml"},
+            {"id":"drop","label":"방울"}, {"id":"dose","label":"회"}
+        ])
+    );
     assert!(
         diet["tags"]
             .as_array()
@@ -387,6 +523,42 @@ async fn health_table_lookups_are_scope_bounded_compact_and_do_not_conflate_unta
             .unwrap();
         assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
     }
+}
+
+#[tokio::test]
+async fn health_table_tag_groups_distinguish_literal_untagged_from_no_tag() {
+    let (_temp, app) = app();
+    post_health_diet(&app, "2026-08-20T03:00:00Z", &["untagged"]).await;
+    post_health_diet(&app, "2026-08-19T03:00:00Z", &[]).await;
+    let mut query = health_table_query("health.diet");
+    query["group_by"] = json!("tag");
+    let value = body(post_json(&app, "/api/v1/health/table/query", query).await).await;
+    let rows = value["items"].as_array().unwrap();
+    let literal = rows
+        .iter()
+        .find(|row| row["record"]["tags"] == json!(["untagged"]))
+        .unwrap();
+    let synthetic = rows
+        .iter()
+        .find(|row| row["record"]["tags"] == json!([]))
+        .unwrap();
+    assert_eq!(literal["group_key"], "\\untagged");
+    assert_eq!(literal["group_label"], "untagged");
+    assert_eq!(synthetic["group_key"], "untagged");
+    assert_eq!(synthetic["group_label"], "Untagged");
+    assert_ne!(literal["key"], synthetic["key"]);
+    assert!(
+        literal["key"]
+            .as_str()
+            .unwrap()
+            .starts_with("9:\\untagged:")
+    );
+    assert!(
+        synthetic["key"]
+            .as_str()
+            .unwrap()
+            .starts_with("8:untagged:")
+    );
 }
 
 async fn post_health_event(app: &axum::Router, occurred_at: &str, details: Value) -> Value {
