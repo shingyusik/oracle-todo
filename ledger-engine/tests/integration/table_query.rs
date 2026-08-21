@@ -309,10 +309,10 @@ fn relative_date_filter_requires_an_explicit_local_reference_date() {
 #[test]
 fn sqlite_relative_date_filter_uses_the_explicit_local_reference_only() {
     let mut service = table_service();
-    for day in [20, 21, 22] {
+    for day in [2, 3, 4] {
         service
             .create_entry(CreateEntry {
-                date: format!("2026-08-{day}"),
+                date: format!("2001-02-{day:02}"),
                 written_at: datetime!(2026-08-21 00:00 UTC),
                 content: format!("day-{day}"),
                 category: Some("Food".into()),
@@ -327,7 +327,7 @@ fn sqlite_relative_date_filter_uses_the_explicit_local_reference_only() {
             })
             .unwrap();
     }
-    for (amount, expected) in [("0", "day-21"), ("1", "day-22")] {
+    for (amount, expected) in [("0", "day-3"), ("1", "day-4")] {
         let query = LedgerTableQuery::new(
             LedgerTableScope::Transactions,
             0,
@@ -343,10 +343,10 @@ fn sqlite_relative_date_filter_uses_the_explicit_local_reference_only() {
             }],
             vec![transaction_date_sort()],
             group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
-            Some(date!(2026 - 08 - 21)),
+            Some(date!(2001 - 02 - 03)),
         )
         .unwrap();
-        assert_eq!(query.reference_date(), Some(date!(2026 - 08 - 21)));
+        assert_eq!(query.reference_date(), Some(date!(2001 - 02 - 03)));
         let page = service.query_table(&query).unwrap();
         assert_eq!(page.items.len(), 1);
         assert!(
