@@ -305,7 +305,10 @@ function visibleTablePage(
   globalError: string | null,
   allRowsTombstoned = false,
 ) {
-  return (globalError || allRowsTombstoned) && page.moreStatus === "error"
+  const hideNextOffset = page.moreStatus === "error"
+    ? Boolean(globalError)
+    : allRowsTombstoned;
+  return hideNextOffset
     ? { ...page, nextOffset: null }
     : page;
 }

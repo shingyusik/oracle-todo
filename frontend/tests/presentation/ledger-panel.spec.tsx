@@ -2634,9 +2634,71 @@ describe("LedgerPanel", () => {
     })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load rows.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(screen.queryByText("Lunch")).toBeNull();
     expect(ledgerApi.archiveEntry).toHaveBeenCalledOnce();
+  });
+
+  it("keeps offset-zero retry visible when every preserved transaction is tombstoned", async () => {
+    const user = userEvent.setup();
+    mockLedgerLoads();
+    let transactionCalls = 0;
+    vi.mocked(ledgerApi.queryTable).mockImplementation(async (scope, _settings, offset) => {
+      if (scope !== "ledger.transactions") return { items: [], nextOffset: null };
+      transactionCalls += 1;
+      if (transactionCalls === 1) {
+        return {
+          items: [transactionOccurrence("expense-1", "expense-1", "Lunch")],
+          nextOffset: 50,
+        };
+      }
+      if (transactionCalls === 2) throw new Error("Ledger refresh failed");
+      return {
+        items: [transactionOccurrence("refilled", "refilled", "Refilled row")],
+        nextOffset: null,
+      };
+    });
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+
+    function TombstoneRetryHarness() {
+      const ledger = useLedgerController();
+      return (
+        <>
+          <button type="button" onClick={() => void ledger.ensureTable?.("ledger.accounts")}>
+            Load accounts scope
+          </button>
+          <LedgerPanel controller={ledger} />
+        </>
+      );
+    }
+
+    render(<TombstoneRetryHarness />);
+    await screen.findByRole("button", {
+      name: "Open details for Lunch, 2026-07-30, Cash",
+    });
+    await user.click(screen.getByRole("checkbox", {
+      name: "Select Lunch, 2026-07-30, Cash",
+    }));
+    await user.click(screen.getByRole("button", { name: "Archive selected transactions" }));
+    await user.click(within(screen.getByRole("dialog", {
+      name: "Archive selected transactions?",
+    })).getByRole("button", { name: "Archive" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger refresh failed");
+    expect(screen.queryByText("Lunch")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Load accounts scope" }));
+
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText("No transactions yet.")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Refilled row")).toBeInTheDocument();
+    expect(transactionCalls).toBe(3);
+    expect(ledgerApi.queryTable).toHaveBeenLastCalledWith(
+      "ledger.transactions", expect.anything(), 0,
+    );
   });
 
   it("archives the snapshotted targets despite in-flight visibility changes", async () => {
