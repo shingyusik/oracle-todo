@@ -157,7 +157,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         })}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
-        page={page}
+        page={visibleTablePage(page, controller.state.error)}
         onLoadMore={() => void controller.loadMore?.("ledger.categories")}
         emptyMessage={ledgerEmptyMessage(controller, "ledger.categories", page, "categories")}
       />
@@ -220,6 +220,13 @@ function ledgerEmptyMessage(
   return settings.filterRules.length > 0 || settings.groupSettings.hiddenGroupKeys.length > 0
     ? `No ${noun} match this view.`
     : `No ${noun} yet.`;
+}
+
+function visibleTablePage(
+  page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
+  globalError: string | null,
+) {
+  return globalError && page.moreStatus === "error" ? { ...page, nextOffset: null } : page;
 }
 
 function ensureReferences(controller: LedgerController): Promise<boolean> {

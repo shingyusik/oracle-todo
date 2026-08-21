@@ -284,14 +284,13 @@ export function useLedgerController(): LedgerController {
     } catch (error) {
       if (tablePagesRef.current[scope].generation !== generation) return true;
       const message = errorMessage(error);
-      const failed = previousPage.items.length > 0
-        ? { ...previousPage, moreStatus: "idle" as const, moreError: null, generation }
-        : {
-            ...page,
-            nextOffset: 0,
-            moreStatus: "error" as const,
-            moreError: "Could not load rows.",
-          };
+      const failed = {
+        ...page,
+        items: previousPage.items,
+        nextOffset: 0,
+        moreStatus: "error" as const,
+        moreError: "Could not load rows.",
+      };
       tablePagesRef.current = { ...tablePagesRef.current, [scope]: failed };
       setTablePages(tablePagesRef.current);
       setState((current) => wasInitialized

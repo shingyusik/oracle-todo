@@ -253,7 +253,11 @@ function TransactionsPanel({
         onOpen={openTransaction}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
-        page={page}
+        page={visibleTablePage(
+          page,
+          controller.state.error,
+          occurrences.length === 0 && page.items.length > 0,
+        )}
         onLoadMore={() => void controller.loadMore?.("ledger.transactions")}
         emptyMessage={transactionEmptyMessage(controller, page)}
       />
@@ -294,6 +298,16 @@ function transactionEmptyMessage(
   return settings.filterRules.length > 0 || settings.groupSettings.hiddenGroupKeys.length > 0
     ? "No transactions match this view."
     : "No transactions yet.";
+}
+
+function visibleTablePage(
+  page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
+  globalError: string | null,
+  allRowsTombstoned = false,
+) {
+  return (globalError || allRowsTombstoned) && page.moreStatus === "error"
+    ? { ...page, nextOffset: null }
+    : page;
 }
 
 function ensureLedgerReferences(

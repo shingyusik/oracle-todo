@@ -3630,6 +3630,59 @@ describe("LedgerPanel", () => {
     );
   });
 
+  it("retries a failed offset-zero refresh beneath preserved scope rows", async () => {
+    const user = userEvent.setup();
+    let transactionCalls = 0;
+    vi.spyOn(ledgerApi, "queryTable").mockImplementation(async (scope, _settings, offset) => {
+      if (scope !== "ledger.transactions") return { items: [], nextOffset: null };
+      transactionCalls += 1;
+      if (transactionCalls === 1) {
+        return {
+          items: [transactionOccurrence("old", "old", "Old row")],
+          nextOffset: 50,
+        };
+      }
+      if (transactionCalls === 2) throw new Error("raw refresh failure");
+      return {
+        items: [transactionOccurrence("new", "new", "New row")],
+        nextOffset: null,
+      };
+    });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({
+      accounts: [], categories: [], currencies: [],
+    });
+
+    function RefreshRecoveryHarness() {
+      const ledger = useLedgerController();
+      return (
+        <>
+          <button type="button" onClick={() => void ledger.refresh()}>Refresh tables</button>
+          <button type="button" onClick={() => void ledger.ensureTable?.("ledger.accounts")}>
+            Load accounts scope
+          </button>
+          <LedgerPanel controller={ledger} />
+        </>
+      );
+    }
+    render(<RefreshRecoveryHarness />);
+    expect(await screen.findByText("Old row")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Refresh tables" }));
+    expect(await screen.findByText("raw refresh failure")).toBeInTheDocument();
+    expect(screen.getByText("Old row")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Load accounts scope" }));
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByText("Old row")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("New row")).toBeInTheDocument();
+    expect(screen.queryByText("Old row")).toBeNull();
+    expect(transactionCalls).toBe(3);
+    expect(ledgerApi.queryTable).toHaveBeenLastCalledWith(
+      "ledger.transactions", expect.anything(), 0,
+    );
+  });
+
   it("reports an initial table failure and recovers on retry", async () => {
     vi.spyOn(ledgerApi, "queryTable")
       .mockRejectedValueOnce(new Error("Initial Ledger load failed"))
