@@ -906,6 +906,31 @@ fn bounds_and_deduplicates_rules_lists_and_group_settings() {
     .unwrap();
     assert_eq!(query.filters()[0].values(), &["one", "two"]);
 
+    for values in [
+        vec!["duplicate".to_string(); 101],
+        vec!["x".repeat(MAX_TABLE_TEXT_BYTES + 1)],
+        vec![String::new()],
+    ] {
+        assert!(
+            TodoTableQuery::new(
+                TodoTableScope::Workspace(WorkspaceTableScope::Task),
+                TableContext::Workspace,
+                0,
+                50,
+                FilterMode::And,
+                vec![TodoTableFilter::Workspace {
+                    field: WorkspaceFilterField::Tags,
+                    operator: TodoFilterOperator::Contains,
+                    value: TodoTableFilterValue::TextList(values),
+                }],
+                vec![],
+                groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+                None,
+            )
+            .is_err()
+        );
+    }
+
     let too_many = (0..51)
         .map(|_| TodoTableFilter::Workspace {
             field: WorkspaceFilterField::Title,

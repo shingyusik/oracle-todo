@@ -730,11 +730,20 @@ impl FieldType {
 
 fn normalize_filter_value(value: &mut TodoTableFilterValue) -> TodoResult<()> {
     if let TodoTableFilterValue::TextList(values) = value {
+        if values.is_empty()
+            || values.len() > MAX_VALUES
+            || values.iter().any(|value| !bounded(value))
+        {
+            return Err(validation("filter list values are invalid"));
+        }
         let mut unique = Vec::with_capacity(values.len());
         for value in values.drain(..) {
             if !unique.contains(&value) {
                 unique.push(value);
             }
+        }
+        if unique.is_empty() {
+            return Err(validation("filter list values are invalid"));
         }
         *values = unique;
     }
