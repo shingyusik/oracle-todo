@@ -1,7 +1,5 @@
-use std::cmp::Ordering;
-
-use rusqlite::Connection;
-use time::{Date, Duration, OffsetDateTime, macros::format_description};
+use rusqlite::{Connection, params_from_iter, types::Value};
+use time::{Duration, OffsetDateTime};
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::queries::EntryView;
@@ -10,574 +8,543 @@ use crate::application::table::{
     CategoryTableFilterField, CategoryTableGroup, CategoryTableRecord, CategoryTableSortField,
     FilterMode, GroupSort, LedgerFilterOperator, LedgerTableFilter, LedgerTableFilterValue,
     LedgerTableGroup, LedgerTableQuery, LedgerTableRecord, LedgerTableRow, LedgerTableScope,
-    LedgerTableSort, SortDirection, TablePage, TransactionRowKind, TransactionTableFilterField,
-    TransactionTableGroup, TransactionTableRecord, TransactionTableSortField,
+    LedgerTableSort, RelativeDateUnit, SortDirection, TablePage, TransactionRowKind,
+    TransactionTableFilterField, TransactionTableGroup, TransactionTableRecord,
+    TransactionTableSortField,
 };
 use crate::domain::{EntryType, TransactionCategoryKind};
 
 use super::mapping::{ENTRY_COLUMNS, row_to_account, row_to_entry, row_to_transaction_category};
 use super::storage_error;
 
+#[derive(Debug)]
+struct PageKey {
+    id: String,
+    pair_id: Option<String>,
+    group_key: String,
+    group_label: String,
+}
+
 pub(super) fn query_table(
     connection: &Connection,
     query: &LedgerTableQuery,
 ) -> LedgerResult<TablePage<LedgerTableRow>> {
-    let mut records = match query.scope() {
-        LedgerTableScope::Transactions => transaction_records(connection)?,
-        LedgerTableScope::Accounts => account_records(connection)?,
-        LedgerTableScope::Categories => category_records(connection)?,
-    };
-    records.retain(|record| matches_filters(record, query));
-    records.sort_by(|left, right| compare_records(left, right, query));
+    let (sql, values) = page_sql(query);
+    let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+    let keys = statement
+        .query_map(params_from_iter(values), |row| {
+            Ok(PageKey {
+                id: row.get(0)?,
+                pair_id: row.get(1)?,
+                group_key: row.get(2)?,
+                group_label: row.get(3)?,
+            })
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
 
-    let mut rows = Vec::new();
-    for record in records {
-        for (key, label) in groups(&record, query) {
-            if has_group(query) && query.group_settings().hide_empty() && key.is_empty() {
-                continue;
+    debug_assert!(keys.len() <= usize::from(query.limit()) + 1);
+    let mut rows = Vec::with_capacity(keys.len());
+    for key in keys {
+        let record = match query.scope() {
+            LedgerTableScope::Transactions => {
+                transaction_record(connection, &key.id, key.pair_id.as_deref())?
             }
-            if query.group_settings().hidden_group_keys().contains(&key) {
-                continue;
-            }
-            rows.push(LedgerTableRow::new(
-                (!key.is_empty()).then_some(key),
-                (!label.is_empty()).then_some(label),
-                record.clone(),
-            )?);
-        }
+            LedgerTableScope::Accounts => account_record(connection, &key.id)?,
+            LedgerTableScope::Categories => category_record(connection, &key.id)?,
+        };
+        rows.push(LedgerTableRow::new(
+            (!key.group_key.is_empty()).then_some(key.group_key),
+            (!key.group_label.is_empty()).then_some(key.group_label),
+            record,
+        )?);
     }
-    rows.sort_by(|left, right| compare_groups(left, right, query));
-    let start = usize::try_from(query.offset())
-        .unwrap_or(usize::MAX)
-        .min(rows.len());
-    let take = usize::from(query.limit()) + 1;
-    TablePage::from_limit_plus_one(
-        rows.into_iter().skip(start).take(take).collect(),
-        query.offset(),
-        query.limit(),
-    )
+    TablePage::from_limit_plus_one(rows, query.offset(), query.limit())
 }
 
-fn has_group(query: &LedgerTableQuery) -> bool {
-    !matches!(
+fn page_sql(query: &LedgerTableQuery) -> (String, Vec<Value>) {
+    let mut values = Vec::new();
+    let (base, group_key, group_label) = match query.scope() {
+        LedgerTableScope::Transactions => transaction_base(query.group_settings().group_by()),
+        LedgerTableScope::Accounts => account_base(query.group_settings().group_by()),
+        LedgerTableScope::Categories => category_base(query.group_settings().group_by()),
+    };
+    let filters = filter_sql(query, &mut values);
+    let hidden = hidden_sql(query, &mut values);
+    let group_order = group_order_sql(query, &mut values);
+    let record_order = record_order_sql(query);
+    values.push(Value::Integer(i64::from(query.limit()) + 1));
+    values.push(Value::Integer(i64::from(query.offset())));
+    let sql = format!(
+        "WITH base AS ({base}), occurrences AS (
+            SELECT id, pair_id, {group_key} AS group_key, {group_label} AS group_label, base.*
+            FROM base
+        )
+        SELECT id, pair_id, group_key, group_label FROM occurrences
+        WHERE ({filters}){hidden}
+        ORDER BY {group_order}{record_order}, logical_id ASC
+        LIMIT ? OFFSET ?"
+    );
+    (sql, values)
+}
+
+fn transaction_base(group: LedgerTableGroup) -> (String, String, String) {
+    let base = "SELECT
+        COALESCE(d.transfer_group_id, d.id) AS logical_id,
+        d.id AS id,
+        p.id AS pair_id,
+        d.date, d.content,
+        CASE WHEN d.entry_type IN ('expense','adjustment_out') THEN 'expense'
+             WHEN d.entry_type IN ('income','adjustment_in') THEN 'income' ELSE 'transfer' END AS kind,
+        d.account_id, da.name AS account_name,
+        p.account_id AS pair_account_id, pa.name AS pair_account_name,
+        COALESCE(da.name,'') || CASE WHEN p.id IS NULL THEN '' ELSE ' -> ' || COALESCE(pa.name,'') END AS account_sort_name,
+        d.transaction_category_id AS category_id, COALESCE(tc.name,'') AS category_name,
+        d.currency_id, COALESCE(c.code,'') AS currency_code,
+        d.amount_minor, d.updated_at
+      FROM ledger_entries d
+      LEFT JOIN ledger_entries p ON p.id=(
+          SELECT p2.id FROM ledger_entries p2
+          WHERE p2.deleted_at IS NULL AND p2.transfer_group_id=d.transfer_group_id
+            AND p2.id<>d.id AND p2.entry_type<>d.entry_type ORDER BY p2.id LIMIT 1)
+      LEFT JOIN accounts da ON da.id=d.account_id
+      LEFT JOIN accounts pa ON pa.id=p.account_id
+      LEFT JOIN transaction_categories tc ON tc.id=d.transaction_category_id
+      LEFT JOIN currencies c ON c.id=d.currency_id
+      WHERE d.deleted_at IS NULL AND (
+          d.entry_type NOT IN ('transfer_in','transfer_out')
+          OR d.entry_type='transfer_out'
+          OR (d.entry_type='transfer_in' AND NOT EXISTS (
+              SELECT 1 FROM ledger_entries o WHERE o.deleted_at IS NULL
+                AND o.transfer_group_id=d.transfer_group_id AND o.entry_type='transfer_out'))
+      )";
+    let (key, label) = match group {
+        LedgerTableGroup::Transactions(TransactionTableGroup::None) => ("''", "''"),
+        LedgerTableGroup::Transactions(TransactionTableGroup::Month) => {
+            ("substr(date,1,7)", "substr(date,1,7)")
+        }
+        LedgerTableGroup::Transactions(TransactionTableGroup::Week) => (
+            "date(date, '-' || ((CAST(strftime('%w',date) AS INTEGER)+6)%7) || ' days')",
+            "'Week of ' || date(date, '-' || ((CAST(strftime('%w',date) AS INTEGER)+6)%7) || ' days')",
+        ),
+        LedgerTableGroup::Transactions(TransactionTableGroup::Day) => ("date", "date"),
+        LedgerTableGroup::Transactions(TransactionTableGroup::Account) => {
+            ("account_id", "COALESCE(account_name,'')")
+        }
+        LedgerTableGroup::Transactions(TransactionTableGroup::Category) => {
+            ("COALESCE(category_id,'')", "category_name")
+        }
+        LedgerTableGroup::Transactions(TransactionTableGroup::EntryType) => ("kind", "kind"),
+        _ => unreachable!("validated transaction group"),
+    };
+    if matches!(
+        group,
+        LedgerTableGroup::Transactions(TransactionTableGroup::Account)
+    ) {
+        let account_occurrences = format!(
+            "SELECT logical_id, id, pair_id, date, content, kind, account_id, account_name,
+                    pair_account_id, pair_account_name, account_sort_name, category_id, category_name, currency_id,
+                    currency_code, amount_minor, updated_at FROM ({base})
+             UNION ALL
+             SELECT logical_id, id, pair_id, date, content, kind, pair_account_id AS account_id,
+                    pair_account_name AS account_name, pair_account_id, pair_account_name, account_sort_name,
+                    category_id, category_name, currency_id, currency_code, amount_minor, updated_at
+             FROM ({base}) WHERE pair_account_id IS NOT NULL"
+        );
+        (account_occurrences, key.into(), label.into())
+    } else {
+        (base.into(), key.into(), label.into())
+    }
+}
+
+fn account_base(group: LedgerTableGroup) -> (String, String, String) {
+    let base = "SELECT a.id AS logical_id, a.id, NULL AS pair_id, a.name, a.account_category_id AS account_type_id,
+        ac.name AS account_type_name, a.currency_id, c.code AS currency_code,
+        a.opening_balance_minor + COALESCE(SUM(CASE e.entry_type
+          WHEN 'expense' THEN -e.amount_minor WHEN 'income' THEN e.amount_minor
+          WHEN 'transfer_out' THEN -e.amount_minor WHEN 'transfer_in' THEN e.amount_minor
+          WHEN 'adjustment_out' THEN -e.amount_minor WHEN 'adjustment_in' THEN e.amount_minor
+          ELSE 0 END),0) AS current_balance_minor
+      FROM accounts a JOIN account_categories ac ON ac.id=a.account_category_id
+      JOIN currencies c ON c.id=a.currency_id
+      LEFT JOIN ledger_entries e ON e.account_id=a.id AND e.deleted_at IS NULL
+      WHERE a.active=1 AND a.deleted_at IS NULL GROUP BY a.id";
+    let (key, label) = match group {
+        LedgerTableGroup::Accounts(AccountTableGroup::None) => ("''", "''"),
+        LedgerTableGroup::Accounts(AccountTableGroup::AccountType) => {
+            ("account_type_id", "account_type_name")
+        }
+        LedgerTableGroup::Accounts(AccountTableGroup::Currency) => ("currency_id", "currency_code"),
+        _ => unreachable!("validated account group"),
+    };
+    (base.into(), key.into(), label.into())
+}
+
+fn category_base(group: LedgerTableGroup) -> (String, String, String) {
+    let base = "SELECT tc.id AS logical_id, tc.id, NULL AS pair_id, tc.name, tc.kind,
+        COALESCE(tc.parent_id,'') AS parent_id, COALESCE(parent.name,'') AS parent_name
+      FROM transaction_categories tc
+      LEFT JOIN transaction_categories parent ON parent.id=tc.parent_id
+      WHERE tc.active=1 AND tc.deleted_at IS NULL";
+    let (key, label) = match group {
+        LedgerTableGroup::Categories(CategoryTableGroup::None) => ("''", "''"),
+        LedgerTableGroup::Categories(CategoryTableGroup::Kind) => (
+            "kind",
+            "CASE kind WHEN 'expense' THEN 'Expense' ELSE 'Income' END",
+        ),
+        LedgerTableGroup::Categories(CategoryTableGroup::Parent) => ("parent_id", "parent_name"),
+        _ => unreachable!("validated category group"),
+    };
+    (base.into(), key.into(), label.into())
+}
+
+fn filter_sql(query: &LedgerTableQuery, values: &mut Vec<Value>) -> String {
+    if query.filters().is_empty() {
+        return "1".into();
+    }
+    let joiner = match query.filter_mode() {
+        FilterMode::And => " AND ",
+        FilterMode::Or => " OR ",
+    };
+    query
+        .filters()
+        .iter()
+        .map(|filter| one_filter_sql(filter, values))
+        .collect::<Vec<_>>()
+        .join(joiner)
+}
+
+fn one_filter_sql(filter: &LedgerTableFilter, values: &mut Vec<Value>) -> String {
+    let (expressions, operator, value) = match filter {
+        LedgerTableFilter::Transactions {
+            field,
+            operator,
+            value,
+        } => {
+            let expressions: &[&str] = match field {
+                TransactionTableFilterField::Date => &["date"],
+                TransactionTableFilterField::Content => &["content"],
+                TransactionTableFilterField::EntryType => &["kind"],
+                TransactionTableFilterField::Account => &[
+                    "account_id",
+                    "account_name",
+                    "pair_account_id",
+                    "pair_account_name",
+                ],
+                TransactionTableFilterField::Category => &["category_id", "category_name"],
+                TransactionTableFilterField::Currency => &["currency_id", "currency_code"],
+                TransactionTableFilterField::Amount => &["amount_minor"],
+            };
+            (expressions, *operator, value)
+        }
+        LedgerTableFilter::Accounts {
+            field,
+            operator,
+            value,
+        } => {
+            let expressions: &[&str] = match field {
+                AccountTableFilterField::Name => &["name"],
+                AccountTableFilterField::AccountType => &["account_type_id", "account_type_name"],
+                AccountTableFilterField::Currency => &["currency_id", "currency_code"],
+                AccountTableFilterField::CurrentBalance => &["current_balance_minor"],
+            };
+            (expressions, *operator, value)
+        }
+        LedgerTableFilter::Categories {
+            field,
+            operator,
+            value,
+        } => {
+            let expressions: &[&str] = match field {
+                CategoryTableFilterField::Name => &["name"],
+                CategoryTableFilterField::Kind => &["kind"],
+                CategoryTableFilterField::Parent => &["parent_id", "parent_name"],
+            };
+            (expressions, *operator, value)
+        }
+    };
+    let negative = matches!(
+        operator,
+        LedgerFilterOperator::IsNot | LedgerFilterOperator::DoesNotContain
+    );
+    let glue = if negative { " AND " } else { " OR " };
+    expressions
+        .iter()
+        .map(|expression| scalar_filter_sql(expression, operator, value, values))
+        .collect::<Vec<_>>()
+        .join(glue)
+}
+
+fn scalar_filter_sql(
+    expression: &str,
+    operator: LedgerFilterOperator,
+    value: &LedgerTableFilterValue,
+    values: &mut Vec<Value>,
+) -> String {
+    use LedgerFilterOperator as O;
+    let numeric = matches!(expression, "amount_minor" | "current_balance_minor");
+    match operator {
+        O::IsEmpty => format!("COALESCE({expression},'')=''"),
+        O::IsNotEmpty => format!("COALESCE({expression},'')<>''"),
+        O::Contains | O::DoesNotContain if matches!(value, LedgerTableFilterValue::Text(_)) => {
+            let LedgerTableFilterValue::Text(text) = value else {
+                unreachable!()
+            };
+            values.push(Value::Text(text.clone()));
+            let not = if operator == O::DoesNotContain {
+                "NOT "
+            } else {
+                ""
+            };
+            format!("{not}ledger_content_contains(COALESCE({expression},''), ?)")
+        }
+        O::StartsWith | O::EndsWith => {
+            let LedgerTableFilterValue::Text(text) = value else {
+                unreachable!()
+            };
+            values.push(Value::Text(text.clone()));
+            values.push(Value::Text(text.clone()));
+            if operator == O::StartsWith {
+                format!("LOWER(substr(COALESCE({expression},''),1,length(?)))=LOWER(?)")
+            } else {
+                format!("LOWER(substr(COALESCE({expression},''),-length(?)))=LOWER(?)")
+            }
+        }
+        O::IsBetween => {
+            let LedgerTableFilterValue::Range { start, end } = value else {
+                unreachable!()
+            };
+            values.push(Value::Text(start.clone()));
+            values.push(Value::Text(end.clone()));
+            format!("{expression} BETWEEN ? AND ?")
+        }
+        O::IsRelativeToToday => {
+            let LedgerTableFilterValue::Relative { amount, unit } = value else {
+                unreachable!()
+            };
+            let amount = amount.parse::<i64>().expect("validated relative amount");
+            let days = match unit {
+                RelativeDateUnit::Day => amount,
+                RelativeDateUnit::Week => amount.saturating_mul(7),
+                RelativeDateUnit::Month => amount.saturating_mul(30),
+            };
+            let today = OffsetDateTime::now_utc().date();
+            values.push(Value::Text((today - Duration::days(days)).to_string()));
+            values.push(Value::Text((today + Duration::days(days)).to_string()));
+            format!("{expression} BETWEEN ? AND ?")
+        }
+        _ if matches!(value, LedgerTableFilterValue::TextList(_)) => {
+            let LedgerTableFilterValue::TextList(items) = value else {
+                unreachable!()
+            };
+            values.extend(items.iter().cloned().map(Value::Text));
+            let placeholders = vec!["LOWER(?)"; items.len()].join(",");
+            let not = if matches!(operator, O::IsNot | O::DoesNotContain) {
+                " NOT"
+            } else {
+                ""
+            };
+            format!("LOWER(COALESCE({expression},'')){not} IN ({placeholders})")
+        }
+        _ => {
+            let LedgerTableFilterValue::Text(text) = value else {
+                unreachable!()
+            };
+            values.push(if numeric {
+                Value::Real(text.parse().expect("validated number"))
+            } else {
+                Value::Text(text.clone())
+            });
+            let comparison = match operator {
+                O::Is => "=",
+                O::IsNot => "<>",
+                O::IsBefore | O::LessThan => "<",
+                O::IsAfter | O::GreaterThan => ">",
+                O::IsOnOrBefore => "<=",
+                O::IsOnOrAfter => ">=",
+                _ => unreachable!("validated operator"),
+            };
+            if numeric {
+                format!("{expression} {comparison} ?")
+            } else {
+                format!("LOWER(COALESCE({expression},'')) {comparison} LOWER(?)")
+            }
+        }
+    }
+}
+
+fn hidden_sql(query: &LedgerTableQuery, values: &mut Vec<Value>) -> String {
+    let mut clauses = Vec::new();
+    let grouped = !matches!(
         query.group_settings().group_by(),
         LedgerTableGroup::Transactions(TransactionTableGroup::None)
             | LedgerTableGroup::Accounts(AccountTableGroup::None)
             | LedgerTableGroup::Categories(CategoryTableGroup::None)
-    )
+    );
+    if grouped && query.group_settings().hide_empty() {
+        clauses.push("group_key<>''".to_string());
+    }
+    let hidden = query.group_settings().hidden_group_keys();
+    if !hidden.is_empty() {
+        values.extend(hidden.iter().cloned().map(Value::Text));
+        clauses.push(format!(
+            "group_key NOT IN ({})",
+            vec!["?"; hidden.len()].join(",")
+        ));
+    }
+    if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" AND {}", clauses.join(" AND "))
+    }
 }
 
-fn transaction_records(connection: &Connection) -> LedgerResult<Vec<LedgerTableRecord>> {
+fn group_order_sql(query: &LedgerTableQuery, values: &mut Vec<Value>) -> String {
+    match query.group_settings().sort() {
+        GroupSort::Alphabetical => "group_label ASC, ".into(),
+        GroupSort::ReverseAlphabetical => "group_label DESC, ".into(),
+        GroupSort::Manual => {
+            let manual = query.group_settings().manual_order();
+            if manual.is_empty() {
+                return "group_label ASC, ".into();
+            }
+            let mut sql = "CASE group_key ".to_string();
+            for (index, key) in manual.iter().enumerate() {
+                sql.push_str(&format!("WHEN ? THEN {index} "));
+                values.push(Value::Text(key.clone()));
+            }
+            sql.push_str(&format!("ELSE {} END ASC, group_label ASC, ", manual.len()));
+            sql
+        }
+    }
+}
+
+fn record_order_sql(query: &LedgerTableQuery) -> String {
+    query
+        .sorts()
+        .iter()
+        .map(|sort| {
+            let (field, direction) = match sort {
+                LedgerTableSort::Transactions { field, direction } => (
+                    match field {
+                        TransactionTableSortField::Date => "date",
+                        TransactionTableSortField::Content => "content",
+                        TransactionTableSortField::Account => "account_sort_name",
+                        TransactionTableSortField::Category => "category_name",
+                        TransactionTableSortField::Amount => "amount_minor",
+                        TransactionTableSortField::Updated => "updated_at",
+                    },
+                    *direction,
+                ),
+                LedgerTableSort::Accounts { field, direction } => (
+                    match field {
+                        AccountTableSortField::Name => "name",
+                        AccountTableSortField::AccountType => "account_type_name",
+                        AccountTableSortField::Currency => "currency_code",
+                        AccountTableSortField::CurrentBalance => "current_balance_minor",
+                    },
+                    *direction,
+                ),
+                LedgerTableSort::Categories { field, direction } => (
+                    match field {
+                        CategoryTableSortField::Name => "name",
+                        CategoryTableSortField::Kind => "kind",
+                        CategoryTableSortField::Parent => "parent_name",
+                    },
+                    *direction,
+                ),
+            };
+            format!(
+                "{field} {}",
+                if direction == SortDirection::Asc {
+                    "ASC"
+                } else {
+                    "DESC"
+                }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn transaction_record(
+    connection: &Connection,
+    id: &str,
+    pair_id: Option<&str>,
+) -> LedgerResult<LedgerTableRecord> {
+    let detail = entry_view(connection, id)?;
+    let transfer = pair_id.map(|id| entry_view(connection, id)).transpose()?;
+    let kind = match detail.entry_type() {
+        EntryType::Expense | EntryType::AdjustmentOut => TransactionRowKind::Expense,
+        EntryType::Income | EntryType::AdjustmentIn => TransactionRowKind::Income,
+        EntryType::TransferIn | EntryType::TransferOut => TransactionRowKind::Transfer,
+    };
+    let mut account_ids = vec![detail.account_id().to_string()];
+    let mut account_labels = vec![detail.account_name.clone().unwrap_or_default()];
+    if let Some(other) = &transfer {
+        account_ids.push(other.account_id().to_string());
+        account_labels.push(other.account_name.clone().unwrap_or_default());
+    }
+    Ok(LedgerTableRecord::Transactions(Box::new(
+        TransactionTableRecord {
+            id: detail
+                .transfer_group_id()
+                .unwrap_or(detail.id())
+                .to_string(),
+            archive_entry_id: detail.id().to_string(),
+            kind,
+            date: detail.date().to_string(),
+            content: detail.content().to_string(),
+            account_label: account_labels.join(" -> "),
+            account_ids,
+            account_labels,
+            category_id: detail.transaction_category_id().map(str::to_string),
+            category_label: detail.category_name.clone().unwrap_or_default(),
+            amount_minor: detail.amount().minor_units(),
+            currency_id: detail.currency_id().to_string(),
+            currency_code: detail.currency_code.clone().unwrap_or_default(),
+            updated_at: detail.updated_at().to_string(),
+            detail_entry: detail,
+            transfer_entry: transfer,
+        },
+    )))
+}
+
+fn entry_view(connection: &Connection, id: &str) -> LedgerResult<EntryView> {
     let sql = format!(
-        "SELECT e.*, a.name, tc.name, c.code FROM (SELECT {ENTRY_COLUMNS} FROM ledger_entries WHERE deleted_at IS NULL) e
-         LEFT JOIN accounts a ON a.id=e.account_id
-         LEFT JOIN transaction_categories tc ON tc.id=e.transaction_category_id
-         LEFT JOIN currencies c ON c.id=e.currency_id ORDER BY e.id"
+        "SELECT e.*, a.name, tc.name, c.code FROM (SELECT {ENTRY_COLUMNS} FROM ledger_entries WHERE id=?1) e LEFT JOIN accounts a ON a.id=e.account_id LEFT JOIN transaction_categories tc ON tc.id=e.transaction_category_id LEFT JOIN currencies c ON c.id=e.currency_id"
     );
-    let mut statement = connection.prepare(&sql).map_err(storage_error)?;
-    let mapped = statement
-        .query_map([], |row| {
-            let entry = row_to_entry(row).map_err(to_sql_error)?;
+    connection
+        .query_row(&sql, [id], |row| {
             Ok(EntryView {
-                entry,
+                entry: row_to_entry(row).map_err(to_sql_error)?,
                 account_name: row.get(15)?,
                 category_name: row.get(16)?,
                 currency_code: row.get(17)?,
             })
         })
-        .map_err(storage_error)?;
-    let entries = mapped
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(storage_error)?;
-    let mut records = Vec::new();
-    let mut used = vec![false; entries.len()];
-    for (index, entry) in entries.iter().enumerate() {
-        if used[index] {
-            continue;
-        }
-        used[index] = true;
-        let pair_index = entry.transfer_group_id().and_then(|group| {
-            entries.iter().enumerate().find_map(|(candidate, other)| {
-                (!used[candidate]
-                    && other.transfer_group_id() == Some(group)
-                    && other.entry_type() != entry.entry_type())
-                .then_some(candidate)
-            })
-        });
-        let pair = pair_index.map(|pair_index| {
-            used[pair_index] = true;
-            entries[pair_index].clone()
-        });
-        let (detail, transfer, kind) = match (entry.entry_type(), pair) {
-            (EntryType::TransferIn, Some(out)) => {
-                (out, Some(entry.clone()), TransactionRowKind::Transfer)
-            }
-            (EntryType::TransferOut, Some(incoming)) => {
-                (entry.clone(), Some(incoming), TransactionRowKind::Transfer)
-            }
-            (EntryType::Expense | EntryType::AdjustmentOut, _) => {
-                (entry.clone(), None, TransactionRowKind::Expense)
-            }
-            (EntryType::Income | EntryType::AdjustmentIn, _) => {
-                (entry.clone(), None, TransactionRowKind::Income)
-            }
-            (EntryType::TransferIn | EntryType::TransferOut, None) => {
-                (entry.clone(), None, TransactionRowKind::Transfer)
-            }
-        };
-        let id = detail
-            .transfer_group_id()
-            .unwrap_or(detail.id())
-            .to_string();
-        let mut account_ids = vec![detail.account_id().to_string()];
-        let mut account_labels = vec![detail.account_name.clone().unwrap_or_default()];
-        if let Some(other) = transfer.as_ref() {
-            account_ids.push(other.account_id().to_string());
-            account_labels.push(other.account_name.clone().unwrap_or_default());
-        }
-        let account_label = account_labels.join(" -> ");
-        records.push(LedgerTableRecord::Transactions(Box::new(
-            TransactionTableRecord {
-                id,
-                archive_entry_id: detail.id().to_string(),
-                kind,
-                date: detail.date().to_string(),
-                content: detail.content().to_string(),
-                account_ids,
-                account_labels,
-                account_label,
-                category_id: detail.transaction_category_id().map(str::to_string),
-                category_label: detail.category_name.clone().unwrap_or_default(),
-                amount_minor: detail.amount().minor_units(),
-                currency_id: detail.currency_id().to_string(),
-                currency_code: detail.currency_code.clone().unwrap_or_default(),
-                updated_at: detail.updated_at().to_string(),
-                detail_entry: detail,
-                transfer_entry: transfer,
-            },
-        )));
-    }
-    Ok(records)
+        .map_err(storage_error)
 }
 
-fn account_records(connection: &Connection) -> LedgerResult<Vec<LedgerTableRecord>> {
-    let sql = "SELECT a.id, a.name, a.account_category_id, a.currency_id, a.opening_balance_minor, a.active, a.created_at, a.updated_at, a.deleted_at, ac.name, c.code, c.decimal_places,
-         COALESCE(SUM(CASE e.entry_type WHEN 'expense' THEN -e.amount_minor WHEN 'income' THEN e.amount_minor WHEN 'transfer_out' THEN -e.amount_minor WHEN 'transfer_in' THEN e.amount_minor WHEN 'adjustment_out' THEN -e.amount_minor WHEN 'adjustment_in' THEN e.amount_minor ELSE 0 END),0)
-         FROM accounts a JOIN account_categories ac ON ac.id=a.account_category_id JOIN currencies c ON c.id=a.currency_id
-         LEFT JOIN ledger_entries e ON e.account_id=a.id AND e.deleted_at IS NULL
-         WHERE a.active=1 AND a.deleted_at IS NULL GROUP BY a.id ORDER BY a.id";
-    let mut statement = connection.prepare(sql).map_err(storage_error)?;
-    let rows = statement
-        .query_map([], |row| {
-            let account = row_to_account(row).map_err(to_sql_error)?;
-            let opening = account.opening_balance().minor_units();
-            Ok(LedgerTableRecord::Accounts(AccountTableRecord {
-                id: account.id().to_string(),
-                name: account.name().to_string(),
-                account_type_id: account.category_id().to_string(),
-                account_type_label: row.get(9)?,
-                currency_id: account.currency_id().to_string(),
-                currency_code: row.get(10)?,
-                decimal_places: row.get(11)?,
-                current_balance_minor: opening + row.get::<_, i64>(12)?,
-                account,
-            }))
-        })
-        .map_err(storage_error)?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)
+fn account_record(connection: &Connection, id: &str) -> LedgerResult<LedgerTableRecord> {
+    connection.query_row("SELECT a.id,a.name,a.account_category_id,a.currency_id,a.opening_balance_minor,a.active,a.created_at,a.updated_at,a.deleted_at,ac.name,c.code,c.decimal_places,a.opening_balance_minor+COALESCE(SUM(CASE e.entry_type WHEN 'expense' THEN -e.amount_minor WHEN 'income' THEN e.amount_minor WHEN 'transfer_out' THEN -e.amount_minor WHEN 'transfer_in' THEN e.amount_minor WHEN 'adjustment_out' THEN -e.amount_minor WHEN 'adjustment_in' THEN e.amount_minor ELSE 0 END),0) FROM accounts a JOIN account_categories ac ON ac.id=a.account_category_id JOIN currencies c ON c.id=a.currency_id LEFT JOIN ledger_entries e ON e.account_id=a.id AND e.deleted_at IS NULL WHERE a.id=?1 GROUP BY a.id", [id], |row| {
+        let account=row_to_account(row).map_err(to_sql_error)?;
+        Ok(LedgerTableRecord::Accounts(AccountTableRecord { id: account.id().to_string(), name: account.name().to_string(), account_type_id: account.category_id().to_string(), account_type_label: row.get(9)?, currency_id: account.currency_id().to_string(), currency_code: row.get(10)?, decimal_places: row.get(11)?, current_balance_minor: row.get(12)?, account }))
+    }).map_err(storage_error)
 }
 
-fn category_records(connection: &Connection) -> LedgerResult<Vec<LedgerTableRecord>> {
-    let sql = "SELECT tc.id, tc.name, tc.parent_id, tc.kind, tc.active, tc.created_at, tc.updated_at, tc.deleted_at, parent.name FROM transaction_categories tc
-         LEFT JOIN transaction_categories parent ON parent.id=tc.parent_id
-         WHERE tc.active=1 AND tc.deleted_at IS NULL ORDER BY tc.id";
-    let mut statement = connection.prepare(sql).map_err(storage_error)?;
-    let rows = statement
-        .query_map([], |row| {
-            let category = row_to_transaction_category(row).map_err(to_sql_error)?;
-            let kind = category.kind();
-            Ok(LedgerTableRecord::Categories(CategoryTableRecord {
-                id: category.id().to_string(),
-                name: category.name().to_string(),
-                kind,
-                kind_label: kind_label(kind).to_string(),
-                parent_id: category.parent_id().map(str::to_string),
-                parent_label: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
-                category,
-            }))
-        })
-        .map_err(storage_error)?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)
+fn category_record(connection: &Connection, id: &str) -> LedgerResult<LedgerTableRecord> {
+    connection.query_row("SELECT tc.id,tc.name,tc.parent_id,tc.kind,tc.active,tc.created_at,tc.updated_at,tc.deleted_at,parent.name FROM transaction_categories tc LEFT JOIN transaction_categories parent ON parent.id=tc.parent_id WHERE tc.id=?1", [id], |row| {
+        let category=row_to_transaction_category(row).map_err(to_sql_error)?; let kind=category.kind();
+        Ok(LedgerTableRecord::Categories(CategoryTableRecord { id: category.id().to_string(), name: category.name().to_string(), kind, kind_label: kind_label(kind).to_string(), parent_id: category.parent_id().map(str::to_string), parent_label: row.get::<_,Option<String>>(8)?.unwrap_or_default(), category }))
+    }).map_err(storage_error)
 }
 
 fn to_sql_error(error: LedgerError) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
 }
 
-fn matches_filters(record: &LedgerTableRecord, query: &LedgerTableQuery) -> bool {
-    if query.filters().is_empty() {
-        return true;
-    }
-    let matches = |filter| matches_filter(record, filter);
-    match query.filter_mode() {
-        FilterMode::And => query.filters().iter().all(matches),
-        FilterMode::Or => query.filters().iter().any(matches),
-    }
-}
-
-fn matches_filter(record: &LedgerTableRecord, filter: &LedgerTableFilter) -> bool {
-    match (record, filter) {
-        (
-            LedgerTableRecord::Transactions(row),
-            LedgerTableFilter::Transactions {
-                field,
-                operator,
-                value,
-            },
-        ) => match field {
-            TransactionTableFilterField::Date => date_match(&row.date, *operator, value),
-            TransactionTableFilterField::Content => text_match(&row.content, *operator, value),
-            TransactionTableFilterField::EntryType => {
-                list_match(kind_name(row.kind), *operator, value)
-            }
-            TransactionTableFilterField::Account => {
-                row.account_ids
-                    .iter()
-                    .any(|v| list_match(v, *operator, value))
-                    || row
-                        .account_labels
-                        .iter()
-                        .any(|v| list_match(v, *operator, value))
-            }
-            TransactionTableFilterField::Category => {
-                list_match(row.category_id.as_deref().unwrap_or(""), *operator, value)
-                    || list_match(&row.category_label, *operator, value)
-            }
-            TransactionTableFilterField::Currency => {
-                list_match(&row.currency_id, *operator, value)
-                    || list_match(&row.currency_code, *operator, value)
-            }
-            TransactionTableFilterField::Amount => number_match(row.amount_minor, *operator, value),
-        },
-        (
-            LedgerTableRecord::Accounts(row),
-            LedgerTableFilter::Accounts {
-                field,
-                operator,
-                value,
-            },
-        ) => match field {
-            AccountTableFilterField::Name => text_match(&row.name, *operator, value),
-            AccountTableFilterField::AccountType => {
-                list_match(&row.account_type_id, *operator, value)
-                    || list_match(&row.account_type_label, *operator, value)
-            }
-            AccountTableFilterField::Currency => {
-                list_match(&row.currency_id, *operator, value)
-                    || list_match(&row.currency_code, *operator, value)
-            }
-            AccountTableFilterField::CurrentBalance => {
-                number_match(row.current_balance_minor, *operator, value)
-            }
-        },
-        (
-            LedgerTableRecord::Categories(row),
-            LedgerTableFilter::Categories {
-                field,
-                operator,
-                value,
-            },
-        ) => match field {
-            CategoryTableFilterField::Name => text_match(&row.name, *operator, value),
-            CategoryTableFilterField::Kind => list_match(kind_label(row.kind), *operator, value),
-            CategoryTableFilterField::Parent => {
-                list_match(row.parent_id.as_deref().unwrap_or(""), *operator, value)
-                    || list_match(&row.parent_label, *operator, value)
-            }
-        },
-        _ => false,
-    }
-}
-
-fn text_match(
-    actual: &str,
-    operator: LedgerFilterOperator,
-    value: &LedgerTableFilterValue,
-) -> bool {
-    use LedgerFilterOperator as O;
-    if matches!(operator, O::IsEmpty) {
-        return actual.is_empty();
-    }
-    if matches!(operator, O::IsNotEmpty) {
-        return !actual.is_empty();
-    }
-    let LedgerTableFilterValue::Text(expected) = value else {
-        return false;
-    };
-    let (actual, expected) = (actual.to_lowercase(), expected.to_lowercase());
-    match operator {
-        O::Is => actual == expected,
-        O::IsNot => actual != expected,
-        O::Contains => actual.contains(&expected),
-        O::DoesNotContain => !actual.contains(&expected),
-        O::StartsWith => actual.starts_with(&expected),
-        O::EndsWith => actual.ends_with(&expected),
-        O::IsBefore | O::LessThan => actual < expected,
-        O::IsAfter | O::GreaterThan => actual > expected,
-        O::IsOnOrBefore => actual <= expected,
-        O::IsOnOrAfter => actual >= expected,
-        _ => false,
-    }
-}
-
-fn date_match(
-    actual: &str,
-    operator: LedgerFilterOperator,
-    value: &LedgerTableFilterValue,
-) -> bool {
-    use LedgerFilterOperator as O;
-    let parse = |value: &str| Date::parse(value, format_description!("[year]-[month]-[day]")).ok();
-    let Some(actual) = parse(actual) else {
-        return false;
-    };
-    match (operator, value) {
-        (O::IsBetween, LedgerTableFilterValue::Range { start, end }) => parse(start)
-            .zip(parse(end))
-            .is_some_and(|(start, end)| actual >= start && actual <= end),
-        (O::IsRelativeToToday, LedgerTableFilterValue::Relative { amount, unit }) => {
-            let Ok(amount) = amount.parse::<i64>() else {
-                return false;
-            };
-            let days = match unit {
-                crate::application::table::RelativeDateUnit::Day => amount,
-                crate::application::table::RelativeDateUnit::Week => amount.saturating_mul(7),
-                crate::application::table::RelativeDateUnit::Month => amount.saturating_mul(30),
-            };
-            let today = OffsetDateTime::now_utc().date();
-            actual >= today - Duration::days(days) && actual <= today + Duration::days(days)
-        }
-        (_, LedgerTableFilterValue::Text(expected)) => {
-            parse(expected).is_some_and(|expected| match operator {
-                O::Is => actual == expected,
-                O::IsNot => actual != expected,
-                O::IsBefore => actual < expected,
-                O::IsAfter => actual > expected,
-                O::IsOnOrBefore => actual <= expected,
-                O::IsOnOrAfter => actual >= expected,
-                _ => false,
-            })
-        }
-        _ => false,
-    }
-}
-
-fn list_match(
-    actual: &str,
-    operator: LedgerFilterOperator,
-    value: &LedgerTableFilterValue,
-) -> bool {
-    use LedgerFilterOperator as O;
-    if matches!(operator, O::IsEmpty) {
-        return actual.is_empty();
-    }
-    if matches!(operator, O::IsNotEmpty) {
-        return !actual.is_empty();
-    }
-    let LedgerTableFilterValue::TextList(values) = value else {
-        return false;
-    };
-    let found = values
-        .iter()
-        .any(|value| value.eq_ignore_ascii_case(actual));
-    match operator {
-        O::Is | O::Contains => found,
-        O::IsNot | O::DoesNotContain => !found,
-        _ => false,
-    }
-}
-
-fn number_match(
-    actual: i64,
-    operator: LedgerFilterOperator,
-    value: &LedgerTableFilterValue,
-) -> bool {
-    use LedgerFilterOperator as O;
-    let LedgerTableFilterValue::Text(expected) = value else {
-        return false;
-    };
-    let Ok(expected) = expected.parse::<f64>() else {
-        return false;
-    };
-    let actual = actual as f64;
-    match operator {
-        O::Is => actual == expected,
-        O::IsNot => actual != expected,
-        O::GreaterThan => actual > expected,
-        O::LessThan => actual < expected,
-        _ => false,
-    }
-}
-
-fn compare_records(
-    left: &LedgerTableRecord,
-    right: &LedgerTableRecord,
-    query: &LedgerTableQuery,
-) -> Ordering {
-    for sort in query.sorts() {
-        let ordering = compare_sort(left, right, sort);
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-    left.logical_id().cmp(right.logical_id())
-}
-
-fn compare_sort(
-    left: &LedgerTableRecord,
-    right: &LedgerTableRecord,
-    sort: &LedgerTableSort,
-) -> Ordering {
-    let (ordering, direction) = match (left, right, sort) {
-        (
-            LedgerTableRecord::Transactions(a),
-            LedgerTableRecord::Transactions(b),
-            LedgerTableSort::Transactions { field, direction },
-        ) => (
-            (match field {
-                TransactionTableSortField::Date => a.date.cmp(&b.date),
-                TransactionTableSortField::Content => a.content.cmp(&b.content),
-                TransactionTableSortField::Account => a.account_label.cmp(&b.account_label),
-                TransactionTableSortField::Category => a.category_label.cmp(&b.category_label),
-                TransactionTableSortField::Amount => a.amount_minor.cmp(&b.amount_minor),
-                TransactionTableSortField::Updated => a.updated_at.cmp(&b.updated_at),
-            }),
-            *direction,
-        ),
-        (
-            LedgerTableRecord::Accounts(a),
-            LedgerTableRecord::Accounts(b),
-            LedgerTableSort::Accounts { field, direction },
-        ) => (
-            (match field {
-                AccountTableSortField::Name => a.name.cmp(&b.name),
-                AccountTableSortField::AccountType => {
-                    a.account_type_label.cmp(&b.account_type_label)
-                }
-                AccountTableSortField::Currency => a.currency_code.cmp(&b.currency_code),
-                AccountTableSortField::CurrentBalance => {
-                    a.current_balance_minor.cmp(&b.current_balance_minor)
-                }
-            }),
-            *direction,
-        ),
-        (
-            LedgerTableRecord::Categories(a),
-            LedgerTableRecord::Categories(b),
-            LedgerTableSort::Categories { field, direction },
-        ) => (
-            (match field {
-                CategoryTableSortField::Name => a.name.cmp(&b.name),
-                CategoryTableSortField::Kind => kind_label(a.kind).cmp(kind_label(b.kind)),
-                CategoryTableSortField::Parent => a.parent_label.cmp(&b.parent_label),
-            }),
-            *direction,
-        ),
-        _ => (Ordering::Equal, SortDirection::Asc),
-    };
-    if direction == SortDirection::Desc {
-        ordering.reverse()
-    } else {
-        ordering
-    }
-}
-
-fn groups(record: &LedgerTableRecord, query: &LedgerTableQuery) -> Vec<(String, String)> {
-    match (record, query.group_settings().group_by()) {
-        (
-            _,
-            LedgerTableGroup::Transactions(TransactionTableGroup::None)
-            | LedgerTableGroup::Accounts(AccountTableGroup::None)
-            | LedgerTableGroup::Categories(CategoryTableGroup::None),
-        ) => vec![(String::new(), String::new())],
-        (LedgerTableRecord::Transactions(row), LedgerTableGroup::Transactions(group)) => {
-            match group {
-                TransactionTableGroup::Month => {
-                    vec![(row.date[..7].to_string(), row.date[..7].to_string())]
-                }
-                TransactionTableGroup::Week => vec![(row.date.clone(), row.date.clone())],
-                TransactionTableGroup::Day => vec![(row.date.clone(), row.date.clone())],
-                TransactionTableGroup::Account => row
-                    .account_ids
-                    .iter()
-                    .cloned()
-                    .zip(row.account_labels.iter().cloned())
-                    .collect(),
-                TransactionTableGroup::Category => vec![(
-                    row.category_id.clone().unwrap_or_default(),
-                    row.category_label.clone(),
-                )],
-                TransactionTableGroup::EntryType => vec![(
-                    kind_name(row.kind).to_string(),
-                    kind_name(row.kind).to_string(),
-                )],
-                TransactionTableGroup::None => unreachable!(),
-            }
-        }
-        (LedgerTableRecord::Accounts(row), LedgerTableGroup::Accounts(group)) => match group {
-            AccountTableGroup::AccountType => {
-                vec![(row.account_type_id.clone(), row.account_type_label.clone())]
-            }
-            AccountTableGroup::Currency => {
-                vec![(row.currency_id.clone(), row.currency_code.clone())]
-            }
-            AccountTableGroup::None => unreachable!(),
-        },
-        (LedgerTableRecord::Categories(row), LedgerTableGroup::Categories(group)) => match group {
-            CategoryTableGroup::Kind => vec![(
-                kind_label(row.kind).to_lowercase(),
-                kind_label(row.kind).to_string(),
-            )],
-            CategoryTableGroup::Parent => vec![(
-                row.parent_id.clone().unwrap_or_default(),
-                row.parent_label.clone(),
-            )],
-            CategoryTableGroup::None => unreachable!(),
-        },
-        _ => vec![],
-    }
-}
-
-fn compare_groups(
-    left: &LedgerTableRow,
-    right: &LedgerTableRow,
-    query: &LedgerTableQuery,
-) -> Ordering {
-    let group = match query.group_settings().sort() {
-        GroupSort::Alphabetical => left.group_label().cmp(&right.group_label()),
-        GroupSort::ReverseAlphabetical => left.group_label().cmp(&right.group_label()).reverse(),
-        GroupSort::Manual => {
-            let order = query.group_settings().manual_order();
-            let index = |row: &LedgerTableRow| {
-                order
-                    .iter()
-                    .position(|key| Some(key.as_str()) == row.group_key())
-                    .unwrap_or(usize::MAX)
-            };
-            index(left)
-                .cmp(&index(right))
-                .then_with(|| left.group_label().cmp(&right.group_label()))
-        }
-    };
-    group.then_with(|| compare_records(left.record(), right.record(), query))
-}
-
-const fn kind_name(kind: TransactionRowKind) -> &'static str {
-    match kind {
-        TransactionRowKind::Expense => "expense",
-        TransactionRowKind::Income => "income",
-        TransactionRowKind::Transfer => "transfer",
-    }
-}
 const fn kind_label(kind: TransactionCategoryKind) -> &'static str {
     match kind {
         TransactionCategoryKind::Expense => "Expense",

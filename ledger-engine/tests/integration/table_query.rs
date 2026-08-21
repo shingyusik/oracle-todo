@@ -595,6 +595,7 @@ fn sqlite_table_query_projects_account_balances_and_parent_category_groups() {
     let food = categories.items.iter().find(|row| matches!(row.record(), LedgerTableRecord::Categories(record) if record.name == "Food")).unwrap();
     assert_eq!(food.group_label(), Some("Living"));
     assert_ne!(food.group_key(), None);
+    assert!(categories.items.iter().all(|row| row.group_key().is_some()));
 }
 
 #[test]
@@ -641,6 +642,149 @@ fn sqlite_table_query_keeps_a_transfer_logical_and_emits_account_occurrences() {
             record.id == result.transfer_group_id && record.transfer_entry.is_some(),
         _ => false,
     }));
+}
+
+#[test]
+fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before_page() {
+    let mut service = table_service();
+    for (date, content, account) in [
+        ("2026-08-17", "monday", "Wallet"),
+        ("2026-08-23", "sunday", "Wallet"),
+        ("2026-08-24", "next monday", "Bank"),
+    ] {
+        service
+            .create_entry(CreateEntry {
+                date: date.into(),
+                written_at: datetime!(2026-08-21 00:00 UTC),
+                content: content.into(),
+                category: Some("Food".into()),
+                account: account.into(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(100),
+                currency: "KRW".into(),
+                transfer_group: None,
+                source: "test".into(),
+                notes: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    let week_page = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::Or,
+                vec![
+                    LedgerTableFilter::Transactions {
+                        field: TransactionTableFilterField::Content,
+                        operator: LedgerFilterOperator::StartsWith,
+                        value: LedgerTableFilterValue::Text("mon".into()),
+                    },
+                    LedgerTableFilter::Transactions {
+                        field: TransactionTableFilterField::Content,
+                        operator: LedgerFilterOperator::Contains,
+                        value: LedgerTableFilterValue::Text("sunday".into()),
+                    },
+                ],
+                vec![transaction_date_sort()],
+                LedgerTableGroupSettings::new(
+                    LedgerTableGroup::Transactions(TransactionTableGroup::Week),
+                    GroupSort::ReverseAlphabetical,
+                    true,
+                    vec![],
+                    vec!["2026-08-24".into()],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(week_page.items.len(), 2);
+    assert!(
+        week_page
+            .items
+            .iter()
+            .all(|row| row.group_key() == Some("2026-08-17"))
+    );
+    assert!(
+        week_page
+            .items
+            .iter()
+            .all(|row| row.group_label() == Some("Week of 2026-08-17"))
+    );
+
+    let accounts = service
+        .accounts_page(ledger_engine::application::ports::Page {
+            offset: 0,
+            limit: 10,
+        })
+        .unwrap()
+        .items;
+    let wallet = accounts
+        .iter()
+        .find(|account| account.name() == "Wallet")
+        .unwrap()
+        .id()
+        .to_string();
+    let bank = accounts
+        .iter()
+        .find(|account| account.name() == "Bank")
+        .unwrap()
+        .id()
+        .to_string();
+    let ordered = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![],
+                vec![transaction_date_sort()],
+                LedgerTableGroupSettings::new(
+                    LedgerTableGroup::Transactions(TransactionTableGroup::Account),
+                    GroupSort::Manual,
+                    false,
+                    vec![bank.clone(), wallet.clone()],
+                    vec![],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut group_order = ordered
+        .items
+        .iter()
+        .filter_map(|row| row.group_key().map(str::to_string))
+        .collect::<Vec<_>>();
+    group_order.dedup();
+    assert_eq!(group_order, [bank.clone(), wallet.clone()]);
+
+    let manual = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![],
+                vec![transaction_date_sort()],
+                LedgerTableGroupSettings::new(
+                    LedgerTableGroup::Transactions(TransactionTableGroup::Account),
+                    GroupSort::Manual,
+                    false,
+                    vec![bank.clone(), wallet.clone()],
+                    vec![wallet],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(!manual.items.is_empty());
+    assert!(
+        manual
+            .items
+            .iter()
+            .all(|row| row.group_key() == Some(bank.as_str()))
+    );
 }
 
 fn table_service() -> LedgerService<SqliteLedgerRepository> {
