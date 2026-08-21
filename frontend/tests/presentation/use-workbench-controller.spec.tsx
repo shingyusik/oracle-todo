@@ -179,6 +179,61 @@ describe("useWorkbenchController", () => {
     expect(legacyNavigationCalls).toHaveLength(0);
   });
 
+  it.each(["miss", "postpone"] as const)(
+    "reloads every initialized table after successful %s and not after failure",
+    async (action) => {
+      const queries: Array<Record<string, unknown>> = [];
+      let mutationFails = false;
+      vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+        if (url === "/api/v1/todo/table/query") {
+          const body = JSON.parse(String(init?.body));
+          queries.push(body);
+          return Promise.resolve(new Response(JSON.stringify({
+            items: [{ key: `0::${body.scope}`, group_key: null, group_label: null, record: todoTableRecord(String(body.scope)) }],
+            next_offset: null,
+          }), { headers: { "content-type": "application/json" } }));
+        }
+        if (url.startsWith("/api/v1/todo/table/lookups")) return Promise.resolve(new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } }));
+        if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+        if (url === `/api/v1/todo/items/task-1/${action}`) {
+          if (mutationFails) return Promise.reject(new TypeError("offline"));
+          const source = { id: "task-1", type: "task", title: "Task", status: "missed" };
+          return Promise.resolve({
+            ok: true,
+            json: async () => action === "miss"
+              ? source
+              : { source, follow_up: { id: "task-2", type: "task", title: "Next", status: "active" } },
+          });
+        }
+        return Promise.resolve({ ok: true, json: async () => [] });
+      }));
+      const { result } = renderHook(() => useWorkbenchController());
+      const targets = [
+        { surface: "workspace", scope: "workspace.task" },
+        { surface: "planner", tableId: "daily.today" },
+        { surface: "linked", scope: "linked.project.task", parentType: "project", parentId: "p1" },
+      ] as const;
+      await act(async () => Promise.all(targets.map((target) => result.current.ensureTodoTable(target))));
+
+      await act(async () => {
+        if (action === "miss") await result.current.missWorkspaceItem("task-1");
+        else await result.current.postponeWorkspaceItem("task-1", "2026-08-23");
+      });
+      await waitFor(() => expect(queries).toHaveLength(6));
+      expect(queries.slice(3).map((query) => query.offset)).toEqual([0, 0, 0]);
+
+      mutationFails = true;
+      const beforeFailure = queries.length;
+      await act(async () => {
+        const operation = action === "miss"
+          ? result.current.missWorkspaceItem("task-1")
+          : result.current.postponeWorkspaceItem("task-1", "2026-08-24");
+        await expect(operation).rejects.toThrow();
+      });
+      expect(queries).toHaveLength(beforeFailure);
+    },
+  );
+
   it("ignores stale initial and appended pages after table settings change", async () => {
     const pending: Array<(value: Response) => void> = [];
     vi.stubGlobal("fetch", vi.fn((url: string) => {

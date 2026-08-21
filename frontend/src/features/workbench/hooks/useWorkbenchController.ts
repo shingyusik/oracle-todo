@@ -1924,7 +1924,7 @@ export function useWorkbenchController(): WorkbenchController {
       const existing = itemTransitions.current.get(itemId);
       if (existing) return existing.promise;
 
-      const transition = (async () => {
+      const transition = enqueueItemMutation(itemId, async () => {
         const source = await postMissItem(itemId);
         setDetailItem((current) => applyMutationToDetail(current, { source }));
         setWorkspaceItems((current) => {
@@ -1941,7 +1941,7 @@ export function useWorkbenchController(): WorkbenchController {
             tagOptions: mergeTagOptions(current.tagOptions, source.tags),
           };
         });
-      })();
+      });
       itemTransitions.current.set(itemId, {
         promise: transition,
         detailGeneration: null,
@@ -1976,7 +1976,7 @@ export function useWorkbenchController(): WorkbenchController {
       const existing = itemTransitions.current.get(itemId);
       if (existing) return existing.promise;
 
-      const transition = (async () => {
+      const transition = enqueueItemMutation(itemId, async () => {
         const result = await postPostponeItem(itemId, scheduled);
         setDetailItem((current) => applyMutationToDetail(current, result));
         setWorkspaceItems((current) => {
@@ -1999,7 +1999,7 @@ export function useWorkbenchController(): WorkbenchController {
             ),
           };
         });
-      })();
+      });
       itemTransitions.current.set(itemId, {
         promise: transition,
         detailGeneration: null,
