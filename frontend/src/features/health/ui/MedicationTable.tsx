@@ -71,16 +71,23 @@ function MedicationTableRow({ row, occurrence, selected, onOpen, onToggle }: {
   onToggle(id: string): void;
 }) {
   const context = `${row.medicationName}, ${row.date} ${row.takenAtLabel}, ${row.dose} ${row.unitLabel}`;
-  return <tr onClick={onOpen ? (event) => {
-    if (!(event.target as HTMLElement).closest("button, input, select, textarea, a")) {
-      onOpen(row, occurrence);
-    }
-  } : undefined}>
+  return <tr tabIndex={onOpen ? 0 : undefined}
+    aria-label={onOpen ? `Open details for ${context}` : undefined}
+    aria-description={onOpen ? "Press Enter or Space to open details." : undefined}
+    data-medication-row-id={onOpen ? row.id : undefined}
+    data-medication-occurrence={onOpen ? occurrence : undefined}
+    onClick={onOpen ? () => onOpen(row, occurrence) : undefined}
+    onKeyDown={onOpen ? (event) => {
+      if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+        event.preventDefault();
+        onOpen(row, occurrence);
+      }
+    } : undefined}>
     <td className="selection-column"><input type="checkbox" aria-label={`Select ${context}`}
-      checked={selected} onChange={() => onToggle(row.id)} /></td>
-    <td>{onOpen ? <button type="button" aria-label={`Open details for ${context}`}
-      data-medication-row-id={row.id} data-medication-occurrence={occurrence}
-      onClick={() => onOpen(row, occurrence)}>{row.takenAtLabel}</button> : row.takenAtLabel}</td>
+      checked={selected} onChange={() => onToggle(row.id)}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()} /></td>
+    <td>{row.takenAtLabel}</td>
     <td>{row.medicationName}</td><td>{String(row.dose)}</td>
     <td>{row.unitLabel}</td><td>{row.note}</td>
   </tr>;

@@ -1,4 +1,5 @@
 import React from "react";
+import { Plus, Trash2 } from "lucide-react";
 
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import {
@@ -58,6 +59,8 @@ export function HealthTableViewHeader({
     update: (updater) => controller.updateTableSettings(scope, updater),
   };
   const noun = title.toLowerCase();
+  const addLabel = `Add ${noun} entry`;
+  const archiveLabel = `Archive selected ${noun} entries`;
   return (
     <header className="workspace-table-header">
       <h1 id={headingId}>{title}</h1>
@@ -78,10 +81,14 @@ export function HealthTableViewHeader({
         <div className="workspace-table-header-actions">
           <TableViewControls adapter={adapter} />
           <button ref={addButtonRef} className="items-toolbar-button" type="button"
-            aria-label={`Add ${noun} entry`} aria-haspopup="dialog" onClick={onAdd}>Add</button>
+            aria-label={addLabel} title={addLabel} aria-haspopup="dialog" onClick={onAdd}>
+            <Plus size={16} aria-hidden="true" />
+          </button>
           <button ref={archiveButtonRef} className="items-toolbar-button" type="button"
-            aria-label={`Archive selected ${noun} entries`} disabled={archiveDisabled}
-            onClick={onArchiveSelected}>Delete</button>
+            aria-label={archiveLabel} title={archiveLabel} disabled={archiveDisabled}
+            onClick={onArchiveSelected}>
+            <Trash2 size={16} aria-hidden="true" />
+          </button>
         </div>
       </div>
       <TableViewActivePills adapter={adapter} />

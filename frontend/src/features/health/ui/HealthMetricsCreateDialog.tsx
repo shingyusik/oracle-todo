@@ -129,14 +129,6 @@ function HealthMetricsCreateDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Add health metrics</h2>
-          <button
-            type="button"
-            aria-label="Close Add health metrics"
-            disabled={pending || recovering}
-            onClick={close}
-          >
-            Close
-          </button>
         </header>
         <MetricsForm
           controller={controller}
@@ -145,6 +137,7 @@ function HealthMetricsCreateDialogContent({
           onSaved={onClose}
           onPendingChange={updatePending}
           onRecoveryChange={updateRecovery}
+          dialogActions={{ closeLabel: "Close Add health metrics", onClose: close }}
         />
       </div>
     </div>

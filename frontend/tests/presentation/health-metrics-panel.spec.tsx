@@ -257,7 +257,7 @@ describe("Health Metrics table", () => {
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: "Open health metrics for 2026-08-19" }));
+    await user.click(screen.getByRole("row", { name: "Open health metrics for 2026-08-19" }));
     expect(screen.getByRole("heading", { name: "Health Metrics · 2026-08-19" })).toBeInTheDocument();
     expect(screen.getByText(`Created ${new Date(weight.createdAt).toLocaleString()}`)).toBeInTheDocument();
     expect(screen.getByText(`Updated ${new Date(weight.updatedAt).toLocaleString()}`)).toBeInTheDocument();
@@ -292,7 +292,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     expect(screen.getByLabelText("Date")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "72.50" } });
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: " Steady " } });
@@ -337,7 +337,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     await user.selectOptions(screen.getByLabelText("Condition"), "");
     expect(screen.getByLabelText("Condition")).toHaveValue("");
     expect(screen.getByLabelText("Note")).toHaveValue("");
@@ -356,14 +356,14 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     expect(push).toHaveBeenCalledOnce();
     expect(window.history.state).toMatchObject({
       __ravenHealthDietDetailId: "keep-diet",
       __ravenHealthMetricsDetailDate: "2026-08-19",
     });
     act(() => window.history.back());
-    await screen.findByRole("button", { name: /Open health metrics/ });
+    await screen.findByRole("row", { name: /Open health metrics/ });
     act(() => window.history.forward());
     await screen.findByRole("heading", { name: "Health Metrics · 2026-08-19" });
     expect(push).toHaveBeenCalledOnce();
@@ -378,7 +378,7 @@ describe("Health Metrics table", () => {
     const view = render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={committed} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("archive failed");
@@ -416,7 +416,7 @@ describe("Health Metrics table", () => {
       render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
         onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
         onRetryRefresh={vi.fn()} />);
-      await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+      await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
       fireEvent.change(screen.getByLabelText(label), { target: { value: next } });
       await user.click(screen.getByRole("button", { name: "Save" }));
       await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledWith({ metrics: [{
@@ -430,7 +430,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     await user.clear(screen.getByLabelText("Note"));
     await user.type(screen.getByLabelText("Note"), "  Better  ");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -446,7 +446,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     await user.selectOptions(screen.getByLabelText("Condition"), "7");
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledWith({ metrics: [{
@@ -461,7 +461,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     fireEvent.change(screen.getByLabelText("CRP"), { target: { value: "1.5" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledOnce());
@@ -477,7 +477,7 @@ describe("Health Metrics table", () => {
     const view = render(<HealthMetricsPanel controller={original} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     const refreshedWeight = { ...weight, value: 99, updatedAt: "2026-08-20T00:00:00Z",
       attributes: { ...weight.attributes, value: 99 } } as HealthEvent;
     const hidden = panelController([refreshedWeight, sleep, event, calprotectin, condition], {
@@ -502,7 +502,7 @@ describe("Health Metrics table", () => {
     const view = render(<HealthMetricsPanel controller={plain} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     const groupedSettings = defaultHealthTableSettings("health.metrics");
     groupedSettings.groupSettings.groupBy = "month";
     const grouped = panelController([weight], groupedSettings);
@@ -510,7 +510,7 @@ describe("Health Metrics table", () => {
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "< Back" }));
-    const sameDate = await screen.findByRole("button", { name: /Open health metrics/ });
+    const sameDate = await screen.findByRole("row", { name: /Open health metrics/ });
     expect(sameDate.dataset.healthMetricsOccurrence).not.toBe("all-2026-08-19-0");
     await waitFor(() => expect(sameDate).toHaveFocus());
     await user.click(sameDate);
@@ -529,7 +529,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     for (const label of ["Weight", "Sleep", "CRP", "Calprotectin"]) {
       fireEvent.change(screen.getByLabelText(label), { target: { value: "" } });
     }
@@ -569,7 +569,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
@@ -591,7 +591,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    const origin = screen.getByRole("button", { name: /Open health metrics/ });
+    const origin = screen.getByRole("row", { name: /Open health metrics/ });
     await user.click(origin);
     await user.type(screen.getByLabelText("Note"), " draft");
     act(() => window.history.back());
@@ -604,7 +604,7 @@ describe("Health Metrics table", () => {
     act(() => window.history.back());
     dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
     await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
-    const restored = await screen.findByRole("button", { name: /Open health metrics/ });
+    const restored = await screen.findByRole("row", { name: /Open health metrics/ });
     await waitFor(() => expect(restored).toHaveFocus());
   });
 
@@ -618,7 +618,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
     act(() => window.history.back());
@@ -627,7 +627,7 @@ describe("Health Metrics table", () => {
     expect(screen.getByRole("heading", { name: /Health Metrics ·/ })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
     await controlled.releaseNext();
-    const origin = await screen.findByRole("button", { name: /Open health metrics/ });
+    const origin = await screen.findByRole("row", { name: /Open health metrics/ });
     await waitFor(() => expect(origin).toHaveFocus());
     expect(health.saveMetrics).toHaveBeenCalledOnce();
   });
@@ -644,7 +644,7 @@ describe("Health Metrics table", () => {
       render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
         onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
         onRetryRefresh={vi.fn()} />);
-      await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+      await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
       fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
       await user.click(screen.getByRole("button", { name: "Save" }));
       act(() => window.history.back());
@@ -672,7 +672,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
     await user.click(await screen.findByRole("button", { name: "Retry" }));
@@ -697,7 +697,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "70" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
     await user.click(await screen.findByRole("button", { name: "Retry" }));
@@ -706,7 +706,7 @@ describe("Health Metrics table", () => {
     await act(async () => refreshed.resolve(true));
     expect(screen.getByRole("heading", { name: /Health Metrics ·/ })).toBeInTheDocument();
     await controlled.releaseNext();
-    await screen.findByRole("button", { name: /Open health metrics/ });
+    await screen.findByRole("row", { name: /Open health metrics/ });
     expect(health.saveMetrics).toHaveBeenCalledOnce();
     expect(health.refreshMetrics).toHaveBeenCalledOnce();
   });
@@ -722,7 +722,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={committed} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     act(() => window.history.back());
@@ -733,7 +733,7 @@ describe("Health Metrics table", () => {
     await controlled.releaseNext();
     await waitFor(() => expect(committed).toHaveBeenCalledOnce());
     expect(health.saveMetrics).toHaveBeenCalledOnce();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open health metrics/ }))
+    await waitFor(() => expect(screen.getByRole("row", { name: /Open health metrics/ }))
       .toHaveFocus());
   });
 
@@ -748,7 +748,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={committed} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     act(() => window.history.back());
@@ -771,7 +771,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     act(() => window.history.back());
@@ -793,7 +793,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("dialog", { name: /Archive Health Metrics/ });
     act(() => window.history.back());
@@ -812,9 +812,9 @@ describe("Health Metrics table", () => {
     const view = render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     act(() => window.history.back());
-    await screen.findByRole("button", { name: /Open health metrics/ });
+    await screen.findByRole("row", { name: /Open health metrics/ });
     view.rerender(<HealthMetricsPanel controller={health} tombstonedIds={new Set([weight.id])}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
@@ -831,7 +831,7 @@ describe("Health Metrics table", () => {
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: /Open health metrics/ }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
     window.history.pushState({ ...window.history.state,
       __ravenHealthMetricsDetailDate: null,
       __ravenHealthMetricsDetailDate__index:
@@ -848,7 +848,7 @@ describe("Health Metrics table", () => {
     act(() => window.history.forward());
     dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
     await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
-    await screen.findByRole("button", { name: /Open health metrics/ });
+    await screen.findByRole("row", { name: /Open health metrics/ });
     await waitFor(() => expect(window.history.state).toMatchObject({
       __ravenHealthMetricsDetailDate: null, historySide: "forward",
     }));
@@ -857,6 +857,12 @@ describe("Health Metrics table", () => {
   });
 
   it("renders the saved-view header and fixed daily columns with units", () => {
+    const expectIconButton = (name: string, iconClass: string) => {
+      const button = screen.getByRole("button", { name });
+      expect(button).toHaveAttribute("title", name);
+      expect(button).toContainElement(button.querySelector(`.${iconClass}`));
+      expect(button).toHaveTextContent(/^\s*$/);
+    };
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
@@ -869,7 +875,8 @@ describe("Health Metrics table", () => {
     expect(screen.getByText("0.4 mg/L")).toBeInTheDocument();
     expect(screen.getByText("120 µg/g")).toBeInTheDocument();
     expect(screen.getByText("Steady")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add health metrics entry" })).toBeInTheDocument();
+    expectIconButton("Add health metrics entry", "lucide-plus");
+    expectIconButton("Archive selected health metrics entries", "lucide-trash-2");
     expect(screen.getByRole("button", { name: "Archive selected health metrics entries" }))
       .toBeDisabled();
   });
@@ -977,7 +984,7 @@ describe("Health Metrics table", () => {
     expect(screen.getByText("No health metrics match this view.")).toBeInTheDocument();
   });
 
-  it("isolates duplicate occurrence checkboxes from native date buttons", async () => {
+  it("isolates duplicate occurrence checkboxes from detail rows", async () => {
     const groups = deriveHealthMetricsGroups([weight], defaultHealthTableSettings("health.metrics"));
     const toggle = vi.fn();
     const open = vi.fn();
@@ -986,11 +993,11 @@ describe("Health Metrics table", () => {
       onToggleAll={vi.fn()} />);
     const checkboxes = screen.getAllByRole("checkbox", { name: /Select health metrics for/ });
     expect(checkboxes).toHaveLength(2);
-    expect(checkboxes[0].closest("tr")).not.toHaveAttribute("tabindex");
+    expect(checkboxes[0].closest("tr")).toHaveAttribute("tabindex", "0");
     await userEvent.click(checkboxes[1]);
     expect(toggle).toHaveBeenCalledWith("2026-08-19");
     expect(open).not.toHaveBeenCalled();
-    const buttons = screen.getAllByRole("button", { name: /Open health metrics for/ });
+    const buttons = screen.getAllByRole("row", { name: /Open health metrics for/ });
     expect(buttons.map((button) => button.dataset.healthMetricsOccurrence))
       .toEqual(["all-2026-08-19-0", "duplicate-2026-08-19-0"]);
   });
@@ -1076,7 +1083,7 @@ describe("Health Metrics table", () => {
       .toEqual(["None", "Month", "Week"]);
   });
 
-  it("uses native grouped table semantics and native date activation", async () => {
+  it("uses native grouped table semantics and accessible row activation", async () => {
     const user = userEvent.setup();
     const settings = defaultHealthTableSettings("health.metrics");
     settings.groupSettings.groupBy = "month";
@@ -1087,15 +1094,25 @@ describe("Health Metrics table", () => {
     const table = screen.getByRole("table", { name: "Health metrics" });
     expect(table.tagName).toBe("TABLE");
     expect(within(table).getByRole("rowheader")).toHaveAttribute("scope", "rowgroup");
-    const button = within(table).getByRole("button", { name: /Open health metrics/ });
-    expect(button.closest("tr")).not.toHaveAttribute("tabindex");
-    button.focus();
-    await user.keyboard("{Enter}");
-    await user.keyboard(" ");
-    await user.click(button);
-    expect(open).toHaveBeenCalledTimes(3);
+    const row = within(table).getByRole("row", { name: /Open health metrics/ });
+    expect(row.tagName).toBe("TR");
+    expect(row).toHaveRole("row");
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(row).toHaveAttribute("aria-description", "Press Enter or Space to open details.");
+    expect(within(row).queryByRole("button")).toBeNull();
+    await user.click(within(row).getByText("2026-08-19"));
+    expect(open).toHaveBeenCalledOnce();
     open.mockClear();
-    await user.click(within(table).getByRole("checkbox", { name: /Select health metrics for/ }));
+    row.focus();
+    for (const key of ["Enter", " ", "Space"]) {
+      fireEvent.keyDown(row, { key });
+      expect(open).toHaveBeenCalledOnce();
+      open.mockClear();
+    }
+    const checkbox = within(table).getByRole("checkbox", { name: /Select health metrics for/ });
+    await user.click(checkbox);
+    fireEvent.keyDown(checkbox, { key: "Enter" });
+    fireEvent.keyDown(checkbox, { key: " " });
     expect(open).not.toHaveBeenCalled();
   });
 

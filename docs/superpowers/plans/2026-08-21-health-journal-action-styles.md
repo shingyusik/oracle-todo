@@ -4,7 +4,7 @@
 
 **Goal:** Make Health rows the detail target, render Add/Delete as Ledger-style icons, and align all Health creation-dialog controls with Ledger.
 
-**Architecture:** Reuse Ledger's row activation pattern, installed Lucide icons, shared `items-toolbar-button`, shared `.field-label` controls, and existing creation-dialog footer classes. Keep Health forms usable outside their dedicated dialogs by enabling the footer only when a dialog-close callback is supplied; do not add CSS or a shared action component.
+**Architecture:** Reuse Ledger's row event-handling pattern while preserving native Health table row semantics, installed Lucide icons, shared `items-toolbar-button`, shared `.field-label` controls, and existing creation-dialog footer classes. Keep Health forms usable outside their dedicated dialogs by enabling the footer only when a dialog-close callback is supplied; do not add a shared action component.
 
 **Tech Stack:** React 18, TypeScript, Lucide React, Vitest, Testing Library, existing global CSS
 
@@ -28,15 +28,17 @@ For each real table, assert the existing accessible detail target is the native 
 contains no nested detail button:
 
 ```tsx
-const row = screen.getByRole("button", { name: /Open details for/ });
+const row = screen.getByRole("row", { name: /Open details for/ });
 expect(row.tagName).toBe("TR");
+expect(row).toHaveRole("row");
 expect(within(row).queryByRole("button")).toBeNull();
 expect(row).toHaveAttribute("tabindex", "0");
+expect(row).toHaveAttribute("aria-description", "Press Enter or Space to open details.");
 ```
 
 Exercise pointer click, Enter, and Space on rows, and assert clicking/keyboard-activating the
 selection checkbox does not open detail. Keep the existing exact occurrence and focus restoration
-assertions, which should continue to query the same accessible button role.
+assertions, which should continue to query the same accessible row role and name.
 
 - [ ] **Step 2: Run the four focused row tests and verify RED**
 
@@ -55,9 +57,9 @@ cell value as text, and use the established interaction shape:
 
 ```tsx
 <tr
-  role="button"
   tabIndex={0}
   aria-label={`Open details for ${context}`}
+  aria-description="Press Enter or Space to open details."
   data-medication-row-id={row.id}
   data-medication-occurrence={occurrence}
   onClick={() => onOpen(row, occurrence)}
@@ -71,8 +73,9 @@ cell value as text, and use the established interaction shape:
 ```
 
 Stop checkbox click and keydown propagation exactly as Ledger does. Apply the equivalent identity
-attributes for Diet, Bowel, and Health Metrics. Do not add a CSS class: the existing
-`.items-table tbody tr[role="button"]` focus rule already covers keyboard focus.
+attributes for Diet, Bowel, and Health Metrics. Do not add a CSS class: extend the existing
+`.items-table tbody tr:is([role="button"], [tabindex="0"]):focus-visible` rule so Ledger and
+focusable Health rows share the keyboard focus treatment.
 
 - [ ] **Step 4: Run the four complete panel suites and verify GREEN**
 

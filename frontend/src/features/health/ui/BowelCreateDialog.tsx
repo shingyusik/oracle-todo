@@ -33,27 +33,47 @@ function BowelCreateDialogContent({
   returnFocusRef,
 }: BowelCreateDialogProps) {
   const [pending, setPending] = React.useState(false);
+  const [recovering, setRecovering] = React.useState(false);
+  const pendingRef = React.useRef(false);
+  const recoveringRef = React.useRef(false);
+  const mountedRef = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
 
   React.useEffect(() => {
+    mountedRef.current = true;
     dialogRef.current?.querySelector<HTMLElement>(
       'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])',
     )?.focus();
     return () => {
+      mountedRef.current = false;
       if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
     };
   }, [returnFocusRef]);
 
   React.useEffect(() => {
     const dialog = dialogRef.current;
-    if (pending && dialog?.contains(document.activeElement)) dialog.focus();
-  }, [pending]);
+    if ((pending || recovering) && dialog?.contains(document.activeElement)) dialog.focus();
+  }, [pending, recovering]);
+
+  function updatePending(nextPending: boolean) {
+    pendingRef.current = nextPending;
+    if (mountedRef.current) setPending(nextPending);
+  }
+
+  function updateRecovery(nextRecovering: boolean) {
+    recoveringRef.current = nextRecovering;
+    if (mountedRef.current) setRecovering(nextRecovering);
+  }
+
+  function close() {
+    if (!pendingRef.current && !recoveringRef.current) onClose();
+  }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      if (!pending) onClose();
+      close();
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
@@ -84,7 +104,7 @@ function BowelCreateDialogContent({
     <div
       className="confirmation-backdrop"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose();
+        if (event.target === event.currentTarget) close();
       }}
     >
       <div
@@ -93,25 +113,19 @@ function BowelCreateDialogContent({
         role="dialog"
         aria-modal="true"
         aria-label="Add bowel entry"
-        aria-busy={pending}
+        aria-busy={pending || recovering}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         <header className="dashboard-widget-header">
           <h2>Add bowel entry</h2>
-          <button
-            type="button"
-            aria-label="Close Add bowel entry"
-            disabled={pending}
-            onClick={onClose}
-          >
-            Close
-          </button>
         </header>
         <BowelForm
           controller={controller}
           onSaved={onClose}
-          onPendingChange={setPending}
+          onPendingChange={updatePending}
+          onRecoveryChange={updateRecovery}
+          dialogActions={{ closeLabel: "Close Add bowel entry", onClose: close }}
         />
       </div>
     </div>

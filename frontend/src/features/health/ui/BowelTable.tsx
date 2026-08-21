@@ -40,16 +40,21 @@ export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onTogg
           {group.rows.map((row, rowIndex) => {
             const context = `Type ${row.bristolScale}, ${row.date} ${row.timeLabel}, ${row.bloodLabel}`;
             const occurrence = `${group.key}-${row.id}-${rowIndex}`;
-            return <tr key={occurrence} onClick={(event) => {
-              if (!(event.target as HTMLElement).closest("button, input, select, textarea, a")) {
-                onOpen(row, occurrence);
-              }
-            }}>
+            return <tr key={occurrence} tabIndex={0}
+              aria-label={`Open details for ${context}`}
+              aria-description="Press Enter or Space to open details."
+              data-bowel-row-id={row.id} data-bowel-occurrence={occurrence}
+              onClick={() => onOpen(row, occurrence)} onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+                  event.preventDefault();
+                  onOpen(row, occurrence);
+                }
+              }}>
               <td className="selection-column"><input type="checkbox" aria-label={`Select ${context}`}
-                checked={selectedIds.includes(row.id)} onChange={() => onToggle(row.id)} /></td>
-              <td><button type="button" aria-label={`Open details for ${context}`}
-                data-bowel-row-id={row.id} data-bowel-occurrence={occurrence}
-                onClick={() => onOpen(row, occurrence)}>{row.timeLabel}</button></td>
+                checked={selectedIds.includes(row.id)} onChange={() => onToggle(row.id)}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()} /></td>
+              <td>{row.timeLabel}</td>
               <td>{`Type ${row.bristolScale}`}</td><td>{row.bloodLabel}</td><td>{row.note}</td>
             </tr>;
           })}
