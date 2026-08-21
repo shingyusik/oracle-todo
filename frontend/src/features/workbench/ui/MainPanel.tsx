@@ -935,7 +935,7 @@ function LinkedItemTable({
             </tr>
           )}
         />
-        {expanded ? (
+        {expanded || page.moreStatus === "error" ? (
           <InfiniteTableFooter
             nextOffset={page.nextOffset}
             status={page.moreStatus}
