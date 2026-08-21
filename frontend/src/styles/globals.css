@@ -2146,6 +2146,33 @@ button {
   color: var(--color-shade-60);
 }
 
+.infinite-table-footer td {
+  padding: 12px 14px;
+  text-align: center;
+}
+
+.infinite-table-footer td > span {
+  margin-right: 10px;
+  color: var(--color-text-muted);
+}
+
+.infinite-table-footer [role="alert"] {
+  color: var(--color-danger-text);
+}
+
+.infinite-table-footer button {
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-canvas-light);
+  padding: 7px 10px;
+  color: var(--color-ink);
+}
+
+.infinite-table-footer button:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
 .confirmation-backdrop {
   position: fixed;
   inset: 0;
