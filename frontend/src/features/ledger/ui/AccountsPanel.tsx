@@ -19,7 +19,7 @@ import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 export function AccountsPanel({ controller }: { controller: LedgerController }) {
-  const [selectedDetailId, setSelectedDetailId] = useState<string | null>(null);
+  const [selectedDetailRow, setSelectedDetailRow] = useState<AccountRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -51,9 +51,9 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
       controller.state.accountCategories,
       defaultLedgerTableSettings("ledger.accounts"),
     ).flatMap((group) => group.rows);
-  const selectedDetail = selectedDetailId === null
+  const selectedDetail = selectedDetailRow === null
     ? null
-    : activeRows.find(({ id }) => id === selectedDetailId) ?? null;
+    : resolveAccountDetail(selectedDetailRow, controller);
   const activeRowCount = controller.state.accounts.length > 0
     ? controller.state.accounts.filter(({ active }) => active).length
     : activeRows.length;
@@ -71,8 +71,12 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
       const next = current.filter((id) => activeAccountIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (selectedDetailId && !activeAccountIds.has(selectedDetailId)) setSelectedDetailId(null);
-  }, [activeRows, selectedDetailId]);
+    if (
+      selectedDetailRow &&
+      controller.hasReferenceData?.("ledger.accounts") &&
+      !controller.state.accounts.some(({ id, active }) => id === selectedDetailRow.id && active)
+    ) setSelectedDetailRow(null);
+  }, [activeRows, controller, selectedDetailRow]);
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -116,7 +120,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
   }
 
   function returnToList() {
-    setSelectedDetailId(null);
+    setSelectedDetailRow(null);
     requestAnimationFrame(() => sectionRef.current?.focus());
   }
 
@@ -160,12 +164,13 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
         onOpen={(row) => void ensureReferences(controller).then((loaded) => {
-          if (loaded) setSelectedDetailId(row.id);
+          if (loaded) setSelectedDetailRow(row);
         })}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
         page={page}
         onLoadMore={() => void controller.loadMore?.("ledger.accounts")}
+        emptyMessage={ledgerEmptyMessage(controller, "ledger.accounts", page, "accounts")}
       />
       {createOpen ? (
         <AccountCreateDialog
@@ -198,6 +203,47 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
       ) : null}
     </section>
   );
+}
+
+function resolveAccountDetail(
+  fallback: AccountRow,
+  controller: LedgerController,
+): AccountRow | null {
+  if (!controller.hasReferenceData?.("ledger.accounts")) return fallback;
+  const account = controller.state.accounts.find(({ id, active }) => id === fallback.id && active);
+  if (!account) return null;
+  const accountType = controller.state.accountCategories.find(
+    ({ id, active }) => id === account.categoryId && active,
+  );
+  const currency = controller.state.currencies.find(
+    ({ id, active }) => id === account.currencyId && active,
+  );
+  return {
+    ...fallback,
+    id: account.id,
+    account,
+    name: account.name,
+    accountTypeId: account.categoryId,
+    accountTypeLabel: accountType?.name ?? fallback.accountTypeLabel,
+    currencyId: account.currencyId,
+    currencyCode: currency?.code ?? fallback.currencyCode,
+    decimalPlaces: currency?.decimalPlaces ?? fallback.decimalPlaces,
+  };
+}
+
+function ledgerEmptyMessage(
+  controller: LedgerController,
+  scope: "ledger.accounts",
+  page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
+  noun: string,
+): string {
+  if (page.items.length === 0 && (page.generation === 0 || page.moreStatus === "loading")) {
+    return `Loading ${noun}\u2026`;
+  }
+  const settings = controller.tableSettings(scope);
+  return settings.filterRules.length > 0 || settings.groupSettings.hiddenGroupKeys.length > 0
+    ? `No ${noun} match this view.`
+    : `No ${noun} yet.`;
 }
 
 function ensureReferences(controller: LedgerController): Promise<boolean> {

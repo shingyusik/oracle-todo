@@ -336,6 +336,48 @@ function transactionOccurrence(
   };
 }
 
+function accountOccurrence(
+  account = loadedState.accounts[0]!,
+): Extract<LedgerTableOccurrence, { scope: "ledger.accounts" }> {
+  return {
+    key: account.id,
+    groupKey: null,
+    groupLabel: null,
+    scope: "ledger.accounts",
+    record: {
+      id: account.id,
+      account,
+      name: account.name,
+      accountTypeId: account.categoryId,
+      accountTypeLabel: "Cash",
+      currencyId: account.currencyId,
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: 0,
+    },
+  };
+}
+
+function categoryOccurrence(
+  category = loadedState.categories[0]!,
+): Extract<LedgerTableOccurrence, { scope: "ledger.categories" }> {
+  return {
+    key: category.id,
+    groupKey: null,
+    groupLabel: null,
+    scope: "ledger.categories",
+    record: {
+      id: category.id,
+      category,
+      name: category.name,
+      kind: category.kind,
+      kindLabel: "Expense",
+      parentId: category.parentId,
+      parentLabel: "No parent",
+    },
+  };
+}
+
 function transactionSettings(
   patch: Partial<ReturnType<typeof defaultLedgerTableSettings>> = {},
 ) {
@@ -3324,6 +3366,150 @@ describe("LedgerPanel", () => {
       .toBeInTheDocument();
     expect([entries, currencies, accounts, categories].map((spy) => spy.mock.calls.length))
       .toEqual([1, 1, 1, 1]);
+  });
+
+  it("keeps a page-two account detail mounted after save reloads offset zero", async () => {
+    const user = userEvent.setup();
+    const updatedAccount = { ...loadedState.accounts[0]!, name: "Wallet" };
+    vi.spyOn(ledgerApi, "queryTable")
+      .mockResolvedValue({ items: [accountOccurrence()], nextOffset: null });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({
+      accountTypes: [], currencies: [],
+    });
+    vi.spyOn(ledgerApi, "listCurrencies")
+      .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountCategories")
+      .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccounts")
+      .mockResolvedValueOnce({ items: loadedState.accounts, nextOffset: null })
+      .mockResolvedValue({ items: [updatedAccount], nextOffset: null });
+    vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue(updatedAccount);
+
+    function ProductionAccounts() {
+      return <LedgerPanel controller={useLedgerController()} leafTabId="accounts" />;
+    }
+    render(<ProductionAccounts />);
+    await user.click(await screen.findByRole("button", { name: /Open details for Cash/ }));
+    vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
+    await user.clear(screen.getByLabelText("Account name"));
+    await user.type(screen.getByLabelText("Account name"), "Wallet");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("region", { name: "Wallet details" })).toBeInTheDocument();
+  });
+
+  it("keeps a page-two transaction detail mounted after save reloads offset zero", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const updated = transactionEntry("expense-1", "Dinner");
+    vi.spyOn(ledgerApi, "queryTable")
+      .mockResolvedValue({
+        items: [transactionOccurrence("expense-1", "expense-1", "Lunch")],
+        nextOffset: null,
+      });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({
+      accounts: [], categories: [], currencies: [],
+    });
+    vi.spyOn(ledgerApi, "listEntries")
+      .mockResolvedValueOnce({ items: [initial], nextOffset: null })
+      .mockResolvedValue({ items: [updated], nextOffset: null });
+    vi.spyOn(ledgerApi, "listCurrencies")
+      .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccounts")
+      .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
+    vi.spyOn(ledgerApi, "listTransactionCategories")
+      .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+    vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue(updated.entry);
+
+    function ProductionTransactions() {
+      return <LedgerPanel controller={useLedgerController()} />;
+    }
+    render(<ProductionTransactions />);
+    await user.click(await screen.findByRole("button", {
+      name: /Open details for Lunch/,
+    }));
+    vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
+    await user.clear(screen.getByLabelText("Content"));
+    await user.type(screen.getByLabelText("Content"), "Dinner");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("region", { name: "Dinner details" })).toBeInTheDocument();
+  });
+
+  it("keeps a page-two category detail mounted after save reloads offset zero", async () => {
+    const user = userEvent.setup();
+    const updatedCategory = { ...loadedState.categories[0]!, name: "Meals" };
+    vi.spyOn(ledgerApi, "queryTable")
+      .mockResolvedValue({ items: [categoryOccurrence()], nextOffset: null });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({ categories: [] });
+    vi.spyOn(ledgerApi, "listTransactionCategories")
+      .mockResolvedValueOnce({ items: loadedState.categories, nextOffset: null })
+      .mockResolvedValue({ items: [updatedCategory], nextOffset: null });
+    vi.spyOn(ledgerApi, "updateTransactionCategory").mockResolvedValue(updatedCategory);
+
+    function ProductionCategories() {
+      return <LedgerPanel controller={useLedgerController()} leafTabId="categories" />;
+    }
+    render(<ProductionCategories />);
+    await user.click(await screen.findByRole("button", { name: /Open details for Food/ }));
+    vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
+    await user.clear(screen.getByLabelText("Category name"));
+    await user.type(screen.getByLabelText("Category name"), "Meals");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("region", { name: "Meals details" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["transactions", "ledger.transactions", "No transactions match this view."],
+    ["accounts", "ledger.accounts", "No accounts match this view."],
+    ["categories", "ledger.categories", "No categories match this view."],
+  ] as const)("shows a constrained zero result for %s without eager records", (
+    leafTabId,
+    scope,
+    message,
+  ) => {
+    const ledger = controller({
+      ...loadedState,
+      entries: [], accounts: [], categories: [], balances: [],
+    });
+    ledger.tablePage = () => ({
+      items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 1,
+    });
+    ledger.tableSettings = (candidate) => candidate === scope
+      ? {
+          ...defaultLedgerTableSettings(candidate),
+          filterRules: [{
+            id: "zero-filter", field: "name", type: "text", operator: "contains", value: "x",
+          }],
+        }
+      : defaultLedgerTableSettings(candidate);
+    render(<LedgerPanel controller={ledger} leafTabId={leafTabId} />);
+    expect(screen.getByText(message)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["transactions", "Loading transactions…", "No transactions yet."],
+    ["accounts", "Loading accounts…", "No accounts yet."],
+    ["categories", "Loading categories…", "No categories yet."],
+  ] as const)("does not flash a false empty state while switching to %s", (
+    leafTabId,
+    loadingMessage,
+    emptyMessage,
+  ) => {
+    const ledger = controller({
+      ...loadedState,
+      entries: [], accounts: [], categories: [], balances: [],
+    });
+    ledger.tablePage = () => ({
+      items: [], nextOffset: null, moreStatus: "loading", moreError: null, generation: 1,
+    });
+    render(<LedgerPanel controller={ledger} leafTabId={leafTabId} />);
+    expect(screen.getByText(loadingMessage)).toBeInTheDocument();
+    expect(screen.queryByText(emptyMessage)).toBeNull();
   });
 
   it("suppresses duplicate Group preparation and stays closed after a safe failure", async () => {

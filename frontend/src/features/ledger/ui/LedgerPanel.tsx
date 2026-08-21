@@ -146,6 +146,11 @@ function TransactionsPanel({
   const referenceRows = legacyEntries.length > 0
     ? projectTransactionRows(legacyEntries)
     : activeRows;
+  const resolvedEditing = editing === null
+    ? null
+    : controller.hasReferenceData?.("ledger.transactions")
+      ? projectTransactionRows(legacyEntries).find(({ id }) => id === editing.id) ?? null
+      : referenceRows.find(({ id }) => id === editing.id) ?? null;
   const displayedEntries = legacyEntries.length > 0
     ? legacyEntries
     : activeRows.flatMap(({ detailEntry, transferEntry }) =>
@@ -165,12 +170,11 @@ function TransactionsPanel({
 
   useEffect(() => {
     if (
-      editing &&
-      !referenceRows.some(({ id }) => id === editing.id)
+      editing && !resolvedEditing
     ) {
       setEditing(null);
     }
-  }, [referenceRows, editing]);
+  }, [resolvedEditing, editing]);
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -209,14 +213,14 @@ function TransactionsPanel({
     if (await ensureLedgerReferences(controller, "ledger.transactions")) setEditing(row);
   }
 
-  if (editing) {
+  if (resolvedEditing) {
     return (
       <TransactionDetail
         controller={controller}
-        row={editing}
+        row={resolvedEditing}
         onBack={() => setEditing(null)}
         onArchived={() => {
-          setTombstonedIds((current) => new Set(current).add(editing.id));
+          setTombstonedIds((current) => new Set(current).add(resolvedEditing.id));
           setEditing(null);
         }}
       />
@@ -251,6 +255,7 @@ function TransactionsPanel({
         onToggleAll={toggleAllVisible}
         page={page}
         onLoadMore={() => void controller.loadMore?.("ledger.transactions")}
+        emptyMessage={transactionEmptyMessage(controller, page)}
       />
       {dialogOpen ? (
         <TransactionCreateDialog
@@ -276,6 +281,19 @@ function TransactionsPanel({
       ) : null}
     </section>
   );
+}
+
+function transactionEmptyMessage(
+  controller: LedgerController,
+  page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
+): string {
+  if (page.items.length === 0 && (page.generation === 0 || page.moreStatus === "loading")) {
+    return "Loading transactions\u2026";
+  }
+  const settings = controller.tableSettings("ledger.transactions");
+  return settings.filterRules.length > 0 || settings.groupSettings.hiddenGroupKeys.length > 0
+    ? "No transactions match this view."
+    : "No transactions yet.";
 }
 
 function ensureLedgerReferences(

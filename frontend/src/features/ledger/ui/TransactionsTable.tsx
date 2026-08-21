@@ -21,6 +21,7 @@ type TransactionsTableProps = {
   onToggleAll: () => void;
   page?: LedgerTablePageState;
   onLoadMore?: () => void;
+  emptyMessage?: string;
 };
 
 export function TransactionsTable({
@@ -33,6 +34,7 @@ export function TransactionsTable({
   onToggleAll,
   page = emptyPage,
   onLoadMore = noop,
+  emptyMessage,
 }: TransactionsTableProps) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap((group) => group.rows);
@@ -73,9 +75,9 @@ export function TransactionsTable({
           groups={groups}
           rows={rows}
           selectedIds={selectedIds}
-          emptyMessage={activeRowCount === 0
+          emptyMessage={emptyMessage ?? (activeRowCount === 0
             ? "No transactions yet."
-            : "No transactions match this view."}
+            : "No transactions match this view.")}
           onOpen={onOpen}
           onToggle={onToggle}
         />

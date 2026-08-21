@@ -19,6 +19,7 @@ type AccountsTableProps = {
   onToggleAll: () => void;
   page?: LedgerTablePageState;
   onLoadMore?: () => void;
+  emptyMessage?: string;
 };
 
 export function AccountsTable({
@@ -30,6 +31,7 @@ export function AccountsTable({
   onToggleAll,
   page = emptyPage,
   onLoadMore = noop,
+  emptyMessage,
 }: AccountsTableProps) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap((group) => group.rows);
@@ -67,9 +69,9 @@ export function AccountsTable({
           groups={groups}
           rows={rows}
           selectedIds={selectedIds}
-          emptyMessage={activeRowCount === 0
+          emptyMessage={emptyMessage ?? (activeRowCount === 0
             ? "No accounts yet."
-            : "No accounts match this view."}
+            : "No accounts match this view.")}
           onOpen={onOpen}
           onToggle={onToggle}
         />

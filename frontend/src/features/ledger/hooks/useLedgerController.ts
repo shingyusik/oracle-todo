@@ -113,6 +113,7 @@ export type LedgerController = {
   ensureTable?(scope: LedgerTableScopeId): Promise<void>;
   loadMore?(scope: LedgerTableScopeId): Promise<void>;
   ensureReferenceData?(scope: LedgerTableScopeId): Promise<boolean>;
+  hasReferenceData?(scope: LedgerTableScopeId): boolean;
   updateTableSettings(
     scope: LedgerTableScopeId,
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
@@ -255,7 +256,7 @@ export function useLedgerController(): LedgerController {
     const wasInitialized = initializedTables.current.has(scope);
     initializedTables.current.add(scope);
     const generation = tablePagesRef.current[scope].generation + 1;
-    const page = { ...emptyTablePage(), generation };
+    const page = { ...emptyTablePage(), moreStatus: "loading" as const, generation };
     tablePagesRef.current = { ...tablePagesRef.current, [scope]: page };
     setTablePages(tablePagesRef.current);
     try {
@@ -264,7 +265,12 @@ export function useLedgerController(): LedgerController {
         ledgerApi.tableLookups(scope),
       ]);
       if (tablePagesRef.current[scope].generation !== generation) return true;
-      const next = { ...page, items: dedupeOccurrences(result.items), nextOffset: result.nextOffset };
+      const next = {
+        ...page,
+        items: dedupeOccurrences(result.items),
+        nextOffset: result.nextOffset,
+        moreStatus: "idle" as const,
+      };
       tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
       setTablePages(tablePagesRef.current);
       setState((current) => ({
@@ -631,6 +637,7 @@ export function useLedgerController(): LedgerController {
     ensureTable,
     loadMore,
     ensureReferenceData,
+    hasReferenceData: (scope) => referenceDataLoaded.current.has(scope),
     updateTableSettings: (scope, updater) => {
       updateTableTabs(scope, (tabs) => updateTableViewTabDraft(
         tabs,

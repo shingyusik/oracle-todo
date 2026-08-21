@@ -18,6 +18,7 @@ type CategoriesTableProps = {
   onToggleAll: () => void;
   page?: LedgerTablePageState;
   onLoadMore?: () => void;
+  emptyMessage?: string;
 };
 
 export function CategoriesTable({
@@ -29,6 +30,7 @@ export function CategoriesTable({
   onToggleAll,
   page = emptyPage,
   onLoadMore = noop,
+  emptyMessage,
 }: CategoriesTableProps) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap((group) => group.rows);
@@ -66,9 +68,9 @@ export function CategoriesTable({
           groups={groups}
           rows={rows}
           selectedIds={selectedIds}
-          emptyMessage={activeRowCount === 0
+          emptyMessage={emptyMessage ?? (activeRowCount === 0
             ? "No categories yet."
-            : "No categories match this view."}
+            : "No categories match this view.")}
           onOpen={onOpen}
           onToggle={onToggle}
         />
