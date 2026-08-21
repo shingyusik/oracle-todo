@@ -57,6 +57,7 @@ import {
   isoWeekStart,
   localCalendarDate,
   monthStart,
+  plannerTableVisibleRange,
   plannerTableIds,
   type PlannerTableId,
   type PlannerTableSettings,
@@ -505,19 +506,11 @@ function plannerPeriodForTable(
   tableId: PlannerTableId,
   planner: PlannerControls,
 ): { from: string; to: string } {
-  if (tableId.startsWith("yearly.")) {
-    const from = yearStart(planner.yearlyDate);
-    return { from, to: addDays(addYears(from, 1), -1) };
-  }
-  if (tableId.startsWith("monthly.")) {
-    const from = monthStart(planner.monthlyDate);
-    return { from, to: addDays(addMonths(from, 1), -1) };
-  }
-  if (tableId.startsWith("weekly.")) {
-    const from = weekStartForDate(planner.weeklyDate);
-    return { from, to: addDays(from, 6) };
-  }
-  return { from: planner.dailyDate, to: planner.dailyDate };
+  const date = tableId.startsWith("yearly.") ? planner.yearlyDate
+    : tableId.startsWith("monthly.") ? planner.monthlyDate
+      : tableId.startsWith("weekly.") ? planner.weeklyDate
+        : planner.dailyDate;
+  return plannerTableVisibleRange(tableId, date);
 }
 
 function todoTableKey(
@@ -990,13 +983,13 @@ export function useWorkbenchController(): WorkbenchController {
     todoReferenceGeneration.current += 1;
     pendingTodoReference.current = null;
     const targets = [...activeTodoTargets.current.values()];
-    if (targets.length === 0) return;
     const invalidated = Object.fromEntries(Object.entries(todoTablePagesRef.current).map(
       ([key, page]) => [key, { ...page, generation: page.generation + 1 }],
     ));
     todoTablePagesRef.current = invalidated;
     setTodoTablePages(invalidated);
     initializedTodoTables.current.clear();
+    if (targets.length === 0) return;
     for (const target of targets) void ensureTodoTable(target);
   };
 
@@ -1593,6 +1586,9 @@ export function useWorkbenchController(): WorkbenchController {
       return todoTablePages[key] ?? emptyTodoPage();
     },
     ensureTodoTable,
+    releaseTodoTable: (target) => {
+      activeTodoTargets.current.delete(todoTableTargetIdentity(target));
+    },
     loadMoreTodoTable,
     ensureTodoReferenceData,
     resolveTodoItem: (itemId) => todoItemSnapshots.current.get(itemId) ?? null,

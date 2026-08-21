@@ -121,7 +121,7 @@ async function legacyTodoTableResponse(
     sorts: Array<{ field: string; direction: "asc" | "desc" }>;
     group_by: string;
     group_settings: { sort: "asc" | "desc" | "manual"; hide_empty: boolean; manual_order: string[]; hidden_group_keys: string[] };
-    context: { parent_type?: string; parent_id?: string; from?: string; reference_date: string };
+    context: { parent_type?: string; parent_id?: string; from?: string; to?: string; reference_date: string };
   };
   const allItems = body.scope.startsWith("linked.")
     ? await legacyTodoItems(fixtureFetch, canonicalItems, [], true)
@@ -232,24 +232,36 @@ function fixtureTypes(scope: string): string[] {
   return ["area", "project", "goal", "routine", "task", "event"];
 }
 
-function fixtureScopeItems(scope: string, context: { parent_type?: string; parent_id?: string; from?: string; reference_date: string }, all: WorkspaceItemModel[]) {
+function fixtureScopeItems(scope: string, context: { parent_type?: string; parent_id?: string; from?: string; to?: string; reference_date: string }, all: WorkspaceItemModel[]) {
   if (scope.startsWith("workspace.")) return all.filter((item) => item.type === scope.split(".")[1]);
   if (scope.startsWith("linked.")) {
     const field: "area_id" | "project_id" | "routine_id" | "parent_id" = context.parent_type === "area" ? "area_id"
       : context.parent_type === "project" ? "project_id" : context.parent_type === "routine" ? "routine_id" : "parent_id";
     return all.filter((item) => item.type === scope.split(".")[2] && item[field] === context.parent_id);
   }
-  const selected = context.from ?? context.reference_date;
+  const selected = scope === "planner.yearly-period-goals" && context.from
+    ? `${Number(context.from.slice(0, 4)) + 1}-01-01`
+    : scope === "planner.monthly-period-goals" && context.from
+      ? testNextMonthStart(context.from)
+      : scope.startsWith("planner.monthly-") && context.from
+        ? testMonthStart(testAddDays(context.from, 7))
+        : scope === "planner.weekly-month-goals" && context.from
+          ? testAddDays(context.from, 7)
+          : context.from ?? context.reference_date;
   if (scope.startsWith("planner.daily-")) return buildDailyPlannerSections(all, selected)[scope.split("-").at(-1) as "today" | "overdue" | "unscheduled"];
-  const weekly = buildWeeklyPlannerModel(all, selected);
+  const ranged = all.filter((item) => {
+    const scheduled = item.scheduled?.slice(0, 10);
+    return scheduled && (!context.from || scheduled >= context.from) && (!context.to || scheduled <= context.to);
+  });
+  const weekly = buildWeeklyPlannerModel(ranged, selected);
   if (scope === "planner.weekly-month-goals") return weekly.monthGoals;
   if (scope === "planner.weekly-week-goals") return weekly.weekGoals;
   if (scope === "planner.weekly-day-grid") return weekly.days.flatMap((day) => day.items);
-  const monthly = buildMonthlyPeriodGoalCardsModel(all, selected);
+  const monthly = buildMonthlyPeriodGoalCardsModel(ranged, selected);
   if (scope === "planner.monthly-period-goals") return monthly.carousel.flatMap((card) => card.goals);
   if (scope === "planner.monthly-week-goals") return monthly.weeks.flatMap((week) => week.goals);
   if (scope === "planner.monthly-calendar") return monthly.weeks.flatMap((week) => week.days.flatMap((day) => day.items));
-  const yearly = buildYearlyPeriodGoalCardsModel(all, selected);
+  const yearly = buildYearlyPeriodGoalCardsModel(ranged, selected);
   if (scope === "planner.yearly-period-goals") return yearly.carousel.flatMap((card) => card.goals);
   if (scope === "planner.yearly-month-goals") return yearly.months.flatMap((month) => month.goals);
   return [];
@@ -12476,6 +12488,33 @@ describe("WorkbenchPageClient", () => {
     expect(within(linked).queryByText("No linked items match this view.")).toBeNull();
   });
 
+  it("shows loading instead of a false no-match state for an initial linked page", async () => {
+    const user = userEvent.setup();
+    const area = { id: "area-loading", type: "area", title: "Loading area", status: "active" } as WorkspaceItemModel;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string };
+        if (body.scope === "workspace.area") return Promise.resolve(fixtureJson({
+          items: [{ key: "area-loading", group_key: null, group_label: null, record: fixtureWireRecord(area) }],
+          next_offset: null,
+        }));
+        if (body.scope === "linked.area.task") return new Promise<Response>(() => {});
+        return Promise.resolve(fixtureJson({ items: [], next_offset: null }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return Promise.resolve(fixtureJson({ items: [] }));
+      return Promise.resolve(fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []));
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Loading area" }));
+
+    const linked = await screen.findByRole("table", { name: "Tasks linked items" });
+    expect(within(linked).getByText("Loading items...")).toBeInTheDocument();
+    expect(within(linked).queryByText("No linked items match this view.")).toBeNull();
+  });
+
   it("shows blocking retries instead of empty states for every Planner period", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
@@ -12606,6 +12645,98 @@ describe("WorkbenchPageClient", () => {
     ]));
   });
 
+  it("renders adjacent Planner periods and spillover days from bounded server ranges", async () => {
+    const user = userEvent.setup();
+    const today = testToday();
+    const selectedYear = testYearStart(today);
+    const previousYear = testYearStart(testAddDays(selectedYear, -1));
+    const selectedMonth = testMonthStart(today);
+    const previousMonth = testPreviousMonthStart(selectedMonth);
+    const firstVisibleWeek = testWeekStart(selectedMonth);
+    const visibleWeek = testWeekStart(today);
+    const visibleMonth = testMonthStart(visibleWeek);
+    const contexts = new Map<string, { from?: string; to?: string }>();
+    const records: Record<string, WorkspaceItemModel[]> = {
+      "planner.yearly-period-goals": [{
+        id: "adjacent-year-goal", type: "goal", title: "Adjacent year goal", status: "active",
+        scheduled: previousYear, horizon: "year",
+      } as WorkspaceItemModel],
+      "planner.monthly-period-goals": [{
+        id: "adjacent-month-goal", type: "goal", title: "Adjacent month goal", status: "active",
+        scheduled: previousMonth, horizon: "month",
+      } as WorkspaceItemModel],
+      "planner.monthly-calendar": [{
+        id: "spillover-task", type: "task", title: "Spillover calendar task", status: "active",
+        scheduled: firstVisibleWeek,
+      } as WorkspaceItemModel],
+      "planner.monthly-week-goals": [{
+        id: "spillover-week-goal", type: "goal", title: "Spillover week goal", status: "active",
+        scheduled: firstVisibleWeek, horizon: "week",
+      } as WorkspaceItemModel],
+      "planner.weekly-month-goals": [{
+        id: "whole-month-goal", type: "goal", title: "Whole month goal", status: "active",
+        scheduled: visibleMonth, horizon: "month",
+      } as WorkspaceItemModel],
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as {
+          scope: string;
+          context: { from?: string; to?: string };
+        };
+        contexts.set(body.scope, body.context);
+        const items = (records[body.scope] ?? []).filter((item) =>
+          (!body.context.from || (item.scheduled ?? "") >= body.context.from) &&
+          (!body.context.to || (item.scheduled ?? "") <= body.context.to));
+        return fixtureJson({
+          items: items.map((item) => ({
+            key: `${body.scope}:${item.id}`,
+            group_key: null,
+            group_label: null,
+            record: fixtureWireRecord(item),
+          })),
+          next_offset: null,
+        });
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    expect(await screen.findByText("Adjacent year goal")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Monthly" }));
+    expect(await screen.findByText("Adjacent month goal")).toBeInTheDocument();
+    expect(await screen.findByText("Spillover calendar task")).toBeInTheDocument();
+    expect(await screen.findByText("Spillover week goal")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    expect(await screen.findByText("Whole month goal")).toBeInTheDocument();
+
+    expect(contexts.get("planner.yearly-period-goals")).toMatchObject({
+      from: previousYear,
+      to: testAddDays(testNextYearStart(testNextYearStart(selectedYear)), -1),
+    });
+    expect(contexts.get("planner.monthly-period-goals")).toMatchObject({
+      from: previousMonth,
+      to: testMonthEnd(testNextMonthStart(selectedMonth)),
+    });
+    expect(contexts.get("planner.monthly-calendar")).toMatchObject({
+      from: firstVisibleWeek,
+      to: testAddDays(testWeekStart(testMonthEnd(selectedMonth)), 6),
+    });
+    expect(contexts.get("planner.monthly-week-goals")).toEqual(
+      contexts.get("planner.monthly-calendar"),
+    );
+    expect(contexts.get("planner.weekly-month-goals")).toMatchObject({
+      from: visibleMonth,
+      to: testMonthEnd(visibleMonth),
+    });
+  });
+
   it("opens a linked page-two occurrence and refreshes offset zero after its mutation", async () => {
     const user = userEvent.setup();
     const linkedOffsets: number[] = [];
@@ -12645,6 +12776,8 @@ describe("WorkbenchPageClient", () => {
     await user.type(title, "Canonical page two");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("heading", { name: "Canonical page two" })).toBeInTheDocument();
+    expect(linkedOffsets).toEqual([0, 50]);
+    await user.click(screen.getByRole("button", { name: "< Back" }));
     await waitFor(() => expect(linkedOffsets).toEqual([0, 50, 0]));
   });
 

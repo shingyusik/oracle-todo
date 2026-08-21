@@ -299,6 +299,71 @@ describe("useWorkbenchController", () => {
     expect(legacyNavigationCalls).toHaveLength(0);
   });
 
+  it("queries every Planner table for the complete range consumed by its renderer", async () => {
+    const contexts = new Map<string, { from: string; to: string }>();
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as {
+          scope: string;
+          context: { from: string; to: string };
+        };
+        contexts.set(body.scope, body.context);
+        return Promise.resolve(new Response(JSON.stringify({ items: [], next_offset: null }), {
+          headers: { "content-type": "application/json" },
+        }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), {
+          headers: { "content-type": "application/json" },
+        }));
+      }
+      if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+    const queryPeriod = async (
+      panel: "yearly" | "monthly" | "weekly" | "daily",
+      date: string,
+      tableIds: readonly string[],
+    ) => {
+      act(() => result.current.selectTab(panel));
+      await waitFor(() => expect(result.current.panel.id).toBe(panel));
+      act(() => result.current.selectPlannerPeriodDate(date));
+      await act(async () => Promise.all(tableIds.map((tableId) => result.current.ensureTodoTable({
+        surface: "planner",
+        tableId: tableId as Parameters<typeof result.current.plannerTableSettings>[0],
+      }))));
+    };
+
+    await queryPeriod("yearly", "2026-06-15", ["yearly.period-goals", "yearly.month-goals"]);
+    await queryPeriod("monthly", "2026-08-15", ["monthly.period-goals", "monthly.calendar", "monthly.week-goals"]);
+    await queryPeriod("weekly", "2026-08-19", ["weekly.month-goals", "weekly.week-goals", "weekly.day-grid"]);
+    await queryPeriod("daily", "2026-08-22", ["daily.today", "daily.overdue", "daily.unscheduled"]);
+
+    expect(Object.fromEntries(contexts)).toEqual({
+      "planner.yearly-period-goals": expect.objectContaining({ from: "2025-01-01", to: "2027-12-31" }),
+      "planner.yearly-month-goals": expect.objectContaining({ from: "2026-01-01", to: "2026-12-31" }),
+      "planner.monthly-period-goals": expect.objectContaining({ from: "2026-07-01", to: "2026-09-30" }),
+      "planner.monthly-calendar": expect.objectContaining({ from: "2026-07-27", to: "2026-09-06" }),
+      "planner.monthly-week-goals": expect.objectContaining({ from: "2026-07-27", to: "2026-09-06" }),
+      "planner.weekly-month-goals": expect.objectContaining({ from: "2026-08-01", to: "2026-08-31" }),
+      "planner.weekly-week-goals": expect.objectContaining({ from: "2026-08-17", to: "2026-08-23" }),
+      "planner.weekly-day-grid": expect.objectContaining({ from: "2026-08-17", to: "2026-08-23" }),
+      "planner.daily-today": expect.objectContaining({ from: "2026-08-22", to: "2026-08-22" }),
+      "planner.daily-overdue": expect.objectContaining({ from: "2026-08-22", to: "2026-08-22" }),
+      "planner.daily-unscheduled": expect.objectContaining({ from: "2026-08-22", to: "2026-08-22" }),
+    });
+
+    act(() => result.current.selectTab("monthly"));
+    await waitFor(() => expect(result.current.panel.id).toBe("monthly"));
+    act(() => result.current.selectPlannerPeriodDate("2026-09-15"));
+    await act(() => result.current.ensureTodoTable({ surface: "planner", tableId: "monthly.calendar" }));
+    expect(contexts.get("planner.monthly-calendar")).toMatchObject({
+      from: "2026-08-31",
+      to: "2026-10-04",
+    });
+  });
+
   it.each(["miss", "postpone"] as const)(
     "reloads every initialized table after successful %s and not after failure",
     async (action) => {
@@ -353,6 +418,48 @@ describe("useWorkbenchController", () => {
       expect(queries).toHaveLength(beforeFailure);
     },
   );
+
+  it("refreshes only mounted table registrations after a mutation and lazily reloads history", async () => {
+    const queries: string[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string };
+        queries.push(body.scope);
+        return Promise.resolve(new Response(JSON.stringify({
+          items: [{ key: body.scope, group_key: null, group_label: null, record: todoTableRecord(body.scope) }],
+          next_offset: null,
+        }), { headers: { "content-type": "application/json" } }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), {
+          headers: { "content-type": "application/json" },
+        }));
+      }
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return Promise.resolve({ ok: true, json: async () => todoTableRecord("task-1") });
+      }
+      if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+    const historical = { surface: "workspace", scope: "workspace.task" } as const;
+    const current = { surface: "planner", tableId: "daily.today" } as const;
+
+    await act(() => result.current.ensureTodoTable(historical));
+    const historicalGeneration = result.current.todoTablePage(historical).generation;
+    act(() => result.current.releaseTodoTable(historical));
+    await act(() => result.current.ensureTodoTable(current));
+    await act(() => result.current.patchWorkspaceItem("task-1", { title: "Changed" }));
+
+    await waitFor(() => expect(queries).toEqual([
+      "workspace.task",
+      "planner.daily-today",
+      "planner.daily-today",
+    ]));
+    expect(result.current.todoTablePage(historical).generation).toBeGreaterThan(historicalGeneration);
+    await act(() => result.current.ensureTodoTable(historical));
+    expect(queries.at(-1)).toBe("workspace.task");
+  });
 
   it("ignores stale initial and appended pages after table settings change", async () => {
     const pending: Array<(value: Response) => void> = [];

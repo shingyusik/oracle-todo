@@ -358,6 +358,7 @@ export type WorkbenchController = {
   detailItem: WorkspaceItemModel | null;
   todoTablePage: (target: TodoTableTarget) => TodoTablePageState;
   ensureTodoTable: (target: TodoTableTarget) => Promise<void>;
+  releaseTodoTable: (target: TodoTableTarget) => void;
   loadMoreTodoTable: (target: TodoTableTarget) => Promise<void>;
   ensureTodoReferenceData?: () => Promise<boolean>;
   resolveTodoItem?: (itemId: string) => WorkspaceItemModel | null;

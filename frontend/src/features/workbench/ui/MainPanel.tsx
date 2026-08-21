@@ -860,6 +860,7 @@ function LinkedItemTable({
   useEffect(() => setExpanded(false), [viewVersion]);
   useEffect(() => {
     void controller.ensureTodoTable(target);
+    return () => controller.releaseTodoTable(target);
   }, [parentItem.id, queryScope, viewVersion]);
 
   return (
@@ -893,7 +894,9 @@ function LinkedItemTable({
           bodyClassName="linked-items-table-body"
           emptyMessage={page.moreStatus === "error" && page.items.length === 0
             ? "Could not load rows."
-            : "No linked items match this view."}
+            : page.generation === 0 || page.moreStatus === "loading"
+              ? "Loading items..."
+              : "No linked items match this view."}
           renderRow={(linkedItem) => (
             <tr key={linkedItem.id}>
               <td>
@@ -2367,6 +2370,7 @@ function usePlannerTablePage(
   });
   useEffect(() => {
     void controller.ensureTodoTable(target);
+    return () => controller.releaseTodoTable(target);
   }, [tableId, viewVersion]);
   return {
     target,
@@ -4657,6 +4661,7 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
 
   useEffect(() => {
     void controller.ensureTodoTable(target);
+    return () => controller.releaseTodoTable(target);
   }, [scope, viewVersion]);
 
   useEffect(() => {
