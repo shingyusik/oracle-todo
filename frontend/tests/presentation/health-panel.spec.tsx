@@ -709,4 +709,125 @@ describe("HealthPanel", () => {
     await waitFor(() => expect(putCount).toBe(2));
     expect(result.current.tableViewSaveError).toBeNull();
   });
+
+  it("loads Health table scopes lazily and appends one deduplicated page", async () => {
+    const second = deferred<Awaited<ReturnType<typeof healthApi.queryTable>>>();
+    vi.spyOn(healthApi, "queryTable")
+      .mockResolvedValueOnce({
+        items: [{ key: "first", groupKey: null, groupLabel: null, scope: "health.diet", record: { kind: "diet", id: diet.id, entry: diet, date: "2026-07-30", mealLabel: "Lunch", food: "Bibimbap", tags: ["rice"], hasPhoto: false, note: "" } }],
+        nextOffset: 50,
+      })
+      .mockReturnValueOnce(second.promise);
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({ tags: [] });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+    const { result } = renderHook(() => useHealthController());
+
+    expect(healthApi.queryTable).not.toHaveBeenCalled();
+    await act(async () => result.current.ensureTable!("health.diet"));
+    expect(healthApi.queryTable).toHaveBeenCalledOnce();
+    expect(result.current.tablePage!("health.diet").items.map(({ key }) => key)).toEqual(["first"]);
+    expect(result.current.state.dietEntries).toEqual([]);
+
+    let firstMore!: Promise<void>;
+    act(() => {
+      firstMore = result.current.loadMore!("health.diet");
+      void result.current.loadMore!("health.diet");
+    });
+    expect(healthApi.queryTable).toHaveBeenCalledTimes(2);
+    expect(healthApi.queryTable).toHaveBeenLastCalledWith(
+      "health.diet", expect.anything(), 50,
+    );
+    await act(async () => second.resolve({
+      items: [
+        { key: "first", groupKey: null, groupLabel: null, scope: "health.diet", record: { kind: "diet", id: diet.id, entry: diet, date: "2026-07-30", mealLabel: "Lunch", food: "Bibimbap", tags: [], hasPhoto: false, note: "" } },
+        { key: "second", groupKey: "rice", groupLabel: "Rice", scope: "health.diet", record: { kind: "diet", id: diet.id, entry: diet, date: "2026-07-30", mealLabel: "Lunch", food: "Bibimbap", tags: ["rice"], hasPhoto: false, note: "" } },
+      ],
+      nextOffset: null,
+    }));
+    await firstMore;
+    expect(result.current.tablePage!("health.diet")).toMatchObject({
+      nextOffset: null,
+      moreStatus: "idle",
+      items: [{ key: "first" }, { key: "second" }],
+    });
+    expect(healthApi.queryTable).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves rows on page errors, retries the same offset, and ignores stale pages", async () => {
+    const stale = deferred<Awaited<ReturnType<typeof healthApi.queryTable>>>();
+    vi.spyOn(healthApi, "queryTable")
+      .mockResolvedValueOnce({
+        items: [{ key: "old", groupKey: null, groupLabel: null, scope: "health.bowel", record: { kind: "bowel", id: bowel.id, event: bowel, date: "2026-07-30", bristolScale: 4, bloodVisible: false, bloodLabel: "No", note: "" } }],
+        nextOffset: 50,
+      })
+      .mockRejectedValueOnce(new Error("raw storage detail"))
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce({ items: [], nextOffset: null });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+    const { result } = renderHook(() => useHealthController());
+    await act(async () => result.current.ensureTable!("health.bowel"));
+
+    await act(async () => result.current.loadMore!("health.bowel"));
+    expect(result.current.tablePage!("health.bowel")).toMatchObject({
+      items: [{ key: "old" }], nextOffset: 50, moreStatus: "idle",
+      moreError: "Could not load more rows.",
+    });
+    let retry!: Promise<void>;
+    act(() => {
+      retry = result.current.loadMore!("health.bowel");
+      result.current.updateTableSettings("health.bowel", (settings) => ({
+        ...settings,
+        sortRules: [{ id: "date", field: "date", direction: "asc" }],
+      }));
+    });
+    await waitFor(() => expect(healthApi.queryTable).toHaveBeenCalledTimes(4));
+    await act(async () => stale.resolve({
+      items: [{ key: "stale", groupKey: null, groupLabel: null, scope: "health.bowel", record: { kind: "bowel", id: bowel.id, event: bowel, date: "2026-07-30", bristolScale: 4, bloodVisible: false, bloodLabel: "No", note: "" } }],
+      nextOffset: null,
+    }));
+    await retry;
+    expect(result.current.tablePage!("health.bowel").items).toEqual([]);
+  });
+
+  it("reloads only the affected initialized Health scope after mutation", async () => {
+    vi.spyOn(healthApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+    vi.spyOn(healthApi, "createEvent").mockResolvedValue(bowel);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+    const { result } = renderHook(() => useHealthController());
+    await act(async () => {
+      await result.current.ensureTable!("health.bowel");
+      await result.current.ensureTable!("health.diet");
+    });
+    vi.mocked(healthApi.queryTable).mockClear();
+
+    await act(async () => result.current.createBowel({} as never));
+
+    expect(healthApi.queryTable).toHaveBeenCalledOnce();
+    expect(healthApi.queryTable).toHaveBeenCalledWith(
+      "health.bowel", expect.anything(), 0,
+    );
+  });
+
+  it("retries an initial table failure at offset zero without exposing its cause", async () => {
+    vi.spyOn(healthApi, "queryTable")
+      .mockRejectedValueOnce(new Error("private database path"))
+      .mockResolvedValueOnce({ items: [], nextOffset: null });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+    const { result } = renderHook(() => useHealthController());
+
+    await act(async () => result.current.ensureTable!("health.metrics"));
+    expect(result.current.tablePage!("health.metrics")).toMatchObject({
+      items: [], nextOffset: 0, moreStatus: "error", moreError: "Could not load rows.",
+    });
+    expect(result.current.state.metricsError).toBe("Metrics request failed");
+
+    await act(async () => result.current.loadMore!("health.metrics"));
+    expect(result.current.tablePage!("health.metrics")).toMatchObject({
+      items: [], nextOffset: null, moreStatus: "idle", moreError: null,
+    });
+    expect(result.current.state.metricsError).toBeNull();
+  });
 });

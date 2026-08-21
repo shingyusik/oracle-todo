@@ -8,6 +8,8 @@ import {
   requestJson,
   timestamp,
 } from "@/lib/raven-api";
+import { healthApi } from "@/features/health/api/health-api";
+import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -141,5 +143,127 @@ describe("Raven API transport", () => {
       .rejects.toMatchObject({ kind: "protocol", status: 204 });
     await expect(requestJson("/api/v1/dashboard", undefined, decode))
       .rejects.toMatchObject({ kind: "protocol", status: 200 });
+  });
+});
+
+describe("Health table API", () => {
+  it("posts one bounded page with saved table settings and a local reference date", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(JSON.stringify({
+      items: [], next_offset: null,
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+    const settings = defaultHealthTableSettings("health.diet");
+    settings.filterMode = "or";
+    settings.filterRules = [{
+      id: "tag", field: "tags", type: "multiSelect", operator: "is", value: ["a/b", "x y"],
+    }];
+    settings.sortRules = [{ id: "food", field: "food", direction: "asc" }];
+    settings.groupSettings = {
+      ...settings.groupSettings,
+      groupBy: "tag",
+      sort: "manual",
+      manualOrder: ["a/b"],
+      hiddenGroupKeys: ["x y"],
+    };
+
+    await healthApi.queryTable(
+      "health.diet",
+      settings,
+      0,
+      { getFullYear: () => 2026, getMonth: () => 7, getDate: () => 21 },
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/health/table/query");
+    expect(JSON.parse(String(init.body))).toEqual({
+      scope: "health.diet",
+      offset: 0,
+      limit: 50,
+      filter_mode: "or",
+      filters: [{ field: "tags", operator: "is", value: { list: ["a/b", "x y"] } }],
+      sorts: [{ field: "food", direction: "asc" }],
+      group_by: "tag",
+      group_settings: {
+        sort: "manual",
+        hide_empty: true,
+        manual_order: ["a/b"],
+        hidden_group_keys: ["x y"],
+      },
+      context: { reference_date: "2026-08-21" },
+    });
+  });
+
+  it("parses discriminated rows for every Health scope and compact escaped lookups", async () => {
+    const baseEvent = {
+      id: "00000000-0000-4000-8000-000000000002",
+      occurred_at: "2026-08-21T01:00:00Z",
+      category: "bowel",
+      metric_key: "bowel",
+      name: "Bowel",
+      value_num: 4,
+      unit: null,
+      note: null,
+      attributes: { bristol_scale: 4, blood_visible: false },
+      created_at: "2026-08-21T01:00:00Z",
+      updated_at: "2026-08-21T01:00:00Z",
+      deleted_at: null,
+    };
+    const dietEntry = {
+      id: "00000000-0000-4000-8000-000000000001",
+      occurred_at: "2026-08-21T01:00:00Z",
+      meal_type: "lunch",
+      food_name: "Rice",
+      note: null,
+      tags: ["a/b"],
+      media_id: null,
+      created_at: "2026-08-21T01:00:00Z",
+      updated_at: "2026-08-21T01:00:00Z",
+      deleted_at: null,
+    };
+    const records = [
+      { kind: "diet", id: dietEntry.id, entry: dietEntry, date: "2026-08-21", meal_label: "Lunch", food: "Rice", tags: ["a/b"], has_photo: false, note: "" },
+      { kind: "bowel", id: baseEvent.id, event: baseEvent, date: "2026-08-21", bristol_scale: 4, blood_visible: false, blood_label: "No", note: "" },
+      { kind: "medication", id: baseEvent.id, event: { ...baseEvent, category: "medication", metric_key: "medication", name: "A", value_num: 2, unit: "mg", attributes: { medication_name: "A", dose: 2, unit: "mg" } }, date: "2026-08-21", medication_name: "A", dose: 2, unit: "mg", unit_label: "mg", note: "" },
+      { kind: "metrics", id: "2026-08-21", date: "2026-08-21", events: [], weight: 70, sleep: null, crp: null, calprotectin: null, condition: 8, note: "", created_at: "2026-08-21T01:00:00Z", updated_at: "2026-08-21T01:00:00Z" },
+    ];
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => Promise.resolve(response(JSON.stringify({ items: [{ key: "7:a/b:id", group_key: "a/b", group_label: "a/b", record: records[0] }], next_offset: 50 }))))
+      .mockImplementationOnce(() => Promise.resolve(response(JSON.stringify({ items: [{ key: "0::id", group_key: null, group_label: null, record: records[1] }], next_offset: null }))))
+      .mockImplementationOnce(() => Promise.resolve(response(JSON.stringify({ items: [{ key: "0::id", group_key: null, group_label: null, record: records[2] }], next_offset: null }))))
+      .mockImplementationOnce(() => Promise.resolve(response(JSON.stringify({ items: [{ key: "0::date", group_key: null, group_label: null, record: records[3] }], next_offset: null }))))
+      .mockImplementationOnce(() => Promise.resolve(response(JSON.stringify({ tags: [{ id: "a/b?c#d", label: "a/b?c#d" }] }))));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const scopes = ["health.diet", "health.bowel", "health.medication", "health.metrics"] as const;
+    const pages = await Promise.all(scopes.map((scope) =>
+      healthApi.queryTable(scope, defaultHealthTableSettings(scope))));
+    expect(fetchMock.mock.calls.slice(0, 4).map(([, init]) => {
+      const body = JSON.parse(String((init as RequestInit).body));
+      return { ...body, context: { reference_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } };
+    })).toEqual(scopes.map((scope) => ({
+      scope,
+      offset: 0,
+      limit: 50,
+      filter_mode: "and",
+      filters: [],
+      sorts: [{ field: "date", direction: "desc" }],
+      group_by: "none",
+      group_settings: {
+        sort: "manual", hide_empty: true, manual_order: [], hidden_group_keys: [],
+      },
+      context: { reference_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
+    })));
+    expect(pages.map((page) => page.items[0]?.scope)).toEqual(scopes);
+    expect(pages[0]).toMatchObject({
+      items: [{ key: "7:a/b:id", groupKey: "a/b", groupLabel: "a/b", record: { kind: "diet", food: "Rice" } }],
+      nextOffset: 50,
+    });
+    await expect(healthApi.tableLookups("health.diet")).resolves.toEqual({
+      tags: [{ id: "a/b?c#d", label: "a/b?c#d" }],
+    });
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(
+      "/api/v1/health/table/lookups?scope=health.diet",
+    );
   });
 });

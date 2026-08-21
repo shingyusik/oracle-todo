@@ -14,6 +14,8 @@ import type {
   EventInput,
   EventUpdate,
   HealthEvent,
+  HealthTableLookups,
+  HealthTableOccurrence,
 } from "@/features/health/model/health-model";
 import {
   resolveHealthReportRange,
@@ -57,6 +59,13 @@ type PendingHealthViewCommand = {
   apply: (state: HealthTableViewsState) => HealthTableViewsState;
   persist: boolean;
 };
+export type HealthTablePageState = {
+  items: HealthTableOccurrence[];
+  nextOffset: number | null;
+  moreStatus: "idle" | "loading" | "error";
+  moreError: string | null;
+  generation: number;
+};
 
 export class HealthMutationRefreshError extends Error {
   constructor() {
@@ -82,6 +91,7 @@ export type HealthState = {
   reportError: string | null;
   report: HealthReport | null;
   reportSelection: HealthReportSelection;
+  tableLookups?: Record<HealthTableScopeId, HealthTableLookups>;
 };
 
 export type HealthController = {
@@ -92,6 +102,11 @@ export type HealthController = {
   tableTabs(scope: HealthTableScopeId): TableViewTabsState<PlannerTableSettings>;
   tableSettings(scope: HealthTableScopeId): PlannerTableSettings;
   tableIsDirty(scope: HealthTableScopeId): boolean;
+  tablePage?(scope: HealthTableScopeId): HealthTablePageState;
+  ensureTable?(scope: HealthTableScopeId): Promise<void>;
+  loadMore?(scope: HealthTableScopeId): Promise<void>;
+  ensureReferenceData?(scope: HealthTableScopeId): Promise<boolean>;
+  hasReferenceData?(scope: HealthTableScopeId): boolean;
   updateTableSettings(
     scope: HealthTableScopeId,
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
@@ -142,6 +157,22 @@ const initialState: HealthState = {
   reportError: null,
   report: null,
   reportSelection: { preset: 30 },
+  tableLookups: {
+    "health.diet": {},
+    "health.bowel": {},
+    "health.medication": {},
+    "health.metrics": {},
+  },
+};
+
+const emptyTablePage = (): HealthTablePageState => ({
+  items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+});
+const initialTablePages: Record<HealthTableScopeId, HealthTablePageState> = {
+  "health.diet": emptyTablePage(),
+  "health.bowel": emptyTablePage(),
+  "health.medication": emptyTablePage(),
+  "health.metrics": emptyTablePage(),
 };
 
 let healthViewsWrite = Promise.resolve();
@@ -190,6 +221,12 @@ export function useHealthController(): HealthController {
   const tableViewSaveErrorRef = useRef<string | null>(null);
   const tableViewSaveGeneration = useRef(0);
   const [tableViews, setTableViews] = useState(createHealthTableViews);
+  const [tablePages, setTablePages] = useState(initialTablePages);
+  const tablePagesRef = useRef(tablePages);
+  const initializedTables = useRef(new Set<HealthTableScopeId>());
+  const pendingMore = useRef(new Set<HealthTableScopeId>());
+  const referenceDataLoaded = useRef(new Set<HealthTableScopeId>());
+  const referenceDataRequests = useRef(new Map<HealthTableScopeId, Promise<boolean>>());
   const tableViewsRef = useRef(tableViews);
   const initialTableViews = useRef(tableViews);
   const tableViewsLoaded = useRef(false);
@@ -214,12 +251,107 @@ export function useHealthController(): HealthController {
   const latestReportOutcome = useRef<Promise<boolean> | null>(null);
   const reportSelection = useRef<HealthReportSelection>({ preset: 30 });
   tableViewsRef.current = tableViews;
+  tablePagesRef.current = tablePages;
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
+  }, []);
+
+  const loadInitialTable = useCallback(async (scope: HealthTableScopeId) => {
+    const wasInitialized = initializedTables.current.has(scope);
+    initializedTables.current.add(scope);
+    const previousPage = tablePagesRef.current[scope];
+    const generation = previousPage.generation + 1;
+    const page = { ...emptyTablePage(), moreStatus: "loading" as const, generation };
+    tablePagesRef.current = { ...tablePagesRef.current, [scope]: page };
+    setTablePages(tablePagesRef.current);
+    setState((current) => setScopeLoadState(current, scope, wasInitialized ? undefined : "loading"));
+    try {
+      const [result, lookups] = await Promise.all([
+        healthApi.queryTable(scope, tableViewsRef.current[scope].draftSettings, 0),
+        healthApi.tableLookups(scope),
+      ]);
+      if (tablePagesRef.current[scope].generation !== generation) return true;
+      const next = {
+        ...page,
+        items: dedupeOccurrences(result.items),
+        nextOffset: result.nextOffset,
+        moreStatus: "idle" as const,
+      };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
+      setTablePages(tablePagesRef.current);
+      setState((current) => ({
+        ...setScopeLoadState(current, scope, "loaded"),
+        tableLookups: { ...initialState.tableLookups!, ...current.tableLookups, [scope]: lookups },
+      }));
+      return true;
+    } catch {
+      if (tablePagesRef.current[scope].generation !== generation) return true;
+      const failed = {
+        ...page,
+        items: previousPage.items,
+        nextOffset: 0,
+        moreStatus: "error" as const,
+        moreError: "Could not load rows.",
+      };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: failed };
+      setTablePages(tablePagesRef.current);
+      setState((current) => setScopeLoadState(
+        current,
+        scope,
+        wasInitialized ? undefined : "error",
+        scopeError(scope),
+      ));
+      return false;
+    }
+  }, []);
+
+  const ensureTable = useCallback(async (scope: HealthTableScopeId) => {
+    if (initializedTables.current.has(scope)) return;
+    await loadInitialTable(scope);
+  }, [loadInitialTable]);
+
+  const loadMore = useCallback(async (scope: HealthTableScopeId) => {
+    const current = tablePagesRef.current[scope];
+    if (current.nextOffset === null || pendingMore.current.has(scope)) return;
+    pendingMore.current.add(scope);
+    const generation = current.generation;
+    const offset = current.nextOffset;
+    const loading = { ...current, moreStatus: "loading" as const, moreError: null };
+    tablePagesRef.current = { ...tablePagesRef.current, [scope]: loading };
+    setTablePages(tablePagesRef.current);
+    try {
+      const result = await healthApi.queryTable(
+        scope,
+        tableViewsRef.current[scope].draftSettings,
+        offset,
+      );
+      if (tablePagesRef.current[scope].generation !== generation) return;
+      const next = {
+        ...tablePagesRef.current[scope],
+        items: dedupeOccurrences(offset === 0 ? result.items : [...current.items, ...result.items]),
+        nextOffset: result.nextOffset,
+        moreStatus: "idle" as const,
+        moreError: null,
+      };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
+      setTablePages(tablePagesRef.current);
+      setState((state) => setScopeLoadState(state, scope, "loaded"));
+    } catch {
+      if (tablePagesRef.current[scope].generation !== generation) return;
+      const next = {
+        ...tablePagesRef.current[scope],
+        moreStatus: "idle" as const,
+        moreError: offset === 0 ? "Could not load rows." : "Could not load more rows.",
+      };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
+      setTablePages(tablePagesRef.current);
+    } finally {
+      pendingMore.current.delete(scope);
+    }
   }, []);
 
   function saveTableViews(next: HealthTableViewsState) {
@@ -255,6 +387,9 @@ export function useHealthController(): HealthController {
       }
       pendingTableViewCommands.current = [];
       tableViewsLoaded.current = true;
+      const changedInitializedScopes = [...initializedTables.current].filter((scope) =>
+        JSON.stringify(tableViewsRef.current[scope].draftSettings)
+          !== JSON.stringify(next[scope].draftSettings));
       tableViewsRef.current = next;
       setTableViewConfirmation((current) => {
         if (!current) return current;
@@ -268,12 +403,13 @@ export function useHealthController(): HealthController {
           : { ...current, targetTabId };
       });
       setTableViews(next);
+      for (const scope of changedInitializedScopes) void loadInitialTable(scope);
       for (const persistedState of persistedStates) saveTableViews(persistedState);
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadInitialTable]);
 
   const startDietRefresh = useCallback((force = false): Promise<boolean> => {
     if (!force && inFlightDietRefresh.current) return inFlightDietRefresh.current;
@@ -322,11 +458,6 @@ export function useHealthController(): HealthController {
     });
     return request;
   }, []);
-
-  const refreshDiet = useCallback(
-    () => startDietRefresh(),
-    [startDietRefresh],
-  );
 
   const startBowelRefresh = useCallback((force = false): Promise<boolean> => {
     if (!force && inFlightBowelRefresh.current) return inFlightBowelRefresh.current;
@@ -484,39 +615,50 @@ export function useHealthController(): HealthController {
     return request;
   }, []);
 
-  useEffect(() => {
-    void refreshDiet();
-    void startBowelRefresh();
-    void startMedicationRefresh();
-    void startMetricsRefresh();
-  }, [refreshDiet, startBowelRefresh, startMedicationRefresh, startMetricsRefresh]);
+  const loadReferenceData = useCallback((
+    scope: HealthTableScopeId,
+    force = false,
+  ): Promise<boolean> => {
+    if (!force && referenceDataLoaded.current.has(scope)) return Promise.resolve(true);
+    const pending = referenceDataRequests.current.get(scope);
+    if (pending) return pending;
+    const load = scope === "health.diet"
+      ? startDietRefresh
+      : scope === "health.bowel"
+        ? startBowelRefresh
+        : scope === "health.medication"
+          ? startMedicationRefresh
+          : startMetricsRefresh;
+    const request = load(force).then((ok) => {
+      if (ok) referenceDataLoaded.current.add(scope);
+      return ok;
+    }).finally(() => referenceDataRequests.current.delete(scope));
+    referenceDataRequests.current.set(scope, request);
+    return request;
+  }, [startBowelRefresh, startDietRefresh, startMedicationRefresh, startMetricsRefresh]);
 
-  const refreshDietReads = useCallback(
-    (force = false) => startDietRefresh(force),
-    [startDietRefresh],
+  const ensureReferenceData = useCallback(
+    (scope: HealthTableScopeId) => loadReferenceData(scope),
+    [loadReferenceData],
   );
-  const refreshBowelReads = useCallback(
-    (force = false) => startBowelRefresh(force),
-    [startBowelRefresh],
-  );
-  const refreshMedicationRelated = useCallback(
-    (force = false) => startMedicationRefresh(force),
-    [startMedicationRefresh],
-  );
-  const refreshMetricsReads = useCallback(
-    (force = false) => startMetricsRefresh(force),
-    [startMetricsRefresh],
-  );
+
+  const refreshScope = useCallback(async (
+    scope: HealthTableScopeId,
+    initialize = false,
+  ) => {
+    const requests: Promise<boolean>[] = [];
+    if (initialize || initializedTables.current.has(scope)) requests.push(loadInitialTable(scope));
+    if (referenceDataLoaded.current.has(scope)) requests.push(loadReferenceData(scope, true));
+    if (requests.length === 0) requests.push(loadInitialTable(scope));
+    const outcomes = await Promise.all(requests);
+    return outcomes.every(Boolean);
+  }, [loadInitialTable, loadReferenceData]);
 
   const refresh = useCallback(async () => {
-    const [dietOk, bowelOk, medicationOk, metricsOk] = await Promise.all([
-      startDietRefresh(),
-      startBowelRefresh(),
-      startMedicationRefresh(),
-      startMetricsRefresh(),
-    ]);
-    return dietOk && bowelOk && medicationOk && metricsOk;
-  }, [startDietRefresh, startBowelRefresh, startMedicationRefresh, startMetricsRefresh]);
+    const scopes = new Set([...initializedTables.current, ...referenceDataLoaded.current]);
+    const outcomes = await Promise.all([...scopes].map((scope) => refreshScope(scope)));
+    return outcomes.every(Boolean);
+  }, [refreshScope]);
 
   const runReports = useCallback((selection: HealthReportSelection): Promise<boolean> => {
     reportSelection.current = selection;
@@ -616,36 +758,29 @@ export function useHealthController(): HealthController {
     [runReports],
   );
 
-  const refreshMetrics = useCallback(
-    () => refreshMetricsReads(),
-    [refreshMetricsReads],
-  );
-
+  const refreshMetrics = useCallback(() => refreshScope("health.metrics"), [refreshScope]);
   const refreshMedication = useCallback(
-    () => refreshMedicationRelated(),
-    [refreshMedicationRelated],
+    () => refreshScope("health.medication"),
+    [refreshScope],
   );
-
-  const refreshBowel = useCallback(
-    () => refreshBowelReads(),
-    [refreshBowelReads],
-  );
+  const refreshBowel = useCallback(() => refreshScope("health.bowel"), [refreshScope]);
+  const refreshDiet = useCallback(() => refreshScope("health.diet"), [refreshScope]);
 
   const refreshAfterMutation = useCallback(async () => {
-    if (!await refreshDietReads(true)) throw new HealthMutationRefreshError();
-  }, [refreshDietReads]);
+    if (!await refreshScope("health.diet", true)) throw new HealthMutationRefreshError();
+  }, [refreshScope]);
 
   const refreshAfterBowelMutation = useCallback(async () => {
-    if (!await refreshBowelReads(true)) throw new HealthMutationRefreshError();
-  }, [refreshBowelReads]);
+    if (!await refreshScope("health.bowel", true)) throw new HealthMutationRefreshError();
+  }, [refreshScope]);
 
   const refreshAfterMedicationMutation = useCallback(async () => {
-    if (!await refreshMedicationRelated(true)) throw new HealthMutationRefreshError();
-  }, [refreshMedicationRelated]);
+    if (!await refreshScope("health.medication", true)) throw new HealthMutationRefreshError();
+  }, [refreshScope]);
 
   const refreshAfterMetricsMutation = useCallback(async () => {
-    if (!await refreshMetricsReads(true)) throw new HealthMutationRefreshError();
-  }, [refreshMetricsReads]);
+    if (!await refreshScope("health.metrics", true)) throw new HealthMutationRefreshError();
+  }, [refreshScope]);
 
   async function mutate(
     operation: () => Promise<unknown>,
@@ -662,6 +797,7 @@ export function useHealthController(): HealthController {
     ) => TableViewTabsState<PlannerTableSettings> | null,
     persist = false,
   ): boolean {
+    const previousSettings = JSON.stringify(tableViewsRef.current[scope].draftSettings);
     const updated = updater(tableViewsRef.current[scope]);
     if (!updated) return false;
     const apply = (views: HealthTableViewsState): HealthTableViewsState => {
@@ -671,6 +807,12 @@ export function useHealthController(): HealthController {
     const next = { ...tableViewsRef.current, [scope]: updated };
     tableViewsRef.current = next;
     setTableViews(next);
+    if (
+      initializedTables.current.has(scope)
+      && previousSettings !== JSON.stringify(updated.draftSettings)
+    ) {
+      void loadInitialTable(scope);
+    }
     if (tableViewsLoaded.current) {
       if (persist) saveTableViews(next);
     } else {
@@ -722,6 +864,11 @@ export function useHealthController(): HealthController {
       tableViews[scope],
       healthTableViewSettingsAdapter.cloneSettings,
     ),
+    tablePage: (scope) => tablePages[scope],
+    ensureTable,
+    loadMore,
+    ensureReferenceData,
+    hasReferenceData: (scope) => referenceDataLoaded.current.has(scope),
     updateTableSettings: (scope, updater) => {
       updateTableTabs(scope, (tabs) => updateTableViewTabDraft(
         tabs,
@@ -817,7 +964,49 @@ export function useHealthController(): HealthController {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  void error;
+  return fallback;
+}
+
+function dedupeOccurrences(items: HealthTableOccurrence[]): HealthTableOccurrence[] {
+  const seen = new Set<string>();
+  return items.filter(({ key }) => !seen.has(key) && Boolean(seen.add(key)));
+}
+
+function scopeError(scope: HealthTableScopeId): string {
+  if (scope === "health.diet") return "Diet request failed";
+  if (scope === "health.bowel") return "Bowel request failed";
+  if (scope === "health.medication") return "Medication request failed";
+  return "Metrics request failed";
+}
+
+function setScopeLoadState(
+  state: HealthState,
+  scope: HealthTableScopeId,
+  status?: LoadStatus,
+  error?: string,
+): HealthState {
+  const nextError = error ?? (status === "loaded" ? null : undefined);
+  if (scope === "health.diet") return {
+    ...state,
+    ...(status === undefined ? {} : { dietStatus: status }),
+    ...(nextError === undefined ? {} : { dietError: nextError }),
+  };
+  if (scope === "health.bowel") return {
+    ...state,
+    ...(status === undefined ? {} : { bowelStatus: status }),
+    ...(nextError === undefined ? {} : { bowelError: nextError }),
+  };
+  if (scope === "health.medication") return {
+    ...state,
+    ...(status === undefined ? {} : { medicationStatus: status }),
+    ...(nextError === undefined ? {} : { medicationError: nextError }),
+  };
+  return {
+    ...state,
+    ...(status === undefined ? {} : { metricsStatus: status }),
+    ...(nextError === undefined ? {} : { metricsError: nextError }),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
