@@ -216,17 +216,13 @@ fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
                 item_order.extend(["i.priority IS NULL ASC".into(), "i.priority ASC".into()]);
             }
             TodoTableScope::Planner(_) => {
-                item_order.extend([
-                    "todo_date_ordinal(i.scheduled) ASC".into(),
-                    "i.scheduled ASC".into(),
-                ]);
+                item_order.push("todo_date_ordinal(i.scheduled) ASC".into());
             }
             _ => item_order.push("i.updated_at DESC".into()),
         }
     }
     item_order.extend([
         "todo_date_ordinal(i.scheduled) ASC".into(),
-        "i.scheduled ASC".into(),
         "i.updated_at DESC".into(),
         "todo_sort_key(i.title) ASC".into(),
         "i.title ASC".into(),

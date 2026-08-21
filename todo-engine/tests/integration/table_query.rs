@@ -156,6 +156,116 @@ fn malformed_scheduled_is_unscheduled_and_never_in_range_or_overdue() {
 }
 
 #[test]
+fn scheduled_sort_ties_skip_raw_text_and_continue_to_fallbacks() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    for service in [&mut memory, &mut sqlite] {
+        for (title, scheduled) in [
+            ("Null", None),
+            ("Empty", Some("")),
+            ("Malformed", Some("2026-99-99")),
+            ("Plain", Some("2026-08-22")),
+            ("Time", Some("2026-08-22T23:59:59Z")),
+        ] {
+            service
+                .propose_task(
+                    title,
+                    ProposeTask {
+                        scheduled: scheduled.map(str::to_string),
+                        priority: match title {
+                            "Time" => Some(1),
+                            "Plain" => Some(2),
+                            _ => None,
+                        },
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+    }
+    let next_rule_query = TodoTableQuery::new(
+        TodoTableScope::Workspace(WorkspaceTableScope::Task),
+        TableContext::Workspace,
+        0,
+        50,
+        FilterMode::And,
+        vec![],
+        vec![
+            TodoTableSort::Workspace {
+                field: WorkspaceSortField::Scheduled,
+                direction: SortDirection::Asc,
+            },
+            TodoTableSort::Workspace {
+                field: WorkspaceSortField::Priority,
+                direction: SortDirection::Asc,
+            },
+        ],
+        groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+        None,
+    )
+    .unwrap();
+    let next_expected = vec!["Malformed", "Empty", "Null", "Time", "Plain"];
+    assert_eq!(page_titles(&mut memory, &next_rule_query), next_expected);
+    assert_eq!(page_titles(&mut sqlite, &next_rule_query), next_expected);
+    for (direction, expected) in [
+        (
+            SortDirection::Asc,
+            vec!["Malformed", "Empty", "Null", "Time", "Plain"],
+        ),
+        (
+            SortDirection::Desc,
+            vec!["Time", "Plain", "Malformed", "Empty", "Null"],
+        ),
+    ] {
+        let query = TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![TodoTableSort::Workspace {
+                field: WorkspaceSortField::Scheduled,
+                direction,
+            }],
+            groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+            None,
+        )
+        .unwrap();
+        assert_eq!(page_titles(&mut memory, &query), expected);
+        assert_eq!(page_titles(&mut sqlite, &query), expected);
+    }
+    let default_query = TodoTableQuery::new(
+        TodoTableScope::Planner(PlannerTableScope::MonthlyCalendar),
+        TableContext::Planner {
+            from: date(2026, Month::August, 22),
+            to: date(2026, Month::August, 22),
+        },
+        0,
+        50,
+        FilterMode::And,
+        vec![],
+        vec![],
+        groups(TodoTableGroup::Planner(PlannerTableGroup::None)),
+        None,
+    )
+    .unwrap();
+    let memory_page = memory.query_table(&default_query).unwrap();
+    let sqlite_page = sqlite.query_table(&default_query).unwrap();
+    assert_eq!(
+        memory_page
+            .items
+            .iter()
+            .map(|row| row.record().title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Time", "Plain"]
+    );
+    assert_eq!(canonical_page(&sqlite_page), canonical_page(&memory_page));
+}
+
+#[test]
 fn unicode_fold_filters_match_for_title_tag_and_relation() {
     let mut memory = TodoService::in_memory();
     let conn = connect(":memory:").unwrap();
