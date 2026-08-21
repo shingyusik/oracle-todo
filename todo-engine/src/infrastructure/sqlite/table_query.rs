@@ -8,7 +8,7 @@ use time::Date;
 use super::SqliteTodoRepository;
 use super::mapping::{row_to_item, storage_error};
 use crate::application::error::{TodoError, TodoResult};
-use crate::application::service::table::build_lookups;
+use crate::application::service::table::{build_lookups, lookup_item_types};
 use crate::application::table::*;
 use crate::domain::ItemType;
 
@@ -104,55 +104,12 @@ impl SqliteTodoRepository {
     }
 }
 
-fn lookup_type_sql(scope: TodoTableScope) -> &'static str {
-    match scope {
-        TodoTableScope::Workspace(WorkspaceTableScope::Area) => "'area','project','routine','goal'",
-        TodoTableScope::Workspace(WorkspaceTableScope::Project) => {
-            "'project','area','routine','goal'"
-        }
-        TodoTableScope::Workspace(WorkspaceTableScope::Goal) => "'goal','area','project','routine'",
-        TodoTableScope::Workspace(WorkspaceTableScope::Routine) => {
-            "'routine','area','project','goal'"
-        }
-        TodoTableScope::Workspace(WorkspaceTableScope::Task) => {
-            "'task','area','project','routine','goal'"
-        }
-        TodoTableScope::Workspace(WorkspaceTableScope::Event) => {
-            "'event','area','project','routine','goal'"
-        }
-        TodoTableScope::Linked {
-            child: ItemType::Task,
-            ..
-        } => "'task','area','project','routine','goal'",
-        TodoTableScope::Linked {
-            child: ItemType::Event,
-            ..
-        } => "'event','area','project','routine','goal'",
-        TodoTableScope::Linked {
-            child: ItemType::Goal,
-            ..
-        } => "'goal','area','project','routine'",
-        TodoTableScope::Linked {
-            child: ItemType::Project,
-            ..
-        } => "'project','area','routine','goal'",
-        TodoTableScope::Linked {
-            child: ItemType::Routine,
-            ..
-        } => "'routine','area','project','goal'",
-        TodoTableScope::Linked {
-            child: ItemType::Area,
-            ..
-        } => "'area','project','routine','goal'",
-        TodoTableScope::Linked {
-            child: ItemType::Review | ItemType::ArchiveItem,
-            ..
-        } => "''",
-        TodoTableScope::Planner(scope) if scope.is_goal_table() => {
-            "'goal','area','project','routine'"
-        }
-        TodoTableScope::Planner(_) => "'task','event','area','project','routine'",
-    }
+fn lookup_type_sql(scope: TodoTableScope) -> String {
+    lookup_item_types(scope)
+        .iter()
+        .map(|item_type| format!("'{}'", item_type.as_str()))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {

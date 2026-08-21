@@ -76,15 +76,17 @@ pub(crate) fn build_lookups<'a>(
     let mut values = items
         .into_iter()
         .filter(|item| !terminal_status(item.status))
-        .filter(|item| lookup_type_allowed(item.item_type, scope))
+        .filter(|item| lookup_item_types(scope).contains(&item.item_type))
         .map(|item| {
             let mut tags = item
                 .tags
                 .iter()
-                .map(|tag| unicode_fold(tag.trim()))
+                .map(|tag| tag.trim().to_string())
                 .filter(|tag| !tag.is_empty())
                 .collect::<Vec<_>>();
-            tags.sort();
+            tags.sort_by(|left, right| {
+                compare_unicode_text(left, right).then_with(|| left.cmp(right))
+            });
             tags.dedup();
             TodoTableLookup {
                 id: item.id.clone(),
@@ -104,32 +106,40 @@ pub(crate) fn build_lookups<'a>(
     values
 }
 
-fn lookup_type_allowed(item_type: ItemType, scope: TodoTableScope) -> bool {
+pub(crate) const fn lookup_item_types(scope: TodoTableScope) -> &'static [ItemType] {
+    use ItemType as I;
     match scope {
-        TodoTableScope::Workspace(scope) => {
-            item_type == scope.item_type() || relation_type(item_type)
+        TodoTableScope::Workspace(WorkspaceTableScope::Area) => &[I::Area],
+        TodoTableScope::Workspace(WorkspaceTableScope::Project)
+        | TodoTableScope::Linked {
+            child: I::Project, ..
+        } => &[I::Area, I::Project],
+        TodoTableScope::Workspace(WorkspaceTableScope::Goal)
+        | TodoTableScope::Linked { child: I::Goal, .. }
+        | TodoTableScope::Planner(PlannerTableScope::YearlyPeriodGoals)
+        | TodoTableScope::Planner(PlannerTableScope::YearlyMonthGoals)
+        | TodoTableScope::Planner(PlannerTableScope::MonthlyPeriodGoals)
+        | TodoTableScope::Planner(PlannerTableScope::MonthlyWeekGoals)
+        | TodoTableScope::Planner(PlannerTableScope::WeeklyMonthGoals)
+        | TodoTableScope::Planner(PlannerTableScope::WeeklyWeekGoals) => &[I::Goal],
+        TodoTableScope::Workspace(WorkspaceTableScope::Routine)
+        | TodoTableScope::Linked {
+            child: I::Routine, ..
+        } => &[I::Area, I::Project, I::Routine],
+        TodoTableScope::Workspace(WorkspaceTableScope::Task)
+        | TodoTableScope::Linked { child: I::Task, .. } => {
+            &[I::Area, I::Project, I::Routine, I::Task]
         }
-        TodoTableScope::Linked { child, .. } => item_type == child || relation_type(item_type),
-        TodoTableScope::Planner(scope) if scope.is_goal_table() => matches!(
-            item_type,
-            ItemType::Area | ItemType::Project | ItemType::Routine | ItemType::Goal
-        ),
-        TodoTableScope::Planner(_) => matches!(
-            item_type,
-            ItemType::Area
-                | ItemType::Project
-                | ItemType::Routine
-                | ItemType::Task
-                | ItemType::Event
-        ),
+        TodoTableScope::Workspace(WorkspaceTableScope::Event)
+        | TodoTableScope::Linked {
+            child: I::Event, ..
+        } => &[I::Area, I::Project, I::Event],
+        TodoTableScope::Planner(_) => &[I::Area, I::Project, I::Routine, I::Task, I::Event],
+        TodoTableScope::Linked {
+            child: I::Area | I::Review | I::ArchiveItem,
+            ..
+        } => &[],
     }
-}
-
-const fn relation_type(item_type: ItemType) -> bool {
-    matches!(
-        item_type,
-        ItemType::Area | ItemType::Project | ItemType::Routine | ItemType::Goal
-    )
 }
 
 fn in_context(item: &TodoItem, query: &TodoTableQuery) -> bool {

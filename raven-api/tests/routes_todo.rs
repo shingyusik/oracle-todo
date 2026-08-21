@@ -274,7 +274,7 @@ async fn todo_table_lookups_are_compact_scoped_and_legacy_items_stay_an_array() 
         ),
         (
             "/api/v1/todo/tasks/propose",
-            json!({"title":"Buy milk","area":"Work","tags":["errand"]}),
+            json!({"title":"Buy milk","area":"Work","tags":[" Urgent ","urgent","Urgent"]}),
         ),
     ] {
         assert_eq!(post_json(&app, path, body).await.status(), StatusCode::OK);
@@ -310,11 +310,20 @@ async fn todo_table_lookups_are_compact_scoped_and_legacy_items_stay_an_array() 
             .iter()
             .any(|item| item["type"] == "task")
     );
+    assert_eq!(
+        value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["type"] == "task")
+            .unwrap()["tags"],
+        json!(["Urgent", "urgent"])
+    );
 
-    for (scope, included, excluded) in [
-        ("workspace.goal", "area", "task"),
-        ("planner.daily-today", "task", "goal"),
-        ("linked.project.task", "task", "event"),
+    for (scope, expected) in [
+        ("workspace.goal", Vec::<&str>::new()),
+        ("planner.daily-today", vec!["area", "task"]),
+        ("linked.project.task", vec!["area", "task"]),
     ] {
         let response = app
             .clone()
@@ -330,9 +339,12 @@ async fn todo_table_lookups_are_compact_scoped_and_legacy_items_stay_an_array() 
             .as_array()
             .unwrap()
             .clone();
-        assert!(items.iter().any(|item| item["type"] == included), "{scope}");
-        assert!(
-            !items.iter().any(|item| item["type"] == excluded),
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item["type"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            expected,
             "{scope}"
         );
     }

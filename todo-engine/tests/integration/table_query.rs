@@ -759,68 +759,202 @@ fn planner_work_lifecycle_matches_visible_frontend_statuses() {
     );
 }
 
+fn seed_all_lookup_types(service: &mut TodoService) -> String {
+    service
+        .create_area(CreateArea {
+            title: "Area".into(),
+            review_cycle: None,
+            standard: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+    service
+        .propose_project(ProposeProject {
+            title: "Project".into(),
+            definition_of_done: Some("Done".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    service
+        .propose_goal(ProposeGoal {
+            title: "Goal".into(),
+            horizon: "month".into(),
+            scheduled: "2026-08-01".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    service
+        .propose_routine(ProposeRoutine {
+            title: "Routine".into(),
+            recurrence_rule: Some("daily".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    let active = service
+        .propose_task(
+            "Task",
+            ProposeTask {
+                tags: vec![
+                    " Urgent ".into(),
+                    "urgent".into(),
+                    "Urgent".into(),
+                    "   ".into(),
+                ],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let terminal = service
+        .propose_task("Completed", ProposeTask::default())
+        .unwrap();
+    service.complete(&terminal.id, None).unwrap();
+    service
+        .propose_event(ProposeEvent {
+            title: "Event".into(),
+            scheduled: Some("2026-08-22".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    active.id
+}
+
+fn lookup_types(service: &mut TodoService, scope: TodoTableScope) -> Vec<&'static str> {
+    service
+        .table_lookups(scope)
+        .unwrap()
+        .into_iter()
+        .map(|lookup| lookup.item_type.as_str())
+        .collect()
+}
+
 #[test]
-fn planner_lookup_types_are_scoped_before_projection() {
+fn every_lookup_scope_returns_only_displayed_and_allowed_relation_types() {
     let mut memory = TodoService::in_memory();
     let conn = connect(":memory:").unwrap();
     init_schema(&conn).unwrap();
     let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
     for service in [&mut memory, &mut sqlite] {
-        service
-            .propose_task("Task", ProposeTask::default())
-            .unwrap();
-        service
-            .propose_event(ProposeEvent {
-                title: "Event".into(),
-                scheduled: Some("2026-08-22".into()),
-                ..Default::default()
-            })
-            .unwrap();
-        service
-            .propose_goal(ProposeGoal {
-                title: "Goal".into(),
-                horizon: "month".into(),
-                scheduled: "2026-08-01".into(),
-                ..Default::default()
-            })
-            .unwrap();
+        seed_all_lookup_types(service);
     }
-    let projected = |service: &mut TodoService, scope| {
-        service
-            .table_lookups(TodoTableScope::Planner(scope))
-            .unwrap()
-            .into_iter()
-            .map(|lookup| (lookup.item_type, lookup.title))
-            .collect::<Vec<_>>()
-    };
-    for scope in [
-        PlannerTableScope::MonthlyCalendar,
-        PlannerTableScope::WeeklyDayGrid,
-        PlannerTableScope::DailyToday,
-        PlannerTableScope::DailyOverdue,
-        PlannerTableScope::DailyUnscheduled,
+    for (scope, expected) in [
+        (WorkspaceTableScope::Area, vec!["area"]),
+        (WorkspaceTableScope::Project, vec!["area", "project"]),
+        (WorkspaceTableScope::Goal, vec!["goal"]),
+        (
+            WorkspaceTableScope::Routine,
+            vec!["area", "project", "routine"],
+        ),
+        (
+            WorkspaceTableScope::Task,
+            vec!["area", "project", "routine", "task"],
+        ),
+        (WorkspaceTableScope::Event, vec!["area", "event", "project"]),
     ] {
-        let work = projected(&mut memory, scope);
-        assert_eq!(
-            work,
-            vec![
-                (ItemType::Event, "Event".into()),
-                (ItemType::Task, "Task".into())
-            ]
-        );
-        assert_eq!(work, projected(&mut sqlite, scope));
+        let scope = TodoTableScope::Workspace(scope);
+        assert_eq!(lookup_types(&mut memory, scope), expected);
+        assert_eq!(lookup_types(&mut sqlite, scope), expected);
     }
-    for scope in [
-        PlannerTableScope::YearlyPeriodGoals,
-        PlannerTableScope::YearlyMonthGoals,
-        PlannerTableScope::MonthlyPeriodGoals,
-        PlannerTableScope::MonthlyWeekGoals,
-        PlannerTableScope::WeeklyMonthGoals,
-        PlannerTableScope::WeeklyWeekGoals,
+
+    for (scope, expected) in [
+        (PlannerTableScope::YearlyPeriodGoals, vec!["goal"]),
+        (PlannerTableScope::YearlyMonthGoals, vec!["goal"]),
+        (PlannerTableScope::MonthlyPeriodGoals, vec!["goal"]),
+        (PlannerTableScope::MonthlyWeekGoals, vec!["goal"]),
+        (PlannerTableScope::WeeklyMonthGoals, vec!["goal"]),
+        (PlannerTableScope::WeeklyWeekGoals, vec!["goal"]),
+        (
+            PlannerTableScope::MonthlyCalendar,
+            vec!["area", "event", "project", "routine", "task"],
+        ),
+        (
+            PlannerTableScope::WeeklyDayGrid,
+            vec!["area", "event", "project", "routine", "task"],
+        ),
+        (
+            PlannerTableScope::DailyToday,
+            vec!["area", "event", "project", "routine", "task"],
+        ),
+        (
+            PlannerTableScope::DailyOverdue,
+            vec!["area", "event", "project", "routine", "task"],
+        ),
+        (
+            PlannerTableScope::DailyUnscheduled,
+            vec!["area", "event", "project", "routine", "task"],
+        ),
     ] {
-        let goals = projected(&mut memory, scope);
-        assert_eq!(goals, vec![(ItemType::Goal, "Goal".into())]);
-        assert_eq!(goals, projected(&mut sqlite, scope));
+        let scope = TodoTableScope::Planner(scope);
+        assert_eq!(lookup_types(&mut memory, scope), expected);
+        assert_eq!(lookup_types(&mut sqlite, scope), expected);
+    }
+
+    for (parent, child, expected) in [
+        (ItemType::Area, ItemType::Project, vec!["area", "project"]),
+        (
+            ItemType::Area,
+            ItemType::Routine,
+            vec!["area", "project", "routine"],
+        ),
+        (
+            ItemType::Area,
+            ItemType::Task,
+            vec!["area", "project", "routine", "task"],
+        ),
+        (
+            ItemType::Area,
+            ItemType::Event,
+            vec!["area", "event", "project"],
+        ),
+        (
+            ItemType::Project,
+            ItemType::Routine,
+            vec!["area", "project", "routine"],
+        ),
+        (
+            ItemType::Project,
+            ItemType::Task,
+            vec!["area", "project", "routine", "task"],
+        ),
+        (
+            ItemType::Project,
+            ItemType::Event,
+            vec!["area", "event", "project"],
+        ),
+        (
+            ItemType::Routine,
+            ItemType::Task,
+            vec!["area", "project", "routine", "task"],
+        ),
+        (ItemType::Goal, ItemType::Goal, vec!["goal"]),
+        (
+            ItemType::Goal,
+            ItemType::Task,
+            vec!["area", "project", "routine", "task"],
+        ),
+    ] {
+        let scope = TodoTableScope::Linked { parent, child };
+        assert_eq!(lookup_types(&mut memory, scope), expected);
+        assert_eq!(lookup_types(&mut sqlite, scope), expected);
+    }
+}
+
+#[test]
+fn lookups_preserve_stored_tag_labels_and_exclude_terminal_records() {
+    let mut memory = TodoService::in_memory();
+    let memory_id = seed_all_lookup_types(&mut memory);
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    let sqlite_id = seed_all_lookup_types(&mut sqlite);
+
+    for (service, id) in [(&mut memory, memory_id), (&mut sqlite, sqlite_id)] {
+        let values = service
+            .table_lookups(TodoTableScope::Workspace(WorkspaceTableScope::Task))
+            .unwrap();
+        let task = values.iter().find(|lookup| lookup.id == id).unwrap();
+        assert_eq!(task.tags, ["Urgent", "urgent"]);
+        assert!(!values.iter().any(|lookup| lookup.title == "Completed"));
     }
 }
 

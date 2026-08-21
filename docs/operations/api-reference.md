@@ -197,7 +197,13 @@ used. Dates require zero-padded calendar form and are never inferred from the se
 `{"relative":{"amount":"1","unit":"day|week|month"}}`, or `{"empty":true}`. Operators are
 `is`, `is_not`, `contains`, `does_not_contain`, `starts_with`, `ends_with`, `is_before`,
 `is_after`, `is_on_or_before`, `is_on_or_after`, `is_between`, `is_relative_to_today`,
-`is_empty`, and `is_not_empty`. Field type determines the accepted operator and value shape.
+`greater_than`, `less_than`, `is_empty`, and `is_not_empty`. Text fields accept
+`contains|does_not_contain|is|is_not|starts_with|ends_with` with `text`; date fields accept
+`is|is_not|is_before|is_after|is_on_or_before|is_on_or_after` with `text`, `is_between` with
+`range`, or `is_relative_to_today` with `relative`; select, multi-select, and relation fields
+accept `is|is_not|contains|does_not_contain` with `list`. Every field accepts
+`is_empty|is_not_empty` with `empty:true`. Priority is a select field, not a numeric field;
+no current ToDo field accepts `greater_than|less_than`.
 
 Workspace fields are scope-specific: area has `title,status,tags,note`; project adds
 `area,due`; goal has `title,status,tags,horizon,scheduled,parent,note`; routine has
@@ -225,9 +231,12 @@ and scheduling fields, timestamps, and `metadata_` (`location`, `participants`, 
 
 `GET /table/lookups?scope=...` accepts the same scope strings and returns
 `{"items":[{"id":"...","type":"task","title":"...","tags":["..."]}]}`. Results contain
-only non-terminal records relevant to that scope: the displayed item type plus compact area,
-project, routine, or goal relations as applicable. They contain no note, description, full
-record, or audit data.
+only non-terminal records relevant to the displayed and filter/group fields. Area returns
+`area`; project returns `area,project`; goal and Planner goal scopes return `goal`; routine
+returns `area,project,routine`; task returns `area,project,routine,task`; event returns
+`area,event,project`; linked scopes use their child set; Planner work scopes return
+`area,event,project,routine,task`. Stored tag labels keep their trimmed casing and deduplicate
+only exact matches. Lookups contain no note, description, full record, or audit data.
 
 ## Ledger routes
 
