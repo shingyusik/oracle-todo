@@ -115,6 +115,120 @@ describe("useWorkbenchController", () => {
     expect(offsets).toEqual([0, 50, 50]);
   });
 
+  it("loads rich ToDo references only on demand and coalesces concurrent requests", async () => {
+    let richCalls = 0;
+    let resolveRich!: (value: { ok: boolean; json(): Promise<unknown> }) => void;
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url === "/api/v1/todo/items") {
+        richCalls += 1;
+        if (richCalls === 1) return new Promise(() => {});
+        return new Promise((resolve) => { resolveRich = resolve; });
+      }
+      if (url.startsWith("/api/v1/preferences/")) {
+        return Promise.resolve({ ok: true, json: async () => null });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    act(() => {
+      first = result.current.ensureTodoReferenceData!();
+      second = result.current.ensureTodoReferenceData!();
+    });
+    expect(first).toBe(second);
+    expect(richCalls).toBe(2);
+    await act(async () => resolveRich({
+      ok: true,
+      json: async () => [{ id: "area-1", type: "area", title: "Area", status: "active" }],
+    }));
+    await expect(first).resolves.toBe(true);
+    expect(result.current.workspaceItems.relatedItems.areas).toEqual({ "area-1": "Area" });
+    await expect(result.current.ensureTodoReferenceData!()).resolves.toBe(true);
+    expect(richCalls).toBe(2);
+  });
+
+  it("invalidates rich references after a mutation", async () => {
+    let richCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items") {
+        richCalls += 1;
+        if (richCalls === 1) return new Promise(() => {});
+        return Promise.resolve({
+          ok: true,
+          json: async () => [{
+            ...todoTableRecord("task-1"),
+            title: richCalls === 3 ? "Changed" : "task-1",
+          }],
+        });
+      }
+      if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...todoTableRecord("task-1"), title: "Changed" }),
+        });
+      }
+      if (url.startsWith("/api/v1/preferences/")) {
+        return Promise.resolve({ ok: true, json: async () => null });
+      }
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+
+    await act(() => result.current.ensureTodoReferenceData!());
+    expect(richCalls).toBe(2);
+    await act(() => result.current.patchWorkspaceItem("task-1", { title: "Changed" }));
+    await act(() => result.current.ensureTodoReferenceData!());
+
+    expect(richCalls).toBe(3);
+    expect(result.current.resolveTodoItem?.("task-1")?.title).toBe("Changed");
+  });
+
+  it("keeps an appended occurrence snapshot while mutation reloads offset zero", async () => {
+    const offsets: number[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const offset = JSON.parse(String(init?.body)).offset as number;
+        offsets.push(offset);
+        const record = todoTableRecord(offset === 50 ? "task-2" : "task-1");
+        return Promise.resolve(new Response(JSON.stringify({
+          items: [{ key: `${offset}::${record.id}`, group_key: null, group_label: null, record }],
+          next_offset: offset === 0 && offsets.length === 1 ? 50 : null,
+        }), { headers: { "content-type": "application/json" } }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), {
+          headers: { "content-type": "application/json" },
+        }));
+      }
+      if (url === "/api/v1/todo/items/task-2" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...todoTableRecord("task-2"), title: "Changed page two" }),
+        });
+      }
+      if (url.startsWith("/api/v1/preferences/")) {
+        return Promise.resolve({ ok: true, json: async () => null });
+      }
+      return new Promise(() => {});
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+    const target = { surface: "workspace", scope: "workspace.task" } as const;
+
+    await act(() => result.current.ensureTodoTable(target));
+    await act(() => result.current.loadMoreTodoTable(target));
+    const appended = result.current.resolveTodoItem?.("task-2");
+    expect(appended?.id).toBe("task-2");
+    act(() => result.current.openDetailView(appended!));
+    await act(() => result.current.patchWorkspaceItem("task-2", { title: "Changed page two" }));
+    await waitFor(() => expect(offsets).toEqual([0, 50, 0]));
+
+    expect(result.current.detailItem?.title).toBe("Changed page two");
+    expect(result.current.resolveTodoItem?.("task-2")?.title).toBe("Changed page two");
+    expect(result.current.todoTablePage(target).items.map((item) => item.record.id)).toEqual(["task-1"]);
+  });
+
   it("keeps Workspace, Planner, and linked table keys independent and reloads semantic changes", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     let failNextWorkspace = false;

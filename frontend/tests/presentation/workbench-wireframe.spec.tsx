@@ -30,7 +30,19 @@ import {
   defaultLedgerTableSettings,
 } from "@/features/ledger/model/ledger-table-views";
 import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchController";
-import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
+import { buildPlannerGroupCandidates, defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
+import {
+  buildDailyPlannerSections,
+  buildMonthlyPeriodGoalCardsModel,
+  buildWeeklyPlannerModel,
+  buildYearlyPeriodGoalCardsModel,
+  effectivePlannerFilterRules,
+  filterPlannerItemsByRules,
+  groupPlannerItems,
+  plannerFilterFieldTypes,
+  sortPlannerItems,
+  type PlannerTableSettings,
+} from "@/features/workbench/model/planner-model";
 import type {
   WorkbenchController,
   WorkspaceItemModel,
@@ -41,8 +53,247 @@ import { TableViewControls } from "@/features/workbench/ui/TableViewControls";
 import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
+import { deriveWorkspaceViewGroups, type WorkspaceTableScopeId } from "@/features/workbench/model/workspace-table-views";
+
+type FixtureFetch = (url: string, init?: RequestInit) => Promise<{ json(): Promise<unknown> }>;
+const originalStubGlobal = vi.stubGlobal.bind(vi);
+
+function installFixtureGlobal(name: string, value: unknown): void {
+  if (name !== "fetch" || typeof value !== "function") {
+    originalStubGlobal(name, value);
+    return;
+  }
+  const fixtureFetch = value as FixtureFetch & { getMockImplementation?: () => ((...args: unknown[]) => unknown) | undefined };
+  if (fixtureFetch.getMockImplementation?.()?.toString().includes("/api/v1/todo/table/query")) {
+    originalStubGlobal(name, value);
+    return;
+  }
+  const canonicalItems = new Map<string, WorkspaceItemModel>();
+  originalStubGlobal(name, vi.fn((url: string, init?: RequestInit) =>
+    legacyTodoTableResponse(fixtureFetch, canonicalItems, url, init)));
+}
+
+async function legacyTodoTableResponse(
+  fixtureFetch: FixtureFetch,
+  canonicalItems: Map<string, WorkspaceItemModel>,
+  url: string,
+  init?: RequestInit,
+) {
+  if (url.startsWith("/api/v1/todo/table/lookups")) {
+    const itemTypes = ["area", "project", "goal", "routine", "task", "event"];
+    const typedItems = await legacyTodoItems(fixtureFetch, canonicalItems, itemTypes);
+    const allValue = await fixtureFetch("/api/v1/todo/items").then((response) => response.json());
+    const items = mergeFixtureCanonicalItems(
+      [...typedItems, ...(Array.isArray(allValue) ? allValue as WorkspaceItemModel[] : [])],
+      canonicalItems,
+      itemTypes,
+    )
+      .filter((item) => !["completed", "missed", "archived", "dropped", "cancelled"].includes(item.status));
+    const scope = new URL(url, "http://fixture.local").searchParams.get("scope") ?? "";
+    const scopedIds = scope.startsWith("planner.")
+      ? new Set(fixtureScopeItems(scope, { reference_date: testToday() }, items).map((item) => item.id))
+      : null;
+    return fixtureJson({ items: items.map((item) => ({
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      tags: !scopedIds || scopedIds.has(item.id) ? item.tags ?? [] : [],
+    })) });
+  }
+  if (url !== "/api/v1/todo/table/query") {
+    const response = await fixtureFetch(url, init);
+    if (!url.startsWith("/api/v1/todo/") || !init?.method || init.method === "GET") return response;
+    let result: Promise<unknown> | null = null;
+    return {
+      ...response,
+      json: async () => {
+        result ??= response.json();
+        const value = await result;
+        const item = fixtureCanonicalItem(value);
+        if (item) canonicalItems.set(item.id, item);
+        return value;
+      },
+    };
+  }
+  const body = JSON.parse(String(init?.body)) as {
+    scope: string; offset: number; filter_mode: PlannerTableSettings["filterMode"];
+    filters: Array<{ field: string; operator: string; value: unknown }>;
+    sorts: Array<{ field: string; direction: "asc" | "desc" }>;
+    group_by: string;
+    group_settings: { sort: "asc" | "desc" | "manual"; hide_empty: boolean; manual_order: string[]; hidden_group_keys: string[] };
+    context: { parent_type?: string; parent_id?: string; from?: string; reference_date: string };
+  };
+  const allItems = body.scope.startsWith("linked.")
+    ? await legacyTodoItems(fixtureFetch, canonicalItems, [], true)
+    : await legacyTodoItems(fixtureFetch, canonicalItems, fixtureTypes(body.scope));
+  const relatedItems = fixtureRelatedItems(allItems);
+  const settings = {
+    filterMode: body.filter_mode,
+    filterRules: body.filters.map((rule, index) => ({
+      id: `fixture-filter-${index}`,
+      ...rule,
+      type: plannerFilterFieldTypes[rule.field as keyof typeof plannerFilterFieldTypes],
+      value: fixtureFilterValue(rule.value),
+    })),
+    sortRules: body.sorts.map((rule, index) => ({ id: `fixture-sort-${index}`, ...rule })),
+    groupSettings: {
+      groupBy: body.group_by, sort: body.group_settings.sort,
+      hideEmpty: body.group_settings.hide_empty, manualOrder: body.group_settings.manual_order,
+      hiddenGroupKeys: body.group_settings.hidden_group_keys,
+    },
+  } as PlannerTableSettings;
+  let items = fixtureScopeItems(body.scope, body.context, allItems);
+  items = filterPlannerItemsByRules(
+    items,
+    relatedItems,
+    effectivePlannerFilterRules(settings.filterRules, Object.keys(plannerFilterFieldTypes) as Array<keyof typeof plannerFilterFieldTypes>),
+    settings.filterMode,
+    body.context.reference_date,
+  );
+  items = sortPlannerItems(items, settings.sortRules);
+  const groups = body.scope.startsWith("planner.")
+    ? groupPlannerItems(items, relatedItems, settings.groupSettings, buildPlannerGroupCandidates({
+        view: body.scope.split(".")[1] as "yearly" | "monthly" | "weekly" | "daily",
+        groupBy: settings.groupSettings.groupBy, items, relatedItems,
+      }))
+    : deriveWorkspaceViewGroups(
+        (body.scope.startsWith("workspace.") ? body.scope
+          : `detail.${body.context.parent_type}.${body.scope.split(".").at(-1)}`) as WorkspaceTableScopeId,
+        items, settings, relatedItems,
+      );
+  const occurrences = groups.flatMap((group) => group.items.map((item, index) => ({
+      key: `${body.offset + index}:${group.key}:${item.id}`,
+      group_key: group.key === "all" ? null : group.key,
+      group_label: group.key === "all" ? null : group.label,
+      record: fixtureWireRecord(item),
+    }))).slice(body.offset, body.offset + 50);
+  return fixtureJson({
+    items: occurrences,
+    next_offset: null,
+  });
+}
+
+function fixtureFilterValue(value: unknown) {
+  if (!value || typeof value !== "object") return value;
+  if ("list" in value) return (value as { list: unknown }).list;
+  if ("range" in value) return (value as { range: unknown }).range;
+  if ("relative" in value) return (value as { relative: unknown }).relative;
+  if ("text" in value) return (value as { text: unknown }).text;
+  return null;
+}
+
+async function legacyTodoItems(
+  fixtureFetch: FixtureFetch,
+  canonicalItems: Map<string, WorkspaceItemModel>,
+  types: string[],
+  preferAll = false,
+): Promise<WorkspaceItemModel[]> {
+  if (preferAll) {
+    const value = await fixtureFetch("/api/v1/todo/items").then((response) => response.json());
+    if (Array.isArray(value) && value.length > 0) {
+      return mergeFixtureCanonicalItems(value as WorkspaceItemModel[], canonicalItems, types);
+    }
+  }
+  const values = await Promise.all(types.map(async (type) =>
+    fixtureFetch(`/api/v1/todo/items?type=${type}`).then((response) => response.json())));
+  const items = values.flatMap((value) => Array.isArray(value) ? value : []) as WorkspaceItemModel[];
+  if (items.length === 0) {
+    const value = await fixtureFetch("/api/v1/todo/items").then((response) => response.json());
+    if (Array.isArray(value)) items.push(...value as WorkspaceItemModel[]);
+  }
+  return mergeFixtureCanonicalItems(items, canonicalItems, types);
+}
+
+function mergeFixtureCanonicalItems(
+  items: WorkspaceItemModel[],
+  canonicalItems: Map<string, WorkspaceItemModel>,
+  types: string[],
+): WorkspaceItemModel[] {
+  const latest = [...canonicalItems.values()].filter((item) => types.length === 0 || types.includes(item.type));
+  const archivedIds = new Set(latest.filter((item) => item.status === "archived").map((item) => item.id));
+  return [...new Map(
+    [...items.filter((item) => !archivedIds.has(item.id)), ...latest.filter((item) => item.status !== "archived")]
+      .map((item) => [item.id, item]),
+  ).values()];
+}
+
+function fixtureCanonicalItem(value: unknown): WorkspaceItemModel | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = "item" in value ? (value as { item: unknown }).item : value;
+  if (!candidate || typeof candidate !== "object") return null;
+  const item = candidate as Partial<WorkspaceItemModel>;
+  return typeof item.id === "string" && typeof item.type === "string" && typeof item.title === "string"
+    ? item as WorkspaceItemModel
+    : null;
+}
+
+function fixtureTypes(scope: string): string[] {
+  void scope;
+  return ["area", "project", "goal", "routine", "task", "event"];
+}
+
+function fixtureScopeItems(scope: string, context: { parent_type?: string; parent_id?: string; from?: string; reference_date: string }, all: WorkspaceItemModel[]) {
+  if (scope.startsWith("workspace.")) return all.filter((item) => item.type === scope.split(".")[1]);
+  if (scope.startsWith("linked.")) {
+    const field: "area_id" | "project_id" | "routine_id" | "parent_id" = context.parent_type === "area" ? "area_id"
+      : context.parent_type === "project" ? "project_id" : context.parent_type === "routine" ? "routine_id" : "parent_id";
+    return all.filter((item) => item.type === scope.split(".")[2] && item[field] === context.parent_id);
+  }
+  const selected = context.from ?? context.reference_date;
+  if (scope.startsWith("planner.daily-")) return buildDailyPlannerSections(all, selected)[scope.split("-").at(-1) as "today" | "overdue" | "unscheduled"];
+  const weekly = buildWeeklyPlannerModel(all, selected);
+  if (scope === "planner.weekly-month-goals") return weekly.monthGoals;
+  if (scope === "planner.weekly-week-goals") return weekly.weekGoals;
+  if (scope === "planner.weekly-day-grid") return weekly.days.flatMap((day) => day.items);
+  const monthly = buildMonthlyPeriodGoalCardsModel(all, selected);
+  if (scope === "planner.monthly-period-goals") return monthly.carousel.flatMap((card) => card.goals);
+  if (scope === "planner.monthly-week-goals") return monthly.weeks.flatMap((week) => week.goals);
+  if (scope === "planner.monthly-calendar") return monthly.weeks.flatMap((week) => week.days.flatMap((day) => day.items));
+  const yearly = buildYearlyPeriodGoalCardsModel(all, selected);
+  if (scope === "planner.yearly-period-goals") return yearly.carousel.flatMap((card) => card.goals);
+  if (scope === "planner.yearly-month-goals") return yearly.months.flatMap((month) => month.goals);
+  return [];
+}
+
+function fixtureRelatedItems(items: WorkspaceItemModel[]): WorkspaceItemsModel["relatedItems"] {
+  const related: WorkspaceItemsModel["relatedItems"] = { areas: {}, goals: {}, projects: {}, routines: {} };
+  for (const item of items) {
+    const target = item.type === "area" ? related.areas : item.type === "goal" ? related.goals
+      : item.type === "project" ? related.projects : item.type === "routine" ? related.routines : null;
+    if (target) target[item.id] = item.title;
+  }
+  return related;
+}
+
+function fixtureWireRecord(item: WorkspaceItemModel) {
+  return {
+    area_id: null, project_id: null, routine_id: null, parent_id: null,
+    description: null, note: null, outcome: null, definition_of_done: null,
+    standard: null, review_cycle: null, recurrence_rule: null,
+    materialization_policy: "sliding", future_occurrences: 7, priority: null,
+    due: null, scheduled: null, horizon: null, completed_at: null,
+    last_materialized_at: null, created_at: "2026-08-22T01:00:00Z",
+    updated_at: "2026-08-22T01:00:00Z",
+    ...item,
+    tags: item.tags ?? [],
+    metadata_: {
+      location: null,
+      participants: [],
+      commitment_type: null,
+      ...item.metadata_,
+    },
+  };
+}
+
+function fixtureJson(value: unknown) {
+  return new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+}
 
 beforeEach(() => {
+  vi.spyOn(vi, "stubGlobal").mockImplementation(((name: string, value: unknown) => {
+    installFixtureGlobal(name, value);
+    return vi;
+  }) as typeof vi.stubGlobal);
   window.localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
 });
@@ -314,6 +565,7 @@ function reportHealthController() {
       bowelStatus: "loaded", bowelError: null, bowelEntries: [],
       dietStatus: "loaded", dietError: null, dietEntries: [],
       reportStatus: "loaded", reportError: null, report, reportSelection: { preset: 30 },
+      tableLookups: Object.fromEntries(scopes.map((scope) => [scope, {}])),
     },
     tableViewSaveError: null,
     tableViewConfirmation: null,
@@ -328,6 +580,13 @@ function reportHealthController() {
     selectTableTab: vi.fn(),
     saveTableTab: vi.fn(),
     createTableTab: vi.fn(),
+    tablePage: vi.fn(() => ({
+      items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 1,
+    })),
+    ensureTable: vi.fn(async () => {}),
+    loadMore: vi.fn(async () => {}),
+    ensureReferenceData: vi.fn(async () => true),
+    hasReferenceData: vi.fn(() => true),
     runReports: vi.fn(),
     retryReports: vi.fn(),
   } as unknown as HealthController;
@@ -1243,6 +1502,7 @@ describe("WorkbenchPageClient", () => {
   it("keeps the exact Diet table header after sharing it with Bowel", () => {
     const settings = defaultHealthTableSettings("health.diet");
     const health = {
+      state: { tableLookups: { "health.diet": {} } },
       tableSettings: vi.fn(() => settings),
       tableTabs: vi.fn(() => ({ tabs: [{ id: "table", name: "Table", settings }],
         activeTabId: "table", draftSettings: settings })),
@@ -12064,6 +12324,149 @@ describe("WorkbenchPageClient", () => {
         body: JSON.stringify({ area: "" }),
       }),
     );
+  });
+
+  it("appends Workspace pages and merges the same server group across the boundary", async () => {
+    const user = userEvent.setup();
+    const queries: Array<{ scope: string; offset: number }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        queries.push(body);
+        if (body.scope === "workspace.task") {
+          const title = body.offset === 0 ? "First page task" : "Second page task";
+          return fixtureJson({
+            items: [{
+              key: `task-${body.offset}`,
+              group_key: "active",
+              group_label: "Active",
+              record: fixtureWireRecord({ id: `task-${body.offset}`, type: "task", title, status: "active" } as WorkspaceItemModel),
+            }],
+            next_offset: body.offset === 0 ? 50 : null,
+          });
+        }
+        return fixtureJson({ items: [], next_offset: null });
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    expect(await screen.findByText("First page task")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("Second page task")).toBeInTheDocument();
+    expect(screen.getAllByRole("rowgroup", { name: "Active group" })).toHaveLength(1);
+    expect(queries.filter((query) => query.scope === "workspace.task").map((query) => query.offset)).toEqual([0, 50]);
+  });
+
+  it("retries a failed next Workspace page at the same offset before appending", async () => {
+    const user = userEvent.setup();
+    const offsets: number[] = [];
+    let failed = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        if (body.scope !== "workspace.task") return fixtureJson({ items: [], next_offset: null });
+        offsets.push(body.offset);
+        if (body.offset === 50 && !failed) {
+          failed = true;
+          return new Response(JSON.stringify({ message: "later" }), { status: 500, headers: { "content-type": "application/json" } });
+        }
+        const title = body.offset === 0 ? "Retry first" : "Retry second";
+        return fixtureJson({
+          items: [{ key: `retry-${body.offset}`, group_key: null, group_label: null, record: fixtureWireRecord({ id: `retry-${body.offset}`, type: "task", title, status: "active" } as WorkspaceItemModel) }],
+          next_offset: body.offset === 0 ? 50 : null,
+        });
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load more rows.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Retry second")).toBeInTheDocument();
+    expect(offsets).toEqual([0, 50, 50]);
+  });
+
+  it("initializes every Planner table through an independent offset-zero query", async () => {
+    const user = userEvent.setup();
+    const scopes = new Set<string>();
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        if (body.scope.startsWith("planner.")) {
+          expect(body.offset).toBe(0);
+          scopes.add(body.scope);
+        }
+        return fixtureJson({ items: [], next_offset: null });
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await waitFor(() => expect(scopes.size).toBeGreaterThanOrEqual(2));
+    for (const period of ["Monthly", "Weekly", "Daily"]) {
+      await user.click(screen.getByRole("button", { name: period }));
+    }
+    await waitFor(() => expect([...scopes].sort()).toEqual([
+      "planner.daily-overdue", "planner.daily-today", "planner.daily-unscheduled",
+      "planner.monthly-calendar", "planner.monthly-period-goals", "planner.monthly-week-goals",
+      "planner.weekly-day-grid", "planner.weekly-month-goals", "planner.weekly-week-goals",
+      "planner.yearly-month-goals", "planner.yearly-period-goals",
+    ]));
+  });
+
+  it("opens a linked page-two occurrence and refreshes offset zero after its mutation", async () => {
+    const user = userEvent.setup();
+    const linkedOffsets: number[] = [];
+    let canonicalTitle = "Opaque page two";
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        if (body.scope === "workspace.area") {
+          return fixtureJson({ items: [{ key: "area", group_key: null, group_label: null, record: fixtureWireRecord({ id: "area-page", type: "area", title: "Paged area", status: "active" } as WorkspaceItemModel) }], next_offset: null });
+        }
+        if (body.scope === "linked.area.task") {
+          linkedOffsets.push(body.offset);
+          if (body.offset === 0) {
+            return fixtureJson({ items: [{ key: "linked-first", group_key: null, group_label: null, record: fixtureWireRecord({ id: "linked-first", type: "task", title: "Opaque first", status: "active", area_id: "area-page" } as WorkspaceItemModel) }], next_offset: 50 });
+          }
+          return fixtureJson({ items: [{ key: "linked-second", group_key: null, group_label: null, record: fixtureWireRecord({ id: "linked-second", type: "task", title: canonicalTitle, status: "active", area_id: "area-page" } as WorkspaceItemModel) }], next_offset: null });
+        }
+        return fixtureJson({ items: [], next_offset: null });
+      }
+      if (url === "/api/v1/todo/items/linked-second" && init?.method === "PATCH") {
+        canonicalTitle = "Canonical page two";
+        return fixtureJson(fixtureWireRecord({ id: "linked-second", type: "task", title: canonicalTitle, status: "active", area_id: "area-page" } as WorkspaceItemModel));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Paged area" }));
+    const tasks = await screen.findByRole("table", { name: "Tasks linked items" });
+    await user.click(within(tasks).getByRole("button", { name: "Load more" }));
+    await user.click(await within(tasks).findByRole("button", { name: "Open Opaque page two details" }));
+    const title = screen.getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Canonical page two");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("heading", { name: "Canonical page two" })).toBeInTheDocument();
+    await waitFor(() => expect(linkedOffsets).toEqual([0, 50, 0]));
   });
 
 });

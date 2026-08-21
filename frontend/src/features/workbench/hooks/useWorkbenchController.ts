@@ -824,6 +824,10 @@ export function useWorkbenchController(): WorkbenchController {
   const initializedTodoTables = useRef(new Set<string>());
   const activeTodoTargets = useRef(new Map<string, TodoTableTarget>());
   const pendingTodoMore = useRef(new Set<string>());
+  const todoReferenceLoaded = useRef(false);
+  const todoReferenceGeneration = useRef(0);
+  const pendingTodoReference = useRef<Promise<boolean> | null>(null);
+  const todoItemSnapshots = useRef(new Map<string, WorkspaceItemModel>());
   const [todoLookups, setTodoLookups] = useState<Partial<Record<TodoTableScope, TodoTableLookups>>>({});
   todoTablePagesRef.current = todoTablePages;
   const setWorkspaceViews = (
@@ -904,7 +908,11 @@ export function useWorkbenchController(): WorkbenchController {
   ): TodoTablePageState => ({
     items: [], nextOffset: 0, moreStatus: "idle", moreError: null, generation, referenceDate,
   });
-  const setTodoPage = (key: string, page: TodoTablePageState) => {
+  const rememberTodoItems = (items: WorkspaceItemModel[]) => {
+    for (const item of items) todoItemSnapshots.current.set(item.id, item);
+  };
+  const setTodoPage = (key: string, page: TodoTablePageState, remember = true) => {
+    if (remember) rememberTodoItems(page.items.map((occurrence) => occurrence.record));
     todoTablePagesRef.current = { ...todoTablePagesRef.current, [key]: page };
     setTodoTablePages(todoTablePagesRef.current);
   };
@@ -919,7 +927,9 @@ export function useWorkbenchController(): WorkbenchController {
     const referenceDate = retry ? previous.referenceDate : localCalendarDate(new Date());
     setTodoPage(descriptor.key, retry
       ? { ...previous, moreStatus: "loading", moreError: null }
-      : { ...emptyTodoPage(generation, referenceDate), moreStatus: "loading" });
+      : previous.items.length > 0
+        ? { ...previous, nextOffset: 0, moreStatus: "loading", moreError: null, generation, referenceDate }
+        : { ...emptyTodoPage(generation, referenceDate), moreStatus: "loading" }, false);
     try {
       const [page, lookups] = await Promise.all([
         queryTodoTable({ ...descriptor, offset: 0 }, referenceDate),
@@ -954,7 +964,31 @@ export function useWorkbenchController(): WorkbenchController {
       pendingTodoMore.current.delete(pendingKey);
     }
   };
+  const ensureTodoReferenceData = (): Promise<boolean> => {
+    if (todoReferenceLoaded.current) return Promise.resolve(true);
+    if (pendingTodoReference.current) return pendingTodoReference.current;
+    const generation = todoReferenceGeneration.current;
+    const request = fetchAllWorkspaceItems().then((allItems) => {
+      if (todoReferenceGeneration.current !== generation) return false;
+      rememberTodoItems(allItems);
+      todoReferenceLoaded.current = true;
+      setWorkspaceItems((current) => ({
+        ...current,
+        allItems,
+        tagOptions: collectTagOptions(allItems),
+        relatedItems: buildRelatedItems(allItems),
+      }));
+      return true;
+    }).catch(() => false).finally(() => {
+      if (pendingTodoReference.current === request) pendingTodoReference.current = null;
+    });
+    pendingTodoReference.current = request;
+    return request;
+  };
   const reloadInitializedTodoTables = (): void => {
+    todoReferenceLoaded.current = false;
+    todoReferenceGeneration.current += 1;
+    pendingTodoReference.current = null;
     const targets = [...activeTodoTargets.current.values()];
     if (targets.length === 0) return;
     const invalidated = Object.fromEntries(Object.entries(todoTablePagesRef.current).map(
@@ -967,6 +1001,7 @@ export function useWorkbenchController(): WorkbenchController {
   };
 
   const applySharedItem = (updated: WorkspaceItemModel) => {
+    rememberTodoItems([updated]);
     setWorkspaceItems((current) => ({
       ...current,
       items: replaceWorkspaceItem(current.items, updated),
@@ -1186,6 +1221,8 @@ export function useWorkbenchController(): WorkbenchController {
 
       void fetchAllWorkspaceItems()
         .then((allItems) => {
+          rememberTodoItems(allItems);
+          todoReferenceLoaded.current = true;
           const leaf = selectionStateRef.current.leafTabId;
           setWorkspaceItems({
               status: "loaded",
@@ -1557,6 +1594,8 @@ export function useWorkbenchController(): WorkbenchController {
     },
     ensureTodoTable,
     loadMoreTodoTable,
+    ensureTodoReferenceData,
+    resolveTodoItem: (itemId) => todoItemSnapshots.current.get(itemId) ?? null,
     todoTableLookups: (scope) => todoLookups[scope] ?? null,
     selectTab: (tabId: WorkbenchTabId) => {
       pendingTaskCreation.current = false;
