@@ -1231,6 +1231,117 @@ fn tag_filters_compare_normalized_rows_without_separator_collisions() {
 }
 
 #[test]
+fn tag_filter_values_use_domain_normalization_before_exact_binding() {
+    let (_directory, mut service) = test_service();
+    service
+        .create_diet(CreateDietEntry {
+            occurred_at: datetime!(2025-01-01 00:00 UTC),
+            meal_type: MealType::Breakfast,
+            food_name: "Canonical".into(),
+            note: None,
+            tags: vec!["alpha".into()],
+            media: None,
+            actor: "test".into(),
+        })
+        .unwrap();
+    let filter = HealthTableFilter::Diet {
+        field: DietTableFilterField::Tags,
+        operator: HealthFilterOperator::Contains,
+        value: HealthTableFilterValue::TextList(vec![
+            " ALPHA ".into(),
+            "alpha".into(),
+            "  ".into(),
+        ]),
+    };
+    let query = HealthTableQuery::new(
+        HealthTableScope::Diet,
+        0,
+        50,
+        FilterMode::And,
+        vec![filter],
+        vec![],
+        groups(
+            HealthTableScope::Diet,
+            HealthTableGroup::Diet(DietTableGroup::None),
+        ),
+        None,
+    )
+    .unwrap();
+    assert!(
+        matches!(&query.filters()[0], HealthTableFilter::Diet { value: HealthTableFilterValue::TextList(values), .. } if values == &["alpha"])
+    );
+    let page = service.query_table(&query).unwrap();
+    assert!(
+        matches!(page.items.as_slice(), [row] if matches!(row.record(), HealthTableRecord::Diet(record) if record.food == "Canonical"))
+    );
+
+    let only_empty = HealthTableFilter::Diet {
+        field: DietTableFilterField::Tags,
+        operator: HealthFilterOperator::Is,
+        value: HealthTableFilterValue::TextList(vec!["  ".into()]),
+    };
+    assert!(
+        HealthTableQuery::new(
+            HealthTableScope::Diet,
+            0,
+            50,
+            FilterMode::And,
+            vec![only_empty],
+            vec![],
+            groups(
+                HealthTableScope::Diet,
+                HealthTableGroup::Diet(DietTableGroup::None)
+            ),
+            None
+        )
+        .is_err()
+    );
+    let too_many_before_deduplication = HealthTableFilter::Diet {
+        field: DietTableFilterField::Tags,
+        operator: HealthFilterOperator::Is,
+        value: HealthTableFilterValue::TextList(vec!["alpha".into(); 101]),
+    };
+    assert!(
+        HealthTableQuery::new(
+            HealthTableScope::Diet,
+            0,
+            50,
+            FilterMode::And,
+            vec![too_many_before_deduplication],
+            vec![],
+            groups(
+                HealthTableScope::Diet,
+                HealthTableGroup::Diet(DietTableGroup::None)
+            ),
+            None
+        )
+        .is_err()
+    );
+    let text = HealthTableFilter::Diet {
+        field: DietTableFilterField::Food,
+        operator: HealthFilterOperator::Contains,
+        value: HealthTableFilterValue::Text(" ALPHA ".into()),
+    };
+    let query = HealthTableQuery::new(
+        HealthTableScope::Diet,
+        0,
+        50,
+        FilterMode::And,
+        vec![text],
+        vec![],
+        groups(
+            HealthTableScope::Diet,
+            HealthTableGroup::Diet(DietTableGroup::None),
+        ),
+        None,
+    )
+    .unwrap();
+    assert!(
+        matches!(&query.filters()[0], HealthTableFilter::Diet { value: HealthTableFilterValue::Text(value), .. } if value == " ALPHA ")
+    );
+}
+
+#[test]
 fn occurrence_key_is_unambiguous_for_delimiters_and_rejects_empty_groups() {
     let record = |id: &str| {
         HealthTableRecord::Metrics(HealthMetricsTableRecord {

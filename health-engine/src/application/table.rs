@@ -7,7 +7,7 @@ use crate::application::{
     ports::HealthReadRepository,
     service::HealthService,
 };
-use crate::domain::{DietEntry, HealthEvent};
+use crate::domain::{DietEntry, HealthEvent, normalize_tags};
 
 pub const TABLE_PAGE_LIMIT: u16 = 50;
 const MAX_FILTERS: usize = 50;
@@ -319,7 +319,7 @@ impl HealthTableQuery {
         offset: u32,
         limit: u16,
         filter_mode: FilterMode,
-        filters: Vec<HealthTableFilter>,
+        mut filters: Vec<HealthTableFilter>,
         sorts: Vec<HealthTableSort>,
         group_settings: HealthTableGroupSettings,
         reference_date: Option<Date>,
@@ -329,6 +329,9 @@ impl HealthTableQuery {
         }
         if filters.len() > MAX_FILTERS {
             return Err(validation("filters", "too many filter rules"));
+        }
+        for filter in &mut filters {
+            filter.normalize_tag_values()?;
         }
         if sorts.len() > MAX_SORTS {
             return Err(validation(
@@ -403,6 +406,32 @@ enum FieldType {
     Relation,
 }
 impl HealthTableFilter {
+    fn normalize_tag_values(&mut self) -> HealthResult<()> {
+        let Self::Diet {
+            field: DietTableFilterField::Tags,
+            value: HealthTableFilterValue::TextList(values),
+            ..
+        } = self
+        else {
+            return Ok(());
+        };
+        if values.is_empty()
+            || values.len() > MAX_VALUES
+            || values.iter().any(|value| !bounded(value))
+        {
+            return Err(validation("filters", "tag filter values are invalid"));
+        }
+        let normalized = normalize_tags(values.iter());
+        if normalized.is_empty()
+            || normalized.len() > MAX_VALUES
+            || normalized.iter().any(|value| !bounded(value))
+        {
+            return Err(validation("filters", "tag filter values are invalid"));
+        }
+        *values = normalized;
+        Ok(())
+    }
+
     fn scope(&self) -> HealthTableScope {
         match self {
             Self::Diet { .. } => HealthTableScope::Diet,
