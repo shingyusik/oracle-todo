@@ -14,6 +14,7 @@ mod creation;
 mod goal;
 mod materialization;
 mod queries;
+pub(crate) mod table;
 mod transitions;
 mod update;
 

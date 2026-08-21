@@ -36,17 +36,9 @@ pub trait TodoStore: TodoRepository + EventRepository {
     /// supplied items or events may remain visible.
     fn save_items_and_events(&mut self, writes: &[(TodoItem, TodoEvent)]) -> TodoResult<()>;
 
-    fn query_table(&mut self, _query: &TodoTableQuery) -> TodoResult<TablePage<TodoTableRow>> {
-        Err(crate::application::error::TodoError::Internal(
-            "todo table query is not implemented by this store".to_string(),
-        ))
-    }
+    fn query_table(&mut self, query: &TodoTableQuery) -> TodoResult<TablePage<TodoTableRow>>;
 
-    fn table_lookups(&mut self, _scope: TodoTableScope) -> TodoResult<Vec<TodoTableLookup>> {
-        Err(crate::application::error::TodoError::Internal(
-            "todo table lookups are not implemented by this store".to_string(),
-        ))
-    }
+    fn table_lookups(&mut self, scope: TodoTableScope) -> TodoResult<Vec<TodoTableLookup>>;
 }
 
 #[derive(Clone, Debug, Default)]

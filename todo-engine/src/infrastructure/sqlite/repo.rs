@@ -133,6 +133,21 @@ impl EventRepository for SqliteTodoRepository {
 }
 
 impl TodoStore for SqliteTodoRepository {
+    fn query_table(
+        &mut self,
+        query: &crate::application::table::TodoTableQuery,
+    ) -> TodoResult<crate::application::table::TablePage<crate::application::table::TodoTableRow>>
+    {
+        self.query_table_page(query)
+    }
+
+    fn table_lookups(
+        &mut self,
+        scope: crate::application::table::TodoTableScope,
+    ) -> TodoResult<Vec<crate::application::table::TodoTableLookup>> {
+        self.read_table_lookups(scope)
+    }
+
     fn save_item_and_event(&mut self, item: &TodoItem, event: &TodoEvent) -> TodoResult<()> {
         let transaction = self.conn.transaction().map_err(storage_error)?;
         save_item_on(&transaction, item)?;

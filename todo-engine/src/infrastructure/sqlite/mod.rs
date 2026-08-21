@@ -6,6 +6,7 @@ use time::OffsetDateTime;
 mod mapping;
 mod repo;
 mod schema;
+mod table_query;
 
 pub use schema::{init_schema, user_version};
 
