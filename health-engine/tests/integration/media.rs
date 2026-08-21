@@ -187,19 +187,17 @@ fn enforces_exact_size_boundary_and_rejects_zero_or_overflowing_limits() {
 #[test]
 fn finalize_is_atomic_no_clobber_and_cleans_the_temporary_file_on_collision() {
     let directory = tempfile::tempdir().unwrap();
-    let outside = directory.path().join("outside");
-    fs::write(&outside, b"protected").unwrap();
     let root = directory.path().join("media");
     let store = LocalMediaStore::new(&root).unwrap();
     let staged = store.stage("image/png", PNG).unwrap();
     let target = root.join(staged.relative_path());
-    symlink_file(&outside, &target);
+    fs::write(&target, b"protected").unwrap();
 
     assert!(matches!(
         store.finalize(staged),
         Err(HealthError::Conflict(_))
     ));
-    assert_eq!(fs::read(&outside).unwrap(), b"protected");
+    assert_eq!(fs::read(&target).unwrap(), b"protected");
     let names = fs::read_dir(&root)
         .unwrap()
         .map(|entry| entry.unwrap().file_name())
@@ -361,17 +359,9 @@ fn windows_new_store_at_the_same_path_rejects_old_staged_identity() {
 }
 
 #[test]
-fn rejects_symlink_roots_traversal_and_symlink_removal_targets() {
+fn rejects_traversal_removal_targets() {
     let directory = tempfile::tempdir().unwrap();
     let real_root = directory.path().join("real");
-    fs::create_dir(&real_root).unwrap();
-    let linked_root = directory.path().join("linked");
-    symlink_dir(&real_root, &linked_root);
-    assert!(matches!(
-        LocalMediaStore::new(&linked_root),
-        Err(HealthError::Storage(_))
-    ));
-
     let store = LocalMediaStore::new(&real_root).unwrap();
     for path in [
         std::path::Path::new("../outside.png"),
@@ -387,12 +377,31 @@ fn rejects_symlink_roots_traversal_and_symlink_removal_targets() {
             })
         ));
     }
+}
+
+#[test]
+fn rejects_symlink_roots_and_symlink_removal_targets() {
+    let directory = tempfile::tempdir().unwrap();
+    let real_root = directory.path().join("real");
+    fs::create_dir(&real_root).unwrap();
+    let linked_root = directory.path().join("linked");
+    if !symlink_dir(&real_root, &linked_root) {
+        return;
+    }
+    assert!(matches!(
+        LocalMediaStore::new(&linked_root),
+        Err(HealthError::Storage(_))
+    ));
+
+    let store = LocalMediaStore::new(&real_root).unwrap();
 
     let outside = directory.path().join("outside");
     fs::write(&outside, b"protected").unwrap();
     let id = Uuid::new_v4();
     let linked_file = real_root.join(format!("{id}.png"));
-    symlink_file(&outside, &linked_file);
+    if !symlink_file(&outside, &linked_file) {
+        return;
+    }
     assert!(matches!(
         store.remove(linked_file.file_name().unwrap().as_ref()),
         Err(HealthError::Storage(_))
@@ -401,21 +410,31 @@ fn rejects_symlink_roots_traversal_and_symlink_removal_targets() {
 }
 
 #[cfg(unix)]
-fn symlink_file(original: &std::path::Path, link: &std::path::Path) {
+fn symlink_file(original: &std::path::Path, link: &std::path::Path) -> bool {
     std::os::unix::fs::symlink(original, link).unwrap();
+    true
 }
 
 #[cfg(windows)]
-fn symlink_file(original: &std::path::Path, link: &std::path::Path) {
-    std::os::windows::fs::symlink_file(original, link).unwrap();
+fn symlink_file(original: &std::path::Path, link: &std::path::Path) -> bool {
+    match std::os::windows::fs::symlink_file(original, link) {
+        Ok(()) => true,
+        Err(error) if error.raw_os_error() == Some(1314) => false,
+        Err(error) => panic!("failed to create file symlink: {error}"),
+    }
 }
 
 #[cfg(unix)]
-fn symlink_dir(original: &std::path::Path, link: &std::path::Path) {
+fn symlink_dir(original: &std::path::Path, link: &std::path::Path) -> bool {
     std::os::unix::fs::symlink(original, link).unwrap();
+    true
 }
 
 #[cfg(windows)]
-fn symlink_dir(original: &std::path::Path, link: &std::path::Path) {
-    std::os::windows::fs::symlink_dir(original, link).unwrap();
+fn symlink_dir(original: &std::path::Path, link: &std::path::Path) -> bool {
+    match std::os::windows::fs::symlink_dir(original, link) {
+        Ok(()) => true,
+        Err(error) if error.raw_os_error() == Some(1314) => false,
+        Err(error) => panic!("failed to create directory symlink: {error}"),
+    }
 }
