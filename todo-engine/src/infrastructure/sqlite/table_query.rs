@@ -50,10 +50,11 @@ impl SqliteTodoRepository {
         scope: TodoTableScope,
     ) -> TodoResult<Vec<TodoTableLookup>> {
         // Lookups intentionally select only compact columns. No note/body/metadata is read.
-        let mut statement = self
-            .conn
-            .prepare("SELECT id, type, title, tags FROM items WHERE status NOT IN ('completed','cancelled','dropped','archived','missed','rejected') ORDER BY type, todo_sort_key(title), title, id")
-            .map_err(storage_error)?;
+        let sql = format!(
+            "SELECT id, type, title, tags FROM items WHERE status NOT IN ('completed','cancelled','dropped','archived','missed','rejected') AND type IN ({}) ORDER BY type, todo_sort_key(title), title, id",
+            lookup_type_sql(scope)
+        );
+        let mut statement = self.conn.prepare(&sql).map_err(storage_error)?;
         let values = statement
             .query_map([], |row| {
                 Ok((
@@ -82,6 +83,57 @@ impl SqliteTodoRepository {
             })
             .collect::<Vec<_>>();
         Ok(build_lookups(items.iter(), scope))
+    }
+}
+
+fn lookup_type_sql(scope: TodoTableScope) -> &'static str {
+    match scope {
+        TodoTableScope::Workspace(WorkspaceTableScope::Area) => "'area','project','routine','goal'",
+        TodoTableScope::Workspace(WorkspaceTableScope::Project) => {
+            "'project','area','routine','goal'"
+        }
+        TodoTableScope::Workspace(WorkspaceTableScope::Goal) => "'goal','area','project','routine'",
+        TodoTableScope::Workspace(WorkspaceTableScope::Routine) => {
+            "'routine','area','project','goal'"
+        }
+        TodoTableScope::Workspace(WorkspaceTableScope::Task) => {
+            "'task','area','project','routine','goal'"
+        }
+        TodoTableScope::Workspace(WorkspaceTableScope::Event) => {
+            "'event','area','project','routine','goal'"
+        }
+        TodoTableScope::Linked {
+            child: ItemType::Task,
+            ..
+        } => "'task','area','project','routine','goal'",
+        TodoTableScope::Linked {
+            child: ItemType::Event,
+            ..
+        } => "'event','area','project','routine','goal'",
+        TodoTableScope::Linked {
+            child: ItemType::Goal,
+            ..
+        } => "'goal','area','project','routine'",
+        TodoTableScope::Linked {
+            child: ItemType::Project,
+            ..
+        } => "'project','area','routine','goal'",
+        TodoTableScope::Linked {
+            child: ItemType::Routine,
+            ..
+        } => "'routine','area','project','goal'",
+        TodoTableScope::Linked {
+            child: ItemType::Area,
+            ..
+        } => "'area','project','routine','goal'",
+        TodoTableScope::Linked {
+            child: ItemType::Review | ItemType::ArchiveItem,
+            ..
+        } => "''",
+        TodoTableScope::Planner(scope) if scope.is_goal_table() => {
+            "'goal','area','project','routine'"
+        }
+        TodoTableScope::Planner(_) => "'task','event','area','project','routine'",
     }
 }
 
@@ -188,7 +240,7 @@ fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
                     rank.push_str(" ELSE 1000000 END ASC");
                     group_order.push(rank);
                 }
-                group_order.push("i.group_rank ASC".into());
+                group_order.extend(manual_group_base_order(query.group_settings().group_by()));
             }
             GroupSort::Alphabetical => {
                 group_order.extend([
@@ -215,6 +267,43 @@ fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
     params.push(Value::Integer(i64::from(query.limit()) + 1));
     params.push(Value::Integer(i64::from(query.offset())));
     Ok((sql, params))
+}
+
+fn manual_group_base_order(group: TodoTableGroup) -> Vec<String> {
+    match group {
+        TodoTableGroup::Workspace(WorkspaceTableGroup::Tag)
+        | TodoTableGroup::Planner(PlannerTableGroup::Tag) => vec![
+            "CASE WHEN i.group_key = 'untagged' THEN 1 ELSE 0 END ASC".into(),
+            "todo_sort_key(i.group_label) ASC".into(),
+            "i.group_label ASC".into(),
+        ],
+        TodoTableGroup::Workspace(WorkspaceTableGroup::Status)
+        | TodoTableGroup::Planner(PlannerTableGroup::Status) => vec![
+            "CASE i.group_key WHEN 'active' THEN 0 WHEN 'paused' THEN 1 WHEN 'completed' THEN 2 WHEN 'missed' THEN 3 WHEN 'waiting' THEN 4 ELSE 5 END ASC".into(),
+        ],
+        TodoTableGroup::Planner(PlannerTableGroup::ItemType) => vec![
+            "CASE i.group_key WHEN 'task' THEN 0 WHEN 'event' THEN 1 WHEN 'routine' THEN 2 ELSE 3 END ASC".into(),
+        ],
+        TodoTableGroup::Planner(PlannerTableGroup::Month)
+        | TodoTableGroup::Planner(PlannerTableGroup::Week)
+        | TodoTableGroup::Planner(PlannerTableGroup::Day) => vec![
+            "CASE WHEN i.group_key = 'none' THEN 1 ELSE 0 END ASC".into(),
+            "i.group_key ASC".into(),
+        ],
+        TodoTableGroup::Workspace(WorkspaceTableGroup::Area)
+        | TodoTableGroup::Workspace(WorkspaceTableGroup::Project)
+        | TodoTableGroup::Workspace(WorkspaceTableGroup::Routine)
+        | TodoTableGroup::Planner(PlannerTableGroup::Area)
+        | TodoTableGroup::Planner(PlannerTableGroup::Project)
+        | TodoTableGroup::Planner(PlannerTableGroup::Routine) => {
+            vec![
+                "CASE WHEN i.group_key = 'none' THEN 1 ELSE 0 END ASC".into(),
+                "i.group_rank ASC".into(),
+            ]
+        }
+        TodoTableGroup::Workspace(WorkspaceTableGroup::None)
+        | TodoTableGroup::Planner(PlannerTableGroup::None) => Vec::new(),
+    }
 }
 
 fn context_predicates(query: &TodoTableQuery, out: &mut Vec<String>, params: &mut Vec<Value>) {

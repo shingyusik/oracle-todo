@@ -31,7 +31,9 @@ export function compareUnicodeText(left: string, right: string): number {
     }
     return leftPoints.length - rightPoints.length;
   };
-  return compareCodePoints(left.toLowerCase(), right.toLowerCase()) || compareCodePoints(left, right);
+  const lowercaseCodePoints = (value: string) =>
+    Array.from(value, (codePoint) => codePoint.toLowerCase()).join("");
+  return compareCodePoints(lowercaseCodePoints(left), lowercaseCodePoints(right)) || compareCodePoints(left, right);
 }
 
 const groupByValues = new Set<PlannerGroupBy>([
@@ -111,7 +113,9 @@ export function buildPlannerGroupCandidates({
   if (groupBy === "status") return fixedCandidates(["active", "paused", "completed", "missed", "waiting"], statusLabels, items, (item) => [item.status]);
   if (groupBy === "month" || groupBy === "week" || groupBy === "day") {
     const counts = countKeys(items, (item) => [plannerDateGroupKey(item.scheduled, groupBy)]);
-    return [...counts].map(([key, count]) => ({ key, label: plannerDateGroupLabel(key, groupBy), count }));
+    return [...counts]
+      .sort(([left], [right]) => Number(left === "none") - Number(right === "none") || compareUnicodeText(left, right))
+      .map(([key, count]) => ({ key, label: plannerDateGroupLabel(key, groupBy), count }));
   }
   const map = relationMap(groupBy, relatedItems);
   const counts = countKeys(items, (item) => [relationValue(item, groupBy) ?? "none"]);

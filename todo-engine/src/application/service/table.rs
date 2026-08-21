@@ -44,8 +44,12 @@ pub(crate) fn query_items(
         .into_iter()
         .flat_map(|item| group_occurrences(item, &labels, query))
         .collect::<Vec<_>>();
+    let mut base_occurrences = occurrences.iter().collect::<Vec<_>>();
+    base_occurrences.sort_by(|(_, _, left), (_, _, right)| {
+        compare_items(left, right, query).then_with(|| left.id.cmp(&right.id))
+    });
     let mut first_seen = HashMap::new();
-    for (key, _, _) in &occurrences {
+    for (key, _, _) in base_occurrences {
         let next = first_seen.len();
         first_seen.entry(key.clone()).or_insert(next);
     }
@@ -116,12 +120,15 @@ fn lookup_type_allowed(item_type: ItemType, scope: TodoTableScope) -> bool {
             item_type == scope.item_type() || relation_type(item_type)
         }
         TodoTableScope::Linked { child, .. } => item_type == child || relation_type(item_type),
+        TodoTableScope::Planner(scope) if scope.is_goal_table() => matches!(
+            item_type,
+            ItemType::Area | ItemType::Project | ItemType::Routine | ItemType::Goal
+        ),
         TodoTableScope::Planner(_) => matches!(
             item_type,
             ItemType::Area
                 | ItemType::Project
                 | ItemType::Routine
-                | ItemType::Goal
                 | ItemType::Task
                 | ItemType::Event
         ),
@@ -779,11 +786,70 @@ fn compare_groups(
                 (Some(l), Some(r)) => l.cmp(&r),
                 (Some(_), None) => Ordering::Less,
                 (None, Some(_)) => Ordering::Greater,
-                _ => first_seen
-                    .get(&Some(left.to_string()))
-                    .cmp(&first_seen.get(&Some(right.to_string()))),
+                _ => compare_manual_group_base(
+                    left,
+                    left_label.unwrap_or(""),
+                    right,
+                    right_label.unwrap_or(""),
+                    settings.group_by(),
+                    first_seen,
+                ),
             }
         }
+    }
+}
+
+fn compare_manual_group_base(
+    left: &str,
+    left_label: &str,
+    right: &str,
+    right_label: &str,
+    group: TodoTableGroup,
+    first_seen: &HashMap<Option<String>, usize>,
+) -> Ordering {
+    let fixed_rank = |value: &str, values: &[&str]| {
+        values
+            .iter()
+            .position(|candidate| *candidate == value)
+            .unwrap_or(values.len())
+    };
+    match group {
+        TodoTableGroup::Workspace(WorkspaceTableGroup::Tag)
+        | TodoTableGroup::Planner(PlannerTableGroup::Tag) => (left == "untagged")
+            .cmp(&(right == "untagged"))
+            .then_with(|| compare_unicode_text(left_label, right_label)),
+        TodoTableGroup::Workspace(WorkspaceTableGroup::Status)
+        | TodoTableGroup::Planner(PlannerTableGroup::Status) => fixed_rank(
+            left,
+            &["active", "paused", "completed", "missed", "waiting"],
+        )
+        .cmp(&fixed_rank(
+            right,
+            &["active", "paused", "completed", "missed", "waiting"],
+        )),
+        TodoTableGroup::Planner(PlannerTableGroup::ItemType) => {
+            fixed_rank(left, &["task", "event", "routine"])
+                .cmp(&fixed_rank(right, &["task", "event", "routine"]))
+        }
+        TodoTableGroup::Planner(PlannerTableGroup::Month)
+        | TodoTableGroup::Planner(PlannerTableGroup::Week)
+        | TodoTableGroup::Planner(PlannerTableGroup::Day) => (left == "none")
+            .cmp(&(right == "none"))
+            .then_with(|| left.cmp(right)),
+        TodoTableGroup::Workspace(WorkspaceTableGroup::Area)
+        | TodoTableGroup::Workspace(WorkspaceTableGroup::Project)
+        | TodoTableGroup::Workspace(WorkspaceTableGroup::Routine)
+        | TodoTableGroup::Planner(PlannerTableGroup::Area)
+        | TodoTableGroup::Planner(PlannerTableGroup::Project)
+        | TodoTableGroup::Planner(PlannerTableGroup::Routine) => {
+            (left == "none").cmp(&(right == "none")).then_with(|| {
+                first_seen
+                    .get(&Some(left.to_string()))
+                    .cmp(&first_seen.get(&Some(right.to_string())))
+            })
+        }
+        TodoTableGroup::Workspace(WorkspaceTableGroup::None)
+        | TodoTableGroup::Planner(PlannerTableGroup::None) => Ordering::Equal,
     }
 }
 

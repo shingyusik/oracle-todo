@@ -35,6 +35,10 @@ function candidate(key: string, label: string, count = 1): PlannerGroupCandidate
 }
 
 describe("planner group settings", () => {
+  it("lowercases each Unicode code point without contextual sigma folding", () => {
+    expect(compareUnicodeText("Ος", "ΟΣ")).toBeLessThan(0);
+  });
+
   it("orders Unicode by lowercase code points with an original-text tie", () => {
     expect(["😀", "한", "ı", "á", "İ", "I", "a", "A"].sort(compareUnicodeText)).toEqual([
       "A", "a", "I", "İ", "á", "ı", "한", "😀",
