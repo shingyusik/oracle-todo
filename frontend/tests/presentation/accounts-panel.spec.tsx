@@ -10,7 +10,8 @@ import { AccountCreateDialog } from "@/features/ledger/ui/AccountCreateDialog";
 import { AccountDetail } from "@/features/ledger/ui/AccountDetail";
 import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
 import { AccountsTable } from "@/features/ledger/ui/AccountsTable";
-import type { AccountRowGroup } from "@/features/ledger/model/account-table";
+import { deriveAccountGroups, type AccountRowGroup } from "@/features/ledger/model/account-table";
+import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
 import {
   createLedgerTableViews,
@@ -347,7 +348,32 @@ function accountsController(nextState = accountsState()): LedgerController {
   ledger.tableTabs = (scope) => views[scope];
   ledger.tableSettings = (scope) => views[scope].draftSettings;
   ledger.tableIsDirty = vi.fn(() => false);
+  ledger.tablePage = (scope) => ({
+    items: scope === "ledger.accounts" ? accountOccurrences(ledger) : [],
+    nextOffset: null,
+    moreStatus: "idle",
+    moreError: null,
+    generation: 1,
+  });
+  ledger.ensureTable = vi.fn().mockResolvedValue(undefined);
+  ledger.ensureReferenceData = vi.fn().mockResolvedValue(true);
+  ledger.hasReferenceData = (scope) => scope === "ledger.accounts";
   return ledger;
+}
+
+function accountOccurrences(ledger: LedgerController): LedgerTableOccurrence[] {
+  return deriveAccountGroups(
+    ledger.state.accounts,
+    ledger.state.balances,
+    ledger.state.accountCategories,
+    ledger.tableSettings("ledger.accounts"),
+  ).flatMap(({ key, label, rows }) => rows.map((record) => ({
+    scope: "ledger.accounts" as const,
+    key: `${key}:${record.id}`,
+    groupKey: key,
+    groupLabel: label,
+    record,
+  })));
 }
 
 function inactiveReferenceController(): LedgerController {
@@ -508,7 +534,7 @@ describe("AccountsPanel", () => {
     expect(screen.getByRole("button", { name: "Delete selected" })).toBeEnabled();
 
     rerender(<AccountsPanel controller={accountsController({ ...accountsState(), accounts: [], balances: [] })} />);
-    expect(screen.getByText("No accounts yet.")).toBeInTheDocument();
+    expect(await screen.findByText("No accounts yet.")).toBeInTheDocument();
     rerender(<AccountsPanel controller={accountsController()} />);
 
     expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled();
@@ -729,7 +755,8 @@ describe("AccountDetail", () => {
       ? { ...balance, currentBalanceMinor: 777 }
       : balance);
     rerender(<AccountsPanel controller={accountsController(refreshed)} />);
-    expect(screen.getByLabelText("Current balance")).toHaveTextContent("7.77 USD");
+    await waitFor(() => expect(screen.getByLabelText("Current balance"))
+      .toHaveTextContent("7.77 USD"));
 
     rerender(<AccountsPanel controller={accountsController({ ...refreshed, accounts: [], balances: [] })} />);
     expect(screen.getByText("No accounts yet.")).toBeInTheDocument();
@@ -761,7 +788,8 @@ describe("AccountDetail", () => {
     await act(async () => request.resolve(undefined));
     rerender(<AccountsPanel controller={ledger} />);
 
-    expect(screen.getByRole("region", { name: "Everyday cash details" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Everyday cash details" }))
+      .toBeInTheDocument();
     expect(screen.getByLabelText("Account name")).toHaveValue("Everyday cash");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
