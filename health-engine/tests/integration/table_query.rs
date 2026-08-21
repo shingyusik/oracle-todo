@@ -6,7 +6,7 @@ use health_engine::{
     },
     domain::{
         BowelAttributes, HealthEventDetails, LabAttributes, MealType, MedicationAttributes,
-        MedicationUnit, WeightAttributes,
+        MedicationUnit, SleepAttributes, SleepValue, SymptomAttributes, WeightAttributes,
     },
     infrastructure::{media::LocalMediaStore, sqlite::SqliteHealthRepository},
 };
@@ -100,6 +100,27 @@ fn table_query_validates_scope_operator_value_limit_and_reference_date() {
             vec![],
             vec![sort],
             group.clone(),
+            None
+        )
+        .is_err()
+    );
+    let wrong_value = HealthTableFilter::Diet {
+        field: DietTableFilterField::Date,
+        operator: HealthFilterOperator::Is,
+        value: HealthTableFilterValue::TextList(vec!["2025-01-01".into()]),
+    };
+    assert!(
+        HealthTableQuery::new(
+            HealthTableScope::Diet,
+            0,
+            50,
+            FilterMode::And,
+            vec![wrong_value],
+            vec![],
+            groups(
+                HealthTableScope::Diet,
+                HealthTableGroup::Diet(DietTableGroup::None)
+            ),
             None
         )
         .is_err()
@@ -315,7 +336,7 @@ fn diet_filters_before_multi_tag_expansion_and_applies_group_order() {
             .iter()
             .map(|row| row.group_key().unwrap())
             .collect::<Vec<_>>(),
-        vec!["alpha", "untagged"]
+        vec!["alpha"]
     );
 
     let ungrouped = groups(
@@ -362,10 +383,112 @@ fn diet_filters_before_multi_tag_expansion_and_applies_group_order() {
         .collect::<Vec<_>>();
     assert_eq!(foods, vec!["Carrot", "Apple"]);
 
-    let first_seen = groups(
-        HealthTableScope::Diet,
-        HealthTableGroup::Diet(DietTableGroup::Tag),
+    let and_filters = vec![
+        HealthTableFilter::Diet {
+            field: DietTableFilterField::MealType,
+            operator: HealthFilterOperator::Is,
+            value: HealthTableFilterValue::TextList(vec!["breakfast".into()]),
+        },
+        HealthTableFilter::Diet {
+            field: DietTableFilterField::Food,
+            operator: HealthFilterOperator::Contains,
+            value: HealthTableFilterValue::Text("nan".into()),
+        },
+    ];
+    let page = service
+        .query_table(
+            &HealthTableQuery::new(
+                HealthTableScope::Diet,
+                0,
+                50,
+                FilterMode::And,
+                and_filters,
+                vec![],
+                groups(
+                    HealthTableScope::Diet,
+                    HealthTableGroup::Diet(DietTableGroup::None),
+                ),
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        matches!(page.items.as_slice(), [row] if matches!(row.record(), HealthTableRecord::Diet(record) if record.food == "Banana"))
     );
+
+    let reverse = HealthTableGroupSettings::new(
+        HealthTableGroup::Diet(DietTableGroup::Tag),
+        GroupSort::ReverseAlphabetical,
+        false,
+        vec![],
+        vec![],
+    )
+    .unwrap();
+    let page = service
+        .query_table(
+            &HealthTableQuery::new(
+                HealthTableScope::Diet,
+                0,
+                50,
+                FilterMode::And,
+                vec![],
+                vec![],
+                reverse,
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut group_keys = Vec::new();
+    for row in &page.items {
+        if !group_keys.contains(&row.group_key().unwrap()) {
+            group_keys.push(row.group_key().unwrap());
+        }
+    }
+    assert_eq!(group_keys, vec!["untagged", "beta", "alpha"]);
+
+    let page = service
+        .query_table(
+            &HealthTableQuery::new(
+                HealthTableScope::Diet,
+                0,
+                50,
+                FilterMode::And,
+                vec![],
+                vec![HealthTableSort::Diet {
+                    field: DietTableSortField::Date,
+                    direction: SortDirection::Desc,
+                }],
+                groups(
+                    HealthTableScope::Diet,
+                    HealthTableGroup::Diet(DietTableGroup::None),
+                ),
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let ids = page
+        .items
+        .iter()
+        .map(|row| match row.record() {
+            HealthTableRecord::Diet(record) => record.entry.id().as_str(),
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    let mut sorted_ids = ids.clone();
+    sorted_ids.sort_unstable();
+    assert_eq!(ids, sorted_ids);
+
+    let first_seen = HealthTableGroupSettings::new(
+        HealthTableGroup::Diet(DietTableGroup::Tag),
+        GroupSort::Manual,
+        false,
+        vec![],
+        vec![],
+    )
+    .unwrap();
     let page = service
         .query_table(
             &HealthTableQuery::new(
@@ -411,7 +534,7 @@ fn bowel_medication_and_metrics_rows_are_categorized() {
     service
         .upsert_daily_metrics(vec![
             DailyMetricInput {
-                occurred_at: datetime!(2025-01-02 00:00 UTC),
+                occurred_at: datetime!(2025-01-01 16:00 UTC),
                 details: HealthEventDetails::Weight(
                     WeightAttributes::body_weight("Body weight", 68.0, "kg").unwrap(),
                 ),
@@ -420,7 +543,7 @@ fn bowel_medication_and_metrics_rows_are_categorized() {
                 expected_updated_at: None,
             },
             DailyMetricInput {
-                occurred_at: datetime!(2025-01-02 00:00 UTC),
+                occurred_at: datetime!(2025-01-01 16:00 UTC),
                 details: HealthEventDetails::Lab(
                     LabAttributes::new("crp", "CRP", 0.2, Some("mg/L")).unwrap(),
                 ),
@@ -428,7 +551,52 @@ fn bowel_medication_and_metrics_rows_are_categorized() {
                 actor: "test".into(),
                 expected_updated_at: None,
             },
+            DailyMetricInput {
+                occurred_at: datetime!(2025-01-01 16:00 UTC),
+                details: HealthEventDetails::Sleep(
+                    SleepAttributes::sleep_duration("Sleep", SleepValue::hours(7.5).unwrap())
+                        .unwrap(),
+                ),
+                note: None,
+                actor: "test".into(),
+                expected_updated_at: None,
+            },
+            DailyMetricInput {
+                occurred_at: datetime!(2025-01-01 16:00 UTC),
+                details: HealthEventDetails::Lab(
+                    LabAttributes::new(
+                        "fecal_calprotectin",
+                        "Fecal calprotectin",
+                        42.0,
+                        Some("µg/g"),
+                    )
+                    .unwrap(),
+                ),
+                note: None,
+                actor: "test".into(),
+                expected_updated_at: None,
+            },
+            DailyMetricInput {
+                occurred_at: datetime!(2025-01-01 16:00 UTC),
+                details: HealthEventDetails::Symptom(
+                    SymptomAttributes::overall_condition("Overall condition", 8, Some("good"))
+                        .unwrap(),
+                ),
+                note: None,
+                actor: "test".into(),
+                expected_updated_at: None,
+            },
         ])
+        .unwrap();
+    service
+        .create_event(CreateHealthEvent {
+            occurred_at: datetime!(2025-01-01 17:00 UTC),
+            details: HealthEventDetails::Weight(
+                WeightAttributes::body_weight("Body weight", 99.0, "kg").unwrap(),
+            ),
+            note: None,
+            actor: "test".into(),
+        })
         .unwrap();
     let make = |scope, sort, group| {
         HealthTableQuery::new(
@@ -480,7 +648,7 @@ fn bowel_medication_and_metrics_rows_are_categorized() {
         ))
         .unwrap();
     assert!(
-        matches!(metrics.items[0].record(), HealthTableRecord::Metrics(row) if row.weight == Some(68.0) && row.crp == Some(0.2) && row.events.len() == 2)
+        matches!(metrics.items[0].record(), HealthTableRecord::Metrics(row) if row.date == "2025-01-02" && row.weight == Some(68.0) && row.sleep == Some(7.5) && row.crp == Some(0.2) && row.calprotectin == Some(42.0) && row.condition == Some(8.0) && row.events.len() == 5)
     );
 }
 
@@ -528,4 +696,392 @@ fn metrics_pages_logical_local_dates_not_individual_events() {
     assert!(first.items.iter().all(
         |row| matches!(row.record(), HealthTableRecord::Metrics(record) if record.events.len() == 1)
     ));
+}
+
+#[test]
+fn empty_sorts_use_scope_defaults_and_scope_mismatches_are_rejected() {
+    for (scope, group) in [
+        (
+            HealthTableScope::Diet,
+            HealthTableGroup::Diet(DietTableGroup::None),
+        ),
+        (
+            HealthTableScope::Bowel,
+            HealthTableGroup::Bowel(BowelTableGroup::None),
+        ),
+        (
+            HealthTableScope::Medication,
+            HealthTableGroup::Medication(MedicationTableGroup::None),
+        ),
+        (
+            HealthTableScope::Metrics,
+            HealthTableGroup::Metrics(MetricsTableGroup::None),
+        ),
+    ] {
+        assert!(
+            HealthTableQuery::new(
+                scope,
+                0,
+                50,
+                FilterMode::And,
+                vec![],
+                vec![],
+                groups(scope, group),
+                None
+            )
+            .is_ok()
+        );
+    }
+    assert!(
+        HealthTableQuery::new(
+            HealthTableScope::Diet,
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![HealthTableSort::Bowel {
+                field: BowelTableSortField::Date,
+                direction: SortDirection::Desc
+            }],
+            groups(
+                HealthTableScope::Diet,
+                HealthTableGroup::Diet(DietTableGroup::None)
+            ),
+            None
+        )
+        .is_err()
+    );
+    assert!(
+        HealthTableQuery::new(
+            HealthTableScope::Diet,
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![],
+            groups(
+                HealthTableScope::Diet,
+                HealthTableGroup::Bowel(BowelTableGroup::None)
+            ),
+            None
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn empty_sort_defaults_are_date_desc_for_all_four_scopes() {
+    let (_directory, mut service) = test_service();
+    for day in 0..2 {
+        let at = datetime!(2025-01-01 00:00 UTC) + Duration::days(day);
+        service
+            .create_diet(CreateDietEntry {
+                occurred_at: at,
+                meal_type: MealType::Breakfast,
+                food_name: format!("D{day}"),
+                note: None,
+                tags: vec![],
+                media: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+        service
+            .create_event(CreateHealthEvent {
+                occurred_at: at,
+                details: HealthEventDetails::Bowel(BowelAttributes::new(4, false).unwrap()),
+                note: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+        service
+            .create_event(CreateHealthEvent {
+                occurred_at: at,
+                details: HealthEventDetails::Medication(
+                    MedicationAttributes::new(format!("M{day}"), 1.0, MedicationUnit::Mg).unwrap(),
+                ),
+                note: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+        service
+            .upsert_daily_metrics(vec![DailyMetricInput {
+                occurred_at: at,
+                details: HealthEventDetails::Weight(
+                    WeightAttributes::body_weight("Body weight", 60.0 + day as f64, "kg").unwrap(),
+                ),
+                note: None,
+                actor: "test".into(),
+                expected_updated_at: None,
+            }])
+            .unwrap();
+    }
+    let query = |scope, group| {
+        HealthTableQuery::new(
+            scope,
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![],
+            groups(scope, group),
+            None,
+        )
+        .unwrap()
+    };
+    let diet = service
+        .query_table(&query(
+            HealthTableScope::Diet,
+            HealthTableGroup::Diet(DietTableGroup::None),
+        ))
+        .unwrap();
+    assert!(
+        matches!((&diet.items[0].record(), &diet.items[1].record()), (HealthTableRecord::Diet(a), HealthTableRecord::Diet(b)) if a.entry.occurred_at() > b.entry.occurred_at())
+    );
+    let bowel = service
+        .query_table(&query(
+            HealthTableScope::Bowel,
+            HealthTableGroup::Bowel(BowelTableGroup::None),
+        ))
+        .unwrap();
+    assert!(
+        matches!((&bowel.items[0].record(), &bowel.items[1].record()), (HealthTableRecord::Bowel(a), HealthTableRecord::Bowel(b)) if a.event.occurred_at() > b.event.occurred_at())
+    );
+    let medication = service
+        .query_table(&query(
+            HealthTableScope::Medication,
+            HealthTableGroup::Medication(MedicationTableGroup::None),
+        ))
+        .unwrap();
+    assert!(
+        matches!((&medication.items[0].record(), &medication.items[1].record()), (HealthTableRecord::Medication(a), HealthTableRecord::Medication(b)) if a.event.occurred_at() > b.event.occurred_at())
+    );
+    let metrics = service
+        .query_table(&query(
+            HealthTableScope::Metrics,
+            HealthTableGroup::Metrics(MetricsTableGroup::None),
+        ))
+        .unwrap();
+    assert!(
+        matches!((&metrics.items[0].record(), &metrics.items[1].record()), (HealthTableRecord::Metrics(a), HealthTableRecord::Metrics(b)) if a.date > b.date)
+    );
+}
+
+#[test]
+fn metrics_numeric_filters_include_null_for_is_not_and_sort_null_last() {
+    let (_directory, mut service) = test_service();
+    service
+        .upsert_daily_metrics(vec![DailyMetricInput {
+            occurred_at: datetime!(2025-01-01 00:00 UTC),
+            details: HealthEventDetails::Lab(
+                LabAttributes::new("crp", "CRP", 1.0, Some("mg/L")).unwrap(),
+            ),
+            note: None,
+            actor: "test".into(),
+            expected_updated_at: None,
+        }])
+        .unwrap();
+    for (day, weight) in [(2, 10.0), (3, 20.0)] {
+        service
+            .upsert_daily_metrics(vec![DailyMetricInput {
+                occurred_at: datetime!(2025-01-01 00:00 UTC) + Duration::days(day - 1),
+                details: HealthEventDetails::Weight(
+                    WeightAttributes::body_weight("Body weight", weight, "kg").unwrap(),
+                ),
+                note: None,
+                actor: "test".into(),
+                expected_updated_at: None,
+            }])
+            .unwrap();
+    }
+    let setting = groups(
+        HealthTableScope::Metrics,
+        HealthTableGroup::Metrics(MetricsTableGroup::None),
+    );
+    let numeric = |operator: HealthFilterOperator, value: &str| HealthTableFilter::Metrics {
+        field: MetricsTableFilterField::Weight,
+        operator,
+        value: HealthTableFilterValue::Text(value.into()),
+    };
+    let page = service
+        .query_table(
+            &HealthTableQuery::new(
+                HealthTableScope::Metrics,
+                0,
+                50,
+                FilterMode::And,
+                vec![numeric(HealthFilterOperator::IsNot, "10")],
+                vec![HealthTableSort::Metrics {
+                    field: MetricsTableSortField::Weight,
+                    direction: SortDirection::Asc,
+                }],
+                setting.clone(),
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert!(
+        matches!(page.items.last().unwrap().record(), HealthTableRecord::Metrics(row) if row.weight.is_none())
+    );
+    let greater = service
+        .query_table(
+            &HealthTableQuery::new(
+                HealthTableScope::Metrics,
+                0,
+                50,
+                FilterMode::And,
+                vec![numeric(HealthFilterOperator::GreaterThan, "9")],
+                vec![HealthTableSort::Metrics {
+                    field: MetricsTableSortField::Weight,
+                    direction: SortDirection::Asc,
+                }],
+                setting.clone(),
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(greater.items.len(), 2);
+    for direction in [SortDirection::Asc, SortDirection::Desc] {
+        let page = service
+            .query_table(
+                &HealthTableQuery::new(
+                    HealthTableScope::Metrics,
+                    0,
+                    50,
+                    FilterMode::And,
+                    vec![],
+                    vec![HealthTableSort::Metrics {
+                        field: MetricsTableSortField::Weight,
+                        direction,
+                    }],
+                    setting.clone(),
+                    None,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(
+            matches!(page.items.last().unwrap().record(), HealthTableRecord::Metrics(row) if row.weight.is_none())
+        );
+    }
+}
+
+#[test]
+fn medication_group_labels_and_partial_manual_order_match_ui() {
+    let (_directory, mut service) = test_service();
+    for (index, unit) in [
+        MedicationUnit::Tablet,
+        MedicationUnit::Capsule,
+        MedicationUnit::Packet,
+        MedicationUnit::Mg,
+        MedicationUnit::G,
+        MedicationUnit::Ml,
+        MedicationUnit::Drop,
+        MedicationUnit::Dose,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        service
+            .create_event(CreateHealthEvent {
+                occurred_at: datetime!(2025-01-01 00:00 UTC) + Duration::hours(index as i64),
+                details: HealthEventDetails::Medication(
+                    MedicationAttributes::new(format!("M{index}"), 1.0, unit).unwrap(),
+                ),
+                note: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    let settings = HealthTableGroupSettings::new(
+        HealthTableGroup::Medication(MedicationTableGroup::MedicationUnit),
+        GroupSort::Alphabetical,
+        true,
+        vec![],
+        vec![],
+    )
+    .unwrap();
+    let page = service
+        .query_table(
+            &HealthTableQuery::new(
+                HealthTableScope::Medication,
+                0,
+                50,
+                FilterMode::And,
+                vec![],
+                vec![],
+                settings,
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let labels = [
+        ("tablet", "정"),
+        ("capsule", "캡슐"),
+        ("packet", "포"),
+        ("mg", "mg"),
+        ("g", "g"),
+        ("ml", "ml"),
+        ("drop", "방울"),
+        ("dose", "회"),
+    ];
+    for (key, label) in labels {
+        assert!(
+            page.items
+                .iter()
+                .any(|row| row.group_key() == Some(key) && row.group_label() == Some(label))
+        );
+    }
+
+    let mut service = service;
+    for (food, tag, hour) in [
+        ("Gamma", "gamma", 3),
+        ("Alpha", "alpha", 2),
+        ("Beta", "beta", 1),
+    ] {
+        service
+            .create_diet(CreateDietEntry {
+                occurred_at: datetime!(2025-01-01 00:00 UTC) + Duration::hours(hour),
+                meal_type: MealType::Breakfast,
+                food_name: food.into(),
+                note: None,
+                tags: vec![tag.into()],
+                media: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    let partial = HealthTableGroupSettings::new(
+        HealthTableGroup::Diet(DietTableGroup::Tag),
+        GroupSort::Manual,
+        true,
+        vec!["alpha".into()],
+        vec![],
+    )
+    .unwrap();
+    let page = service
+        .query_table(
+            &HealthTableQuery::new(
+                HealthTableScope::Diet,
+                0,
+                50,
+                FilterMode::And,
+                vec![],
+                vec![],
+                partial,
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|row| row.group_key().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["alpha", "gamma", "beta"]
+    );
 }

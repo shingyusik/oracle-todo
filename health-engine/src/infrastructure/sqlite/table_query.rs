@@ -116,7 +116,7 @@ fn base_sql(group: HealthTableGroup) -> (String, String, String) {
                 ),
                 MedicationTableGroup::MedicationUnit => (
                     "json_extract(attributes_json,'$.unit')".into(),
-                    "json_extract(attributes_json,'$.unit')".into(),
+                    "CASE json_extract(attributes_json,'$.unit') WHEN 'tablet' THEN '정' WHEN 'capsule' THEN '캡슐' WHEN 'packet' THEN '포' WHEN 'drop' THEN '방울' WHEN 'dose' THEN '회' ELSE json_extract(attributes_json,'$.unit') END".into(),
                 ),
                 _ => (k, l),
             };
@@ -393,7 +393,15 @@ fn scalar(
             let HealthTableFilterValue::Text(v) = val else {
                 unreachable!()
             };
-            values.push(Value::Text(v.clone()));
+            let numeric = matches!(
+                expr,
+                "weight" | "sleep" | "crp" | "calprotectin" | "condition"
+            );
+            if numeric {
+                values.push(Value::Real(v.parse().expect("validated numeric filter")));
+            } else {
+                values.push(Value::Text(v.clone()));
+            }
             let cmp = match op {
                 O::Is => "=",
                 O::IsNot => "<>",
@@ -403,12 +411,9 @@ fn scalar(
                 O::IsOnOrAfter => ">=",
                 _ => unreachable!(),
             };
-            let direct = expr == "local_date"
-                || matches!(
-                    expr,
-                    "weight" | "sleep" | "crp" | "calprotectin" | "condition"
-                );
-            if direct {
+            if numeric && op == O::IsNot {
+                format!("{expr} IS NULL OR {expr} <> ?")
+            } else if numeric || expr == "local_date" {
                 format!("{expr} {cmp} ?")
             } else {
                 format!("LOWER(COALESCE({expr},'')) {cmp} LOWER(?)")
@@ -419,9 +424,15 @@ fn scalar(
 
 fn hidden_sql(query: &HealthTableQuery, values: &mut Vec<Value>) -> String {
     let mut clauses = Vec::new();
-    // Health candidates are derived from records that exist, so there are no zero-count
-    // groups for hide_empty to remove. Canonical value groups such as `untagged` stay visible.
-    let _ = query.group_settings().hide_empty();
+    if query.group_settings().hide_empty()
+        && matches!(
+            query.group_settings().group_by(),
+            HealthTableGroup::Diet(DietTableGroup::Tag)
+        )
+    {
+        values.push(Value::Text("untagged".into()));
+        clauses.push("group_key<>?".to_string());
+    }
     let hidden = query.group_settings().hidden_group_keys();
     if !hidden.is_empty() {
         values.extend(hidden.iter().cloned().map(Value::Text));
@@ -450,13 +461,21 @@ fn group_order(query: &HealthTableQuery, values: &mut Vec<Value>) -> String {
                     values.push(Value::Text(k.clone()));
                     s.push_str(&format!(" WHEN ? THEN {i}"));
                 }
-                s.push_str(" ELSE 2147483647 END,group_key ASC,");
+                s.push_str(&format!(" ELSE {}+group_rank END,", order.len()));
                 s
             }
         }
     }
 }
 fn row_order(query: &HealthTableQuery) -> String {
+    if query.sorts().is_empty() {
+        return match query.scope() {
+            HealthTableScope::Metrics => "local_date DESC".into(),
+            HealthTableScope::Diet | HealthTableScope::Bowel | HealthTableScope::Medication => {
+                "occurred_at DESC".into()
+            }
+        };
+    }
     query
         .sorts()
         .iter()
@@ -495,14 +514,26 @@ fn row_order(query: &HealthTableQuery) -> String {
                     MetricsTableSortField::Condition => "condition",
                 },
             };
-            format!(
-                "{e} {}",
-                if s.direction() == SortDirection::Asc {
-                    "ASC"
-                } else {
-                    "DESC"
+            let direction = if s.direction() == SortDirection::Asc {
+                "ASC"
+            } else {
+                "DESC"
+            };
+            if matches!(
+                s,
+                HealthTableSort::Metrics {
+                    field: MetricsTableSortField::Weight
+                        | MetricsTableSortField::Sleep
+                        | MetricsTableSortField::Crp
+                        | MetricsTableSortField::Calprotectin
+                        | MetricsTableSortField::Condition,
+                    ..
                 }
-            )
+            ) {
+                format!("{e} IS NULL ASC,{e} {direction}")
+            } else {
+                format!("{e} {direction}")
+            }
         })
         .collect::<Vec<_>>()
         .join(",")

@@ -330,10 +330,10 @@ impl HealthTableQuery {
         if filters.len() > MAX_FILTERS {
             return Err(validation("filters", "too many filter rules"));
         }
-        if sorts.is_empty() || sorts.len() > MAX_SORTS {
+        if sorts.len() > MAX_SORTS {
             return Err(validation(
                 "sorts",
-                "between 1 and 10 sort rules are required",
+                "no more than 10 sort rules are allowed",
             ));
         }
         if filters.iter().any(|f| f.scope() != scope || !f.valid()) {
@@ -700,6 +700,9 @@ impl HealthTableRow {
     }
     pub fn group_key(&self) -> Option<&str> {
         self.group_key.as_deref()
+    }
+    pub fn group_label(&self) -> Option<&str> {
+        self.group_label.as_deref()
     }
     pub const fn record(&self) -> &HealthTableRecord {
         &self.record
