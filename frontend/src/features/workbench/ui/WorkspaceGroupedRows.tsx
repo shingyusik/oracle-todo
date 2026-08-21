@@ -8,17 +8,19 @@ export function WorkspaceGroupedRows({
   renderRow,
   emptyMessage,
   bodyClassName,
+  columnCount,
 }: {
   groups: WorkspaceViewGroup[];
   renderRow(item: WorkspaceItemModel): React.ReactNode;
   emptyMessage: string;
   bodyClassName?: string;
+  columnCount: number;
 }): React.ReactElement {
   if (groups.length === 0) {
     return (
       <tbody className={bodyClassName}>
         <tr className="workspace-table-empty-row">
-          <td className="items-message workspace-table-empty-cell">
+          <td className="items-message workspace-table-empty-cell" colSpan={columnCount}>
             {emptyMessage}
           </td>
         </tr>
@@ -32,33 +34,20 @@ export function WorkspaceGroupedRows({
 
   return (
     <>
-      {groups.map((group) => {
-        const rows = group.items.map(renderRow);
-        const columnCount = workspaceRowColumnCount(rows);
-
-        return (
-          <tbody
-            aria-label={`${group.label} group`}
-            className={bodyClassName}
-            key={group.key}
-          >
-            <tr className="workspace-group-heading">
-              <th scope="rowgroup" colSpan={columnCount}>
-                {group.label}
-              </th>
-            </tr>
-            {rows}
-          </tbody>
-        );
-      })}
+      {groups.map((group) => (
+        <tbody
+          aria-label={`${group.label} group`}
+          className={bodyClassName}
+          key={group.key}
+        >
+          <tr className="workspace-group-heading">
+            <th scope="rowgroup" colSpan={columnCount}>
+              {group.label}
+            </th>
+          </tr>
+          {group.items.map(renderRow)}
+        </tbody>
+      ))}
     </>
   );
-}
-
-function workspaceRowColumnCount(rows: React.ReactNode[]): number {
-  const row = rows.find(
-    (candidate): candidate is React.ReactElement<{ children?: React.ReactNode }> =>
-      React.isValidElement(candidate),
-  );
-  return row ? Math.max(1, React.Children.count(row.props.children)) : 1;
 }

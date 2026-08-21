@@ -33,12 +33,14 @@ import { useWorkbenchController } from "@/features/workbench/hooks/useWorkbenchC
 import { defaultPlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
 import type {
   WorkbenchController,
+  WorkspaceItemModel,
   WorkspaceItemsModel,
 } from "@/features/workbench/model/workbench-model";
 import { MainPanel } from "@/features/workbench/ui/MainPanel";
 import { TableViewControls } from "@/features/workbench/ui/TableViewControls";
 import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
+import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -880,6 +882,50 @@ function useMobileViewport() {
 }
 
 describe("WorkbenchPageClient", () => {
+  it("spans shared empty rows and group headings across the declared columns", () => {
+    const row = { id: "item-1" } as WorkspaceItemModel;
+    const { rerender } = render(
+      <table>
+        <WorkspaceGroupedRows
+          columnCount={4}
+          emptyMessage="Nothing here."
+          groups={[]}
+          renderRow={() => null}
+        />
+      </table>,
+    );
+
+    expect(screen.getByRole("cell", { name: "Nothing here." })).toHaveAttribute(
+      "colspan",
+      "4",
+    );
+
+    rerender(
+      <table>
+        <WorkspaceGroupedRows
+          columnCount={4}
+          emptyMessage="Nothing here."
+          groups={[{ key: "active", label: "Active", items: [row] }]}
+          renderRow={(item) => (
+            <tr key={item.id}>
+              <td>One</td>
+              <td>Two</td>
+              <td>Three</td>
+              <td>Four</td>
+            </tr>
+          )}
+        />
+      </table>,
+    );
+
+    expect(screen.getByRole("rowgroup", { name: "Active group" }))
+      .toContainElement(screen.getByRole("rowheader", { name: "Active" }));
+    expect(screen.getByRole("rowheader", { name: "Active" })).toHaveAttribute(
+      "colspan",
+      "4",
+    );
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -2135,7 +2181,14 @@ describe("WorkbenchPageClient", () => {
       expect(within(controls).getByRole("button", { name: `Group ${title}` })).toBeVisible();
       expect(within(controls).getByRole("button", { name: `Add to ${title}` })).toBeVisible();
       expect(screen.getByRole("tablist", { name: `${title} views` })).toBeVisible();
-      expect(screen.getByText(`No ${title.toLowerCase()} found.`)).toBeVisible();
+      const table = screen.getByRole("table", { name: `${title} items` });
+      const emptyCell = screen.getByText(`No ${title.toLowerCase()} found.`).closest("td");
+
+      expect(emptyCell).toBeVisible();
+      expect(emptyCell).toHaveAttribute(
+        "colspan",
+        String(within(table).getAllByRole("columnheader").length),
+      );
     }
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
@@ -7328,6 +7381,26 @@ describe("WorkbenchPageClient", () => {
     })).toBeVisible();
     expect(within(projects).queryByText("No linked items match this view.")).toBeNull();
     expect(screen.getByRole("heading", { name: "Tasks · 6" })).toBeVisible();
+  });
+
+  it("spans an empty linked-items view across its single column", async () => {
+    const user = userEvent.setup();
+    await openOverflowAreaDetail(user);
+
+    const projects = linkedItemTypeGroup("Projects · 1");
+    await user.click(within(projects).getByRole("button", { name: "Filter Projects" }));
+    const filter = screen.getByRole("dialog", { name: "Filter Projects" });
+    await user.click(within(filter).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filter).getByRole("option", { name: "Status" }));
+    await user.click(within(filter).getByRole("button", {
+      name: "Select Status filter values",
+    }));
+    await user.click(within(filter).getByRole("checkbox", { name: "missed" }));
+
+    const emptyCell = within(projects)
+      .getByText("No linked items match this view.")
+      .closest("td");
+    expect(emptyCell).toHaveAttribute("colspan", "1");
   });
 
   it("applies the five-row cap across linked Task groups instead of per group", async () => {

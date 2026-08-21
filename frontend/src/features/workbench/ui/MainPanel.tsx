@@ -855,6 +855,7 @@ function LinkedItemTable({
       <TableViewActivePills adapter={controlsAdapter} />
       <table className="linked-items-table" aria-label={`${childLabel} linked items`}>
         <WorkspaceGroupedRows
+          columnCount={1}
           groups={collapsed.groups}
           bodyClassName="linked-items-table-body"
           emptyMessage="No linked items match this view."
@@ -4622,6 +4623,7 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
           </tr>
         </thead>
         <WorkspaceGroupedRows
+          columnCount={columns.length + 1}
           groups={groups}
           emptyMessage={workspaceItems.items.length > 0
             ? "No items match this view."
