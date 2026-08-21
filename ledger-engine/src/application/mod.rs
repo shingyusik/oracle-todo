@@ -11,6 +11,7 @@ pub mod reports;
 #[cfg(test)]
 mod review_policy_tests;
 pub mod service;
+pub mod table;
 pub mod transfers;
 
 pub use lifecycle::{MasterPurgePreview, PurgePreview};
