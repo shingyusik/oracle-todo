@@ -12,8 +12,10 @@ import {
 } from "@/features/health/hooks/useHealthController";
 import type { DietEntry } from "@/features/health/model/health-model";
 import type { HealthController, HealthState } from "@/features/health/hooks/useHealthController";
+import { deriveDietGroups } from "@/features/health/model/diet-table";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { DietPanel as DietPanelView } from "@/features/health/ui/DietPanel";
+import { DietTable } from "@/features/health/ui/DietTable";
 
 const entry: DietEntry = {
   id: "diet-1",
@@ -586,6 +588,20 @@ describe("DietPanel table", () => {
     row.focus();
     await user.keyboard("{Enter}");
     expect(screen.getByText("Diet entry details")).toBeInTheDocument();
+  });
+
+  it("opens a Diet row exactly once for each Space key spelling", () => {
+    const groups = deriveDietGroups([entry], defaultHealthTableSettings("health.diet"));
+    const open = vi.fn();
+    render(<DietTable groups={groups} activeRowCount={1} selectedIds={[]}
+      onOpen={open} onToggle={vi.fn()} onToggleAll={vi.fn()} />);
+    const row = screen.getByRole("button", { name: /Open details for Bibimbap/ });
+
+    for (const key of [" ", "Space"]) {
+      fireEvent.keyDown(row, { key });
+      expect(open).toHaveBeenCalledOnce();
+      open.mockClear();
+    }
   });
 
   it("opens detail by click or Enter, renders the approved editor order, and restores row focus", async () => {
