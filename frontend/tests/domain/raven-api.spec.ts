@@ -10,6 +10,8 @@ import {
 } from "@/lib/raven-api";
 import { healthApi } from "@/features/health/api/health-api";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
+import { queryTodoTable, loadTodoTableLookups } from "@/features/workbench/api/table-api";
+import { defaultWorkspaceTableSettings } from "@/features/workbench/model/workspace-table-views";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -143,6 +145,55 @@ describe("Raven API transport", () => {
       .rejects.toMatchObject({ kind: "protocol", status: 204 });
     await expect(requestJson("/api/v1/dashboard", undefined, decode))
       .rejects.toMatchObject({ kind: "protocol", status: 200 });
+  });
+});
+
+describe("ToDo table API", () => {
+  it("posts a bounded workspace page and parses occurrences and lookups", async () => {
+    const item = {
+      id: "task-1", type: "task", title: "Ship", status: "active", tags: ["focus"],
+      area_id: null, project_id: null, routine_id: null, parent_id: null,
+      description: null, note: null, outcome: null, definition_of_done: null,
+      standard: null, review_cycle: null, recurrence_rule: null,
+      materialization_policy: "sliding", future_occurrences: 7, priority: 1,
+      due: null, scheduled: "2026-08-22", horizon: null, completed_at: null,
+      last_materialized_at: null, created_at: "2026-08-22T01:00:00Z",
+      updated_at: "2026-08-22T01:00:00Z",
+      metadata_: { location: null, participants: [], commitment_type: null },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(JSON.stringify({ items: [{ key: "5:focus:task-1", group_key: "focus", group_label: "Focus", record: item }], next_offset: 50 })))
+      .mockResolvedValueOnce(response(JSON.stringify({ items: [{ id: "area-1", type: "area", title: "Work", tags: ["office"] }] })));
+    vi.stubGlobal("fetch", fetchMock);
+    const settings = defaultWorkspaceTableSettings();
+    settings.filterRules = [{ id: "tag", field: "tags", type: "multiSelect", operator: "is", value: ["focus"] }];
+    settings.groupSettings = { ...settings.groupSettings, groupBy: "tag" };
+
+    await expect(queryTodoTable({ scope: "workspace.task", context: { kind: "workspace" }, settings, offset: 0 }, {
+      getFullYear: () => 2026, getMonth: () => 7, getDate: () => 22,
+    })).resolves.toMatchObject({ items: [{ key: "5:focus:task-1", groupKey: "focus", record: { id: "task-1", metadata_: { participants: [] } } }], nextOffset: 50 });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      scope: "workspace.task", offset: 0, limit: 50, filter_mode: "and",
+      filters: [{ field: "tags", operator: "is", value: { list: ["focus"] } }],
+      sorts: [{ field: "updated", direction: "desc" }], group_by: "tag",
+      group_settings: { sort: "manual", hide_empty: true, manual_order: [], hidden_group_keys: [] },
+      context: { reference_date: "2026-08-22" },
+    });
+    await expect(loadTodoTableLookups("workspace.task")).resolves.toMatchObject({
+      items: [{ id: "area-1", type: "area", title: "Work" }], tags: ["office"],
+    });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/todo/table/lookups?scope=workspace.task");
+  });
+
+  it("serializes exact planner and linked contexts", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(response(JSON.stringify({ items: [], next_offset: null }))));
+    vi.stubGlobal("fetch", fetchMock);
+    const settings = defaultWorkspaceTableSettings();
+    await queryTodoTable({ scope: "planner.daily-today", context: { kind: "planner", from: "2026-08-22", to: "2026-08-22" }, settings, offset: 0 });
+    await queryTodoTable({ scope: "linked.project.task", context: { kind: "linked", parentType: "project", parentId: "project-1" }, settings, offset: 0 });
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+    expect(bodies[0].context).toMatchObject({ from: "2026-08-22", to: "2026-08-22", reference_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+    expect(bodies[1].context).toMatchObject({ parent_type: "project", parent_id: "project-1", reference_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   });
 });
 

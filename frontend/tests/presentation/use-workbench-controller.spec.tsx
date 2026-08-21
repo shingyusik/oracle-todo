@@ -43,6 +43,19 @@ function capturePlannerSettingsWrites(): unknown[] {
   return writes;
 }
 
+function todoTableRecord(id: string, type = "task") {
+  return {
+    id, type, title: id, status: "active", tags: [], area_id: null,
+    project_id: null, routine_id: null, parent_id: null, description: null,
+    note: null, outcome: null, definition_of_done: null, standard: null,
+    review_cycle: null, recurrence_rule: null, materialization_policy: "sliding",
+    future_occurrences: 7, priority: null, due: null, scheduled: null,
+    horizon: null, completed_at: null, last_materialized_at: null,
+    created_at: "2026-08-22T01:00:00Z", updated_at: "2026-08-22T01:00:00Z",
+    metadata_: { location: null, participants: [], commitment_type: null },
+  };
+}
+
 describe("useWorkbenchController", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -58,6 +71,178 @@ describe("useWorkbenchController", () => {
 
     expect(result.current.selection.leafTabId).toBe("dashboard");
     expect(result.current.panel.title).toBe("Dashboard");
+  });
+
+  it("pages ToDo table rows independently, dedupes occurrences, and retries the same offset", async () => {
+    const record = {
+      id: "task-1", type: "task", title: "Ship", status: "active", tags: [],
+      area_id: null, project_id: null, routine_id: null, parent_id: null,
+      description: null, note: null, outcome: null, definition_of_done: null,
+      standard: null, review_cycle: null, recurrence_rule: null,
+      materialization_policy: "sliding", future_occurrences: 7, priority: null,
+      due: null, scheduled: null, horizon: null, completed_at: null,
+      last_materialized_at: null, created_at: "2026-08-22T01:00:00Z",
+      updated_at: "2026-08-22T01:00:00Z",
+      metadata_: { location: null, participants: [], commitment_type: null },
+    };
+    let pageCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        pageCalls += 1;
+        const offset = JSON.parse(String(init?.body)).offset;
+        if (pageCalls === 2) return Promise.reject(new TypeError("offline"));
+        return Promise.resolve(new Response(JSON.stringify({
+          items: [{ key: "0::task-1", group_key: null, group_label: null, record }],
+          next_offset: offset === 0 ? 50 : null,
+        }), { headers: { "content-type": "application/json" } }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return Promise.resolve(new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } }));
+      if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+      return new Promise(() => {});
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+    const target = { surface: "workspace", scope: "workspace.task" } as const;
+
+    await act(() => result.current.ensureTodoTable(target));
+    expect(result.current.todoTablePage(target)).toMatchObject({ items: [{ key: "0::task-1" }], nextOffset: 50 });
+    await act(() => result.current.loadMoreTodoTable(target));
+    expect(result.current.todoTablePage(target)).toMatchObject({ items: [{ key: "0::task-1" }], nextOffset: 50, moreError: "Could not load more rows." });
+    await act(() => result.current.loadMoreTodoTable(target));
+    expect(result.current.todoTablePage(target)).toMatchObject({ items: [{ key: "0::task-1" }], nextOffset: null, moreError: null });
+    const offsets = (fetch as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([url]) => url === "/api/v1/todo/table/query")
+      .map(([, init]) => JSON.parse(String(init?.body)).offset);
+    expect(offsets).toEqual([0, 50, 50]);
+  });
+
+  it("keeps Workspace, Planner, and linked table keys independent and reloads semantic changes", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    let failNextWorkspace = false;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body));
+        bodies.push(body);
+        if (failNextWorkspace && body.scope === "workspace.task") {
+          failNextWorkspace = false;
+          return Promise.reject(new TypeError("offline"));
+        }
+        const id = `${body.scope}:${body.context.parent_id ?? body.context.from ?? "root"}:${body.filters.length}`;
+        return Promise.resolve(new Response(JSON.stringify({
+          items: [{ key: `0::${id}`, group_key: null, group_label: null, record: todoTableRecord(id) }],
+          next_offset: null,
+        }), { headers: { "content-type": "application/json" } }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return Promise.resolve(new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } }));
+      if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+      if (url === "/api/v1/todo/items/task-1") return Promise.resolve({ ok: true, json: async () => ({ id: "task-1", type: "task", title: "changed", status: "active" }) });
+      return Promise.resolve({ ok: true, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useWorkbenchController());
+    const workspace = { surface: "workspace", scope: "workspace.task" } as const;
+    const planner = { surface: "planner", tableId: "daily.today" } as const;
+    const linkedA = { surface: "linked", scope: "linked.project.task", parentType: "project", parentId: "p1" } as const;
+    const linkedB = { ...linkedA, parentId: "p2" } as const;
+
+    await act(async () => Promise.all([
+      result.current.ensureTodoTable(workspace),
+      result.current.ensureTodoTable(planner),
+      result.current.ensureTodoTable(linkedA),
+    ]));
+    expect(result.current.todoTablePage(workspace).items[0]?.record.id).toContain("workspace.task");
+    expect(result.current.todoTablePage(planner).items[0]?.record.id).toContain("planner.daily-today");
+    expect(result.current.todoTablePage(linkedA).items[0]?.record.id).toContain(":p1:");
+    expect(bodies.slice(0, 3).map((body) => body.context)).toEqual([
+      expect.objectContaining({ reference_date: expect.any(String) }),
+      expect.objectContaining({ from: expect.any(String), to: expect.any(String) }),
+      expect.objectContaining({ parent_type: "project", parent_id: "p1" }),
+    ]);
+
+    act(() => result.current.updateWorkspaceTableSettings("workspace.task", (settings) => ({
+      ...settings,
+      filterRules: [{ id: "active", field: "status", type: "select", operator: "is", value: ["active"] }],
+    })));
+    await act(() => result.current.ensureTodoTable(workspace));
+    await act(() => result.current.ensureTodoTable(linkedB));
+    expect(bodies.at(-2)).toMatchObject({ scope: "workspace.task", offset: 0, filters: [{ field: "status" }] });
+    expect(bodies.at(-1)).toMatchObject({ scope: "linked.project.task", offset: 0, context: { parent_id: "p2" } });
+
+    failNextWorkspace = true;
+    const retained = result.current.todoTablePage(workspace).items;
+    await act(() => result.current.patchWorkspaceItem("task-1", { title: "changed" }));
+    await waitFor(() => expect(result.current.todoTablePage(workspace).moreStatus).toBe("error"));
+    expect(result.current.todoTablePage(workspace).items).toEqual(retained);
+    await act(() => result.current.ensureTodoTable(workspace));
+    expect(bodies.filter((body) => body.scope === "workspace.task")).toHaveLength(4);
+    expect(bodies.filter((body) => body.scope === "workspace.task").at(-1)?.offset).toBe(0);
+    const legacyNavigationCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/items?type="));
+    expect(legacyNavigationCalls).toHaveLength(0);
+  });
+
+  it("ignores stale initial and appended pages after table settings change", async () => {
+    const pending: Array<(value: Response) => void> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url === "/api/v1/todo/table/query") {
+        return new Promise<Response>((resolve) => pending.push(resolve));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return Promise.resolve(new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } }));
+      if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    const page = (id: string, nextOffset: number | null) => new Response(JSON.stringify({
+      items: [{ key: `0::${id}`, group_key: null, group_label: null, record: todoTableRecord(id) }],
+      next_offset: nextOffset,
+    }), { headers: { "content-type": "application/json" } });
+    const { result } = renderHook(() => useWorkbenchController());
+    const target = { surface: "workspace", scope: "workspace.task" } as const;
+
+    let staleInitial!: Promise<void>;
+    act(() => { staleInitial = result.current.ensureTodoTable(target); });
+    act(() => result.current.updateWorkspaceTableSettings("workspace.task", (settings) => ({ ...settings, filterMode: "or" })));
+    let currentInitial!: Promise<void>;
+    act(() => { currentInitial = result.current.ensureTodoTable(target); });
+    await act(async () => pending[1]?.(page("current", 50)));
+    await currentInitial;
+    await act(async () => pending[0]?.(page("stale", null)));
+    await staleInitial;
+    expect(result.current.todoTablePage(target).items.map((item) => item.record.id)).toEqual(["current"]);
+
+    let staleMore!: Promise<void>;
+    act(() => { staleMore = result.current.loadMoreTodoTable(target); });
+    act(() => result.current.updateWorkspaceTableSettings("workspace.task", (settings) => ({
+      ...settings,
+      groupSettings: { ...settings.groupSettings, groupBy: "status" },
+    })));
+    let newest!: Promise<void>;
+    act(() => { newest = result.current.ensureTodoTable(target); });
+    await act(async () => pending[3]?.(page("newest", null)));
+    await newest;
+    await act(async () => pending[2]?.(page("stale-more", null)));
+    await staleMore;
+    expect(result.current.todoTablePage(target).items.map((item) => item.record.id)).toEqual(["newest"]);
+  });
+
+  it("retries an offset-zero failure without changing its page key", async () => {
+    let attempts = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url === "/api/v1/todo/table/query") {
+        attempts += 1;
+        if (attempts === 1) return Promise.reject(new TypeError("offline"));
+        return Promise.resolve(new Response(JSON.stringify({
+          items: [{ key: "0::recovered", group_key: null, group_label: null, record: todoTableRecord("recovered") }],
+          next_offset: null,
+        }), { headers: { "content-type": "application/json" } }));
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return Promise.resolve(new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } }));
+      if (url.startsWith("/api/v1/preferences/")) return Promise.resolve({ ok: true, json: async () => null });
+      return Promise.resolve({ ok: true, json: async () => [] });
+    }));
+    const { result } = renderHook(() => useWorkbenchController());
+    const target = { surface: "workspace", scope: "workspace.task" } as const;
+    await act(() => result.current.ensureTodoTable(target));
+    expect(result.current.todoTablePage(target)).toMatchObject({ nextOffset: 0, moreStatus: "error", moreError: "Could not load rows." });
+    await act(() => result.current.ensureTodoTable(target));
+    expect(result.current.todoTablePage(target)).toMatchObject({ items: [{ key: "0::recovered" }], nextOffset: null, moreStatus: "idle", moreError: null });
   });
 
   it("opens Task creation only after navigation reaches the Tasks leaf", async () => {
@@ -244,32 +429,20 @@ describe("useWorkbenchController", () => {
     },
   );
 
-  it("waits for the target list refresh before opening an Area detail", async () => {
-    let deferTargetItems = false;
-    let resolveItems:
-      | ((value: { ok: boolean; json: () => Promise<unknown[]> }) => void)
-      | undefined;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string) => {
-        if (url === "/api/v1/todo/items" && deferTargetItems) {
-          return new Promise((resolve) => {
-            resolveItems = resolve;
-          });
-        }
-
-        return Promise.resolve({
-          ok: true,
-          json: async () => [],
-        });
-      }),
-    );
+  it("opens an Area detail from the Dashboard snapshot without refetching items", async () => {
+    const fetchMock = vi.fn((url: string) => Promise.resolve({
+      ok: true,
+      json: async () => url === "/api/v1/todo/items"
+        ? [{ id: "area-1", type: "area", title: "Health", status: "active" }]
+        : [],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
     const { result } = renderHook(() => useWorkbenchController());
     await waitFor(() =>
       expect(result.current.workspaceItems.status).toBe("loaded"),
     );
 
-    deferTargetItems = true;
+    const itemCalls = fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items").length;
     act(() =>
       result.current.navigateDashboard({
         kind: "area-detail",
@@ -278,22 +451,8 @@ describe("useWorkbenchController", () => {
     );
 
     expect(result.current.selection.leafTabId).toBe("areas");
-    expect(result.current.detailItem).toBeNull();
-    await waitFor(() => expect(resolveItems).toBeDefined());
-    await act(async () =>
-      resolveItems?.({
-        ok: true,
-        json: async () => [
-          {
-            id: "area-1",
-            type: "area",
-            title: "Health",
-            status: "active",
-          },
-        ],
-      }),
-    );
     await waitFor(() => expect(result.current.detailItem?.id).toBe("area-1"));
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items")).toHaveLength(itemCalls);
   });
 
   it("waits for the target list refresh before opening a Project detail", async () => {
@@ -334,7 +493,7 @@ describe("useWorkbenchController", () => {
     );
   });
 
-  it("discards a pending Dashboard detail when the target refresh fails", async () => {
+  it("does not refetch Dashboard detail data after navigation", async () => {
     let requestMode: "dashboard" | "area-failure" | "projects" = "dashboard";
     vi.stubGlobal(
       "fetch",
@@ -371,9 +530,7 @@ describe("useWorkbenchController", () => {
         itemId: "area-1",
       }),
     );
-    await waitFor(() =>
-      expect(result.current.workspaceItems.status).toBe("error"),
-    );
+    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
 
     requestMode = "projects";
     act(() => result.current.selectTab("projects"));
@@ -384,24 +541,13 @@ describe("useWorkbenchController", () => {
     expect(result.current.detailItem).toBeNull();
   });
 
-  it("does not open a cancelled Area detail from a later Projects refresh", async () => {
-    let requestMode: "dashboard" | "areas" | "projects" = "dashboard";
-    let resolveAreaItems:
-      | ((value: { ok: boolean; json: () => Promise<unknown[]> }) => void)
-      | undefined;
+  it("clears a Dashboard detail when navigating to another workspace", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if (url === "/api/v1/todo/items" && requestMode === "areas") {
-          return new Promise((resolve) => {
-            resolveAreaItems = resolve;
-          });
-        }
-
         return Promise.resolve({
           ok: true,
-          json: async () =>
-            url === "/api/v1/todo/items" && requestMode === "projects"
+          json: async () => url === "/api/v1/todo/items"
               ? [
                   {
                     id: "area-1",
@@ -419,35 +565,19 @@ describe("useWorkbenchController", () => {
       expect(result.current.workspaceItems.status).toBe("loaded"),
     );
 
-    requestMode = "areas";
     act(() =>
       result.current.navigateDashboard({
         kind: "area-detail",
         itemId: "area-1",
       }),
     );
-    await waitFor(() => expect(resolveAreaItems).toBeDefined());
+    await waitFor(() => expect(result.current.detailItem?.id).toBe("area-1"));
 
-    requestMode = "projects";
     act(() => result.current.selectTab("projects"));
     await waitFor(() =>
       expect(result.current.workspaceItems.status).toBe("loaded"),
     );
 
-    expect(result.current.detailItem).toBeNull();
-    await act(async () =>
-      resolveAreaItems?.({
-        ok: true,
-        json: async () => [
-          {
-            id: "area-1",
-            type: "area",
-            title: "Health",
-            status: "active",
-          },
-        ],
-      }),
-    );
     expect(result.current.detailItem).toBeNull();
   });
 
@@ -1486,13 +1616,13 @@ describe("useWorkbenchController", () => {
   });
 
   it.each([
-    ["daily", ["task", "event", "routine", "area", "project"]],
-    ["weekly", ["goal", "task", "event", "routine", "area", "project"]],
-    ["monthly", ["goal", "task", "event", "routine", "area", "project"]],
-    ["yearly", ["goal", "area", "project"]],
+    ["daily"],
+    ["weekly"],
+    ["monthly"],
+    ["yearly"],
   ] as const)(
-    "loads planner item sets for %s",
-    async (tabId, itemTypes) => {
+    "does not eagerly load planner item sets for %s",
+    async (tabId) => {
       const fetchMock = vi.fn((url: string) =>
         Promise.resolve({
           ok: true,
@@ -1511,9 +1641,7 @@ describe("useWorkbenchController", () => {
         expect(result.current.workspaceItems.status).toBe("loaded"),
       );
 
-      for (const itemType of itemTypes) {
-        expect(fetchMock).toHaveBeenCalledWith(`/api/v1/todo/items?type=${itemType}`);
-      }
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/items?type="))).toBe(false);
     },
   );
 
@@ -1883,7 +2011,7 @@ describe("useWorkbenchController", () => {
 
     act(() => result.current.selectTab("workspace"));
 
-    await waitFor(() => expect(result.current.workspaceItems.status).toBe("loaded"));
+    await waitFor(() => expect(result.current.workspaceItems.allItems).toHaveLength(3));
 
     expect(result.current.workspaceItems.items.map((item) => item.id)).toEqual(["area-1"]);
     expect(result.current.workspaceItems).toMatchObject({
@@ -3049,7 +3177,7 @@ describe("useWorkbenchController", () => {
 
       return Promise.resolve({
         ok: true,
-        json: async () => url === "/api/v1/todo/items?type=task" ? [source] : [],
+        json: async () => url === "/api/v1/todo/items" ? [source] : [],
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -3116,7 +3244,7 @@ describe("useWorkbenchController", () => {
       return Promise.resolve({
         ok: true,
         json: async () =>
-          url === "/api/v1/todo/items?type=task" ? [source, staleFollowUp] : [],
+          url === "/api/v1/todo/items" ? [source, staleFollowUp] : [],
       });
     });
     vi.stubGlobal("fetch", fetchMock);

@@ -62,6 +62,48 @@ export type WorkspaceItemModel = {
   };
 };
 
+export type TodoTableOccurrence = {
+  key: string;
+  groupKey: string | null;
+  groupLabel: string | null;
+  record: WorkspaceItemModel;
+};
+
+export type TodoItemType = "area" | "project" | "goal" | "routine" | "task" | "event";
+export type TodoTableScope =
+  | `workspace.${TodoItemType}`
+  | `planner.${
+      | "yearly-period-goals" | "yearly-month-goals"
+      | "monthly-period-goals" | "monthly-calendar" | "monthly-week-goals"
+      | "weekly-month-goals" | "weekly-week-goals" | "weekly-day-grid"
+      | "daily-today" | "daily-overdue" | "daily-unscheduled"}`
+  | `linked.${
+      | "area.project" | "area.routine" | "area.task" | "area.event"
+      | "project.routine" | "project.task" | "project.event"
+      | "routine.task" | "goal.goal" | "goal.task"}`;
+export type TodoTableContext =
+  | { kind: "workspace" }
+  | { kind: "planner"; from: string; to: string }
+  | { kind: "linked"; parentType: TodoItemType; parentId: string };
+
+export type TodoTableLookup = Pick<WorkspaceItemModel, "id" | "type" | "title"> & {
+  tags: string[];
+};
+
+export type TodoTableLookups = {
+  items: TodoTableLookup[];
+  tags: string[];
+  relatedItems: WorkspaceItemsModel["relatedItems"];
+};
+
+export type TodoTablePageState = {
+  items: TodoTableOccurrence[];
+  nextOffset: number | null;
+  moreStatus: "idle" | "loading" | "error";
+  moreError: string | null;
+  generation: number;
+};
+
 export type WorkspaceItemsModel = {
   status: "idle" | "loading" | "loaded" | "error";
   items: WorkspaceItemModel[];
@@ -103,6 +145,16 @@ export type PlannerTabConfirmation =
 export type TableViewTarget =
   | { surface: "planner"; scope: PlannerTableId }
   | { surface: "workspace"; scope: WorkspaceTableScopeId };
+
+export type TodoTableTarget =
+  | { surface: "workspace"; scope: Extract<TodoTableScope, `workspace.${string}`> }
+  | { surface: "planner"; tableId: PlannerTableId }
+  | {
+      surface: "linked";
+      scope: Extract<TodoTableScope, `linked.${string}`>;
+      parentType: TodoItemType;
+      parentId: string;
+    };
 
 export type TableViewTabConfirmation =
   | {
@@ -303,6 +355,10 @@ export type WorkbenchController = {
   plannerCreationContext: PlannerCreationContext | null;
   plannerCreationAnalysis: PlannerCreationAnalysis;
   detailItem: WorkspaceItemModel | null;
+  todoTablePage: (target: TodoTableTarget) => TodoTablePageState;
+  ensureTodoTable: (target: TodoTableTarget) => Promise<void>;
+  loadMoreTodoTable: (target: TodoTableTarget) => Promise<void>;
+  todoTableLookups: (scope: TodoTableScope) => TodoTableLookups | null;
   selectTab: (tabId: WorkbenchTabId) => void;
   navigateDashboard: (destination: DashboardDestination) => void;
   reloadDashboard: () => void;
