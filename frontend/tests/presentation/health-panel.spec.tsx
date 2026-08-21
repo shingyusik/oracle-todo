@@ -482,6 +482,9 @@ describe("HealthPanel", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
 
     const retry = await screen.findByRole("button", { name: "Retry" });
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "Add health metrics entry",
+    })).toHaveFocus());
     await user.click(retry);
     expect(retry).toBeDisabled();
     expect(retry).toHaveFocus();
@@ -513,6 +516,9 @@ describe("HealthPanel", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
 
     const retry = await screen.findByRole("button", { name: "Retry" });
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "Add medication entry",
+    })).toHaveFocus());
     await user.click(retry);
     expect(retry).toBeDisabled();
     expect(retry).toHaveFocus();
