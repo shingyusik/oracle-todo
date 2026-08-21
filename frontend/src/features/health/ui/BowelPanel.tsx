@@ -34,9 +34,15 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const tableRef = useRef<HTMLElement>(null);
   const detailOriginRef = useRef<{ occurrence: string; rowId: string } | null>(null);
+  const interactionTokenRef = useRef(0);
 
   useEffect(() => { void controller.ensureTable("health.bowel"); }, [controller]);
   const page = controller.tablePage("health.bowel");
+  const activeViewId = controller.tableTabs("health.bowel").activeTabId;
+  useEffect(() => {
+    interactionTokenRef.current += 1;
+    return () => { interactionTokenRef.current += 1; };
+  }, [activeViewId]);
 
   const entries = useMemo(() => controller.state.bowelEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)), [controller.state.bowelEntries, tombstonedIds]);
@@ -137,6 +143,25 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
     }
   }
 
+  function openCreateAfterReferences() {
+    const token = ++interactionTokenRef.current;
+    void controller.ensureReferenceData("health.bowel").then((ok) => {
+      if (!ok || token !== interactionTokenRef.current) return;
+      setDetailRow(null);
+      setCreateOpen(true);
+    });
+  }
+
+  function openDetailAfterReferences(row: BowelRow, occurrence: string) {
+    const token = ++interactionTokenRef.current;
+    void controller.ensureReferenceData("health.bowel").then((ok) => {
+      if (!ok || token !== interactionTokenRef.current) return;
+      setCreateOpen(false);
+      detailOriginRef.current = { occurrence, rowId: row.id };
+      setDetailRow(row);
+    });
+  }
+
   if (currentDetailRow) {
     return <BowelDetail key={currentDetailRow.id} controller={controller} row={currentDetailRow}
       detailHistory={detailHistory} onArchived={(warning) => {
@@ -151,14 +176,12 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
       headingId="health-bowel-heading"
       fieldLabels={{ bristol_scale: "Bristol Scale", blood_visible: "Blood Visible" }}
       fieldOptions={healthBowelFilterSelectOptions} candidates={candidates}
-      onAdd={() => void controller.ensureReferenceData("health.bowel").then((ok) => ok && setCreateOpen(true))} addButtonRef={addButtonRef}
+      onAdd={openCreateAfterReferences} addButtonRef={addButtonRef}
       onArchiveSelected={() => { setArchiveError(null); setArchiveTargets(selectedVisibleIds); }}
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleIds.length === 0 || archivePending} />
     <BowelTable groups={groups} activeRowCount={activeRows.length} selectedIds={selectedIds}
-      onOpen={(row, occurrence) => void controller.ensureReferenceData("health.bowel").then((ok) => {
-        if (ok) { detailOriginRef.current = { occurrence, rowId: row.id }; setDetailRow(row); }
-      })} onToggle={toggle} onToggleAll={toggleAll} page={page}
+      onOpen={openDetailAfterReferences} onToggle={toggle} onToggleAll={toggleAll} page={page}
       onLoadMore={() => void controller.loadMore("health.bowel")}
       emptyMessage={emptyMessage(controller, page, "bowel entries")} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>

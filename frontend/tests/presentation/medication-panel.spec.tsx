@@ -164,6 +164,21 @@ function MedicationPanelHarness({ controller }: { controller: HealthController }
 describe("MedicationPanel", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("opens only the latest Medication Add intent while reference data is pending", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const health = panelController();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    render(<MedicationPanelHarness controller={health} />);
+
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("button", { name: "Add medication entry" }));
+    await act(async () => pending.resolve(true));
+
+    expect(screen.getByRole("dialog", { name: "Add medication entry" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Vitamin D" })).toBeNull();
+  });
+
   it("renders the saved-view table with exact controls, columns, active rows, and a contextual detail affordance", async () => {
     const archived = { ...event, id: "archived", deletedAt: event.updatedAt };
     const health = panelController({ ...loadedState, medicationEntries: [event, archived] });

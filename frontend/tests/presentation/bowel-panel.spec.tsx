@@ -198,6 +198,29 @@ function BowelPanelHarness({ controller }: { controller: HealthController }) {
 
 describe("Bowel table workflow", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("keeps only the latest Bowel row intent and ignores a pending action after unmount", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const health = panelController();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<BowelPanelHarness controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
+    await act(async () => pending.resolve(true));
+    expect(screen.getByRole("heading", { name: "Bowel · Type 4" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("row", { name: /Open details for Type 4/ });
+    expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull();
+
+    const afterUnmount = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(afterUnmount.promise);
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    view.unmount();
+    await act(async () => afterUnmount.resolve(true));
+    expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull();
+  });
   it("opens Bowel details from the accessible row and isolates its checkbox", async () => {
     const user = userEvent.setup();
     const open = vi.fn();

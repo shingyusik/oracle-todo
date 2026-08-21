@@ -36,8 +36,14 @@ export function HealthMetricsPanel({
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const tableRef = useRef<HTMLElement>(null);
   const detailOriginRef = useRef<{ occurrence: string; date: string } | null>(null);
+  const interactionTokenRef = useRef(0);
   useEffect(() => { void controller.ensureTable("health.metrics"); }, [controller]);
   const page = controller.tablePage("health.metrics");
+  const activeViewId = controller.tableTabs("health.metrics").activeTabId;
+  useEffect(() => {
+    interactionTokenRef.current += 1;
+    return () => { interactionTokenRef.current += 1; };
+  }, [activeViewId]);
   const entries = useMemo(() => controller.state.metricsEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)), [controller.state.metricsEntries, tombstonedIds]);
   const settings = controller.tableSettings("health.metrics");
@@ -139,6 +145,25 @@ export function HealthMetricsPanel({
     if (await onRetryRefresh()) addButtonRef.current?.focus();
   }
 
+  function openCreateAfterReferences() {
+    const token = ++interactionTokenRef.current;
+    void controller.ensureReferenceData("health.metrics").then((ok) => {
+      if (!ok || token !== interactionTokenRef.current) return;
+      setDetailRow(null);
+      setCreateOpen(true);
+    });
+  }
+
+  function openDetailAfterReferences(row: HealthMetricsRow, occurrence: string) {
+    const token = ++interactionTokenRef.current;
+    void controller.ensureReferenceData("health.metrics").then((ok) => {
+      if (!ok || token !== interactionTokenRef.current) return;
+      setCreateOpen(false);
+      detailOriginRef.current = { occurrence, date: row.date };
+      setDetailRow(row);
+    });
+  }
+
   if (currentDetailRow) {
     return <HealthMetricsDetail key={currentDetailRow.date} controller={controller}
       row={currentDetailRow} detailHistory={detailHistory}
@@ -155,14 +180,13 @@ export function HealthMetricsPanel({
       headingId="health-metrics-heading"
       fieldLabels={{ weight: "Weight", sleep: "Sleep", crp: "CRP",
         calprotectin: "Calprotectin", condition: "Condition" }} fieldOptions={{}}
-      candidates={candidates} onAdd={() => void controller.ensureReferenceData("health.metrics").then((ok) => ok && setCreateOpen(true))} addButtonRef={addButtonRef}
+      candidates={candidates} onAdd={openCreateAfterReferences} addButtonRef={addButtonRef}
       onArchiveSelected={() => { setArchiveError(null); setArchiveTargets([...selectedVisibleRows]); }}
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleRows.length === 0 || archivePending} />
     <HealthMetricsTable groups={groups} activeRowCount={activeRows.length}
-      selectedDates={selectedDates} onOpen={(row, occurrence) => void controller.ensureReferenceData("health.metrics").then((ok) => {
-        if (ok) { detailOriginRef.current = { occurrence, date: row.date }; setDetailRow(row); }
-      })} onToggle={toggle} onToggleAll={toggleAll} page={page}
+      selectedDates={selectedDates} onOpen={openDetailAfterReferences}
+      onToggle={toggle} onToggleAll={toggleAll} page={page}
       onLoadMore={() => void controller.loadMore("health.metrics")}
       emptyMessage={emptyMessage(controller, page, "health metrics")} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>

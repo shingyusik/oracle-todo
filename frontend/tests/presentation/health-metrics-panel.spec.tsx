@@ -141,6 +141,24 @@ function metricsOccurrences(entries: readonly HealthEvent[], settings: ReturnTyp
 describe("Health Metrics table", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("keeps only the latest Health Metrics row intent while reference data is pending", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const health = panelController();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
+    await act(async () => pending.resolve(true));
+    expect(screen.getByRole("heading", { name: /Health Metrics ·/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("row", { name: /Open health metrics/ });
+    expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull();
+  });
+
   it("opens a daily detail and saves one changed metric plus one cleared metric atomically", async () => {
     const user = userEvent.setup();
     const health = panelController();

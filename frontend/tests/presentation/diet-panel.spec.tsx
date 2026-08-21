@@ -362,6 +362,50 @@ describe("DietPanel table", () => {
     expect(screen.getByRole("region", { name: "Edit diet properties" })).toBeInTheDocument();
   });
 
+  it("restores Back focus for an opaque occurrence key without parsing it as CSS", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    const page = health.tablePage("health.diet");
+    const occurrence = `tag:"quoted"]\\line\n${page.items[0]!.key}`;
+    health.tablePage = vi.fn(() => ({ ...page, items: [{ ...page.items[0]!, key: occurrence }] }));
+    render(<DietPanel controller={health} />);
+    const row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
+
+    await user.click(row);
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+
+    const restored = await screen.findByRole("row", { name: /Open details for Bibimbap/ });
+    await waitFor(() => expect(restored).toHaveFocus());
+    expect(restored).toHaveAttribute("data-diet-occurrence", occurrence);
+  });
+
+  it("opens only the latest Diet intent and invalidates it when the saved view changes", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    const latest = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(latest.promise);
+    let activeTabId = "view-a";
+    health.tableTabs = vi.fn(() => ({ tabs: [], activeTabId,
+      draftSettings: health.tableSettings("health.diet") }));
+    const view = render(<DietPanel controller={health} />);
+
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
+    await act(async () => latest.resolve(true));
+    expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeInTheDocument();
+    expect(screen.queryByText("Diet entry details")).toBeNull();
+
+    view.unmount();
+    const invalidated = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(invalidated.promise);
+    const next = render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
+    activeTabId = "view-b";
+    next.rerender(<DietPanel controller={health} />);
+    await act(async () => invalidated.resolve(true));
+    expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
+  });
+
   it("uses shared tag behavior and coalesces text history while keeping distinct actions separate", async () => {
     const user = userEvent.setup();
     const dinner = { ...entry, id: "dinner", foodName: "Soup", tags: ["warm"] };

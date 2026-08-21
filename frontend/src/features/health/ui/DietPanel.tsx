@@ -48,9 +48,15 @@ export function DietPanel({
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const tableRef = useRef<HTMLElement>(null);
   const detailOriginRef = useRef<{ occurrence: string; rowId: string } | null>(null);
+  const interactionTokenRef = useRef(0);
 
   useEffect(() => { void controller.ensureTable("health.diet"); }, [controller]);
   const page = controller.tablePage("health.diet");
+  const activeViewId = controller.tableTabs("health.diet").activeTabId;
+  useEffect(() => {
+    interactionTokenRef.current += 1;
+    return () => { interactionTokenRef.current += 1; };
+  }, [activeViewId]);
 
   const entries = useMemo(
     () => controller.state.dietEntries.filter(({ deletedAt, id }) =>
@@ -114,7 +120,8 @@ export function DietPanel({
     requestAnimationFrame(() => {
       const origin = detailOriginRef.current;
       const exact = origin
-        ? tableRef.current?.querySelector<HTMLElement>(`[data-diet-occurrence="${origin.occurrence}"]`)
+        ? [...(tableRef.current?.querySelectorAll<HTMLElement>("[data-diet-occurrence]") ?? [])]
+          .find((element) => element.dataset.dietOccurrence === origin.occurrence)
         : null;
       const target = exact ?? (origin
         ? [...(tableRef.current?.querySelectorAll<HTMLElement>("[data-diet-row-id]") ?? [])]
@@ -174,6 +181,25 @@ export function DietPanel({
     else await controller.refresh();
   }
 
+  function openCreateAfterReferences() {
+    const token = ++interactionTokenRef.current;
+    void controller.ensureReferenceData("health.diet").then((ok) => {
+      if (!ok || token !== interactionTokenRef.current) return;
+      setDetailRow(null);
+      setCreateOpen(true);
+    });
+  }
+
+  function openDetailAfterReferences(row: DietRow, occurrence: string) {
+    const token = ++interactionTokenRef.current;
+    void controller.ensureReferenceData("health.diet").then((ok) => {
+      if (!ok || token !== interactionTokenRef.current) return;
+      setCreateOpen(false);
+      detailOriginRef.current = { occurrence, rowId: row.id };
+      setDetailRow(row);
+    });
+  }
+
   if (currentDetailRow) {
     return (
       <DietDetail
@@ -204,9 +230,7 @@ export function DietPanel({
           tags: detailTags.map((tag) => ({ value: tag, label: tag })),
         }}
         candidates={candidates}
-        onAdd={() => void controller.ensureReferenceData("health.diet").then((ok) => {
-          if (ok) setCreateOpen(true);
-        })}
+        onAdd={openCreateAfterReferences}
         addButtonRef={addButtonRef}
         onArchiveSelected={() => {
           setArchiveError(null);
@@ -219,9 +243,7 @@ export function DietPanel({
         groups={groups}
         activeRowCount={activeRows.length}
         selectedIds={selectedIds}
-        onOpen={(row, occurrence) => void controller.ensureReferenceData("health.diet").then((ok) => {
-          if (ok) { detailOriginRef.current = { occurrence, rowId: row.id }; setDetailRow(row); }
-        })}
+        onOpen={openDetailAfterReferences}
         onToggle={toggle}
         onToggleAll={toggleAll}
         page={page}
