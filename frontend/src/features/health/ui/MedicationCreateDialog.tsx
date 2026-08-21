@@ -117,19 +117,12 @@ function MedicationCreateDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Add medication entry</h2>
-          <button
-            type="button"
-            aria-label="Close Add medication entry"
-            disabled={pending}
-            onClick={close}
-          >
-            Close
-          </button>
         </header>
         <MedicationForm
           controller={controller}
           onSaved={onClose}
           onPendingChange={updatePending}
+          dialogActions={{ closeLabel: "Close Add medication entry", onClose: close }}
         />
       </div>
     </div>

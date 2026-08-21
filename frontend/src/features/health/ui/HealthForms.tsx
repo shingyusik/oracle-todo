@@ -44,12 +44,14 @@ type HealthFormProps = {
   onSaved?: () => void;
   onPendingChange?: (pending: boolean) => void;
   onRecoveryChange?: (recovering: boolean) => void;
+  dialogActions?: { closeLabel: string; onClose(): void };
 };
 
 export function DietForm({
   controller,
   onSaved,
   onPendingChange,
+  dialogActions,
   tagOptions,
 }: HealthFormProps & { tagOptions?: readonly string[] }) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
@@ -161,7 +163,26 @@ export function DietForm({
         <textarea value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
       <FormResult action={action} />
-      <button type="submit" disabled={action.pending}>Save diet entry</button>
+      {dialogActions ? (
+        <footer className="ledger-create-dialog-actions">
+          <button
+            type="button"
+            className="items-toolbar-button"
+            aria-label={dialogActions.closeLabel}
+            disabled={action.pending || refreshRecovery}
+            onClick={dialogActions.onClose}
+          >
+            Close
+          </button>
+          <button
+            type="submit"
+            className="items-toolbar-button ledger-create-dialog-save"
+            disabled={action.pending || refreshRecovery}
+          >
+            {action.pending ? "Saving…" : "Save"}
+          </button>
+        </footer>
+      ) : <button type="submit" disabled={action.pending}>Save diet entry</button>}
       </fieldset>
       {refreshRecovery ? <div className="items-message">
         <p role="alert">{new HealthMutationRefreshError().message}</p>
@@ -177,6 +198,7 @@ export function BowelForm({
   controller,
   onSaved,
   onPendingChange,
+  dialogActions,
 }: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [bristol, setBristol] = useState("4");
@@ -257,7 +279,26 @@ export function BowelForm({
         <textarea value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
       <FormResult action={action} />
-      <button type="submit" disabled={action.pending}>Save bowel entry</button>
+      {dialogActions ? (
+        <footer className="ledger-create-dialog-actions">
+          <button
+            type="button"
+            className="items-toolbar-button"
+            aria-label={dialogActions.closeLabel}
+            disabled={action.pending || refreshRecovery}
+            onClick={dialogActions.onClose}
+          >
+            Close
+          </button>
+          <button
+            type="submit"
+            className="items-toolbar-button ledger-create-dialog-save"
+            disabled={action.pending || refreshRecovery}
+          >
+            {action.pending ? "Saving…" : "Save"}
+          </button>
+        </footer>
+      ) : <button type="submit" disabled={action.pending}>Save bowel entry</button>}
       </fieldset>
       {refreshRecovery ? <div className="items-message">
         <p role="alert">{new HealthMutationRefreshError().message}</p>
@@ -273,6 +314,7 @@ export function MedicationForm({
   controller,
   onSaved,
   onPendingChange,
+  dialogActions,
 }: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [name, setName] = useState("");
@@ -369,7 +411,26 @@ export function MedicationForm({
         <textarea value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
       <FormResult action={action} />
-      <button type="submit" disabled={action.pending}>Save medication</button>
+      {dialogActions ? (
+        <footer className="ledger-create-dialog-actions">
+          <button
+            type="button"
+            className="items-toolbar-button"
+            aria-label={dialogActions.closeLabel}
+            disabled={action.pending || refreshRecovery}
+            onClick={dialogActions.onClose}
+          >
+            Close
+          </button>
+          <button
+            type="submit"
+            className="items-toolbar-button ledger-create-dialog-save"
+            disabled={action.pending || refreshRecovery}
+          >
+            {action.pending ? "Saving…" : "Save"}
+          </button>
+        </footer>
+      ) : <button type="submit" disabled={action.pending}>Save medication</button>}
       </fieldset>
       {refreshRecovery ? <div className="items-message">
         <p role="alert">{new HealthMutationRefreshError().message}</p>
@@ -389,6 +450,7 @@ export function MetricsForm({
   onSaved,
   onPendingChange,
   onRecoveryChange,
+  dialogActions,
 }: HealthFormProps & {
   metricsEntries?: readonly HealthEvent[];
   initialRow?: HealthMetricsRow;
@@ -628,9 +690,30 @@ export function MetricsForm({
           />
       </label>
       <FormResult action={action} />
-      <button type="submit" disabled={action.pending}>
-        {mode === "create" ? "Save daily metrics" : "Save health metrics"}
-      </button>
+      {dialogActions ? (
+        <footer className="ledger-create-dialog-actions">
+          <button
+            type="button"
+            className="items-toolbar-button"
+            aria-label={dialogActions.closeLabel}
+            disabled={action.pending || refreshRecovery}
+            onClick={dialogActions.onClose}
+          >
+            Close
+          </button>
+          <button
+            type="submit"
+            className="items-toolbar-button ledger-create-dialog-save"
+            disabled={action.pending || refreshRecovery}
+          >
+            {action.pending ? "Saving…" : "Save"}
+          </button>
+        </footer>
+      ) : (
+        <button type="submit" disabled={action.pending}>
+          {mode === "create" ? "Save daily metrics" : "Save health metrics"}
+        </button>
+      )}
       </fieldset>
       {refreshRecovery ? <div className="items-message">
         <p role="alert">{new HealthMutationRefreshError().message}</p>

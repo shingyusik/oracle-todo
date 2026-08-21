@@ -85,19 +85,12 @@ function DietCreateDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Add diet entry</h2>
-          <button
-            type="button"
-            aria-label="Close Add diet entry"
-            disabled={pending}
-            onClick={onClose}
-          >
-            Close
-          </button>
         </header>
         <DietForm
           controller={controller}
           onSaved={onClose}
           onPendingChange={setPending}
+          dialogActions={{ closeLabel: "Close Add diet entry", onClose }}
           tagOptions={tagOptions}
         />
       </div>

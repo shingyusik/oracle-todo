@@ -18,6 +18,7 @@ import { BowelPanel } from "@/features/health/ui/BowelPanel";
 import { DietPanel } from "@/features/health/ui/DietPanel";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
 import { HealthMetricsCreateDialog } from "@/features/health/ui/HealthMetricsCreateDialog";
+import { BowelForm, DietForm, MedicationForm, MetricsForm } from "@/features/health/ui/HealthForms";
 import { MedicationPanel } from "@/features/health/ui/MedicationPanel";
 import { MedicationCreateDialog } from "@/features/health/ui/MedicationCreateDialog";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
@@ -274,6 +275,57 @@ function BowelPanelHarness({ health }: { health: HealthController }) {
 }
 
 describe("Health Journal forms", () => {
+  it.each([
+    ["Diet", "Add diet entry", "Close Add diet entry", () => <DietDialogHarness health={controller()} />,
+      [["Time", "INPUT"], ["Meal", "SELECT"], ["Note", "TEXTAREA"]]],
+    ["Bowel", "Add bowel entry", "Close Add bowel entry", () => <BowelDialogHarness health={controller()} />,
+      [["Time", "INPUT"], ["Bristol Scale", "SELECT"], ["Note", "TEXTAREA"]]],
+    ["Medication", "Add medication entry", "Close Add medication entry",
+      () => <MedicationDialogHarness health={controller()} />,
+      [["Medication name", "INPUT"], ["Unit", "SELECT"], ["Note", "TEXTAREA"]]],
+    ["Health Metrics", "Add health metrics", "Close Add health metrics",
+      () => <MetricsDialogHarness health={controller()} />,
+      [["Date", "INPUT"], ["Condition", "SELECT"], ["Note", "TEXTAREA"]]],
+  ])("aligns the %s creation dialog actions and field wrappers with Ledger", (
+    _name,
+    dialogName,
+    closeLabel,
+    renderDialog,
+    controls,
+  ) => {
+    render(renderDialog());
+    const dialog = screen.getByRole("dialog", { name: dialogName });
+    const header = within(dialog).getByRole("heading", { name: dialogName }).parentElement!;
+    const close = within(dialog).getByRole("button", { name: closeLabel });
+    const save = within(dialog).getByRole("button", { name: "Save" });
+    const actions = close.parentElement!;
+
+    expect(within(header).queryByRole("button")).toBeNull();
+    expect(actions.tagName).toBe("FOOTER");
+    expect(actions).toHaveClass("ledger-create-dialog-actions");
+    expect(save.parentElement).toBe(actions);
+    expect(close).toHaveClass("items-toolbar-button");
+    expect(save).toHaveClass("items-toolbar-button", "ledger-create-dialog-save");
+    expect(close).toHaveTextContent(/^Close$/);
+    expect(save).toHaveTextContent(/^Save$/);
+    for (const [label, tagName] of controls) {
+      const control = within(dialog).getByLabelText(label);
+      expect(control.tagName).toBe(tagName);
+      expect(control.closest(".field-label")).not.toBeNull();
+    }
+  });
+
+  it.each([
+    ["Diet", "Save diet entry", () => <DietForm controller={controller()} />],
+    ["Bowel", "Save bowel entry", () => <BowelForm controller={controller()} />],
+    ["Medication", "Save medication", () => <MedicationForm controller={controller()} />],
+    ["Health Metrics", "Save daily metrics", () => <MetricsForm controller={controller()} />],
+  ])("preserves the standalone %s submit label", (_name, saveLabel, renderForm) => {
+    render(renderForm());
+    expect(screen.getByRole("button", { name: saveLabel })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Close Add / })).toBeNull();
+  });
+
   it("gives each tag popup a distinct valid listbox relationship", async () => {
     const user = userEvent.setup();
     render(<>
@@ -330,7 +382,7 @@ describe("Health Journal forms", () => {
     await user.selectOptions(screen.getByLabelText("Bristol Scale"), "4");
     await user.click(screen.getByLabelText("Blood Visible"));
     await user.type(screen.getByLabelText("Note"), "After breakfast");
-    await user.click(screen.getByRole("button", { name: "Save bowel entry" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(health.createBowel).toHaveBeenCalledWith(expect.objectContaining({
       details: { kind: "bowel", bristolScale: 4, bloodVisible: true },
@@ -493,14 +545,13 @@ describe("Health Journal forms", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<BowelDialogHarness health={controller()} onClose={onClose} />);
-    const close = screen.getByRole("button", { name: "Close Add bowel entry" });
-    const retrylessSave = screen.getByRole("button", { name: "Save bowel entry" });
-    expect(close).toHaveFocus();
-    close.focus();
+    const firstField = screen.getByLabelText("Time");
+    const retrylessSave = screen.getByRole("button", { name: "Save" });
+    expect(firstField).toHaveFocus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(retrylessSave).toHaveFocus();
     await user.tab();
-    expect(close).toHaveFocus();
+    expect(firstField).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledOnce();
 
@@ -523,7 +574,7 @@ describe("Health Journal forms", () => {
 
     await waitFor(() => expect(health.createBowel).toHaveBeenCalledOnce());
     const dialog = screen.getByRole("dialog", { name: "Add bowel entry" });
-    const saveButton = screen.getByRole("button", { name: "Save bowel entry" });
+    const saveButton = screen.getByRole("button", { name: "Saving…" });
     expect(dialog).toHaveAttribute("aria-busy", "true");
     expect(screen.getByLabelText("Time")).toBeDisabled();
     expect(saveButton).toBeDisabled();
@@ -576,7 +627,7 @@ describe("Health Journal forms", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Bowel save failed");
     expect(screen.getByRole("dialog", { name: "Add bowel entry" }))
       .toHaveAttribute("aria-busy", "false");
-    expect(screen.getByRole("button", { name: "Save bowel entry" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     expect(screen.getByLabelText("Time")).toHaveValue("2026-08-17T08:30");
     expect(screen.getByLabelText("Bristol Scale")).toHaveValue("6");
     expect(screen.getByLabelText("Blood Visible")).toBeChecked();
@@ -636,7 +687,7 @@ describe("Health Journal forms", () => {
     for (const label of ["Time", "Bristol Scale", "Blood Visible", "Note"]) {
       expect(screen.getByLabelText(label)).toBeDisabled();
     }
-    expect(screen.getByRole("button", { name: "Save bowel entry" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Note"), "Changed");
     fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
     expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
@@ -667,7 +718,7 @@ describe("Health Journal forms", () => {
     await user.click(screen.getByRole("button", { name: "Tags" }));
     await user.type(screen.getByRole("combobox", { name: "Tags" }), "rice, spicy, rice{Enter}");
     await user.upload(screen.getByLabelText("Photo"), image);
-    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(health.createDiet).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -711,7 +762,7 @@ describe("Health Journal forms", () => {
     await user.type(screen.getByRole("combobox", { name: "Tags" }), " fresh, rice, vegan {Enter}");
     await user.click(screen.getByRole("button", { name: "Remove rice tag" }));
     await user.type(screen.getByLabelText("Food"), "Lunch");
-    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(health.createDiet).toHaveBeenCalledWith(
       expect.objectContaining({ tags: ["fresh", "vegan"] }),
@@ -763,7 +814,7 @@ describe("Health Journal forms", () => {
     await user.type(screen.getByLabelText("Note"), "Keep this");
     const invalid = new File(["text"], "notes.txt", { type: "text/plain" });
     await user.upload(screen.getByLabelText("Photo"), invalid);
-    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent("Meal image must be an image file");
@@ -774,7 +825,7 @@ describe("Health Journal forms", () => {
 
     const image = new File(["photo"], "meal.png", { type: "image/png" });
     await user.upload(screen.getByLabelText("Photo"), image);
-    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Diet save failed");
     expect(screen.getByLabelText("Time")).toHaveValue("2026-08-17T08:30");
     expect(screen.getByLabelText("Meal")).toHaveValue("lunch");
@@ -805,14 +856,14 @@ describe("Health Journal forms", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     const first = render(<DietDialogHarness health={controller()} onClose={onClose} />);
-    const close = screen.getByRole("button", { name: "Close Add diet entry" });
-    const save = screen.getByRole("button", { name: "Save diet entry" });
+    const firstField = screen.getByLabelText("Time");
+    const save = screen.getByRole("button", { name: "Save" });
 
-    close.focus();
+    expect(firstField).toHaveFocus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(save).toHaveFocus();
     await user.tab();
-    expect(close).toHaveFocus();
+    expect(firstField).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
     expect(onClose).toHaveBeenCalledOnce();
@@ -869,10 +920,10 @@ describe("Health Journal forms", () => {
     render(<Harness />);
 
     await user.type(screen.getByLabelText("Food"), "Lunch");
-    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await user.keyboard("{Escape}");
     fireEvent.mouseDown(screen.getByRole("dialog", { name: "Add diet entry" }).parentElement!);
-    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.click(screen.getByRole("button", { name: "Saving…" }));
     expect(onClose).not.toHaveBeenCalled();
     expect(health.createDiet).toHaveBeenCalledOnce();
 
@@ -894,13 +945,13 @@ describe("Health Journal forms", () => {
     render(<DietDialogHarness health={health} onClose={onClose} />);
 
     await user.type(screen.getByLabelText("Food"), "Lunch");
-    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Changes were saved, but Health could not refresh.",
     );
     expect(screen.getByLabelText("Food")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save diet entry" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Tags" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Food"), { target: { value: "Dinner" } });
     fireEvent.submit(screen.getByRole("form", { name: "Diet entry" }));
@@ -925,7 +976,7 @@ describe("Health Journal forms", () => {
 
     await user.type(screen.getByLabelText("Food"), "Lunch");
     await user.upload(screen.getByLabelText("Photo"), image);
-    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(screen.getByLabelText("Food")).toHaveValue("Lunch");
     expect(screen.getByLabelText("Photo")).toHaveProperty("files.length", 1);
@@ -1058,7 +1109,7 @@ describe("Health Journal forms", () => {
     await user.type(screen.getByLabelText("Dose"), "1000");
     await user.selectOptions(screen.getByLabelText("Unit"), "mg");
     await user.type(screen.getByLabelText("Note"), "With breakfast");
-    await user.click(screen.getByRole("button", { name: "Save medication" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(health.createMedication).toHaveBeenCalledWith({
       occurredAt: expectedRfc3339,
@@ -1119,13 +1170,14 @@ describe("Health Journal forms", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<MedicationDialogHarness health={controller()} onClose={onClose} />);
+    const firstField = screen.getByLabelText("Taken at");
     const close = screen.getByRole("button", { name: "Close Add medication entry" });
-    const save = screen.getByRole("button", { name: "Save medication" });
-    close.focus();
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(firstField).toHaveFocus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(save).toHaveFocus();
     await user.tab();
-    expect(close).toHaveFocus();
+    expect(firstField).toHaveFocus();
     await user.click(close);
     expect(onClose).toHaveBeenCalledOnce();
 
@@ -1145,7 +1197,7 @@ describe("Health Journal forms", () => {
     render(<MedicationDialogHarness health={health} onClose={onClose} />);
     await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
     await user.type(screen.getByLabelText("Dose"), "1000");
-    await user.click(screen.getByRole("button", { name: "Save medication" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     const dialog = screen.getByRole("dialog", { name: "Add medication entry" });
     expect(dialog).toHaveAttribute("aria-busy", "true");
@@ -1153,7 +1205,7 @@ describe("Health Journal forms", () => {
     await user.keyboard("{Tab}{Escape}");
     fireEvent.mouseDown(dialog.parentElement!);
     fireEvent.click(screen.getByRole("button", { name: "Close Add medication entry" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save medication" }));
+    fireEvent.click(screen.getByRole("button", { name: "Saving…" }));
     fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
     expect(onClose).not.toHaveBeenCalled();
     expect(health.createMedication).toHaveBeenCalledOnce();
@@ -1171,7 +1223,7 @@ describe("Health Journal forms", () => {
     await user.type(screen.getByLabelText("Dose"), "1000");
     await user.selectOptions(screen.getByLabelText("Unit"), "mg");
     await user.type(screen.getByLabelText("Note"), "Keep this");
-    await user.click(screen.getByRole("button", { name: "Save medication" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Medication save failed");
     expect(screen.getByRole("dialog", { name: "Add medication entry" })).toBeVisible();
@@ -1199,11 +1251,11 @@ describe("Health Journal forms", () => {
     render(<MedicationDialogHarness health={health} onClose={onClose} />);
     await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
     await user.type(screen.getByLabelText("Dose"), "1000");
-    await user.click(screen.getByRole("button", { name: "Save medication" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes were saved, but Health could not refresh.");
     expect(screen.getByLabelText("Medication name")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save medication" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
     expect(health.createMedication).toHaveBeenCalledOnce();
 
@@ -1232,7 +1284,7 @@ describe("Health Journal forms", () => {
 
     await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
     await user.type(screen.getByLabelText("Dose"), "1000");
-    await user.click(screen.getByRole("button", { name: "Save medication" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await user.click(await screen.findByRole("button", { name: "Retry refresh" }));
     expect(health.refreshMedication).toHaveBeenCalledOnce();
     view.unmount();
@@ -1260,7 +1312,7 @@ describe("Health Journal forms", () => {
     await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
     await user.type(screen.getByLabelText("Dose"), "1000");
     await user.selectOptions(screen.getByLabelText("Unit"), "mg");
-    await user.click(screen.getByRole("button", { name: "Save medication" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(health.createMedication).toHaveBeenCalledWith(expect.objectContaining({
       details: {
@@ -1419,14 +1471,13 @@ describe("Health Journal forms", () => {
     expect(host?.parentElement).toBe(document.body);
     expect(view.container).toHaveAttribute("inert");
     expect(document.body.style.overflow).toBe("hidden");
-    expect(screen.getByLabelText("Date")).toHaveFocus();
-    const close = screen.getByRole("button", { name: "Close Add health metrics" });
-    const save = screen.getByRole("button", { name: "Save daily metrics" });
-    close.focus();
+    const firstField = screen.getByLabelText("Date");
+    expect(firstField).toHaveFocus();
+    const save = screen.getByRole("button", { name: "Save" });
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(save).toHaveFocus();
     await user.tab();
-    expect(close).toHaveFocus();
+    expect(firstField).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Add health metrics" })).toHaveFocus();
@@ -1702,7 +1753,7 @@ describe("Health Journal forms", () => {
         target: { value: "2026-07-30T09:00" },
       });
       await user.type(screen.getByLabelText("Food"), "Breakfast");
-      await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+      await user.click(screen.getByRole("button", { name: "Save" }));
 
       expect(health.createDiet).toHaveBeenCalledWith(
         expect.objectContaining({ occurredAt: "2026-07-30T00:00:00.000Z" }),

@@ -99,19 +99,12 @@ function BowelCreateDialogContent({
       >
         <header className="dashboard-widget-header">
           <h2>Add bowel entry</h2>
-          <button
-            type="button"
-            aria-label="Close Add bowel entry"
-            disabled={pending}
-            onClick={onClose}
-          >
-            Close
-          </button>
         </header>
         <BowelForm
           controller={controller}
           onSaved={onClose}
           onPendingChange={setPending}
+          dialogActions={{ closeLabel: "Close Add bowel entry", onClose }}
         />
       </div>
     </div>

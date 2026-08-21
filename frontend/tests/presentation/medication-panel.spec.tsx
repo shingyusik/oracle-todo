@@ -1231,7 +1231,7 @@ describe("MedicationPanel", () => {
     await user.click(add);
     await user.type(screen.getByLabelText("Medication name"), "Calcium");
     await user.type(screen.getByLabelText("Dose"), "2");
-    await user.click(screen.getByRole("button", { name: "Save medication" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(add).toHaveFocus());
   });
 
