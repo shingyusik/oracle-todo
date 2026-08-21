@@ -315,6 +315,14 @@ describe("Health Journal forms", () => {
     }
   });
 
+  it("aligns the Bowel blood checkbox with the compact form pattern", () => {
+    render(<BowelDialogHarness health={controller()} />);
+    const bloodVisible = screen.getByLabelText("Blood Visible");
+
+    expect(bloodVisible).toHaveAttribute("type", "checkbox");
+    expect(bloodVisible.closest("label")).toHaveClass("field-checkbox");
+  });
+
   it.each([
     ["Diet", "Save diet entry", () => <DietForm controller={controller()} />],
     ["Bowel", "Save bowel entry", () => <BowelForm controller={controller()} />],

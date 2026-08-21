@@ -55,6 +55,12 @@ describe("design system boundaries", () => {
     expect(css).toContain(
       ".confirmation-dialog .field-label textarea {\n  resize: none;\n}",
     );
+    expect(css).toContain(
+      ".ledger-account-settings-checkbox,\n.field-checkbox {\n  display: inline-flex;",
+    );
+    expect(css).toContain(
+      ".ledger-account-settings-checkbox input,\n.field-checkbox input {\n  width: 16px;\n  height: 16px;\n  margin: 0;\n}",
+    );
   });
 
   it("exposes non-empty tokens, copy, and layout constants", () => {

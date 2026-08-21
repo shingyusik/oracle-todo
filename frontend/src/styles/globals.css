@@ -2272,7 +2272,8 @@ button {
   margin: 0;
 }
 
-.ledger-account-settings-checkbox {
+.ledger-account-settings-checkbox,
+.field-checkbox {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2282,7 +2283,8 @@ button {
   cursor: pointer;
 }
 
-.ledger-account-settings-checkbox input {
+.ledger-account-settings-checkbox input,
+.field-checkbox input {
   width: 16px;
   height: 16px;
   margin: 0;

@@ -280,7 +280,7 @@ export function BowelForm({
           ))}
         </select>
       </label>
-      <label className="field-label">
+      <label className="field-checkbox">
         <input
           type="checkbox"
           checked={bloodVisible}
