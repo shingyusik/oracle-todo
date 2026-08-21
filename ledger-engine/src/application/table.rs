@@ -529,7 +529,7 @@ fn valid_date_filter(operator: LedgerFilterOperator, value: &LedgerTableFilterVa
         Operator::IsRelativeToToday => matches!(
             value,
             LedgerTableFilterValue::Relative { amount, .. }
-                if !amount.is_empty()
+                if valid_bounded_text(amount)
                     && amount.bytes().all(|byte| byte.is_ascii_digit())
                     && amount.parse::<u32>().is_ok_and(|amount| amount <= MAX_RELATIVE_DATE_AMOUNT)
         ),

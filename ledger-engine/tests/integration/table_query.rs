@@ -247,6 +247,32 @@ fn table_queries_reject_operator_and_value_mismatches() {
 }
 
 #[test]
+fn relative_date_filter_rejects_an_oversized_leading_zero_amount() {
+    let result = query(
+        LedgerTableScope::Transactions,
+        FilterMode::And,
+        vec![LedgerTableFilter::Transactions {
+            field: TransactionTableFilterField::Date,
+            operator: LedgerFilterOperator::IsRelativeToToday,
+            value: LedgerTableFilterValue::Relative {
+                amount: "0".repeat(513),
+                unit: ledger_engine::application::table::RelativeDateUnit::Day,
+            },
+        }],
+        vec![transaction_date_sort()],
+        group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+    );
+
+    assert!(matches!(
+        result,
+        Err(LedgerError::Validation {
+            field: "filters",
+            ..
+        })
+    ));
+}
+
+#[test]
 fn logical_record_contract_carries_transfer_and_display_labels() {
     let outgoing = entry_view(
         "out-1",
