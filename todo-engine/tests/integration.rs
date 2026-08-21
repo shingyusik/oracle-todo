@@ -18,3 +18,5 @@ mod repository;
 mod schema_indexes;
 #[path = "integration/service_policy.rs"]
 mod service_policy;
+#[path = "integration/table_query.rs"]
+mod table_query;
