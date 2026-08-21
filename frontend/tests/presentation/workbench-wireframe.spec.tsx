@@ -12434,6 +12434,78 @@ describe("WorkbenchPageClient", () => {
     expect(offsets).toEqual([0, 50, 50]);
   });
 
+  it("does not activate linked paging until the five-row preview is expanded", async () => {
+    type ObserverCallback = ConstructorParameters<typeof IntersectionObserver>[0];
+    const observers: ObserverStub[] = [];
+    class ObserverStub {
+      active = true;
+      target: Element | null = null;
+      constructor(readonly callback: ObserverCallback) { observers.push(this); }
+      observe(target: Element) { this.target = target; }
+      disconnect() { this.active = false; }
+      unobserve() {}
+      takeRecords(): IntersectionObserverEntry[] { return []; }
+      readonly root = null;
+      readonly rootMargin = "";
+      readonly thresholds = [];
+    }
+    vi.stubGlobal("IntersectionObserver", ObserverStub);
+    const user = userEvent.setup();
+    const area = { id: "area-page", type: "area", title: "Paged area", status: "active" } as WorkspaceItemModel;
+    const offsets: number[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        if (body.scope === "workspace.area") return fixtureJson({
+          items: [{ key: "area", group_key: null, group_label: null, record: fixtureWireRecord(area) }],
+          next_offset: null,
+        });
+        if (body.scope === "linked.area.task") {
+          offsets.push(body.offset);
+          return fixtureJson({
+            items: body.offset === 0 ? Array.from({ length: 50 }, (_, index) => ({
+              key: `task-${index}`,
+              group_key: null,
+              group_label: null,
+              record: fixtureWireRecord({
+                id: `task-${index}`, type: "task", title: `Task ${index}`, status: "active",
+                area_id: area.id,
+              } as WorkspaceItemModel),
+            })) : [],
+            next_offset: body.offset === 0 ? 50 : null,
+          });
+        }
+        return fixtureJson({ items: [], next_offset: null });
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Paged area" }));
+    const linked = await screen.findByRole("table", { name: "Tasks linked items" });
+    await waitFor(() => expect(within(linked).getAllByRole("button", { name: /^Open Task \d+ details$/ })).toHaveLength(5));
+    expect(within(linked).queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(observers.filter((observer) => observer.active && observer.target && linked.contains(observer.target))).toHaveLength(0);
+    expect(offsets).toEqual([0]);
+
+    await user.click(screen.getByRole("button", { name: "More (45) Tasks" }));
+    const linkedObserver = await waitFor(() => {
+      const observer = observers.find((candidate) =>
+        candidate.active && candidate.target && linked.contains(candidate.target));
+      expect(observer).toBeDefined();
+      return observer!;
+    });
+    act(() => linkedObserver.callback(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    ));
+    await waitFor(() => expect(offsets).toEqual([0, 50]));
+  });
+
   it("shows a blocking retry for an initial Workspace page failure", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -12769,6 +12841,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(await screen.findByRole("button", { name: "Open details for Paged area" }));
     const tasks = await screen.findByRole("table", { name: "Tasks linked items" });
+    await user.click(screen.getByRole("button", { name: "More Tasks" }));
     await user.click(within(tasks).getByRole("button", { name: "Load more" }));
     await user.click(await within(tasks).findByRole("button", { name: "Open Opaque page two details" }));
     const title = screen.getByLabelText("Title");

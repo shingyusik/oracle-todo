@@ -2697,7 +2697,7 @@ describe("LedgerPanel", () => {
     expect(await screen.findByText("Refilled row")).toBeInTheDocument();
     expect(transactionCalls).toBe(3);
     expect(ledgerApi.queryTable).toHaveBeenLastCalledWith(
-      "ledger.transactions", expect.anything(), 0,
+      "ledger.transactions", expect.anything(), 0, expect.any(Date),
     );
   });
 
@@ -3251,6 +3251,7 @@ describe("LedgerPanel", () => {
       "ledger.transactions",
       result.current.tableSettings("ledger.transactions"),
       0,
+      expect.any(Date),
     );
 
     act(() => {
@@ -3289,6 +3290,74 @@ describe("LedgerPanel", () => {
     expect(vi.mocked(ledgerApi.queryTable).mock.calls.slice(-2).map((call) => call[2]))
       .toEqual([50, 50]);
     expect(result.current.tablePage!("ledger.transactions").items).toHaveLength(2);
+  });
+
+  it("freezes the local reference date across appends and retries in one generation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 22, 23, 59));
+    mockLedgerLoads();
+    vi.mocked(ledgerApi.queryTable)
+      .mockResolvedValueOnce({ items: [], nextOffset: 50 })
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ items: [], nextOffset: null })
+      .mockResolvedValueOnce({ items: [], nextOffset: null });
+    try {
+      const { result } = renderHook(() => useLedgerController());
+      await act(async () => result.current.ensureTable!("ledger.transactions"));
+      vi.setSystemTime(new Date(2026, 7, 23, 0, 1));
+      await act(async () => result.current.loadMore!("ledger.transactions"));
+      await act(async () => result.current.loadMore!("ledger.transactions"));
+      expect(vi.mocked(ledgerApi.queryTable).mock.calls.slice(0, 3).map((call) =>
+        [call[3]?.getFullYear(), call[3]?.getMonth(), call[3]?.getDate()],
+      )).toEqual([[2026, 7, 22], [2026, 7, 22], [2026, 7, 22]]);
+
+      await act(async () => result.current.updateTableSettings("ledger.transactions", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      })));
+      expect(ledgerApi.queryTable).toHaveBeenCalledTimes(4);
+      expect(vi.mocked(ledgerApi.queryTable).mock.calls[3]?.[3]?.getDate()).toBe(23);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let a stale Ledger append latch block a new generation append", async () => {
+    mockLedgerLoads();
+    const firstAppend = deferred<Awaited<ReturnType<typeof ledgerApi.queryTable>>>();
+    const secondAppend = deferred<Awaited<ReturnType<typeof ledgerApi.queryTable>>>();
+    const appends = [firstAppend, secondAppend];
+    let initialLoads = 0;
+    vi.mocked(ledgerApi.queryTable).mockImplementation(async (_scope, _settings, offset) => {
+      if (offset === 50) return appends.shift()!.promise;
+      initialLoads += 1;
+      return { items: [], nextOffset: 50 };
+    });
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => result.current.ensureTable!("ledger.transactions"));
+    let stale!: Promise<void>;
+    act(() => { stale = result.current.loadMore!("ledger.transactions"); });
+    act(() => result.current.updateTableSettings("ledger.transactions", (settings) => ({
+      ...settings,
+      filterMode: "or",
+    })));
+    await waitFor(() => expect(initialLoads).toBe(2));
+    let current!: Promise<void>;
+    act(() => { current = result.current.loadMore!("ledger.transactions"); });
+    expect(vi.mocked(ledgerApi.queryTable).mock.calls.map((call) => call[2]))
+      .toEqual([0, 50, 0, 50]);
+    await act(async () => {
+      secondAppend.resolve({ items: [], nextOffset: null });
+      await current;
+    });
+    await act(async () => {
+      firstAppend.resolve({
+        items: [transactionOccurrence("stale", "entry-1", "Stale")],
+        nextOffset: null,
+      });
+      await stale;
+    });
+    expect(result.current.tablePage!("ledger.transactions").items).toEqual([]);
   });
 
   it("resets only the changed table and ignores its stale page response", async () => {
@@ -3688,7 +3757,7 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("Recovered")).toBeInTheDocument();
     expect(ledgerApi.queryTable).toHaveBeenCalledWith(
-      "ledger.transactions", expect.anything(), 0,
+      "ledger.transactions", expect.anything(), 0, expect.any(Date),
     );
   });
 
@@ -3741,7 +3810,7 @@ describe("LedgerPanel", () => {
     expect(screen.queryByText("Old row")).toBeNull();
     expect(transactionCalls).toBe(3);
     expect(ledgerApi.queryTable).toHaveBeenLastCalledWith(
-      "ledger.transactions", expect.anything(), 0,
+      "ledger.transactions", expect.anything(), 0, expect.any(Date),
     );
   });
 

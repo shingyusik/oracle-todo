@@ -67,6 +67,7 @@ export type HealthTablePageState = {
   moreError: string | null;
   generation: number;
 };
+type HealthInternalTablePageState = HealthTablePageState & { referenceDate: Date };
 
 export class HealthMutationRefreshError extends Error {
   constructor() {
@@ -170,10 +171,11 @@ const initialState: HealthState = {
   },
 };
 
-const emptyTablePage = (): HealthTablePageState => ({
+const emptyTablePage = (referenceDate = new Date()): HealthInternalTablePageState => ({
   items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+  referenceDate,
 });
-const initialTablePages: Record<HealthTableScopeId, HealthTablePageState> = {
+const initialTablePages: Record<HealthTableScopeId, HealthInternalTablePageState> = {
   "health.diet": emptyTablePage(),
   "health.bowel": emptyTablePage(),
   "health.medication": emptyTablePage(),
@@ -229,7 +231,7 @@ export function useHealthController(): HealthController {
   const [tablePages, setTablePages] = useState(initialTablePages);
   const tablePagesRef = useRef(tablePages);
   const initializedTables = useRef(new Set<HealthTableScopeId>());
-  const pendingMore = useRef(new Set<HealthTableScopeId>());
+  const pendingMore = useRef(new Set<string>());
   const referenceDataLoaded = useRef(new Set<HealthTableScopeId>());
   const referenceDataRequested = useRef(new Set<HealthTableScopeId>());
   const referenceDataRequests = useRef(new Map<HealthTableScopeId, ReferenceDataRequest>());
@@ -282,7 +284,12 @@ export function useHealthController(): HealthController {
     setState((current) => setScopeLoadState(current, scope, wasInitialized ? undefined : "loading"));
     try {
       const [result, lookups] = await Promise.all([
-        healthApi.queryTable(scope, tableViewsRef.current[scope].draftSettings, 0),
+        healthApi.queryTable(
+          scope,
+          tableViewsRef.current[scope].draftSettings,
+          0,
+          page.referenceDate,
+        ),
         healthApi.tableLookups(scope),
       ]);
       if (tablePagesRef.current[scope].generation !== generation) return true;
@@ -327,9 +334,10 @@ export function useHealthController(): HealthController {
 
   const loadMore = useCallback(async (scope: HealthTableScopeId) => {
     const current = tablePagesRef.current[scope];
-    if (current.nextOffset === null || pendingMore.current.has(scope)) return;
-    pendingMore.current.add(scope);
     const generation = current.generation;
+    const pendingKey = `${scope}:${generation}`;
+    if (current.nextOffset === null || pendingMore.current.has(pendingKey)) return;
+    pendingMore.current.add(pendingKey);
     const offset = current.nextOffset;
     const loading = { ...current, moreStatus: "loading" as const, moreError: null };
     tablePagesRef.current = { ...tablePagesRef.current, [scope]: loading };
@@ -339,6 +347,7 @@ export function useHealthController(): HealthController {
         scope,
         tableViewsRef.current[scope].draftSettings,
         offset,
+        current.referenceDate,
       );
       if (tablePagesRef.current[scope].generation !== generation) return;
       const next = {
@@ -361,7 +370,7 @@ export function useHealthController(): HealthController {
       tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
       setTablePages(tablePagesRef.current);
     } finally {
-      pendingMore.current.delete(scope);
+      pendingMore.current.delete(pendingKey);
     }
   }, []);
 

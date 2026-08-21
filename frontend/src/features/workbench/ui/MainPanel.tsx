@@ -935,13 +935,15 @@ function LinkedItemTable({
             </tr>
           )}
         />
-        <InfiniteTableFooter
-          nextOffset={page.nextOffset}
-          status={page.moreStatus}
-          error={page.moreError}
-          loadMore={() => void controller.loadMoreTodoTable(target)}
-          columnCount={1}
-        />
+        {expanded ? (
+          <InfiniteTableFooter
+            nextOffset={page.nextOffset}
+            status={page.moreStatus}
+            error={page.moreError}
+            loadMore={() => void controller.loadMoreTodoTable(target)}
+            columnCount={1}
+          />
+        ) : null}
       </table>
       {collapsed.hiddenCount > 0 ? (
         <button
@@ -951,6 +953,15 @@ function LinkedItemTable({
           onClick={() => setExpanded(true)}
         >
           More ({collapsed.hiddenCount})
+        </button>
+      ) : !expanded && page.nextOffset !== null ? (
+        <button
+          className="linked-items-overflow-action"
+          type="button"
+          aria-label={`More ${childLabel}`}
+          onClick={() => setExpanded(true)}
+        >
+          More
         </button>
       ) : expanded && collapsed.visibleCount > 5 ? (
         <button

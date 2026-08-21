@@ -73,6 +73,7 @@ export type LedgerTablePageState = {
   moreError: string | null;
   generation: number;
 };
+type LedgerInternalTablePageState = LedgerTablePageState & { referenceDate: Date };
 
 export class LedgerMutationRefreshError extends Error {
   constructor() {
@@ -183,14 +184,15 @@ const initialState: LedgerState = {
   categoryBreakdown: [],
 };
 
-const emptyTablePage = (): LedgerTablePageState => ({
+const emptyTablePage = (referenceDate = new Date()): LedgerInternalTablePageState => ({
   items: [],
   nextOffset: null,
   moreStatus: "idle",
   moreError: null,
   generation: 0,
+  referenceDate,
 });
-const initialTablePages: Record<LedgerTableScopeId, LedgerTablePageState> = {
+const initialTablePages: Record<LedgerTableScopeId, LedgerInternalTablePageState> = {
   "ledger.transactions": emptyTablePage(),
   "ledger.accounts": emptyTablePage(),
   "ledger.categories": emptyTablePage(),
@@ -237,7 +239,7 @@ export function useLedgerController(): LedgerController {
   const [tablePages, setTablePages] = useState(initialTablePages);
   const tablePagesRef = useRef(tablePages);
   const initializedTables = useRef(new Set<LedgerTableScopeId>());
-  const pendingMore = useRef(new Set<LedgerTableScopeId>());
+  const pendingMore = useRef(new Set<string>());
   const referenceDataLoaded = useRef(new Set<LedgerTableScopeId>());
   const referenceDataRequests = useRef(new Map<LedgerTableScopeId, Promise<boolean>>());
   const transactionFormReferencesLoaded = useRef(false);
@@ -265,7 +267,12 @@ export function useLedgerController(): LedgerController {
     setTablePages(tablePagesRef.current);
     try {
       const [result, lookups] = await Promise.all([
-        ledgerApi.queryTable(scope, tableViewsRef.current[scope].draftSettings, 0),
+        ledgerApi.queryTable(
+          scope,
+          tableViewsRef.current[scope].draftSettings,
+          0,
+          page.referenceDate,
+        ),
         ledgerApi.tableLookups(scope),
       ]);
       if (tablePagesRef.current[scope].generation !== generation) return true;
@@ -310,9 +317,10 @@ export function useLedgerController(): LedgerController {
 
   const loadMore = useCallback(async (scope: LedgerTableScopeId) => {
     const current = tablePagesRef.current[scope];
-    if (current.nextOffset === null || pendingMore.current.has(scope)) return;
-    pendingMore.current.add(scope);
     const generation = current.generation;
+    const pendingKey = `${scope}:${generation}`;
+    if (current.nextOffset === null || pendingMore.current.has(pendingKey)) return;
+    pendingMore.current.add(pendingKey);
     const offset = current.nextOffset;
     const loading = { ...current, moreStatus: "loading" as const, moreError: null };
     tablePagesRef.current = { ...tablePagesRef.current, [scope]: loading };
@@ -322,6 +330,7 @@ export function useLedgerController(): LedgerController {
         scope,
         tableViewsRef.current[scope].draftSettings,
         offset,
+        current.referenceDate,
       );
       if (tablePagesRef.current[scope].generation !== generation) return;
       const next = {
@@ -343,7 +352,7 @@ export function useLedgerController(): LedgerController {
       tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
       setTablePages(tablePagesRef.current);
     } finally {
-      pendingMore.current.delete(scope);
+      pendingMore.current.delete(pendingKey);
     }
   }, []);
 

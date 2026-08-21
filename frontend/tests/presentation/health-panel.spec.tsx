@@ -819,7 +819,7 @@ describe("HealthPanel", () => {
     });
     expect(healthApi.queryTable).toHaveBeenCalledTimes(2);
     expect(healthApi.queryTable).toHaveBeenLastCalledWith(
-      "health.diet", expect.anything(), 50,
+      "health.diet", expect.anything(), 50, expect.any(Date),
     );
     await act(async () => second.resolve({
       items: [
@@ -862,7 +862,7 @@ describe("HealthPanel", () => {
     expect(legacyDiet).not.toHaveBeenCalled();
     expect(legacyEvents).not.toHaveBeenCalled();
     expect(healthApi.queryTable).toHaveBeenCalledWith(
-      "health.diet", expect.anything(), 0,
+      "health.diet", expect.anything(), 0, expect.any(Date),
     );
   });
 
@@ -903,7 +903,9 @@ describe("HealthPanel", () => {
       expect(firstText[1]).toContain(firstLabels[1]);
       expect(screen.getByText("Server group B")).toBeInTheDocument();
       expect(screen.getByText("Server group A")).toBeInTheDocument();
-      expect(healthApi.queryTable).toHaveBeenCalledWith(scope, defaultHealthTableSettings(scope), 0);
+      expect(healthApi.queryTable).toHaveBeenCalledWith(
+        scope, defaultHealthTableSettings(scope), 0, expect.any(Date),
+      );
       expect(healthApi.tableLookups).toHaveBeenCalledWith(scope);
       expect(legacyDiet).not.toHaveBeenCalled();
       expect(legacyEvents).not.toHaveBeenCalled();
@@ -1019,6 +1021,78 @@ describe("HealthPanel", () => {
     expect(result.current.tablePage("health.bowel").items).toEqual([]);
   });
 
+  it("freezes the local Health reference date across appends and retries in one generation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 22, 23, 59));
+    vi.spyOn(healthApi, "queryTable")
+      .mockResolvedValueOnce({ items: [], nextOffset: 50 })
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ items: [], nextOffset: null })
+      .mockResolvedValueOnce({ items: [], nextOffset: null });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+    try {
+      const { result } = renderHook(() => useHealthController());
+      await act(async () => result.current.ensureTable("health.bowel"));
+      vi.setSystemTime(new Date(2026, 7, 23, 0, 1));
+      await act(async () => result.current.loadMore("health.bowel"));
+      await act(async () => result.current.loadMore("health.bowel"));
+      expect(vi.mocked(healthApi.queryTable).mock.calls.slice(0, 3).map((call) =>
+        [call[3]?.getFullYear(), call[3]?.getMonth(), call[3]?.getDate()],
+      )).toEqual([[2026, 7, 22], [2026, 7, 22], [2026, 7, 22]]);
+
+      await act(async () => result.current.updateTableSettings("health.bowel", (settings) => ({
+        ...settings,
+        filterMode: "or",
+      })));
+      expect(healthApi.queryTable).toHaveBeenCalledTimes(4);
+      expect(vi.mocked(healthApi.queryTable).mock.calls[3]?.[3]?.getDate()).toBe(23);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let a stale Health append latch block a new generation append", async () => {
+    const firstAppend = deferred<Awaited<ReturnType<typeof healthApi.queryTable>>>();
+    const secondAppend = deferred<Awaited<ReturnType<typeof healthApi.queryTable>>>();
+    const appends = [firstAppend, secondAppend];
+    let initialLoads = 0;
+    vi.spyOn(healthApi, "queryTable").mockImplementation(async (_scope, _settings, offset) => {
+      if (offset === 50) return appends.shift()!.promise;
+      initialLoads += 1;
+      return { items: [], nextOffset: 50 };
+    });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+    const { result } = renderHook(() => useHealthController());
+    await act(async () => result.current.ensureTable("health.bowel"));
+    let stale!: Promise<void>;
+    act(() => { stale = result.current.loadMore("health.bowel"); });
+    act(() => result.current.updateTableSettings("health.bowel", (settings) => ({
+      ...settings,
+      filterMode: "or",
+    })));
+    await waitFor(() => expect(initialLoads).toBe(2));
+    let current!: Promise<void>;
+    act(() => { current = result.current.loadMore("health.bowel"); });
+    expect(vi.mocked(healthApi.queryTable).mock.calls.map((call) => call[2]))
+      .toEqual([0, 50, 0, 50]);
+    await act(async () => {
+      secondAppend.resolve({ items: [], nextOffset: null });
+      await current;
+    });
+    await act(async () => {
+      firstAppend.resolve({
+        items: [{
+          key: "stale", groupKey: null, groupLabel: null, scope: "health.bowel",
+          record: { kind: "bowel", id: bowel.id, event: bowel, date: "2026-07-30",
+            bristolScale: 4, bloodVisible: false, bloodLabel: "No", note: "" },
+        }],
+        nextOffset: null,
+      });
+      await stale;
+    });
+    expect(result.current.tablePage("health.bowel").items).toEqual([]);
+  });
+
   it("reloads only the affected initialized Health scope after mutation", async () => {
     vi.spyOn(healthApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
     vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
@@ -1037,7 +1111,7 @@ describe("HealthPanel", () => {
 
     expect(healthApi.queryTable).toHaveBeenCalledOnce();
     expect(healthApi.queryTable).toHaveBeenCalledWith(
-      "health.bowel", expect.anything(), 0,
+      "health.bowel", expect.anything(), 0, expect.any(Date),
     );
     expect(result.current.tablePage("health.diet")).toBe(dietPage);
     expect(result.current.tablePage("health.bowel").generation).toBe(bowelGeneration + 1);
