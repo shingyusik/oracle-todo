@@ -179,6 +179,24 @@ describe("MedicationPanel", () => {
     expect(screen.queryByRole("heading", { name: "Vitamin D" })).toBeNull();
   });
 
+  it("invalidates a pending Medication action when the current view generation resets", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    const page = health.tablePage("health.medication");
+    let generation = page.generation;
+    health.tablePage = vi.fn(() => ({ ...page, generation }));
+    const pending = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<MedicationPanelHarness controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add medication entry" }));
+    generation += 1;
+    view.rerender(<MedicationPanelHarness controller={health} />);
+    await act(async () => pending.resolve(true));
+
+    expect(screen.queryByRole("dialog", { name: "Add medication entry" })).toBeNull();
+  });
+
   it("renders the saved-view table with exact controls, columns, active rows, and a contextual detail affordance", async () => {
     const archived = { ...event, id: "archived", deletedAt: event.updatedAt };
     const health = panelController({ ...loadedState, medicationEntries: [event, archived] });

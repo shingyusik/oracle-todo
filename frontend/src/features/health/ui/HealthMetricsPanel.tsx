@@ -43,7 +43,7 @@ export function HealthMetricsPanel({
   useEffect(() => {
     interactionTokenRef.current += 1;
     return () => { interactionTokenRef.current += 1; };
-  }, [activeViewId]);
+  }, [activeViewId, page.generation]);
   const entries = useMemo(() => controller.state.metricsEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)), [controller.state.metricsEntries, tombstonedIds]);
   const settings = controller.tableSettings("health.metrics");

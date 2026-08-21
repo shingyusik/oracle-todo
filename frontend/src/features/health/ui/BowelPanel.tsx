@@ -42,7 +42,7 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
   useEffect(() => {
     interactionTokenRef.current += 1;
     return () => { interactionTokenRef.current += 1; };
-  }, [activeViewId]);
+  }, [activeViewId, page.generation]);
 
   const entries = useMemo(() => controller.state.bowelEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)), [controller.state.bowelEntries, tombstonedIds]);

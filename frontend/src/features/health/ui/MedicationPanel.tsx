@@ -56,7 +56,7 @@ export function MedicationPanel({
   useEffect(() => {
     interactionTokenRef.current += 1;
     return () => { interactionTokenRef.current += 1; };
-  }, [activeViewId]);
+  }, [activeViewId, page.generation]);
 
   const entries = useMemo(() => controller.state.medicationEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)),

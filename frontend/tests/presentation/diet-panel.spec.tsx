@@ -406,6 +406,43 @@ describe("DietPanel table", () => {
     expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
   });
 
+  it("invalidates a pending Diet action when the current view generation resets", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    const page = health.tablePage("health.diet");
+    let generation = page.generation;
+    health.tablePage = vi.fn(() => ({ ...page, generation }));
+    const pending = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<DietPanel controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
+    generation += 1;
+    view.rerender(<DietPanel controller={health} />);
+    await act(async () => pending.resolve(true));
+
+    expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
+  });
+
+  it("keeps a pending Diet action valid when an appended page retains its generation", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    const page = health.tablePage("health.diet");
+    let appended = false;
+    health.tablePage = vi.fn(() => ({ ...page,
+      items: appended ? [...page.items] : page.items }));
+    const pending = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<DietPanel controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
+    appended = true;
+    view.rerender(<DietPanel controller={health} />);
+    await act(async () => pending.resolve(true));
+
+    expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeInTheDocument();
+  });
+
   it("uses shared tag behavior and coalesces text history while keeping distinct actions separate", async () => {
     const user = userEvent.setup();
     const dinner = { ...entry, id: "dinner", foodName: "Soup", tags: ["warm"] };

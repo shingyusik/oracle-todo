@@ -221,6 +221,24 @@ describe("Bowel table workflow", () => {
     await act(async () => afterUnmount.resolve(true));
     expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull();
   });
+
+  it("invalidates a pending Bowel action when the current view generation resets", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    const page = health.tablePage("health.bowel");
+    let generation = page.generation;
+    health.tablePage = vi.fn(() => ({ ...page, generation }));
+    const pending = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<BowelPanelHarness controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    generation += 1;
+    view.rerender(<BowelPanelHarness controller={health} />);
+    await act(async () => pending.resolve(true));
+
+    expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull();
+  });
   it("opens Bowel details from the accessible row and isolates its checkbox", async () => {
     const user = userEvent.setup();
     const open = vi.fn();

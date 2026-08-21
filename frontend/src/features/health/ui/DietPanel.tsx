@@ -56,7 +56,7 @@ export function DietPanel({
   useEffect(() => {
     interactionTokenRef.current += 1;
     return () => { interactionTokenRef.current += 1; };
-  }, [activeViewId]);
+  }, [activeViewId, page.generation]);
 
   const entries = useMemo(
     () => controller.state.dietEntries.filter(({ deletedAt, id }) =>

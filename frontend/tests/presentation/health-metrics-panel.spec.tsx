@@ -159,6 +159,28 @@ describe("Health Metrics table", () => {
     expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull();
   });
 
+  it("invalidates a pending Health Metrics action when the current view generation resets", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    const page = health.tablePage("health.metrics");
+    let generation = page.generation;
+    health.tablePage = vi.fn(() => ({ ...page, generation }));
+    const pending = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
+    generation += 1;
+    view.rerender(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await act(async () => pending.resolve(true));
+
+    expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull();
+  });
+
   it("opens a daily detail and saves one changed metric plus one cleared metric atomically", async () => {
     const user = userEvent.setup();
     const health = panelController();
