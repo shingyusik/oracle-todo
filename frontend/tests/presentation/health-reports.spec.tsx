@@ -70,28 +70,22 @@ describe("Health Reports controller", () => {
     vi.restoreAllMocks();
   });
 
-  it("mounts reports idle and reads only the four dedicated collections", async () => {
+  it("mounts idle without eagerly reading reports or table collections", () => {
     const { result } = renderHook(() => useHealthController());
 
     expect(result.current.state).toMatchObject({
+      metricsStatus: "idle",
+      medicationStatus: "idle",
+      bowelStatus: "idle",
+      dietStatus: "idle",
       reportStatus: "idle",
       reportError: null,
       report: null,
       reportSelection: { preset: 30 },
     });
-    await waitFor(() => expect(result.current.state.metricsStatus).toBe("loaded"));
 
-    expect(healthApi.listDiet).toHaveBeenCalledWith({ limit: 200, offset: 0 });
-    expect(healthApi.listEvents).toHaveBeenCalledTimes(3);
-    expect(healthApi.listEvents).toHaveBeenCalledWith({
-      category: "bowel", limit: 200, offset: 0,
-    });
-    expect(healthApi.listEvents).toHaveBeenCalledWith({
-      category: "medication", limit: 200, offset: 0,
-    });
-    expect(healthApi.listEvents).toHaveBeenCalledWith({
-      dailyOnly: true, limit: 200, offset: 0,
-    });
+    expect(healthApi.listDiet).not.toHaveBeenCalled();
+    expect(healthApi.listEvents).not.toHaveBeenCalled();
     expect(healthApi.timeline).not.toHaveBeenCalled();
     expect(healthApi.trends).not.toHaveBeenCalled();
     expect(healthApi.reports).not.toHaveBeenCalled();
@@ -286,13 +280,18 @@ describe("Health Reports controller", () => {
     expect(result.current.state.reportStatus).toBe("loaded");
   });
 
-  it("aggregate refresh reads the four dedicated collections and no reports or legacy feeds", async () => {
+  it("refresh stays idle when no consumer has requested a scope", async () => {
     const { result } = renderHook(() => useHealthController());
-    await waitFor(() => expect(result.current.state.metricsStatus).toBe("loaded"));
-    vi.clearAllMocks();
     await act(async () => { expect(await result.current.refresh()).toBe(true); });
-    expect(healthApi.listDiet).toHaveBeenCalledOnce();
-    expect(healthApi.listEvents).toHaveBeenCalledTimes(3);
+    expect(result.current.state).toMatchObject({
+      metricsStatus: "idle",
+      medicationStatus: "idle",
+      bowelStatus: "idle",
+      dietStatus: "idle",
+      reportStatus: "idle",
+    });
+    expect(healthApi.listDiet).not.toHaveBeenCalled();
+    expect(healthApi.listEvents).not.toHaveBeenCalled();
     expect(healthApi.timeline).not.toHaveBeenCalled();
     expect(healthApi.trends).not.toHaveBeenCalled();
     expect(healthApi.reports).not.toHaveBeenCalled();
@@ -300,6 +299,11 @@ describe("Health Reports controller", () => {
 });
 
 describe("Health Reports workspace", () => {
+  function IntegratedReports() {
+    const value = useHealthController();
+    return <HealthReports controller={value} />;
+  }
+
   function state(overrides: Partial<HealthState> = {}): HealthState {
     return {
       metricsStatus: "loaded", metricsError: null, metricsEntries: [],
@@ -368,6 +372,30 @@ describe("Health Reports workspace", () => {
       preset: "custom", from: "2026-08-01", to: "2026-08-19",
     });
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("loads only the report aggregate when the real workspace mounts", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 7, 20, 12));
+    const reports = vi.spyOn(healthApi, "reports")
+      .mockResolvedValue(report("2026-07-22", "2026-08-20"));
+    const listDiet = vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    const listEvents = vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
+    const timeline = vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
+    const trends = vi.spyOn(healthApi, "trends").mockResolvedValue({} as never);
+
+    render(<StrictMode><IntegratedReports /></StrictMode>);
+
+    await waitFor(() => expect(reports).toHaveBeenCalledOnce());
+    expect(reports).toHaveBeenCalledWith({
+      from: "2026-07-22", to: "2026-08-20",
+    });
+    expect(listDiet).not.toHaveBeenCalled();
+    expect(listEvents).not.toHaveBeenCalled();
+    expect(timeline).not.toHaveBeenCalled();
+    expect(trends).not.toHaveBeenCalled();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("renders blocking loading and retry states, then retains busy analysis on refresh errors", async () => {

@@ -792,10 +792,10 @@ describe("Health Journal forms", () => {
     );
   });
 
-  it("renders Diet controls in the requested order", () => {
+  it("renders Diet controls in the requested order", async () => {
     render(<DietPanel controller={controller()} />);
     fireEvent.click(screen.getByRole("button", { name: "Add diet entry" }));
-    const form = screen.getByRole("form", { name: "Diet entry" });
+    const form = await screen.findByRole("form", { name: "Diet entry" });
     const controls = [
       within(form).getByLabelText("Time"),
       within(form).getByLabelText("Meal"),
