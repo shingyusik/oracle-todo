@@ -408,18 +408,6 @@ fn scalar_filter_sql(
 
 fn hidden_sql(query: &LedgerTableQuery, values: &mut Vec<Value>) -> String {
     let mut clauses = Vec::new();
-    let grouped = !matches!(
-        query.group_settings().group_by(),
-        LedgerTableGroup::Transactions(TransactionTableGroup::None)
-            | LedgerTableGroup::Accounts(AccountTableGroup::None)
-            | LedgerTableGroup::Categories(CategoryTableGroup::None)
-    );
-    if grouped && query.group_settings().hide_empty() {
-        if let Some(empty_key) = empty_group_key(query.group_settings().group_by()) {
-            values.push(Value::Text(empty_key.into()));
-            clauses.push("group_key<>?".to_string());
-        }
-    }
     let hidden = query.group_settings().hidden_group_keys();
     if !hidden.is_empty() {
         values.extend(hidden.iter().cloned().map(Value::Text));
@@ -432,14 +420,6 @@ fn hidden_sql(query: &LedgerTableQuery, values: &mut Vec<Value>) -> String {
         String::new()
     } else {
         format!(" AND {}", clauses.join(" AND "))
-    }
-}
-
-const fn empty_group_key(group: LedgerTableGroup) -> Option<&'static str> {
-    match group {
-        LedgerTableGroup::Transactions(TransactionTableGroup::Category) => Some("uncategorized"),
-        LedgerTableGroup::Categories(CategoryTableGroup::Parent) => Some("none"),
-        _ => None,
     }
 }
 

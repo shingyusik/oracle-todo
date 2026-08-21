@@ -810,6 +810,11 @@ fn sqlite_table_query_projects_account_balances_and_parent_category_groups() {
     assert_eq!(food.group_label(), Some("Living"));
     assert_ne!(food.group_key(), None);
     assert!(categories.items.iter().all(|row| row.group_key().is_some()));
+    assert!(
+        categories.items.iter().any(|row| {
+            row.group_key() == Some("none") && row.group_label() == Some("No parent")
+        })
+    );
     let categories_with_roots = service
         .query_table(
             &query(
@@ -1139,12 +1144,9 @@ fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before
             .unwrap(),
         )
         .unwrap();
-    assert!(
-        categories_without_empty
-            .items
-            .iter()
-            .all(|row| row.group_key() != Some("uncategorized"))
-    );
+    assert!(categories_without_empty.items.iter().any(|row| {
+        row.group_key() == Some("uncategorized") && row.group_label() == Some("Uncategorized")
+    }));
 
     let accounts = service
         .accounts_page(ledger_engine::application::ports::Page {
