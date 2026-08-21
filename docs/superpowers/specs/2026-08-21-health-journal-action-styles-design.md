@@ -9,6 +9,8 @@ without changing Health behavior.
 
 - Make each Diet, Bowel, Medication, and Health Metrics data row the single detail-opening target.
 - Open detail from a row click or keyboard Enter/Space, matching Ledger table behavior.
+- Preserve each `<tr>` element's native row semantics while making it focusable, named, and
+  described with `Press Enter or Space to open details.`
 - Render Time, Food, Taken At, and Date as plain cell text instead of nested buttons.
 - Keep native checkboxes isolated from row activation and retain occurrence data on the row for
   deterministic focus restoration.
@@ -38,6 +40,7 @@ is introduced.
 ## Accessibility
 
 - Icon-only actions retain stable accessible names and visible tooltips.
+- Focusable Health data rows retain their native row role and expose their keyboard instruction.
 - `Close` remains disabled while a save or refresh recovery is pending.
 - `Save` retains the form's native submit behavior and pending label.
 - Dialog focus trapping, modal isolation, Escape/backdrop handling, and trigger focus restoration
