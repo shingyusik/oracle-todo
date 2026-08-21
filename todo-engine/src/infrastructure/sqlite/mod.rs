@@ -42,19 +42,21 @@ pub(super) fn register_sort_key(connection: &Connection) -> TodoResult<()> {
         .map_err(storage_error)?;
     connection
         .create_scalar_function("todo_fold", 1, flags, |context| {
-            Ok(context.get::<Option<String>>(0)?.map(|value| {
-                value
-                    .chars()
-                    .flat_map(char::to_lowercase)
-                    .collect::<String>()
-            }))
+            Ok(context
+                .get::<Option<String>>(0)?
+                .map(|value| crate::application::table::unicode_fold(&value)))
         })
         .map_err(storage_error)?;
     connection
-        .create_scalar_function("todo_group_key", 1, flags, |context| {
-            Ok(context
-                .get::<Option<String>>(0)?
-                .map(|value| crate::application::table::canonical_group_value(&value)))
+        .create_scalar_function("todo_group_key", 2, flags, |context| {
+            let synthetic = context.get::<i64>(1)? != 0;
+            Ok(context.get::<Option<String>>(0)?.map(|value| {
+                if synthetic {
+                    value
+                } else {
+                    crate::application::table::canonical_group_value(&value)
+                }
+            }))
         })
         .map_err(storage_error)?;
     connection

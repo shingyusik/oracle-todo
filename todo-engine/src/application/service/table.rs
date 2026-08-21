@@ -81,7 +81,7 @@ pub(crate) fn build_lookups<'a>(
             let mut tags = item
                 .tags
                 .iter()
-                .map(|tag| tag.trim().to_lowercase())
+                .map(|tag| unicode_fold(tag.trim()))
                 .filter(|tag| !tag.is_empty())
                 .collect::<Vec<_>>();
             tags.sort();
@@ -349,9 +349,19 @@ fn field_value(item: &TodoItem, labels: &HashMap<String, String>, field: Field) 
         Field::Tags => Value::Many(item.tags.clone()),
         Field::Note => one(item.note.as_deref()),
         Field::Area => Value::Many(relation(item.area_id.as_ref(), labels)),
-        Field::Due => one(item.due.as_deref().and_then(|v| v.get(..10))),
+        Field::Due => Value::One(
+            item.due
+                .as_deref()
+                .and_then(parse_date_prefix)
+                .map(|value| value.to_string()),
+        ),
         Field::Horizon => one(item.horizon.as_deref()),
-        Field::Scheduled => one(item.scheduled.as_deref().and_then(|v| v.get(..10))),
+        Field::Scheduled => Value::One(
+            item.scheduled
+                .as_deref()
+                .and_then(parse_date_prefix)
+                .map(|value| value.to_string()),
+        ),
         Field::Parent => Value::Many(relation(item.parent_id.as_ref(), labels)),
         Field::Project => Value::Many(relation(item.project_id.as_ref(), labels)),
         Field::RecurrenceRule => one(item.recurrence_rule.as_deref()),
@@ -420,7 +430,7 @@ fn matches_value(
             }
         }
         Value::Many(values) => {
-            let values = values.iter().map(|v| v.to_lowercase()).collect::<Vec<_>>();
+            let values = values.iter().map(|v| unicode_fold(v)).collect::<Vec<_>>();
             let expected = expected_strings(expected);
             let hit = expected.iter().any(|value| values.contains(value));
             match operator {
@@ -441,7 +451,7 @@ fn matches_value(
             ) {
                 return matches_date(&actual, operator, expected, reference);
             }
-            let actual = actual.to_lowercase();
+            let actual = unicode_fold(&actual);
             let expected = expected_strings(expected);
             let first = expected.first().map(String::as_str).unwrap_or("");
             match operator {
@@ -460,8 +470,8 @@ fn matches_value(
 
 fn expected_strings(value: &TodoTableFilterValue) -> Vec<String> {
     match value {
-        TodoTableFilterValue::Text(v) => vec![v.to_lowercase()],
-        TodoTableFilterValue::TextList(v) => v.iter().map(|v| v.to_lowercase()).collect(),
+        TodoTableFilterValue::Text(v) => vec![unicode_fold(v)],
+        TodoTableFilterValue::TextList(v) => v.iter().map(|v| unicode_fold(v)).collect(),
         _ => vec![],
     }
 }
@@ -529,9 +539,10 @@ fn compare_items(left: &TodoItem, right: &TodoItem, query: &TodoTableQuery) -> O
                 | PlannerTableScope::DailyOverdue
                 | PlannerTableScope::DailyUnscheduled,
             ) => option_number(left.priority, right.priority, SortDirection::Asc),
-            TodoTableScope::Planner(_) => {
-                option_text(left.scheduled.as_deref(), right.scheduled.as_deref())
-            }
+            TodoTableScope::Planner(_) => option_text(
+                normalized_date(left.scheduled.as_deref()).as_deref(),
+                normalized_date(right.scheduled.as_deref()).as_deref(),
+            ),
             _ => right.updated_at.cmp(&left.updated_at),
         };
         if default != Ordering::Equal {
@@ -601,10 +612,19 @@ fn option_number(left: Option<i64>, right: Option<i64>, direction: SortDirection
     }
 }
 fn planner_fallback(left: &TodoItem, right: &TodoItem) -> Ordering {
-    option_text(left.scheduled.as_deref(), right.scheduled.as_deref())
-        .then_with(|| right.updated_at.cmp(&left.updated_at))
-        .then_with(|| compare_unicode_text(&left.title, &right.title))
-        .then_with(|| left.id.cmp(&right.id))
+    option_text(
+        normalized_date(left.scheduled.as_deref()).as_deref(),
+        normalized_date(right.scheduled.as_deref()).as_deref(),
+    )
+    .then_with(|| right.updated_at.cmp(&left.updated_at))
+    .then_with(|| compare_unicode_text(&left.title, &right.title))
+    .then_with(|| left.id.cmp(&right.id))
+}
+
+fn normalized_date(value: Option<&str>) -> Option<String> {
+    value
+        .and_then(parse_date_prefix)
+        .map(|date| date.to_string())
 }
 
 fn group_occurrences(

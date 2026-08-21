@@ -37,6 +37,196 @@ fn workspace_query(scope: WorkspaceTableScope) -> Result<TodoTableQuery, TodoErr
     )
 }
 
+fn page_titles(service: &mut TodoService, query: &TodoTableQuery) -> Vec<String> {
+    service
+        .query_table(query)
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|row| row.record().title.clone())
+        .collect()
+}
+
+#[test]
+fn malformed_scheduled_is_unscheduled_and_never_in_range_or_overdue() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    for service in [&mut memory, &mut sqlite] {
+        for (title, scheduled) in [
+            ("Valid", Some("2026-08-22")),
+            ("Before", Some("2026-08-01")),
+            ("Empty", Some("")),
+            ("Null", None),
+            ("Malformed", Some("2026-99-99")),
+            ("Max", Some("9999-12-31")),
+        ] {
+            service
+                .propose_task(
+                    title,
+                    ProposeTask {
+                        scheduled: scheduled.map(str::to_string),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+    }
+    let query = |scope, from, to| {
+        TodoTableQuery::new(
+            TodoTableScope::Planner(scope),
+            TableContext::Planner { from, to },
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![TodoTableSort::Planner {
+                field: PlannerSortField::Title,
+                direction: SortDirection::Asc,
+            }],
+            groups(TodoTableGroup::Planner(PlannerTableGroup::None)),
+            None,
+        )
+        .unwrap()
+    };
+    for (scope, from, to, expected) in [
+        (
+            PlannerTableScope::DailyUnscheduled,
+            date(2026, Month::August, 22),
+            date(2026, Month::August, 22),
+            vec!["Empty", "Malformed", "Null"],
+        ),
+        (
+            PlannerTableScope::DailyToday,
+            date(2026, Month::August, 22),
+            date(2026, Month::August, 22),
+            vec!["Valid"],
+        ),
+        (
+            PlannerTableScope::DailyOverdue,
+            date(2026, Month::August, 22),
+            date(2026, Month::August, 22),
+            vec!["Before"],
+        ),
+        (
+            PlannerTableScope::DailyToday,
+            Date::MAX,
+            Date::MAX,
+            vec!["Max"],
+        ),
+    ] {
+        let query = query(scope, from, to);
+        let memory_titles = page_titles(&mut memory, &query);
+        assert_eq!(memory_titles, expected);
+        assert_eq!(page_titles(&mut sqlite, &query), memory_titles);
+    }
+    for (operator, expected) in [
+        (
+            TodoFilterOperator::IsEmpty,
+            vec!["Empty", "Malformed", "Null"],
+        ),
+        (
+            TodoFilterOperator::IsNotEmpty,
+            vec!["Before", "Max", "Valid"],
+        ),
+    ] {
+        let query = TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            0,
+            50,
+            FilterMode::And,
+            vec![TodoTableFilter::Workspace {
+                field: WorkspaceFilterField::Scheduled,
+                operator,
+                value: TodoTableFilterValue::Empty,
+            }],
+            vec![TodoTableSort::Workspace {
+                field: WorkspaceSortField::Title,
+                direction: SortDirection::Asc,
+            }],
+            groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+            None,
+        )
+        .unwrap();
+        assert_eq!(page_titles(&mut memory, &query), expected);
+        assert_eq!(page_titles(&mut sqlite, &query), expected);
+    }
+}
+
+#[test]
+fn unicode_fold_filters_match_for_title_tag_and_relation() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    for service in [&mut memory, &mut sqlite] {
+        service
+            .create_area(CreateArea {
+                title: "Ος".into(),
+                review_cycle: None,
+                standard: None,
+                note: None,
+                tags: vec![],
+            })
+            .unwrap();
+        service
+            .propose_task(
+                "ΟΣ á한",
+                ProposeTask {
+                    area: Some("Ος".into()),
+                    tags: vec!["İ".into(), "Á".into(), "한".into()],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        service.propose_task("Neither", Default::default()).unwrap();
+    }
+    let cases = [
+        (
+            WorkspaceFilterField::Title,
+            TodoFilterOperator::StartsWith,
+            TodoTableFilterValue::Text("οσ".into()),
+        ),
+        (
+            WorkspaceFilterField::Tags,
+            TodoFilterOperator::Contains,
+            TodoTableFilterValue::TextList(vec!["i\u{307}".into()]),
+        ),
+        (
+            WorkspaceFilterField::Tags,
+            TodoFilterOperator::Contains,
+            TodoTableFilterValue::TextList(vec!["á".into(), "한".into()]),
+        ),
+        (
+            WorkspaceFilterField::Area,
+            TodoFilterOperator::Is,
+            TodoTableFilterValue::TextList(vec!["ος".into()]),
+        ),
+    ];
+    for (field, operator, value) in cases {
+        let query = TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            0,
+            50,
+            FilterMode::And,
+            vec![TodoTableFilter::Workspace {
+                field,
+                operator,
+                value,
+            }],
+            vec![],
+            groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+            None,
+        )
+        .unwrap();
+        assert_eq!(page_titles(&mut memory, &query), vec!["ΟΣ á한"]);
+        assert_eq!(page_titles(&mut sqlite, &query), vec!["ΟΣ á한"]);
+    }
+}
+
 fn canonical_page(page: &TablePage<TodoTableRow>) -> serde_json::Value {
     let mut value = serde_json::to_value(page).unwrap();
     for row in value["items"].as_array_mut().unwrap() {
@@ -525,6 +715,34 @@ fn planner_lookup_types_are_scoped_before_projection() {
 }
 
 #[test]
+fn corrupt_lookup_type_and_tags_return_storage_errors_instead_of_omission() {
+    let insert = |conn: &rusqlite::Connection, id: &str, kind: &str, tags: &str| {
+        conn.execute(
+            "INSERT INTO items (id,type,title,status,proposed_by,tags,created_at,updated_at) VALUES (?1,?2,'Corrupt','active','system',?3,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')",
+            rusqlite::params![id, kind, tags],
+        )
+        .unwrap();
+    };
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    insert(&conn, "bad-type", "not-a-type", "[]");
+    let mut service = TodoService::persistent(SqliteTodoRepository::new(conn));
+    assert!(matches!(
+        service.table_lookups(TodoTableScope::Workspace(WorkspaceTableScope::Task)),
+        Err(TodoError::Storage(_))
+    ));
+
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    insert(&conn, "bad-tags", "task", "not-json");
+    let mut service = TodoService::persistent(SqliteTodoRepository::new(conn));
+    assert!(matches!(
+        service.table_lookups(TodoTableScope::Workspace(WorkspaceTableScope::Task)),
+        Err(TodoError::Storage(_))
+    ));
+}
+
+#[test]
 fn every_planner_scope_executes_seeded_boundaries_in_both_stores() {
     let mut memory = TodoService::in_memory();
     let conn = connect(":memory:").unwrap();
@@ -791,6 +1009,79 @@ fn filtered_tag_occurrences_match_between_memory_and_sqlite() {
             .collect::<Vec<_>>()
     };
     assert_eq!(lookups(&mut sqlite), lookups(&mut memory));
+}
+
+#[test]
+fn canonical_group_udf_matches_rust_for_controls_sentinels_and_hidden_keys() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    let tags = vec![
+        "none".to_string(),
+        "untagged".to_string(),
+        "\\literal".to_string(),
+        "nul\0tag".to_string(),
+        "c1\u{0085}tag".to_string(),
+        "x".repeat(MAX_CANONICAL_GROUP_KEY_BYTES / 2),
+    ];
+    for service in [&mut memory, &mut sqlite] {
+        service
+            .propose_task(
+                "Canonical",
+                ProposeTask {
+                    tags: tags.clone(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    let query = |hidden| {
+        TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![],
+            TodoTableGroupSettings::new(
+                TodoTableGroup::Workspace(WorkspaceTableGroup::Tag),
+                GroupSort::Manual,
+                false,
+                vec![],
+                hidden,
+            )
+            .unwrap(),
+            None,
+        )
+        .unwrap()
+    };
+    let keys = |service: &mut TodoService, query: &TodoTableQuery| {
+        service
+            .query_table(query)
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|row| row.group_key().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let expected = tags
+        .iter()
+        .map(|tag| canonical_group_value(tag))
+        .collect::<Vec<_>>();
+    let mut memory_keys = keys(&mut memory, &query(vec![]));
+    let mut sqlite_keys = keys(&mut sqlite, &query(vec![]));
+    memory_keys.sort();
+    sqlite_keys.sort();
+    let mut expected_sorted = expected.clone();
+    expected_sorted.sort();
+    assert_eq!(memory_keys, expected_sorted);
+    assert_eq!(sqlite_keys, expected_sorted);
+    for hidden in expected {
+        assert!(!keys(&mut memory, &query(vec![hidden.clone()])).contains(&hidden));
+        assert!(!keys(&mut sqlite, &query(vec![hidden.clone()])).contains(&hidden));
+    }
 }
 
 #[test]

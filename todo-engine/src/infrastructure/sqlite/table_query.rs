@@ -1,5 +1,6 @@
 use std::fmt::Write as _;
 
+use rusqlite::OptionalExtension;
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
 use time::Date;
@@ -50,6 +51,20 @@ impl SqliteTodoRepository {
         scope: TodoTableScope,
     ) -> TodoResult<Vec<TodoTableLookup>> {
         // Lookups intentionally select only compact columns. No note/body/metadata is read.
+        let invalid_type = self
+            .conn
+            .query_row(
+                "SELECT type FROM items WHERE type NOT IN ('area','project','goal','routine','task','event','review','archive_item') LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        if invalid_type.is_some() {
+            return Err(TodoError::Storage(
+                "invalid item type in table lookup".into(),
+            ));
+        }
         let sql = format!(
             "SELECT id, type, title, tags FROM items WHERE status NOT IN ('completed','cancelled','dropped','archived','missed','rejected') AND type IN ({}) ORDER BY type, todo_sort_key(title), title, id",
             lookup_type_sql(scope)
@@ -178,6 +193,9 @@ fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
         };
         if field == "i.priority" {
             item_order.push(format!("({field}) IS NULL {sql_direction}"));
+            item_order.push(format!("{field} {sql_direction}"));
+        } else if field.starts_with("todo_date_ordinal") {
+            item_order.push(format!("({field}) IS NOT NULL {sql_direction}"));
             item_order.push(format!("{field} {sql_direction}"));
         } else {
             item_order.push(format!(
@@ -428,10 +446,10 @@ fn filter_predicate(
         return Ok(format!("NOT {empty}"));
     }
     let values = match value {
-        TodoTableFilterValue::Text(value) => vec![Value::Text(value.to_lowercase())],
+        TodoTableFilterValue::Text(value) => vec![Value::Text(unicode_fold(value))],
         TodoTableFilterValue::TextList(values) => values
             .iter()
-            .map(|value| Value::Text(value.to_lowercase()))
+            .map(|value| Value::Text(unicode_fold(value)))
             .collect(),
         TodoTableFilterValue::Range { start, end } => {
             vec![Value::Text(start.clone()), Value::Text(end.clone())]
@@ -549,9 +567,9 @@ macro_rules! sort_field_sql {
             <$type>::Tags => "(SELECT group_concat(CAST(value AS TEXT), ', ') FROM json_each(i.tags))",
             <$type>::Note => "i.note",
             <$type>::Area => "i.area_id",
-            <$type>::Due => "i.due",
+            <$type>::Due => "todo_date_ordinal(i.due)",
             <$type>::Horizon => "i.horizon",
-            <$type>::Scheduled => "i.scheduled",
+            <$type>::Scheduled => "todo_date_ordinal(i.scheduled)",
             <$type>::Parent => "i.parent_id",
             <$type>::Project => "i.project_id",
             <$type>::RecurrenceRule => "i.recurrence_rule",
@@ -619,11 +637,11 @@ fn group_projection(group: TodoTableGroup) -> (String, Option<String>, Option<St
         ),
         TodoTableGroup::Planner(PlannerTableGroup::ItemType) => (String::new(), Some("i.type".into()), Some("CASE i.type WHEN 'area' THEN 'Area' WHEN 'project' THEN 'Project' WHEN 'routine' THEN 'Routine' WHEN 'task' THEN 'Task' WHEN 'event' THEN 'Event' WHEN 'review' THEN 'Review' WHEN 'archive_item' THEN 'Archive item' WHEN 'goal' THEN 'Goal' ELSE i.type END".into())),
         TodoTableGroup::Planner(PlannerTableGroup::Day) => (String::new(), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'none' ELSE substr(i.scheduled,1,10) END".into()), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'No date' ELSE substr(i.scheduled,1,10) END".into())),
-        TodoTableGroup::Planner(PlannerTableGroup::Week) => (String::new(), Some("coalesce(date(substr(i.scheduled,1,10), '-' || ((CAST(strftime('%w',substr(i.scheduled,1,10)) AS INTEGER)+6)%7) || ' days'),'none')".into()), Some("coalesce('Week of ' || date(substr(i.scheduled,1,10), '-' || ((CAST(strftime('%w',substr(i.scheduled,1,10)) AS INTEGER)+6)%7) || ' days'),'No date')".into())),
+        TodoTableGroup::Planner(PlannerTableGroup::Week) => (String::new(), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'none' ELSE date(substr(i.scheduled,1,10), '-' || ((CAST(strftime('%w',substr(i.scheduled,1,10)) AS INTEGER)+6)%7) || ' days') END".into()), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'No date' ELSE 'Week of ' || date(substr(i.scheduled,1,10), '-' || ((CAST(strftime('%w',substr(i.scheduled,1,10)) AS INTEGER)+6)%7) || ' days') END".into())),
         TodoTableGroup::Planner(PlannerTableGroup::Month) => (String::new(), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'none' ELSE substr(i.scheduled,1,7) END".into()), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'No date' ELSE CASE substr(i.scheduled,6,2) WHEN '01' THEN 'January' WHEN '02' THEN 'February' WHEN '03' THEN 'March' WHEN '04' THEN 'April' WHEN '05' THEN 'May' WHEN '06' THEN 'June' WHEN '07' THEN 'July' WHEN '08' THEN 'August' WHEN '09' THEN 'September' WHEN '10' THEN 'October' WHEN '11' THEN 'November' WHEN '12' THEN 'December' END || ' ' || substr(i.scheduled,1,4) END".into())),
     }
 }
 
 fn canonical_group_sql(raw: &str) -> String {
-    format!("todo_group_key({raw})")
+    format!("todo_group_key({raw}, 0)")
 }

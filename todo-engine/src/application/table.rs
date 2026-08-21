@@ -723,6 +723,10 @@ pub(crate) fn unicode_sort_key(value: &str) -> Vec<u8> {
         .collect()
 }
 
+pub(crate) fn unicode_fold(value: &str) -> String {
+    value.chars().flat_map(char::to_lowercase).collect()
+}
+
 #[derive(Clone, Copy)]
 enum FieldType {
     Text,
