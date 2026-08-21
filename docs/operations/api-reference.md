@@ -158,6 +158,7 @@ All routes below use prefix `/api/v1/ledger`.
 | Account categories | `GET/POST /account-categories`, `PATCH/DELETE /account-categories/:id`, `GET /account-categories/:id/purge` |
 | Accounts | `GET/POST /accounts`, `PATCH/DELETE /accounts/:id`, `GET /accounts/:id/purge` |
 | Transaction categories | `GET/POST /transaction-categories`, `PATCH/DELETE /transaction-categories/:id`, `GET /transaction-categories/:id/purge` |
+| Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
 | Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/accounts`, `/reports/categories`, `/reports/compare`, `/reports/trend`, `/reports/briefing` |
 
 JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
@@ -168,6 +169,44 @@ Entry and master-data purge `GET` routes return confirmation previews. Purge `DE
 requires `{"confirmation":"<confirmation-id>"}` matching the preview; audit events survive.
 Only entries expose archive/restore. Currency, account-category, account, and transaction
 category lifecycle uses the `active` field on update.
+
+### Ledger table views
+
+`POST /table/query` reads one page from `ledger.transactions`, `ledger.accounts`, or
+`ledger.categories`. The default and maximum `limit` are `50`; `offset` defaults to `0`.
+Filters, group visibility and ordering, and user sorts apply to the complete active dataset
+before paging. Existing Ledger list routes and their response shapes are unchanged.
+
+```json
+{
+  "scope": "ledger.transactions",
+  "offset": 0,
+  "limit": 50,
+  "filter_mode": "and",
+  "filters": [{"field":"content","operator":"contains","value":{"text":"lunch"}}],
+  "sorts": [{"field":"date","direction":"desc"}],
+  "group_by": "month",
+  "group_settings": {
+    "sort": "alphabetical",
+    "hide_empty": true,
+    "manual_order": [],
+    "hidden_group_keys": []
+  },
+  "context": {"reference_date":"2026-08-21"}
+}
+```
+
+`context.reference_date` is an optional caller-local `YYYY-MM-DD` date and is required when
+an `is_relative_to_today` date filter is present. Filter values use exactly one of `text`,
+`list`, `range` (`start` and `end`), `relative` (`amount` and `unit`), or `empty:true`.
+Unknown fields are rejected at every request-object level. The response is
+`{"items":[{"key":"...","group_key":null,"group_label":null,"record":{}}],"next_offset":50}`;
+`next_offset` is `null` on the final page.
+
+`GET /table/lookups` accepts the same three scope values. Transaction lookups return compact
+active `accounts`, `categories`, and `currencies`; account lookups return `account_types` and
+`currencies`; category lookups return `categories`. Every option contains only `id` and
+`label`.
 
 ### Ledger reports
 

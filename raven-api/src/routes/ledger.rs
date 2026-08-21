@@ -7,15 +7,23 @@ use ledger_engine::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
     UpdateAccount, UpdateAccountCategory, UpdateCurrency, UpdateEntry, UpdateTransactionCategory,
 };
-use ledger_engine::application::ports::{EntryQuery, Page};
+use ledger_engine::application::ports::{EntryQuery, MAX_PAGE_LIMIT, Page};
 use ledger_engine::application::reports::{ReportPeriod, ReportRange, TrendGranularity, YearMonth};
 use ledger_engine::application::service::LedgerService;
+use ledger_engine::application::table::{
+    AccountTableFilterField, AccountTableGroup, AccountTableSortField, CategoryTableFilterField,
+    CategoryTableGroup, CategoryTableSortField, FilterMode, GroupSort, LedgerFilterOperator,
+    LedgerTableFilter, LedgerTableFilterValue, LedgerTableGroup, LedgerTableGroupSettings,
+    LedgerTableQuery, LedgerTableScope, LedgerTableSort, RelativeDateUnit, SortDirection,
+    TABLE_PAGE_LIMIT, TransactionTableFilterField, TransactionTableGroup,
+    TransactionTableSortField,
+};
 use ledger_engine::application::transfers::{
     TransferCommand, TransferOperationKey, UpdateTransferCommand,
 };
 use ledger_engine::domain::Money;
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use time::{Date, OffsetDateTime};
 
@@ -75,6 +83,8 @@ pub fn router() -> Router<RavenApiState> {
             get(preview_purge_category),
         )
         .route("/account-balances", get(account_balances))
+        .route("/table/query", post(query_table))
+        .route("/table/lookups", get(table_lookups))
         .route("/audit/:record_type/:record_id", get(audit))
         .route("/reports/summary", get(report_summary))
         .route("/reports/accounts", get(report_accounts))
@@ -110,6 +120,171 @@ struct EntriesQuery {
     offset: u32,
     #[serde(default = "default_limit")]
     limit: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableQueryBody {
+    scope: LedgerTableScope,
+    #[serde(default)]
+    offset: u32,
+    #[serde(default = "default_table_limit")]
+    limit: u16,
+    #[serde(default = "default_filter_mode")]
+    filter_mode: FilterMode,
+    #[serde(default)]
+    filters: Vec<TableFilterBody>,
+    sorts: Vec<TableSortBody>,
+    group_by: TableGroupField,
+    group_settings: TableGroupSettingsBody,
+    #[serde(default)]
+    context: TableContextBody,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableContextBody {
+    reference_date: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableFilterBody {
+    field: TableFilterField,
+    operator: LedgerFilterOperator,
+    value: TableFilterValueBody,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TableFilterField {
+    Date,
+    Content,
+    EntryType,
+    Account,
+    Category,
+    Currency,
+    Amount,
+    Name,
+    AccountType,
+    CurrentBalance,
+    Kind,
+    Parent,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum TableFilterValueBody {
+    Text(TextValueBody),
+    List(ListValueBody),
+    Range(RangeValueBody),
+    Relative(RelativeValueBody),
+    Empty(EmptyValueBody),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextValueBody {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListValueBody {
+    list: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RangeValueBody {
+    range: RangeBody,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RangeBody {
+    start: String,
+    end: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RelativeValueBody {
+    relative: RelativeBody,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RelativeBody {
+    amount: String,
+    unit: RelativeDateUnit,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyValueBody {
+    empty: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableSortBody {
+    field: TableSortField,
+    direction: SortDirection,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TableSortField {
+    Date,
+    Content,
+    Account,
+    Category,
+    Amount,
+    Updated,
+    Name,
+    AccountType,
+    Currency,
+    CurrentBalance,
+    Kind,
+    Parent,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableGroupSettingsBody {
+    sort: GroupSort,
+    hide_empty: bool,
+    manual_order: Vec<String>,
+    hidden_group_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TableGroupField {
+    None,
+    Month,
+    Week,
+    Day,
+    Account,
+    Category,
+    EntryType,
+    AccountType,
+    Currency,
+    Kind,
+    Parent,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableLookupQuery {
+    scope: LedgerTableScope,
+}
+
+#[derive(Debug, Serialize)]
+struct LookupOption {
+    id: String,
+    label: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,6 +407,223 @@ impl TrendGranularityQuery {
             Self::Monthly => Some(TrendGranularity::Monthly),
         }
     }
+}
+
+async fn query_table(
+    State(state): State<RavenApiState>,
+    body: Result<Json<TableQueryBody>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let body = json_value(body)?;
+    let reference_date =
+        parse_optional_date(body.context.reference_date.as_deref(), "reference_date")?;
+    let filters = body
+        .filters
+        .into_iter()
+        .map(|filter| table_filter(body.scope, filter))
+        .collect::<Result<Vec<_>, _>>()?;
+    let sorts = body
+        .sorts
+        .into_iter()
+        .map(|sort| table_sort(body.scope, sort))
+        .collect::<Result<Vec<_>, _>>()?;
+    let group = LedgerTableGroupSettings::new(
+        table_group(body.scope, body.group_by)?,
+        body.group_settings.sort,
+        body.group_settings.hide_empty,
+        body.group_settings.manual_order,
+        body.group_settings.hidden_group_keys,
+    )?;
+    let query = LedgerTableQuery::new(
+        body.scope,
+        body.offset,
+        body.limit,
+        body.filter_mode,
+        filters,
+        sorts,
+        group,
+        reference_date,
+    )?;
+    let page = ledger(&state, move |service| service.query_table(&query)).await?;
+    Ok(Json(json!(page)))
+}
+
+async fn table_lookups(
+    State(state): State<RavenApiState>,
+    query: Result<Query<TableLookupQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let scope = query_value(query)?.scope;
+    ledger(&state, move |service| {
+        let value = match scope {
+            LedgerTableScope::Transactions => json!({
+                "accounts": all_pages(|page| service.accounts_page(page))?
+                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
+                "categories": all_pages(|page| service.transaction_categories_page(page))?
+                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
+                "currencies": all_pages(|page| service.currencies_page(page))?
+                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.code().into() }).collect::<Vec<_>>(),
+            }),
+            LedgerTableScope::Accounts => json!({
+                "account_types": all_pages(|page| service.account_categories_page(page))?
+                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
+                "currencies": all_pages(|page| service.currencies_page(page))?
+                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.code().into() }).collect::<Vec<_>>(),
+            }),
+            LedgerTableScope::Categories => json!({
+                "categories": all_pages(|page| service.transaction_categories_page(page))?
+                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
+            }),
+        };
+        Ok(value)
+    })
+    .await
+    .map(Json)
+}
+
+fn all_pages<T>(
+    mut fetch: impl FnMut(
+        Page,
+    ) -> ledger_engine::application::error::LedgerResult<
+        ledger_engine::application::ports::Paged<T>,
+    >,
+) -> ledger_engine::application::error::LedgerResult<Vec<T>> {
+    let mut items = Vec::new();
+    let mut offset = 0;
+    loop {
+        let page = fetch(Page {
+            offset,
+            limit: MAX_PAGE_LIMIT,
+        })?;
+        items.extend(page.items);
+        let Some(next) = page.next else { break };
+        offset = next.offset;
+    }
+    Ok(items)
+}
+
+fn table_filter(
+    scope: LedgerTableScope,
+    body: TableFilterBody,
+) -> Result<LedgerTableFilter, ApiError> {
+    let value = match body.value {
+        TableFilterValueBody::Text(value) => LedgerTableFilterValue::Text(value.text),
+        TableFilterValueBody::List(value) => LedgerTableFilterValue::TextList(value.list),
+        TableFilterValueBody::Range(value) => LedgerTableFilterValue::Range {
+            start: value.range.start,
+            end: value.range.end,
+        },
+        TableFilterValueBody::Relative(value) => LedgerTableFilterValue::Relative {
+            amount: value.relative.amount,
+            unit: value.relative.unit,
+        },
+        TableFilterValueBody::Empty(value) if value.empty => LedgerTableFilterValue::Empty,
+        TableFilterValueBody::Empty(_) => return Err(ApiError::validation(Some("filters"))),
+    };
+    let invalid = || ApiError::validation(Some("filters"));
+    Ok(match scope {
+        LedgerTableScope::Transactions => LedgerTableFilter::Transactions {
+            field: match body.field {
+                TableFilterField::Date => TransactionTableFilterField::Date,
+                TableFilterField::Content => TransactionTableFilterField::Content,
+                TableFilterField::EntryType => TransactionTableFilterField::EntryType,
+                TableFilterField::Account => TransactionTableFilterField::Account,
+                TableFilterField::Category => TransactionTableFilterField::Category,
+                TableFilterField::Currency => TransactionTableFilterField::Currency,
+                TableFilterField::Amount => TransactionTableFilterField::Amount,
+                _ => return Err(invalid()),
+            },
+            operator: body.operator,
+            value,
+        },
+        LedgerTableScope::Accounts => LedgerTableFilter::Accounts {
+            field: match body.field {
+                TableFilterField::Name => AccountTableFilterField::Name,
+                TableFilterField::AccountType => AccountTableFilterField::AccountType,
+                TableFilterField::Currency => AccountTableFilterField::Currency,
+                TableFilterField::CurrentBalance => AccountTableFilterField::CurrentBalance,
+                _ => return Err(invalid()),
+            },
+            operator: body.operator,
+            value,
+        },
+        LedgerTableScope::Categories => LedgerTableFilter::Categories {
+            field: match body.field {
+                TableFilterField::Name => CategoryTableFilterField::Name,
+                TableFilterField::Kind => CategoryTableFilterField::Kind,
+                TableFilterField::Parent => CategoryTableFilterField::Parent,
+                _ => return Err(invalid()),
+            },
+            operator: body.operator,
+            value,
+        },
+    })
+}
+
+fn table_sort(scope: LedgerTableScope, body: TableSortBody) -> Result<LedgerTableSort, ApiError> {
+    let invalid = || ApiError::validation(Some("sorts"));
+    Ok(match scope {
+        LedgerTableScope::Transactions => LedgerTableSort::Transactions {
+            field: match body.field {
+                TableSortField::Date => TransactionTableSortField::Date,
+                TableSortField::Content => TransactionTableSortField::Content,
+                TableSortField::Account => TransactionTableSortField::Account,
+                TableSortField::Category => TransactionTableSortField::Category,
+                TableSortField::Amount => TransactionTableSortField::Amount,
+                TableSortField::Updated => TransactionTableSortField::Updated,
+                _ => return Err(invalid()),
+            },
+            direction: body.direction,
+        },
+        LedgerTableScope::Accounts => LedgerTableSort::Accounts {
+            field: match body.field {
+                TableSortField::Name => AccountTableSortField::Name,
+                TableSortField::AccountType => AccountTableSortField::AccountType,
+                TableSortField::Currency => AccountTableSortField::Currency,
+                TableSortField::CurrentBalance => AccountTableSortField::CurrentBalance,
+                _ => return Err(invalid()),
+            },
+            direction: body.direction,
+        },
+        LedgerTableScope::Categories => LedgerTableSort::Categories {
+            field: match body.field {
+                TableSortField::Name => CategoryTableSortField::Name,
+                TableSortField::Kind => CategoryTableSortField::Kind,
+                TableSortField::Parent => CategoryTableSortField::Parent,
+                _ => return Err(invalid()),
+            },
+            direction: body.direction,
+        },
+    })
+}
+
+fn table_group(
+    scope: LedgerTableScope,
+    field: TableGroupField,
+) -> Result<LedgerTableGroup, ApiError> {
+    let invalid = || ApiError::validation(Some("group"));
+    Ok(match scope {
+        LedgerTableScope::Transactions => LedgerTableGroup::Transactions(match field {
+            TableGroupField::None => TransactionTableGroup::None,
+            TableGroupField::Month => TransactionTableGroup::Month,
+            TableGroupField::Week => TransactionTableGroup::Week,
+            TableGroupField::Day => TransactionTableGroup::Day,
+            TableGroupField::Account => TransactionTableGroup::Account,
+            TableGroupField::Category => TransactionTableGroup::Category,
+            TableGroupField::EntryType => TransactionTableGroup::EntryType,
+            _ => return Err(invalid()),
+        }),
+        LedgerTableScope::Accounts => LedgerTableGroup::Accounts(match field {
+            TableGroupField::None => AccountTableGroup::None,
+            TableGroupField::AccountType => AccountTableGroup::AccountType,
+            TableGroupField::Currency => AccountTableGroup::Currency,
+            _ => return Err(invalid()),
+        }),
+        LedgerTableScope::Categories => LedgerTableGroup::Categories(match field {
+            TableGroupField::None => CategoryTableGroup::None,
+            TableGroupField::Kind => CategoryTableGroup::Kind,
+            TableGroupField::Parent => CategoryTableGroup::Parent,
+            _ => return Err(invalid()),
+        }),
+    })
 }
 
 async fn list_entries(
@@ -852,6 +1244,14 @@ fn range(from: &str, to: &str) -> Result<ReportRange, ApiError> {
 
 const fn default_limit() -> u16 {
     100
+}
+
+const fn default_table_limit() -> u16 {
+    TABLE_PAGE_LIMIT
+}
+
+const fn default_filter_mode() -> FilterMode {
+    FilterMode::And
 }
 
 #[cfg(test)]
