@@ -16,6 +16,8 @@ mod reports;
 mod repository;
 #[path = "integration/schema.rs"]
 mod schema;
+#[path = "integration/table_query.rs"]
+mod table_query;
 #[path = "integration/timeline.rs"]
 mod timeline;
 #[path = "integration/trends.rs"]
