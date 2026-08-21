@@ -57,6 +57,7 @@ export function HealthTableViewHeader({
       healthTableViewSettingsAdapter.defaultSettings(scope).sortRules,
     ),
     update: (updater) => controller.updateTableSettings(scope, updater),
+    prepareGroup: () => controller.ensureReferenceData(scope),
   };
   const noun = title.toLowerCase();
   const addLabel = `Add ${noun} entry`;

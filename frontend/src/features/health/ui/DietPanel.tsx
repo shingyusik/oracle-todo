@@ -7,6 +7,7 @@ import {
   type HealthController,
 } from "@/features/health/hooks/useHealthController";
 import { deriveDietGroups, type DietRow } from "@/features/health/model/diet-table";
+import type { HealthTableOccurrence } from "@/features/health/model/health-model";
 import {
   defaultHealthTableSettings,
   healthDietFilterSelectOptions,
@@ -48,27 +49,18 @@ export function DietPanel({
   const tableRef = useRef<HTMLElement>(null);
   const detailOriginRef = useRef<{ occurrence: string; rowId: string } | null>(null);
 
-  useEffect(() => {
-    if (controller.state.dietStatus === "idle") void controller.refreshDiet();
-  }, [controller]);
+  useEffect(() => { void controller.ensureTable("health.diet"); }, [controller]);
+  const page = controller.tablePage("health.diet");
 
   const entries = useMemo(
     () => controller.state.dietEntries.filter(({ deletedAt, id }) =>
       deletedAt === null && !tombstonedIds.has(id)),
     [controller.state.dietEntries, tombstonedIds],
   );
-  const activeGroups = useMemo(
-    () => deriveDietGroups(entries, defaultHealthTableSettings("health.diet")),
-    [entries],
-  );
-  const activeRows = useMemo(
-    () => activeGroups.flatMap(({ rows }) => rows),
-    [activeGroups],
-  );
-  const groups = useMemo(
-    () => deriveDietGroups(entries, controller.tableSettings("health.diet")),
-    [controller, entries],
-  );
+  const groups = useMemo(() => dietOccurrenceGroups(page.items.filter(isDietOccurrence)
+    .filter(({ record }) => !tombstonedIds.has(record.id))), [page.items, tombstonedIds]);
+  const activeRows = useMemo(() => uniqueRows(deriveDietGroups(
+    entries, defaultHealthTableSettings("health.diet")).flatMap(({ rows }) => rows)), [entries]);
   const candidates = useMemo(() => deriveDietGroups(entries, {
     ...defaultHealthTableSettings("health.diet"),
     groupSettings: {
@@ -88,9 +80,7 @@ export function DietPanel({
     () => [...new Set(entries.flatMap(({ tags }) => tags))],
     [entries],
   );
-  const currentDetailRow = detailRow
-    ? activeRows.find(({ id }) => id === detailRow.id) ?? null
-    : null;
+  const currentDetailRow = detailRow ? resolveDietDetail(detailRow, entries) : null;
   const detailHistory = useBrowserDetailHistory({
     stateKey: "__ravenHealthDietDetailId",
     currentId: currentDetailRow?.id ?? null,
@@ -184,20 +174,6 @@ export function DietPanel({
     else await controller.refresh();
   }
 
-  const initial = controller.state.dietEntries.length === 0;
-  if (controller.state.dietStatus === "loading" && initial) {
-    return <p role="status" className="items-message">Loading diet entries…</p>;
-  }
-  if (controller.state.dietStatus === "error" && initial) {
-    return <section>
-      <h1>Diet</h1>
-      <p role="alert" className="items-message">
-        {controller.state.dietError ?? "Diet entries are unavailable"}
-      </p>
-      <button type="button" onClick={() => void controller.refreshDiet()}>Retry</button>
-    </section>;
-  }
-
   if (currentDetailRow) {
     return (
       <DietDetail
@@ -228,7 +204,9 @@ export function DietPanel({
           tags: detailTags.map((tag) => ({ value: tag, label: tag })),
         }}
         candidates={candidates}
-        onAdd={() => setCreateOpen(true)}
+        onAdd={() => void controller.ensureReferenceData("health.diet").then((ok) => {
+          if (ok) setCreateOpen(true);
+        })}
         addButtonRef={addButtonRef}
         onArchiveSelected={() => {
           setArchiveError(null);
@@ -241,12 +219,14 @@ export function DietPanel({
         groups={groups}
         activeRowCount={activeRows.length}
         selectedIds={selectedIds}
-        onOpen={(row, occurrence) => {
-          detailOriginRef.current = { occurrence, rowId: row.id };
-          setDetailRow(row);
-        }}
+        onOpen={(row, occurrence) => void controller.ensureReferenceData("health.diet").then((ok) => {
+          if (ok) { detailOriginRef.current = { occurrence, rowId: row.id }; setDetailRow(row); }
+        })}
         onToggle={toggle}
         onToggleAll={toggleAll}
+        page={page}
+        onLoadMore={() => void controller.loadMore("health.diet")}
+        emptyMessage={healthEmptyMessage(controller, page, "diet entries")}
       />
       {refreshWarning ? (
         <div className="items-message">
@@ -255,7 +235,7 @@ export function DietPanel({
             Retry
           </button>
         </div>
-      ) : controller.state.dietError ? (
+      ) : controller.state.dietError && page.moreStatus !== "error" ? (
         <p role="alert" className="items-message">{controller.state.dietError}</p>
       ) : null}
       {archiveError && archiveTargets === null ? (
@@ -286,6 +266,36 @@ export function DietPanel({
       ) : null}
     </section>
   );
+}
+
+function isDietOccurrence(item: HealthTableOccurrence): item is Extract<HealthTableOccurrence, { scope: "health.diet" }> {
+  return item.scope === "health.diet";
+}
+
+function dietOccurrenceGroups(items: Extract<HealthTableOccurrence, { scope: "health.diet" }>[]) {
+  const groups = new Map<string, { key: string; label: string | null; rows: DietRow[] }>();
+  for (const { key: occurrenceKey, groupKey, groupLabel, record } of items) {
+    const key = groupKey ?? "all";
+    const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
+    const occurredAt = new Date(record.entry.occurredAt);
+    group.rows.push({ ...record, mealType: record.entry.mealType,
+      timeLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      occurrenceKey } as DietRow & { occurrenceKey: string });
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function resolveDietDetail(fallback: DietRow, entries: readonly import("@/features/health/model/health-model").DietEntry[]): DietRow {
+  const entry = entries.find(({ id, deletedAt }) => id === fallback.id && deletedAt === null);
+  return entry ? deriveDietGroups([entry], defaultHealthTableSettings("health.diet"))[0]?.rows[0] ?? fallback : fallback;
+}
+
+function healthEmptyMessage(controller: HealthController, page: ReturnType<HealthController["tablePage"]>, noun: string): string {
+  if (page.items.length === 0 && (page.generation === 0 || page.moreStatus === "loading")) return `Loading ${noun}\u2026`;
+  const settings = controller.tableSettings("health.diet");
+  return settings.filterRules.length > 0 || settings.groupSettings.hiddenGroupKeys.length > 0
+    ? `No ${noun} match this view.` : `No ${noun} yet.`;
 }
 
 function uniqueRows(rows: readonly DietRow[]): DietRow[] {

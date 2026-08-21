@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { HealthMutationRefreshError, type HealthController } from "@/features/health/hooks/useHealthController";
 import { deriveHealthMetricsGroups, type HealthMetricsRow } from "@/features/health/model/health-metrics-table";
+import type { HealthTableOccurrence } from "@/features/health/model/health-model";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { HealthMetricsCreateDialog } from "@/features/health/ui/HealthMetricsCreateDialog";
 import { HealthMetricsDetail } from "@/features/health/ui/HealthMetricsDetail";
@@ -35,12 +36,16 @@ export function HealthMetricsPanel({
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const tableRef = useRef<HTMLElement>(null);
   const detailOriginRef = useRef<{ occurrence: string; date: string } | null>(null);
+  useEffect(() => { void controller.ensureTable("health.metrics"); }, [controller]);
+  const page = controller.tablePage("health.metrics");
   const entries = useMemo(() => controller.state.metricsEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)), [controller.state.metricsEntries, tombstonedIds]);
   const settings = controller.tableSettings("health.metrics");
+  const groups = useMemo(() => occurrenceGroups(page.items.filter(isOccurrence)
+    .filter(({ record }) => record.events.some(({ id }) => !tombstonedIds.has(id))), tombstonedIds),
+  [page.items, tombstonedIds]);
   const activeRows = useMemo(() => uniqueRows(deriveHealthMetricsGroups(
     entries, defaultHealthTableSettings("health.metrics")).flatMap(({ rows }) => rows)), [entries]);
-  const groups = useMemo(() => deriveHealthMetricsGroups(entries, settings), [entries, settings]);
   const visibleRows = useMemo(() => uniqueRows(groups.flatMap(({ rows }) => rows)), [groups]);
   const selectedVisibleRows = visibleRows.filter(({ date }) => selectedDates.includes(date));
   const candidates = useMemo(() => deriveHealthMetricsGroups(entries, {
@@ -49,9 +54,7 @@ export function HealthMetricsPanel({
   }).filter(({ label }) => label !== null).map(({ key, label, rows }) => ({
     key, label: label!, count: uniqueRows(rows).length,
   })), [entries, settings.groupSettings]);
-  const currentDetailRow = detailRow
-    ? activeRows.find(({ date }) => date === detailRow.date) ?? null
-    : null;
+  const currentDetailRow = detailRow ? resolveDetail(detailRow, entries) : null;
   const detailHistory = useBrowserDetailHistory({
     stateKey: "__ravenHealthMetricsDetailDate",
     currentId: currentDetailRow?.date ?? null,
@@ -136,16 +139,6 @@ export function HealthMetricsPanel({
     if (await onRetryRefresh()) addButtonRef.current?.focus();
   }
 
-  const initial = controller.state.metricsEntries.length === 0;
-  if (controller.state.metricsStatus === "loading" && initial) {
-    return <p role="status" className="items-message">Loading health metrics…</p>;
-  }
-  if (controller.state.metricsStatus === "error" && initial) {
-    return <section><h1>Health Metrics</h1><p role="alert" className="items-message">
-      {controller.state.metricsError ?? "Health metrics are unavailable"}</p>
-      <button type="button" onClick={() => void controller.refreshMetrics()}>Retry</button></section>;
-  }
-
   if (currentDetailRow) {
     return <HealthMetricsDetail key={currentDetailRow.date} controller={controller}
       row={currentDetailRow} detailHistory={detailHistory}
@@ -162,18 +155,19 @@ export function HealthMetricsPanel({
       headingId="health-metrics-heading"
       fieldLabels={{ weight: "Weight", sleep: "Sleep", crp: "CRP",
         calprotectin: "Calprotectin", condition: "Condition" }} fieldOptions={{}}
-      candidates={candidates} onAdd={() => setCreateOpen(true)} addButtonRef={addButtonRef}
+      candidates={candidates} onAdd={() => void controller.ensureReferenceData("health.metrics").then((ok) => ok && setCreateOpen(true))} addButtonRef={addButtonRef}
       onArchiveSelected={() => { setArchiveError(null); setArchiveTargets([...selectedVisibleRows]); }}
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleRows.length === 0 || archivePending} />
     <HealthMetricsTable groups={groups} activeRowCount={activeRows.length}
-      selectedDates={selectedDates} onOpen={(row, occurrence) => {
-        detailOriginRef.current = { occurrence, date: row.date };
-        setDetailRow(row);
-      }} onToggle={toggle} onToggleAll={toggleAll} />
+      selectedDates={selectedDates} onOpen={(row, occurrence) => void controller.ensureReferenceData("health.metrics").then((ok) => {
+        if (ok) { detailOriginRef.current = { occurrence, date: row.date }; setDetailRow(row); }
+      })} onToggle={toggle} onToggleAll={toggleAll} page={page}
+      onLoadMore={() => void controller.loadMore("health.metrics")}
+      emptyMessage={emptyMessage(controller, page, "health metrics")} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>
       <button type="button" disabled={refreshPending} onClick={() => void retryRefresh()}>Retry</button></div>
-      : controller.state.metricsError ? <p role="alert" className="items-message">
+      : controller.state.metricsError && page.moreStatus !== "error" ? <p role="alert" className="items-message">
         {controller.state.metricsError}</p> : null}
     {archiveError && archiveTargets === null
       ? <p role="alert" className="items-message">{archiveError}</p> : null}
@@ -196,4 +190,26 @@ function uniqueRows(rows: readonly HealthMetricsRow[]): HealthMetricsRow[] {
 function metricEvents(row: HealthMetricsRow) {
   return (["weight", "sleep", "crp", "calprotectin", "condition"] as const)
     .flatMap((field) => row.events[field] ? [row.events[field]] : []);
+}
+
+function isOccurrence(item: HealthTableOccurrence): item is Extract<HealthTableOccurrence, { scope: "health.metrics" }> { return item.scope === "health.metrics"; }
+function occurrenceGroups(items: Extract<HealthTableOccurrence, { scope: "health.metrics" }>[], tombstonedIds: ReadonlySet<string>) {
+  const groups = new Map<string, { key: string; label: string | null; rows: HealthMetricsRow[] }>();
+  for (const { key: occurrenceKey, groupKey, groupLabel, record } of items) {
+    const key = groupKey ?? "all"; const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
+    const projected = deriveHealthMetricsGroups(record.events.filter(({ id }) => !tombstonedIds.has(id)),
+      defaultHealthTableSettings("health.metrics"))[0]?.rows[0];
+    if (projected) group.rows.push({ ...record, ...projected, occurrenceKey } as HealthMetricsRow & { occurrenceKey: string });
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+function resolveDetail(fallback: HealthMetricsRow, entries: readonly import("@/features/health/model/health-model").HealthEvent[]): HealthMetricsRow {
+  return deriveHealthMetricsGroups(entries, defaultHealthTableSettings("health.metrics")).flatMap(({ rows }) => rows)
+    .find(({ date }) => date === fallback.date) ?? fallback;
+}
+function emptyMessage(controller: HealthController, page: ReturnType<HealthController["tablePage"]>, noun: string) {
+  if (page.items.length === 0 && (page.generation === 0 || page.moreStatus === "loading")) return `Loading ${noun}\u2026`;
+  const settings = controller.tableSettings("health.metrics");
+  return settings.filterRules.length || settings.groupSettings.hiddenGroupKeys.length ? `No ${noun} match this view.` : `No ${noun} yet.`;
 }

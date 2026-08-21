@@ -118,22 +118,22 @@ const loadedState: HealthState = {
 };
 
 function controller(state: HealthState = loadedState): HealthController {
-  const settings = defaultHealthTableSettings("health.diet");
-  return {
+  const result: HealthController = {
     state,
     tableViewSaveError: null,
     retryTableViewSave: vi.fn(),
     tableViewConfirmation: null,
-    tableTabs: () => ({
-      tabs: [{ id: "health.diet-table", name: "Table", settings }],
-      activeTabId: "health.diet-table",
-      draftSettings: settings,
+    tableTabs: (scope) => ({
+      tabs: [{ id: `${scope}-table`, name: "Table", settings: defaultHealthTableSettings(scope) }],
+      activeTabId: `${scope}-table`,
+      draftSettings: defaultHealthTableSettings(scope),
     }),
-    tableSettings: () => settings,
+    tableSettings: (scope) => defaultHealthTableSettings(scope),
     tableIsDirty: vi.fn(() => false),
-    tablePage: vi.fn(() => ({
-      items: [], nextOffset: null, moreStatus: "idle" as const, moreError: null, generation: 0,
-    })),
+    tablePage: vi.fn(function (this: HealthController, scope) { return {
+      items: tableOccurrences(scope, this.state), nextOffset: null,
+      moreStatus: "idle" as const, moreError: null, generation: 1,
+    }; }),
     ensureTable: vi.fn().mockResolvedValue(undefined),
     loadMore: vi.fn().mockResolvedValue(undefined),
     ensureReferenceData: vi.fn().mockResolvedValue(true),
@@ -165,6 +165,38 @@ function controller(state: HealthState = loadedState): HealthController {
     upsertMetrics: vi.fn(),
     saveMetrics: vi.fn(),
   };
+  return result;
+}
+
+function tableOccurrences(scope: Parameters<HealthController["tablePage"]>[0], state: HealthState) {
+  const base = { groupKey: null, groupLabel: null };
+  if (scope === "health.diet") return state.dietEntries.map((entry) => ({ ...base,
+    key: `all:${entry.id}`, scope, record: { kind: "diet" as const, id: entry.id, entry,
+      date: entry.occurredAt.slice(0, 10), mealLabel: "Lunch", food: entry.foodName,
+      tags: entry.tags, hasPhoto: entry.mediaId !== null, note: entry.note ?? "" } }));
+  if (scope === "health.bowel") return state.bowelEntries.map((event) => ({ ...base,
+    key: `all:${event.id}`, scope, record: { kind: "bowel" as const, id: event.id, event,
+      date: event.occurredAt.slice(0, 10), bristolScale: event.attributes.kind === "bowel"
+        ? event.attributes.bristolScale : 1, bloodVisible: event.attributes.kind === "bowel"
+        && event.attributes.bloodVisible, bloodLabel: event.attributes.kind === "bowel"
+        && event.attributes.bloodVisible ? "Yes" : "No", note: event.note ?? "" } }));
+  if (scope === "health.medication") return state.medicationEntries.map((event) => ({ ...base,
+    key: `all:${event.id}`, scope, record: { kind: "medication" as const, id: event.id, event,
+      date: event.occurredAt.slice(0, 10), medicationName: event.attributes.kind === "medication"
+        ? event.attributes.medicationName : event.name, dose: event.attributes.kind === "medication"
+        ? event.attributes.dose : 0, unit: event.attributes.kind === "medication"
+        ? event.attributes.unit : "dose", unitLabel: event.unit ?? "dose", note: event.note ?? "" } }));
+  if (state.metricsEntries.length === 0) return [];
+  const date = state.metricsEntries[0].occurredAt.slice(0, 10);
+  return [{ ...base, key: `all:${date}`, scope, record: { kind: "metrics" as const, id: date,
+    date, events: state.metricsEntries, weight: metricValue(state.metricsEntries, "body_weight"),
+    sleep: metricValue(state.metricsEntries, "sleep_duration"), crp: null, calprotectin: null,
+    condition: null, note: "", createdAt: state.metricsEntries[0].createdAt,
+    updatedAt: state.metricsEntries[0].updatedAt } }];
+}
+
+function metricValue(events: HealthEvent[], key: string) {
+  return events.find(({ metricKey }) => metricKey === key)?.value ?? null;
 }
 
 function deferred<T>() {

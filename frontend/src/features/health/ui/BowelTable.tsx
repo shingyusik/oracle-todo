@@ -3,14 +3,18 @@
 import React, { useLayoutEffect, useRef } from "react";
 
 import type { BowelRow, BowelRowGroup } from "@/features/health/model/bowel-table";
+import type { HealthTablePageState } from "@/features/health/hooks/useHealthController";
+import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
 
-export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onToggle, onToggleAll }: {
+export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onToggle, onToggleAll,
+  page = emptyPage, onLoadMore = noop, emptyMessage }: {
   groups: BowelRowGroup[];
   activeRowCount: number;
   selectedIds: string[];
   onOpen(row: BowelRow, occurrence: string): void;
   onToggle(id: string): void;
   onToggleAll(): void;
+  page?: HealthTablePageState; onLoadMore?: () => void; emptyMessage?: string;
 }) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap(({ rows: groupRows }) => groupRows);
@@ -29,9 +33,10 @@ export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onTogg
         <th scope="col">Time</th><th scope="col">Bristol Scale</th>
         <th scope="col">Blood Visible</th><th scope="col">Note</th>
       </tr></thead>
-      {rows.length === 0 ? <tbody><tr className="workspace-table-empty-row">
-        <td className="items-message workspace-table-empty-cell" colSpan={5}>
-          {activeRowCount === 0 ? "No bowel entries yet." : "No bowel entries match this view."}
+      {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : rows.length === 0 ? <tbody><tr className="workspace-table-empty-row">
+        <td className="items-message workspace-table-empty-cell" colSpan={5}
+          role={page.generation === 0 || page.moreStatus === "loading" ? "status" : undefined}>
+          {emptyMessage ?? (activeRowCount === 0 ? "No bowel entries yet." : "No bowel entries match this view.")}
         </td>
       </tr></tbody> : groups.map((group) =>
         <tbody key={group.key} aria-label={group.label ? `${group.label} group` : undefined}>
@@ -39,7 +44,8 @@ export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onTogg
             <th scope="rowgroup" colSpan={5}>{group.label}</th></tr> : null}
           {group.rows.map((row, rowIndex) => {
             const context = `Type ${row.bristolScale}, ${row.date} ${row.timeLabel}, ${row.bloodLabel}`;
-            const occurrence = `${group.key}-${row.id}-${rowIndex}`;
+            const occurrence = (row as BowelRow & { occurrenceKey?: string }).occurrenceKey
+              ?? `${group.key}-${row.id}-${rowIndex}`;
             return <tr key={occurrence} tabIndex={0}
               aria-label={`Open details for ${context}`}
               aria-description="Press Enter or Space to open details."
@@ -58,7 +64,12 @@ export function BowelTable({ groups, activeRowCount, selectedIds, onOpen, onTogg
               <td>{`Type ${row.bristolScale}`}</td><td>{row.bloodLabel}</td><td>{row.note}</td>
             </tr>;
           })}
-        </tbody>)}
+      </tbody>)}
+      <InfiniteTableFooter nextOffset={page.nextOffset} status={page.moreStatus}
+        error={page.moreError} loadMore={onLoadMore} columnCount={5} />
     </table>
   </section>;
 }
+
+const emptyPage: HealthTablePageState = { items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0 };
+const noop = () => undefined;
