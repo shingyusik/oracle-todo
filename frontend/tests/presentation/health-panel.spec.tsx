@@ -909,4 +909,55 @@ describe("HealthPanel", () => {
 
     expect(result.current.state.reportError).toBe("Report unavailable");
   });
+
+  it.each(["old-first", "new-first"] as const)(
+    "keeps only the forced post-mutation Diet references when %s completes first",
+    async (order) => {
+      const oldPage = deferred<DietEntry[]>();
+      const newPage = deferred<DietEntry[]>();
+      const newerDiet = { ...diet, id: "diet-new", foodName: "New meal" };
+      vi.spyOn(healthApi, "listDiet")
+        .mockReturnValueOnce(oldPage.promise)
+        .mockReturnValueOnce(newPage.promise);
+      vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
+      vi.spyOn(healthApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+      vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+      vi.spyOn(healthApi, "createDiet").mockResolvedValue(newerDiet);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+      const { result } = renderHook(() => useHealthController());
+
+      let oldRequest!: Promise<boolean>;
+      let duplicateOpen!: Promise<boolean>;
+      act(() => {
+        oldRequest = result.current.ensureReferenceData("health.diet");
+        duplicateOpen = result.current.ensureReferenceData("health.diet");
+      });
+      expect(duplicateOpen).toBe(oldRequest);
+      await waitFor(() => expect(healthApi.listDiet).toHaveBeenCalledOnce());
+      let mutation!: Promise<void>;
+      act(() => {
+        mutation = result.current.createDiet({} as never);
+      });
+      await waitFor(() => expect(healthApi.listDiet).toHaveBeenCalledTimes(2));
+
+      if (order === "old-first") {
+        await act(async () => {
+          oldPage.resolve([{ ...diet, foodName: "Stale meal" }]);
+          await Promise.resolve();
+        });
+        expect(result.current.state.dietEntries).toEqual([]);
+        await act(async () => newPage.resolve([newerDiet]));
+      } else {
+        await act(async () => newPage.resolve([newerDiet]));
+        expect(result.current.state.dietEntries).toEqual([newerDiet]);
+        await act(async () => oldPage.resolve([{ ...diet, foodName: "Stale meal" }]));
+      }
+      await act(async () => Promise.all([oldRequest, duplicateOpen, mutation]));
+
+      expect(result.current.state.dietEntries).toEqual([newerDiet]);
+      expect(result.current.hasReferenceData("health.diet")).toBe(true);
+      expect(result.current.state.bowelEntries).toEqual([]);
+      expect(healthApi.listEvents).not.toHaveBeenCalled();
+    },
+  );
 });

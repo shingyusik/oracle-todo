@@ -43,6 +43,7 @@ import {
 } from "@/features/ledger/model/ledger-model";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
 import { localCalendarDate } from "@/features/workbench/model/planner-model";
+import { tableFilterValue } from "@/features/workbench/model/table-query";
 import {
   apiPath,
   jsonRequest,
@@ -338,20 +339,6 @@ export const ledgerApi = {
     ));
   },
 };
-
-function tableFilterValue(
-  value: PlannerTableSettings["filterRules"][number]["value"],
-  operator: PlannerTableSettings["filterRules"][number]["operator"],
-): JsonObject {
-  if (operator === "is_empty" || operator === "is_not_empty") return { empty: true };
-  if (Array.isArray(value)) return { list: value };
-  if (value && typeof value === "object") {
-    return "start" in value
-      ? { range: { start: value.start, end: value.end } }
-      : { relative: { amount: value.amount, unit: value.unit } };
-  }
-  return { text: value ?? "" };
-}
 
 async function masterPage<T>(
   path: string,

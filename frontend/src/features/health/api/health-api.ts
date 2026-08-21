@@ -20,6 +20,7 @@ import {
 } from "@/features/health/model/health-model";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
 import { localCalendarDate } from "@/features/workbench/model/planner-model";
+import { tableFilterValue } from "@/features/workbench/model/table-query";
 import {
   mapHealthReport,
   type HealthReport,
@@ -227,20 +228,6 @@ export const healthApi = {
     return mapHealthReport(await requestJson(apiPath(`${ROOT}/reports`, query)));
   },
 };
-
-function tableFilterValue(
-  value: PlannerTableSettings["filterRules"][number]["value"],
-  operator: PlannerTableSettings["filterRules"][number]["operator"],
-): JsonObject {
-  if (operator === "is_empty" || operator === "is_not_empty") return { empty: true };
-  if (Array.isArray(value)) return { list: value };
-  if (value && typeof value === "object") {
-    return "start" in value
-      ? { range: { start: value.start, end: value.end } }
-      : { relative: { amount: value.amount, unit: value.unit } };
-  }
-  return { text: value ?? "" };
-}
 
 function dietBody(input: DietInput): JsonObject {
   return clean({

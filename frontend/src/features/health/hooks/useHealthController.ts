@@ -59,6 +59,7 @@ type PendingHealthViewCommand = {
   apply: (state: HealthTableViewsState) => HealthTableViewsState;
   persist: boolean;
 };
+type ReferenceDataRequest = { generation: number; promise: Promise<boolean> };
 export type HealthTablePageState = {
   items: HealthTableOccurrence[];
   nextOffset: number | null;
@@ -229,7 +230,11 @@ export function useHealthController(): HealthController {
   const initializedTables = useRef(new Set<HealthTableScopeId>());
   const pendingMore = useRef(new Set<HealthTableScopeId>());
   const referenceDataLoaded = useRef(new Set<HealthTableScopeId>());
-  const referenceDataRequests = useRef(new Map<HealthTableScopeId, Promise<boolean>>());
+  const referenceDataRequested = useRef(new Set<HealthTableScopeId>());
+  const referenceDataRequests = useRef(new Map<HealthTableScopeId, ReferenceDataRequest>());
+  const referenceDataGeneration = useRef(Object.fromEntries(
+    healthTableScopeIds.map((scope) => [scope, 0]),
+  ) as Record<HealthTableScopeId, number>);
   const tableViewsRef = useRef(tableViews);
   const initialTableViews = useRef(tableViews);
   const tableViewsLoaded = useRef(false);
@@ -622,9 +627,12 @@ export function useHealthController(): HealthController {
     scope: HealthTableScopeId,
     force = false,
   ): Promise<boolean> => {
+    referenceDataRequested.current.add(scope);
     if (!force && referenceDataLoaded.current.has(scope)) return Promise.resolve(true);
     const pending = referenceDataRequests.current.get(scope);
-    if (pending) return pending;
+    if (!force && pending) return pending.promise;
+    if (force) referenceDataLoaded.current.delete(scope);
+    const generation = ++referenceDataGeneration.current[scope];
     const load = scope === "health.diet"
       ? startDietRefresh
       : scope === "health.bowel"
@@ -633,10 +641,18 @@ export function useHealthController(): HealthController {
           ? startMedicationRefresh
           : startMetricsRefresh;
     const request = load(force).then((ok) => {
+      if (referenceDataGeneration.current[scope] !== generation) {
+        return referenceDataRequests.current.get(scope)?.promise
+          ?? referenceDataLoaded.current.has(scope);
+      }
       if (ok) referenceDataLoaded.current.add(scope);
       return ok;
-    }).finally(() => referenceDataRequests.current.delete(scope));
-    referenceDataRequests.current.set(scope, request);
+    }).finally(() => {
+      if (referenceDataRequests.current.get(scope)?.generation === generation) {
+        referenceDataRequests.current.delete(scope);
+      }
+    });
+    referenceDataRequests.current.set(scope, { generation, promise: request });
     return request;
   }, [startBowelRefresh, startDietRefresh, startMedicationRefresh, startMetricsRefresh]);
 
@@ -651,14 +667,16 @@ export function useHealthController(): HealthController {
   ) => {
     const requests: Promise<boolean>[] = [];
     if (initialize || initializedTables.current.has(scope)) requests.push(loadInitialTable(scope));
-    if (referenceDataLoaded.current.has(scope)) requests.push(loadReferenceData(scope, true));
+    if (referenceDataRequested.current.has(scope)) {
+      requests.push(loadReferenceData(scope, true));
+    }
     if (requests.length === 0) requests.push(loadInitialTable(scope));
     const outcomes = await Promise.all(requests);
     return outcomes.every(Boolean);
   }, [loadInitialTable, loadReferenceData]);
 
   const refresh = useCallback(async () => {
-    const scopes = new Set([...initializedTables.current, ...referenceDataLoaded.current]);
+    const scopes = new Set([...initializedTables.current, ...referenceDataRequested.current]);
     const outcomes = await Promise.all([...scopes].map((scope) => refreshScope(scope)));
     return outcomes.every(Boolean);
   }, [refreshScope]);
