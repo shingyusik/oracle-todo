@@ -202,7 +202,7 @@ describe("HealthPanel", () => {
     const removeEventListener = vi.spyOn(window, "removeEventListener");
     const health = controller();
     const view = render(<HealthPanel controller={health} leafTabId="diet" />);
-    await user.click(screen.getByRole("button", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
     expect(window.history.state).toMatchObject({
       preserved: "health",
       __ravenHealthDietDetailId: "diet-1",
@@ -224,7 +224,7 @@ describe("HealthPanel", () => {
     const removeEventListener = vi.spyOn(window, "removeEventListener");
     const health = controller();
     const view = render(<HealthPanel controller={health} leafTabId="bowel" />);
-    await user.click(screen.getByRole("button", { name: /Open details for Type 4/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
     expect(window.history.state).toMatchObject({
       __ravenHealthDietDetailId: "keep-diet",
       __ravenHealthBowelDetailId: bowel.id,
@@ -341,7 +341,7 @@ describe("HealthPanel", () => {
     const removeEventListener = vi.spyOn(window, "removeEventListener");
     const health = controller({ ...loadedState, medicationEntries: [medication] });
     const view = render(<HealthPanel controller={health} leafTabId="medication" />);
-    await user.click(screen.getByRole("button", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
     expect(window.history.state).toMatchObject({
       __ravenHealthDietDetailId: "keep-diet",
       __ravenHealthBowelDetailId: "keep-bowel",
