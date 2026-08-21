@@ -5,6 +5,7 @@ import type { PlannerTableSettings } from "@/features/workbench/model/planner-mo
 import {
   collapseWorkspaceGroups,
   deriveWorkspaceViewGroups,
+  deriveWorkspaceOccurrenceGroups,
   detailWorkspaceScope,
   workspaceFilterFieldsForScope,
   workspaceScopeForPanel,
@@ -90,6 +91,18 @@ function settings(
 }
 
 describe("workspace table views", () => {
+  it("merges adjacent server-projected occurrence groups without local filtering", () => {
+    const groups = deriveWorkspaceOccurrenceGroups([
+      { key: "1:a:alpha", groupKey: "a", groupLabel: "A", record: tasks[0] },
+      { key: "1:a:bravo", groupKey: "a", groupLabel: "A", record: tasks[1] },
+      { key: "1:b:charlie", groupKey: "b", groupLabel: "B", record: tasks[2] },
+      { key: "1:b:delta", groupKey: "b", groupLabel: "B", record: tasks[3] },
+    ]);
+    expect(groups).toEqual([
+      { key: "a", label: "A", items: [tasks[0], tasks[1]] },
+      { key: "b", label: "B", items: [tasks[2], tasks[3]] },
+    ]);
+  });
   it("maps every workspace panel and detail pair to an independent stable scope", () => {
     expect([
       workspaceScopeForPanel("areas"),

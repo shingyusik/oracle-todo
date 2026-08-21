@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { LedgerController, LedgerState } from "@/features/ledger/hooks/useLedgerController";
 import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
+import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import {
   createLedgerTableViews,
   defaultLedgerTableSettings,
@@ -282,7 +283,30 @@ function categoriesController(nextState: LedgerState = state): LedgerController 
   ledger.state = nextState;
   ledger.tableTabs = (scope) => views[scope];
   ledger.tableSettings = (scope) => views[scope].draftSettings;
+  ledger.tablePage = (scope) => ({
+    items: scope === "ledger.categories" ? categoryOccurrences(ledger) : [],
+    nextOffset: null,
+    moreStatus: "idle",
+    moreError: null,
+    generation: 1,
+  });
+  ledger.ensureTable = vi.fn().mockResolvedValue(undefined);
+  ledger.ensureReferenceData = vi.fn().mockResolvedValue(true);
+  ledger.hasReferenceData = (scope) => scope === "ledger.categories";
   return ledger;
+}
+
+function categoryOccurrences(ledger: LedgerController): LedgerTableOccurrence[] {
+  return deriveCategoryGroups(
+    ledger.state.categories,
+    ledger.tableSettings("ledger.categories"),
+  ).flatMap(({ key, label, rows }) => rows.map((record) => ({
+    scope: "ledger.categories" as const,
+    key: `${key}:${record.id}`,
+    groupKey: key,
+    groupLabel: label,
+    record,
+  })));
 }
 
 const categoryGroups = deriveCategoryGroups(
@@ -567,7 +591,7 @@ describe("CategoriesPanel", () => {
     expect(screen.getByRole("button", { name: "Delete selected" })).toBeEnabled();
 
     rerender(<CategoriesPanel controller={categoriesController({ ...state, categories: [] })} />);
-    expect(screen.getByText("No categories yet.")).toBeInTheDocument();
+    expect(await screen.findByText("No categories yet.")).toBeInTheDocument();
     rerender(<CategoriesPanel controller={categoriesController()} />);
 
     expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled();
@@ -595,6 +619,6 @@ describe("CategoriesPanel", () => {
     await user.click(screen.getByRole("button", { name: "Open details for Food, Expense, No parent" }));
     ledger.state = { ...ledger.state, categories: ledger.state.categories.filter(({ id }) => id !== "category-food") };
     rerender(<CategoriesPanel controller={ledger} />);
-    expect(screen.queryByRole("region", { name: "Food details" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Food details" })).toBeNull());
   });
 });

@@ -3,6 +3,8 @@
 import React, { useLayoutEffect, useRef } from "react";
 
 import type { DietRow, DietRowGroup } from "@/features/health/model/diet-table";
+import type { HealthTablePageState } from "@/features/health/hooks/useHealthController";
+import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
 
 export function DietTable({
   groups,
@@ -11,6 +13,9 @@ export function DietTable({
   onOpen,
   onToggle,
   onToggleAll,
+  page = emptyPage,
+  onLoadMore = noop,
+  emptyMessage,
 }: {
   groups: DietRowGroup[];
   activeRowCount: number;
@@ -18,6 +23,9 @@ export function DietTable({
   onOpen(row: DietRow, occurrence: string): void;
   onToggle(id: string): void;
   onToggleAll(): void;
+  page?: HealthTablePageState;
+  onLoadMore?: () => void;
+  emptyMessage?: string;
 }) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap((group) => group.rows);
@@ -51,12 +59,13 @@ export function DietTable({
           <th scope="col">Photo</th>
           <th scope="col">Note</th>
         </tr></thead>
-        {rows.length === 0 ? (
+        {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : rows.length === 0 ? (
           <tbody><tr className="workspace-table-empty-row">
-            <td className="items-message workspace-table-empty-cell" colSpan={7}>
-              {activeRowCount === 0
+            <td className="items-message workspace-table-empty-cell" colSpan={7}
+              role={page.generation === 0 || page.moreStatus === "loading" ? "status" : undefined}>
+              {emptyMessage ?? (activeRowCount === 0
                 ? "No diet entries yet."
-                : "No diet entries match this view."}
+                : "No diet entries match this view.")}
             </td>
           </tr></tbody>
         ) : groups.map((group, groupIndex) => (
@@ -66,9 +75,9 @@ export function DietTable({
             </tr> : null}
             {group.rows.map((row, rowIndex) => (
               <DietTableRow
-                key={row.id}
+                key={occurrence(row) ?? `${group.key}-${row.id}-${rowIndex}`}
                 row={row}
-                occurrence={`${groupIndex}-${rowIndex}`}
+                occurrence={occurrence(row) ?? `${groupIndex}-${rowIndex}`}
                 selected={selectedIds.includes(row.id)}
                 onOpen={onOpen}
                 onToggle={onToggle}
@@ -76,10 +85,21 @@ export function DietTable({
             ))}
           </tbody>
         ))}
+        <InfiniteTableFooter nextOffset={page.nextOffset} status={page.moreStatus}
+          error={page.moreError} loadMore={onLoadMore} columnCount={7} />
       </table>
     </section>
   );
 }
+
+function occurrence(row: DietRow): string | undefined {
+  return (row as DietRow & { occurrenceKey?: string }).occurrenceKey;
+}
+
+const emptyPage: HealthTablePageState = {
+  items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+};
+const noop = () => undefined;
 
 function DietTableRow({
   row,

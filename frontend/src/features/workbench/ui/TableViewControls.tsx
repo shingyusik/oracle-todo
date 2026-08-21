@@ -74,6 +74,7 @@ export type TableViewControlsAdapter = {
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
   ): void;
   add?: () => void;
+  prepareGroup?: () => Promise<boolean>;
 };
 
 type TableViewDropdownKind = "filter" | "sort" | "group";
@@ -111,6 +112,10 @@ export function TableViewControls({
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const sortPanelRef = useRef<HTMLDivElement>(null);
   const groupPanelRef = useRef<HTMLDivElement>(null);
+  const preparingGroupRef = useRef(false);
+  const menuIntentRef = useRef(0);
+  const mountedRef = useRef(true);
+  const [preparingGroup, setPreparingGroup] = React.useState(false);
   const safeScopeId = adapter.scopeId.replaceAll(".", "-");
   const dropdownIds: Record<TableViewDropdownKind, string> = {
     filter: `${adapter.dropdownIdPrefix}-filter-dropdown-${safeScopeId}`,
@@ -134,6 +139,14 @@ export function TableViewControls({
     group: groupPanelRef,
   };
   const showSort = !adapter.isDefaultSort(adapter.settings.sortRules);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      menuIntentRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (!openDropdown) return;
@@ -176,7 +189,20 @@ export function TableViewControls({
     };
   }, [openDropdown]);
 
-  function toggleDropdown(kind: TableViewDropdownKind) {
+  async function toggleDropdown(kind: TableViewDropdownKind) {
+    if (kind === "group" && preparingGroupRef.current) return;
+    const intent = ++menuIntentRef.current;
+    if (kind === "group" && openDropdown !== "group" && adapter.prepareGroup) {
+      preparingGroupRef.current = true;
+      setPreparingGroup(true);
+      try {
+        if (!await adapter.prepareGroup()) return;
+      } finally {
+        preparingGroupRef.current = false;
+        if (mountedRef.current) setPreparingGroup(false);
+      }
+    }
+    if (!mountedRef.current || menuIntentRef.current !== intent) return;
     setOpenDropdown((current) => (current === kind ? null : kind));
   }
 
@@ -199,7 +225,7 @@ export function TableViewControls({
           active={openDropdown === "filter" || activeFilterCount > 0}
           ariaLabel={`Filter ${adapter.title}`}
           title="Filter"
-          onClick={() => toggleDropdown("filter")}
+          onClick={() => void toggleDropdown("filter")}
           buttonRef={filterTriggerRef}
           ariaExpanded={openDropdown === "filter"}
           ariaControls={dropdownIds.filter}
@@ -211,7 +237,7 @@ export function TableViewControls({
           active={openDropdown === "sort" || showSort}
           ariaLabel={`Sort ${adapter.title}`}
           title="Sort"
-          onClick={() => toggleDropdown("sort")}
+          onClick={() => void toggleDropdown("sort")}
           buttonRef={sortTriggerRef}
           ariaExpanded={openDropdown === "sort"}
           ariaControls={dropdownIds.sort}
@@ -222,10 +248,11 @@ export function TableViewControls({
           active={openDropdown === "group" || groupBy !== "none"}
           ariaLabel={`Group ${adapter.title}`}
           title="Group by"
-          onClick={() => toggleDropdown("group")}
+          onClick={() => void toggleDropdown("group")}
           buttonRef={groupTriggerRef}
           ariaExpanded={openDropdown === "group"}
           ariaControls={dropdownIds.group}
+          disabled={preparingGroup}
         >
           <Group size={16} aria-hidden="true" />
         </TableViewDropdownButton>
@@ -378,6 +405,7 @@ function TableViewDropdownButton({
   ariaExpanded,
   ariaControls,
   missSuccessFocusTarget,
+  disabled = false,
 }: {
   active: boolean;
   ariaLabel: string;
@@ -388,6 +416,7 @@ function TableViewDropdownButton({
   ariaExpanded?: boolean;
   ariaControls?: string;
   missSuccessFocusTarget?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -400,6 +429,8 @@ function TableViewDropdownButton({
       data-planner-miss-success-focus={missSuccessFocusTarget}
       aria-expanded={ariaExpanded}
       aria-controls={ariaControls}
+      aria-disabled={disabled || undefined}
+      disabled={disabled}
       onClick={onClick}
     >
       {children}

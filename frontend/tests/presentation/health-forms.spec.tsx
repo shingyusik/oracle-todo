@@ -66,6 +66,11 @@ function controller(
     }),
     tableSettings: () => settings,
     tableIsDirty: vi.fn(() => false),
+    tablePage: vi.fn(() => ({ items: [], nextOffset: null, moreStatus: "idle" as const, moreError: null, generation: 0 })),
+    ensureTable: vi.fn().mockResolvedValue(undefined),
+    loadMore: vi.fn().mockResolvedValue(undefined),
+    ensureReferenceData: vi.fn().mockResolvedValue(true),
+    hasReferenceData: vi.fn(() => false),
     updateTableSettings: vi.fn(),
     selectTableTab: vi.fn(),
     saveTableTab: vi.fn(),
@@ -787,10 +792,10 @@ describe("Health Journal forms", () => {
     );
   });
 
-  it("renders Diet controls in the requested order", () => {
+  it("renders Diet controls in the requested order", async () => {
     render(<DietPanel controller={controller()} />);
     fireEvent.click(screen.getByRole("button", { name: "Add diet entry" }));
-    const form = screen.getByRole("form", { name: "Diet entry" });
+    const form = await screen.findByRole("form", { name: "Diet entry" });
     const controls = [
       within(form).getByLabelText("Time"),
       within(form).getByLabelText("Meal"),

@@ -16,6 +16,7 @@ import type { HealthEvent } from "@/features/health/model/health-model";
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { QuickAddDialog } from "@/features/workbench/ui/QuickAddDialog";
+import { WorkbenchWireframe } from "@/features/workbench/ui/WorkbenchWireframe";
 
 function workbenchController(): WorkbenchController {
   return {
@@ -43,7 +44,41 @@ function stubHealthLoaded(
     diet: vi.spyOn(healthApi, "listDiet").mockResolvedValue(dietEntries),
     events: vi.spyOn(healthApi, "listEvents").mockImplementation(async (query) =>
       query?.dailyOnly ? metricsEntries : []),
+    lookups: vi.spyOn(healthApi, "tableLookups").mockResolvedValue({}),
   };
+}
+
+function ledgerWorkbenchController(): WorkbenchController {
+  return {
+    selection: {
+      mainTabId: "ledger",
+      leafTabId: "transactions",
+      workspaceExpanded: false,
+      plannerExpanded: false,
+      ledgerExpanded: true,
+      healthExpanded: false,
+    },
+    panel: { id: "transactions", title: "Transactions" },
+    selectTab: vi.fn(),
+    tableViewTabConfirmation: null,
+    confirmTableViewTabAction: vi.fn(),
+    cancelTableViewTabAction: vi.fn(),
+  } as unknown as WorkbenchController;
+}
+
+function healthWorkbenchController(): WorkbenchController {
+  return {
+    ...ledgerWorkbenchController(),
+    selection: {
+      mainTabId: "health",
+      leafTabId: "bowel",
+      workspaceExpanded: false,
+      plannerExpanded: false,
+      ledgerExpanded: false,
+      healthExpanded: true,
+    },
+    panel: { id: "bowel", title: "Bowel" },
+  } as unknown as WorkbenchController;
 }
 
 function deferred<T>() {
@@ -85,11 +120,66 @@ describe("QuickAddDialog", () => {
 
     expect(await screen.findByRole("form", { name: "New transaction" }))
       .toBeVisible();
-    expect(ledgerSpies.every((spy) => spy.mock.calls.length === 1)).toBe(true);
+    expect(ledgerSpies[0]).not.toHaveBeenCalled();
+    expect(ledgerSpies[1]).toHaveBeenCalledOnce();
+    expect(ledgerSpies[2]).not.toHaveBeenCalled();
+    expect(ledgerSpies[3]).toHaveBeenCalledOnce();
+    expect(ledgerSpies[4]).toHaveBeenCalledOnce();
+    expect(ledgerSpies[5]).not.toHaveBeenCalled();
+    expect(healthSpies.diet).not.toHaveBeenCalled();
+    expect(healthSpies.events).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates the selected Health reference preload before rendering", async () => {
+    const user = userEvent.setup();
+    stubLedgerLoaded();
+    const health = stubHealthLoaded();
+    const lookups = deferred<Awaited<ReturnType<typeof healthApi.tableLookups>>>();
+    health.lookups.mockReturnValue(lookups.promise);
+
+    render(
+      <React.StrictMode>
+        <QuickAddDialog controller={workbenchController()} onClose={vi.fn()} />
+      </React.StrictMode>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Diet entry" }));
+    expect(await screen.findByRole("status"))
+      .toHaveTextContent("Loading Health references");
+    expect(health.lookups).toHaveBeenCalledOnce();
+    expect(health.diet).not.toHaveBeenCalled();
+    expect(health.events).not.toHaveBeenCalled();
+    expect(screen.queryByRole("form", { name: "Diet entry" })).toBeNull();
+
+    await act(async () => lookups.resolve({}));
+    expect(await screen.findByRole("form", { name: "Diet entry" })).toBeVisible();
+  });
+
+  it("opens Bowel and Medication Quick Add without draining existing records", async () => {
+    const user = userEvent.setup();
+    stubLedgerLoaded();
+    const health = stubHealthLoaded();
+    const view = render(
+      <QuickAddDialog controller={workbenchController()} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Bowel entry" }));
+    expect(await screen.findByRole("form", { name: "Bowel entry" })).toBeVisible();
+    expect(health.diet).not.toHaveBeenCalled();
+    expect(health.events).not.toHaveBeenCalled();
+    expect(health.lookups).not.toHaveBeenCalled();
+
+    view.unmount();
+    render(<QuickAddDialog controller={workbenchController()} onClose={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Medication entry" }));
+    expect(await screen.findByRole("form", { name: "Medication entry" })).toBeVisible();
+    expect(health.events).not.toHaveBeenCalled();
   });
 
   it("preloads existing Metrics and preserves its snapshot through mutation refresh", async () => {
     const user = userEvent.setup();
+    const tableQuery = vi.spyOn(healthApi, "queryTable");
+    const tableLookups = vi.spyOn(healthApi, "tableLookups");
     const weight: HealthEvent = {
       id: "weight-1",
       occurredAt: "2026-08-19T03:00:00Z",
@@ -138,13 +228,15 @@ describe("QuickAddDialog", () => {
       expectedUpdatedAt: weight.updatedAt,
     }], archives: [] }));
     await waitFor(() => expect(metricReads).toBe(2));
+    expect(tableQuery).not.toHaveBeenCalled();
+    expect(tableLookups).not.toHaveBeenCalled();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
   it("shows Ledger reference failure and retries before rendering the form", async () => {
     const user = userEvent.setup();
     const ledgerSpies = stubLedgerLoaded();
-    ledgerSpies[0].mockRejectedValueOnce(new Error("Ledger references unavailable"));
+    ledgerSpies[3].mockRejectedValueOnce(new Error("Ledger references unavailable"));
     render(
       <QuickAddDialog controller={workbenchController()} onClose={vi.fn()} />,
     );
@@ -175,11 +267,11 @@ describe("QuickAddDialog", () => {
     const user = userEvent.setup();
     const initial = stubHealthLoaded();
     const create = deferred<Awaited<ReturnType<typeof healthApi.createDiet>>>();
-    const refreshedDiet =
-      deferred<Awaited<ReturnType<typeof healthApi.listDiet>>>();
+    const refreshedLookups =
+      deferred<Awaited<ReturnType<typeof healthApi.tableLookups>>>();
     vi.spyOn(healthApi, "createDiet").mockReturnValue(create.promise);
-    initial.diet.mockImplementationOnce(() => Promise.resolve([]))
-      .mockImplementationOnce(() => refreshedDiet.promise);
+    initial.lookups.mockImplementationOnce(() => Promise.resolve({}))
+      .mockImplementationOnce(() => refreshedLookups.promise);
     const onClose = vi.fn();
     render(
       <QuickAddDialog controller={workbenchController()} onClose={onClose} />,
@@ -201,12 +293,12 @@ describe("QuickAddDialog", () => {
       {} as Awaited<ReturnType<typeof healthApi.createDiet>>,
     ));
     await waitFor(() => {
-      expect(initial.diet).toHaveBeenCalledTimes(2);
+      expect(initial.lookups).toHaveBeenCalledTimes(2);
     });
     expect(onClose).not.toHaveBeenCalled();
 
     await act(async () => {
-      refreshedDiet.resolve([]);
+      refreshedLookups.resolve({});
     });
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
@@ -230,20 +322,37 @@ describe("QuickAddDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("retries Diet references without repeating a persisted Quick Add mutation", async () => {
+    const user = userEvent.setup();
+    const health = stubHealthLoaded();
+    health.lookups
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error("Diet refresh failed"))
+      .mockResolvedValue({});
+    const create = vi.spyOn(healthApi, "createDiet").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof healthApi.createDiet>>,
+    );
+    const onClose = vi.fn();
+    render(<QuickAddDialog controller={workbenchController()} onClose={onClose} />);
+
+    await user.click(screen.getByRole("button", { name: "Diet entry" }));
+    await user.type(await screen.findByLabelText("Food"), "Lunch");
+    await user.click(screen.getByRole("button", { name: "Save diet entry" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Changes were saved, but Health could not refresh.",
+    );
+    expect(create).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(create).toHaveBeenCalledOnce();
+    expect(health.lookups).toHaveBeenCalledTimes(3);
+  });
+
   it("uses loaded Diet tags without leaking ToDo tag options", async () => {
     const user = userEvent.setup();
-    stubHealthLoaded([{
-      id: "diet-1",
-      occurredAt: "2026-08-18T03:00:00Z",
-      mealType: "lunch",
-      foodName: "Bibimbap",
-      note: null,
-      tags: ["rice"],
-      mediaId: null,
-      createdAt: "2026-08-18T03:00:00Z",
-      updatedAt: "2026-08-18T03:00:00Z",
-      deletedAt: null,
-    }]);
+    const health = stubHealthLoaded();
+    health.lookups.mockResolvedValue({ tags: [{ id: "rice", label: "rice" }] });
     render(<QuickAddDialog controller={workbenchController()} onClose={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Diet entry" }));
@@ -251,16 +360,119 @@ describe("QuickAddDialog", () => {
 
     expect(screen.getByRole("option", { name: "rice" })).toBeVisible();
     expect(screen.queryByRole("option", { name: "todo-only" })).toBeNull();
+    expect(health.diet).not.toHaveBeenCalled();
+  });
+
+  it("refreshes only the visible canonical table after a separate Quick Add succeeds", async () => {
+    const user = userEvent.setup();
+    const ledger = stubLedgerLoaded();
+    const health = stubHealthLoaded();
+    ledger[1].mockResolvedValue({ items: [{
+      id: "currency-krw", code: "KRW", name: "Won", symbol: "₩",
+      decimalPlaces: 0, active: true,
+    }], nextOffset: null });
+    ledger[3].mockResolvedValue({ items: [{
+      id: "account-cash", name: "Cash", categoryId: "cash",
+      currencyId: "currency-krw", openingBalanceMinor: 0, active: true,
+    }], nextOffset: null });
+    vi.spyOn(ledgerApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({});
+    const create = vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof ledgerApi.createEntry>>,
+    );
+
+    render(<WorkbenchWireframe controller={ledgerWorkbenchController()} />);
+    await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole("button", { name: "Quick Add" }));
+    await user.click(screen.getByRole("button", { name: "Ledger transaction" }));
+    await user.type(await screen.findByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add transaction" }))
+      .toBeNull());
+    expect(create).toHaveBeenCalledOnce();
+    expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2);
+    expect(ledger[0]).not.toHaveBeenCalled();
+    expect(health.diet).not.toHaveBeenCalled();
+    expect(health.events).not.toHaveBeenCalled();
+    expect(health.lookups).not.toHaveBeenCalled();
+  });
+
+  it("notifies the canonical table once after persisted Quick Add refresh retry", async () => {
+    const user = userEvent.setup();
+    const ledger = stubLedgerLoaded();
+    stubHealthLoaded();
+    ledger[1].mockResolvedValue({ items: [{
+      id: "currency-krw", code: "KRW", name: "Won", symbol: "₩",
+      decimalPlaces: 0, active: true,
+    }], nextOffset: null });
+    ledger[3]
+      .mockResolvedValueOnce({ items: [{
+        id: "account-cash", name: "Cash", categoryId: "cash",
+        currencyId: "currency-krw", openingBalanceMinor: 0, active: true,
+      }], nextOffset: null })
+      .mockRejectedValueOnce(new Error("Ledger refresh failed"))
+      .mockResolvedValue({ items: [{
+        id: "account-cash", name: "Cash", categoryId: "cash",
+        currencyId: "currency-krw", openingBalanceMinor: 0, active: true,
+      }], nextOffset: null });
+    vi.spyOn(ledgerApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({});
+    const create = vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof ledgerApi.createEntry>>,
+    );
+
+    render(<WorkbenchWireframe controller={ledgerWorkbenchController()} />);
+    await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole("button", { name: "Quick Add" }));
+    await user.click(screen.getByRole("button", { name: "Ledger transaction" }));
+    await user.type(await screen.findByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.type(screen.getByLabelText("Amount"), "12000");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Transaction saved, but the list could not refresh.",
+    );
+    expect(create).toHaveBeenCalledOnce();
+    expect(ledgerApi.queryTable).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add transaction" }))
+      .toBeNull());
+    expect(create).toHaveBeenCalledOnce();
+    expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes a visible Health table without querying Ledger after Quick Add", async () => {
+    const user = userEvent.setup();
+    const ledger = stubLedgerLoaded();
+    stubHealthLoaded();
+    vi.spyOn(healthApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+    const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof healthApi.createEvent>>,
+    );
+
+    render(<WorkbenchWireframe controller={healthWorkbenchController()} />);
+    await waitFor(() => expect(healthApi.queryTable).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole("button", { name: "Quick Add" }));
+    await user.click(screen.getByRole("button", { name: "Bowel entry" }));
+    await user.click(await screen.findByRole("button", { name: "Save bowel entry" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add bowel entry" }))
+      .toBeNull());
+    expect(create).toHaveBeenCalledOnce();
+    expect(healthApi.queryTable).toHaveBeenCalledTimes(2);
+    expect(ledger.every((spy) => spy.mock.calls.length === 0)).toBe(true);
   });
 
   it("retries only Ledger refresh after a transaction was persisted", async () => {
     const user = userEvent.setup();
     const ledgerSpies = stubLedgerLoaded();
-    ledgerSpies[0]
-      .mockResolvedValueOnce({ items: [], nextOffset: null })
-      .mockRejectedValueOnce(new Error("Ledger refresh failed"))
-      .mockResolvedValue({ items: [], nextOffset: null });
-    ledgerSpies[3].mockResolvedValue({
+    const accounts = {
       items: [{
         id: "account-cash",
         name: "Cash",
@@ -270,7 +482,11 @@ describe("QuickAddDialog", () => {
         active: true,
       }],
       nextOffset: null,
-    });
+    };
+    ledgerSpies[3]
+      .mockResolvedValueOnce(accounts)
+      .mockRejectedValueOnce(new Error("Ledger refresh failed"))
+      .mockResolvedValue(accounts);
     const create = vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(
       {} as Awaited<ReturnType<typeof ledgerApi.createEntry>>,
     );

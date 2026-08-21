@@ -196,4 +196,21 @@ describe("deriveDietGroups", () => {
     }));
     expect(empty).toEqual([{ key: "all", label: null, rows: [] }]);
   });
+
+  it("uses backend-compatible injective tag keys for literal untagged and leading slashes", () => {
+    const groups = deriveDietGroups([
+      diet("1", { tags: [] }),
+      diet("2", { tags: ["untagged"] }),
+      diet("3", { tags: ["\\foo"] }),
+    ], settings({ groupSettings: {
+      groupBy: "tag", sort: "manual",
+      manualOrder: ["untagged", "\\untagged", "\\\\foo"],
+      hiddenGroupKeys: ["\\untagged"],
+    } }));
+
+    expect(groups.map(({ key, label }) => ({ key, label }))).toEqual([
+      { key: "untagged", label: "Untagged" },
+      { key: "\\\\foo", label: "\\foo" },
+    ]);
+  });
 });

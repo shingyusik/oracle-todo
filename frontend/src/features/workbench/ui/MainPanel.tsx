@@ -33,6 +33,7 @@ import {
 } from "@/features/ledger/model/ledger-reports";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { RavenApiError } from "@/lib/raven-api";
+import { plannerTodoTableScope } from "@/features/workbench/api/table-api";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
   useBrowserDetailHistory,
@@ -52,15 +53,12 @@ import {
   type DailyPlannerSection,
   effectivePlannerFilterRules,
   filterPlannerItemsByRules,
-  groupPlannerItems,
   type MonthlyPlannerWeekModel,
   type PeriodGoalBucketModel,
   type PeriodGoalCardModel,
-  type PlannerFilterRule,
   plannerFilterFieldsForTable,
   plannerSortFieldsForTable,
   plannerWeekdayLabels,
-  sortPlannerItems,
   type PlannerGroupBy,
   type PlannerTableId,
 } from "@/features/workbench/model/planner-model";
@@ -72,6 +70,10 @@ import {
   type PlannerCreationContext,
   type PlannerCreationItemType,
   type WorkbenchController,
+  type TodoTableOccurrence,
+  type TodoTableLookups,
+  type TodoTableScope,
+  type TodoItemType,
   type WorkspaceItemModel,
   type WorkspaceItemsModel,
   type WorkspaceItemPatch,
@@ -80,6 +82,7 @@ import {
 import {
   collapseWorkspaceGroups,
   detailWorkspaceScope,
+  deriveWorkspaceOccurrenceGroups,
   deriveWorkspaceViewGroups,
   workspaceFilterFieldsForScope,
   workspaceScopeForPanel,
@@ -96,6 +99,7 @@ import {
 } from "@/features/workbench/ui/TableViewControls";
 import { TableViewTabs } from "@/features/workbench/ui/TableViewTabs";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
+import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import {
   formatTags,
@@ -105,6 +109,7 @@ import {
 
 type MainPanelProps = {
   controller: WorkbenchController;
+  mutationEpochs?: { ledger: number; health: number };
 };
 
 type DetailHistoryController = BrowserDetailHistory;
@@ -131,11 +136,13 @@ function sameTags(left: string[] | null | undefined, right: string[] | null | un
   return formatTags(left) === formatTags(right);
 }
 
-export function MainPanel({ controller }: MainPanelProps) {
+export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
   const detailHistory = useBrowserDetailHistory({
     stateKey: "__ravenDetailItemId",
     currentId: controller.detailItem?.id ?? null,
-    resolve: (id) => controller.workspaceItems.allItems.find((item) => item.id === id) ?? null,
+    resolve: (id) => controller.resolveTodoItem?.(id)
+      ?? controller.workspaceItems.allItems.find((item) => item.id === id)
+      ?? null,
     open: controller.openDetailView,
     close: controller.closeDetailView,
   });
@@ -166,6 +173,7 @@ export function MainPanel({ controller }: MainPanelProps) {
         <LedgerWorkspace
           leafTabId={controller.selection.leafTabId}
           workbench={controller}
+          mutationEpoch={mutationEpochs?.ledger ?? 0}
         />
       </main>
     );
@@ -174,7 +182,11 @@ export function MainPanel({ controller }: MainPanelProps) {
   if (controller.selection.mainTabId === "health" && isHealthPanel(controller.selection.leafTabId)) {
     return (
       <main className="main-panel">
-        <HealthWorkspace leafTabId={controller.selection.leafTabId} workbench={controller} />
+        <HealthWorkspace
+          leafTabId={controller.selection.leafTabId}
+          workbench={controller}
+          mutationEpoch={mutationEpochs?.health ?? 0}
+        />
       </main>
     );
   }
@@ -197,11 +209,19 @@ export function MainPanel({ controller }: MainPanelProps) {
 function LedgerWorkspace({
   leafTabId,
   workbench,
+  mutationEpoch,
 }: {
   leafTabId: LedgerTabId;
   workbench: WorkbenchController;
+  mutationEpoch: number;
 }) {
   const controller = useLedgerController();
+  const seenMutationEpoch = useRef(mutationEpoch);
+  useEffect(() => {
+    if (seenMutationEpoch.current === mutationEpoch) return;
+    seenMutationEpoch.current = mutationEpoch;
+    void controller.refresh();
+  }, [controller.refresh, mutationEpoch]);
   function drilldown(target: ReportDrilldownTarget) {
     controller.updateTableSettings("ledger.transactions", (settings) =>
       applyReportDrilldown(settings, target));
@@ -219,11 +239,19 @@ function LedgerWorkspace({
 function HealthWorkspace({
   leafTabId,
   workbench,
+  mutationEpoch,
 }: {
   leafTabId: HealthTabId;
   workbench: WorkbenchController;
+  mutationEpoch: number;
 }) {
   const controller = useHealthController();
+  const seenMutationEpoch = useRef(mutationEpoch);
+  useEffect(() => {
+    if (seenMutationEpoch.current === mutationEpoch) return;
+    seenMutationEpoch.current = mutationEpoch;
+    void controller.refresh();
+  }, [controller.refresh, mutationEpoch]);
   function drilldown(target: HealthReportDrilldown) {
     const scope = (
       `health.${target.tab === "health-metrics" ? "metrics" : target.tab}`
@@ -247,6 +275,14 @@ function DetailView({
   detailHistory,
 }: MainPanelProps & { detailHistory: DetailHistoryController }) {
   const item = controller.detailItem;
+  const detailLookups = item
+    ? controller.todoTableLookups(workspaceScopeForItemType(item.type))
+    : null;
+  const detailWorkspaceItems = detailLookups ? {
+    ...controller.workspaceItems,
+    tagOptions: detailLookups.tags,
+    relatedItems: detailLookups.relatedItems,
+  } : controller.workspaceItems;
   const [draftHistory, dispatchDraft] = React.useReducer(
     detailDraftHistoryReducer,
     item,
@@ -452,7 +488,12 @@ function DetailView({
   }
 
   const detailItem = item;
-  const groups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
+  const legacyGroups = linkedItemGroups(detailItem, controller.workspaceItems.allItems);
+  const groups = linkedChildTypes(detailItem.type).map((type) => ({
+    type,
+    label: `${type[0]?.toUpperCase()}${type.slice(1)}s`,
+    items: legacyGroups.find((group) => group.type === type)?.items ?? [],
+  }));
 
   function cancelArchive() {
     if (archiveActionLockedRef.current) {
@@ -662,7 +703,7 @@ function DetailView({
               />
               <DetailTagsField
                 value={draft.tags}
-                tagOptions={controller.workspaceItems.tagOptions}
+                tagOptions={detailWorkspaceItems.tagOptions}
                 onChange={(value) => setField("tags", value)}
               />
               <DetailTypeFields
@@ -670,7 +711,7 @@ function DetailView({
                 draft={draft}
                 setField={setField}
                 setFields={setFields}
-                workspaceItems={controller.workspaceItems}
+                workspaceItems={detailWorkspaceItems}
                 controller={controller}
               />
             </div>
@@ -764,22 +805,24 @@ function LinkedItemTable({
 }): React.ReactElement {
   const [expanded, setExpanded] = React.useState(false);
   const scope = detailWorkspaceScope(parentItem.type, childType);
+  const queryScope = `linked.${parentItem.type}.${childType}` as Extract<
+    TodoTableScope,
+    `linked.${string}`
+  >;
+  const target = {
+    surface: "linked",
+    scope: queryScope,
+    parentType: parentItem.type as TodoItemType,
+    parentId: parentItem.id,
+  } as const;
+  const page = controller.todoTablePage(target);
   const tabs = controller.workspaceTableTabs(scope);
   const settings = controller.workspaceTableSettings(scope);
   const groups = React.useMemo(
-    () => deriveWorkspaceViewGroups(
-      scope,
-      items,
-      settings,
-      controller.workspaceItems.relatedItems,
-    ),
-    [
-      controller.workspaceItems.relatedItems,
-      items,
-      scope,
-      settings,
-    ],
+    () => deriveWorkspaceOccurrenceGroups(page.items),
+    [page.items],
   );
+  const visibleCount = uniqueWorkspaceItems(groups.flatMap((group) => group.items)).length;
   const collapsed = React.useMemo(
     () => collapseWorkspaceGroups(
       groups,
@@ -787,16 +830,24 @@ function LinkedItemTable({
     ),
     [expanded, groups],
   );
+  const lookups = controller.todoTableLookups(queryScope);
+  const relatedItems = lookups?.relatedItems ?? controller.workspaceItems.relatedItems;
+  const pageItems = page.items.map(({ record }) => record);
+  const candidateItems = items.length > 0 ? items : pageItems;
+  const filteredCandidateItems = filterPlannerItemsByRules(
+    candidateItems,
+    controller.workspaceItems.relatedItems,
+    effectivePlannerFilterRules(settings.filterRules, workspaceFilterFieldsForScope(scope)),
+    settings.filterMode,
+    page.referenceDate,
+  );
   const filterOptions: PlannerFilterOptions = {
-    ...plannerFilterOptionsForItems(
-      items,
-      controller.workspaceItems.relatedItems,
-    ),
+    ...plannerFilterOptionsForLookups(lookups, pageItems, relatedItems),
     storedRelationLabels: {
-      area: controller.workspaceItems.relatedItems.areas,
-      project: controller.workspaceItems.relatedItems.projects,
-      routine: controller.workspaceItems.relatedItems.routines,
-      parent: controller.workspaceItems.relatedItems.goals,
+      area: relatedItems.areas,
+      project: relatedItems.projects,
+      routine: relatedItems.routines,
+      parent: relatedItems.goals,
     },
   };
   const groupOptions = workspaceGroupOptionsForLinkedType(childType);
@@ -810,7 +861,7 @@ function LinkedItemTable({
     candidates: buildPlannerGroupCandidates({
       view: "daily",
       groupBy: settings.groupSettings.groupBy,
-      items,
+      items: filteredCandidateItems,
       relatedItems: controller.workspaceItems.relatedItems,
     }),
     filterOptions,
@@ -821,6 +872,7 @@ function LinkedItemTable({
       rules[0]?.field === "updated" &&
       rules[0]?.direction === "desc",
     update: (updater) => controller.updateWorkspaceTableSettings(scope, updater),
+    prepareGroup: controller.ensureTodoReferenceData,
   };
   const viewVersion = JSON.stringify({
     activeTabId: tabs.activeTabId,
@@ -828,12 +880,16 @@ function LinkedItemTable({
   });
 
   useEffect(() => setExpanded(false), [viewVersion]);
+  useEffect(() => {
+    void controller.ensureTodoTable(target);
+    return () => controller.releaseTodoTable(target);
+  }, [parentItem.id, queryScope, viewVersion]);
 
   return (
     <section className="linked-items-group">
       <header className="linked-items-group-header">
         <h3>
-          {childLabel} · {items.length}
+          {childLabel}{page.nextOffset === null ? ` · ${visibleCount}` : ""}
         </h3>
         <TableViewControls adapter={controlsAdapter} />
       </header>
@@ -858,7 +914,11 @@ function LinkedItemTable({
           columnCount={1}
           groups={collapsed.groups}
           bodyClassName="linked-items-table-body"
-          emptyMessage="No linked items match this view."
+          emptyMessage={page.moreStatus === "error" && page.items.length === 0
+            ? "Could not load rows."
+            : page.generation === 0 || page.moreStatus === "loading"
+              ? "Loading items..."
+              : "No linked items match this view."}
           renderRow={(linkedItem) => (
             <tr key={linkedItem.id}>
               <td>
@@ -875,6 +935,15 @@ function LinkedItemTable({
             </tr>
           )}
         />
+        {expanded || page.moreStatus === "error" ? (
+          <InfiniteTableFooter
+            nextOffset={page.nextOffset}
+            status={page.moreStatus}
+            error={page.moreError}
+            loadMore={() => void controller.loadMoreTodoTable(target)}
+            columnCount={1}
+          />
+        ) : null}
       </table>
       {collapsed.hiddenCount > 0 ? (
         <button
@@ -884,6 +953,15 @@ function LinkedItemTable({
           onClick={() => setExpanded(true)}
         >
           More ({collapsed.hiddenCount})
+        </button>
+      ) : !expanded && page.nextOffset !== null ? (
+        <button
+          className="linked-items-overflow-action"
+          type="button"
+          aria-label={`More ${childLabel}`}
+          onClick={() => setExpanded(true)}
+        >
+          More
         </button>
       ) : expanded && collapsed.visibleCount > 5 ? (
         <button
@@ -972,12 +1050,12 @@ function PlannerPanel({ controller }: MainPanelProps) {
 function YearlyPeriodPlanner({
   controller,
 }: MainPanelProps) {
-  const model = buildYearlyPeriodGoalCardsModel(
-    controller.workspaceItems.items,
-    controller.planner.date,
-  );
-  const periodGoalItems = model.carousel.flatMap((card) => card.goals);
-  const monthGoalItems = model.months.flatMap((month) => month.goals);
+  const periodPage = usePlannerTablePage(controller, "yearly.period-goals");
+  const monthPage = usePlannerTablePage(controller, "yearly.month-goals");
+  const periodModel = buildYearlyPeriodGoalCardsModel(periodPage.items, controller.planner.date);
+  const monthModel = buildYearlyPeriodGoalCardsModel(monthPage.items, controller.planner.date);
+  const periodGoalItems = periodPage.items;
+  const monthGoalItems = monthPage.items;
 
   return (
     <div className="planner-period-panel">
@@ -988,6 +1066,7 @@ function YearlyPeriodPlanner({
           title="Year Goals"
           heading="Year Goals"
           rawItems={periodGoalItems}
+          referenceDate={periodPage.page.referenceDate}
           creationContext={{
             tableId: "yearly.period-goals",
             itemTypes: ["goal"],
@@ -996,15 +1075,17 @@ function YearlyPeriodPlanner({
             editableDate: false,
           }}
         />
-        <PeriodGoalCarousel
+        {todoTableHasBlockingError(periodPage.page) ? null : <PeriodGoalCarousel
           controller={controller}
           tableId="yearly.period-goals"
           groupUniverseItems={periodGoalItems}
+          occurrences={periodPage.page.items}
           ariaLabel="Year goal carousel"
           previousLabel="Previous year"
           nextLabel="Next year"
-          cards={model.carousel}
-        />
+          cards={periodModel.carousel}
+        />}
+        <PlannerTableFooter controller={controller} target={periodPage.target} page={periodPage.page} />
       </section>
       <section className="planner-section" aria-label="Yearly month goals">
         <PlannerTableHeader
@@ -1013,26 +1094,29 @@ function YearlyPeriodPlanner({
           title="Month Goals"
           heading="Month Goals"
           rawItems={monthGoalItems}
+          referenceDate={monthPage.page.referenceDate}
           creationContext={{
             tableId: "yearly.month-goals",
             itemTypes: ["goal"],
-            scheduled: `${model.selectedYear}-01-01`,
+            scheduled: `${monthModel.selectedYear}-01-01`,
             horizon: "month",
             editableDate: true,
           }}
         />
-        <div className="yearly-month-grid" aria-label="Month goals">
-          {model.months.map((month) => (
+        {todoTableHasBlockingError(monthPage.page) ? null : <div className="yearly-month-grid" aria-label="Month goals">
+          {monthModel.months.map((month) => (
             <PeriodGoalBucketCard
               controller={controller}
               tableId="yearly.month-goals"
               groupUniverseItems={monthGoalItems}
+              occurrences={monthPage.page.items}
               bucket={month}
               testId="yearly-month-card"
               key={month.key}
             />
           ))}
-        </div>
+        </div>}
+        <PlannerTableFooter controller={controller} target={monthPage.target} page={monthPage.page} />
       </section>
     </div>
   );
@@ -1041,15 +1125,15 @@ function YearlyPeriodPlanner({
 function MonthlyPeriodPlanner({
   controller,
 }: MainPanelProps) {
-  const model = buildMonthlyPeriodGoalCardsModel(
-    controller.workspaceItems.items,
-    controller.planner.date,
-  );
-  const periodGoalItems = model.carousel.flatMap((card) => card.goals);
-  const calendarItems = model.weeks.flatMap((week) =>
-    week.days.flatMap((day) => day.items),
-  );
-  const weekGoalItems = model.weeks.flatMap((week) => week.goals);
+  const periodPage = usePlannerTablePage(controller, "monthly.period-goals");
+  const calendarPage = usePlannerTablePage(controller, "monthly.calendar");
+  const weekPage = usePlannerTablePage(controller, "monthly.week-goals");
+  const periodModel = buildMonthlyPeriodGoalCardsModel(periodPage.items, controller.planner.date);
+  const calendarModel = buildMonthlyPeriodGoalCardsModel(calendarPage.items, controller.planner.date);
+  const weekModel = buildMonthlyPeriodGoalCardsModel(weekPage.items, controller.planner.date);
+  const periodGoalItems = periodPage.items;
+  const calendarItems = calendarPage.items;
+  const weekGoalItems = weekPage.items;
   const [openOverflowDate, setOpenOverflowDate] = React.useState<string | null>(null);
 
   useEffect(() => {
@@ -1065,23 +1149,26 @@ function MonthlyPeriodPlanner({
           title="Month Goals"
           heading="Month Goals"
           rawItems={periodGoalItems}
+          referenceDate={periodPage.page.referenceDate}
           creationContext={{
             tableId: "monthly.period-goals",
             itemTypes: ["goal"],
-            scheduled: model.selectedMonth,
+            scheduled: periodModel.selectedMonth,
             horizon: "month",
             editableDate: false,
           }}
         />
-        <PeriodGoalCarousel
+        {todoTableHasBlockingError(periodPage.page) ? null : <PeriodGoalCarousel
           controller={controller}
           tableId="monthly.period-goals"
           groupUniverseItems={periodGoalItems}
+          occurrences={periodPage.page.items}
           ariaLabel="Month goal carousel"
           previousLabel="Previous month"
           nextLabel="Next month"
-          cards={model.carousel}
-        />
+          cards={periodModel.carousel}
+        />}
+        <PlannerTableFooter controller={controller} target={periodPage.target} page={periodPage.page} />
       </section>
       <div className="monthly-calendar-planner">
         <div className="monthly-calendar-table-headers">
@@ -1092,11 +1179,12 @@ function MonthlyPeriodPlanner({
               title="Calendar"
               heading="Calendar"
               rawItems={calendarItems}
+              referenceDate={calendarPage.page.referenceDate}
               groupUniverseItems={calendarItems}
               creationContext={{
                 tableId: "monthly.calendar",
                 itemTypes: ["task", "event"],
-                scheduled: model.selectedMonth,
+                scheduled: calendarModel.selectedMonth,
                 editableDate: true,
               }}
             />
@@ -1108,18 +1196,19 @@ function MonthlyPeriodPlanner({
               title="Week Goals"
               heading="Week Goals"
               rawItems={weekGoalItems}
+              referenceDate={weekPage.page.referenceDate}
               groupUniverseItems={weekGoalItems}
               creationContext={{
                 tableId: "monthly.week-goals",
                 itemTypes: ["goal"],
-                scheduled: model.weeks[0]?.periodStart ?? model.selectedMonth,
+                scheduled: weekModel.weeks[0]?.periodStart ?? weekModel.selectedMonth,
                 horizon: "week",
                 editableDate: true,
               }}
             />
           </section>
         </div>
-        <div className="monthly-calendar-grid" role="grid" aria-label="Monthly todo calendar">
+        {todoTableHasBlockingError(calendarPage.page) || todoTableHasBlockingError(weekPage.page) ? null : <div className="monthly-calendar-grid" role="grid" aria-label="Monthly todo calendar">
           <div className="monthly-week-row monthly-weekday-row" role="row" aria-label="Monthly weekdays">
             <div className="monthly-week-days">
               {plannerWeekdayLabels.map((day) => (
@@ -1129,18 +1218,25 @@ function MonthlyPeriodPlanner({
               ))}
             </div>
           </div>
-          {model.weeks.map((week) => (
+          {calendarModel.weeks.map((calendarWeek, index) => (
             <MonthlyPlannerWeekRow
               controller={controller}
-              week={week}
+              week={{
+                ...calendarWeek,
+                goals: weekModel.weeks[index]?.goals ?? [],
+              }}
+              calendarOccurrences={calendarPage.page.items}
+              weekGoalOccurrences={weekPage.page.items}
               calendarUniverseItems={calendarItems}
               weekGoalUniverseItems={weekGoalItems}
               openOverflowDate={openOverflowDate}
               onOpenOverflowChange={setOpenOverflowDate}
-              key={week.key}
+              key={calendarWeek.key}
             />
           ))}
-        </div>
+        </div>}
+        <PlannerTableFooter controller={controller} target={calendarPage.target} page={calendarPage.page} />
+        <PlannerTableFooter controller={controller} target={weekPage.target} page={weekPage.page} />
       </div>
     </div>
   );
@@ -1151,6 +1247,8 @@ function MonthlyPlannerWeekRow({
   week,
   calendarUniverseItems,
   weekGoalUniverseItems,
+  calendarOccurrences,
+  weekGoalOccurrences,
   openOverflowDate,
   onOpenOverflowChange,
 }: {
@@ -1158,6 +1256,8 @@ function MonthlyPlannerWeekRow({
   week: MonthlyPlannerWeekModel;
   calendarUniverseItems: WorkspaceItemModel[];
   weekGoalUniverseItems: WorkspaceItemModel[];
+  calendarOccurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
+  weekGoalOccurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
   openOverflowDate: string | null;
   onOpenOverflowChange: (date: string | null) => void;
 }) {
@@ -1165,14 +1265,7 @@ function MonthlyPlannerWeekRow({
     <section className="monthly-week-row" role="row" data-testid="monthly-week-row">
       <div className="monthly-week-days">
         {week.days.map((day) => {
-          const dayGroups = applyPlannerTableSettings(
-            day.items,
-            "monthly.calendar",
-            controller,
-            controller.workspaceItems.relatedItems,
-            controller.planner.date,
-            calendarUniverseItems,
-          );
+          const dayGroups = occurrenceGroupsForSubset(calendarOccurrences, day.items);
 
           return (
             <section
@@ -1200,6 +1293,7 @@ function MonthlyPlannerWeekRow({
           controller={controller}
           tableId="monthly.week-goals"
           groupUniverseItems={weekGoalUniverseItems}
+          occurrences={weekGoalOccurrences}
           bucket={week}
           testId="monthly-week-card"
         />
@@ -1366,6 +1460,7 @@ function PeriodGoalCarousel({
   previousLabel,
   nextLabel,
   cards,
+  occurrences,
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
@@ -1374,6 +1469,7 @@ function PeriodGoalCarousel({
   previousLabel: string;
   nextLabel: string;
   cards: PeriodGoalCardModel[];
+  occurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
 }) {
   return (
     <section className="period-carousel" aria-label={ariaLabel}>
@@ -1393,6 +1489,7 @@ function PeriodGoalCarousel({
               controller={controller}
               tableId={tableId}
               groupUniverseItems={groupUniverseItems}
+              occurrences={occurrences}
               goals={card.goals}
               emptyText="No goals found."
             />
@@ -1417,12 +1514,14 @@ function PeriodGoalBucketCard({
   groupUniverseItems,
   bucket,
   testId,
+  occurrences,
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
   groupUniverseItems: WorkspaceItemModel[];
   bucket: PeriodGoalBucketModel;
   testId: string;
+  occurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
 }) {
   return (
     <section
@@ -1435,6 +1534,7 @@ function PeriodGoalBucketCard({
         controller={controller}
         tableId={tableId}
         groupUniverseItems={groupUniverseItems}
+        occurrences={occurrences}
         goals={bucket.goals}
         emptyText="No goals found."
       />
@@ -1448,21 +1548,16 @@ function GoalGroupContent({
   groupUniverseItems,
   goals,
   emptyText,
+  occurrences,
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
   groupUniverseItems: WorkspaceItemModel[];
   goals: WorkspaceItemModel[];
   emptyText: string;
+  occurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
 }) {
-  const groupedGoals = applyPlannerTableSettings(
-    goals,
-    tableId,
-    controller,
-    controller.workspaceItems.relatedItems,
-    controller.planner.date,
-    groupUniverseItems,
-  );
+  const groupedGoals = occurrenceGroupsForSubset(occurrences, goals);
 
   return <>{renderPlannerGroups(controller, tableId, groupedGoals, emptyText)}</>;
 }
@@ -1470,25 +1565,13 @@ function GoalGroupContent({
 function WeeklyPlanner({
   controller,
 }: MainPanelProps) {
-  const model = buildWeeklyPlannerModel(
-    controller.workspaceItems.items,
-    controller.planner.weekStart,
-  );
-  const dayGridItems = model.days.flatMap((day) => day.items);
-  const monthGoalGroups = applyPlannerTableSettings(
-    model.monthGoals,
-    "weekly.month-goals",
-    controller,
-    controller.workspaceItems.relatedItems,
-    controller.planner.date,
-  );
-  const weekGoalGroups = applyPlannerTableSettings(
-    model.weekGoals,
-    "weekly.week-goals",
-    controller,
-    controller.workspaceItems.relatedItems,
-    controller.planner.date,
-  );
+  const monthPage = usePlannerTablePage(controller, "weekly.month-goals");
+  const weekPage = usePlannerTablePage(controller, "weekly.week-goals");
+  const dayPage = usePlannerTablePage(controller, "weekly.day-grid");
+  const dayModel = buildWeeklyPlannerModel(dayPage.items, controller.planner.weekStart);
+  const dayGridItems = dayPage.items;
+  const monthGoalGroups = monthPage.groups;
+  const weekGoalGroups = weekPage.groups;
 
   return (
     <div className="planner-panel">
@@ -1499,7 +1582,8 @@ function WeeklyPlanner({
             tableId="weekly.month-goals"
             title="Month Goals"
             heading="Goals for this month"
-            rawItems={model.monthGoals}
+            rawItems={monthPage.items}
+            referenceDate={monthPage.page.referenceDate}
             creationContext={{
               tableId: "weekly.month-goals",
               itemTypes: ["goal"],
@@ -1508,7 +1592,9 @@ function WeeklyPlanner({
               editableDate: false,
             }}
           />
-          {renderPlannerGroups(controller, "weekly.month-goals", monthGoalGroups, "No goals found.")}
+          {todoTableHasBlockingError(monthPage.page) ? null
+            : renderPlannerGroups(controller, "weekly.month-goals", monthGoalGroups, "No goals found.")}
+          <PlannerTableFooter controller={controller} target={monthPage.target} page={monthPage.page} />
         </section>
         <section className="planner-section" aria-label="Weekly goals">
           <PlannerTableHeader
@@ -1516,7 +1602,8 @@ function WeeklyPlanner({
             tableId="weekly.week-goals"
             title="Week Goals"
             heading="Goals for this week"
-            rawItems={model.weekGoals}
+            rawItems={weekPage.items}
+            referenceDate={weekPage.page.referenceDate}
             creationContext={{
               tableId: "weekly.week-goals",
               itemTypes: ["goal"],
@@ -1525,7 +1612,9 @@ function WeeklyPlanner({
               editableDate: false,
             }}
           />
-          {renderPlannerGroups(controller, "weekly.week-goals", weekGoalGroups, "No goals found.")}
+          {todoTableHasBlockingError(weekPage.page) ? null
+            : renderPlannerGroups(controller, "weekly.week-goals", weekGoalGroups, "No goals found.")}
+          <PlannerTableFooter controller={controller} target={weekPage.target} page={weekPage.page} />
         </section>
       </div>
       <section className="planner-section" aria-label="Weekly weekday grid">
@@ -1535,6 +1624,7 @@ function WeeklyPlanner({
           title="Weekday grid"
           heading="Weekday grid"
           rawItems={dayGridItems}
+          referenceDate={dayPage.page.referenceDate}
           groupUniverseItems={dayGridItems}
           creationContext={{
             tableId: "weekly.day-grid",
@@ -1543,16 +1633,9 @@ function WeeklyPlanner({
             editableDate: true,
           }}
         />
-        <div className="weekly-day-grid">
-          {model.days.map((day) => {
-            const dayGroups = applyPlannerTableSettings(
-              day.items,
-              "weekly.day-grid",
-              controller,
-              controller.workspaceItems.relatedItems,
-              controller.planner.date,
-              dayGridItems,
-            );
+        {todoTableHasBlockingError(dayPage.page) ? null : <div className="weekly-day-grid">
+          {dayModel.days.map((day) => {
+            const dayGroups = occurrenceGroupsForSubset(dayPage.page.items, day.items);
 
             return (
               <section
@@ -1565,7 +1648,8 @@ function WeeklyPlanner({
               </section>
             );
           })}
-        </div>
+        </div>}
+        <PlannerTableFooter controller={controller} target={dayPage.target} page={dayPage.page} />
       </section>
     </div>
   );
@@ -1574,10 +1658,6 @@ function WeeklyPlanner({
 function DailyPlanner({
   controller,
 }: MainPanelProps) {
-  const rawSections = buildDailyPlannerSections(
-    controller.workspaceItems.items,
-    controller.planner.date,
-  );
   const dateTitle = plannerDateLabel(controller.planner.date);
 
   return (
@@ -1588,7 +1668,6 @@ function DailyPlanner({
           tableId="daily.today"
           controlTitle="Today"
           title={dateTitle}
-          rawItems={rawSections.today}
           creationContext={{
             tableId: "daily.today",
             itemTypes: ["task", "event"],
@@ -1601,7 +1680,6 @@ function DailyPlanner({
           tableId="daily.overdue"
           controlTitle="Before"
           title={`Before ${dateTitle}`}
-          rawItems={rawSections.overdue}
           creationContext={{
             tableId: "daily.overdue",
             itemTypes: ["task", "event"],
@@ -1615,7 +1693,6 @@ function DailyPlanner({
         tableId="daily.unscheduled"
         controlTitle="Unscheduled"
         title="Unscheduled"
-        rawItems={rawSections.unscheduled}
         creationContext={{
           tableId: "daily.unscheduled",
           itemTypes: ["task"],
@@ -1670,6 +1747,7 @@ function PlannerTableHeader({
   heading,
   rawItems,
   groupUniverseItems = rawItems,
+  referenceDate,
   creationContext,
 }: {
   controller: WorkbenchController;
@@ -1678,33 +1756,45 @@ function PlannerTableHeader({
   heading: string;
   rawItems: WorkspaceItemModel[];
   groupUniverseItems?: WorkspaceItemModel[];
+  referenceDate: string;
   creationContext: PlannerCreationSourceContext;
 }) {
   const settings = controller.plannerTableSettings(tableId);
+  const lookups = controller.todoTableLookups(plannerTodoTableScope(tableId));
+  const relatedItems = lookups?.relatedItems ?? controller.workspaceItems.relatedItems;
   const filterOptions: PlannerFilterOptions = {
-    ...plannerFilterOptionsForItems(
-      rawItems,
-      controller.workspaceItems.relatedItems,
-    ),
+    ...plannerFilterOptionsForLookups(lookups, rawItems, relatedItems),
     storedRelationLabels: {
-      area: controller.workspaceItems.relatedItems.areas,
-      project: controller.workspaceItems.relatedItems.projects,
-      routine: controller.workspaceItems.relatedItems.routines,
-      parent: controller.workspaceItems.relatedItems.goals,
+      area: relatedItems.areas,
+      project: relatedItems.projects,
+      routine: relatedItems.routines,
+      parent: relatedItems.goals,
     },
   };
   const filterFields = plannerFilterFieldsForTable(tableId);
   const sortFields = plannerSortFieldsForTable(tableId);
   const groupOptions = plannerGroupOptionsForTable(tableId);
-  const candidates = plannerTableGroupCandidates(
+  const referenceItems = plannerReferenceItemsForTable(
     tableId,
-    settings.groupSettings,
-    groupUniverseItems,
-    controller.workspaceItems.relatedItems,
+    controller.workspaceItems.allItems,
+    controller.planner.date,
   );
   const effectiveFilterRules = effectivePlannerFilterRules(
     settings.filterRules,
     filterFields,
+  );
+  const candidateItems = referenceItems.length > 0 ? referenceItems : groupUniverseItems;
+  const candidates = plannerTableGroupCandidates(
+    tableId,
+    settings.groupSettings,
+    filterPlannerItemsByRules(
+      candidateItems,
+      controller.workspaceItems.relatedItems,
+      effectiveFilterRules,
+      settings.filterMode,
+      referenceDate,
+    ),
+    controller.workspaceItems.relatedItems,
   );
   const controlsAdapter: TableViewControlsAdapter = {
     scopeId: tableId,
@@ -1725,6 +1815,7 @@ function PlannerTableHeader({
     },
     missSuccessFocusTarget: tableId,
     update: (updater) => controller.updatePlannerTableSettings(tableId, updater),
+    prepareGroup: controller.ensureTodoReferenceData,
     add: () => controller.openPlannerCreationDialog({
       ...creationContext,
       tableSettings: {
@@ -2128,6 +2219,34 @@ function plannerTableGroupCandidates(
   });
 }
 
+function plannerReferenceItemsForTable(
+  tableId: PlannerTableId,
+  allItems: WorkspaceItemModel[],
+  plannerDate: string,
+): WorkspaceItemModel[] {
+  if (allItems.length === 0) return [];
+  if (tableId.startsWith("daily.")) {
+    const sections = buildDailyPlannerSections(allItems, plannerDate);
+    return sections[tableId.split(".")[1] as keyof typeof sections];
+  }
+  if (tableId.startsWith("weekly.")) {
+    const model = buildWeeklyPlannerModel(allItems, isoWeekStart(plannerDate));
+    if (tableId.endsWith("month-goals")) return model.monthGoals;
+    if (tableId.endsWith("week-goals")) return model.weekGoals;
+    return uniqueWorkspaceItems(model.days.flatMap((day) => day.items));
+  }
+  if (tableId.startsWith("monthly.")) {
+    const model = buildMonthlyPeriodGoalCardsModel(allItems, plannerDate);
+    if (tableId.endsWith("period-goals")) return uniqueWorkspaceItems(model.carousel.flatMap((card) => card.goals));
+    if (tableId.endsWith("week-goals")) return uniqueWorkspaceItems(model.weeks.flatMap((week) => week.goals));
+    return uniqueWorkspaceItems(model.weeks.flatMap((week) => week.days.flatMap((day) => day.items)));
+  }
+  const model = buildYearlyPeriodGoalCardsModel(allItems, plannerDate);
+  return uniqueWorkspaceItems(tableId.endsWith("period-goals")
+    ? model.carousel.flatMap((card) => card.goals)
+    : model.months.flatMap((month) => month.goals));
+}
+
 function plannerGroupOptions(
   panelId: WorkbenchController["panel"]["id"],
 ): { value: PlannerGroupBy; label: string }[] {
@@ -2154,54 +2273,12 @@ const workPlannerGroupOptions: { value: PlannerGroupBy; label: string }[] = [
   { value: "status", label: "Status" },
 ];
 
-function effectivePlannerTableFilterRules(
-  controller: WorkbenchController,
-  tableId: PlannerTableId,
-): PlannerFilterRule[] {
-  const settings = controller.plannerTableSettings(tableId);
-
-  return effectivePlannerFilterRules(
-    settings.filterRules,
-    plannerFilterFieldsForTable(tableId),
-  );
-}
-
 function plannerFilterOptionsForItems(
   items: WorkspaceItemModel[],
   relatedItems: WorkspaceItemsModel["relatedItems"],
 ): PlannerFilterOptions {
   const daily = filterOptionsForItems(items, relatedItems);
   return { tags: daily.tags, daily };
-}
-
-function applyPlannerTableSettings(
-  rawItems: WorkspaceItemModel[],
-  tableId: PlannerTableId,
-  controller: WorkbenchController,
-  relatedItems: WorkspaceItemsModel["relatedItems"],
-  date: string,
-  tableUniverseItems: WorkspaceItemModel[] = rawItems,
-): DailyPlannerSection["groups"] {
-  const settings = controller.plannerTableSettings(tableId);
-  const filtered = filterPlannerItemsByRules(
-    rawItems,
-    relatedItems,
-    effectivePlannerTableFilterRules(controller, tableId),
-    settings.filterMode,
-    date,
-  );
-  const sorted = sortPlannerItems(filtered, settings.sortRules);
-  const groupSettings = {
-    ...settings.groupSettings,
-    groupBy: effectivePlannerTableGroupValue(tableId, settings.groupSettings.groupBy),
-  };
-
-  return groupPlannerItems(
-    sorted,
-    relatedItems,
-    groupSettings,
-    plannerTableGroupCandidates(tableId, groupSettings, tableUniverseItems, relatedItems),
-  );
 }
 
 function isTerminalPlannerItem(item: WorkspaceItemModel): boolean {
@@ -2255,23 +2332,15 @@ function DailyPlannerSectionView({
   tableId,
   controlTitle,
   title,
-  rawItems,
   creationContext,
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
   controlTitle: string;
   title: string;
-  rawItems: WorkspaceItemModel[];
   creationContext: PlannerCreationSourceContext;
 }) {
-  const groups = applyPlannerTableSettings(
-    rawItems,
-    tableId,
-    controller,
-    controller.workspaceItems.relatedItems,
-    controller.planner.date,
-  );
+  const { page, target, items, groups } = usePlannerTablePage(controller, tableId);
 
   return (
     <section className="planner-section" aria-label={title}>
@@ -2280,11 +2349,97 @@ function DailyPlannerSectionView({
         tableId={tableId}
         title={controlTitle}
         heading={title}
-        rawItems={rawItems}
+        rawItems={items}
+        referenceDate={page.referenceDate}
         creationContext={creationContext}
       />
-      {renderPlannerGroups(controller, tableId, groups, "No items found.")}
+      {renderPlannerGroups(
+        controller,
+        tableId,
+        groups,
+        todoTableHasBlockingError(page)
+          ? "Could not load rows."
+          : page.generation === 0 || page.moreStatus === "loading"
+            ? "Loading items..."
+            : "No items found.",
+      )}
+      <PlannerTableFooter controller={controller} target={target} page={page} />
     </section>
+  );
+}
+
+function plannerFilterOptionsForLookups(
+  lookups: TodoTableLookups | null,
+  pageItems: WorkspaceItemModel[],
+  relatedItems: WorkspaceItemsModel["relatedItems"],
+): PlannerFilterOptions {
+  if (!lookups) return plannerFilterOptionsForItems(pageItems, relatedItems);
+  const daily = filterOptionsForItems(pageItems, relatedItems);
+  const references = (type: WorkspaceItemModel["type"]) => lookups.items
+    .filter((item) => item.type === type)
+    .map((item) => ({ value: item.id, label: item.title }));
+  daily.tags = toFilterOptions(lookups.items.flatMap((item) => item.tags));
+  daily.statuses = toFilterOptions([
+    "active", "paused", "completed", "missed", "archived", "dropped", "cancelled",
+  ]);
+  daily.areas = references("area");
+  daily.projects = references("project");
+  daily.routines = references("routine");
+  daily.parents = references("goal");
+  return { tags: daily.tags, daily };
+}
+
+function usePlannerTablePage(
+  controller: WorkbenchController,
+  tableId: PlannerTableId,
+) {
+  const target = { surface: "planner", tableId } as const;
+  const page = controller.todoTablePage(target);
+  const settings = controller.plannerTableSettings(tableId);
+  const viewVersion = JSON.stringify({
+    period: controller.planner.date,
+    activeTabId: controller.plannerTableTabs(tableId).activeTabId,
+    settings,
+  });
+  useEffect(() => {
+    void controller.ensureTodoTable(target);
+    return () => controller.releaseTodoTable(target);
+  }, [tableId, viewVersion]);
+  return {
+    target,
+    page,
+    items: page.items.map(({ record }) => record),
+    groups: deriveWorkspaceOccurrenceGroups(page.items),
+    lookups: controller.todoTableLookups(plannerTodoTableScope(tableId)),
+  };
+}
+
+function todoTableHasBlockingError(
+  page: ReturnType<WorkbenchController["todoTablePage"]>,
+): boolean {
+  return page.items.length === 0 && page.moreStatus === "error";
+}
+
+function PlannerTableFooter({
+  controller,
+  target,
+  page,
+}: {
+  controller: WorkbenchController;
+  target: { surface: "planner"; tableId: PlannerTableId };
+  page: ReturnType<WorkbenchController["todoTablePage"]>;
+}) {
+  if (page.nextOffset === null) return null;
+  return (
+    <table className="planner-pagination" aria-label={`${target.tableId} pagination`}>
+      <InfiniteTableFooter
+        nextOffset={page.nextOffset}
+        status={page.moreStatus}
+        error={page.moreError}
+        loadMore={() => void controller.loadMoreTodoTable(target)}
+        columnCount={1}
+      />
+    </table>
   );
 }
 
@@ -2300,7 +2455,7 @@ function renderPlannerGroups(
 
   return groups.map((group) => (
     <div className="planner-card-list" key={group.key}>
-      {group.label !== "All" ? <h3>{group.label}</h3> : null}
+      {group.label && group.label !== "All" ? <h3>{group.label}</h3> : null}
       <ul className="planner-card-list">
         {group.items.map((item) => (
           <li key={item.id}>
@@ -2310,6 +2465,16 @@ function renderPlannerGroups(
       </ul>
     </div>
   ));
+}
+
+function occurrenceGroupsForSubset(
+  occurrences: TodoTableOccurrence[],
+  items: WorkspaceItemModel[],
+): DailyPlannerSection["groups"] {
+  const ids = new Set(items.map(({ id }) => id));
+  return deriveWorkspaceOccurrenceGroups(
+    occurrences.filter(({ record }) => ids.has(record.id)),
+  );
 }
 
 function PlannerItemRow({
@@ -4444,32 +4609,46 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const archiveButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
-  const scope = workspaceScopeForPanel(panel.id as WorkspaceChildTabId);
+  const scope = workspaceScopeForPanel(panel.id as WorkspaceChildTabId) as Extract<
+    TodoTableScope,
+    `workspace.${string}`
+  >;
+  const target = { surface: "workspace", scope } as const;
+  const page = controller.todoTablePage(target);
   const settings = controller.workspaceTableSettings(scope);
   const groups = React.useMemo(
-    () => deriveWorkspaceViewGroups(
-      scope,
-      workspaceItems.items,
-      settings,
-      workspaceItems.relatedItems,
-    ),
-    [scope, settings, workspaceItems.items, workspaceItems.relatedItems],
+    () => deriveWorkspaceOccurrenceGroups(page.items),
+    [page.items],
   );
   const visibleItems = React.useMemo(
     () => uniqueWorkspaceItems(groups.flatMap((group) => group.items)),
     [groups],
   );
   const columns = columnsForPanel(panel.id);
+  const lookups = controller.todoTableLookups(scope);
+  const relatedItems = lookups?.relatedItems ?? workspaceItems.relatedItems;
+  const candidateItems = workspaceItems.allItems.some((item) => item.type === scope.split(".")[1])
+    ? workspaceItems.allItems.filter((item) => item.type === scope.split(".")[1])
+    : page.items.map(({ record }) => record);
+  const filteredCandidateItems = filterPlannerItemsByRules(
+    candidateItems,
+    workspaceItems.relatedItems,
+    effectivePlannerFilterRules(settings.filterRules, workspaceFilterFieldsForScope(scope)),
+    settings.filterMode,
+    page.referenceDate,
+  );
+  const tableWorkspaceItems = lookups ? {
+    ...workspaceItems,
+    tagOptions: lookups.tags,
+    relatedItems,
+  } : workspaceItems;
   const filterOptions: PlannerFilterOptions = {
-    ...plannerFilterOptionsForItems(
-      workspaceItems.items,
-      workspaceItems.relatedItems,
-    ),
+    ...plannerFilterOptionsForLookups(lookups, page.items.map(({ record }) => record), relatedItems),
     storedRelationLabels: {
-      area: workspaceItems.relatedItems.areas,
-      project: workspaceItems.relatedItems.projects,
-      routine: workspaceItems.relatedItems.routines,
-      parent: workspaceItems.relatedItems.goals,
+      area: relatedItems.areas,
+      project: relatedItems.projects,
+      routine: relatedItems.routines,
+      parent: relatedItems.goals,
     },
   };
   const groupOptions = workspaceGroupOptionsForPanel(panel.id as WorkspaceChildTabId);
@@ -4483,7 +4662,7 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
     candidates: buildPlannerGroupCandidates({
       view: "daily",
       groupBy: settings.groupSettings.groupBy,
-      items: workspaceItems.items,
+      items: filteredCandidateItems,
       relatedItems: workspaceItems.relatedItems,
     }),
     filterOptions,
@@ -4494,6 +4673,7 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
       rules[0]?.field === "updated" &&
       rules[0]?.direction === "desc",
     update: (updater) => controller.updateWorkspaceTableSettings(scope, updater),
+    prepareGroup: controller.ensureTodoReferenceData,
     add: controller.openCreationDialog,
   };
 
@@ -4506,6 +4686,16 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
     visibleSelectionCount === visibleItems.length;
   const partiallySelected =
     visibleSelectionCount > 0 && visibleSelectionCount < visibleItems.length;
+
+  const viewVersion = JSON.stringify({
+    activeTabId: controller.workspaceTableTabs(scope).activeTabId,
+    settings,
+  });
+
+  useEffect(() => {
+    void controller.ensureTodoTable(target);
+    return () => controller.releaseTodoTable(target);
+  }, [scope, viewVersion]);
 
   useEffect(() => {
     controller.setVisibleWorkspaceItemIds(visibleItems.map(({ id }) => id));
@@ -4545,30 +4735,6 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
       event.preventDefault();
       cancelButtonRef.current?.focus();
     }
-  }
-
-  if (workspaceItems.status === "idle") {
-    return null;
-  }
-
-  if (workspaceItems.status === "loading") {
-    return (
-      <section className="items-section" aria-label={`${panel.title} items`}>
-        <p className="items-message" role="status">
-          Loading {panel.title.toLowerCase()}...
-        </p>
-      </section>
-    );
-  }
-
-  if (workspaceItems.status === "error") {
-    return (
-      <section className="items-section" aria-label={`${panel.title} items`}>
-        <p className="items-message" role="alert">
-          Could not load ToDo items.
-        </p>
-      </section>
-    );
   }
 
   return (
@@ -4625,9 +4791,13 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
         <WorkspaceGroupedRows
           columnCount={columns.length + 1}
           groups={groups}
-          emptyMessage={workspaceItems.items.length > 0
-            ? "No items match this view."
-            : `No ${panel.title.toLowerCase()} found.`}
+          emptyMessage={page.moreStatus === "error" && page.items.length === 0
+            ? "Could not load rows."
+            : page.generation === 0 || page.moreStatus === "loading"
+            ? `Loading ${panel.title.toLowerCase()}...`
+            : settings.filterRules.length > 0
+              ? "No items match this view."
+              : `No ${panel.title.toLowerCase()} found.`}
           renderRow={(item) => (
             <tr
               key={item.id}
@@ -4653,10 +4823,17 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
                 />
               </td>
               {columns.map((column) => (
-                <td key={column.label}>{column.value(item, workspaceItems, controller)}</td>
+                <td key={column.label}>{column.value(item, tableWorkspaceItems, controller)}</td>
               ))}
             </tr>
           )}
+        />
+        <InfiniteTableFooter
+          nextOffset={page.nextOffset}
+          status={page.moreStatus}
+          error={page.moreError}
+          loadMore={() => void controller.loadMoreTodoTable(target)}
+          columnCount={columns.length + 1}
         />
       </table>
       {controller.archiveConfirmationOpen ? (
@@ -4699,6 +4876,16 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
       ) : null}
     </section>
   );
+}
+
+function linkedChildTypes(
+  parentType: WorkspaceItemModel["type"],
+): Array<"project" | "routine" | "task" | "event" | "goal"> {
+  if (parentType === "area") return ["project", "routine", "task", "event"];
+  if (parentType === "project") return ["routine", "task", "event"];
+  if (parentType === "routine") return ["task"];
+  if (parentType === "goal") return ["goal", "task"];
+  return [];
 }
 
 function isWorkspacePanel(panelId: LeafTabId): panelId is WorkspaceChildTabId {
@@ -4773,8 +4960,25 @@ function workspaceGroupOptionsForLinkedType(
   return workspaceGroupOptionsForPanel(panelByType[itemType]);
 }
 
+function workspaceScopeForItemType(itemType: WorkspaceItemModel["type"]): Extract<TodoTableScope, `workspace.${string}`> {
+  const panelByType: Record<WorkspaceItemModel["type"], WorkspaceChildTabId> = {
+    area: "areas",
+    project: "projects",
+    goal: "goals",
+    routine: "routines",
+    task: "tasks",
+    event: "events",
+  };
+  return workspaceScopeForPanel(panelByType[itemType]) as Extract<TodoTableScope, `workspace.${string}`>;
+}
+
 function CreationDialog({ controller }: { controller: WorkbenchController }) {
   const creationContext = controller.plannerCreationContext;
+  const creationLookups = creationContext
+    ? controller.todoTableLookups(plannerTodoTableScope(creationContext.tableId))
+    : null;
+  const creationRelatedItems = creationLookups?.relatedItems ?? controller.workspaceItems.relatedItems;
+  const creationTagOptions = creationLookups?.tags ?? controller.workspaceItems.tagOptions;
   const creationPrefills = controller.plannerCreationAnalysis.prefills;
   const plannerScheduled = defaultCreationScheduled(controller, creationContext);
   const plannerHorizon = defaultCreationHorizon(controller, creationContext);
@@ -4959,7 +5163,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
                   <select value={areaId} onChange={(event) => setAreaId(event.target.value)}>
                     <option value="">None</option>
                     {plannerCreationRelationOptions(
-                      controller.workspaceItems.relatedItems.areas,
+                      creationRelatedItems.areas,
                       areaId,
                     ).map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
@@ -4971,7 +5175,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
                   <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
                     <option value="">None</option>
                     {plannerCreationRelationOptions(
-                      controller.workspaceItems.relatedItems.projects,
+                      creationRelatedItems.projects,
                       projectId,
                     ).map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
@@ -4994,7 +5198,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
               <TagsInput
                 label="Tags"
                 value={tags}
-                tagOptions={controller.workspaceItems.tagOptions}
+                tagOptions={creationTagOptions}
                 onCommit={setTags}
                 propagateEscape
                 portalDropdown

@@ -11,6 +11,9 @@ import {
   type LedgerEntryUpdate,
   type LedgerEntryView,
   type LedgerSummary,
+  type LedgerTableLookups,
+  type LedgerTableOccurrence,
+  type LedgerTableScope,
   type LedgerTrend,
   type MasterPurgePreview,
   type PurgePreview,
@@ -29,6 +32,8 @@ import {
   mapLedgerEntry,
   mapLedgerEntryView,
   mapLedgerSummary,
+  mapLedgerTableLookups,
+  mapLedgerTablePage,
   mapLedgerTrend,
   mapMasterPurgePreview,
   mapPage,
@@ -36,6 +41,9 @@ import {
   mapTransactionCategory,
   mapTransfer,
 } from "@/features/ledger/model/ledger-model";
+import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
+import { localCalendarDate } from "@/features/workbench/model/planner-model";
+import { tableFilterValue } from "@/features/workbench/model/table-query";
 import {
   apiPath,
   jsonRequest,
@@ -66,6 +74,8 @@ export type ReportSelection =
   | { period: "current_month" | "previous_month" | "current_year" }
   | { period: "custom"; from: string; to: string };
 
+export type LedgerTablePage = { items: LedgerTableOccurrence[]; nextOffset: number | null };
+
 export type CurrencyInput = {
   code: string; name: string; symbol: string; decimalPlaces: number; actor?: string;
 };
@@ -80,6 +90,40 @@ export type TransactionCategoryInput = {
 };
 
 export const ledgerApi = {
+  async queryTable(
+    scope: LedgerTableScope,
+    settings: PlannerTableSettings,
+    offset = 0,
+    referenceDate: Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date(),
+  ): Promise<LedgerTablePage> {
+    const value = await requestJson(`${ROOT}/table/query`, jsonRequest("POST", {
+      scope,
+      offset,
+      limit: 50,
+      filter_mode: settings.filterMode,
+      filters: settings.filterRules.map((rule) => ({
+        field: rule.field,
+        operator: rule.operator,
+        value: tableFilterValue(rule.value, rule.operator),
+      })),
+      sorts: settings.sortRules.map((rule) => ({
+        field: rule.field,
+        direction: rule.direction,
+      })),
+      group_by: settings.groupSettings.groupBy,
+      group_settings: {
+        sort: settings.groupSettings.sort,
+        hide_empty: settings.groupSettings.hideEmpty,
+        manual_order: settings.groupSettings.manualOrder,
+        hidden_group_keys: settings.groupSettings.hiddenGroupKeys,
+      },
+      context: { reference_date: localCalendarDate(referenceDate) },
+    }));
+    return mapLedgerTablePage(value, scope);
+  },
+  async tableLookups(scope: LedgerTableScope): Promise<LedgerTableLookups> {
+    return mapLedgerTableLookups(await requestJson(apiPath(`${ROOT}/table/lookups`, { scope })));
+  },
   async listEntries(query: EntryQuery = {}): Promise<Page<LedgerEntryView>> {
     const value = await requestJson(apiPath(`${ROOT}/entries`, {
       offset: query.offset,

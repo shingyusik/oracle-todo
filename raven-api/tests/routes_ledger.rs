@@ -97,6 +97,283 @@ async fn body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+fn table_query(scope: &str) -> Value {
+    let (sort, group_by) = match scope {
+        "ledger.transactions" => ("date", "none"),
+        "ledger.accounts" | "ledger.categories" => ("name", "none"),
+        _ => unreachable!(),
+    };
+    json!({
+        "scope": scope,
+        "offset": 0,
+        "limit": 50,
+        "filter_mode": "and",
+        "filters": [],
+        "sorts": [{"field": sort, "direction": "asc"}],
+        "group_by": group_by,
+        "group_settings": {
+            "sort": "alphabetical",
+            "hide_empty": true,
+            "manual_order": [],
+            "hidden_group_keys": []
+        },
+        "context": {"reference_date": "2026-08-21"}
+    })
+}
+
+async fn post_json(app: &axum::Router, path: &str, value: Value) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::post(path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(value.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn table_query_serves_all_ledger_scopes_without_changing_legacy_lists() {
+    let (_temp, app) = app();
+    assert_eq!(
+        post_json(
+            &app,
+            "/api/v1/ledger/entries",
+            json!({
+                "date":"2026-08-21", "written_at":"2026-08-21T00:00:00Z",
+                "content":"Lunch", "category":"Food", "account":"Wallet",
+                "entry_type":"expense", "amount":"12000", "currency":"KRW"
+            }),
+        )
+        .await
+        .status(),
+        StatusCode::CREATED
+    );
+    for (scope, record_field) in [
+        ("ledger.transactions", "content"),
+        ("ledger.accounts", "name"),
+        ("ledger.categories", "name"),
+    ] {
+        let response = post_json(&app, "/api/v1/ledger/table/query", table_query(scope)).await;
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+        let value = body(response).await;
+        assert!(value["items"].is_array());
+        assert!(value.get("next_offset").is_some());
+        if let Some(first) = value["items"].as_array().unwrap().first() {
+            assert!(first["key"].is_string());
+            assert!(first["record"][record_field].is_string());
+            if scope == "ledger.transactions" {
+                assert_eq!(first["record"]["decimal_places"], 0);
+            }
+        }
+    }
+
+    for path in [
+        "/api/v1/ledger/currencies",
+        "/api/v1/ledger/accounts",
+        "/api/v1/ledger/transaction-categories",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let value = body(response).await;
+        assert!(value["items"].is_array());
+        assert!(value.get("next_offset").is_some());
+    }
+}
+
+#[tokio::test]
+async fn table_query_rejects_unknown_nested_fields_and_oversized_pages() {
+    let (_temp, app) = app();
+    for pointer in [
+        "",
+        "/context",
+        "/filters/0",
+        "/filters/0/value",
+        "/sorts/0",
+        "/group_settings",
+    ] {
+        let mut query = table_query("ledger.transactions");
+        if pointer.starts_with("/filters/0") {
+            query["filters"] =
+                json!([{"field":"content","operator":"contains","value":{"text":"x"}}]);
+        }
+        query
+            .pointer_mut(pointer)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert("unexpected".into(), json!(true));
+        let response = post_json(&app, "/api/v1/ledger/table/query", query).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{pointer}");
+    }
+    for (operator, value) in [
+        (
+            "is_between",
+            json!({"range":{"start":"2026-01-01","end":"2026-01-02","unexpected":true}}),
+        ),
+        (
+            "is_relative_to_today",
+            json!({"relative":{"amount":"1","unit":"day","unexpected":true}}),
+        ),
+    ] {
+        let mut query = table_query("ledger.transactions");
+        query["filters"] = json!([{"field":"date","operator":operator,"value":value}]);
+        let response = post_json(&app, "/api/v1/ledger/table/query", query).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    let mut query = table_query("ledger.accounts");
+    query["limit"] = json!(51);
+    let response = post_json(&app, "/api/v1/ledger/table/query", query).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    for (field, target) in [("current_balance", "sorts"), ("kind", "group_by")] {
+        let mut query = table_query("ledger.transactions");
+        if target == "sorts" {
+            query["sorts"][0]["field"] = json!(field);
+        } else {
+            query["group_by"] = json!(field);
+        }
+        let response = post_json(&app, "/api/v1/ledger/table/query", query).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+}
+
+#[tokio::test]
+async fn table_query_validates_scope_filter_values_and_local_relative_dates() {
+    let (_temp, app) = app();
+    let invalid_filters = [
+        json!({"field":"date","operator":"contains","value":{"text":"2026-08-21"}}),
+        json!({"field":"amount","operator":"greater_than","value":{"text":"not-money"}}),
+        json!({"field":"account","operator":"is","value":{"range":{"start":"a","end":"b"}}}),
+    ];
+    for filter in invalid_filters {
+        let mut query = table_query("ledger.transactions");
+        query["filters"] = json!([filter]);
+        let response = post_json(&app, "/api/v1/ledger/table/query", query).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error = body(response).await.to_string();
+        assert!(
+            !error.contains("not-money") && !error.contains("SELECT") && !error.contains("sqlite")
+        );
+    }
+
+    let relative = json!({
+        "field":"date", "operator":"is_relative_to_today",
+        "value":{"relative":{"amount":"1","unit":"day"}}
+    });
+    let mut missing_reference = table_query("ledger.transactions");
+    missing_reference["filters"] = json!([relative.clone()]);
+    missing_reference["context"] = json!({});
+    assert_eq!(
+        post_json(&app, "/api/v1/ledger/table/query", missing_reference)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let create = json!({
+        "date": "2026-01-02", "written_at": "2025-12-31T23:30:00Z",
+        "content": "local-calendar", "category": "Food", "account": "Wallet",
+        "entry_type": "expense", "amount": "1", "currency": "KRW"
+    });
+    assert_eq!(
+        post_json(&app, "/api/v1/ledger/entries", create)
+            .await
+            .status(),
+        StatusCode::CREATED
+    );
+
+    let mut fixed_reference = table_query("ledger.transactions");
+    fixed_reference["filters"] = json!([relative]);
+    fixed_reference["context"] = json!({"reference_date":"2026-01-01"});
+    let response = post_json(&app, "/api/v1/ledger/table/query", fixed_reference).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        body(response).await["items"][0]["record"]["content"],
+        "local-calendar"
+    );
+}
+
+#[tokio::test]
+async fn ledger_table_routes_bound_bodies_and_return_compact_active_lookups() {
+    let (_temp, app) = app();
+    let oversized = Request::post("/api/v1/ledger/table/query")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(format!(
+            r#"{{"padding":"{}"}}"#,
+            "x".repeat(128 * 1024)
+        )))
+        .unwrap();
+    let response = app.clone().oneshot(oversized).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let error = body(response).await;
+    assert_eq!(error["message"], "The request is invalid.");
+
+    let created = post_json(
+        &app,
+        "/api/v1/ledger/currencies",
+        json!({
+            "code":"ZZZ", "name":"Inactive lookup", "symbol":"Z", "decimal_places":0
+        }),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let inactive_id = body(created).await["id"].as_str().unwrap().to_string();
+    let deactivate = app
+        .clone()
+        .oneshot(
+            Request::patch(format!("/api/v1/ledger/currencies/{inactive_id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"active":false}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(deactivate.status(), StatusCode::OK);
+
+    for (scope, expected, absent) in [
+        ("ledger.transactions", "accounts", "account_types"),
+        ("ledger.accounts", "account_types", "categories"),
+        ("ledger.categories", "categories", "currencies"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/api/v1/ledger/table/lookups?scope={scope}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let value = body(response).await;
+        assert!(value[expected].is_array());
+        assert!(value.get(absent).is_none());
+        for values in value.as_object().unwrap().values() {
+            for option in values.as_array().unwrap() {
+                assert_eq!(option.as_object().unwrap().len(), 2);
+                assert!(option["id"].is_string() && option["label"].is_string());
+                assert_ne!(option["id"], inactive_id);
+            }
+        }
+    }
+    let bad = app
+        .oneshot(
+            Request::get("/api/v1/ledger/table/lookups?scope=ledger.unknown&extra=x")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+}
+
 #[tokio::test]
 async fn create_entry_uses_service_and_writes_audit() {
     let (_temp, app) = app();

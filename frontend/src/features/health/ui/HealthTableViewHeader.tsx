@@ -41,6 +41,8 @@ export function HealthTableViewHeader({
   archiveDisabled: boolean;
 }) {
   const settings = controller.tableSettings(scope);
+  const lookupTags = (controller.state.tableLookups?.[scope]?.tags ?? [])
+    .map(({ id, label }) => ({ value: id, label }));
   const adapter: TableViewControlsAdapter = {
     scopeId: scope,
     title,
@@ -50,13 +52,14 @@ export function HealthTableViewHeader({
     sortFields: healthSortFieldsForScope(scope),
     groupOptions: [...healthGroupOptionsForScope(scope)],
     candidates,
-    filterOptions: { tags: fieldOptions.tags ?? [], daily: empty, fieldOptions },
+    filterOptions: { tags: lookupTags, daily: { ...empty, tags: lookupTags }, fieldOptions },
     activeControlsAriaLabel: `Active ${title} controls`,
     dropdownIdPrefix: "health",
     isDefaultSort: (rules) => JSON.stringify(rules) === JSON.stringify(
       healthTableViewSettingsAdapter.defaultSettings(scope).sortRules,
     ),
     update: (updater) => controller.updateTableSettings(scope, updater),
+    prepareGroup: () => controller.ensureReferenceData(scope),
   };
   const noun = title.toLowerCase();
   const addLabel = `Add ${noun} entry`;

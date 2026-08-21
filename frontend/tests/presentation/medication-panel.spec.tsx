@@ -77,157 +77,16 @@ function settle(set: Reads, ok: boolean, entries: HealthEvent[] = []) {
   if (ok) set.medication.resolve(entries); else set.medication.reject(new Error("newer failed"));
 }
 
-describe("Health Medication controller", () => {
+describe("Health Medication paging", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("lets controller composition own exactly one Medication initial read cycle", async () => {
-    mockBaseReads();
-
-    function MedicationComposition() {
-      const health = useHealthController();
-      return <MedicationPanel controller={health} tombstonedIds={new Set()}
-        onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
-        onRetryRefresh={vi.fn()} />;
-    }
-
-    render(<MedicationComposition />);
-    await screen.findByText("No medication entries yet.");
-
-    expect(vi.mocked(healthApi.listEvents).mock.calls
-      .filter(([request]) => request?.category === "medication")).toHaveLength(1);
+  it("requests only the scoped first table page on mount", async () => {
+    const legacy = vi.spyOn(healthApi, "listEvents");
+    const health = panelController();
+    render(<MedicationPanelHarness controller={health} />);
+    await waitFor(() => expect(health.ensureTable).toHaveBeenCalledWith("health.medication"));
+    expect(legacy).not.toHaveBeenCalled();
   });
-
-  it("loads one short Medication page once without duplicating related initial reads", async () => {
-    mockBaseReads();
-    vi.mocked(healthApi.listEvents).mockImplementation(async (query) =>
-      query?.category === "medication" ? [event] : []);
-
-    const { result } = renderHook(() => useHealthController());
-    await waitFor(() => expect(result.current.state.medicationStatus).toBe("loaded"));
-
-    expect(vi.mocked(healthApi.listEvents).mock.calls
-      .filter(([request]) => request?.category === "medication")).toHaveLength(1);
-    expect(result.current.state.medicationEntries).toEqual([event]);
-  });
-
-  it("drains every 200-row Medication page", async () => {
-    mockBaseReads();
-    const events = Array.from({ length: 200 }, (_, index) => ({ ...event, id: `med-${index}` }));
-    let medicationPage = 0;
-    vi.mocked(healthApi.listEvents).mockImplementation(async (query) =>
-      query?.category === "medication" && medicationPage++ === 0 ? events : []);
-    const { result } = renderHook(() => useHealthController());
-    await waitFor(() => expect(result.current.state.medicationStatus).toBe("loaded"));
-    const medicationCalls = vi.mocked(healthApi.listEvents).mock.calls
-      .filter(([request]) => request?.category === "medication");
-    expect(medicationCalls[0]).toEqual([{
-      category: "medication", limit: 200, offset: 0,
-    }]);
-    expect(medicationCalls[1]).toEqual([{
-      category: "medication", limit: 200, offset: 200,
-    }]);
-    expect(result.current.state.medicationEntries).toEqual(events);
-    expect(result.current.state.medicationStatus).toBe("loaded");
-  });
-
-  it("aggregate refresh reads each collection exactly once", async () => {
-    mockBaseReads();
-    const { result } = await mountedController();
-    vi.mocked(healthApi.listDiet).mockClear();
-    vi.mocked(healthApi.listEvents).mockClear();
-
-    await act(async () => expect(result.current.refresh()).resolves.toBe(true));
-
-    expect(healthApi.listDiet).toHaveBeenCalledOnce();
-    expect(vi.mocked(healthApi.listEvents).mock.calls
-      .filter(([request]) => request?.category === "bowel")).toHaveLength(1);
-    expect(vi.mocked(healthApi.listEvents).mock.calls
-      .filter(([request]) => request?.category === "medication")).toHaveLength(1);
-  });
-
-  it("coalesces ordinary refreshes and retains loaded data with a nonblocking error", async () => {
-    mockBaseReads();
-    vi.mocked(healthApi.listEvents).mockImplementation(async (query) =>
-      query?.category === "medication" ? [event] : []);
-    const { result } = await mountedController();
-    const pending = deferred<HealthEvent[]>();
-    vi.mocked(healthApi.listEvents).mockImplementation((query) =>
-      query?.category === "medication" ? pending.promise : Promise.resolve([])).mockClear();
-    let first!: Promise<boolean>; let second!: Promise<boolean>;
-    await act(async () => { first = result.current.refreshMedication(); second = result.current.refreshMedication(); await Promise.resolve(); });
-    expect(vi.mocked(healthApi.listEvents).mock.calls
-      .filter(([request]) => request?.category === "medication")).toHaveLength(1);
-    await act(async () => pending.reject(new Error("Medication unavailable")));
-    await expect(first).resolves.toBe(false); await expect(second).resolves.toBe(false);
-    expect(result.current.state).toMatchObject({
-      medicationStatus: "loaded", medicationError: "Medication unavailable", medicationEntries: [event],
-    });
-  });
-
-  it.each(["success", "error"] as const)("ignores stale %s without a promise cycle", async (outcome) => {
-    mockBaseReads(); const { result } = await mountedController();
-    const older = deferred<HealthEvent[]>(); const newer = deferred<HealthEvent[]>();
-    vi.mocked(healthApi.listEvents).mockReset()
-      .mockImplementationOnce(() => older.promise).mockImplementationOnce(() => newer.promise);
-    let stale!: Promise<boolean>; let forced!: Promise<void>;
-    vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-    await act(async () => { stale = result.current.refreshMedication(); await Promise.resolve(); forced = result.current.createMedication(input); await Promise.resolve(); });
-    const forcedOutcome = forced.then(() => true, (error: unknown) => error);
-    await act(async () => newer.resolve([event]));
-    await act(async () => outcome === "success" ? older.resolve([{ ...event, id: "stale" }]) : older.reject(new Error("stale error")));
-    await expect(stale).resolves.toBe(true); await expect(forcedOutcome).resolves.toBe(true);
-    expect(result.current.state.medicationEntries).toEqual([event]);
-    expect(result.current.state.medicationError).toBeNull();
-  });
-
-  it("uses a blocking error on initial failure", async () => {
-    mockBaseReads(); vi.mocked(healthApi.listEvents).mockRejectedValue(new Error("No Medication"));
-    const { result } = renderHook(() => useHealthController());
-    await waitFor(() => expect(result.current.state.medicationStatus).toBe("error"));
-    expect(result.current.state.medicationError).toBe("No Medication");
-  });
-
-  it.each(["create", "update", "archive"] as const)("uses one %s mutation and only a Medication read", async (kind) => {
-    mockBaseReads();
-    const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-    const updateEvent = vi.spyOn(healthApi, "updateEvent").mockResolvedValue(event);
-    const archive = vi.spyOn(healthApi, "archiveEvent").mockResolvedValue(event);
-    const { result } = await mountedController();
-    [create, updateEvent, archive].forEach((spy) => spy.mockClear());
-    vi.mocked(healthApi.listEvents).mockClear();
-    await act(async () => {
-      if (kind === "create") await result.current.createMedication(input);
-      else if (kind === "update") await result.current.updateMedication(event.id, update);
-      else await result.current.archiveMedication(event.id);
-    });
-    expect(create.mock.calls.length + updateEvent.mock.calls.length + archive.mock.calls.length).toBe(1);
-    expect(healthApi.listEvents).toHaveBeenCalledOnce();
-    expect(healthApi.reports).not.toHaveBeenCalled();
-  });
-
-  it("throws after commit when Medication refresh fails and retries reads only", async () => {
-    mockBaseReads(); const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-    const { result } = await mountedController();
-    vi.mocked(healthApi.listEvents).mockClear();
-    vi.mocked(healthApi.listEvents).mockRejectedValueOnce(new Error("failed"));
-    await act(async () => { await expect(result.current.createMedication(input)).rejects.toBeInstanceOf(HealthMutationRefreshError); });
-    await act(async () => expect(result.current.refreshMedication()).resolves.toBe(true));
-    expect(create).toHaveBeenCalledOnce();
-    expect(healthApi.listEvents).toHaveBeenCalledTimes(2);
-  });
-
-  it.each([true, false])("makes an older mutation adopt the newer mutation outcome (success: %s)", async (newerOk) => {
-    mockBaseReads(); const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-    const { result } = await mountedController(); const older = reads(); const newer = reads();
-    vi.mocked(healthApi.listEvents).mockReset().mockImplementationOnce(() => older.medication.promise).mockImplementationOnce(() => newer.medication.promise);
-    let first!: Promise<void>; let second!: Promise<void>;
-    await act(async () => { first = result.current.createMedication(input); await Promise.resolve(); second = result.current.createMedication(input); await Promise.resolve(); });
-    const outcomes = [first, second].map((promise) => promise.then(() => true, (error: unknown) => error));
-    await act(async () => settle(newer, newerOk, [event])); await act(async () => settle(older, true, [{ ...event, id: "stale" }]));
-    for (const outcome of outcomes) newerOk ? await expect(outcome).resolves.toBe(true) : await expect(outcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
-    expect(create).toHaveBeenCalledTimes(2);
-  });
-
 });
 
 const loadedState: HealthState = {
@@ -247,6 +106,14 @@ function panelController(
     tableTabs: vi.fn((scope) => ({ tabs: [{ id: `${scope}-table`, name: "Table", settings }],
       activeTabId: `${scope}-table`, draftSettings: settings })),
     tableSettings: vi.fn(() => settings), tableIsDirty: vi.fn(() => false),
+    tablePage: vi.fn(function (this: HealthController) { const status = this.state.medicationStatus; return {
+      items: medicationOccurrences(this.state.medicationEntries, this.tableSettings("health.medication")),
+      nextOffset: status === "error" ? 0 : null,
+      moreStatus: status === "loading" ? "loading" as const : status === "error" ? "error" as const : "idle" as const,
+      moreError: this.state.medicationError, generation: status === "loading" ? 0 : 1,
+    }; }),
+    ensureTable: vi.fn().mockResolvedValue(undefined), loadMore: vi.fn().mockResolvedValue(undefined),
+    ensureReferenceData: vi.fn().mockResolvedValue(true), hasReferenceData: vi.fn(() => false),
     updateTableSettings: vi.fn(), selectTableTab: vi.fn(), saveTableTab: vi.fn(),
     createTableTab: vi.fn(() => true), renameTableTab: vi.fn(() => true),
     requestDeleteTableTab: vi.fn(), confirmTableViewAction: vi.fn(), cancelTableViewAction: vi.fn(),
@@ -257,6 +124,16 @@ function panelController(
     createMedication: vi.fn(), updateMedication: vi.fn(), archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(), saveMetrics: vi.fn(),
   };
+}
+
+function medicationOccurrences(entries: readonly HealthEvent[], settings: ReturnType<typeof defaultHealthTableSettings>) {
+  return deriveMedicationGroups(entries, settings).flatMap((group) => group.rows.map((row) => ({
+    key: `${group.key}:${row.id}`, scope: "health.medication" as const,
+    groupKey: group.label === null ? null : group.key, groupLabel: group.label,
+    record: { kind: "medication" as const, id: row.id, event: row.event, date: row.date,
+      medicationName: row.medicationName, dose: row.dose, unit: row.unit,
+      unitLabel: row.unitLabel, note: row.note },
+  })));
 }
 
 const recoveryProps = {
@@ -286,6 +163,39 @@ function MedicationPanelHarness({ controller }: { controller: HealthController }
 
 describe("MedicationPanel", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("opens only the latest Medication Add intent while reference data is pending", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const health = panelController();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    render(<MedicationPanelHarness controller={health} />);
+
+    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
+    await user.click(screen.getByRole("button", { name: "Add medication entry" }));
+    await act(async () => pending.resolve(true));
+
+    expect(screen.getByRole("dialog", { name: "Add medication entry" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Vitamin D" })).toBeNull();
+  });
+
+  it("invalidates a pending Medication action when the current view generation resets", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    const page = health.tablePage("health.medication");
+    let generation = page.generation;
+    health.tablePage = vi.fn(() => ({ ...page, generation }));
+    const pending = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<MedicationPanelHarness controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add medication entry" }));
+    generation += 1;
+    view.rerender(<MedicationPanelHarness controller={health} />);
+    await act(async () => pending.resolve(true));
+
+    expect(screen.queryByRole("dialog", { name: "Add medication entry" })).toBeNull();
+  });
 
   it("renders the saved-view table with exact controls, columns, active rows, and a contextual detail affordance", async () => {
     const archived = { ...event, id: "archived", deletedAt: event.updatedAt };
@@ -912,14 +822,14 @@ describe("MedicationPanel", () => {
     ]);
     render(<MedicationPanelHarness controller={panelController()} />);
     const occurrences = screen.getAllByRole("row", { name: /Open details for Vitamin D/ });
-    expect(occurrences[1]).toHaveAttribute("data-medication-occurrence", "second-medication-1-0");
+    expect(occurrences[1]).toHaveAttribute("data-medication-occurrence", "second:medication-1");
     await user.click(occurrences[1]);
     await user.click(screen.getByRole("button", { name: "< Back" }));
     await waitFor(() => expect(document.activeElement).toBe(
       screen.getAllByRole("row", { name: /Open details for Vitamin D/ })[1],
     ));
     expect((document.activeElement as HTMLElement).dataset.medicationOccurrence)
-      .toBe("second-medication-1-0");
+      .toBe("second:medication-1");
   });
 
   it("falls back to the stable row ID when a Taken At occurrence disappears", async () => {
@@ -947,20 +857,20 @@ describe("MedicationPanel", () => {
     const view = render(<MedicationPanelHarness controller={health} />);
     const origin = screen.getByRole("row", { name: /Open details for Vitamin D/ });
     const oldOccurrence = origin.dataset.medicationOccurrence;
-    expect(oldOccurrence).toBe("all-medication-1-0");
+    expect(oldOccurrence).toBe("all:medication-1");
     await user.click(origin);
     const grouped = defaultHealthTableSettings("health.medication");
     grouped.groupSettings = { ...grouped.groupSettings, groupBy: "medication_unit" };
     view.rerender(<MedicationPanelHarness controller={panelController(loadedState, grouped)} />);
     await user.click(screen.getByRole("button", { name: "< Back" }));
     const regrouped = await screen.findByRole("row", { name: /Open details for Vitamin D/ });
-    expect(regrouped.dataset.medicationOccurrence).toBe("mg-medication-1-0");
+    expect(regrouped.dataset.medicationOccurrence).toBe("mg:medication-1");
     expect(regrouped.dataset.medicationOccurrence).not.toBe(oldOccurrence);
     expect(document.querySelector(`[data-medication-occurrence="${oldOccurrence}"]`)).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(regrouped));
     expect((document.activeElement as HTMLElement).dataset.medicationRowId).toBe(event.id);
     expect((document.activeElement as HTMLElement).dataset.medicationOccurrence)
-      .toBe("mg-medication-1-0");
+      .toBe("mg:medication-1");
   });
 
   it("restores focus without parsing a quoted medication occurrence as CSS", async () => {
@@ -973,13 +883,13 @@ describe("MedicationPanel", () => {
       ...loadedState, medicationEntries: [quoted],
     }, grouped)} />);
     const origin = screen.getByRole("row", { name: /Open details for Vitamin "D/ });
-    expect(origin.dataset.medicationOccurrence).toBe('Vitamin "D-medication-1-0');
+    expect(origin.dataset.medicationOccurrence).toBe('Vitamin "D:medication-1');
     await user.click(origin);
     await user.click(screen.getByRole("button", { name: "< Back" }));
     const restored = await screen.findByRole("row", { name: /Open details for Vitamin "D/ });
     await waitFor(() => expect(document.activeElement).toBe(restored));
     expect((document.activeElement as HTMLElement).dataset.medicationOccurrence)
-      .toBe('Vitamin "D-medication-1-0');
+      .toBe('Vitamin "D:medication-1');
   });
 
   it("exits a tombstoned open Medication detail and focuses Add", async () => {
@@ -1239,11 +1149,11 @@ describe("MedicationPanel", () => {
     const retry = vi.fn();
     const view = render(<MedicationPanel {...recoveryProps} controller={{ ...panelController({
       ...loadedState, medicationStatus: "loading", medicationEntries: [],
-    }), refreshMedication: retry }} />);
+    }), loadMore: retry }} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading medication entries");
     view.rerender(<MedicationPanel {...recoveryProps} controller={{ ...panelController({
       ...loadedState, medicationStatus: "error", medicationEntries: [], medicationError: "Unavailable",
-    }), refreshMedication: retry }} />);
+    }), loadMore: retry }} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Unavailable");
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalledOnce();

@@ -16,5 +16,7 @@ mod reports;
 mod schema;
 #[path = "integration/service_policy.rs"]
 mod service_policy;
+#[path = "integration/table_query.rs"]
+mod table_query;
 #[path = "integration/transfers.rs"]
 mod transfers;

@@ -16,12 +16,19 @@ use crate::application::ports::{
 };
 use crate::application::queries::{HealthQuery, TimelineItem};
 use crate::application::reports::ReportRecords;
+use crate::application::table::{HealthTableQuery, HealthTableRow, TablePage};
 use crate::application::trends::TrendRecords;
 use crate::domain::{DietEntry, HealthCategory, HealthEvent, MetricKey};
 
 impl HealthRepository for SqliteHealthRepository {}
 
 impl HealthReadRepository for SqliteHealthRepository {
+    fn query_table(&self, query: &HealthTableQuery) -> HealthResult<TablePage<HealthTableRow>> {
+        super::table_query::query_table(&self.connection, query)
+    }
+    fn list_active_diet_tags(&self) -> HealthResult<Vec<String>> {
+        super::table_query::list_active_diet_tags(&self.connection)
+    }
     fn get_diet(&self, id: &str, include_archived: bool) -> HealthResult<Option<DietEntry>> {
         get_diet_on(&self.connection, id, include_archived)
     }

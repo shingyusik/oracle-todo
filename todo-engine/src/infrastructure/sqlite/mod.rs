@@ -1,29 +1,76 @@
 use crate::application::error::{TodoError, TodoResult};
 use crate::domain::TodoEvent;
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OpenFlags};
 use time::OffsetDateTime;
 
 mod mapping;
 mod repo;
 mod schema;
+mod table_query;
 
 pub use schema::{init_schema, user_version};
 
 use mapping::{row_to_event, storage_error};
 
 pub fn connect(path: &str) -> TodoResult<Connection> {
-    Connection::open(path).map_err(|error| TodoError::Storage(error.to_string()))
+    let connection =
+        Connection::open(path).map_err(|error| TodoError::Storage(error.to_string()))?;
+    register_sort_key(&connection)?;
+    Ok(connection)
 }
 
 pub fn connect_read_only(path: &str) -> TodoResult<Connection> {
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| TodoError::Storage(error.to_string()))?;
+    register_sort_key(&connection)?;
     match user_version(&connection)? {
         1 => Ok(connection),
         version => Err(TodoError::Migration(format!(
             "unsupported todo schema version {version}"
         ))),
     }
+}
+
+pub(super) fn register_sort_key(connection: &Connection) -> TodoResult<()> {
+    let flags = FunctionFlags::SQLITE_DETERMINISTIC | FunctionFlags::SQLITE_INNOCUOUS;
+    connection
+        .create_scalar_function("todo_sort_key", 1, flags, |context| {
+            let value = context.get::<String>(0)?;
+            Ok(crate::application::table::unicode_sort_key(&value))
+        })
+        .map_err(storage_error)?;
+    connection
+        .create_scalar_function("todo_fold", 1, flags, |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .map(|value| crate::application::table::unicode_fold(&value)))
+        })
+        .map_err(storage_error)?;
+    connection
+        .create_scalar_function("todo_group_key", 2, flags, |context| {
+            let synthetic = context.get::<i64>(1)? != 0;
+            Ok(context.get::<Option<String>>(0)?.map(|value| {
+                if synthetic {
+                    value
+                } else {
+                    crate::application::table::canonical_group_value(&value)
+                }
+            }))
+        })
+        .map_err(storage_error)?;
+    connection
+        .create_scalar_function("todo_date_ordinal", 1, flags, |context| {
+            Ok(context.get::<Option<String>>(0)?.and_then(|value| {
+                time::Date::parse(
+                    value.get(..10).unwrap_or(""),
+                    time::macros::format_description!("[year]-[month]-[day]"),
+                )
+                .ok()
+                .map(time::Date::to_julian_day)
+            }))
+        })
+        .map_err(storage_error)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

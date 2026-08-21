@@ -3,11 +3,13 @@
 import React, { useLayoutEffect, useRef } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
+import type { LedgerTablePageState } from "@/features/ledger/hooks/useLedgerController";
 import type {
   TransactionRow,
   TransactionRowGroup,
 } from "@/features/ledger/model/transaction-table";
 import { formatMoney } from "@/features/ledger/ui/ledger-ui";
+import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
 
 type TransactionsTableProps = {
   controller: LedgerController;
@@ -17,6 +19,9 @@ type TransactionsTableProps = {
   onOpen: (row: TransactionRow) => void;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
+  page?: LedgerTablePageState;
+  onLoadMore?: () => void;
+  emptyMessage?: string;
 };
 
 export function TransactionsTable({
@@ -27,6 +32,9 @@ export function TransactionsTable({
   onOpen,
   onToggle,
   onToggleAll,
+  page = emptyPage,
+  onLoadMore = noop,
+  emptyMessage,
 }: TransactionsTableProps) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap((group) => group.rows);
@@ -62,21 +70,33 @@ export function TransactionsTable({
             <th scope="col">Amount</th>
           </tr>
         </thead>
-        <TransactionTableBody
+        {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : <TransactionTableBody
           controller={controller}
           groups={groups}
           rows={rows}
           selectedIds={selectedIds}
-          emptyMessage={activeRowCount === 0
+          emptyMessage={emptyMessage ?? (activeRowCount === 0
             ? "No transactions yet."
-            : "No transactions match this view."}
+            : "No transactions match this view.")}
           onOpen={onOpen}
           onToggle={onToggle}
+        />}
+        <InfiniteTableFooter
+          nextOffset={page.nextOffset}
+          status={page.moreStatus}
+          error={page.moreError}
+          loadMore={onLoadMore}
+          columnCount={6}
         />
       </table>
     </section>
   );
 }
+
+const emptyPage: LedgerTablePageState = {
+  items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+};
+const noop = () => undefined;
 
 function TransactionTableBody({
   controller,
@@ -150,7 +170,9 @@ function TransactionTableRow({
 }) {
   const amount = formatMoney(
     Math.abs(row.amountMinor),
-    controller.state.currencies.find(({ id }) => id === row.currencyId),
+    row.decimalPlaces === undefined
+      ? controller.state.currencies.find(({ id }) => id === row.currencyId)
+      : { code: row.currencyCode, decimalPlaces: row.decimalPlaces },
     row.currencyCode,
   );
   const displayAmount = row.kind === "income"

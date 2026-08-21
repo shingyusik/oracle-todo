@@ -6,15 +6,18 @@ import type {
   HealthMetricsRow,
   HealthMetricsRowGroup,
 } from "@/features/health/model/health-metrics-table";
+import type { HealthTablePageState } from "@/features/health/hooks/useHealthController";
+import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
 
 export function HealthMetricsTable({ groups, activeRowCount, selectedDates, onOpen,
-  onToggle, onToggleAll }: {
+  onToggle, onToggleAll, page = emptyPage, onLoadMore = noop, emptyMessage }: {
   groups: HealthMetricsRowGroup[];
   activeRowCount: number;
   selectedDates: string[];
   onOpen(row: HealthMetricsRow, occurrence: string): void;
   onToggle(date: string): void;
   onToggleAll(): void;
+  page?: HealthTablePageState; onLoadMore?: () => void; emptyMessage?: string;
 }) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap(({ rows }) => rows);
@@ -35,16 +38,18 @@ export function HealthMetricsTable({ groups, activeRowCount, selectedDates, onOp
         <th scope="col">CRP</th><th scope="col">Calprotectin</th>
         <th scope="col">Condition</th><th scope="col">Note</th>
       </tr></thead>
-      {rows.length === 0 ? <tbody><tr className="workspace-table-empty-row">
-        <td className="items-message workspace-table-empty-cell" colSpan={8}>
-          {activeRowCount === 0 ? "No health metrics yet." : "No health metrics match this view."}
+      {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : rows.length === 0 ? <tbody><tr className="workspace-table-empty-row">
+        <td className="items-message workspace-table-empty-cell" colSpan={8}
+          role={page.generation === 0 || page.moreStatus === "loading" ? "status" : undefined}>
+          {emptyMessage ?? (activeRowCount === 0 ? "No health metrics yet." : "No health metrics match this view.")}
         </td>
       </tr></tbody> : groups.map((group) =>
         <tbody key={group.key} aria-label={group.label ? `${group.label} group` : undefined}>
           {group.label ? <tr className="workspace-group-heading">
             <th scope="rowgroup" colSpan={8}>{group.label}</th></tr> : null}
           {group.rows.map((row, index) => {
-            const occurrence = `${group.key}-${row.date}-${index}`;
+            const occurrence = (row as HealthMetricsRow & { occurrenceKey?: string }).occurrenceKey
+              ?? `${group.key}-${row.date}-${index}`;
             return <tr key={occurrence} tabIndex={0}
               data-health-metrics-date={row.date} data-health-metrics-occurrence={occurrence}
               aria-label={`Open health metrics for ${row.date}`}
@@ -67,9 +72,14 @@ export function HealthMetricsTable({ groups, activeRowCount, selectedDates, onOp
             </tr>;
           })}
         </tbody>)}
+      <InfiniteTableFooter nextOffset={page.nextOffset} status={page.moreStatus}
+        error={page.moreError} loadMore={onLoadMore} columnCount={8} />
     </table>
   </section>;
 }
+
+const emptyPage: HealthTablePageState = { items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0 };
+const noop = () => undefined;
 
 function metric(value: number | null, unit: string): string {
   return value === null ? "-" : `${value} ${unit}`;

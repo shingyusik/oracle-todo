@@ -1,5 +1,6 @@
 import {
   defaultPlannerGroupSettings,
+  compareUnicodeText,
   normalizePlannerGroupSettings,
   orderVisiblePlannerGroups,
   type PlannerGroupCandidate,
@@ -254,7 +255,7 @@ const plannerGoalSortFields = [
 
 const plannerGoalGroupByValues: readonly PlannerGroupBy[] = ["none", "tag", "status"];
 const plannerDateWorkGroupByValues: readonly PlannerGroupBy[] = [
-  "none", "area", "project", "routine", "tag", "item_type", "status",
+  "none", "month", "week", "day", "area", "project", "routine", "tag", "item_type", "status",
 ];
 const maxRelativeDateAmount = 100_000;
 
@@ -651,9 +652,8 @@ export function buildYearlyPeriodGoalCardsModel(
   plannerDate: string,
 ): YearlyPeriodGoalCardsModel {
   const selectedYear = plannerDate.slice(0, 4);
-  const yearStarts = [-1, 0, 1].map((offset) =>
-    yearStart(addYears(`${selectedYear}-01-01`, offset)),
-  );
+  const visibleRange = plannerTableVisibleRange("yearly.period-goals", plannerDate);
+  const yearStarts = [0, 1, 2].map((offset) => addYears(visibleRange.from, offset));
 
   return {
     selectedYear,
@@ -682,12 +682,12 @@ export function buildMonthlyPeriodGoalCardsModel(
   plannerDate: string,
 ): MonthlyPeriodGoalCardsModel {
   const selectedMonth = monthStart(plannerDate);
-  const monthStarts = [-1, 0, 1].map((offset) => monthStart(addMonths(selectedMonth, offset)));
-  const monthEnd = addDays(addMonths(selectedMonth, 1), -1);
-  const firstWeekStart = isoWeekStart(selectedMonth);
+  const carouselRange = plannerTableVisibleRange("monthly.period-goals", plannerDate);
+  const monthStarts = [0, 1, 2].map((offset) => addMonths(carouselRange.from, offset));
+  const calendarRange = plannerTableVisibleRange("monthly.calendar", plannerDate);
   const weeks: MonthlyPlannerWeekModel[] = [];
 
-  for (let current = firstWeekStart, index = 1; current <= monthEnd; current = addDays(current, 7), index += 1) {
+  for (let current = calendarRange.from, index = 1; current <= calendarRange.to; current = addDays(current, 7), index += 1) {
     const weekDates = Array.from({ length: 7 }, (_, offset) => addDays(current, offset));
     weeks.push({
       key: current,
@@ -795,10 +795,11 @@ export function buildWeeklyPlannerModel(
   items: WorkspaceItemModel[],
   weekStart: string,
 ): WeeklyPlannerModel {
+  const weekRange = plannerTableVisibleRange("weekly.day-grid", weekStart);
   const weekDates = Array.from({ length: 7 }, (_, offset) =>
-    addDays(weekStart, offset),
+    addDays(weekRange.from, offset),
   );
-  const monthKey = weekStart.slice(0, 7);
+  const monthKey = plannerTableVisibleRange("weekly.month-goals", weekStart).from.slice(0, 7);
 
   return {
     monthGoals: items.filter(
@@ -1096,7 +1097,7 @@ function comparePlannerItems(
   }
   return compareText(left.scheduled, right.scheduled)
     || compareText(right.updated_at, left.updated_at)
-    || left.title.localeCompare(right.title);
+    || compareUnicodeText(left.title, right.title);
 }
 
 function comparePlannerSortRule(
@@ -1145,7 +1146,7 @@ function compareText(
   left: string | null | undefined,
   right: string | null | undefined,
 ): number {
-  return (left ?? "").localeCompare(right ?? "");
+  return compareUnicodeText(left ?? "", right ?? "");
 }
 
 export function sortPlannerItems(
@@ -1214,6 +1215,10 @@ function groupKeys(item: WorkspaceItemModel, groupBy: PlannerGroupBy): string[] 
   if (groupBy === "routine") return [item.routine_id ?? "none"];
   if (groupBy === "item_type") return [item.type];
   if (groupBy === "status") return [item.status];
+  const scheduled = datePart(item.scheduled);
+  if (groupBy === "month") return [scheduled?.slice(0, 7) ?? "none"];
+  if (groupBy === "week") return [scheduled ? isoWeekStart(scheduled) : "none"];
+  if (groupBy === "day") return [scheduled ?? "none"];
   return ["all"];
 }
 
@@ -1222,11 +1227,16 @@ function groupLabel(
   groupBy: PlannerGroupBy,
   relatedItems: WorkspaceItemsModel["relatedItems"],
 ): string {
-  if (key === "none") return "No value";
+  if (key === "none") return ["month", "week", "day"].includes(groupBy) ? "No date" : "No value";
   if (key === "untagged") return "Untagged";
   if (groupBy === "area") return relatedItems.areas[key] ?? key;
   if (groupBy === "project") return relatedItems.projects[key] ?? key;
   if (groupBy === "routine") return relatedItems.routines[key] ?? key;
+  if (groupBy === "month") {
+    const month = Number(key.slice(5, 7));
+    return `${monthLabels[month - 1] ?? key} ${key.slice(0, 4)}`;
+  }
+  if (groupBy === "week") return `Week of ${key}`;
   return key;
 }
 
@@ -1303,6 +1313,38 @@ function addDays(date: string, days: number): string {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
+}
+
+export function plannerTableVisibleRange(
+  tableId: PlannerTableId,
+  date: string,
+): { from: string; to: string } {
+  if (tableId.startsWith("yearly.")) {
+    const selectedYear = yearStart(date);
+    if (tableId === "yearly.period-goals") {
+      const from = addYears(selectedYear, -1);
+      return { from, to: addDays(addYears(from, 3), -1) };
+    }
+    return { from: selectedYear, to: addDays(addYears(selectedYear, 1), -1) };
+  }
+  if (tableId.startsWith("monthly.")) {
+    const selectedMonth = monthStart(date);
+    if (tableId === "monthly.period-goals") {
+      const from = addMonths(selectedMonth, -1);
+      return { from, to: addDays(addMonths(from, 3), -1) };
+    }
+    const monthEnd = addDays(addMonths(selectedMonth, 1), -1);
+    return { from: isoWeekStart(selectedMonth), to: addDays(isoWeekStart(monthEnd), 6) };
+  }
+  if (tableId.startsWith("weekly.")) {
+    const selectedWeek = isoWeekStart(date);
+    if (tableId === "weekly.month-goals") {
+      const from = monthStart(selectedWeek);
+      return { from, to: addDays(addMonths(from, 1), -1) };
+    }
+    return { from: selectedWeek, to: addDays(selectedWeek, 6) };
+  }
+  return { from: date, to: date };
 }
 
 export function localCalendarDate(

@@ -35,6 +35,7 @@ export type TransactionRow = {
   amountMinor: number;
   currencyId: string;
   currencyCode: string;
+  decimalPlaces?: number;
   updatedAt: string;
 };
 

@@ -25,10 +25,12 @@ type QuickAddKind =
 export function QuickAddDialog({
   controller,
   onClose,
+  onMutation,
   returnFocusRef,
 }: {
   controller: WorkbenchController;
   onClose: () => void;
+  onMutation?: (domain: "ledger" | "health") => void;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [kind, setKind] = React.useState<QuickAddKind>("select");
@@ -132,14 +134,20 @@ export function QuickAddDialog({
             ) : null}
             {kind === "ledger" ? (
               <LedgerQuickAdd
-                onSaved={onClose}
+                onSaved={() => {
+                  onMutation?.("ledger");
+                  onClose();
+                }}
                 onPendingChange={setPending}
               />
             ) : null}
             {kind !== "ledger" ? (
               <HealthQuickAdd
                 kind={kind}
-                onSaved={onClose}
+                onSaved={() => {
+                  onMutation?.("health");
+                  onClose();
+                }}
                 onPendingChange={setPending}
               />
             ) : null}
@@ -160,15 +168,18 @@ function LedgerQuickAdd({
   onPendingChange,
 }: QuickAddFormProps) {
   const controller = useLedgerController();
+  const references = useReferencePreload(
+    controller.ensureTransactionFormReferences ?? controller.refresh,
+  );
 
-  if (controller.state.status === "loading") {
+  if (references.status === "loading") {
     return <p role="status">Loading Ledger references…</p>;
   }
-  if (controller.state.status === "error") {
+  if (references.status === "error") {
     return (
       <>
         <p role="alert" className="items-message">{controller.state.error}</p>
-        <button type="button" onClick={() => void controller.refresh()}>
+        <button type="button" onClick={references.retry}>
           Retry Ledger
         </button>
       </>
@@ -191,14 +202,68 @@ function HealthQuickAdd({
   kind: Exclude<QuickAddKind, "select" | "ledger">;
 }) {
   const controller = useHealthController();
+  const scope = `health.${kind}` as const;
+  const references = useReferencePreload(
+    controller.ensureQuickAddReferences ?? controller.ensureReferenceData,
+    scope,
+  );
   const props = { controller, onSaved, onPendingChange };
 
+  if (references.status === "loading") {
+    return <p role="status">Loading Health references…</p>;
+  }
+  if (references.status === "error") {
+    return (
+      <>
+        <p role="alert" className="items-message">{healthReferenceError(controller, kind)}</p>
+        <button type="button" onClick={references.retry}>Retry Health</button>
+      </>
+    );
+  }
+
   switch (kind) {
-    case "diet": return <DietForm {...props} />;
+    case "diet": return <DietForm
+      {...props}
+      tagOptions={(controller.state.tableLookups?.[scope]?.tags ?? []).map(({ label }) => label)}
+    />;
     case "bowel": return <BowelForm {...props} />;
     case "medication": return <MedicationForm {...props} />;
     case "metrics": return <MetricsForm {...props} />;
   }
+}
+
+function useReferencePreload<Scope = never>(
+  ensure: ((scope: Scope) => Promise<boolean>) | (() => Promise<boolean>),
+  scope?: Scope,
+) {
+  const [status, setStatus] = React.useState<"loading" | "loaded" | "error">("loading");
+  const generation = React.useRef(0);
+  const retry = React.useCallback(() => {
+    const request = ++generation.current;
+    setStatus("loading");
+    void ensure(scope as Scope).then((ok) => {
+      if (generation.current === request) setStatus(ok ? "loaded" : "error");
+    });
+  }, [ensure, scope]);
+  React.useEffect(() => {
+    retry();
+    return () => { ++generation.current; };
+  }, [retry]);
+  return { status, retry };
+}
+
+function healthReferenceError(
+  controller: ReturnType<typeof useHealthController>,
+  kind: Exclude<QuickAddKind, "select" | "ledger">,
+): string {
+  const error = kind === "diet"
+    ? controller.state.dietError
+    : kind === "bowel"
+      ? controller.state.bowelError
+      : kind === "medication"
+        ? controller.state.medicationError
+        : controller.state.metricsError;
+  return error ?? "Health references unavailable";
 }
 
 function dialogLabel(kind: QuickAddKind): string {

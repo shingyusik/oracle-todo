@@ -12,11 +12,20 @@ use health_engine::application::ports::{EventQuery, Page};
 use health_engine::application::queries::HealthQuery;
 use health_engine::application::reports::HealthReportRange;
 use health_engine::application::service::HealthService;
+use health_engine::application::table::{
+    BowelTableFilterField, BowelTableGroup, BowelTableSortField, DietTableFilterField,
+    DietTableGroup, DietTableSortField, FilterMode, GroupSort, HealthFilterOperator,
+    HealthTableFilter, HealthTableFilterValue, HealthTableGroup, HealthTableGroupSettings,
+    HealthTableQuery, HealthTableRecord, HealthTableScope, HealthTableSort,
+    MedicationTableFilterField, MedicationTableGroup, MedicationTableSortField,
+    MetricsTableFilterField, MetricsTableGroup, MetricsTableSortField, RelativeDateUnit,
+    SortDirection,
+};
 use health_engine::domain::HealthCategory;
 use health_engine::infrastructure::media::LocalMediaStore;
 use health_engine::infrastructure::sqlite::SqliteHealthRepository;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use time::{Date, OffsetDateTime};
 
@@ -43,6 +52,8 @@ pub fn router() -> Router<RavenApiState> {
         .route("/events/:id/restore", post(restore_event))
         .route("/events/:id/purge", delete(purge_event))
         .route("/metrics/daily", post(upsert_daily_metrics))
+        .route("/table/query", post(query_table))
+        .route("/table/lookups", get(table_lookups))
         .route("/reports", get(reports))
         .route("/timeline", get(timeline))
         .route("/trends", get(trends))
@@ -111,6 +122,445 @@ struct TrendsQuery {
 struct ReportsQuery {
     from: String,
     to: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableQueryBody {
+    scope: HealthTableScope,
+    #[serde(default)]
+    offset: u32,
+    #[serde(default = "default_table_limit")]
+    limit: u16,
+    #[serde(default = "default_filter_mode")]
+    filter_mode: FilterMode,
+    #[serde(default)]
+    filters: Vec<TableFilterBody>,
+    sorts: Vec<TableSortBody>,
+    group_by: TableGroupField,
+    group_settings: TableGroupSettingsBody,
+    #[serde(default)]
+    context: TableContextBody,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableContextBody {
+    reference_date: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableFilterBody {
+    field: TableFilterField,
+    operator: HealthFilterOperator,
+    value: TableFilterValueBody,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TableFilterField {
+    Date,
+    MealType,
+    Food,
+    Tags,
+    HasPhoto,
+    BristolScale,
+    BloodVisible,
+    MedicationName,
+    MedicationUnit,
+    Weight,
+    Sleep,
+    Crp,
+    Calprotectin,
+    Condition,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum TableFilterValueBody {
+    Text(TextValueBody),
+    List(ListValueBody),
+    Range(RangeValueBody),
+    Relative(RelativeValueBody),
+    Empty(EmptyValueBody),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextValueBody {
+    text: String,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListValueBody {
+    list: Vec<String>,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RangeValueBody {
+    range: RangeBody,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RangeBody {
+    start: String,
+    end: String,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RelativeValueBody {
+    relative: RelativeBody,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RelativeBody {
+    amount: String,
+    unit: RelativeDateUnit,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyValueBody {
+    empty: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableSortBody {
+    field: TableSortField,
+    direction: SortDirection,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TableSortField {
+    Date,
+    MealType,
+    Food,
+    Created,
+    Updated,
+    BristolScale,
+    MedicationName,
+    Dose,
+    Weight,
+    Sleep,
+    Crp,
+    Calprotectin,
+    Condition,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableGroupSettingsBody {
+    sort: GroupSort,
+    hide_empty: bool,
+    manual_order: Vec<String>,
+    hidden_group_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TableGroupField {
+    None,
+    Month,
+    Week,
+    Day,
+    MealType,
+    Tag,
+    HasPhoto,
+    BristolScale,
+    BloodVisible,
+    MedicationName,
+    MedicationUnit,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableLookupQuery {
+    scope: HealthTableScope,
+}
+
+#[derive(Debug, Serialize)]
+struct LookupOption {
+    id: String,
+    label: String,
+}
+
+async fn query_table(
+    State(state): State<RavenApiState>,
+    body: Result<Json<TableQueryBody>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let body = json_value(body)?;
+    let reference_date =
+        parse_optional_date(body.context.reference_date.as_deref(), "reference_date")?;
+    let filters = body
+        .filters
+        .into_iter()
+        .map(|filter| table_filter(body.scope, filter))
+        .collect::<Result<Vec<_>, _>>()?;
+    let sorts = body
+        .sorts
+        .into_iter()
+        .map(|sort| table_sort(body.scope, sort))
+        .collect::<Result<Vec<_>, _>>()?;
+    let groups = HealthTableGroupSettings::new(
+        table_group(body.scope, body.group_by)?,
+        body.group_settings.sort,
+        body.group_settings.hide_empty,
+        body.group_settings.manual_order,
+        body.group_settings.hidden_group_keys,
+    )?;
+    let query = HealthTableQuery::new(
+        body.scope,
+        body.offset,
+        body.limit,
+        body.filter_mode,
+        filters,
+        sorts,
+        groups,
+        reference_date,
+    )?;
+    let page = health(&state, false, move |service| service.query_table(&query)).await?;
+    let items = page
+        .items
+        .into_iter()
+        .map(|row| {
+            let kind = match row.record() {
+                HealthTableRecord::Diet(_) => "diet",
+                HealthTableRecord::Bowel(_) => "bowel",
+                HealthTableRecord::Medication(_) => "medication",
+                HealthTableRecord::Metrics(_) => "metrics",
+            };
+            let mut record = serde_json::to_value(row.record())
+                .expect("health table records are JSON serializable");
+            record
+                .as_object_mut()
+                .expect("health table records serialize as objects")
+                .insert("kind".into(), json!(kind));
+            json!({
+                "key": row.key(),
+                "group_key": row.group_key(),
+                "group_label": row.group_label(),
+                "record": record,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(
+        json!({"items": items, "next_offset": page.next_offset}),
+    ))
+}
+
+async fn table_lookups(
+    State(state): State<RavenApiState>,
+    query: Result<Query<TableLookupQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let scope = query_value(query)?.scope;
+    let value = match scope {
+        HealthTableScope::Diet => {
+            let tags = health(&state, false, |service| {
+                Ok(service
+                    .list_active_diet_tags()?
+                    .into_iter()
+                    .map(|tag| LookupOption {
+                        id: tag.clone(),
+                        label: tag,
+                    })
+                    .collect::<Vec<_>>())
+            })
+            .await?;
+            json!({
+                "meal_type": options(&[("breakfast", "Breakfast"), ("lunch", "Lunch"), ("dinner", "Dinner"), ("snack", "Snack"), ("late_night", "Late night")]),
+                "has_photo": options(&[("with-photo", "Yes"), ("without-photo", "No")]),
+                "tags": tags,
+            })
+        }
+        HealthTableScope::Bowel => json!({
+            "bristol_scale": (1..=7).map(|value| LookupOption { id: value.to_string(), label: format!("Type {value}") }).collect::<Vec<_>>(),
+            "blood_visible": options(&[("yes", "Yes"), ("no", "No")]),
+        }),
+        HealthTableScope::Medication => json!({
+            "medication_unit": options(&[("tablet", "정"), ("capsule", "캡슐"), ("packet", "포"), ("mg", "mg"), ("g", "g"), ("ml", "ml"), ("drop", "방울"), ("dose", "회")]),
+        }),
+        HealthTableScope::Metrics => json!({
+            "metric": options(&[("weight", "Weight"), ("sleep", "Sleep"), ("crp", "CRP"), ("calprotectin", "Calprotectin"), ("condition", "Condition")]),
+        }),
+    };
+    Ok(Json(value))
+}
+
+fn options(values: &[(&str, &str)]) -> Vec<LookupOption> {
+    values
+        .iter()
+        .map(|(id, label)| LookupOption {
+            id: (*id).into(),
+            label: (*label).into(),
+        })
+        .collect()
+}
+
+fn table_value(body: TableFilterValueBody) -> Result<HealthTableFilterValue, ApiError> {
+    Ok(match body {
+        TableFilterValueBody::Text(value) => HealthTableFilterValue::Text(value.text),
+        TableFilterValueBody::List(value) => HealthTableFilterValue::TextList(value.list),
+        TableFilterValueBody::Range(value) => HealthTableFilterValue::Range {
+            start: value.range.start,
+            end: value.range.end,
+        },
+        TableFilterValueBody::Relative(value) => HealthTableFilterValue::Relative {
+            amount: value.relative.amount,
+            unit: value.relative.unit,
+        },
+        TableFilterValueBody::Empty(value) if value.empty => HealthTableFilterValue::Empty,
+        TableFilterValueBody::Empty(_) => return Err(ApiError::validation(Some("filters"))),
+    })
+}
+
+fn table_filter(
+    scope: HealthTableScope,
+    body: TableFilterBody,
+) -> Result<HealthTableFilter, ApiError> {
+    let value = table_value(body.value)?;
+    let invalid = || ApiError::validation(Some("filters"));
+    Ok(match scope {
+        HealthTableScope::Diet => HealthTableFilter::Diet {
+            field: match body.field {
+                TableFilterField::Date => DietTableFilterField::Date,
+                TableFilterField::MealType => DietTableFilterField::MealType,
+                TableFilterField::Food => DietTableFilterField::Food,
+                TableFilterField::Tags => DietTableFilterField::Tags,
+                TableFilterField::HasPhoto => DietTableFilterField::HasPhoto,
+                _ => return Err(invalid()),
+            },
+            operator: body.operator,
+            value,
+        },
+        HealthTableScope::Bowel => HealthTableFilter::Bowel {
+            field: match body.field {
+                TableFilterField::Date => BowelTableFilterField::Date,
+                TableFilterField::BristolScale => BowelTableFilterField::BristolScale,
+                TableFilterField::BloodVisible => BowelTableFilterField::BloodVisible,
+                _ => return Err(invalid()),
+            },
+            operator: body.operator,
+            value,
+        },
+        HealthTableScope::Medication => HealthTableFilter::Medication {
+            field: match body.field {
+                TableFilterField::Date => MedicationTableFilterField::Date,
+                TableFilterField::MedicationName => MedicationTableFilterField::MedicationName,
+                TableFilterField::MedicationUnit => MedicationTableFilterField::MedicationUnit,
+                _ => return Err(invalid()),
+            },
+            operator: body.operator,
+            value,
+        },
+        HealthTableScope::Metrics => HealthTableFilter::Metrics {
+            field: match body.field {
+                TableFilterField::Date => MetricsTableFilterField::Date,
+                TableFilterField::Weight => MetricsTableFilterField::Weight,
+                TableFilterField::Sleep => MetricsTableFilterField::Sleep,
+                TableFilterField::Crp => MetricsTableFilterField::Crp,
+                TableFilterField::Calprotectin => MetricsTableFilterField::Calprotectin,
+                TableFilterField::Condition => MetricsTableFilterField::Condition,
+                _ => return Err(invalid()),
+            },
+            operator: body.operator,
+            value,
+        },
+    })
+}
+
+fn table_sort(scope: HealthTableScope, body: TableSortBody) -> Result<HealthTableSort, ApiError> {
+    let invalid = || ApiError::validation(Some("sorts"));
+    Ok(match scope {
+        HealthTableScope::Diet => HealthTableSort::Diet {
+            field: match body.field {
+                TableSortField::Date => DietTableSortField::Date,
+                TableSortField::MealType => DietTableSortField::MealType,
+                TableSortField::Food => DietTableSortField::Food,
+                TableSortField::Created => DietTableSortField::Created,
+                TableSortField::Updated => DietTableSortField::Updated,
+                _ => return Err(invalid()),
+            },
+            direction: body.direction,
+        },
+        HealthTableScope::Bowel => HealthTableSort::Bowel {
+            field: match body.field {
+                TableSortField::Date => BowelTableSortField::Date,
+                TableSortField::BristolScale => BowelTableSortField::BristolScale,
+                TableSortField::Created => BowelTableSortField::Created,
+                TableSortField::Updated => BowelTableSortField::Updated,
+                _ => return Err(invalid()),
+            },
+            direction: body.direction,
+        },
+        HealthTableScope::Medication => HealthTableSort::Medication {
+            field: match body.field {
+                TableSortField::Date => MedicationTableSortField::Date,
+                TableSortField::MedicationName => MedicationTableSortField::MedicationName,
+                TableSortField::Dose => MedicationTableSortField::Dose,
+                TableSortField::Created => MedicationTableSortField::Created,
+                TableSortField::Updated => MedicationTableSortField::Updated,
+                _ => return Err(invalid()),
+            },
+            direction: body.direction,
+        },
+        HealthTableScope::Metrics => HealthTableSort::Metrics {
+            field: match body.field {
+                TableSortField::Date => MetricsTableSortField::Date,
+                TableSortField::Weight => MetricsTableSortField::Weight,
+                TableSortField::Sleep => MetricsTableSortField::Sleep,
+                TableSortField::Crp => MetricsTableSortField::Crp,
+                TableSortField::Calprotectin => MetricsTableSortField::Calprotectin,
+                TableSortField::Condition => MetricsTableSortField::Condition,
+                _ => return Err(invalid()),
+            },
+            direction: body.direction,
+        },
+    })
+}
+
+fn table_group(
+    scope: HealthTableScope,
+    field: TableGroupField,
+) -> Result<HealthTableGroup, ApiError> {
+    let invalid = || ApiError::validation(Some("group"));
+    Ok(match scope {
+        HealthTableScope::Diet => HealthTableGroup::Diet(match field {
+            TableGroupField::None => DietTableGroup::None,
+            TableGroupField::Month => DietTableGroup::Month,
+            TableGroupField::Week => DietTableGroup::Week,
+            TableGroupField::Day => DietTableGroup::Day,
+            TableGroupField::MealType => DietTableGroup::MealType,
+            TableGroupField::Tag => DietTableGroup::Tag,
+            TableGroupField::HasPhoto => DietTableGroup::HasPhoto,
+            _ => return Err(invalid()),
+        }),
+        HealthTableScope::Bowel => HealthTableGroup::Bowel(match field {
+            TableGroupField::None => BowelTableGroup::None,
+            TableGroupField::Month => BowelTableGroup::Month,
+            TableGroupField::Week => BowelTableGroup::Week,
+            TableGroupField::Day => BowelTableGroup::Day,
+            TableGroupField::BristolScale => BowelTableGroup::BristolScale,
+            TableGroupField::BloodVisible => BowelTableGroup::BloodVisible,
+            _ => return Err(invalid()),
+        }),
+        HealthTableScope::Medication => HealthTableGroup::Medication(match field {
+            TableGroupField::None => MedicationTableGroup::None,
+            TableGroupField::Month => MedicationTableGroup::Month,
+            TableGroupField::Week => MedicationTableGroup::Week,
+            TableGroupField::Day => MedicationTableGroup::Day,
+            TableGroupField::MedicationName => MedicationTableGroup::MedicationName,
+            TableGroupField::MedicationUnit => MedicationTableGroup::MedicationUnit,
+            _ => return Err(invalid()),
+        }),
+        HealthTableScope::Metrics => HealthTableGroup::Metrics(match field {
+            TableGroupField::None => MetricsTableGroup::None,
+            TableGroupField::Month => MetricsTableGroup::Month,
+            TableGroupField::Week => MetricsTableGroup::Week,
+            _ => return Err(invalid()),
+        }),
+    })
 }
 
 async fn list_diet(
@@ -562,6 +1012,10 @@ fn parse_date(value: &str, field: &'static str) -> Result<Date, ApiError> {
         .map_err(|_| ApiError::validation(Some(field)))
 }
 
+fn parse_optional_date(value: Option<&str>, field: &'static str) -> Result<Option<Date>, ApiError> {
+    value.map(|value| parse_date(value, field)).transpose()
+}
+
 fn parse_optional_time(
     value: Option<&str>,
     field: &'static str,
@@ -575,6 +1029,14 @@ fn page(offset: u32, limit: u16) -> Result<Page, ApiError> {
 
 const fn default_limit() -> u16 {
     100
+}
+
+const fn default_table_limit() -> u16 {
+    50
+}
+
+const fn default_filter_mode() -> FilterMode {
+    FilterMode::And
 }
 
 const fn default_trend_days() -> u16 {

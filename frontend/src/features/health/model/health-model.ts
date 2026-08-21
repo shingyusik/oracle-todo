@@ -74,6 +74,45 @@ export type TimelineItem =
   | { kind: "diet"; record: DietEntry }
   | { kind: "health_event"; record: HealthEvent };
 
+export type HealthTableScope =
+  | "health.diet" | "health.bowel" | "health.medication" | "health.metrics";
+export type HealthTableOccurrence =
+  | HealthTableOccurrenceBase<"health.diet", DietTableRecord>
+  | HealthTableOccurrenceBase<"health.bowel", BowelTableRecord>
+  | HealthTableOccurrenceBase<"health.medication", MedicationTableRecord>
+  | HealthTableOccurrenceBase<"health.metrics", HealthMetricsTableRecord>;
+export type HealthTableOccurrenceBase<S extends HealthTableScope, R> = {
+  key: string;
+  groupKey: string | null;
+  groupLabel: string | null;
+  scope: S;
+  record: R;
+};
+export type DietTableRecord = {
+  kind: "diet"; id: string; entry: DietEntry; date: string; mealLabel: string;
+  food: string; tags: string[]; hasPhoto: boolean; note: string;
+};
+export type BowelTableRecord = {
+  kind: "bowel"; id: string; event: HealthEvent; date: string; bristolScale: number;
+  bloodVisible: boolean; bloodLabel: string; note: string;
+};
+export type MedicationTableRecord = {
+  kind: "medication"; id: string; event: HealthEvent; date: string;
+  medicationName: string; dose: number; unit: string; unitLabel: string; note: string;
+};
+export type HealthMetricsTableRecord = {
+  kind: "metrics"; id: string; date: string; events: HealthEvent[];
+  weight: number | null; sleep: number | null; crp: number | null;
+  calprotectin: number | null; condition: number | null; note: string;
+  createdAt: string; updatedAt: string;
+};
+export type HealthLookupOption = { id: string; label: string };
+export type HealthTableLookups = Partial<Record<
+  "meal_type" | "has_photo" | "tags" | "bristol_scale" | "blood_visible"
+  | "medication_unit" | "metric",
+  HealthLookupOption[]
+>>;
+
 export type DietInput = {
   occurredAt: string;
   mealType: MealType;
@@ -187,6 +226,108 @@ export function mapTimelineItem(value: unknown): TimelineItem {
   if (kind === "diet") return { kind, record: mapDietEntry(wire.record) };
   if (kind === "health_event") return { kind, record: mapHealthEvent(wire.record) };
   throw new TypeError("invalid timeline item.kind");
+}
+
+export function mapHealthTablePage(
+  value: unknown,
+  scope: HealthTableScope,
+): { items: HealthTableOccurrence[]; nextOffset: number | null } {
+  const wire = record(value, "health table page");
+  const nextOffset = wire.next_offset === null
+    ? null
+    : rangeInteger(wire.next_offset, "health table page.next_offset", 0, 4_294_967_295);
+  return {
+    items: array(wire.items, "health table page.items").map((item) => {
+      const occurrence = record(item, "health table occurrence");
+      return {
+        key: nonEmptyString(occurrence.key, "health table occurrence.key"),
+        groupKey: nullableString(occurrence.group_key, "health table occurrence.group_key"),
+        groupLabel: nullableString(occurrence.group_label, "health table occurrence.group_label"),
+        scope,
+        record: mapHealthTableRecord(occurrence.record, scope),
+      } as HealthTableOccurrence;
+    }),
+    nextOffset,
+  };
+}
+
+export function mapHealthTableLookups(value: unknown): HealthTableLookups {
+  const wire = record(value, "health table lookups");
+  const result: HealthTableLookups = {};
+  for (const field of [
+    "meal_type", "has_photo", "tags", "bristol_scale", "blood_visible",
+    "medication_unit", "metric",
+  ] as const) {
+    if (wire[field] === undefined) continue;
+    result[field] = array(wire[field], `health table lookups.${field}`).map((item) => {
+      const option = record(item, `health table lookups.${field} option`);
+      return {
+        id: nonEmptyString(option.id, `health table lookups.${field}.id`),
+        label: nonEmptyString(option.label, `health table lookups.${field}.label`),
+      };
+    });
+  }
+  return result;
+}
+
+function mapHealthTableRecord(
+  value: unknown,
+  scope: HealthTableScope,
+): DietTableRecord | BowelTableRecord | MedicationTableRecord | HealthMetricsTableRecord {
+  const wire = record(value, "health table record");
+  const kind = string(wire.kind, "health table record.kind");
+  if (kind !== scope.slice("health.".length)) throw new TypeError("invalid health table record.kind");
+  if (scope === "health.diet") return {
+    kind: "diet",
+    id: uuid(wire.id, "health diet table record.id"),
+    entry: mapDietEntry(wire.entry),
+    date: isoDate(wire.date, "health diet table record.date"),
+    mealLabel: nonEmptyString(wire.meal_label, "health diet table record.meal_label"),
+    food: nonEmptyString(wire.food, "health diet table record.food"),
+    tags: array(wire.tags, "health diet table record.tags")
+      .map((tag) => nonEmptyString(tag, "health diet table record.tags item")),
+    hasPhoto: boolean(wire.has_photo, "health diet table record.has_photo"),
+    note: string(wire.note, "health diet table record.note"),
+  };
+  if (scope === "health.bowel") return {
+    kind: "bowel",
+    id: uuid(wire.id, "health bowel table record.id"),
+    event: mapHealthEvent(wire.event),
+    date: isoDate(wire.date, "health bowel table record.date"),
+    bristolScale: rangeInteger(wire.bristol_scale, "health bowel table record.bristol_scale", 1, 7),
+    bloodVisible: boolean(wire.blood_visible, "health bowel table record.blood_visible"),
+    bloodLabel: nonEmptyString(wire.blood_label, "health bowel table record.blood_label"),
+    note: string(wire.note, "health bowel table record.note"),
+  };
+  if (scope === "health.medication") return {
+    kind: "medication",
+    id: uuid(wire.id, "health medication table record.id"),
+    event: mapHealthEvent(wire.event),
+    date: isoDate(wire.date, "health medication table record.date"),
+    medicationName: nonEmptyString(wire.medication_name, "health medication table record.medication_name"),
+    dose: finiteNumber(wire.dose, "health medication table record.dose"),
+    unit: nonEmptyString(wire.unit, "health medication table record.unit"),
+    unitLabel: nonEmptyString(wire.unit_label, "health medication table record.unit_label"),
+    note: string(wire.note, "health medication table record.note"),
+  };
+  return {
+    kind: "metrics",
+    id: nonEmptyString(wire.id, "health metrics table record.id"),
+    date: isoDate(wire.date, "health metrics table record.date"),
+    events: array(wire.events, "health metrics table record.events").map(mapHealthEvent),
+    weight: nullableNumber(wire.weight, "health metrics table record.weight"),
+    sleep: nullableNumber(wire.sleep, "health metrics table record.sleep"),
+    crp: nullableNumber(wire.crp, "health metrics table record.crp"),
+    calprotectin: nullableNumber(wire.calprotectin, "health metrics table record.calprotectin"),
+    condition: nullableNumber(wire.condition, "health metrics table record.condition"),
+    note: string(wire.note, "health metrics table record.note"),
+    createdAt: timestamp(wire.created_at, "health metrics table record.created_at"),
+    updatedAt: timestamp(wire.updated_at, "health metrics table record.updated_at"),
+  };
+}
+
+function nullableNumber(value: unknown, field: string): number | null {
+  return value === null ? null : finiteNumber(value, field);
 }
 
 export function mapHealthTrends(value: unknown): HealthTrends {

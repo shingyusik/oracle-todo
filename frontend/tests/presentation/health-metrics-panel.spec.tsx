@@ -64,146 +64,17 @@ async function mountedController() {
   return hook;
 }
 
-describe("Health Metrics controller", () => {
+describe("Health Metrics paging", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("drains 200-row daily pages and retains raw API events", async () => {
-    mockBaseReads();
-    const page = Array.from({ length: 200 }, (_, index) => index === 199
-      ? { ...event, id: "custom-daily", metricKey: "custom_lab", name: "Custom lab" }
-      : { ...event, id: `metric-${index}` });
-    let calls = 0;
-    vi.mocked(healthApi.listEvents).mockImplementation(async (query) =>
-      query?.dailyOnly && calls++ === 0 ? page : []);
-
-    const { result } = renderHook(() => useHealthController());
-    await waitFor(() => expect(result.current.state.metricsStatus).toBe("loaded"));
-
-    expect(vi.mocked(healthApi.listEvents).mock.calls.filter(([query]) => query?.dailyOnly))
-      .toEqual([[{ dailyOnly: true, limit: 200, offset: 0 }], [{ dailyOnly: true, limit: 200, offset: 200 }]]);
-    expect(result.current.state.metricsEntries).toEqual(page);
-  });
-
-  it("coalesces ordinary refreshes and keeps loaded rows on failure", async () => {
-    mockBaseReads();
-    vi.mocked(healthApi.listEvents).mockImplementation(async (query) => query?.dailyOnly ? [event] : []);
-    const { result } = await mountedController();
-    const pending = deferred<HealthEvent[]>();
-    vi.mocked(healthApi.listEvents).mockImplementation((query) =>
-      query?.dailyOnly ? pending.promise : Promise.resolve([])).mockClear();
-    let first!: Promise<boolean>; let second!: Promise<boolean>;
-    await act(async () => { first = result.current.refreshMetrics(); second = result.current.refreshMetrics(); await Promise.resolve(); });
-    expect(vi.mocked(healthApi.listEvents).mock.calls.filter(([query]) => query?.dailyOnly)).toHaveLength(1);
-    await act(async () => pending.reject(new Error("Metrics unavailable")));
-    await expect(first).resolves.toBe(false); await expect(second).resolves.toBe(false);
-    expect(result.current.state).toMatchObject({
-      metricsStatus: "loaded", metricsError: "Metrics unavailable", metricsEntries: [event],
-    });
-    vi.mocked(healthApi.listEvents).mockImplementation(async (query) => query?.dailyOnly ? [event] : []);
-    await act(async () => expect(result.current.refreshMetrics()).resolves.toBe(true));
-    expect(result.current.state.metricsError).toBeNull();
-  });
-
-  it.each(["success", "error"] as const)("ignores stale %s after a forced mutation refresh", async (outcome) => {
-    mockBaseReads(); const { result } = await mountedController();
-    const older = deferred<HealthEvent[]>(); const newer = deferred<HealthEvent[]>();
-    vi.mocked(healthApi.listEvents).mockImplementation((query) => {
-      if (!query?.dailyOnly) return Promise.resolve([]);
-      return vi.mocked(healthApi.listEvents).mock.calls.filter(([item]) => item?.dailyOnly).length === 1
-        ? older.promise : newer.promise;
-    }).mockClear();
-    vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([event]);
-    let stale!: Promise<boolean>; let saved!: Promise<void>;
-    await act(async () => { stale = result.current.refreshMetrics(); await Promise.resolve(); saved = result.current.saveMetrics(mutation); await Promise.resolve(); });
-    const savedOutcome = saved.then(() => true, (error: unknown) => error);
-    await act(async () => newer.resolve([event]));
-    await act(async () => outcome === "success" ? older.resolve([{ ...event, id: "stale" }]) : older.reject(new Error("stale")));
-    await expect(stale).resolves.toBe(true); await expect(savedOutcome).resolves.toBe(true);
-    expect(result.current.state.metricsEntries).toEqual([event]);
-    expect(result.current.state.metricsError).toBeNull();
-  });
-
-  it("uses one atomic mutation and exactly one Metrics read", async () => {
-    mockBaseReads(); const save = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([event]);
-    const { result } = await mountedController();
-    vi.mocked(healthApi.listEvents).mockClear();
-
-    await act(async () => result.current.saveMetrics(mutation));
-
-    expect(save).toHaveBeenCalledOnce(); expect(save).toHaveBeenCalledWith(mutation);
-    expect(vi.mocked(healthApi.listEvents).mock.calls.filter(([query]) => query?.dailyOnly)).toHaveLength(1);
-    expect(healthApi.reports).not.toHaveBeenCalled();
-  });
-
-  it.each([true, false])("makes an older Metrics mutation adopt the newer outcome (success: %s)", async (newerOk) => {
-    mockBaseReads(); vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([event]);
-    const { result } = await mountedController();
-    const olderMetrics = deferred<HealthEvent[]>(); const newerMetrics = deferred<HealthEvent[]>();
-    vi.mocked(healthApi.listEvents).mockReset()
-      .mockImplementationOnce(() => olderMetrics.promise).mockImplementationOnce(() => newerMetrics.promise);
-    let first!: Promise<void>; let second!: Promise<void>;
-    await act(async () => { first = result.current.saveMetrics(mutation); await Promise.resolve(); second = result.current.saveMetrics(mutation); await Promise.resolve(); });
-    const outcomes = [first, second].map((promise) => promise.then(() => true, (error: unknown) => error));
-    await act(async () => {
-      if (newerOk) newerMetrics.resolve([event]); else newerMetrics.reject(new Error("newer failed"));
-    });
-    await act(async () => { olderMetrics.resolve([{ ...event, id: "stale" }]); });
-    for (const outcome of outcomes) {
-      if (newerOk) await expect(outcome).resolves.toBe(true);
-      else await expect(outcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
-    }
-    expect(result.current.state.metricsEntries).toEqual(newerOk ? [event] : []);
-  });
-
-  it("recovers a committed mutation after the Metrics read fails without resubmitting", async () => {
-    mockBaseReads(); const save = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([event]);
-    const { result } = await mountedController();
-    vi.mocked(healthApi.listEvents).mockClear();
-    vi.mocked(healthApi.listEvents).mockRejectedValueOnce(new Error("failed"));
-
-    await act(async () => expect(result.current.saveMetrics(mutation)).rejects.toBeInstanceOf(HealthMutationRefreshError));
-    await act(async () => expect(result.current.refreshMetrics()).resolves.toBe(true));
-
-    expect(save).toHaveBeenCalledOnce();
-    expect(vi.mocked(healthApi.listEvents).mock.calls.filter(([query]) => query?.dailyOnly)).toHaveLength(2);
-  });
-
-  it("includes Metrics once in aggregate refresh and excludes it from category mutations", async () => {
-    mockBaseReads(); vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-    const { result } = await mountedController();
-    vi.mocked(healthApi.listEvents).mockClear();
-    await act(async () => expect(result.current.refresh()).resolves.toBe(true));
-    expect(vi.mocked(healthApi.listEvents).mock.calls.filter(([query]) => query?.dailyOnly)).toHaveLength(1);
-    vi.mocked(healthApi.listEvents).mockClear();
-    await act(async () => result.current.createBowel({ occurredAt: event.occurredAt,
-      details: { kind: "bowel", bristolScale: 4, bloodVisible: false } }));
-    expect(vi.mocked(healthApi.listEvents).mock.calls.filter(([query]) => query?.dailyOnly)).toHaveLength(0);
-  });
-
-  it.each(["diet", "bowel", "medication"] as const)("does not leak a daily-only read into %s mutations", async (kind) => {
-    mockBaseReads();
-    vi.spyOn(healthApi, "createDiet").mockResolvedValue({
-      id: "diet-1", occurredAt: event.occurredAt, mealType: "lunch", foodName: "Rice",
-      note: null, tags: [], mediaId: null, createdAt: event.createdAt,
-      updatedAt: event.updatedAt, deletedAt: null,
-    });
-    vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-    const { result } = await mountedController();
-    vi.mocked(healthApi.listEvents).mockClear();
-    await act(async () => {
-      if (kind === "diet") await result.current.createDiet({
-        occurredAt: event.occurredAt, mealType: "lunch", foodName: "Rice",
-      });
-      else if (kind === "bowel") await result.current.createBowel({
-        occurredAt: event.occurredAt,
-        details: { kind: "bowel", bristolScale: 4, bloodVisible: false },
-      });
-      else if (kind === "medication") await result.current.createMedication({
-        occurredAt: event.occurredAt,
-        details: { kind: "medication", medicationName: "Vitamin D", dose: 1, unit: "tablet" },
-      });
-    });
-    expect(vi.mocked(healthApi.listEvents).mock.calls.filter(([query]) => query?.dailyOnly)).toHaveLength(0);
+  it("requests only the scoped first table page on mount", async () => {
+    const legacy = vi.spyOn(healthApi, "listEvents");
+    const health = panelController();
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn(async () => false)} />);
+    await waitFor(() => expect(health.ensureTable).toHaveBeenCalledWith("health.metrics"));
+    expect(legacy).not.toHaveBeenCalled();
   });
 });
 
@@ -235,7 +106,16 @@ function panelController(entries: HealthEvent[] = [weight, sleep, event, calprot
     state, tableViewSaveError: null, tableViewConfirmation: null,
     retryTableViewSave: vi.fn(), tableTabs: vi.fn(() => ({ tabs: [{ id: "metrics", name: "Table", settings }],
       activeTabId: "metrics", draftSettings: settings })), tableSettings: vi.fn(() => settings),
-    tableIsDirty: vi.fn(() => false), updateTableSettings: vi.fn(), selectTableTab: vi.fn(),
+    tableIsDirty: vi.fn(() => false),
+    tablePage: vi.fn(function (this: HealthController) { const status = this.state.metricsStatus; return {
+      items: metricsOccurrences(this.state.metricsEntries, this.tableSettings("health.metrics")),
+      nextOffset: status === "error" ? 0 : null,
+      moreStatus: status === "loading" ? "loading" as const : status === "error" ? "error" as const : "idle" as const,
+      moreError: this.state.metricsError, generation: status === "loading" ? 0 : 1,
+    }; }),
+    ensureTable: vi.fn().mockResolvedValue(undefined), loadMore: vi.fn().mockResolvedValue(undefined),
+    ensureReferenceData: vi.fn().mockResolvedValue(true), hasReferenceData: vi.fn(() => false),
+    updateTableSettings: vi.fn(), selectTableTab: vi.fn(),
     saveTableTab: vi.fn(), createTableTab: vi.fn(() => true), renameTableTab: vi.fn(() => true),
     requestDeleteTableTab: vi.fn(), confirmTableViewAction: vi.fn(), cancelTableViewAction: vi.fn(),
     refresh: vi.fn(), refreshMetrics: vi.fn(), refreshMedication: vi.fn(), refreshBowel: vi.fn(),
@@ -247,8 +127,59 @@ function panelController(entries: HealthEvent[] = [weight, sleep, event, calprot
   };
 }
 
+function metricsOccurrences(entries: readonly HealthEvent[], settings: ReturnType<typeof defaultHealthTableSettings>) {
+  return deriveHealthMetricsGroups(entries, settings).flatMap((group) => group.rows.map((row) => ({
+    key: `${group.key}:${row.id}`, scope: "health.metrics" as const,
+    groupKey: group.label === null ? null : group.key, groupLabel: group.label,
+    record: { kind: "metrics" as const, id: row.id, date: row.date,
+      events: Object.values(row.events).filter((event): event is HealthEvent => event !== undefined),
+      weight: row.weight, sleep: row.sleep, crp: row.crp, calprotectin: row.calprotectin,
+      condition: row.condition, note: row.note, createdAt: row.createdAt, updatedAt: row.updatedAt },
+  })));
+}
+
 describe("Health Metrics table", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("keeps only the latest Health Metrics row intent while reference data is pending", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const health = panelController();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
+    await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
+    await act(async () => pending.resolve(true));
+    expect(screen.getByRole("heading", { name: /Health Metrics ·/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("row", { name: /Open health metrics/ });
+    expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull();
+  });
+
+  it("invalidates a pending Health Metrics action when the current view generation resets", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    const page = health.tablePage("health.metrics");
+    let generation = page.generation;
+    health.tablePage = vi.fn(() => ({ ...page, generation }));
+    const pending = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
+    generation += 1;
+    view.rerender(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
+      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
+      onRetryRefresh={vi.fn()} />);
+    await act(async () => pending.resolve(true));
+
+    expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull();
+  });
 
   it("opens a daily detail and saves one changed metric plus one cleared metric atomically", async () => {
     const user = userEvent.setup();

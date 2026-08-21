@@ -8,12 +8,19 @@ import {
   type HealthEvent,
   type HealthEventDetailsInput,
   type HealthTrends,
+  type HealthTableLookups,
+  type HealthTableScope,
   type TimelineItem,
   mapDietEntry,
   mapHealthEvent,
   mapHealthTrends,
+  mapHealthTableLookups,
+  mapHealthTablePage,
   mapTimelineItem,
 } from "@/features/health/model/health-model";
+import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
+import { localCalendarDate } from "@/features/workbench/model/planner-model";
+import { tableFilterValue } from "@/features/workbench/model/table-query";
 import {
   mapHealthReport,
   type HealthReport,
@@ -55,8 +62,45 @@ export type DailyMetricsMutation = {
   metrics: DailyMetricInput[];
   archives: DailyMetricArchiveInput[];
 };
+export type HealthTablePage = ReturnType<typeof mapHealthTablePage>;
 
 export const healthApi = {
+  async queryTable(
+    scope: HealthTableScope,
+    settings: PlannerTableSettings,
+    offset = 0,
+    referenceDate: Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date(),
+  ): Promise<HealthTablePage> {
+    return mapHealthTablePage(await requestJson(
+      `${ROOT}/table/query`,
+      jsonRequest("POST", {
+        scope,
+        offset,
+        limit: 50,
+        filter_mode: settings.filterMode,
+        filters: settings.filterRules.map((rule) => ({
+          field: rule.field,
+          operator: rule.operator,
+          value: tableFilterValue(rule.value, rule.operator),
+        })),
+        sorts: settings.sortRules.map((rule) => ({
+          field: rule.field,
+          direction: rule.direction,
+        })),
+        group_by: settings.groupSettings.groupBy,
+        group_settings: {
+          sort: settings.groupSettings.sort,
+          hide_empty: settings.groupSettings.hideEmpty,
+          manual_order: settings.groupSettings.manualOrder,
+          hidden_group_keys: settings.groupSettings.hiddenGroupKeys,
+        },
+        context: { reference_date: localCalendarDate(referenceDate) },
+      }),
+    ), scope);
+  },
+  async tableLookups(scope: HealthTableScope): Promise<HealthTableLookups> {
+    return mapHealthTableLookups(await requestJson(apiPath(`${ROOT}/table/lookups`, { scope })));
+  },
   async listDiet(query: PageQuery = {}): Promise<DietEntry[]> {
     return mapItems(
       await requestJson(apiPath(`${ROOT}/diet`, query)),

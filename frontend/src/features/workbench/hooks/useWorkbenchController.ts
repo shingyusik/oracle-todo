@@ -13,6 +13,11 @@ import {
 } from "@/domain/workbench/navigation";
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import {
+  loadTodoTableLookups,
+  plannerTodoTableScope,
+  queryTodoTable,
+} from "@/features/workbench/api/table-api";
+import {
   type CreateWorkspaceItemForm,
   type LegacyPlannerControls,
   type MaterializeRoutineTarget,
@@ -24,6 +29,12 @@ import {
   type PostponeResult,
   type TableViewTabConfirmation,
   type TableViewTarget,
+  type TodoTableTarget,
+  type TodoTableLookups,
+  type TodoTableContext,
+  type TodoTableOccurrence,
+  type TodoTablePageState,
+  type TodoTableScope,
   type WorkbenchController,
   type WorkspaceItemModel,
   type WorkspaceItemPatch,
@@ -44,7 +55,9 @@ import {
   addYears,
   clonePlannerTableSettings,
   isoWeekStart,
+  localCalendarDate,
   monthStart,
+  plannerTableVisibleRange,
   plannerTableIds,
   type PlannerTableId,
   type PlannerTableSettings,
@@ -107,14 +120,6 @@ const workspaceItemTypes: Partial<Record<LeafTabId, string>> = {
   tasks: "task",
   events: "event",
   goals: "goal",
-};
-
-const relatedItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
-  projects: ["area"],
-  routines: ["area", "project"],
-  tasks: ["area", "project", "routine"],
-  events: ["area", "project"],
-  goals: ["area", "goal"],
 };
 
 const plannerItemTypes: Partial<Record<LeafTabId, WorkspaceItemType[]>> = {
@@ -497,6 +502,42 @@ function plannerDateForPanel(panelId: LeafTabId, planner: PlannerControls): stri
   return planner.date;
 }
 
+function plannerPeriodForTable(
+  tableId: PlannerTableId,
+  planner: PlannerControls,
+): { from: string; to: string } {
+  const date = tableId.startsWith("yearly.") ? planner.yearlyDate
+    : tableId.startsWith("monthly.") ? planner.monthlyDate
+      : tableId.startsWith("weekly.") ? planner.weeklyDate
+        : planner.dailyDate;
+  return plannerTableVisibleRange(tableId, date);
+}
+
+function todoTableKey(
+  scope: TodoTableScope,
+  context: TodoTableContext,
+  settings: PlannerTableSettings,
+): string {
+  return JSON.stringify({
+    scope,
+    context,
+    filterMode: settings.filterMode,
+    filters: settings.filterRules.map(({ field, operator, value }) => ({ field, operator, value })),
+    sorts: settings.sortRules.map(({ field, direction }) => ({ field, direction })),
+    group: settings.groupSettings,
+  });
+}
+
+function todoTableTargetIdentity(target: TodoTableTarget): string {
+  if (target.surface === "planner") return `planner:${target.tableId}`;
+  return `${target.surface}:${target.scope}`;
+}
+
+function dedupeTodoOccurrences(items: TodoTableOccurrence[]): TodoTableOccurrence[] {
+  const seen = new Set<string>();
+  return items.filter((item) => !seen.has(item.key) && Boolean(seen.add(item.key)));
+}
+
 function withActivePlannerPeriod(
   planner: PlannerControls,
   panelId: LeafTabId,
@@ -771,6 +812,17 @@ export function useWorkbenchController(): WorkbenchController {
   const [workspaceViews, setWorkspaceViewsState] =
     useState<WorkspaceTableViewsState>(() => createDefaultWorkspaceViews());
   const workspaceViewsStateRef = useRef(workspaceViews);
+  const [todoTablePages, setTodoTablePages] = useState<Record<string, TodoTablePageState>>({});
+  const todoTablePagesRef = useRef(todoTablePages);
+  const initializedTodoTables = useRef(new Set<string>());
+  const activeTodoTargets = useRef(new Map<string, TodoTableTarget>());
+  const pendingTodoMore = useRef(new Set<string>());
+  const todoReferenceLoaded = useRef(false);
+  const todoReferenceGeneration = useRef(0);
+  const pendingTodoReference = useRef<Promise<boolean> | null>(null);
+  const todoItemSnapshots = useRef(new Map<string, WorkspaceItemModel>());
+  const [todoLookups, setTodoLookups] = useState<Partial<Record<TodoTableScope, TodoTableLookups>>>({});
+  todoTablePagesRef.current = todoTablePages;
   const setWorkspaceViews = (
     update:
       | WorkspaceTableViewsState
@@ -801,7 +853,6 @@ export function useWorkbenchController(): WorkbenchController {
   const [dashboardReload, setDashboardReload] = useState(0);
   const pendingDashboardDetail = useRef<PendingDashboardDetail | null>(null);
   const pendingTaskCreation = useRef(false);
-  const workspaceRequestId = useRef(0);
   const itemMutationTails = useRef(new Map<string, Promise<void>>());
   const itemTransitions = useRef(
     new Map<
@@ -821,7 +872,129 @@ export function useWorkbenchController(): WorkbenchController {
     Record<string, WorkspaceItemTransitionState>
   >({});
 
+  const todoTableDescriptor = (target: TodoTableTarget) => {
+    let scope: TodoTableScope;
+    let context: TodoTableContext;
+    let settings: PlannerTableSettings;
+    if (target.surface === "workspace") {
+      scope = target.scope;
+      context = { kind: "workspace" };
+      settings = workspaceTableTabsFor(workspaceViewsStateRef.current, target.scope).draftSettings;
+    } else if (target.surface === "planner") {
+      scope = plannerTodoTableScope(target.tableId);
+      const period = plannerPeriodForTable(target.tableId, plannerStateRef.current);
+      context = { kind: "planner", ...period };
+      settings = plannerStateRef.current.tableTabs[target.tableId].draftSettings;
+    } else {
+      scope = target.scope;
+      context = { kind: "linked", parentType: target.parentType, parentId: target.parentId };
+      const parts = target.scope.split(".");
+      const settingsScope = `detail.${parts[1]}.${parts[2]}` as WorkspaceTableScopeId;
+      settings = workspaceTableTabsFor(workspaceViewsStateRef.current, settingsScope).draftSettings;
+    }
+    return { scope, context, settings, key: todoTableKey(scope, context, settings) };
+  };
+
+  const emptyTodoPage = (
+    generation = 0,
+    referenceDate = localCalendarDate(new Date()),
+  ): TodoTablePageState => ({
+    items: [], nextOffset: 0, moreStatus: "idle", moreError: null, generation, referenceDate,
+  });
+  const rememberTodoItems = (items: WorkspaceItemModel[]) => {
+    for (const item of items) todoItemSnapshots.current.set(item.id, item);
+  };
+  const setTodoPage = (key: string, page: TodoTablePageState, remember = true) => {
+    if (remember) rememberTodoItems(page.items.map((occurrence) => occurrence.record));
+    todoTablePagesRef.current = { ...todoTablePagesRef.current, [key]: page };
+    setTodoTablePages(todoTablePagesRef.current);
+  };
+  const ensureTodoTable = async (target: TodoTableTarget): Promise<void> => {
+    const descriptor = todoTableDescriptor(target);
+    activeTodoTargets.current.set(todoTableTargetIdentity(target), target);
+    if (initializedTodoTables.current.has(descriptor.key)) return;
+    initializedTodoTables.current.add(descriptor.key);
+    const previous = todoTablePagesRef.current[descriptor.key] ?? emptyTodoPage();
+    const retry = previous.generation > 0 && previous.nextOffset === 0 && previous.moreStatus === "error";
+    const generation = retry ? previous.generation : previous.generation + 1;
+    const referenceDate = retry ? previous.referenceDate : localCalendarDate(new Date());
+    setTodoPage(descriptor.key, retry
+      ? { ...previous, moreStatus: "loading", moreError: null }
+      : previous.items.length > 0
+        ? { ...previous, nextOffset: 0, moreStatus: "loading", moreError: null, generation, referenceDate }
+        : { ...emptyTodoPage(generation, referenceDate), moreStatus: "loading" }, false);
+    try {
+      const [page, lookups] = await Promise.all([
+        queryTodoTable({ ...descriptor, offset: 0 }, referenceDate),
+        loadTodoTableLookups(descriptor.scope),
+      ]);
+      if (todoTablePagesRef.current[descriptor.key]?.generation !== generation) return;
+      setTodoPage(descriptor.key, { items: dedupeTodoOccurrences(page.items), nextOffset: page.nextOffset, moreStatus: "idle", moreError: null, generation, referenceDate });
+      setTodoLookups((current) => ({ ...current, [descriptor.scope]: lookups }));
+    } catch {
+      if (todoTablePagesRef.current[descriptor.key]?.generation !== generation) return;
+      initializedTodoTables.current.delete(descriptor.key);
+      setTodoPage(descriptor.key, { ...previous, nextOffset: 0, moreStatus: "error", moreError: "Could not load rows.", generation, referenceDate });
+    }
+  };
+  const loadMoreTodoTable = async (target: TodoTableTarget): Promise<void> => {
+    const descriptor = todoTableDescriptor(target);
+    const current = todoTablePagesRef.current[descriptor.key] ?? emptyTodoPage();
+    const pendingKey = `${descriptor.key}:${current.generation}`;
+    if (current.nextOffset === null || pendingTodoMore.current.has(pendingKey)) return;
+    pendingTodoMore.current.add(pendingKey);
+    const offset = current.nextOffset;
+    const generation = current.generation;
+    setTodoPage(descriptor.key, { ...current, moreStatus: "loading", moreError: null });
+    try {
+      const page = await queryTodoTable({ ...descriptor, offset }, current.referenceDate);
+      if (todoTablePagesRef.current[descriptor.key]?.generation !== generation) return;
+      setTodoPage(descriptor.key, { ...current, items: dedupeTodoOccurrences([...current.items, ...page.items]), nextOffset: page.nextOffset, moreStatus: "idle", moreError: null });
+    } catch {
+      if (todoTablePagesRef.current[descriptor.key]?.generation !== generation) return;
+      setTodoPage(descriptor.key, { ...current, moreStatus: "idle", moreError: "Could not load more rows." });
+    } finally {
+      pendingTodoMore.current.delete(pendingKey);
+    }
+  };
+  const ensureTodoReferenceData = (): Promise<boolean> => {
+    if (todoReferenceLoaded.current) return Promise.resolve(true);
+    if (pendingTodoReference.current) return pendingTodoReference.current;
+    const generation = todoReferenceGeneration.current;
+    const request = fetchAllWorkspaceItems().then((allItems) => {
+      if (todoReferenceGeneration.current !== generation) return false;
+      rememberTodoItems(allItems);
+      todoReferenceLoaded.current = true;
+      setWorkspaceItems((current) => ({
+        ...current,
+        allItems,
+        tagOptions: collectTagOptions(allItems),
+        relatedItems: buildRelatedItems(allItems),
+      }));
+      return true;
+    }).catch(() => false).finally(() => {
+      if (pendingTodoReference.current === request) pendingTodoReference.current = null;
+    });
+    pendingTodoReference.current = request;
+    return request;
+  };
+  const reloadInitializedTodoTables = (): void => {
+    todoReferenceLoaded.current = false;
+    todoReferenceGeneration.current += 1;
+    pendingTodoReference.current = null;
+    const targets = [...activeTodoTargets.current.values()];
+    const invalidated = Object.fromEntries(Object.entries(todoTablePagesRef.current).map(
+      ([key, page]) => [key, { ...page, generation: page.generation + 1 }],
+    ));
+    todoTablePagesRef.current = invalidated;
+    setTodoTablePages(invalidated);
+    initializedTodoTables.current.clear();
+    if (targets.length === 0) return;
+    for (const target of targets) void ensureTodoTable(target);
+  };
+
   const applySharedItem = (updated: WorkspaceItemModel) => {
+    rememberTodoItems([updated]);
     setWorkspaceItems((current) => ({
       ...current,
       items: replaceWorkspaceItem(current.items, updated),
@@ -848,7 +1021,11 @@ export function useWorkbenchController(): WorkbenchController {
     mutation: () => Promise<Result>,
   ): Promise<Result> => {
     const previous = itemMutationTails.current.get(itemId);
-    const operation = previous ? previous.then(mutation, mutation) : mutation();
+    const source = previous ? previous.then(mutation, mutation) : mutation();
+    const operation = source.then((result) => {
+      reloadInitializedTodoTables();
+      return result;
+    });
     const tail = operation.then(() => undefined, () => undefined);
     itemMutationTails.current.set(itemId, tail);
     void tail.then(() => {
@@ -1033,105 +1210,51 @@ export function useWorkbenchController(): WorkbenchController {
 
   useEffect(() => {
     if (selection.leafTabId === "dashboard") {
-      let cancelled = false;
       setWorkspaceItems({ ...emptyWorkspaceItems, status: "loading" });
 
       void fetchAllWorkspaceItems()
         .then((allItems) => {
-          if (!cancelled) {
-            setWorkspaceItems({
+          rememberTodoItems(allItems);
+          todoReferenceLoaded.current = true;
+          const leaf = selectionStateRef.current.leafTabId;
+          setWorkspaceItems({
               status: "loaded",
-              items: [],
+              items: allItems.filter((item) => {
+                const type = workspaceItemTypes[leaf];
+                const plannerTypes = plannerItemTypes[leaf];
+                return type ? item.type === type : Boolean(plannerTypes?.includes(item.type as WorkspaceItemType));
+              }),
               allItems,
               tagOptions: collectTagOptions(allItems),
               relatedItems: buildRelatedItems(allItems),
             });
-          }
         })
         .catch(() => {
-          if (!cancelled) {
+          if (selectionStateRef.current.leafTabId === "dashboard") {
             setWorkspaceItems({ ...emptyWorkspaceItems, status: "error" });
           }
         });
-
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const itemType = workspaceItemTypes[selection.leafTabId];
-    const plannerTypes = plannerItemTypes[selection.leafTabId];
-    const requestedTypes = itemType
-      ? [itemType, ...(relatedItemTypes[selection.leafTabId] ?? [])]
-      : plannerTypes;
-
-    if (!requestedTypes || requestedTypes.length === 0) {
-      setWorkspaceItems(emptyWorkspaceItems);
       return;
     }
 
-    let cancelled = false;
-    const requestId = workspaceRequestId.current + 1;
-    workspaceRequestId.current = requestId;
-    const pendingDetail =
-      pendingDashboardDetail.current?.targetLeafTabId === selection.leafTabId
-        ? {
-            ...pendingDashboardDetail.current,
-            requestId,
-          }
-        : null;
-    if (pendingDetail) {
-      pendingDashboardDetail.current = pendingDetail;
+    const pendingDetail = pendingDashboardDetail.current;
+    setWorkspaceItems((current) => ({
+      ...current,
+      status: "loaded",
+      items: current.allItems.filter((item) => {
+        const type = workspaceItemTypes[selection.leafTabId];
+        const plannerTypes = plannerItemTypes[selection.leafTabId];
+        return type ? item.type === type : Boolean(plannerTypes?.includes(item.type as WorkspaceItemType));
+      }),
+      relatedItems: buildRelatedItems(current.allItems),
+      tagOptions: collectTagOptions(current.allItems),
+    }));
+    if (pendingDetail?.targetLeafTabId === selection.leafTabId) {
+      pendingDashboardDetail.current = null;
+      setDetailPage(
+        workspaceItems.allItems.find((item) => item.id === pendingDetail.itemId) ?? null,
+      );
     }
-    setWorkspaceItems({ ...emptyWorkspaceItems, status: "loading" });
-
-    Promise.all([...requestedTypes.map(fetchWorkspaceItems), fetchAllWorkspaceItems()])
-      .then((responses) => {
-        if (!cancelled) {
-          const allItems = responses[responses.length - 1] ?? [];
-          const typedResponses = responses.slice(0, -1);
-          const plannerRelatedItems = plannerTypes ? typedResponses.flat() : null;
-          const plannerItems = plannerRelatedItems
-            ? plannerRelatedItems.filter((item) =>
-                item.type === "goal" || item.type === "task" || item.type === "event",
-              )
-            : null;
-          const [items, ...relatedItems] = typedResponses;
-          setWorkspaceItems({
-            status: "loaded",
-            items: plannerItems ?? items,
-            allItems,
-            tagOptions: collectTagOptions(allItems),
-            relatedItems: buildRelatedItems(
-              plannerRelatedItems ?? relatedItems.flat(),
-            ),
-          });
-          if (
-            pendingDetail &&
-            pendingDashboardDetail.current?.requestId === requestId
-          ) {
-            pendingDashboardDetail.current = null;
-            setDetailPage(
-              allItems.find((item) => item.id === pendingDetail.itemId) ?? null,
-            );
-          }
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          if (pendingDashboardDetail.current?.requestId === requestId) {
-            pendingDashboardDetail.current = null;
-          }
-          setWorkspaceItems({ ...emptyWorkspaceItems, status: "error" });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      if (pendingDashboardDetail.current?.requestId === requestId) {
-        pendingDashboardDetail.current = null;
-      }
-    };
   }, [dashboardReload, selection.leafTabId]);
 
   const requestSelection = (nextSelection: WorkbenchSelection): void => {
@@ -1458,6 +1581,18 @@ export function useWorkbenchController(): WorkbenchController {
     plannerCreationContext,
     plannerCreationAnalysis,
     detailItem,
+    todoTablePage: (target) => {
+      const { key } = todoTableDescriptor(target);
+      return todoTablePages[key] ?? emptyTodoPage();
+    },
+    ensureTodoTable,
+    releaseTodoTable: (target) => {
+      activeTodoTargets.current.delete(todoTableTargetIdentity(target));
+    },
+    loadMoreTodoTable,
+    ensureTodoReferenceData,
+    resolveTodoItem: (itemId) => todoItemSnapshots.current.get(itemId) ?? null,
+    todoTableLookups: (scope) => todoLookups[scope] ?? null,
     selectTab: (tabId: WorkbenchTabId) => {
       pendingTaskCreation.current = false;
       const currentSelection = selectionStateRef.current;
@@ -1532,6 +1667,7 @@ export function useWorkbenchController(): WorkbenchController {
       }));
       setSelectedItemIds(failedIds);
       setArchiveConfirmationOpen(false);
+      if (archivedIds.length > 0) reloadInitializedTodoTables();
     },
     openCreationDialog: () => {
       setPlannerCreationContext(null);
@@ -1595,6 +1731,7 @@ export function useWorkbenchController(): WorkbenchController {
       setDetailPage(item);
       setCreationDialogOpen(false);
       setPlannerCreationContext(null);
+      reloadInitializedTodoTables();
     },
     openDetailView: (item) => setDetailPage(item),
     patchWorkspaceItem: (itemId, patch) =>
@@ -1834,7 +1971,7 @@ export function useWorkbenchController(): WorkbenchController {
       const existing = itemTransitions.current.get(itemId);
       if (existing) return existing.promise;
 
-      const transition = (async () => {
+      const transition = enqueueItemMutation(itemId, async () => {
         const source = await postMissItem(itemId);
         setDetailItem((current) => applyMutationToDetail(current, { source }));
         setWorkspaceItems((current) => {
@@ -1851,7 +1988,7 @@ export function useWorkbenchController(): WorkbenchController {
             tagOptions: mergeTagOptions(current.tagOptions, source.tags),
           };
         });
-      })();
+      });
       itemTransitions.current.set(itemId, {
         promise: transition,
         detailGeneration: null,
@@ -1886,7 +2023,7 @@ export function useWorkbenchController(): WorkbenchController {
       const existing = itemTransitions.current.get(itemId);
       if (existing) return existing.promise;
 
-      const transition = (async () => {
+      const transition = enqueueItemMutation(itemId, async () => {
         const result = await postPostponeItem(itemId, scheduled);
         setDetailItem((current) => applyMutationToDetail(current, result));
         setWorkspaceItems((current) => {
@@ -1909,7 +2046,7 @@ export function useWorkbenchController(): WorkbenchController {
             ),
           };
         });
-      })();
+      });
       itemTransitions.current.set(itemId, {
         promise: transition,
         detailGeneration: null,
@@ -1962,6 +2099,7 @@ export function useWorkbenchController(): WorkbenchController {
           tagOptions: mergeTagOptions(current.tagOptions, routine.tags),
         };
       });
+      reloadInitializedTodoTables();
 
       return created;
     },
@@ -1984,18 +2122,6 @@ export function useWorkbenchController(): WorkbenchController {
     },
     closeDetailView: () => setDetailPage(null),
   };
-}
-
-function fetchWorkspaceItems(
-  itemType: WorkspaceItemType | string,
-): Promise<WorkspaceItemModel[]> {
-  return fetch(`/api/v1/todo/items?type=${itemType}`).then((response) => {
-    if (!response.ok) {
-      throw new Error(`Raven ToDo API returned ${response.status}`);
-    }
-
-    return response.json();
-  });
 }
 
 function fetchAllWorkspaceItems(): Promise<WorkspaceItemModel[]> {

@@ -2,10 +2,12 @@
 
 import React, { useLayoutEffect, useRef } from "react";
 
+import type { LedgerTablePageState } from "@/features/ledger/hooks/useLedgerController";
 import type {
   CategoryRow,
   CategoryRowGroup,
 } from "@/features/ledger/model/category-table";
+import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
 
 type CategoriesTableProps = {
   groups: CategoryRowGroup[];
@@ -14,6 +16,9 @@ type CategoriesTableProps = {
   onOpen: (row: CategoryRow) => void;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
+  page?: LedgerTablePageState;
+  onLoadMore?: () => void;
+  emptyMessage?: string;
 };
 
 export function CategoriesTable({
@@ -23,6 +28,9 @@ export function CategoriesTable({
   onOpen,
   onToggle,
   onToggleAll,
+  page = emptyPage,
+  onLoadMore = noop,
+  emptyMessage,
 }: CategoriesTableProps) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap((group) => group.rows);
@@ -56,20 +64,32 @@ export function CategoriesTable({
             <th scope="col">Parent category</th>
           </tr>
         </thead>
-        <CategoryTableBody
+        {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : <CategoryTableBody
           groups={groups}
           rows={rows}
           selectedIds={selectedIds}
-          emptyMessage={activeRowCount === 0
+          emptyMessage={emptyMessage ?? (activeRowCount === 0
             ? "No categories yet."
-            : "No categories match this view."}
+            : "No categories match this view.")}
           onOpen={onOpen}
           onToggle={onToggle}
+        />}
+        <InfiniteTableFooter
+          nextOffset={page.nextOffset}
+          status={page.moreStatus}
+          error={page.moreError}
+          loadMore={onLoadMore}
+          columnCount={4}
         />
       </table>
     </section>
   );
 }
+
+const emptyPage: LedgerTablePageState = {
+  items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+};
+const noop = () => undefined;
 
 function CategoryTableBody({
   groups,

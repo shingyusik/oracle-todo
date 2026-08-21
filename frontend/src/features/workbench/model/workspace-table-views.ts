@@ -26,6 +26,7 @@ import type {
 import type {
   WorkspaceItemModel,
   WorkspaceItemsModel,
+  TodoTableOccurrence,
 } from "@/features/workbench/model/workbench-model";
 
 export const workspaceTableScopeIds = [
@@ -50,6 +51,20 @@ export type WorkspaceViewGroup = {
   label: string;
   items: WorkspaceItemModel[];
 };
+
+export function deriveWorkspaceOccurrenceGroups(
+  occurrences: TodoTableOccurrence[],
+): WorkspaceViewGroup[] {
+  const groups: WorkspaceViewGroup[] = [];
+  for (const occurrence of occurrences) {
+    const key = occurrence.groupKey ?? "all";
+    const label = occurrence.groupLabel ?? "";
+    const previous = groups.at(-1);
+    if (previous?.key === key && previous.label === label) previous.items.push(occurrence.record);
+    else groups.push({ key, label, items: [occurrence.record] });
+  }
+  return groups;
+}
 
 export type CollapsedWorkspaceGroups = {
   groups: WorkspaceViewGroup[];

@@ -1,4 +1,7 @@
 use crate::application::error::TodoResult;
+use crate::application::table::{
+    TablePage, TodoTableLookup, TodoTableQuery, TodoTableRow, TodoTableScope,
+};
 #[cfg(doc)]
 use crate::domain::OPEN_STATUSES;
 use crate::domain::{ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status};
@@ -32,6 +35,10 @@ pub trait TodoStore: TodoRepository + EventRepository {
     /// Persist every item/event pair as one atomic unit. On error, none of the
     /// supplied items or events may remain visible.
     fn save_items_and_events(&mut self, writes: &[(TodoItem, TodoEvent)]) -> TodoResult<()>;
+
+    fn query_table(&mut self, query: &TodoTableQuery) -> TodoResult<TablePage<TodoTableRow>>;
+
+    fn table_lookups(&mut self, scope: TodoTableScope) -> TodoResult<Vec<TodoTableLookup>>;
 }
 
 #[derive(Clone, Debug, Default)]

@@ -4,12 +4,12 @@ import React, { useEffect, useRef, useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {
-  defaultLedgerTableSettings,
-} from "@/features/ledger/model/ledger-table-views";
-import {
   deriveAccountGroups,
   type AccountRow,
+  type AccountRowGroup,
 } from "@/features/ledger/model/account-table";
+import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
+import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
 import { AccountCreateDialog } from "@/features/ledger/ui/AccountCreateDialog";
 import { AccountDetail } from "@/features/ledger/ui/AccountDetail";
 import { AccountSettingsDialog } from "@/features/ledger/ui/AccountSettingsDialog";
@@ -19,7 +19,7 @@ import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 export function AccountsPanel({ controller }: { controller: LedgerController }) {
-  const [selectedDetailId, setSelectedDetailId] = useState<string | null>(null);
+  const [selectedDetailRow, setSelectedDetailRow] = useState<AccountRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -31,37 +31,52 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
-  const groups = deriveAccountGroups(
-    controller.state.accounts,
-    controller.state.balances,
-    controller.state.accountCategories,
-    controller.tableSettings("ledger.accounts"),
-  );
+  const page = controller.tablePage?.("ledger.accounts") ?? {
+    items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+  };
+  const groups = controller.tablePage
+    ? accountGroups(page.items.filter(isAccountOccurrence))
+    : deriveAccountGroups(
+      controller.state.accounts,
+      controller.state.balances,
+      controller.state.accountCategories,
+      controller.tableSettings("ledger.accounts"),
+    );
   const visibleRows = groups.flatMap((group) => group.rows);
-  const activeRows = deriveAccountGroups(
-    controller.state.accounts,
-    controller.state.balances,
-    controller.state.accountCategories,
-    defaultLedgerTableSettings("ledger.accounts"),
-  ).flatMap((group) => group.rows);
-  const selectedDetail = selectedDetailId === null
+  const activeRows = controller.tablePage
+    ? visibleRows
+    : deriveAccountGroups(
+      controller.state.accounts,
+      controller.state.balances,
+      controller.state.accountCategories,
+      defaultLedgerTableSettings("ledger.accounts"),
+    ).flatMap((group) => group.rows);
+  const selectedDetail = selectedDetailRow === null
     ? null
-    : activeRows.find(({ id }) => id === selectedDetailId) ?? null;
-  const activeRowCount = controller.state.accounts.filter(({ active }) => active).length;
+    : resolveAccountDetail(selectedDetailRow, controller);
+  const activeRowCount = controller.state.accounts.length > 0
+    ? controller.state.accounts.filter(({ active }) => active).length
+    : activeRows.length;
   const selectedVisibleIds = selectedIds.filter((id) =>
     visibleRows.some((row) => row.id === id),
   );
 
   useEffect(() => {
-    const activeAccountIds = new Set(
-      controller.state.accounts.filter(({ active }) => active).map(({ id }) => id),
-    );
+    void controller.ensureTable?.("ledger.accounts");
+  }, [controller]);
+
+  useEffect(() => {
+    const activeAccountIds = new Set(activeRows.map(({ id }) => id));
     setSelectedIds((current) => {
       const next = current.filter((id) => activeAccountIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (selectedDetailId && !activeAccountIds.has(selectedDetailId)) setSelectedDetailId(null);
-  }, [controller.state.accounts, selectedDetailId]);
+    if (
+      selectedDetailRow &&
+      controller.hasReferenceData?.("ledger.accounts") &&
+      !controller.state.accounts.some(({ id, active }) => id === selectedDetailRow.id && active)
+    ) setSelectedDetailRow(null);
+  }, [activeRows, controller, selectedDetailRow]);
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -105,7 +120,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
   }
 
   function returnToList() {
-    setSelectedDetailId(null);
+    setSelectedDetailRow(null);
     requestAnimationFrame(() => sectionRef.current?.focus());
   }
 
@@ -127,10 +142,14 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         scope="ledger.accounts"
         title="Accounts"
         headingId="ledger-accounts-heading"
-        onAdd={() => setCreateOpen(true)}
+        onAdd={() => void ensureReferences(controller).then((loaded) => {
+          if (loaded) setCreateOpen(true);
+        })}
         addButtonRef={addButtonRef}
         addLabel="Add account"
-        onSettings={() => setSettingsOpen(true)}
+        onSettings={() => void ensureReferences(controller).then((loaded) => {
+          if (loaded) setSettingsOpen(true);
+        })}
         settingsButtonRef={settingsButtonRef}
         settingsLabel="Account settings"
         onArchiveSelected={() => {
@@ -144,9 +163,14 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={(row) => setSelectedDetailId(row.id)}
+        onOpen={(row) => void ensureReferences(controller).then((loaded) => {
+          if (loaded) setSelectedDetailRow(row);
+        })}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
+        page={visibleTablePage(page, controller.state.error)}
+        onLoadMore={() => void controller.loadMore?.("ledger.accounts")}
+        emptyMessage={ledgerEmptyMessage(controller, "ledger.accounts", page, "accounts")}
       />
       {createOpen ? (
         <AccountCreateDialog
@@ -179,4 +203,79 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
       ) : null}
     </section>
   );
+}
+
+function resolveAccountDetail(
+  fallback: AccountRow,
+  controller: LedgerController,
+): AccountRow | null {
+  if (!controller.hasReferenceData?.("ledger.accounts")) return fallback;
+  const account = controller.state.accounts.find(({ id, active }) => id === fallback.id && active);
+  if (!account) return null;
+  const accountType = controller.state.accountCategories.find(
+    ({ id, active }) => id === account.categoryId && active,
+  );
+  const currency = controller.state.currencies.find(
+    ({ id, active }) => id === account.currencyId && active,
+  );
+  const balance = controller.state.balances.find(
+    ({ account: candidate }) => candidate.id === account.id,
+  );
+  return {
+    ...fallback,
+    id: account.id,
+    account,
+    name: account.name,
+    accountTypeId: account.categoryId,
+    accountTypeLabel: accountType?.name ?? fallback.accountTypeLabel,
+    currencyId: account.currencyId,
+    currencyCode: balance?.currencyCode ?? currency?.code ?? fallback.currencyCode,
+    decimalPlaces: balance?.decimalPlaces ?? currency?.decimalPlaces ?? fallback.decimalPlaces,
+    currentBalanceMinor: balance?.currentBalanceMinor ?? fallback.currentBalanceMinor,
+  };
+}
+
+function ledgerEmptyMessage(
+  controller: LedgerController,
+  scope: "ledger.accounts",
+  page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
+  noun: string,
+): string {
+  if (page.items.length === 0 && (page.generation === 0 || page.moreStatus === "loading")) {
+    return `Loading ${noun}\u2026`;
+  }
+  const settings = controller.tableSettings(scope);
+  return settings.filterRules.length > 0 || settings.groupSettings.hiddenGroupKeys.length > 0
+    ? `No ${noun} match this view.`
+    : `No ${noun} yet.`;
+}
+
+function visibleTablePage(
+  page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
+  globalError: string | null,
+) {
+  return globalError && page.moreStatus === "error" ? { ...page, nextOffset: null } : page;
+}
+
+function ensureReferences(controller: LedgerController): Promise<boolean> {
+  return controller.ensureReferenceData?.("ledger.accounts") ?? Promise.resolve(true);
+}
+
+function isAccountOccurrence(
+  item: LedgerTableOccurrence,
+): item is Extract<LedgerTableOccurrence, { scope: "ledger.accounts" }> {
+  return item.scope === "ledger.accounts";
+}
+
+function accountGroups(
+  items: Extract<LedgerTableOccurrence, { scope: "ledger.accounts" }>[],
+): AccountRowGroup[] {
+  const groups = new Map<string, AccountRowGroup>();
+  for (const { groupKey, groupLabel, record } of items) {
+    const key = groupKey ?? "all";
+    const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
+    group.rows.push(record);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }

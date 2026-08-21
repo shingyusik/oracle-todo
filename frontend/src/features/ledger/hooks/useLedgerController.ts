@@ -22,6 +22,8 @@ import type {
   LedgerEntryUpdate,
   LedgerEntryView,
   LedgerSummary,
+  LedgerTableOccurrence,
+  LedgerTableLookups,
   LedgerTrend,
   MasterPurgePreview,
   PurgePreview,
@@ -64,6 +66,14 @@ type PendingLedgerViewCommand = {
 type LoadStatus = "loading" | "loaded" | "error";
 type ReportStatus = "idle" | "loading" | "loaded" | "error";
 type RefreshOutcome = { ok: true } | { ok: false; error: string };
+export type LedgerTablePageState = {
+  items: LedgerTableOccurrence[];
+  nextOffset: number | null;
+  moreStatus: "idle" | "loading" | "error";
+  moreError: string | null;
+  generation: number;
+};
+type LedgerInternalTablePageState = LedgerTablePageState & { referenceDate: Date };
 
 export class LedgerMutationRefreshError extends Error {
   constructor() {
@@ -81,6 +91,7 @@ export type LedgerState = {
   accounts: Account[];
   categories: TransactionCategory[];
   balances: AccountBalance[];
+  tableLookups?: Record<LedgerTableScopeId, LedgerTableLookups>;
   reportStatus: ReportStatus;
   reportError: string | null;
   reportSelection: ReportSelection;
@@ -99,6 +110,12 @@ export type LedgerController = {
   tableTabs(scope: LedgerTableScopeId): TableViewTabsState<PlannerTableSettings>;
   tableSettings(scope: LedgerTableScopeId): PlannerTableSettings;
   tableIsDirty(scope: LedgerTableScopeId): boolean;
+  tablePage?(scope: LedgerTableScopeId): LedgerTablePageState;
+  ensureTable?(scope: LedgerTableScopeId): Promise<void>;
+  loadMore?(scope: LedgerTableScopeId): Promise<void>;
+  ensureReferenceData?(scope: LedgerTableScopeId): Promise<boolean>;
+  ensureTransactionFormReferences?(): Promise<boolean>;
+  hasReferenceData?(scope: LedgerTableScopeId): boolean;
   updateTableSettings(
     scope: LedgerTableScopeId,
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
@@ -152,6 +169,11 @@ const initialState: LedgerState = {
   accounts: [],
   categories: [],
   balances: [],
+  tableLookups: {
+    "ledger.transactions": {},
+    "ledger.accounts": {},
+    "ledger.categories": {},
+  },
   reportStatus: "idle",
   reportError: null,
   reportSelection: { period: "current_month" },
@@ -160,6 +182,20 @@ const initialState: LedgerState = {
   summary: null,
   accountBreakdown: [],
   categoryBreakdown: [],
+};
+
+const emptyTablePage = (referenceDate = new Date()): LedgerInternalTablePageState => ({
+  items: [],
+  nextOffset: null,
+  moreStatus: "idle",
+  moreError: null,
+  generation: 0,
+  referenceDate,
+});
+const initialTablePages: Record<LedgerTableScopeId, LedgerInternalTablePageState> = {
+  "ledger.transactions": emptyTablePage(),
+  "ledger.accounts": emptyTablePage(),
+  "ledger.categories": emptyTablePage(),
 };
 
 let ledgerViewsWrite = Promise.resolve();
@@ -200,6 +236,14 @@ export function useLedgerController(): LedgerController {
   const tableViewSaveErrorRef = useRef<string | null>(null);
   const tableViewSaveGeneration = useRef(0);
   const [tableViews, setTableViews] = useState(createLedgerTableViews);
+  const [tablePages, setTablePages] = useState(initialTablePages);
+  const tablePagesRef = useRef(tablePages);
+  const initializedTables = useRef(new Set<LedgerTableScopeId>());
+  const pendingMore = useRef(new Set<string>());
+  const referenceDataLoaded = useRef(new Set<LedgerTableScopeId>());
+  const referenceDataRequests = useRef(new Map<LedgerTableScopeId, Promise<boolean>>());
+  const transactionFormReferencesLoaded = useRef(false);
+  const transactionFormReferencesRequest = useRef<Promise<boolean> | null>(null);
   const tableViewsRef = useRef(tableViews);
   const initialTableViews = useRef(tableViews);
   const tableViewsLoaded = useRef(false);
@@ -211,6 +255,186 @@ export function useLedgerController(): LedgerController {
     LedgerTableViewConfirmation | null
   >(null);
   tableViewsRef.current = tableViews;
+  tablePagesRef.current = tablePages;
+
+  const loadInitialTable = useCallback(async (scope: LedgerTableScopeId) => {
+    const wasInitialized = initializedTables.current.has(scope);
+    initializedTables.current.add(scope);
+    const previousPage = tablePagesRef.current[scope];
+    const generation = previousPage.generation + 1;
+    const page = { ...emptyTablePage(), moreStatus: "loading" as const, generation };
+    tablePagesRef.current = { ...tablePagesRef.current, [scope]: page };
+    setTablePages(tablePagesRef.current);
+    try {
+      const [result, lookups] = await Promise.all([
+        ledgerApi.queryTable(
+          scope,
+          tableViewsRef.current[scope].draftSettings,
+          0,
+          page.referenceDate,
+        ),
+        ledgerApi.tableLookups(scope),
+      ]);
+      if (tablePagesRef.current[scope].generation !== generation) return true;
+      const next = {
+        ...page,
+        items: dedupeOccurrences(result.items),
+        nextOffset: result.nextOffset,
+        moreStatus: "idle" as const,
+      };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
+      setTablePages(tablePagesRef.current);
+      setState((current) => ({
+        ...current,
+        status: "loaded",
+        error: null,
+        tableLookups: { ...initialState.tableLookups!, ...current.tableLookups, [scope]: lookups },
+      }));
+      return true;
+    } catch (error) {
+      if (tablePagesRef.current[scope].generation !== generation) return true;
+      const message = errorMessage(error);
+      const failed = {
+        ...page,
+        items: previousPage.items,
+        nextOffset: 0,
+        moreStatus: "error" as const,
+        moreError: "Could not load rows.",
+      };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: failed };
+      setTablePages(tablePagesRef.current);
+      setState((current) => wasInitialized
+        ? { ...current, error: message }
+        : { ...current, status: "error", error: message });
+      return false;
+    }
+  }, []);
+
+  const ensureTable = useCallback(async (scope: LedgerTableScopeId) => {
+    if (initializedTables.current.has(scope)) return;
+    await loadInitialTable(scope);
+  }, [loadInitialTable]);
+
+  const loadMore = useCallback(async (scope: LedgerTableScopeId) => {
+    const current = tablePagesRef.current[scope];
+    const generation = current.generation;
+    const pendingKey = `${scope}:${generation}`;
+    if (current.nextOffset === null || pendingMore.current.has(pendingKey)) return;
+    pendingMore.current.add(pendingKey);
+    const offset = current.nextOffset;
+    const loading = { ...current, moreStatus: "loading" as const, moreError: null };
+    tablePagesRef.current = { ...tablePagesRef.current, [scope]: loading };
+    setTablePages(tablePagesRef.current);
+    try {
+      const result = await ledgerApi.queryTable(
+        scope,
+        tableViewsRef.current[scope].draftSettings,
+        offset,
+        current.referenceDate,
+      );
+      if (tablePagesRef.current[scope].generation !== generation) return;
+      const next = {
+        ...tablePagesRef.current[scope],
+        items: dedupeOccurrences(offset === 0 ? result.items : [...current.items, ...result.items]),
+        nextOffset: result.nextOffset,
+        moreStatus: "idle" as const,
+        moreError: null,
+      };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
+      setTablePages(tablePagesRef.current);
+    } catch {
+      if (tablePagesRef.current[scope].generation !== generation) return;
+      const next = {
+        ...tablePagesRef.current[scope],
+        moreStatus: "idle" as const,
+        moreError: "Could not load more rows.",
+      };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
+      setTablePages(tablePagesRef.current);
+    } finally {
+      pendingMore.current.delete(pendingKey);
+    }
+  }, []);
+
+  const loadReferenceData = useCallback((
+    scope: LedgerTableScopeId,
+    force = false,
+  ): Promise<boolean> => {
+    if (!force && referenceDataLoaded.current.has(scope)) return Promise.resolve(true);
+    const pending = referenceDataRequests.current.get(scope);
+    if (pending) return pending;
+    const request = (async () => {
+      try {
+        if (scope === "ledger.transactions") {
+          const [entries, currencies, accounts, categories] = await Promise.all([
+            drainPages((offset) => ledgerApi.listEntries({
+              includeArchived: true, limit: 200, offset,
+            })),
+            drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
+            drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
+            drainPages((offset) => ledgerApi.listTransactionCategories({ limit: 200, offset })),
+          ]);
+          setState((current) => ({
+            ...current, error: null, entries, currencies, accounts, categories,
+          }));
+          transactionFormReferencesLoaded.current = true;
+        } else if (scope === "ledger.accounts") {
+          const [currencies, accountCategories, accounts, balances] = await Promise.all([
+            drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
+            drainPages((offset) => ledgerApi.listAccountCategories({ limit: 200, offset })),
+            drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
+            drainPages((offset) => ledgerApi.listAccountBalances({ limit: 200, offset })),
+          ]);
+          setState((current) => ({
+            ...current, error: null, currencies, accountCategories, accounts, balances,
+          }));
+        } else {
+          const categories = await drainPages((offset) =>
+            ledgerApi.listTransactionCategories({ limit: 200, offset }));
+          setState((current) => ({ ...current, error: null, categories }));
+        }
+        referenceDataLoaded.current.add(scope);
+        return true;
+      } catch (error) {
+        setState((current) => ({ ...current, error: errorMessage(error) }));
+        return false;
+      } finally {
+        referenceDataRequests.current.delete(scope);
+      }
+    })();
+    referenceDataRequests.current.set(scope, request);
+    return request;
+  }, []);
+  const ensureReferenceData = useCallback(
+    (scope: LedgerTableScopeId) => loadReferenceData(scope),
+    [loadReferenceData],
+  );
+  const loadTransactionFormReferences = useCallback((force = false): Promise<boolean> => {
+    if (!force && transactionFormReferencesLoaded.current) return Promise.resolve(true);
+    if (!force && transactionFormReferencesRequest.current) {
+      return transactionFormReferencesRequest.current;
+    }
+    const request = Promise.all([
+      drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
+      drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
+      drainPages((offset) => ledgerApi.listTransactionCategories({ limit: 200, offset })),
+    ]).then(([currencies, accounts, categories]) => {
+      transactionFormReferencesLoaded.current = true;
+      setState((current) => ({
+        ...current, status: "loaded", error: null, currencies, accounts, categories,
+      }));
+      return true;
+    }, (error) => {
+      setState((current) => ({ ...current, error: errorMessage(error) }));
+      return false;
+    }).finally(() => {
+      if (transactionFormReferencesRequest.current === request) {
+        transactionFormReferencesRequest.current = null;
+      }
+    });
+    transactionFormReferencesRequest.current = request;
+    return request;
+  }, []);
 
   function saveTableViews(next: LedgerTableViewsState) {
     const generation = ++tableViewSaveGeneration.current;
@@ -245,6 +469,9 @@ export function useLedgerController(): LedgerController {
       }
       pendingTableViewCommands.current = [];
       tableViewsLoaded.current = true;
+      const changedInitializedScopes = [...initializedTables.current].filter((scope) =>
+        JSON.stringify(tableViewsRef.current[scope].draftSettings)
+          !== JSON.stringify(next[scope].draftSettings));
       tableViewsRef.current = next;
       setTableViewConfirmation((current) => {
         if (!current || current.kind === "navigate") return current;
@@ -258,6 +485,9 @@ export function useLedgerController(): LedgerController {
           : { ...current, targetTabId };
       });
       setTableViews(next);
+      for (const scope of changedInitializedScopes) {
+        void loadInitialTable(scope);
+      }
       for (const persistedState of persistedStates) {
         saveTableViews(persistedState);
       }
@@ -265,7 +495,7 @@ export function useLedgerController(): LedgerController {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadInitialTable]);
 
   const refreshOutcome = useCallback((): Promise<RefreshOutcome> => {
     const generation = ++refreshGeneration.current;
@@ -274,33 +504,10 @@ export function useLedgerController(): LedgerController {
       : { ...current, status: "loading", error: null });
     const request = (async (): Promise<RefreshOutcome> => {
       try {
-        const [entries, currencies, accountCategories, accounts, categories, balances] =
-          await Promise.all([
-            drainPages((offset) =>
-              ledgerApi.listEntries({ includeArchived: true, limit: 200, offset })),
-            drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
-            drainPages((offset) =>
-              ledgerApi.listAccountCategories({ limit: 200, offset })),
-            drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
-            drainPages((offset) =>
-              ledgerApi.listTransactionCategories({ limit: 200, offset })),
-            drainPages((offset) =>
-              ledgerApi.listAccountBalances({ limit: 200, offset })),
-          ]);
         if (generation !== refreshGeneration.current) {
           return latestRefresh.current ?? { ok: false, error: "Ledger request failed" };
         }
-        setState((current) => ({
-          ...current,
-          status: "loaded",
-          error: null,
-          entries,
-          currencies,
-          accountCategories,
-          accounts,
-          categories,
-          balances,
-        }));
+        setState((current) => ({ ...current, status: "loaded", error: null }));
         return { ok: true };
       } catch (error) {
         if (generation !== refreshGeneration.current) {
@@ -317,21 +524,48 @@ export function useLedgerController(): LedgerController {
     return request;
   }, []);
 
-  const refresh = useCallback(async () => (await refreshOutcome()).ok, [refreshOutcome]);
+  const refresh = useCallback((): Promise<boolean> => {
+    const generation = ++refreshGeneration.current;
+    setState((current) => ({ ...current, error: null }));
+    let request!: Promise<RefreshOutcome>;
+    request = (async () => {
+      const [references, pages] = await Promise.all([
+        Promise.all(
+          [...referenceDataLoaded.current].map((scope) => loadReferenceData(scope, true)),
+        ),
+        Promise.all([...initializedTables.current].map(loadInitialTable)),
+      ]);
+      if (
+        transactionFormReferencesLoaded.current &&
+        !referenceDataLoaded.current.has("ledger.transactions")
+      ) {
+        references.push(await loadTransactionFormReferences(true));
+      }
+      if (generation !== refreshGeneration.current && latestRefresh.current !== request) {
+        return latestRefresh.current ?? { ok: false, error: "Ledger request failed" };
+      }
+      const ok = references.every(Boolean) && pages.every(Boolean);
+      return ok
+        ? { ok: true }
+        : { ok: false, error: "Ledger request failed" };
+    })();
+    latestRefresh.current = request;
+    return request.then(({ ok }) => ok);
+  }, [loadInitialTable, loadReferenceData, loadTransactionFormReferences]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void refreshOutcome();
+  }, [refreshOutcome]);
 
   const mutate = useCallback(async (
     operation: () => Promise<unknown>,
     requireRefresh = false,
   ) => {
     await operation();
-    const outcome = await refreshOutcome();
-    if (outcome.ok) return;
+    const outcome = await refresh();
+    if (outcome) return;
     if (requireRefresh) throw new LedgerMutationRefreshError();
-  }, [refreshOutcome]);
+  }, [refresh]);
 
   const runReports = useCallback(async (selection: ReportSelection) => {
     const generation = ++reportGeneration.current;
@@ -386,6 +620,7 @@ export function useLedgerController(): LedgerController {
     ) => TableViewTabsState<PlannerTableSettings> | null,
     persist = false,
   ): boolean {
+    const previousSettings = JSON.stringify(tableViewsRef.current[scope].draftSettings);
     const updated = updater(tableViewsRef.current[scope]);
     if (!updated) return false;
     const apply = (state: LedgerTableViewsState): LedgerTableViewsState => {
@@ -395,6 +630,12 @@ export function useLedgerController(): LedgerController {
     const next = { ...tableViewsRef.current, [scope]: updated };
     tableViewsRef.current = next;
     setTableViews(next);
+    if (
+      initializedTables.current.has(scope)
+      && previousSettings !== JSON.stringify(updated.draftSettings)
+    ) {
+      void loadInitialTable(scope);
+    }
     if (tableViewsLoaded.current) {
       if (persist) saveTableViews(next);
     } else {
@@ -448,6 +689,12 @@ export function useLedgerController(): LedgerController {
       tableViews[scope],
       ledgerTableViewSettingsAdapter.cloneSettings,
     ),
+    tablePage: (scope) => tablePages[scope],
+    ensureTable,
+    loadMore,
+    ensureReferenceData,
+    ensureTransactionFormReferences: loadTransactionFormReferences,
+    hasReferenceData: (scope) => referenceDataLoaded.current.has(scope),
     updateTableSettings: (scope, updater) => {
       updateTableTabs(scope, (tabs) => updateTableViewTabDraft(
         tabs,
@@ -549,6 +796,11 @@ export function useLedgerController(): LedgerController {
     runReports,
     retryReports,
   };
+}
+
+function dedupeOccurrences(items: LedgerTableOccurrence[]): LedgerTableOccurrence[] {
+  const seen = new Set<string>();
+  return items.filter(({ key }) => !seen.has(key) && Boolean(seen.add(key)));
 }
 
 function errorMessage(error: unknown): string {

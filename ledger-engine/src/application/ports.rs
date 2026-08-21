@@ -4,7 +4,8 @@ use serde::Serialize;
 use serde_json::Value;
 use time::{Date, OffsetDateTime};
 
-use crate::application::error::LedgerResult;
+use crate::application::error::{LedgerError, LedgerResult};
+use crate::application::table::{LedgerTableQuery, LedgerTableRow, TablePage};
 use crate::domain::{
     Account, AccountCategory, Currency, EntryType, LedgerEntry, TransactionCategory,
 };
@@ -349,6 +350,12 @@ pub(crate) trait LedgerTransaction {
 pub trait LedgerRepository: Send {}
 
 pub(crate) trait LedgerReadRepository: LedgerRepository {
+    fn query_table(&self, _query: &LedgerTableQuery) -> LedgerResult<TablePage<LedgerTableRow>> {
+        Err(LedgerError::Storage(
+            "ledger table query is not implemented by this repository".to_string(),
+        ))
+    }
+
     fn get_currency(&self, id: &str, include_archived: bool) -> LedgerResult<Option<Currency>>;
     #[cfg(test)]
     fn get_account_category(

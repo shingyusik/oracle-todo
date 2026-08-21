@@ -179,7 +179,7 @@ function dietGroups(
   if (groupBy === "meal_type") return [{ key: row.mealType, label: row.mealLabel }];
   if (groupBy === "tag") {
     return row.tags.length > 0
-      ? row.tags.map((tag) => ({ key: tag, label: tag }))
+      ? row.tags.map((tag) => ({ key: dietTagGroupKey(tag), label: tag }))
       : [{ key: "untagged", label: "Untagged" }];
   }
   if (groupBy === "has_photo") {
@@ -188,4 +188,8 @@ function dietGroups(
       : { key: "without-photo", label: "Without photo" }];
   }
   return [{ key: "all", label: null }];
+}
+
+export function dietTagGroupKey(tag: string): string {
+  return tag === "untagged" || tag.startsWith("\\") ? `\\${tag}` : tag;
 }

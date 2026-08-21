@@ -110,234 +110,16 @@ async function mountedController() {
   return hook;
 }
 
-describe("Health Bowel controller", () => {
+describe("Health Bowel paging", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("loads Bowel initially, drains 200-row pages, and retains raw archived events", async () => {
-    mockBaseReads();
-    const first = Array.from({ length: 200 }, (_, index) => ({ ...event, id: `bowel-${index}` }));
-    const archived = { ...event, id: "archived", deletedAt: event.updatedAt };
-    let bowelPage = 0;
-    vi.mocked(healthApi.listEvents).mockImplementation(async (query) => {
-      if (query?.category !== "bowel") return [];
-      return bowelPage++ === 0 ? first : [archived];
-    });
-
-    const { result } = renderHook(() => useHealthController());
-    await waitFor(() => expect(result.current.state.bowelStatus).toBe("loaded"));
-
-    const bowelCalls = vi.mocked(healthApi.listEvents).mock.calls
-      .filter(([request]) => request?.category === "bowel");
-    expect(bowelCalls[0]).toEqual([{
-      category: "bowel", limit: 200, offset: 0,
-    }]);
-    expect(bowelCalls[1]).toEqual([{
-      category: "bowel", limit: 200, offset: 200,
-    }]);
-    expect(result.current.state.bowelEntries).toHaveLength(201);
-    expect(result.current.state.bowelEntries.at(-1)).toEqual(archived);
+  it("requests only the scoped first table page on mount", async () => {
+    const legacy = vi.spyOn(healthApi, "listEvents");
+    const health = panelController();
+    render(<BowelPanelHarness controller={health} />);
+    await waitFor(() => expect(health.ensureTable).toHaveBeenCalledWith("health.bowel"));
+    expect(legacy).not.toHaveBeenCalled();
   });
-
-  it("coalesces ordinary refreshes and retains loaded rows on refresh error", async () => {
-    mockBaseReads();
-    vi.mocked(healthApi.listEvents).mockResolvedValueOnce([event]);
-    const { result } = await mountedController();
-    const pending = deferred<HealthEvent[]>();
-    vi.mocked(healthApi.listEvents).mockImplementationOnce(() => pending.promise);
-    vi.mocked(healthApi.listEvents).mockClear();
-
-    let first!: Promise<boolean>;
-    let second!: Promise<boolean>;
-    await act(async () => {
-      first = result.current.refreshBowel();
-      second = result.current.refreshBowel();
-      await Promise.resolve();
-    });
-    expect(healthApi.listEvents).toHaveBeenCalledOnce();
-    await act(async () => pending.reject(new Error("Bowel unavailable")));
-    await expect(first).resolves.toBe(false);
-    await expect(second).resolves.toBe(false);
-    expect(result.current.state.bowelStatus).toBe("loaded");
-    expect(result.current.state.bowelError).toBe("Bowel unavailable");
-    expect(result.current.state.bowelEntries).toEqual([event]);
-  });
-
-  it("uses a blocking error when the initial Bowel load fails", async () => {
-    mockBaseReads();
-    vi.mocked(healthApi.listEvents).mockRejectedValue(new Error("No Bowel"));
-    const { result } = renderHook(() => useHealthController());
-    await waitFor(() => expect(result.current.state.bowelStatus).toBe("error"));
-    expect(result.current.state.bowelError).toBe("No Bowel");
-  });
-
-  it("refreshBowel reads only Bowel", async () => {
-    mockBaseReads();
-    const { result } = await mountedController();
-    vi.mocked(healthApi.listDiet).mockClear();
-    vi.mocked(healthApi.listEvents).mockClear();
-
-    await act(async () => expect(result.current.refreshBowel()).resolves.toBe(true));
-
-    expect(healthApi.listDiet).not.toHaveBeenCalled();
-    expect(healthApi.listEvents).toHaveBeenCalledOnce();
-    expect(healthApi.reports).not.toHaveBeenCalled();
-  });
-
-  it.each(["create", "update", "archive"] as const)(
-    "uses one %s mutation and exactly one Bowel read",
-    async (kind) => {
-      mockBaseReads();
-      const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-      const updateEvent = vi.spyOn(healthApi, "updateEvent").mockResolvedValue(event);
-      const archive = vi.spyOn(healthApi, "archiveEvent").mockResolvedValue(event);
-      const { result } = await mountedController();
-      for (const spy of [create, updateEvent, archive]) spy.mockClear();
-      vi.mocked(healthApi.listEvents).mockClear();
-
-      await act(async () => {
-        if (kind === "create") await result.current.createBowel(input);
-        else if (kind === "update") await result.current.updateBowel(event.id, update);
-        else await result.current.archiveBowel(event.id);
-      });
-
-      const expected = kind === "create" ? create : kind === "update" ? updateEvent : archive;
-      expect(expected).toHaveBeenCalledOnce();
-      expect(create.mock.calls.length + updateEvent.mock.calls.length + archive.mock.calls.length)
-        .toBe(1);
-      expect(healthApi.listEvents).toHaveBeenCalledOnce();
-      expect(vi.mocked(healthApi.listEvents).mock.calls
-        .filter(([request]) => request?.category === "medication")).toHaveLength(0);
-      expect(healthApi.reports).not.toHaveBeenCalled();
-    },
-  );
-
-  it("throws after commit when Bowel refresh fails and retries only Bowel", async () => {
-      mockBaseReads();
-      const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-      const { result } = await mountedController();
-      vi.mocked(healthApi.listEvents).mockClear();
-      vi.mocked(healthApi.listEvents).mockRejectedValueOnce(new Error("bowel failed"));
-
-      await act(async () => {
-        await expect(result.current.createBowel(input)).rejects
-          .toBeInstanceOf(HealthMutationRefreshError);
-      });
-      await act(async () => expect(result.current.refreshBowel()).resolves.toBe(true));
-
-      expect(create).toHaveBeenCalledOnce();
-      expect(healthApi.listEvents).toHaveBeenCalledTimes(2);
-  });
-
-  it("keeps Diet, Medication, Metrics, and generic event read boundaries explicit", async () => {
-    mockBaseReads();
-    const createDiet = vi.spyOn(healthApi, "createDiet").mockResolvedValue({} as never);
-    const createEvent = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-    const metrics = vi.spyOn(healthApi, "upsertDailyMetrics").mockResolvedValue([]);
-    const { result } = await mountedController();
-    vi.mocked(healthApi.listEvents).mockClear();
-    vi.mocked(healthApi.listEvents).mockImplementation((query) => query?.category === "bowel"
-      ? Promise.reject(new Error("Bowel unavailable"))
-      : Promise.resolve([]));
-
-    const mutations = [createDiet, createEvent, metrics];
-    const cases = [
-      { expected: createDiet, medicationReads: 0, run: () => result.current.createDiet({
-        occurredAt: event.occurredAt, mealType: "lunch", foodName: "Soup",
-      }) },
-      { expected: createEvent, medicationReads: 1, run: () => result.current.createMedication({
-        occurredAt: event.occurredAt,
-        details: { kind: "medication", medicationName: "Tablet", dose: 1, unit: "tablet" },
-      }) },
-      { expected: metrics, medicationReads: 0, run: () => result.current.upsertMetrics([]) },
-    ];
-
-    for (const mutationCase of cases) {
-      for (const mutation of mutations) mutation.mockClear();
-      vi.mocked(healthApi.listEvents).mockClear();
-      await act(async () => expect(mutationCase.run()).resolves.toBeUndefined());
-      expect(mutationCase.expected).toHaveBeenCalledOnce();
-      expect(vi.mocked(healthApi.listEvents).mock.calls
-        .filter(([request]) => request?.category === "bowel")).toHaveLength(0);
-      expect(vi.mocked(healthApi.listEvents).mock.calls
-        .filter(([request]) => request?.category === "medication"))
-        .toHaveLength(mutationCase.medicationReads);
-    }
-  });
-
-  it.each([true, false])(
-    "makes overlapping Bowel mutations adopt the newer outcome (success: %s)",
-    async (newerSucceeds) => {
-      mockBaseReads();
-      const create = vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-      const { result } = await mountedController();
-      const { older, newer } = mockOverlappingReads();
-
-      let first!: Promise<void>;
-      let second!: Promise<void>;
-      await act(async () => {
-        first = result.current.createBowel(input);
-        await Promise.resolve();
-        second = result.current.createBowel(input);
-        await Promise.resolve();
-      });
-      const firstOutcome = first.then(() => true, (error: unknown) => error);
-      const secondOutcome = second.then(() => true, (error: unknown) => error);
-      await act(async () => {
-        if (newerSucceeds) resolveReads(newer, [event]);
-        else {
-          newer.bowel.reject(new Error("newer failed"));
-        }
-      });
-      await act(async () => resolveReads(older, [{ ...event, id: "stale" }]));
-
-      if (newerSucceeds) {
-        await expect(firstOutcome).resolves.toBe(true);
-        await expect(secondOutcome).resolves.toBe(true);
-        expect(result.current.state.bowelEntries).toEqual([event]);
-      } else {
-        await expect(firstOutcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
-        await expect(secondOutcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
-        expect(result.current.state.bowelError).toBe("newer failed");
-      }
-      expect(create).toHaveBeenCalledTimes(2);
-    },
-  );
-
-  it.each([true, false])(
-    "makes an old ordinary refresh adopt a forced mutation result without a promise cycle (success: %s)",
-    async (newerSucceeds) => {
-    mockBaseReads();
-    vi.spyOn(healthApi, "createEvent").mockResolvedValue(event);
-    const { result } = await mountedController();
-    const { older, newer } = mockOverlappingReads();
-
-    let refresh!: Promise<boolean>;
-    let mutation!: Promise<void>;
-    await act(async () => {
-      refresh = result.current.refreshBowel();
-      await Promise.resolve();
-      mutation = result.current.createBowel(input);
-      await Promise.resolve();
-    });
-    const mutationOutcome = mutation.then(() => true, (error: unknown) => error);
-    await act(async () => {
-      if (newerSucceeds) resolveReads(newer, [event]);
-      else {
-        newer.bowel.reject(new Error("forced Bowel failed"));
-      }
-    });
-    await act(async () => resolveReads(older, [{ ...event, id: "stale" }]));
-
-    await expect(refresh).resolves.toBe(newerSucceeds);
-    if (newerSucceeds) {
-      await expect(mutationOutcome).resolves.toBe(true);
-      expect(result.current.state.bowelEntries).toEqual([event]);
-    } else {
-      await expect(mutationOutcome).resolves.toBeInstanceOf(HealthMutationRefreshError);
-      expect(result.current.state.bowelError).toBe("forced Bowel failed");
-    }
-  });
-
 });
 
 const loadedState: HealthState = {
@@ -362,7 +144,16 @@ function panelController(
       activeTabId: `${scope}-table`, draftSettings: settings,
     })),
     tableSettings: vi.fn(() => settings),
-    tableIsDirty: vi.fn(() => false), updateTableSettings: vi.fn(),
+    tableIsDirty: vi.fn(() => false),
+    tablePage: vi.fn(function (this: HealthController) { const status = this.state.bowelStatus; return {
+      items: bowelOccurrences(this.state.bowelEntries, this.tableSettings("health.bowel")),
+      nextOffset: status === "error" ? 0 : null,
+      moreStatus: status === "loading" ? "loading" as const : status === "error" ? "error" as const : "idle" as const,
+      moreError: this.state.bowelError, generation: status === "loading" ? 0 : 1,
+    }; }),
+    ensureTable: vi.fn().mockResolvedValue(undefined), loadMore: vi.fn().mockResolvedValue(undefined),
+    ensureReferenceData: vi.fn().mockResolvedValue(true), hasReferenceData: vi.fn(() => false),
+    updateTableSettings: vi.fn(),
     selectTableTab: vi.fn(), saveTableTab: vi.fn(), createTableTab: vi.fn(() => true),
     renameTableTab: vi.fn(() => true), requestDeleteTableTab: vi.fn(),
     confirmTableViewAction: vi.fn(), cancelTableViewAction: vi.fn(),
@@ -373,6 +164,16 @@ function panelController(
     createMedication: vi.fn(), updateMedication: vi.fn(), archiveMedication: vi.fn(),
     upsertMetrics: vi.fn(), saveMetrics: vi.fn(),
   };
+}
+
+function bowelOccurrences(entries: readonly HealthEvent[], settings: ReturnType<typeof defaultHealthTableSettings>) {
+  return deriveBowelGroups(entries, settings).flatMap((group) => group.rows.map((row) => ({
+    key: `${group.key}:${row.id}`, scope: "health.bowel" as const,
+    groupKey: group.label === null ? null : group.key, groupLabel: group.label,
+    record: { kind: "bowel" as const, id: row.id, event: row.event, date: row.date,
+      bristolScale: row.bristolScale, bloodVisible: row.bloodVisible,
+      bloodLabel: row.bloodLabel, note: row.note },
+  })));
 }
 
 function BowelPanelHarness({ controller }: { controller: HealthController }) {
@@ -397,6 +198,47 @@ function BowelPanelHarness({ controller }: { controller: HealthController }) {
 
 describe("Bowel table workflow", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("keeps only the latest Bowel row intent and ignores a pending action after unmount", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const health = panelController();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<BowelPanelHarness controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
+    await act(async () => pending.resolve(true));
+    expect(screen.getByRole("heading", { name: "Bowel · Type 4" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("row", { name: /Open details for Type 4/ });
+    expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull();
+
+    const afterUnmount = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(afterUnmount.promise);
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    view.unmount();
+    await act(async () => afterUnmount.resolve(true));
+    expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull();
+  });
+
+  it("invalidates a pending Bowel action when the current view generation resets", async () => {
+    const user = userEvent.setup();
+    const health = panelController();
+    const page = health.tablePage("health.bowel");
+    let generation = page.generation;
+    health.tablePage = vi.fn(() => ({ ...page, generation }));
+    const pending = deferred<boolean>();
+    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    const view = render(<BowelPanelHarness controller={health} />);
+
+    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    generation += 1;
+    view.rerender(<BowelPanelHarness controller={health} />);
+    await act(async () => pending.resolve(true));
+
+    expect(screen.queryByRole("dialog", { name: "Add bowel entry" })).toBeNull();
+  });
   it("opens Bowel details from the accessible row and isolates its checkbox", async () => {
     const user = userEvent.setup();
     const open = vi.fn();
@@ -1210,11 +1052,11 @@ describe("Bowel table workflow", () => {
     const retry = vi.fn();
     const view = render(<BowelPanelHarness controller={{ ...panelController({
       ...loadedState, bowelStatus: "loading", bowelEntries: [],
-    }), refreshBowel: retry }} />);
+    }), loadMore: retry }} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading bowel entries");
     view.rerender(<BowelPanelHarness controller={{ ...panelController({
       ...loadedState, bowelStatus: "error", bowelEntries: [], bowelError: "Bowel unavailable",
-    }), refreshBowel: retry }} />);
+    }), loadMore: retry }} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Bowel unavailable");
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalledOnce();

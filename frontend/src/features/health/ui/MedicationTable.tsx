@@ -6,6 +6,8 @@ import type {
   MedicationRow,
   MedicationRowGroup,
 } from "@/features/health/model/medication-table";
+import type { HealthTablePageState } from "@/features/health/hooks/useHealthController";
+import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
 
 export function MedicationTable({
   groups,
@@ -14,6 +16,7 @@ export function MedicationTable({
   onOpen,
   onToggle,
   onToggleAll,
+  page = emptyPage, onLoadMore = noop, emptyMessage,
 }: {
   groups: MedicationRowGroup[];
   activeRowCount: number;
@@ -21,6 +24,7 @@ export function MedicationTable({
   onOpen?(row: MedicationRow, occurrence: string): void;
   onToggle(id: string): void;
   onToggleAll(): void;
+  page?: HealthTablePageState; onLoadMore?: () => void; emptyMessage?: string;
 }) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const rows = groups.flatMap(({ rows: groupRows }) => groupRows);
@@ -42,26 +46,33 @@ export function MedicationTable({
         <th scope="col">Taken At</th><th scope="col">Medication</th><th scope="col">Dose</th>
         <th scope="col">Unit</th><th scope="col">Note</th>
       </tr></thead>
-      {rows.length === 0 ? <tbody><tr className="workspace-table-empty-row">
-        <td className="items-message workspace-table-empty-cell" colSpan={6}>
-          {activeRowCount === 0
+      {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : rows.length === 0 ? <tbody><tr className="workspace-table-empty-row">
+        <td className="items-message workspace-table-empty-cell" colSpan={6}
+          role={page.generation === 0 || page.moreStatus === "loading" ? "status" : undefined}>
+          {emptyMessage ?? (activeRowCount === 0
             ? "No medication entries yet."
-            : "No medication entries match this view."}
+            : "No medication entries match this view.")}
         </td>
       </tr></tbody> : groups.map((group) =>
         <tbody key={group.key} aria-label={group.label ? `${group.label} group` : undefined}>
           {group.label ? <tr className="workspace-group-heading">
             <th scope="rowgroup" colSpan={6}>{group.label}</th></tr> : null}
           {group.rows.map((row, rowIndex) => {
-            const occurrence = `${group.key}-${row.id}-${rowIndex}`;
+            const occurrence = (row as MedicationRow & { occurrenceKey?: string }).occurrenceKey
+              ?? `${group.key}-${row.id}-${rowIndex}`;
             return <MedicationTableRow key={occurrence} row={row}
               occurrence={occurrence} selected={selectedIds.includes(row.id)}
               onOpen={onOpen} onToggle={onToggle} />;
           })}
         </tbody>)}
+      <InfiniteTableFooter nextOffset={page.nextOffset} status={page.moreStatus}
+        error={page.moreError} loadMore={onLoadMore} columnCount={6} />
     </table>
   </section>;
 }
+
+const emptyPage: HealthTablePageState = { items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0 };
+const noop = () => undefined;
 
 function MedicationTableRow({ row, occurrence, selected, onOpen, onToggle }: {
   row: MedicationRow;

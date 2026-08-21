@@ -21,6 +21,21 @@ export type PlannerGroupCandidate = {
   count: number;
 };
 
+export function compareUnicodeText(left: string, right: string): number {
+  const compareCodePoints = (first: string, second: string) => {
+    const leftPoints = Array.from(first, (value) => value.codePointAt(0)!);
+    const rightPoints = Array.from(second, (value) => value.codePointAt(0)!);
+    for (let index = 0; index < Math.min(leftPoints.length, rightPoints.length); index += 1) {
+      const difference = leftPoints[index]! - rightPoints[index]!;
+      if (difference) return difference;
+    }
+    return leftPoints.length - rightPoints.length;
+  };
+  const lowercaseCodePoints = (value: string) =>
+    Array.from(value, (codePoint) => codePoint.toLowerCase()).join("");
+  return compareCodePoints(lowercaseCodePoints(left), lowercaseCodePoints(right)) || compareCodePoints(left, right);
+}
+
 const groupByValues = new Set<PlannerGroupBy>([
   "none",
   "month",
@@ -49,6 +64,7 @@ const statusLabels: Record<string, string> = {
   completed: "Completed",
   missed: "missed",
   waiting: "Waiting",
+  rejected: "Rejected",
 };
 
 export function defaultPlannerGroupSettings(): PlannerGroupSettings {
@@ -95,7 +111,13 @@ export function buildPlannerGroupCandidates({
   if (groupBy === "none") return [];
   if (groupBy === "tag") return tagCandidates(items);
   if (groupBy === "item_type") return fixedCandidates(["task", "event", "routine"], itemTypeLabels, items, (item) => [item.type]);
-  if (groupBy === "status") return fixedCandidates(["active", "paused", "completed", "missed", "waiting"], statusLabels, items, (item) => [item.status]);
+  if (groupBy === "status") return fixedCandidates(["active", "paused", "completed", "missed", "waiting", "rejected"], statusLabels, items, (item) => [item.status]);
+  if (groupBy === "month" || groupBy === "week" || groupBy === "day") {
+    const counts = countKeys(items, (item) => [plannerDateGroupKey(item.scheduled, groupBy)]);
+    return [...counts]
+      .sort(([left], [right]) => Number(left === "none") - Number(right === "none") || compareUnicodeText(left, right))
+      .map(([key, count]) => ({ key, label: plannerDateGroupLabel(key, groupBy), count }));
+  }
   const map = relationMap(groupBy, relatedItems);
   const counts = countKeys(items, (item) => [relationValue(item, groupBy) ?? "none"]);
   return [
@@ -113,10 +135,9 @@ export function orderVisiblePlannerGroups(
       !settings.hiddenGroupKeys.includes(candidate.key) &&
       (!settings.hideEmpty || candidate.count > 0),
   );
-  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
   if (settings.sort !== "manual") {
     const direction = settings.sort === "alphabetical" ? 1 : -1;
-    return [...visible].sort((left, right) => direction * collator.compare(left.label, right.label));
+    return [...visible].sort((left, right) => direction * compareUnicodeText(left.label, right.label));
   }
   const rank = new Map(settings.manualOrder.map((key, index) => [key, index]));
   return visible
@@ -142,10 +163,9 @@ function orderPlannerGroups(
   candidates: PlannerGroupCandidate[],
   settings: PlannerGroupSettings,
 ): PlannerGroupCandidate[] {
-  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
   if (settings.sort !== "manual") {
     const direction = settings.sort === "alphabetical" ? 1 : -1;
-    return [...candidates].sort((left, right) => direction * collator.compare(left.label, right.label));
+    return [...candidates].sort((left, right) => direction * compareUnicodeText(left.label, right.label));
   }
   const rank = new Map(settings.manualOrder.map((key, index) => [key, index]));
   return candidates
@@ -173,7 +193,7 @@ function uniqueStrings(value: unknown): string[] {
 
 function tagCandidates(items: WorkspaceItemModel[]): PlannerGroupCandidate[] {
   const counts = countKeys(items, (item) => item.tags && item.tags.length > 0 ? item.tags : ["untagged"]);
-  const tags = [...counts.keys()].filter((key) => key !== "untagged").sort((left, right) => left.localeCompare(right));
+  const tags = [...counts.keys()].filter((key) => key !== "untagged").sort(compareUnicodeText);
   return [
     ...tags.map((key) => ({ key, label: key, count: counts.get(key) ?? 0 })),
     { key: "untagged", label: "Untagged", count: counts.get("untagged") ?? 0 },
@@ -212,4 +232,25 @@ function missingLabel(groupBy: PlannerGroupBy): string {
   if (groupBy === "project") return "No project";
   if (groupBy === "routine") return "No routine";
   return "No value";
+}
+
+function plannerDateGroupKey(value: string | null | undefined, groupBy: "month" | "week" | "day"): string {
+  const date = value?.slice(0, 10);
+  if (!date) return "none";
+  if (groupBy === "month") return date.slice(0, 7);
+  if (groupBy === "day") return date;
+  const monday = new Date(`${date}T00:00:00Z`);
+  const weekday = monday.getUTCDay();
+  monday.setUTCDate(monday.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
+  return monday.toISOString().slice(0, 10);
+}
+
+function plannerDateGroupLabel(key: string, groupBy: "month" | "week" | "day"): string {
+  if (key === "none") return "No date";
+  if (groupBy === "week") return `Week of ${key}`;
+  if (groupBy === "month") {
+    const labels = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    return `${labels[Number(key.slice(5, 7)) - 1] ?? key} ${key.slice(0, 4)}`;
+  }
+  return key;
 }

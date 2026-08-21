@@ -24,6 +24,7 @@ type WorkbenchWireframeProps = {
 
 export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
   const [quickAddOpen, setQuickAddOpen] = React.useState(false);
+  const [mutationEpochs, setMutationEpochs] = React.useState({ ledger: 0, health: 0 });
   const [navigationOpen, setNavigationOpen] = React.useState(false);
   const mobile = useMobileNavigation();
   const navigationRef = React.useRef<HTMLElement>(null);
@@ -152,12 +153,16 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
           Quick Add
         </button>
       </aside>
-      <MainPanel controller={controller} />
+      <MainPanel controller={controller} mutationEpochs={mutationEpochs} />
       <TableViewTabConfirmationDialog adapter={confirmationAdapter} />
       {quickAddOpen ? (
         <QuickAddDialog
           controller={controller}
           onClose={() => setQuickAddOpen(false)}
+          onMutation={(domain) => setMutationEpochs((current) => ({
+            ...current,
+            [domain]: current[domain] + 1,
+          }))}
           returnFocusRef={mobile ? navigationToggleRef : undefined}
         />
       ) : null}

@@ -77,6 +77,9 @@ export function LedgerTableViewHeader({
       defaultLedgerTableSettings(scope).sortRules,
     ),
     update: (updater) => controller.updateTableSettings(scope, updater),
+    prepareGroup: controller.ensureReferenceData
+      ? () => controller.ensureReferenceData!(scope)
+      : undefined,
   };
 
   const tableTabs = (
@@ -158,8 +161,6 @@ function ledgerFilterOptions(
   scope: LedgerTableScopeId,
   state: LedgerState,
 ): PlannerFilterOptions {
-  const options = (items: { id: string; name: string }[]) =>
-    items.map(({ id, name }) => ({ value: id, label: name }));
   const empty = {
     tags: [],
     areas: [],
@@ -173,17 +174,19 @@ function ledgerFilterOptions(
     materializationPolicies: [],
     participants: [],
   };
+  const lookupOptions = (
+    key: "accounts" | "categories" | "currencies" | "accountTypes",
+  ) => (state.tableLookups?.[scope][key] ?? [])
+    .map(({ id, label }) => ({ value: id, label }));
 
   if (scope === "ledger.transactions") {
     return {
       tags: [],
       daily: {
         ...empty,
-        areas: options(state.accounts),
-        projects: options(state.categories),
-        currencies: state.currencies
-          .filter(({ active }) => active)
-          .map(({ id, code }) => ({ value: id, label: code })),
+        areas: lookupOptions("accounts"),
+        projects: lookupOptions("categories"),
+        currencies: lookupOptions("currencies"),
         statuses: ["expense", "income", "transfer"]
           .map((value) => ({ value, label: label(value) })),
       },
@@ -194,9 +197,9 @@ function ledgerFilterOptions(
       tags: [],
       daily: {
         ...empty,
-        areas: options(state.accountCategories),
-        projects: state.currencies.map(({ id, code }) => ({ value: id, label: code })),
-        currencies: state.currencies.map(({ id, code }) => ({ value: id, label: code })),
+        areas: lookupOptions("accountTypes"),
+        projects: lookupOptions("currencies"),
+        currencies: lookupOptions("currencies"),
       },
     };
   }
@@ -205,7 +208,7 @@ function ledgerFilterOptions(
     daily: {
       ...empty,
       statuses: ["expense", "income"].map((value) => ({ value, label: label(value) })),
-      parents: options(state.categories),
+      parents: lookupOptions("categories"),
     },
   };
 }

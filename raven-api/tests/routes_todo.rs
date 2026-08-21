@@ -16,6 +16,373 @@ fn authenticated(app: axum::Router) -> axum::Router {
     ))
 }
 
+fn test_app() -> (tempfile::TempDir, axum::Router) {
+    let temp = tempfile::tempdir().unwrap();
+    let app = router(RavenApiConfig {
+        todo_db: temp.path().join("todo.sqlite"),
+        ledger_db: temp.path().join("ledger.sqlite"),
+        health_db: temp.path().join("health.sqlite"),
+        health_media_dir: temp.path().join("media"),
+        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
+        auth: AuthMode::UiSession {
+            token: "test".into(),
+        },
+    })
+    .unwrap();
+    (temp, authenticated(app))
+}
+
+fn table_query(scope: &str, context: Value) -> Value {
+    json!({
+        "scope": scope,
+        "offset": 0,
+        "limit": 50,
+        "filter_mode": "and",
+        "filters": [],
+        "sorts": [],
+        "group_by": "none",
+        "group_settings": {
+            "sort": "manual",
+            "hide_empty": true,
+            "manual_order": [],
+            "hidden_group_keys": []
+        },
+        "context": context
+    })
+}
+
+async fn post_json(app: &axum::Router, path: &str, value: Value) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::post(path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(value.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+async fn json_body(response: axum::response::Response) -> Value {
+    serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap()
+}
+
+#[tokio::test]
+async fn todo_table_query_serves_workspace_planner_and_linked_scopes() {
+    let (_temp, app) = test_app();
+    let task = post_json(
+        &app,
+        "/api/v1/todo/tasks/propose",
+        json!({"title":"Visible task","scheduled":"2026-08-22","tags":["focus"]}),
+    )
+    .await;
+    assert_eq!(task.status(), StatusCode::OK);
+
+    for scope in ["area", "project", "goal", "routine", "task", "event"] {
+        let response = post_json(
+            &app,
+            "/api/v1/todo/table/query",
+            table_query(&format!("workspace.{scope}"), json!({})),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+        let page = json_body(response).await;
+        assert_eq!(page.as_object().unwrap().len(), 2);
+        assert!(page["items"].is_array());
+        assert!(page.get("next_offset").is_some());
+    }
+
+    for scope in [
+        "yearly-period-goals",
+        "yearly-month-goals",
+        "monthly-period-goals",
+        "monthly-calendar",
+        "monthly-week-goals",
+        "weekly-month-goals",
+        "weekly-week-goals",
+        "weekly-day-grid",
+        "daily-today",
+        "daily-overdue",
+        "daily-unscheduled",
+    ] {
+        let response = post_json(
+            &app,
+            "/api/v1/todo/table/query",
+            table_query(
+                &format!("planner.{scope}"),
+                json!({"from":"2026-08-01","to":"2026-08-31"}),
+            ),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+    }
+
+    let project = json_body(
+        post_json(
+            &app,
+            "/api/v1/todo/projects/propose",
+            json!({"title":"Parent","definition_of_done":"Done"}),
+        )
+        .await,
+    )
+    .await;
+    let linked = post_json(
+        &app,
+        "/api/v1/todo/table/query",
+        table_query(
+            "linked.project.task",
+            json!({"parent_type":"project","parent_id":project["id"]}),
+        ),
+    )
+    .await;
+    assert_eq!(linked.status(), StatusCode::OK);
+
+    let task_page = json_body(
+        post_json(
+            &app,
+            "/api/v1/todo/table/query",
+            table_query("workspace.task", json!({})),
+        )
+        .await,
+    )
+    .await;
+    let row = &task_page["items"][0];
+    assert_eq!(row.as_object().unwrap().len(), 4);
+    assert!(row["key"].is_string());
+    assert!(row.get("group_key").is_some());
+    assert!(row.get("group_label").is_some());
+    assert_eq!(row["record"]["type"], "task");
+    assert_eq!(row["record"]["title"], "Visible task");
+
+    let mut configured = table_query("workspace.task", json!({"reference_date":"2026-08-22"}));
+    configured["filter_mode"] = json!("or");
+    configured["filters"] = json!([{
+        "field":"title","operator":"contains","value":{"text":"Visible"}
+    }]);
+    configured["sorts"] = json!([{"field":"updated","direction":"desc"}]);
+    configured["group_by"] = json!("tag");
+    configured["group_settings"] = json!({
+        "sort":"alphabetical","hide_empty":false,
+        "manual_order":["focus"],"hidden_group_keys":[]
+    });
+    let configured = json_body(post_json(&app, "/api/v1/todo/table/query", configured).await).await;
+    assert_eq!(configured["items"][0]["group_key"], "focus");
+    assert_eq!(configured["items"][0]["group_label"], "focus");
+}
+
+#[tokio::test]
+async fn todo_table_query_is_strict_bounded_and_safe() {
+    let (_temp, app) = test_app();
+    let mut cases = Vec::new();
+    cases.push(table_query("workspace.task", json!({"from":"2026-08-01"})));
+    cases.push(table_query(
+        "planner.daily-today",
+        json!({"from":"2026-08-22","to":"2026-08-22","path":"C:\\secret.sqlite"}),
+    ));
+    cases.push(table_query(
+        "linked.project.task",
+        json!({"parent_type":"area","parent_id":"private-item"}),
+    ));
+    for (field, value) in [("limit", json!(51)), ("offset", json!(u32::MAX))] {
+        let mut query = table_query("workspace.task", json!({}));
+        query[field] = value;
+        cases.push(query);
+    }
+    let mut invalid_rule = table_query("workspace.task", json!({}));
+    invalid_rule["filters"] = json!([{
+        "field":"title","operator":"is_before","value":{"text":"SELECT private"},
+        "extra":true
+    }]);
+    cases.push(invalid_rule);
+    let mut relative = table_query("workspace.task", json!({}));
+    relative["filters"] = json!([{
+        "field":"due","operator":"is_relative_to_today",
+        "value":{"relative":{"amount":"1","unit":"day"}}
+    }]);
+    cases.push(relative);
+    let mut invalid_sort = table_query("workspace.area", json!({}));
+    invalid_sort["sorts"] = json!([{"field":"due","direction":"asc"}]);
+    cases.push(invalid_sort);
+    let mut invalid_group = table_query("workspace.area", json!({}));
+    invalid_group["group_by"] = json!("month");
+    cases.push(invalid_group);
+    let mut invalid_operator = table_query("workspace.task", json!({}));
+    invalid_operator["filters"] = json!([{
+        "field":"title","operator":"matches_regex","value":{"text":"private"}
+    }]);
+    cases.push(invalid_operator);
+    let mut invalid_value = table_query("workspace.task", json!({}));
+    invalid_value["filters"] = json!([{
+        "field":"title","operator":"contains","value":{"range":{"start":"a","end":"z"}}
+    }]);
+    cases.push(invalid_value);
+
+    for query in cases {
+        let response = post_json(&app, "/api/v1/todo/table/query", query).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let error = json_body(response).await;
+        assert_eq!(error["code"], "validation_error");
+        assert_eq!(error["message"], "The request is invalid.");
+        let rendered = error.to_string();
+        assert!(!rendered.contains("secret.sqlite"));
+        assert!(!rendered.contains("SELECT"));
+        assert!(!rendered.contains("private-item"));
+    }
+
+    let oversized = Request::post("/api/v1/todo/table/query")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from("x".repeat(129 * 1024)))
+        .unwrap();
+    assert_eq!(
+        app.oneshot(oversized).await.unwrap().status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+}
+
+#[tokio::test]
+async fn todo_table_query_defaults_to_the_bounded_first_page_and_parses_exact_local_dates() {
+    let (_temp, app) = test_app();
+    let mut defaulted = table_query("workspace.task", json!({}));
+    defaulted.as_object_mut().unwrap().remove("offset");
+    defaulted.as_object_mut().unwrap().remove("limit");
+    assert_eq!(
+        post_json(&app, "/api/v1/todo/table/query", defaulted)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+
+    let invalid = table_query(
+        "planner.daily-today",
+        json!({"from":"2026-8-2","to":"2026-08-22"}),
+    );
+    assert_eq!(
+        post_json(&app, "/api/v1/todo/table/query", invalid)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn todo_table_lookups_are_compact_scoped_and_legacy_items_stay_an_array() {
+    let (_temp, app) = test_app();
+    for (path, body) in [
+        (
+            "/api/v1/todo/areas",
+            json!({"title":"Work","tags":["home"]}),
+        ),
+        (
+            "/api/v1/todo/tasks/propose",
+            json!({"title":"Buy milk","area":"Work","tags":[" Urgent ","urgent","Urgent"]}),
+        ),
+    ] {
+        assert_eq!(post_json(&app, path, body).await.status(), StatusCode::OK);
+    }
+
+    let lookups = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/todo/table/lookups?scope=workspace.task")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(lookups.status(), StatusCode::OK);
+    let value = json_body(lookups).await;
+    assert_eq!(value.as_object().unwrap().len(), 1);
+    assert_eq!(value["items"].as_array().unwrap().len(), 2);
+    for item in value["items"].as_array().unwrap() {
+        assert_eq!(
+            item.as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["id", "tags", "title", "type"]
+        );
+    }
+    assert!(
+        value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["type"] == "task")
+    );
+    assert_eq!(
+        value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["type"] == "task")
+            .unwrap()["tags"],
+        json!(["Urgent", "urgent"])
+    );
+
+    for (scope, expected) in [
+        ("workspace.goal", Vec::<&str>::new()),
+        ("planner.daily-today", vec!["area", "task"]),
+        ("linked.project.task", vec!["area", "task"]),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/api/v1/todo/table/lookups?scope={scope}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+        let items = json_body(response).await["items"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item["type"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            expected,
+            "{scope}"
+        );
+    }
+
+    let invalid = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/todo/table/lookups?scope=workspace.task&path=secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    assert!(!json_body(invalid).await.to_string().contains("secret"));
+
+    let legacy = app
+        .oneshot(
+            Request::get("/api/v1/todo/items")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(legacy.status(), StatusCode::OK);
+    let legacy = json_body(legacy).await;
+    assert!(legacy.is_array());
+    let task = legacy
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "task")
+        .unwrap();
+    for field in ["id", "type", "title", "status", "tags", "metadata_"] {
+        assert!(task.get(field).is_some(), "legacy field {field}");
+    }
+}
+
 fn hold_exclusive_todo_lock(
     db_path: std::path::PathBuf,
 ) -> (std::sync::mpsc::SyncSender<()>, std::thread::JoinHandle<()>) {

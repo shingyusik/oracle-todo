@@ -10,6 +10,7 @@ import {
   deriveMedicationGroups,
   type MedicationRow,
 } from "@/features/health/model/medication-table";
+import type { HealthTableOccurrence } from "@/features/health/model/health-model";
 import {
   defaultHealthTableSettings,
   healthMedicationFilterSelectOptions,
@@ -48,15 +49,23 @@ export function MedicationPanel({
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const tableRef = useRef<HTMLElement>(null);
   const detailOriginRef = useRef<{ occurrence: string; rowId: string } | null>(null);
+  const interactionTokenRef = useRef(0);
+  useEffect(() => { void controller.ensureTable("health.medication"); }, [controller]);
+  const page = controller.tablePage("health.medication");
+  const activeViewId = controller.tableTabs("health.medication").activeTabId;
+  useEffect(() => {
+    interactionTokenRef.current += 1;
+    return () => { interactionTokenRef.current += 1; };
+  }, [activeViewId, page.generation]);
 
   const entries = useMemo(() => controller.state.medicationEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)),
   [controller.state.medicationEntries, tombstonedIds]);
-  const activeGroups = useMemo(() => deriveMedicationGroups(
-    entries, defaultHealthTableSettings("health.medication")), [entries]);
-  const activeRows = useMemo(() => uniqueRows(activeGroups.flatMap(({ rows }) => rows)), [activeGroups]);
+  const groups = useMemo(() => occurrenceGroups(page.items.filter(isOccurrence)
+    .filter(({ record }) => !tombstonedIds.has(record.id))), [page.items, tombstonedIds]);
+  const activeRows = useMemo(() => uniqueRows(deriveMedicationGroups(
+    entries, defaultHealthTableSettings("health.medication")).flatMap(({ rows }) => rows)), [entries]);
   const settings = controller.tableSettings("health.medication");
-  const groups = useMemo(() => deriveMedicationGroups(entries, settings), [entries, settings]);
   const visibleRows = useMemo(() => uniqueRows(groups.flatMap(({ rows }) => rows)), [groups]);
   const selectedVisibleIds = useMemo(() => visibleRows
     .filter(({ id }) => selectedIds.includes(id)).map(({ id }) => id), [selectedIds, visibleRows]);
@@ -71,9 +80,7 @@ export function MedicationPanel({
   }).filter(({ label }) => label !== null).map(({ key, label, rows }) => ({
     key, label: label!, count: uniqueRows(rows).length,
   })), [entries, settings.groupSettings]);
-  const currentDetailRow = detailRow
-    ? activeRows.find(({ id }) => id === detailRow.id) ?? null
-    : null;
+  const currentDetailRow = detailRow ? resolveDetail(detailRow, entries) : null;
   const detailHistory = useBrowserDetailHistory({
     stateKey: "__ravenHealthMedicationDetailId",
     currentId: currentDetailRow?.id ?? null,
@@ -169,15 +176,23 @@ export function MedicationPanel({
     }
   }
 
-  const initial = controller.state.medicationEntries.length === 0;
-  if (controller.state.medicationStatus === "loading" && initial) {
-    return <p role="status" className="items-message">Loading medication entries…</p>;
+  function openCreateAfterReferences() {
+    const token = ++interactionTokenRef.current;
+    void controller.ensureReferenceData("health.medication").then((ok) => {
+      if (!ok || token !== interactionTokenRef.current) return;
+      setDetailRow(null);
+      setCreateOpen(true);
+    });
   }
-  if (controller.state.medicationStatus === "error" && initial) {
-    return <section><h1>Medication</h1><p role="alert" className="items-message">
-      {controller.state.medicationError ?? "Medication entries are unavailable"}</p>
-      <button type="button" onClick={() => void controller.refreshMedication()}>Retry</button>
-    </section>;
+
+  function openDetailAfterReferences(row: MedicationRow, occurrence: string) {
+    const token = ++interactionTokenRef.current;
+    void controller.ensureReferenceData("health.medication").then((ok) => {
+      if (!ok || token !== interactionTokenRef.current) return;
+      setCreateOpen(false);
+      detailOriginRef.current = { occurrence, rowId: row.id };
+      setDetailRow(row);
+    });
   }
 
   if (currentDetailRow) {
@@ -194,19 +209,18 @@ export function MedicationPanel({
       headingId="health-medication-heading"
       fieldLabels={{ medication_name: "Medication", medication_unit: "Unit", dose: "Dose" }}
       fieldOptions={healthMedicationFilterSelectOptions} candidates={candidates}
-      onAdd={() => setCreateOpen(true)} addButtonRef={addButtonRef}
+      onAdd={openCreateAfterReferences} addButtonRef={addButtonRef}
       onArchiveSelected={() => { setArchiveError(null); setArchiveTargets(selectedVisibleIds); }}
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleIds.length === 0 || archivePending} />
     <MedicationTable groups={groups} activeRowCount={activeRows.length} selectedIds={selectedIds}
-      onOpen={(row, occurrence) => {
-        detailOriginRef.current = { occurrence, rowId: row.id };
-        setDetailRow(row);
-      }} onToggle={toggle} onToggleAll={toggleAll} />
+      onOpen={openDetailAfterReferences} onToggle={toggle} onToggleAll={toggleAll} page={page}
+      onLoadMore={() => void controller.loadMore("health.medication")}
+      emptyMessage={emptyMessage(controller, page, "medication entries")} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>
       <button type="button" disabled={refreshPending}
         onClick={() => void retryRefresh()}>Retry</button></div>
-      : controller.state.medicationError ? <p role="alert" className="items-message">
+      : controller.state.medicationError && page.moreStatus !== "error" ? <p role="alert" className="items-message">
         {controller.state.medicationError}</p> : null}
     {archiveError && archiveTargets === null
       ? <p role="alert" className="items-message">{archiveError}</p> : null}
@@ -225,4 +239,25 @@ export function MedicationPanel({
 function uniqueRows(rows: readonly MedicationRow[]): MedicationRow[] {
   const ids = new Set<string>();
   return rows.filter(({ id }) => ids.has(id) ? false : (ids.add(id), true));
+}
+
+function isOccurrence(item: HealthTableOccurrence): item is Extract<HealthTableOccurrence, { scope: "health.medication" }> { return item.scope === "health.medication"; }
+function occurrenceGroups(items: Extract<HealthTableOccurrence, { scope: "health.medication" }>[]) {
+  const groups = new Map<string, { key: string; label: string | null; rows: MedicationRow[] }>();
+  for (const { key: occurrenceKey, groupKey, groupLabel, record } of items) {
+    const key = groupKey ?? "all"; const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
+    group.rows.push({ ...record, unit: record.event.attributes.kind === "medication" ? record.event.attributes.unit : "dose",
+      takenAtLabel: new Date(record.event.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), occurrenceKey } as MedicationRow & { occurrenceKey: string });
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+function resolveDetail(fallback: MedicationRow, entries: readonly import("@/features/health/model/health-model").HealthEvent[]): MedicationRow {
+  const event = entries.find(({ id, deletedAt }) => id === fallback.id && deletedAt === null);
+  return event ? deriveMedicationGroups([event], defaultHealthTableSettings("health.medication"))[0]?.rows[0] ?? fallback : fallback;
+}
+function emptyMessage(controller: HealthController, page: ReturnType<HealthController["tablePage"]>, noun: string) {
+  if (page.items.length === 0 && (page.generation === 0 || page.moreStatus === "loading")) return `Loading ${noun}\u2026`;
+  const settings = controller.tableSettings("health.medication");
+  return settings.filterRules.length || settings.groupSettings.hiddenGroupKeys.length ? `No ${noun} match this view.` : `No ${noun} yet.`;
 }

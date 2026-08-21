@@ -3,7 +3,12 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
-import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
+import {
+  deriveCategoryGroups,
+  type CategoryRow,
+  type CategoryRowGroup,
+} from "@/features/ledger/model/category-table";
+import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
 import { CategoryCreateDialog } from "@/features/ledger/ui/CategoryCreateDialog";
 import { CategoryDetail } from "@/features/ledger/ui/CategoryDetail";
@@ -13,7 +18,7 @@ import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 export function CategoriesPanel({ controller }: { controller: LedgerController }) {
-  const [selectedDetailId, setSelectedDetailId] = useState<string | null>(null);
+  const [selectedDetailRow, setSelectedDetailRow] = useState<CategoryRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTargets, setDeleteTargets] = useState<string[]>([]);
@@ -23,36 +28,51 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
   const sectionRef = useRef<HTMLElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
 
-  const groups = deriveCategoryGroups(
-    controller.state.categories,
-    controller.tableSettings("ledger.categories"),
-  );
+  const page = controller.tablePage?.("ledger.categories") ?? {
+    items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+  };
+  const groups = controller.tablePage
+    ? categoryGroups(page.items.filter(isCategoryOccurrence))
+    : deriveCategoryGroups(
+      controller.state.categories,
+      controller.tableSettings("ledger.categories"),
+    );
   const visibleRows = groups.flatMap((group) => group.rows);
-  const activeRows = deriveCategoryGroups(
-    controller.state.categories,
-    defaultLedgerTableSettings("ledger.categories"),
-  ).flatMap((group) => group.rows);
-  const selectedDetail = selectedDetailId === null
+  const activeRows = controller.tablePage
+    ? visibleRows
+    : deriveCategoryGroups(
+      controller.state.categories,
+      defaultLedgerTableSettings("ledger.categories"),
+    ).flatMap((group) => group.rows);
+  const selectedDetail = selectedDetailRow === null
     ? null
-    : activeRows.find(({ id }) => id === selectedDetailId) ?? null;
-  const activeRowCount = controller.state.categories.filter(({ active }) => active).length;
+    : resolveCategoryDetail(selectedDetailRow, controller);
+  const activeRowCount = controller.state.categories.length > 0
+    ? controller.state.categories.filter(({ active }) => active).length
+    : activeRows.length;
   const selectedVisibleIds = selectedIds.filter((id) =>
     visibleRows.some((row) => row.id === id),
   );
 
   useEffect(() => {
-    const activeIds = new Set(
-      controller.state.categories.filter(({ active }) => active).map(({ id }) => id),
-    );
+    void controller.ensureTable?.("ledger.categories");
+  }, [controller]);
+
+  useEffect(() => {
+    const activeIds = new Set(activeRows.map(({ id }) => id));
     setSelectedIds((current) => {
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (selectedDetailId && !activeIds.has(selectedDetailId)) setSelectedDetailId(null);
-  }, [controller.state.categories, selectedDetailId]);
+    if (
+      selectedDetailRow &&
+      controller.hasReferenceData?.("ledger.categories") &&
+      !controller.state.categories.some(({ id, active }) => id === selectedDetailRow.id && active)
+    ) setSelectedDetailRow(null);
+  }, [activeRows, controller, selectedDetailRow]);
 
   function returnToList() {
-    setSelectedDetailId(null);
+    setSelectedDetailRow(null);
     requestAnimationFrame(() => sectionRef.current?.focus());
   }
 
@@ -116,7 +136,9 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         scope="ledger.categories"
         title="Categories"
         headingId="ledger-categories-heading"
-        onAdd={() => setCreateOpen(true)}
+        onAdd={() => void ensureReferences(controller).then((loaded) => {
+          if (loaded) setCreateOpen(true);
+        })}
         addButtonRef={addButtonRef}
         addLabel="Add category"
         onArchiveSelected={() => {
@@ -130,9 +152,14 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={(row) => setSelectedDetailId(row.id)}
+        onOpen={(row) => void ensureReferences(controller).then((loaded) => {
+          if (loaded) setSelectedDetailRow(row);
+        })}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
+        page={visibleTablePage(page, controller.state.error)}
+        onLoadMore={() => void controller.loadMore?.("ledger.categories")}
+        emptyMessage={ledgerEmptyMessage(controller, "ledger.categories", page, "categories")}
       />
       {createOpen ? (
         <CategoryCreateDialog
@@ -158,4 +185,69 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
       ) : null}
     </section>
   );
+}
+
+function resolveCategoryDetail(
+  fallback: CategoryRow,
+  controller: LedgerController,
+): CategoryRow | null {
+  if (!controller.hasReferenceData?.("ledger.categories")) return fallback;
+  const category = controller.state.categories.find(({ id, active }) => id === fallback.id && active);
+  if (!category) return null;
+  const parent = controller.state.categories.find(({ id }) => id === category.parentId);
+  return {
+    ...fallback,
+    id: category.id,
+    category,
+    name: category.name,
+    kind: category.kind,
+    kindLabel: category.kind === "expense" ? "Expense" : "Income",
+    parentId: category.parentId,
+    parentLabel: category.parentId === null ? "No parent" : parent?.name ?? "Unknown parent",
+  };
+}
+
+function ledgerEmptyMessage(
+  controller: LedgerController,
+  scope: "ledger.categories",
+  page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
+  noun: string,
+): string {
+  if (page.items.length === 0 && (page.generation === 0 || page.moreStatus === "loading")) {
+    return `Loading ${noun}\u2026`;
+  }
+  const settings = controller.tableSettings(scope);
+  return settings.filterRules.length > 0 || settings.groupSettings.hiddenGroupKeys.length > 0
+    ? `No ${noun} match this view.`
+    : `No ${noun} yet.`;
+}
+
+function visibleTablePage(
+  page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
+  globalError: string | null,
+) {
+  return globalError && page.moreStatus === "error" ? { ...page, nextOffset: null } : page;
+}
+
+function ensureReferences(controller: LedgerController): Promise<boolean> {
+  return controller.ensureReferenceData?.("ledger.categories") ?? Promise.resolve(true);
+}
+
+function isCategoryOccurrence(
+  item: LedgerTableOccurrence,
+): item is Extract<LedgerTableOccurrence, { scope: "ledger.categories" }> {
+  return item.scope === "ledger.categories";
+}
+
+function categoryGroups(
+  items: Extract<LedgerTableOccurrence, { scope: "ledger.categories" }>[],
+): CategoryRowGroup[] {
+  const groups = new Map<string, CategoryRowGroup>();
+  for (const { groupKey, groupLabel, record } of items) {
+    const key = groupKey ?? "all";
+    const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
+    group.rows.push(record);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }

@@ -119,6 +119,7 @@ The existing ToDo router is mounted below `/api/v1/todo`:
 | Method | Relative route |
 | --- | --- |
 | `GET` | `/health`, `/items`, `/items/archive`, `/views/agenda`, `/views/date-range`, `/views/period` |
+| Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
 | `POST` | `/areas`, `/goals/propose`, `/projects/propose`, `/routines/propose`, `/routines/:id/materialize`, `/events/propose`, `/tasks/propose` |
 | `PATCH` | `/items/:id` |
 | `POST` | `/items/:id/pause`, `/miss`, `/postpone`, `/resume`, `/complete`, `/reopen`, `/archive`, `/drop`, `/cancel` |
@@ -146,6 +147,97 @@ Malformed, oversized, status-mismatched, conflicting, payload-too-large, and int
 errors use the generic shared contract. They do not expose paths, SQL, raw storage errors,
 tokens, sessions, or arbitrary metadata.
 
+### ToDo table views
+
+`POST /table/query` filters, groups, and sorts the complete active scope before returning a
+page. `offset` defaults to `0`; `limit` defaults to and cannot exceed `50`. JSON bodies are
+limited to 128 KiB and recursively deny unknown fields. Existing `/items` and `/views/*`
+routes keep their array response shapes.
+
+Scopes and contexts use these exact lowercase values:
+
+- Workspace: `workspace.area`, `.project`, `.goal`, `.routine`, `.task`, or `.event`, with
+  `"context": {}`.
+- Planner goal tables: `planner.yearly-period-goals`, `.yearly-month-goals`,
+  `.monthly-period-goals`, `.monthly-week-goals`, `.weekly-month-goals`, or
+  `.weekly-week-goals`.
+- Planner work tables: `planner.monthly-calendar`, `.weekly-day-grid`, `.daily-today`,
+  `.daily-overdue`, or `.daily-unscheduled`.
+- Linked tables: `linked.<parent>.<child>` for `area` to `project|routine|task|event`,
+  `project` to `routine|task|event`, `routine` to `task`, and `goal` to `goal|task`.
+
+Planner context is `{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}` using the selected local
+period, inclusive. Linked context is
+`{"parent_type":"project","parent_id":"<id>"}` and must match the scope. Any context may
+also carry `reference_date:"YYYY-MM-DD"`; it is required whenever a relative-date filter is
+used. Dates require zero-padded calendar form and are never inferred from the server clock.
+
+```json
+{
+  "scope": "workspace.task",
+  "offset": 0,
+  "limit": 50,
+  "filter_mode": "and",
+  "filters": [{"field":"title","operator":"contains","value":{"text":"review"}}],
+  "sorts": [{"field":"updated","direction":"desc"}],
+  "group_by": "tag",
+  "group_settings": {
+    "sort": "manual",
+    "hide_empty": true,
+    "manual_order": [],
+    "hidden_group_keys": []
+  },
+  "context": {"reference_date":"2026-08-22"}
+}
+```
+
+`filter_mode` is `and|or`; sort direction is `asc|desc`; group sort is
+`manual|alphabetical|reverse_alphabetical`. Filter values have exactly one shape:
+`{"text":"..."}`, `{"list":["..."]}`, `{"range":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}}`,
+`{"relative":{"amount":"1","unit":"day|week|month"}}`, or `{"empty":true}`. Operators are
+`is`, `is_not`, `contains`, `does_not_contain`, `starts_with`, `ends_with`, `is_before`,
+`is_after`, `is_on_or_before`, `is_on_or_after`, `is_between`, `is_relative_to_today`,
+`greater_than`, `less_than`, `is_empty`, and `is_not_empty`. Text fields accept
+`contains|does_not_contain|is|is_not|starts_with|ends_with` with `text`; date fields accept
+`is|is_not|is_before|is_after|is_on_or_before|is_on_or_after` with `text`, `is_between` with
+`range`, or `is_relative_to_today` with `relative`; select, multi-select, and relation fields
+accept `is|is_not|contains|does_not_contain` with `list`. Every field accepts
+`is_empty|is_not_empty` with `empty:true`. Priority is a select field, not a numeric field;
+no current ToDo field accepts `greater_than|less_than`.
+
+Workspace fields are scope-specific: area has `title,status,tags,note`; project adds
+`area,due`; goal has `title,status,tags,horizon,scheduled,parent,note`; routine has
+`title,status,tags,area,project,recurrence_rule,materialization_policy,priority,description,note`;
+task has `title,status,tags,area,project,routine,scheduled,due,priority,description,note`; and
+event has `title,status,tags,area,project,scheduled,due,priority,location,participants,commitment_type,description,note`.
+Linked tables use their child Workspace fields. Planner goal fields are
+`title,status,tags,horizon,scheduled,due,parent,note`; Planner work fields are
+`title,status,tags,area,project,routine,scheduled,due,priority,recurrence_rule,materialization_policy,location,participants,commitment_type,description,note`.
+Every corresponding sort field is allowed, plus `updated`.
+
+Workspace groups are `none,tag,status`, plus `area` for project/routine/task/event, `project`
+for routine/task/event, and `routine` for task. Linked tables use their child groups. Planner
+goal groups are `none,tag,status`; Planner work groups are
+`none,month,week,day,area,project,routine,tag,item_type,status`. Group keys in
+`manual_order` and `hidden_group_keys` are bounded saved-view keys; `hide_empty` suppresses
+empty relation/date groups.
+
+The page response is exactly `{"items":[...],"next_offset":50|null}`. Each occurrence has
+`key`, nullable `group_key`, nullable `group_label`, and `record`. `key` is deterministic for
+the logical record and group occurrence. The full display record contains `id`, `type`,
+`title`, `status`, `tags`, relation IDs, description/note/outcome/definition fields, recurrence
+and scheduling fields, timestamps, and `metadata_` (`location`, `participants`, and
+`commitment_type`). Enum values use the snake-case forms shown above.
+
+`GET /table/lookups?scope=...` accepts the same scope strings and returns
+`{"items":[{"id":"...","type":"task","title":"...","tags":["..."]}]}`. Results contain
+only non-terminal records relevant to the displayed and filter/group fields. Area returns
+`area`; project returns `area,project`; goal and Planner goal scopes return `goal`; routine
+returns `area,project,routine`; task returns `area,project,routine,task`; event returns
+`area,event,project`; linked scopes use their child set; Planner work scopes return
+`area,event,project,routine,task`. Stored tag labels keep their trimmed casing and deduplicate
+only exact matches. Lookups contain no note, description, full record, or audit data.
+
 ## Ledger routes
 
 All routes below use prefix `/api/v1/ledger`.
@@ -158,6 +250,7 @@ All routes below use prefix `/api/v1/ledger`.
 | Account categories | `GET/POST /account-categories`, `PATCH/DELETE /account-categories/:id`, `GET /account-categories/:id/purge` |
 | Accounts | `GET/POST /accounts`, `PATCH/DELETE /accounts/:id`, `GET /accounts/:id/purge` |
 | Transaction categories | `GET/POST /transaction-categories`, `PATCH/DELETE /transaction-categories/:id`, `GET /transaction-categories/:id/purge` |
+| Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
 | Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/accounts`, `/reports/categories`, `/reports/compare`, `/reports/trend`, `/reports/briefing` |
 
 JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
@@ -168,6 +261,46 @@ Entry and master-data purge `GET` routes return confirmation previews. Purge `DE
 requires `{"confirmation":"<confirmation-id>"}` matching the preview; audit events survive.
 Only entries expose archive/restore. Currency, account-category, account, and transaction
 category lifecycle uses the `active` field on update.
+
+### Ledger table views
+
+`POST /table/query` reads one page from `ledger.transactions`, `ledger.accounts`, or
+`ledger.categories`. The default and maximum `limit` are `50`; `offset` defaults to `0`.
+Filters, group visibility and ordering, and user sorts apply to the complete active dataset
+before paging. Existing Ledger list routes and their response shapes are unchanged.
+
+```json
+{
+  "scope": "ledger.transactions",
+  "offset": 0,
+  "limit": 50,
+  "filter_mode": "and",
+  "filters": [{"field":"content","operator":"contains","value":{"text":"lunch"}}],
+  "sorts": [{"field":"date","direction":"desc"}],
+  "group_by": "month",
+  "group_settings": {
+    "sort": "alphabetical",
+    "hide_empty": true,
+    "manual_order": [],
+    "hidden_group_keys": []
+  },
+  "context": {"reference_date":"2026-08-21"}
+}
+```
+
+`context.reference_date` is an optional caller-local `YYYY-MM-DD` date and is required when
+an `is_relative_to_today` date filter is present. Filter values use exactly one of `text`,
+`list`, `range` (`start` and `end`), `relative` (`amount` and `unit`), or `empty:true`.
+Unknown fields are rejected at every request-object level. The response is
+`{"items":[{"key":"...","group_key":null,"group_label":null,"record":{}}],"next_offset":50}`;
+`next_offset` is `null` on the final page.
+Transaction records include `amount_minor`, `currency_code`, and the currency's validated
+`decimal_places`, so clients can format minor units without loading the currency list.
+
+`GET /table/lookups` accepts the same three scope values. Transaction lookups return compact
+active `accounts`, `categories`, and `currencies`; account lookups return `account_types` and
+`currencies`; category lookups return `categories`. Every option contains only `id` and
+`label`.
 
 ### Ledger reports
 
@@ -210,6 +343,7 @@ All routes below use prefix `/api/v1/health`.
 | Diet image upload | `POST /diet/with-image` and `PATCH /diet/:id/with-image` with raw image bytes |
 | Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore`, `DELETE /events/:id/purge` |
 | Metrics | `POST /metrics/daily` |
+| Table pages | `POST /table/query`, `GET /table/lookups?scope=...` |
 | Reads | `GET /timeline`, `/trends`, `/reports`, `/audit/:record_type/:record_id` |
 
 `GET /events` accepts `offset`, `limit`, `category`, `metric_key`, and
@@ -240,6 +374,56 @@ ordinary or inactive archive targets, duplicate identities, and an identity pres
 arrays. Any validation, conflict, audit, or storage failure rolls back the entire request.
 The response `items` contains the created or updated active events; archived events are not
 included.
+
+### Health table pages
+
+`POST /table/query` serves the exact scopes `health.diet`, `health.bowel`,
+`health.medication`, and `health.metrics`. The strict JSON body contains `scope`, `offset`,
+`limit`, `filter_mode`, `filters`, `sorts`, `group_by`, `group_settings`, and `context`.
+`limit` defaults to 50 and may not exceed 50. `context.reference_date`, when present, is a
+local calendar date in `YYYY-MM-DD` form and is required by `is_relative_to_today` filters.
+
+Filter values use one of the strict envelopes `{"text":"..."}`, `{"list":["..."]}`,
+`{"range":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}}`,
+`{"relative":{"amount":"1","unit":"day|week|month"}}`, or `{"empty":true}`.
+Sort rules contain `field` and `direction` (`asc` or `desc`). `group_settings` contains
+`sort` (`manual`, `alphabetical`, or `reverse_alphabetical`), `hide_empty`, `manual_order`,
+and `hidden_group_keys`. Fields are validated against the selected scope. Filtering,
+grouping, hidden-group removal, and sorting apply to the complete active dataset before the
+requested offset page is selected.
+
+The response has the following envelope; `next_offset` is `null` after the final page:
+
+```json
+{
+  "items": [{
+    "key": "8:untagged:record-id",
+    "group_key": "untagged",
+    "group_label": "Untagged",
+    "record": {"kind": "diet", "id": "record-id"}
+  }],
+  "next_offset": 50
+}
+```
+
+Every row has `key`, nullable `group_key`, nullable `group_label`, and `record`. `key`
+identifies a displayed occurrence, including separate tag-group occurrences. Records use
+these exact snake-case fields:
+
+| `kind` | Record fields |
+| --- | --- |
+| `diet` | `kind`, `id`, `entry`, `date`, `meal_label`, `food`, `tags`, `has_photo`, `note` |
+| `bowel` | `kind`, `id`, `event`, `date`, `bristol_scale`, `blood_visible`, `blood_label`, `note` |
+| `medication` | `kind`, `id`, `event`, `date`, `medication_name`, `dose`, `unit`, `unit_label`, `note` |
+| `metrics` | `kind`, `id`, `date`, `events`, `weight`, `sleep`, `crp`, `calprotectin`, `condition`, `note`, `created_at`, `updated_at` |
+
+`date` is an ISO `YYYY-MM-DD` local calendar date. A Metrics record combines all active
+fixed-metric events for that local date; missing metric columns are `null`.
+
+`GET /table/lookups?scope=...` returns compact `{id,label}` arrays only. Diet exposes active
+normalized tags plus fixed meal and photo choices; Bowel exposes Bristol-scale and blood
+visibility choices; Medication exposes unit choices; Metrics exposes its fixed metric fields.
+The existing `/diet` and `/events` list response shapes are unchanged.
 
 ### Health reports
 
