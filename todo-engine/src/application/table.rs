@@ -7,10 +7,10 @@ use crate::domain::{ItemStatus, ItemType, TodoItem};
 pub const TABLE_PAGE_LIMIT: u16 = 50;
 const MAX_FILTERS: usize = 50;
 const MAX_SORTS: usize = 10;
-const MAX_TEXT_BYTES: usize = 512;
+pub const MAX_TABLE_TEXT_BYTES: usize = 512;
 const MAX_VALUES: usize = 100;
 const MAX_GROUP_KEYS: usize = 100;
-const MAX_GROUP_KEY_BYTES: usize = 256;
+pub const MAX_CANONICAL_GROUP_KEY_BYTES: usize = 1 + MAX_TABLE_TEXT_BYTES * 2;
 const MAX_PARENT_ID_BYTES: usize = 512;
 const MAX_RELATIVE_DATE_AMOUNT: u32 = 100_000;
 
@@ -395,6 +395,9 @@ impl TodoTableQuery {
         if !(1..=TABLE_PAGE_LIMIT).contains(&limit) {
             return Err(validation("limit must be between 1 and 50"));
         }
+        offset
+            .checked_add(u32::from(limit))
+            .ok_or_else(|| validation("table page offset exceeds the supported range"))?;
         if filters.len() > MAX_FILTERS || sorts.len() > MAX_SORTS {
             return Err(validation("too many table rules"));
         }
@@ -676,7 +679,6 @@ fn planner_group_allowed(field: PlannerTableGroup, scope: Option<PlannerTableSco
 enum FieldType {
     Text,
     Date,
-    Number,
     Select,
     MultiSelect,
     Relation,
@@ -686,7 +688,7 @@ fn workspace_field_type(field: WorkspaceFilterField) -> FieldType {
     use WorkspaceFilterField as F;
     match field {
         F::Scheduled | F::Due => FieldType::Date,
-        F::Priority => FieldType::Number,
+        F::Priority => FieldType::Select,
         F::Status | F::Horizon | F::MaterializationPolicy => FieldType::Select,
         F::Tags | F::Participants => FieldType::MultiSelect,
         F::Area | F::Project | F::Routine | F::Parent => FieldType::Relation,
@@ -698,7 +700,7 @@ fn planner_field_type(field: PlannerFilterField) -> FieldType {
     use PlannerFilterField as F;
     match field {
         F::Scheduled | F::Due => FieldType::Date,
-        F::Priority => FieldType::Number,
+        F::Priority => FieldType::Select,
         F::Status | F::Horizon | F::MaterializationPolicy => FieldType::Select,
         F::Tags | F::Participants => FieldType::MultiSelect,
         F::Area | F::Project | F::Routine | F::Parent => FieldType::Relation,
@@ -718,10 +720,6 @@ impl FieldType {
                     && valid_text(value)
             }
             Self::Date => valid_date_filter(operator, value),
-            Self::Number => {
-                one_of!(operator; O::Is | O::IsNot | O::GreaterThan | O::LessThan)
-                    && valid_number(value)
-            }
             Self::Select | Self::MultiSelect | Self::Relation => {
                 one_of!(operator; O::Is | O::IsNot | O::Contains | O::DoesNotContain)
                     && valid_list(value)
@@ -745,10 +743,6 @@ fn normalize_filter_value(value: &mut TodoTableFilterValue) -> TodoResult<()> {
 
 fn valid_text(value: &TodoTableFilterValue) -> bool {
     matches!(value, TodoTableFilterValue::Text(value) if bounded(value))
-}
-
-fn valid_number(value: &TodoTableFilterValue) -> bool {
-    matches!(value, TodoTableFilterValue::Text(value) if bounded(value) && value.parse::<f64>().is_ok_and(f64::is_finite))
 }
 
 fn valid_list(value: &TodoTableFilterValue) -> bool {
@@ -780,14 +774,14 @@ fn parse_date(value: &str) -> Option<Date> {
 }
 
 fn bounded(value: &str) -> bool {
-    !value.is_empty() && value.len() <= MAX_TEXT_BYTES
+    !value.is_empty() && value.len() <= MAX_TABLE_TEXT_BYTES
 }
 
 fn validated_group_keys(values: Vec<String>) -> TodoResult<Vec<String>> {
     if values.len() > MAX_GROUP_KEYS
         || values
             .iter()
-            .any(|value| value.is_empty() || value.len() > MAX_GROUP_KEY_BYTES)
+            .any(|value| value.is_empty() || value.len() > MAX_CANONICAL_GROUP_KEY_BYTES)
     {
         return Err(validation(
             "group keys must be non-empty, bounded, and no more than 100 entries",
@@ -802,7 +796,7 @@ fn validated_group_keys(values: Vec<String>) -> TodoResult<Vec<String>> {
     Ok(unique)
 }
 
-/// Keeps ordinary saved-view keys stable while escaping sentinel, slash, and control values.
+/// Keeps ordinary saved-view keys stable and hex-encodes every unsafe raw byte.
 pub fn canonical_group_value(value: &str) -> String {
     if value != "none"
         && value != "untagged"
@@ -812,15 +806,11 @@ pub fn canonical_group_value(value: &str) -> String {
     {
         return value.to_string();
     }
-    let mut encoded = String::from("\\");
-    for character in value.chars() {
-        match character {
-            '\\' => encoded.push_str("\\\\"),
-            character if character.is_control() => {
-                encoded.push_str(&format!("\\u{:x};", character as u32));
-            }
-            character => encoded.push(character),
-        }
+    use std::fmt::Write as _;
+    let mut encoded = String::with_capacity(1 + value.len() * 2);
+    encoded.push('\\');
+    for byte in value.as_bytes() {
+        write!(encoded, "{byte:02x}").expect("writing to String cannot fail");
     }
     encoded
 }
@@ -885,7 +875,7 @@ pub struct TodoTableRecord {
 
 impl TodoTableRecord {
     pub fn new(item: TodoItem) -> TodoResult<Self> {
-        if item.id.is_empty() || item.id.len() > MAX_TEXT_BYTES {
+        if item.id.is_empty() || item.id.len() > MAX_TABLE_TEXT_BYTES {
             return Err(validation("table record id is invalid"));
         }
         let metadata = TodoTableMetadata {
@@ -964,7 +954,7 @@ impl TodoTableRow {
         if group_key.is_some() != group_label.is_some()
             || group_key
                 .as_deref()
-                .is_some_and(|key| key.is_empty() || key.len() > MAX_GROUP_KEY_BYTES)
+                .is_some_and(|key| key.is_empty() || key.len() > MAX_CANONICAL_GROUP_KEY_BYTES)
         {
             return Err(validation("group key and label must be valid and paired"));
         }

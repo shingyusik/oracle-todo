@@ -1,11 +1,11 @@
 use time::{Date, Month, OffsetDateTime};
 use todo_engine::application::error::TodoError;
 use todo_engine::application::table::{
-    FilterMode, GroupSort, PlannerFilterField, PlannerSortField, PlannerTableGroup,
-    PlannerTableScope, RelativeDateUnit, SortDirection, TableContext, TablePage,
-    TodoFilterOperator, TodoTableFilter, TodoTableFilterValue, TodoTableGroup,
-    TodoTableGroupSettings, TodoTableQuery, TodoTableRecord, TodoTableRow, TodoTableScope,
-    TodoTableSort, WorkspaceFilterField, WorkspaceSortField, WorkspaceTableGroup,
+    FilterMode, GroupSort, MAX_CANONICAL_GROUP_KEY_BYTES, MAX_TABLE_TEXT_BYTES, PlannerFilterField,
+    PlannerSortField, PlannerTableGroup, PlannerTableScope, RelativeDateUnit, SortDirection,
+    TableContext, TablePage, TodoFilterOperator, TodoTableFilter, TodoTableFilterValue,
+    TodoTableGroup, TodoTableGroupSettings, TodoTableQuery, TodoTableRecord, TodoTableRow,
+    TodoTableScope, TodoTableSort, WorkspaceFilterField, WorkspaceSortField, WorkspaceTableGroup,
     WorkspaceTableScope, canonical_group_value, missing_group,
 };
 use todo_engine::domain::{Actor, ItemType, TodoItem};
@@ -786,6 +786,84 @@ fn validates_operator_values_and_requires_explicit_relative_reference_date() {
 }
 
 #[test]
+fn treats_priority_as_the_frontend_select_field() {
+    let saved_view = TodoTableFilter::Workspace {
+        field: WorkspaceFilterField::Priority,
+        operator: TodoFilterOperator::Is,
+        value: TodoTableFilterValue::TextList(vec!["1".into(), "3".into()]),
+    };
+    assert!(
+        TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            0,
+            50,
+            FilterMode::And,
+            vec![saved_view],
+            vec![],
+            groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+            None,
+        )
+        .is_ok()
+    );
+
+    let numeric = TodoTableFilter::Planner {
+        field: PlannerFilterField::Priority,
+        operator: TodoFilterOperator::GreaterThan,
+        value: TodoTableFilterValue::Text("1".into()),
+    };
+    assert!(
+        TodoTableQuery::new(
+            TodoTableScope::Planner(PlannerTableScope::DailyToday),
+            TableContext::Planner {
+                from: date(2026, Month::August, 22),
+                to: date(2026, Month::August, 22)
+            },
+            0,
+            50,
+            FilterMode::And,
+            vec![numeric],
+            vec![],
+            groups(TodoTableGroup::Planner(PlannerTableGroup::None)),
+            None,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn rejects_page_offsets_that_overflow_before_reaching_a_store() {
+    assert!(
+        TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            u32::MAX,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![],
+            groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+            None,
+        )
+        .is_err()
+    );
+    assert!(
+        TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            u32::MAX - 50,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![],
+            groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+            None,
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn bounds_and_deduplicates_rules_lists_and_group_settings() {
     let settings = TodoTableGroupSettings::new(
         TodoTableGroup::Workspace(WorkspaceTableGroup::Tag),
@@ -803,7 +881,7 @@ fn bounds_and_deduplicates_rules_lists_and_group_settings() {
             TodoTableGroup::Workspace(WorkspaceTableGroup::Tag),
             GroupSort::Manual,
             true,
-            vec!["x".repeat(257)],
+            vec!["x".repeat(MAX_CANONICAL_GROUP_KEY_BYTES + 1)],
             vec![],
         )
         .is_err()
@@ -899,4 +977,51 @@ fn row_keys_are_constructor_derived_and_group_values_preserve_saved_keys_safely(
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.next_offset, Some(6));
     assert!(TablePage::from_limit_plus_one(vec![1, 2], u32::MAX, 1).is_err());
+
+    let raw = "\\".repeat(MAX_TABLE_TEXT_BYTES);
+    let canonical = canonical_group_value(&raw);
+    assert_eq!(canonical.len(), MAX_CANONICAL_GROUP_KEY_BYTES);
+    let maximum = TodoTableRow::new(
+        Some(canonical),
+        Some(raw),
+        TodoTableRecord::new(TodoItem::new_task(
+            "max-tag",
+            "Task",
+            Actor::User,
+            OffsetDateTime::UNIX_EPOCH,
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(maximum.key().ends_with(":max-tag"));
+    let sentinel = format!("none{}", "\\".repeat(MAX_TABLE_TEXT_BYTES - 4));
+    assert_eq!(
+        canonical_group_value(&sentinel).len(),
+        MAX_CANONICAL_GROUP_KEY_BYTES
+    );
+    let too_long = "\\".repeat(MAX_TABLE_TEXT_BYTES + 1);
+    assert!(
+        TodoTableRow::new(
+            Some(canonical_group_value(&too_long)),
+            Some(too_long),
+            TodoTableRecord::new(TodoItem::new_task(
+                "long-tag",
+                "Task",
+                Actor::User,
+                OffsetDateTime::UNIX_EPOCH
+            ))
+            .unwrap(),
+        )
+        .is_err()
+    );
+    assert!(
+        TodoTableGroupSettings::new(
+            TodoTableGroup::Workspace(WorkspaceTableGroup::Tag),
+            GroupSort::Manual,
+            true,
+            vec!["x".repeat(MAX_CANONICAL_GROUP_KEY_BYTES + 1)],
+            vec![],
+        )
+        .is_err()
+    );
 }
