@@ -1,3 +1,6 @@
+use ledger_engine::application::commands::{
+    CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
+};
 use ledger_engine::application::error::LedgerError;
 use ledger_engine::application::queries::EntryView;
 use ledger_engine::application::service::LedgerService;
@@ -10,6 +13,7 @@ use ledger_engine::application::table::{
     TransactionRowKind, TransactionTableFilterField, TransactionTableGroup, TransactionTableRecord,
     TransactionTableSortField,
 };
+use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
 use ledger_engine::domain::{
     Account, EntryType, LedgerEntry, LedgerEntryRehydration, Money, TransactionCategory,
     TransactionCategoryKind,
@@ -368,21 +372,332 @@ fn row_constructor_derives_distinct_deterministic_occurrence_keys() {
 }
 
 #[test]
-fn table_service_reports_the_unimplemented_repository_boundary() {
-    let service = LedgerService::new(SqliteLedgerRepository::open_in_memory().unwrap());
+fn sqlite_table_query_pages_the_full_filtered_and_sorted_transaction_set() {
+    let mut service = table_service();
+    for index in 0..51 {
+        service
+            .create_entry(CreateEntry {
+                date: if index == 50 {
+                    "2026-07-01"
+                } else {
+                    "2026-08-21"
+                }
+                .to_string(),
+                written_at: datetime!(2026-08-21 00:00 UTC),
+                content: format!(
+                    "{} {index:02}",
+                    if index % 2 == 0 { "keep" } else { "other" }
+                ),
+                category: Some(if index % 2 == 0 { "Food" } else { "Salary" }.to_string()),
+                account: if index % 3 == 0 { "Bank" } else { "Wallet" }.to_string(),
+                entry_type: if index % 2 == 0 {
+                    EntryType::Expense
+                } else {
+                    EntryType::Income
+                },
+                amount: Money::from_minor_units(i64::from(index + 1)),
+                currency: "KRW".to_string(),
+                transfer_group: None,
+                source: "test".to_string(),
+                notes: None,
+                actor: "test".to_string(),
+            })
+            .unwrap();
+    }
     let query = query(
         LedgerTableScope::Transactions,
         FilterMode::And,
-        vec![],
-        vec![transaction_date_sort()],
-        group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+        vec![
+            LedgerTableFilter::Transactions {
+                field: TransactionTableFilterField::Content,
+                operator: LedgerFilterOperator::Contains,
+                value: LedgerTableFilterValue::Text("keep".to_string()),
+            },
+            LedgerTableFilter::Transactions {
+                field: TransactionTableFilterField::Amount,
+                operator: LedgerFilterOperator::GreaterThan,
+                value: LedgerTableFilterValue::Text("20".to_string()),
+            },
+        ],
+        vec![
+            LedgerTableSort::Transactions {
+                field: TransactionTableSortField::Amount,
+                direction: SortDirection::Desc,
+            },
+            LedgerTableSort::Transactions {
+                field: TransactionTableSortField::Content,
+                direction: SortDirection::Asc,
+            },
+        ],
+        group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::Month)),
     )
     .unwrap();
 
-    assert!(matches!(
-        service.query_table(&query),
-        Err(LedgerError::Storage(message)) if message.contains("not implemented")
-    ));
+    let page = service.query_table(&query).unwrap();
+    assert_eq!(page.items.len(), 16);
+    assert_eq!(page.next_offset, None);
+    assert_eq!(page.items[0].group_key(), Some("2026-07"));
+    let amounts = page
+        .items
+        .iter()
+        .map(|row| match row.record() {
+            LedgerTableRecord::Transactions(record) => record.amount_minor,
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    assert!(amounts.windows(2).all(|pair| pair[0] >= pair[1]));
+}
+
+#[test]
+fn sqlite_table_query_probes_exact_pages_and_uses_id_as_the_final_tie_breaker() {
+    let mut service = table_service();
+    for index in 0..51 {
+        service
+            .create_entry(CreateEntry {
+                date: "2026-08-21".to_string(),
+                written_at: datetime!(2026-08-21 00:00 UTC),
+                content: "same".to_string(),
+                category: Some("Food".to_string()),
+                account: "Wallet".to_string(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(100),
+                currency: "KRW".to_string(),
+                transfer_group: None,
+                source: "test".to_string(),
+                notes: None,
+                actor: format!("test-{index}"),
+            })
+            .unwrap();
+    }
+    let first = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::Or,
+                vec![LedgerTableFilter::Transactions {
+                    field: TransactionTableFilterField::Content,
+                    operator: LedgerFilterOperator::Is,
+                    value: LedgerTableFilterValue::Text("same".to_string()),
+                }],
+                vec![LedgerTableSort::Transactions {
+                    field: TransactionTableSortField::Content,
+                    direction: SortDirection::Asc,
+                }],
+                group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(first.items.len(), 50);
+    assert_eq!(first.next_offset, Some(50));
+    let mut second_query = query(
+        LedgerTableScope::Transactions,
+        FilterMode::Or,
+        vec![LedgerTableFilter::Transactions {
+            field: TransactionTableFilterField::Content,
+            operator: LedgerFilterOperator::Is,
+            value: LedgerTableFilterValue::Text("same".to_string()),
+        }],
+        vec![LedgerTableSort::Transactions {
+            field: TransactionTableSortField::Content,
+            direction: SortDirection::Asc,
+        }],
+        group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+    )
+    .unwrap();
+    second_query = LedgerTableQuery::new(
+        second_query.scope(),
+        50,
+        second_query.limit(),
+        second_query.filter_mode(),
+        second_query.filters().to_vec(),
+        second_query.sorts().to_vec(),
+        second_query.group_settings().clone(),
+    )
+    .unwrap();
+    let second = service.query_table(&second_query).unwrap();
+    assert_eq!(second.items.len(), 1);
+    assert_eq!(second.next_offset, None);
+    let ids = first
+        .items
+        .iter()
+        .chain(&second.items)
+        .map(|row| row.record().logical_id())
+        .collect::<Vec<_>>();
+    assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn sqlite_table_query_projects_account_balances_and_parent_category_groups() {
+    let mut service = table_service();
+    service
+        .create_entry(CreateEntry {
+            date: "2026-08-21".into(),
+            written_at: datetime!(2026-08-21 00:00 UTC),
+            content: "expense".into(),
+            category: Some("Food".into()),
+            account: "Wallet".into(),
+            entry_type: EntryType::Expense,
+            amount: Money::from_minor_units(300),
+            currency: "KRW".into(),
+            transfer_group: None,
+            source: "test".into(),
+            notes: None,
+            actor: "test".into(),
+        })
+        .unwrap();
+    let accounts = service
+        .query_table(
+            &query(
+                LedgerTableScope::Accounts,
+                FilterMode::And,
+                vec![],
+                vec![LedgerTableSort::Accounts {
+                    field: AccountTableSortField::CurrentBalance,
+                    direction: SortDirection::Asc,
+                }],
+                group_settings(LedgerTableGroup::Accounts(AccountTableGroup::AccountType)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let balances = accounts
+        .items
+        .iter()
+        .map(|row| match row.record() {
+            LedgerTableRecord::Accounts(record) => record.current_balance_minor,
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(balances, [-300, 0]);
+    assert!(
+        accounts
+            .items
+            .iter()
+            .all(|row| row.group_label() == Some("Cash"))
+    );
+
+    let categories = service
+        .query_table(
+            &query(
+                LedgerTableScope::Categories,
+                FilterMode::And,
+                vec![],
+                vec![LedgerTableSort::Categories {
+                    field: CategoryTableSortField::Name,
+                    direction: SortDirection::Asc,
+                }],
+                group_settings(LedgerTableGroup::Categories(CategoryTableGroup::Parent)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let food = categories.items.iter().find(|row| matches!(row.record(), LedgerTableRecord::Categories(record) if record.name == "Food")).unwrap();
+    assert_eq!(food.group_label(), Some("Living"));
+    assert_ne!(food.group_key(), None);
+}
+
+#[test]
+fn sqlite_table_query_keeps_a_transfer_logical_and_emits_account_occurrences() {
+    let mut service = table_service();
+    let result = service
+        .transfer(TransferCommand {
+            operation_key: TransferOperationKey::generate(),
+            date: "2026-08-21".into(),
+            written_at: datetime!(2026-08-21 00:00 UTC),
+            content: "move".into(),
+            from_account: "Wallet".into(),
+            to_account: "Bank".into(),
+            amount: Money::from_minor_units(500),
+            currency: "KRW".into(),
+            source: "test".into(),
+            notes: None,
+            actor: "test".into(),
+        })
+        .unwrap();
+    let page = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![],
+                vec![transaction_date_sort()],
+                LedgerTableGroupSettings::new(
+                    LedgerTableGroup::Transactions(TransactionTableGroup::Account),
+                    GroupSort::Alphabetical,
+                    false,
+                    vec![],
+                    vec![],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert_ne!(page.items[0].key(), page.items[1].key());
+    assert!(page.items.iter().all(|row| match row.record() {
+        LedgerTableRecord::Transactions(record) =>
+            record.id == result.transfer_group_id && record.transfer_entry.is_some(),
+        _ => false,
+    }));
+}
+
+fn table_service() -> LedgerService<SqliteLedgerRepository> {
+    let mut service = LedgerService::new(SqliteLedgerRepository::open_in_memory().unwrap());
+    service
+        .create_currency(CreateCurrency {
+            code: "KRW".into(),
+            name: "Won".into(),
+            symbol: "W".into(),
+            decimal_places: 0,
+            actor: "test".into(),
+        })
+        .unwrap();
+    service
+        .create_account_category(CreateAccountCategory {
+            name: "Cash".into(),
+            parent: None,
+            liability: false,
+            actor: "test".into(),
+        })
+        .unwrap();
+    for name in ["Wallet", "Bank"] {
+        service
+            .create_account(CreateAccount {
+                name: name.into(),
+                category: "Cash".into(),
+                currency: "KRW".into(),
+                opening_balance: Money::from_minor_units(0),
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    service
+        .create_category(CreateTransactionCategory {
+            name: "Living".into(),
+            parent: None,
+            kind: TransactionCategoryKind::Expense,
+            actor: "test".into(),
+        })
+        .unwrap();
+    service
+        .create_category(CreateTransactionCategory {
+            name: "Food".into(),
+            parent: Some("Living".into()),
+            kind: TransactionCategoryKind::Expense,
+            actor: "test".into(),
+        })
+        .unwrap();
+    service
+        .create_category(CreateTransactionCategory {
+            name: "Salary".into(),
+            parent: None,
+            kind: TransactionCategoryKind::Income,
+            actor: "test".into(),
+        })
+        .unwrap();
+    service
 }
 
 fn query(

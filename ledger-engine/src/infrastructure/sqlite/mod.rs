@@ -4,6 +4,7 @@ mod repository;
 #[cfg(test)]
 mod repository_tests;
 mod schema;
+mod table_query;
 
 use std::path::Path;
 use std::time::Duration;

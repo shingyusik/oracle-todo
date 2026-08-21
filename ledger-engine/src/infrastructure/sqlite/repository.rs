@@ -27,6 +27,14 @@ use super::{SqliteLedgerRepository, storage_error};
 impl LedgerRepository for SqliteLedgerRepository {}
 
 impl LedgerReadRepository for SqliteLedgerRepository {
+    fn query_table(
+        &self,
+        query: &crate::application::table::LedgerTableQuery,
+    ) -> LedgerResult<crate::application::table::TablePage<crate::application::table::LedgerTableRow>>
+    {
+        super::table_query::query_table(&self.connection, query)
+    }
+
     fn get_currency(&self, id: &str, include_archived: bool) -> LedgerResult<Option<Currency>> {
         get_currency_on(&self.connection, id, include_archived)
     }
