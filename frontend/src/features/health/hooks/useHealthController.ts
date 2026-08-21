@@ -661,12 +661,9 @@ export function useHealthController(): HealthController {
     [loadReferenceData],
   );
 
-  const refreshScope = useCallback(async (
-    scope: HealthTableScopeId,
-    initialize = false,
-  ) => {
+  const refreshScope = useCallback(async (scope: HealthTableScopeId) => {
     const requests: Promise<boolean>[] = [];
-    if (initialize || initializedTables.current.has(scope)) requests.push(loadInitialTable(scope));
+    if (initializedTables.current.has(scope)) requests.push(loadInitialTable(scope));
     if (referenceDataRequested.current.has(scope)) {
       requests.push(loadReferenceData(scope, true));
     }
@@ -788,19 +785,19 @@ export function useHealthController(): HealthController {
   const refreshDiet = useCallback(() => refreshScope("health.diet"), [refreshScope]);
 
   const refreshAfterMutation = useCallback(async () => {
-    if (!await refreshScope("health.diet", true)) throw new HealthMutationRefreshError();
+    if (!await refreshScope("health.diet")) throw new HealthMutationRefreshError();
   }, [refreshScope]);
 
   const refreshAfterBowelMutation = useCallback(async () => {
-    if (!await refreshScope("health.bowel", true)) throw new HealthMutationRefreshError();
+    if (!await refreshScope("health.bowel")) throw new HealthMutationRefreshError();
   }, [refreshScope]);
 
   const refreshAfterMedicationMutation = useCallback(async () => {
-    if (!await refreshScope("health.medication", true)) throw new HealthMutationRefreshError();
+    if (!await refreshScope("health.medication")) throw new HealthMutationRefreshError();
   }, [refreshScope]);
 
   const refreshAfterMetricsMutation = useCallback(async () => {
-    if (!await refreshScope("health.metrics", true)) throw new HealthMutationRefreshError();
+    if (!await refreshScope("health.metrics")) throw new HealthMutationRefreshError();
   }, [refreshScope]);
 
   async function mutate(

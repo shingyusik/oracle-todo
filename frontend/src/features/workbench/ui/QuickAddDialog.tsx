@@ -160,15 +160,19 @@ function LedgerQuickAdd({
   onPendingChange,
 }: QuickAddFormProps) {
   const controller = useLedgerController();
+  const references = useReferencePreload(
+    controller.ensureReferenceData ?? controller.refresh,
+    "ledger.transactions",
+  );
 
-  if (controller.state.status === "loading") {
+  if (references.status === "loading") {
     return <p role="status">Loading Ledger references…</p>;
   }
-  if (controller.state.status === "error") {
+  if (references.status === "error") {
     return (
       <>
         <p role="alert" className="items-message">{controller.state.error}</p>
-        <button type="button" onClick={() => void controller.refresh()}>
+        <button type="button" onClick={references.retry}>
           Retry Ledger
         </button>
       </>
@@ -191,7 +195,21 @@ function HealthQuickAdd({
   kind: Exclude<QuickAddKind, "select" | "ledger">;
 }) {
   const controller = useHealthController();
+  const scope = `health.${kind}` as const;
+  const references = useReferencePreload(controller.ensureReferenceData, scope);
   const props = { controller, onSaved, onPendingChange };
+
+  if (references.status === "loading") {
+    return <p role="status">Loading Health references…</p>;
+  }
+  if (references.status === "error") {
+    return (
+      <>
+        <p role="alert" className="items-message">{healthReferenceError(controller, kind)}</p>
+        <button type="button" onClick={references.retry}>Retry Health</button>
+      </>
+    );
+  }
 
   switch (kind) {
     case "diet": return <DietForm {...props} />;
@@ -199,6 +217,40 @@ function HealthQuickAdd({
     case "medication": return <MedicationForm {...props} />;
     case "metrics": return <MetricsForm {...props} />;
   }
+}
+
+function useReferencePreload<Scope>(
+  ensure: (scope: Scope) => Promise<boolean>,
+  scope: Scope,
+) {
+  const [status, setStatus] = React.useState<"loading" | "loaded" | "error">("loading");
+  const generation = React.useRef(0);
+  const retry = React.useCallback(() => {
+    const request = ++generation.current;
+    setStatus("loading");
+    void ensure(scope).then((ok) => {
+      if (generation.current === request) setStatus(ok ? "loaded" : "error");
+    });
+  }, [ensure, scope]);
+  React.useEffect(() => {
+    retry();
+    return () => { ++generation.current; };
+  }, [retry]);
+  return { status, retry };
+}
+
+function healthReferenceError(
+  controller: ReturnType<typeof useHealthController>,
+  kind: Exclude<QuickAddKind, "select" | "ledger">,
+): string {
+  const error = kind === "diet"
+    ? controller.state.dietError
+    : kind === "bowel"
+      ? controller.state.bowelError
+      : kind === "medication"
+        ? controller.state.medicationError
+        : controller.state.metricsError;
+  return error ?? "Health references unavailable";
 }
 
 function dialogLabel(kind: QuickAddKind): string {

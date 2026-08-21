@@ -85,11 +85,44 @@ describe("QuickAddDialog", () => {
 
     expect(await screen.findByRole("form", { name: "New transaction" }))
       .toBeVisible();
-    expect(ledgerSpies.every((spy) => spy.mock.calls.length === 1)).toBe(true);
+    expect(ledgerSpies[0]).toHaveBeenCalledOnce();
+    expect(ledgerSpies[1]).toHaveBeenCalledOnce();
+    expect(ledgerSpies[2]).not.toHaveBeenCalled();
+    expect(ledgerSpies[3]).toHaveBeenCalledOnce();
+    expect(ledgerSpies[4]).toHaveBeenCalledOnce();
+    expect(ledgerSpies[5]).not.toHaveBeenCalled();
+    expect(healthSpies.diet).not.toHaveBeenCalled();
+    expect(healthSpies.events).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates the selected Health reference preload before rendering", async () => {
+    const user = userEvent.setup();
+    stubLedgerLoaded();
+    const health = stubHealthLoaded();
+    const diet = deferred<Awaited<ReturnType<typeof healthApi.listDiet>>>();
+    health.diet.mockReturnValue(diet.promise);
+
+    render(
+      <React.StrictMode>
+        <QuickAddDialog controller={workbenchController()} onClose={vi.fn()} />
+      </React.StrictMode>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Diet entry" }));
+    expect(await screen.findByRole("status"))
+      .toHaveTextContent("Loading Health references");
+    expect(health.diet).toHaveBeenCalledOnce();
+    expect(health.events).not.toHaveBeenCalled();
+    expect(screen.queryByRole("form", { name: "Diet entry" })).toBeNull();
+
+    await act(async () => diet.resolve([]));
+    expect(await screen.findByRole("form", { name: "Diet entry" })).toBeVisible();
   });
 
   it("preloads existing Metrics and preserves its snapshot through mutation refresh", async () => {
     const user = userEvent.setup();
+    const tableQuery = vi.spyOn(healthApi, "queryTable");
+    const tableLookups = vi.spyOn(healthApi, "tableLookups");
     const weight: HealthEvent = {
       id: "weight-1",
       occurredAt: "2026-08-19T03:00:00Z",
@@ -138,6 +171,8 @@ describe("QuickAddDialog", () => {
       expectedUpdatedAt: weight.updatedAt,
     }], archives: [] }));
     await waitFor(() => expect(metricReads).toBe(2));
+    expect(tableQuery).not.toHaveBeenCalled();
+    expect(tableLookups).not.toHaveBeenCalled();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
