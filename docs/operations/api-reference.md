@@ -251,6 +251,7 @@ All routes below use prefix `/api/v1/health`.
 | Diet image upload | `POST /diet/with-image` and `PATCH /diet/:id/with-image` with raw image bytes |
 | Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore`, `DELETE /events/:id/purge` |
 | Metrics | `POST /metrics/daily` |
+| Table pages | `POST /table/query`, `GET /table/lookups?scope=...` |
 | Reads | `GET /timeline`, `/trends`, `/reports`, `/audit/:record_type/:record_id` |
 
 `GET /events` accepts `offset`, `limit`, `category`, `metric_key`, and
@@ -281,6 +282,33 @@ ordinary or inactive archive targets, duplicate identities, and an identity pres
 arrays. Any validation, conflict, audit, or storage failure rolls back the entire request.
 The response `items` contains the created or updated active events; archived events are not
 included.
+
+### Health table pages
+
+`POST /table/query` serves the exact scopes `health.diet`, `health.bowel`,
+`health.medication`, and `health.metrics`. The strict JSON body contains `scope`, `offset`,
+`limit`, `filter_mode`, `filters`, `sorts`, `group_by`, `group_settings`, and `context`.
+`limit` defaults to 50 and may not exceed 50. `context.reference_date`, when present, is a
+local calendar date in `YYYY-MM-DD` form and is required by `is_relative_to_today` filters.
+
+Filter values use one of the strict envelopes `{"text":"..."}`, `{"list":["..."]}`,
+`{"range":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}}`,
+`{"relative":{"amount":"1","unit":"day|week|month"}}`, or `{"empty":true}`.
+Sort rules contain `field` and `direction` (`asc` or `desc`). `group_settings` contains
+`sort` (`manual`, `alphabetical`, or `reverse_alphabetical`), `hide_empty`, `manual_order`,
+and `hidden_group_keys`. Fields are validated against the selected scope. Filtering,
+grouping, hidden-group removal, and sorting apply to the complete active dataset before the
+requested offset page is selected.
+
+The response is exactly `{"items":[{"key":"...","group_key":null,"group_label":null,
+"record":{}}],"next_offset":null}`. Records are display-ready and discriminated by `kind`
+(`diet`, `bowel`, `medication`, or `metrics`); Metrics dates are projected in Raven's local
+calendar. `key` identifies a displayed occurrence, including separate tag-group occurrences.
+
+`GET /table/lookups?scope=...` returns compact `{id,label}` arrays only. Diet exposes active
+normalized tags plus fixed meal and photo choices; Bowel exposes Bristol-scale and blood
+visibility choices; Medication exposes unit choices; Metrics exposes its fixed metric fields.
+The existing `/diet` and `/events` list response shapes are unchanged.
 
 ### Health reports
 

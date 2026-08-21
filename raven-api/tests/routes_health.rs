@@ -52,6 +52,343 @@ async fn body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+fn health_table_query(scope: &str) -> Value {
+    let sort = if scope == "health.diet" {
+        "food"
+    } else {
+        "date"
+    };
+    json!({
+        "scope": scope,
+        "offset": 0,
+        "limit": 50,
+        "filter_mode": "and",
+        "filters": [],
+        "sorts": [{"field": sort, "direction": "asc"}],
+        "group_by": "none",
+        "group_settings": {
+            "sort": "alphabetical",
+            "hide_empty": true,
+            "manual_order": [],
+            "hidden_group_keys": []
+        },
+        "context": {"reference_date": "2026-08-21"}
+    })
+}
+
+async fn post_json(app: &axum::Router, path: &str, value: Value) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::post(path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(value.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn health_table_query_serves_all_scopes_and_keeps_legacy_list_shapes() {
+    let (_temp, app) = app();
+    create_diet(&app).await;
+    post_health_event(
+        &app,
+        "2026-07-31T02:00:00Z",
+        json!({"kind":"bowel", "bristol_scale":4, "blood_visible":true}),
+    )
+    .await;
+    post_health_event(
+        &app,
+        "2026-07-31T03:00:00Z",
+        json!({"kind":"medication", "medication_name":"A", "dose":2, "unit":"tablet"}),
+    )
+    .await;
+    post_daily(&app, json!({"metrics":[weight_metric(68.2, None)]})).await;
+
+    for (scope, kind) in [
+        ("health.diet", "diet"),
+        ("health.bowel", "bowel"),
+        ("health.medication", "medication"),
+        ("health.metrics", "metrics"),
+    ] {
+        let response = post_json(
+            &app,
+            "/api/v1/health/table/query",
+            health_table_query(scope),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+        let value = body(response).await;
+        assert_eq!(value.as_object().unwrap().len(), 2);
+        assert!(value.get("next_offset").is_some());
+        let first = &value["items"][0];
+        assert!(first["key"].is_string());
+        assert_eq!(first["record"]["kind"], kind);
+        assert!(
+            first["record"]["date"]
+                .as_str()
+                .unwrap()
+                .starts_with("2026-")
+        );
+    }
+
+    for path in ["/api/v1/health/diet", "/api/v1/health/events"] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let value = body(response).await;
+        assert_eq!(value.as_object().unwrap().len(), 1);
+        assert!(value["items"].is_array());
+    }
+}
+
+#[tokio::test]
+async fn health_table_query_is_recursive_strict_bounded_and_safe() {
+    let (_temp, app) = app();
+    for pointer in [
+        "",
+        "/context",
+        "/filters/0",
+        "/filters/0/value",
+        "/sorts/0",
+        "/group_settings",
+    ] {
+        let mut query = health_table_query("health.diet");
+        if pointer.starts_with("/filters/0") {
+            query["filters"] = json!([{"field":"food","operator":"contains","value":{"text":"x"}}]);
+        }
+        query
+            .pointer_mut(pointer)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert("unexpected".into(), json!(true));
+        assert_eq!(
+            post_json(&app, "/api/v1/health/table/query", query)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST,
+            "{pointer}"
+        );
+    }
+    for value in [
+        json!({"range":{"start":"2026-01-01","end":"2026-01-02","unexpected":true}}),
+        json!({"relative":{"amount":"1","unit":"day","unexpected":true}}),
+    ] {
+        let mut query = health_table_query("health.diet");
+        query["filters"] = json!([{"field":"date","operator":if value.get("range").is_some() {"is_between"} else {"is_relative_to_today"},"value":value}]);
+        assert_eq!(
+            post_json(&app, "/api/v1/health/table/query", query)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let mut too_many = health_table_query("health.metrics");
+    too_many["limit"] = json!(51);
+    assert_eq!(
+        post_json(&app, "/api/v1/health/table/query", too_many)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let mut defaulted = health_table_query("health.metrics");
+    defaulted.as_object_mut().unwrap().remove("limit");
+    assert_eq!(
+        post_json(&app, "/api/v1/health/table/query", defaulted)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let oversized = Request::post("/api/v1/health/table/query")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(format!(
+            r#"{{"padding":"{}"}}"#,
+            "x".repeat(128 * 1024)
+        )))
+        .unwrap();
+    let response = app.clone().oneshot(oversized).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let rendered = body(response).await.to_string();
+    assert!(
+        !rendered.contains("padding")
+            && !rendered.contains("SELECT")
+            && !rendered.contains("sqlite")
+    );
+}
+
+#[tokio::test]
+async fn health_table_query_validates_scope_values_reference_date_and_normalizes_tags() {
+    let (_temp, app) = app();
+    post_health_diet(&app, "2026-08-20T03:00:00Z", &["Canonical"]).await;
+    for filter in [
+        json!({"field":"bristol_scale","operator":"is","value":{"list":["4"]}}),
+        json!({"field":"date","operator":"contains","value":{"text":"2026-08-21"}}),
+        json!({"field":"meal_type","operator":"is","value":{"text":"lunch"}}),
+    ] {
+        let mut query = health_table_query("health.diet");
+        query["filters"] = json!([filter]);
+        let response = post_json(&app, "/api/v1/health/table/query", query).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let rendered = body(response).await.to_string();
+        assert!(!rendered.contains("SELECT") && !rendered.contains("sqlite"));
+    }
+    for (field, target) in [("dose", "sorts"), ("bristol_scale", "group_by")] {
+        let mut query = health_table_query("health.diet");
+        if target == "sorts" {
+            query["sorts"][0]["field"] = json!(field);
+        } else {
+            query["group_by"] = json!(field);
+        }
+        assert_eq!(
+            post_json(&app, "/api/v1/health/table/query", query)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let relative = json!({"field":"date","operator":"is_relative_to_today","value":{"relative":{"amount":"1","unit":"day"}}});
+    let mut missing = health_table_query("health.diet");
+    missing["filters"] = json!([relative.clone()]);
+    missing["context"] = json!({});
+    assert_eq!(
+        post_json(&app, "/api/v1/health/table/query", missing)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let mut relative_query = health_table_query("health.diet");
+    relative_query["filters"] = json!([relative]);
+    relative_query["context"] = json!({"reference_date":"2026-08-19"});
+    assert_eq!(
+        body(post_json(&app, "/api/v1/health/table/query", relative_query).await).await["items"][0]
+            ["record"]["food"],
+        "Report meal"
+    );
+    let mut bad_date = health_table_query("health.diet");
+    bad_date["context"] = json!({"reference_date":"2026-8-21"});
+    assert_eq!(
+        post_json(&app, "/api/v1/health/table/query", bad_date)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let mut tag = health_table_query("health.diet");
+    tag["filters"] = json!([{"field":"tags","operator":"is","value":{"list":["CANONICAL"]}}]);
+    tag["group_by"] = json!("tag");
+    let value = body(post_json(&app, "/api/v1/health/table/query", tag).await).await;
+    assert_eq!(value["items"][0]["record"]["food"], "Report meal");
+    assert_eq!(value["items"][0]["group_key"], "canonical");
+}
+
+#[tokio::test]
+async fn health_table_lookups_are_scope_bounded_compact_and_do_not_conflate_untagged() {
+    let (_temp, app) = app();
+    post_health_diet(&app, "2026-08-20T03:00:00Z", &["UPPER", "untagged"]).await;
+    let archived = post_health_diet(&app, "2026-08-19T03:00:00Z", &["archived-only"]).await;
+    assert_eq!(
+        app.clone()
+            .oneshot(
+                Request::post(format!(
+                    "/api/v1/health/diet/{}/archive",
+                    archived["id"].as_str().unwrap()
+                ))
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    for (scope, expected) in [
+        ("health.diet", "meal_type"),
+        ("health.bowel", "bristol_scale"),
+        ("health.medication", "medication_unit"),
+        ("health.metrics", "metric"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/api/v1/health/table/lookups?scope={scope}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+        let value = body(response).await;
+        assert!(value[expected].is_array());
+        for options in value.as_object().unwrap().values() {
+            for option in options.as_array().unwrap() {
+                assert_eq!(option.as_object().unwrap().len(), 2);
+                assert!(option["id"].is_string() && option["label"].is_string());
+            }
+        }
+        let rendered = value.to_string();
+        assert!(
+            !rendered.contains("note") && !rendered.contains("media") && !rendered.contains("path")
+        );
+    }
+    let diet = body(
+        app.clone()
+            .oneshot(
+                Request::get("/api/v1/health/table/lookups?scope=health.diet")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        diet["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["id"] == "upper")
+    );
+    assert!(
+        diet["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["id"] == "untagged")
+    );
+    assert_ne!(
+        diet["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["id"] == "untagged")
+            .unwrap()["id"],
+        "__untagged__"
+    );
+    assert!(
+        !diet["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["id"] == "archived-only")
+    );
+    for path in [
+        "/api/v1/health/table/lookups?scope=health.diet&extra=x",
+        "/api/v1/health/table/lookups?scope=health.unknown",
+    ] {
+        let bad = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+    }
+}
+
 async fn post_health_event(app: &axum::Router, occurred_at: &str, details: Value) -> Value {
     let response = app
         .clone()
