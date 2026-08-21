@@ -57,7 +57,7 @@ export function deriveWorkspaceOccurrenceGroups(
 ): WorkspaceViewGroup[] {
   const groups: WorkspaceViewGroup[] = [];
   for (const occurrence of occurrences) {
-    const key = occurrence.groupKey ?? "none";
+    const key = occurrence.groupKey ?? "all";
     const label = occurrence.groupLabel ?? "";
     const previous = groups.at(-1);
     if (previous?.key === key && previous.label === label) previous.items.push(occurrence.record);

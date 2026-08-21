@@ -53,7 +53,7 @@ import { TableViewControls } from "@/features/workbench/ui/TableViewControls";
 import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
-import { deriveWorkspaceViewGroups, type WorkspaceTableScopeId } from "@/features/workbench/model/workspace-table-views";
+import { deriveWorkspaceOccurrenceGroups, deriveWorkspaceViewGroups, type WorkspaceTableScopeId } from "@/features/workbench/model/workspace-table-views";
 
 type FixtureFetch = (url: string, init?: RequestInit) => Promise<{ json(): Promise<unknown> }>;
 const originalStubGlobal = vi.stubGlobal.bind(vi);
@@ -1183,6 +1183,32 @@ describe("WorkbenchPageClient", () => {
       "colspan",
       "4",
     );
+  });
+
+  it("renders null server groups as one unlabelled row group", () => {
+    const row = { id: "item-1", title: "Ungrouped" } as WorkspaceItemModel;
+    const groups = deriveWorkspaceOccurrenceGroups([{
+      key: "opaque-1",
+      groupKey: null,
+      groupLabel: null,
+      record: row,
+    }]);
+
+    render(
+      <table>
+        <WorkspaceGroupedRows
+          columnCount={1}
+          emptyMessage="Nothing here."
+          groups={groups}
+          renderRow={(item) => <tr key={item.id}><td>{item.title}</td></tr>}
+        />
+      </table>,
+    );
+
+    expect(groups[0]?.key).toBe("all");
+    expect(screen.getByText("Ungrouped")).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader")).toBeNull();
+    expect(screen.queryByRole("rowgroup", { name: /group/i })).toBeNull();
   });
 
   afterEach(() => {
@@ -7640,7 +7666,7 @@ describe("WorkbenchPageClient", () => {
       name: "Open Checkup details",
     })).toBeVisible();
     expect(within(projects).queryByText("No linked items match this view.")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Tasks · 6" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Tasks · 2" })).toBeVisible();
   });
 
   it("spans an empty linked-items view across its single column", async () => {
@@ -12394,6 +12420,139 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("Retry second")).toBeInTheDocument();
     expect(offsets).toEqual([0, 50, 50]);
+  });
+
+  it("shows a blocking retry for an initial Workspace page failure", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string };
+        if (body.scope === "workspace.task") return new Response("{}", { status: 500 });
+        return fixtureJson({ items: [], next_offset: null });
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load rows.");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText("No tasks found.")).toBeNull();
+    expect(screen.queryByText("No items match this view.")).toBeNull();
+  });
+
+  it("does not leak legacy linked rows when the canonical initial page fails", async () => {
+    const user = userEvent.setup();
+    const area = { id: "area-error", type: "area", title: "Paged area", status: "active" } as WorkspaceItemModel;
+    const legacy = { id: "legacy-task", type: "task", title: "Legacy leaked task", status: "active", area_id: area.id } as WorkspaceItemModel;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string };
+        if (body.scope === "workspace.area") return fixtureJson({
+          items: [{ key: "area", group_key: null, group_label: null, record: fixtureWireRecord(area) }],
+          next_offset: null,
+        });
+        if (body.scope === "linked.area.task") return new Response("{}", { status: 500 });
+        return fixtureJson({ items: [], next_offset: null });
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      if (url === "/api/v1/todo/items") return fixtureJson([area, legacy]);
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Paged area" }));
+
+    const linked = await screen.findByRole("table", { name: "Tasks linked items" });
+    expect(within(linked).getByRole("alert")).toHaveTextContent("Could not load rows.");
+    expect(within(linked).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(within(linked).queryByText("Legacy leaked task")).toBeNull();
+    expect(within(linked).queryByText("No linked items match this view.")).toBeNull();
+  });
+
+  it("shows blocking retries instead of empty states for every Planner period", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/todo/table/query") return new Response("{}", { status: 500 });
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+
+    for (const [period, tableCount] of [["Yearly", 2], ["Monthly", 3], ["Weekly", 3], ["Daily", 3]] as const) {
+      if (period !== "Yearly") await user.click(screen.getByRole("button", { name: period }));
+      await waitFor(() => expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(tableCount));
+      expect(screen.queryByText(/^No (?:goals|items|scheduled items)/i)).toBeNull();
+      expect(screen.getAllByRole("alert").every((alert) => alert.textContent?.includes("Could not load rows."))).toBe(true);
+    }
+  });
+
+  it("uses the deliberate rich reference set for Workspace, Planner, and linked group counts", async () => {
+    const user = userEvent.setup();
+    const area = { id: "area-rich", type: "area", title: "Rich area", status: "active" } as WorkspaceItemModel;
+    const tasks = Array.from({ length: 51 }, (_, index) => ({
+      id: `rich-task-${index}`,
+      type: "task",
+      title: `Rich task ${index}`,
+      status: "active",
+      area_id: area.id,
+      scheduled: testToday(),
+    } as WorkspaceItemModel));
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/query") {
+        const body = JSON.parse(String(init?.body)) as { scope: string };
+        const record = body.scope === "workspace.area" ? area : tasks[0]!;
+        return fixtureJson({
+          items: [{ key: `${body.scope}-first`, group_key: null, group_label: null, record: fixtureWireRecord(record) }],
+          next_offset: body.scope === "workspace.area" ? null : 50,
+        });
+      }
+      if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
+      if (url === "/api/v1/todo/items") return fixtureJson([area, ...tasks]);
+      return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
+    }));
+
+    const expectActiveCount = async (groupButton: HTMLElement, dialogName: string) => {
+      await user.click(groupButton);
+      const dialog = await screen.findByRole("dialog", { name: dialogName });
+      await user.click(within(dialog).getByRole("button", { name: "Choose group property" }));
+      await user.click(within(dialog).getByRole("option", { name: "Status" }));
+      expect(within(dialog).getByRole("listitem")).toHaveTextContent(/^Active51/);
+      await user.click(within(dialog).getByRole("button", { name: "Remove grouping" }));
+      await user.keyboard("{Escape}");
+    };
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await screen.findByText("Rich task 0");
+    expect(within(screen.getByRole("table", { name: "Tasks items" })).queryByRole("rowheader")).toBeNull();
+    await expectActiveCount(screen.getByRole("button", { name: "Group Tasks" }), "Group Tasks");
+
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    expect((await screen.findAllByRole("button", { name: "Rich task 0" })).length).toBeGreaterThan(0);
+    await expectActiveCount(screen.getByRole("button", { name: "Group Today" }), "Group Today");
+
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    if (!screen.queryByRole("button", { name: "Areas" })) {
+      await user.click(screen.getByRole("button", { name: "Workspace" }));
+    }
+    await user.click(screen.getByRole("button", { name: "Areas" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Rich area" }));
+    expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Tasks linked items" })).queryByRole("rowheader")).toBeNull();
+    await expectActiveCount(screen.getByRole("button", { name: "Group Tasks" }), "Group Tasks");
   });
 
   it("initializes every Planner table through an independent offset-zero query", async () => {

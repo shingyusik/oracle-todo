@@ -45,6 +45,7 @@ import {
   type PlannerGroupSettings,
 } from "@/features/workbench/model/planner-group-settings";
 import {
+  buildDailyPlannerSections,
   buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
   buildYearlyPeriodGoalCardsModel,
@@ -794,20 +795,11 @@ function LinkedItemTable({
   const page = controller.todoTablePage(target);
   const tabs = controller.workspaceTableTabs(scope);
   const settings = controller.workspaceTableSettings(scope);
-  const useLegacy = page.moreStatus === "error" && page.items.length === 0 && items.length > 0;
-  const groups = React.useMemo(() => useLegacy
-    ? deriveWorkspaceViewGroups(scope, items, settings, controller.workspaceItems.relatedItems)
-    : deriveWorkspaceOccurrenceGroups(page.items), [
-      controller.workspaceItems.relatedItems,
-      items,
-      page.items,
-      scope,
-      settings,
-      useLegacy,
-    ]);
+  const groups = React.useMemo(
+    () => deriveWorkspaceOccurrenceGroups(page.items),
+    [page.items],
+  );
   const visibleCount = uniqueWorkspaceItems(groups.flatMap((group) => group.items)).length;
-  const [knownCount, setKnownCount] = React.useState(visibleCount);
-  useEffect(() => setKnownCount((current) => Math.max(current, visibleCount)), [visibleCount]);
   const collapsed = React.useMemo(
     () => collapseWorkspaceGroups(
       groups,
@@ -838,8 +830,8 @@ function LinkedItemTable({
     candidates: buildPlannerGroupCandidates({
       view: "daily",
       groupBy: settings.groupSettings.groupBy,
-      items: useLegacy ? items : pageItems,
-      relatedItems,
+      items: items.length > 0 ? items : pageItems,
+      relatedItems: controller.workspaceItems.relatedItems,
     }),
     filterOptions,
     activeControlsAriaLabel: `Active ${childLabel} controls`,
@@ -865,7 +857,7 @@ function LinkedItemTable({
     <section className="linked-items-group">
       <header className="linked-items-group-header">
         <h3>
-          {childLabel} · {knownCount}
+          {childLabel}{page.nextOffset === null ? ` · ${visibleCount}` : ""}
         </h3>
         <TableViewControls adapter={controlsAdapter} />
       </header>
@@ -890,7 +882,9 @@ function LinkedItemTable({
           columnCount={1}
           groups={collapsed.groups}
           bodyClassName="linked-items-table-body"
-          emptyMessage="No linked items match this view."
+          emptyMessage={page.moreStatus === "error" && page.items.length === 0
+            ? "Could not load rows."
+            : "No linked items match this view."}
           renderRow={(linkedItem) => (
             <tr key={linkedItem.id}>
               <td>
@@ -1035,7 +1029,7 @@ function YearlyPeriodPlanner({
             editableDate: false,
           }}
         />
-        <PeriodGoalCarousel
+        {todoTableHasBlockingError(periodPage.page) ? null : <PeriodGoalCarousel
           controller={controller}
           tableId="yearly.period-goals"
           groupUniverseItems={periodGoalItems}
@@ -1044,7 +1038,7 @@ function YearlyPeriodPlanner({
           previousLabel="Previous year"
           nextLabel="Next year"
           cards={periodModel.carousel}
-        />
+        />}
         <PlannerTableFooter controller={controller} target={periodPage.target} page={periodPage.page} />
       </section>
       <section className="planner-section" aria-label="Yearly month goals">
@@ -1062,7 +1056,7 @@ function YearlyPeriodPlanner({
             editableDate: true,
           }}
         />
-        <div className="yearly-month-grid" aria-label="Month goals">
+        {todoTableHasBlockingError(monthPage.page) ? null : <div className="yearly-month-grid" aria-label="Month goals">
           {monthModel.months.map((month) => (
             <PeriodGoalBucketCard
               controller={controller}
@@ -1074,7 +1068,7 @@ function YearlyPeriodPlanner({
               key={month.key}
             />
           ))}
-        </div>
+        </div>}
         <PlannerTableFooter controller={controller} target={monthPage.target} page={monthPage.page} />
       </section>
     </div>
@@ -1116,7 +1110,7 @@ function MonthlyPeriodPlanner({
             editableDate: false,
           }}
         />
-        <PeriodGoalCarousel
+        {todoTableHasBlockingError(periodPage.page) ? null : <PeriodGoalCarousel
           controller={controller}
           tableId="monthly.period-goals"
           groupUniverseItems={periodGoalItems}
@@ -1125,7 +1119,7 @@ function MonthlyPeriodPlanner({
           previousLabel="Previous month"
           nextLabel="Next month"
           cards={periodModel.carousel}
-        />
+        />}
         <PlannerTableFooter controller={controller} target={periodPage.target} page={periodPage.page} />
       </section>
       <div className="monthly-calendar-planner">
@@ -1164,7 +1158,7 @@ function MonthlyPeriodPlanner({
             />
           </section>
         </div>
-        <div className="monthly-calendar-grid" role="grid" aria-label="Monthly todo calendar">
+        {todoTableHasBlockingError(calendarPage.page) || todoTableHasBlockingError(weekPage.page) ? null : <div className="monthly-calendar-grid" role="grid" aria-label="Monthly todo calendar">
           <div className="monthly-week-row monthly-weekday-row" role="row" aria-label="Monthly weekdays">
             <div className="monthly-week-days">
               {plannerWeekdayLabels.map((day) => (
@@ -1190,7 +1184,7 @@ function MonthlyPeriodPlanner({
               key={calendarWeek.key}
             />
           ))}
-        </div>
+        </div>}
         <PlannerTableFooter controller={controller} target={calendarPage.target} page={calendarPage.page} />
         <PlannerTableFooter controller={controller} target={weekPage.target} page={weekPage.page} />
       </div>
@@ -1547,7 +1541,8 @@ function WeeklyPlanner({
               editableDate: false,
             }}
           />
-          {renderPlannerGroups(controller, "weekly.month-goals", monthGoalGroups, "No goals found.")}
+          {todoTableHasBlockingError(monthPage.page) ? null
+            : renderPlannerGroups(controller, "weekly.month-goals", monthGoalGroups, "No goals found.")}
           <PlannerTableFooter controller={controller} target={monthPage.target} page={monthPage.page} />
         </section>
         <section className="planner-section" aria-label="Weekly goals">
@@ -1565,7 +1560,8 @@ function WeeklyPlanner({
               editableDate: false,
             }}
           />
-          {renderPlannerGroups(controller, "weekly.week-goals", weekGoalGroups, "No goals found.")}
+          {todoTableHasBlockingError(weekPage.page) ? null
+            : renderPlannerGroups(controller, "weekly.week-goals", weekGoalGroups, "No goals found.")}
           <PlannerTableFooter controller={controller} target={weekPage.target} page={weekPage.page} />
         </section>
       </div>
@@ -1584,7 +1580,7 @@ function WeeklyPlanner({
             editableDate: true,
           }}
         />
-        <div className="weekly-day-grid">
+        {todoTableHasBlockingError(dayPage.page) ? null : <div className="weekly-day-grid">
           {dayModel.days.map((day) => {
             const dayGroups = occurrenceGroupsForSubset(dayPage.page.items, day.items);
 
@@ -1599,7 +1595,7 @@ function WeeklyPlanner({
               </section>
             );
           })}
-        </div>
+        </div>}
         <PlannerTableFooter controller={controller} target={dayPage.target} page={dayPage.page} />
       </section>
     </div>
@@ -1723,10 +1719,15 @@ function PlannerTableHeader({
   const filterFields = plannerFilterFieldsForTable(tableId);
   const sortFields = plannerSortFieldsForTable(tableId);
   const groupOptions = plannerGroupOptionsForTable(tableId);
+  const referenceItems = plannerReferenceItemsForTable(
+    tableId,
+    controller.workspaceItems.allItems,
+    controller.planner.date,
+  );
   const candidates = plannerTableGroupCandidates(
     tableId,
     settings.groupSettings,
-    groupUniverseItems,
+    referenceItems.length > 0 ? referenceItems : groupUniverseItems,
     controller.workspaceItems.relatedItems,
   );
   const effectiveFilterRules = effectivePlannerFilterRules(
@@ -2156,6 +2157,34 @@ function plannerTableGroupCandidates(
   });
 }
 
+function plannerReferenceItemsForTable(
+  tableId: PlannerTableId,
+  allItems: WorkspaceItemModel[],
+  plannerDate: string,
+): WorkspaceItemModel[] {
+  if (allItems.length === 0) return [];
+  if (tableId.startsWith("daily.")) {
+    const sections = buildDailyPlannerSections(allItems, plannerDate);
+    return sections[tableId.split(".")[1] as keyof typeof sections];
+  }
+  if (tableId.startsWith("weekly.")) {
+    const model = buildWeeklyPlannerModel(allItems, isoWeekStart(plannerDate));
+    if (tableId.endsWith("month-goals")) return model.monthGoals;
+    if (tableId.endsWith("week-goals")) return model.weekGoals;
+    return uniqueWorkspaceItems(model.days.flatMap((day) => day.items));
+  }
+  if (tableId.startsWith("monthly.")) {
+    const model = buildMonthlyPeriodGoalCardsModel(allItems, plannerDate);
+    if (tableId.endsWith("period-goals")) return uniqueWorkspaceItems(model.carousel.flatMap((card) => card.goals));
+    if (tableId.endsWith("week-goals")) return uniqueWorkspaceItems(model.weeks.flatMap((week) => week.goals));
+    return uniqueWorkspaceItems(model.weeks.flatMap((week) => week.days.flatMap((day) => day.items)));
+  }
+  const model = buildYearlyPeriodGoalCardsModel(allItems, plannerDate);
+  return uniqueWorkspaceItems(tableId.endsWith("period-goals")
+    ? model.carousel.flatMap((card) => card.goals)
+    : model.months.flatMap((month) => month.goals));
+}
+
 function plannerGroupOptions(
   panelId: WorkbenchController["panel"]["id"],
 ): { value: PlannerGroupBy; label: string }[] {
@@ -2265,9 +2294,11 @@ function DailyPlannerSectionView({
         controller,
         tableId,
         groups,
-        page.generation === 0 || page.moreStatus === "loading"
-          ? "Loading items..."
-          : "No items found.",
+        todoTableHasBlockingError(page)
+          ? "Could not load rows."
+          : page.generation === 0 || page.moreStatus === "loading"
+            ? "Loading items..."
+            : "No items found.",
       )}
       <PlannerTableFooter controller={controller} target={target} page={page} />
     </section>
@@ -2317,6 +2348,12 @@ function usePlannerTablePage(
     groups: deriveWorkspaceOccurrenceGroups(page.items),
     lookups: controller.todoTableLookups(plannerTodoTableScope(tableId)),
   };
+}
+
+function todoTableHasBlockingError(
+  page: ReturnType<WorkbenchController["todoTablePage"]>,
+): boolean {
+  return page.items.length === 0 && page.moreStatus === "error";
 }
 
 function PlannerTableFooter({
@@ -4551,8 +4588,10 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
     candidates: buildPlannerGroupCandidates({
       view: "daily",
       groupBy: settings.groupSettings.groupBy,
-      items: page.items.map(({ record }) => record),
-      relatedItems,
+      items: workspaceItems.allItems.some((item) => item.type === scope.split(".")[1])
+        ? workspaceItems.allItems.filter((item) => item.type === scope.split(".")[1])
+        : page.items.map(({ record }) => record),
+      relatedItems: workspaceItems.relatedItems,
     }),
     filterOptions,
     activeControlsAriaLabel: "Active Workspace controls",
@@ -4679,7 +4718,9 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
         <WorkspaceGroupedRows
           columnCount={columns.length + 1}
           groups={groups}
-          emptyMessage={page.generation === 0 || page.moreStatus === "loading"
+          emptyMessage={page.moreStatus === "error" && page.items.length === 0
+            ? "Could not load rows."
+            : page.generation === 0 || page.moreStatus === "loading"
             ? `Loading ${panel.title.toLowerCase()}...`
             : settings.filterRules.length > 0
               ? "No items match this view."
