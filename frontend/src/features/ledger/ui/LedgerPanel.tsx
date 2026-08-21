@@ -4,10 +4,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { LedgerTabId } from "@/domain/workbench/navigation";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
+import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import {
   deriveTransactionGroups,
   projectTransactionRows,
   type TransactionRow,
+  type TransactionRowGroup,
 } from "@/features/ledger/model/transaction-table";
 import type { ReportDrilldownTarget } from "@/features/ledger/model/ledger-reports";
 import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
@@ -37,11 +39,13 @@ export function LedgerPanel({
   useEffect(() => {
     if (controller.state.status !== "loaded" || tombstonedIds.size === 0) return;
     const activeIds = new Set(
-      projectTransactionRows(controller.state.entries).map(({ id }) => id),
+      (controller.tablePage?.("ledger.transactions").items ?? [])
+        .filter(isTransactionOccurrence)
+        .map(({ record }) => record.id),
     );
     const next = new Set([...tombstonedIds].filter((id) => activeIds.has(id)));
     if (next.size !== tombstonedIds.size) setTombstonedIds(next);
-  }, [controller.state.entries, controller.state.status, tombstonedIds]);
+  }, [controller, controller.state.status, tombstonedIds]);
 
   if (controller.state.status === "loading") {
     return <p role="status" className="items-message">Loading Ledger…</p>;
@@ -117,25 +121,35 @@ function TransactionsPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const actions = useLifecycleAction();
   const addButtonRef = useRef<HTMLButtonElement>(null);
-  const settings = controller.tableSettings("ledger.transactions");
-  const displayedEntries = useMemo(
-    () => controller.state.entries.filter(({ entry }) =>
-      !tombstonedIds.has(entry.transferGroupId ?? entry.id)),
-    [controller.state.entries, tombstonedIds],
-  );
-  const activeRows = useMemo(
-    () => projectTransactionRows(displayedEntries),
-    [displayedEntries],
-  );
-  const groups = useMemo(
-    () => deriveTransactionGroups(
-      displayedEntries,
-      settings,
+  const page = controller.tablePage?.("ledger.transactions") ?? {
+    items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+  };
+  useEffect(() => {
+    void controller.ensureTable?.("ledger.transactions");
+  }, [controller]);
+  const occurrences = page.items
+    .filter(isTransactionOccurrence)
+    .filter(({ record }) => !tombstonedIds.has(record.id));
+  const legacyEntries = controller.state.entries.filter(({ entry }) =>
+    !tombstonedIds.has(entry.transferGroupId ?? entry.id));
+  const groups = controller.tablePage
+    ? transactionGroups(occurrences)
+    : deriveTransactionGroups(
+      legacyEntries,
+      controller.tableSettings("ledger.transactions"),
       undefined,
       controller.state.currencies,
-    ),
-    [controller.state.currencies, displayedEntries, settings],
-  );
+    );
+  const activeRows = controller.tablePage
+    ? occurrences.map(({ record }) => record)
+    : projectTransactionRows(legacyEntries);
+  const referenceRows = legacyEntries.length > 0
+    ? projectTransactionRows(legacyEntries)
+    : activeRows;
+  const displayedEntries = legacyEntries.length > 0
+    ? legacyEntries
+    : activeRows.flatMap(({ detailEntry, transferEntry }) =>
+      transferEntry ? [detailEntry, transferEntry] : [detailEntry]);
   const visibleRows = useMemo(
     () => groups.flatMap((group) => group.rows),
     [groups],
@@ -152,11 +166,11 @@ function TransactionsPanel({
   useEffect(() => {
     if (
       editing &&
-      !activeRows.some(({ id }) => id === editing.id)
+      !referenceRows.some(({ id }) => id === editing.id)
     ) {
       setEditing(null);
     }
-  }, [activeRows, editing]);
+  }, [referenceRows, editing]);
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -191,8 +205,8 @@ function TransactionsPanel({
     if (complete) setArchiveConfirmationOpen(false);
   }
 
-  function openTransaction(row: TransactionRow) {
-    setEditing(row);
+  async function openTransaction(row: TransactionRow) {
+    if (await ensureLedgerReferences(controller, "ledger.transactions")) setEditing(row);
   }
 
   if (editing) {
@@ -217,7 +231,9 @@ function TransactionsPanel({
         title="Transactions"
         headingId="ledger-transactions-heading"
         transactionEntries={displayedEntries}
-        onAdd={() => setDialogOpen(true)}
+        onAdd={() => void ensureLedgerReferences(controller, "ledger.transactions").then((loaded) => {
+          if (loaded) setDialogOpen(true);
+        })}
         addButtonRef={addButtonRef}
         onArchiveSelected={() => {
           actions.clearError();
@@ -228,11 +244,13 @@ function TransactionsPanel({
       <TransactionsTable
         controller={controller}
         groups={groups}
-        activeRowCount={activeRows.length}
+        activeRowCount={referenceRows.length}
         selectedIds={selectedIds}
         onOpen={openTransaction}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
+        page={page}
+        onLoadMore={() => void controller.loadMore?.("ledger.transactions")}
       />
       {dialogOpen ? (
         <TransactionCreateDialog
@@ -258,4 +276,30 @@ function TransactionsPanel({
       ) : null}
     </section>
   );
+}
+
+function ensureLedgerReferences(
+  controller: LedgerController,
+  scope: "ledger.transactions",
+): Promise<boolean> {
+  return controller.ensureReferenceData?.(scope) ?? Promise.resolve(true);
+}
+
+function isTransactionOccurrence(
+  item: LedgerTableOccurrence,
+): item is Extract<LedgerTableOccurrence, { scope: "ledger.transactions" }> {
+  return item.scope === "ledger.transactions";
+}
+
+function transactionGroups(
+  items: Extract<LedgerTableOccurrence, { scope: "ledger.transactions" }>[],
+): TransactionRowGroup[] {
+  const groups = new Map<string, TransactionRowGroup>();
+  for (const { groupKey, groupLabel, record } of items) {
+    const key = groupKey ?? "all";
+    const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
+    group.rows.push(record);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }

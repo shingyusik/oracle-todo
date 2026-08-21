@@ -202,6 +202,8 @@ an `is_relative_to_today` date filter is present. Filter values use exactly one 
 Unknown fields are rejected at every request-object level. The response is
 `{"items":[{"key":"...","group_key":null,"group_label":null,"record":{}}],"next_offset":50}`;
 `next_offset` is `null` on the final page.
+Transaction records include `amount_minor`, `currency_code`, and the currency's validated
+`decimal_places`, so clients can format minor units without loading the currency list.
 
 `GET /table/lookups` accepts the same three scope values. Transaction lookups return compact
 active `accounts`, `categories`, and `currencies`; account lookups return `account_types` and

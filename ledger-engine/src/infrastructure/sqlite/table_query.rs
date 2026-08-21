@@ -559,7 +559,7 @@ fn load_transaction_records(
         return Ok(HashMap::new());
     }
     let sql = format!(
-        "SELECT e.*, a.name, tc.name, c.code FROM (SELECT {ENTRY_COLUMNS} FROM ledger_entries WHERE id IN ({})) e
+        "SELECT e.*, a.name, tc.name, c.code, c.decimal_places FROM (SELECT {ENTRY_COLUMNS} FROM ledger_entries WHERE id IN ({})) e
          LEFT JOIN accounts a ON a.id=e.account_id
          LEFT JOIN transaction_categories tc ON tc.id=e.transaction_category_id
          LEFT JOIN currencies c ON c.id=e.currency_id",
@@ -568,15 +568,18 @@ fn load_transaction_records(
     let mut statement = connection.prepare(&sql).map_err(storage_error)?;
     let entries = statement
         .query_map(params_from_iter(ids.iter()), |row| {
-            Ok(EntryView {
-                entry: row_to_entry(row).map_err(to_sql_error)?,
-                account_name: row.get(15)?,
-                category_name: row.get(16)?,
-                currency_code: row.get(17)?,
-            })
+            Ok((
+                EntryView {
+                    entry: row_to_entry(row).map_err(to_sql_error)?,
+                    account_name: row.get(15)?,
+                    category_name: row.get(16)?,
+                    currency_code: row.get(17)?,
+                },
+                row.get::<_, u8>(18)?,
+            ))
         })
         .map_err(storage_error)?
-        .map(|entry| entry.map(|entry| (entry.id().to_string(), entry)))
+        .map(|entry| entry.map(|entry| (entry.0.id().to_string(), entry)))
         .collect::<Result<HashMap<_, _>, _>>()
         .map_err(storage_error)?;
     let mut records = HashMap::new();
@@ -584,7 +587,7 @@ fn load_transaction_records(
         if records.contains_key(&key.id) {
             continue;
         }
-        let detail = entries
+        let (detail, decimal_places) = entries
             .get(&key.id)
             .cloned()
             .ok_or_else(|| LedgerError::Storage("selected ledger entry disappeared".into()))?;
@@ -592,17 +595,24 @@ fn load_transaction_records(
             .pair_id
             .as_ref()
             .map(|id| {
-                entries.get(id).cloned().ok_or_else(|| {
+                entries.get(id).map(|entry| entry.0.clone()).ok_or_else(|| {
                     LedgerError::Storage("selected transfer entry disappeared".into())
                 })
             })
             .transpose()?;
-        records.insert(key.id.clone(), transaction_record(detail, transfer));
+        records.insert(
+            key.id.clone(),
+            transaction_record(detail, transfer, decimal_places),
+        );
     }
     Ok(records)
 }
 
-fn transaction_record(detail: EntryView, transfer: Option<EntryView>) -> LedgerTableRecord {
+fn transaction_record(
+    detail: EntryView,
+    transfer: Option<EntryView>,
+    decimal_places: u8,
+) -> LedgerTableRecord {
     let kind = match detail.entry_type() {
         EntryType::Expense | EntryType::AdjustmentOut => TransactionRowKind::Expense,
         EntryType::Income | EntryType::AdjustmentIn => TransactionRowKind::Income,
@@ -631,6 +641,7 @@ fn transaction_record(detail: EntryView, transfer: Option<EntryView>) -> LedgerT
         amount_minor: detail.amount().minor_units(),
         currency_id: detail.currency_id().to_string(),
         currency_code: detail.currency_code.clone().unwrap_or_default(),
+        decimal_places,
         updated_at: detail.updated_at().to_string(),
         detail_entry: detail,
         transfer_entry: transfer,

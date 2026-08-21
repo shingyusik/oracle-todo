@@ -380,6 +380,7 @@ fn logical_record_contract_carries_transfer_and_display_labels() {
         amount_minor: 1_000,
         currency_id: "krw".to_string(),
         currency_code: "KRW".to_string(),
+        decimal_places: 0,
         updated_at: "2026-08-21T00:00:00Z".to_string(),
     };
     assert_eq!(transaction.id, "transfer-1");

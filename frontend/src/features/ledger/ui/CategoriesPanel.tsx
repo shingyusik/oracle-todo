@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
-import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
+import { deriveCategoryGroups, type CategoryRowGroup } from "@/features/ledger/model/category-table";
+import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
 import { CategoryCreateDialog } from "@/features/ledger/ui/CategoryCreateDialog";
 import { CategoryDetail } from "@/features/ledger/ui/CategoryDetail";
@@ -23,33 +24,44 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
   const sectionRef = useRef<HTMLElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
 
-  const groups = deriveCategoryGroups(
-    controller.state.categories,
-    controller.tableSettings("ledger.categories"),
-  );
+  const page = controller.tablePage?.("ledger.categories") ?? {
+    items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
+  };
+  const groups = controller.tablePage
+    ? categoryGroups(page.items.filter(isCategoryOccurrence))
+    : deriveCategoryGroups(
+      controller.state.categories,
+      controller.tableSettings("ledger.categories"),
+    );
   const visibleRows = groups.flatMap((group) => group.rows);
-  const activeRows = deriveCategoryGroups(
-    controller.state.categories,
-    defaultLedgerTableSettings("ledger.categories"),
-  ).flatMap((group) => group.rows);
+  const activeRows = controller.tablePage
+    ? visibleRows
+    : deriveCategoryGroups(
+      controller.state.categories,
+      defaultLedgerTableSettings("ledger.categories"),
+    ).flatMap((group) => group.rows);
   const selectedDetail = selectedDetailId === null
     ? null
     : activeRows.find(({ id }) => id === selectedDetailId) ?? null;
-  const activeRowCount = controller.state.categories.filter(({ active }) => active).length;
+  const activeRowCount = controller.state.categories.length > 0
+    ? controller.state.categories.filter(({ active }) => active).length
+    : activeRows.length;
   const selectedVisibleIds = selectedIds.filter((id) =>
     visibleRows.some((row) => row.id === id),
   );
 
   useEffect(() => {
-    const activeIds = new Set(
-      controller.state.categories.filter(({ active }) => active).map(({ id }) => id),
-    );
+    void controller.ensureTable?.("ledger.categories");
+  }, [controller]);
+
+  useEffect(() => {
+    const activeIds = new Set(activeRows.map(({ id }) => id));
     setSelectedIds((current) => {
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
     if (selectedDetailId && !activeIds.has(selectedDetailId)) setSelectedDetailId(null);
-  }, [controller.state.categories, selectedDetailId]);
+  }, [activeRows, selectedDetailId]);
 
   function returnToList() {
     setSelectedDetailId(null);
@@ -116,7 +128,9 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         scope="ledger.categories"
         title="Categories"
         headingId="ledger-categories-heading"
-        onAdd={() => setCreateOpen(true)}
+        onAdd={() => void ensureReferences(controller).then((loaded) => {
+          if (loaded) setCreateOpen(true);
+        })}
         addButtonRef={addButtonRef}
         addLabel="Add category"
         onArchiveSelected={() => {
@@ -130,9 +144,13 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={(row) => setSelectedDetailId(row.id)}
+        onOpen={(row) => void ensureReferences(controller).then((loaded) => {
+          if (loaded) setSelectedDetailId(row.id);
+        })}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
+        page={page}
+        onLoadMore={() => void controller.loadMore?.("ledger.categories")}
       />
       {createOpen ? (
         <CategoryCreateDialog
@@ -158,4 +176,27 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
       ) : null}
     </section>
   );
+}
+
+function ensureReferences(controller: LedgerController): Promise<boolean> {
+  return controller.ensureReferenceData?.("ledger.categories") ?? Promise.resolve(true);
+}
+
+function isCategoryOccurrence(
+  item: LedgerTableOccurrence,
+): item is Extract<LedgerTableOccurrence, { scope: "ledger.categories" }> {
+  return item.scope === "ledger.categories";
+}
+
+function categoryGroups(
+  items: Extract<LedgerTableOccurrence, { scope: "ledger.categories" }>[],
+): CategoryRowGroup[] {
+  const groups = new Map<string, CategoryRowGroup>();
+  for (const { groupKey, groupLabel, record } of items) {
+    const key = groupKey ?? "all";
+    const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
+    group.rows.push(record);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }

@@ -19,10 +19,13 @@ import { ledgerApi } from "@/features/ledger/api/ledger-api";
 import type {
   LedgerComparison,
   LedgerEntryView,
+  LedgerTableOccurrence,
   LedgerTrend,
   MasterPurgePreview,
 } from "@/features/ledger/model/ledger-model";
 import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
+import { deriveAccountGroups } from "@/features/ledger/model/account-table";
+import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
 import {
   createLedgerTableViews,
   defaultLedgerTableSettings,
@@ -83,6 +86,26 @@ const loadedState: LedgerState = {
     active: true,
   }],
   balances: [],
+  tableLookups: {
+    "ledger.transactions": {
+      accounts: [{ id: "account-cash", label: "Cash" }],
+      categories: [{ id: "category-food", label: "Food" }],
+      currencies: [
+        { id: "currency-krw", label: "KRW" },
+        { id: "currency-usd", label: "USD" },
+      ],
+    },
+    "ledger.accounts": {
+      accountTypes: [{ id: "account-category-cash", label: "Cash" }],
+      currencies: [
+        { id: "currency-krw", label: "KRW" },
+        { id: "currency-usd", label: "USD" },
+      ],
+    },
+    "ledger.categories": {
+      categories: [{ id: "category-food", label: "Food" }],
+    },
+  },
   reportStatus: "idle",
   reportError: null,
   reportSelection: { period: "current_month" },
@@ -95,7 +118,7 @@ const loadedState: LedgerState = {
 
 function controller(state: LedgerState = loadedState): LedgerController {
   const views = createLedgerTableViews();
-  return {
+  const result: LedgerController = {
     state,
     tableViewSaveError: null,
     retryTableViewSave: vi.fn(),
@@ -103,6 +126,16 @@ function controller(state: LedgerState = loadedState): LedgerController {
     tableTabs: (scope) => views[scope],
     tableSettings: (scope) => views[scope].draftSettings,
     tableIsDirty: vi.fn(() => false),
+    tablePage: (scope) => ({
+      items: legacyOccurrences(result, state, scope),
+      nextOffset: null,
+      moreStatus: "idle",
+      moreError: null,
+      generation: 1,
+    }),
+    ensureTable: vi.fn().mockResolvedValue(undefined),
+    loadMore: vi.fn().mockResolvedValue(undefined),
+    ensureReferenceData: vi.fn().mockResolvedValue(true),
     updateTableSettings: vi.fn(),
     selectTableTab: vi.fn(),
     saveTableTab: vi.fn(),
@@ -150,6 +183,36 @@ function controller(state: LedgerState = loadedState): LedgerController {
     runReports: vi.fn().mockResolvedValue(undefined),
     retryReports: vi.fn().mockResolvedValue(undefined),
   };
+  return result;
+}
+
+function legacyOccurrences(
+  ledger: LedgerController,
+  state: LedgerState,
+  scope: "ledger.transactions" | "ledger.accounts" | "ledger.categories",
+): LedgerTableOccurrence[] {
+  const groups = scope === "ledger.transactions"
+    ? deriveTransactionGroups(
+      state.entries,
+      ledger.tableSettings(scope),
+      undefined,
+      state.currencies,
+    )
+    : scope === "ledger.accounts"
+      ? deriveAccountGroups(
+        state.accounts,
+        state.balances,
+        state.accountCategories,
+        ledger.tableSettings(scope),
+      )
+      : deriveCategoryGroups(state.categories, ledger.tableSettings(scope));
+  return groups.flatMap((group) => group.rows.map((record) => ({
+    key: `${group.key}:${record.id}`,
+    groupKey: group.label === null ? null : group.key,
+    groupLabel: group.label,
+    scope,
+    record,
+  } as LedgerTableOccurrence)));
 }
 
 function TransactionHeaderHarness() {
@@ -253,6 +316,26 @@ function transactionEntries(): LedgerEntryView[] {
   ];
 }
 
+function transactionOccurrence(
+  key: string,
+  id: string,
+  content: string,
+): Extract<LedgerTableOccurrence, { scope: "ledger.transactions" }> {
+  return {
+    key,
+    groupKey: null,
+    groupLabel: null,
+    scope: "ledger.transactions",
+    record: {
+      ...deriveTransactionGroups(
+        [entryView(id, content)],
+        defaultLedgerTableSettings("ledger.transactions"),
+      )[0]!.rows[0]!,
+      decimalPlaces: 0,
+    },
+  };
+}
+
 function transactionSettings(
   patch: Partial<ReturnType<typeof defaultLedgerTableSettings>> = {},
 ) {
@@ -278,6 +361,10 @@ function deferred<T>() {
 }
 
 function mockLedgerLoads() {
+  vi.spyOn(ledgerApi, "queryTable")
+    .mockResolvedValue({ items: [], nextOffset: null });
+  vi.spyOn(ledgerApi, "tableLookups")
+    .mockResolvedValue({ accounts: [], categories: [], currencies: [] });
   vi.spyOn(ledgerApi, "listEntries")
     .mockResolvedValue({ items: [], nextOffset: null });
   vi.spyOn(ledgerApi, "listCurrencies")
@@ -1150,6 +1237,9 @@ describe("LedgerPanel", () => {
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await act(async () => {
+      await result.current.ensureReferenceData!("ledger.accounts");
+    });
 
     await act(async () => {
       await result.current.createCurrency({
@@ -1201,6 +1291,9 @@ describe("LedgerPanel", () => {
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await act(async () => {
+      await result.current.ensureReferenceData!("ledger.accounts");
+    });
 
     await act(async () => {
       await result.current.createAccountCategory({ name: "Card", liability: true });
@@ -1735,6 +1828,8 @@ describe("LedgerPanel", () => {
         onOpen={onOpen}
         onToggle={vi.fn()}
         onToggleAll={vi.fn()}
+        page={ledger.tablePage!("ledger.transactions")}
+        onLoadMore={vi.fn()}
       />,
     );
     const row = screen.getByRole("button", {
@@ -1772,10 +1867,10 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("button", { name: "< Back" }))
       .toBeInTheDocument();
 
-    view.rerender(<LedgerPanel controller={{
-      ...ledger,
-      state: { ...ledger.state, entries: [] },
-    }} />);
+    view.rerender(<LedgerPanel controller={controller({
+      ...ledger.state,
+      entries: [],
+    })} />);
 
     await waitFor(() => expect(screen.queryByRole("button", {
       name: "< Back",
@@ -1838,10 +1933,10 @@ describe("LedgerPanel", () => {
     expect(screen.getAllByRole("checkbox", { name: /^Select (?!all)/ }))
       .toHaveLength(3);
 
-    view.rerender(<LedgerPanel controller={{
-      ...ledger,
-      state: { ...ledger.state, entries: [transactionEntry("expense-1", "Lunch")] },
-    }} />);
+    view.rerender(<LedgerPanel controller={controller({
+      ...ledger.state,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    })} />);
     await waitFor(() => expect(screen.getByRole("checkbox", {
       name: "Select Lunch, 2026-07-30, Cash",
     }))
@@ -1966,12 +2061,16 @@ describe("LedgerPanel", () => {
 
   it("keeps the production dialog mounted through its background refresh", async () => {
     const user = userEvent.setup();
-    const supersededEntries = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
-    const refreshedEntries = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
-    vi.spyOn(ledgerApi, "listEntries")
+    const supersededEntries = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+    const refreshedEntries = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+    vi.spyOn(ledgerApi, "queryTable")
       .mockResolvedValueOnce({ items: [], nextOffset: null })
       .mockReturnValueOnce(supersededEntries.promise)
       .mockReturnValueOnce(refreshedEntries.promise);
+    vi.spyOn(ledgerApi, "tableLookups")
+      .mockResolvedValue({ accounts: [], categories: [], currencies: [] });
+    vi.spyOn(ledgerApi, "listEntries")
+      .mockResolvedValue({ items: [], nextOffset: null });
     vi.spyOn(ledgerApi, "listCurrencies")
       .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
     vi.spyOn(ledgerApi, "listAccountCategories")
@@ -1998,11 +2097,11 @@ describe("LedgerPanel", () => {
     await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
     await user.type(screen.getByLabelText("Amount"), "12000");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
     act(() => {
       void liveController.refresh();
     });
-    await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(3));
 
     expect(screen.getByRole("dialog", { name: "Add transaction" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close Add transaction" })).toBeDisabled();
@@ -2016,7 +2115,7 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("button", { name: "Close Add transaction" })).toBeDisabled();
 
     await act(async () => refreshedEntries.resolve({
-      items: [entryView("entry-1", "Lunch")],
+      items: [transactionOccurrence("entry-1", "entry-1", "Lunch")],
       nextOffset: null,
     }));
     await waitFor(() => expect(screen.queryByRole("dialog", {
@@ -2056,11 +2155,18 @@ describe("LedgerPanel", () => {
 
   it("recovers a persisted creation with refresh-only retries", async () => {
     const user = userEvent.setup();
-    vi.spyOn(ledgerApi, "listEntries")
+    vi.spyOn(ledgerApi, "queryTable")
       .mockResolvedValueOnce({ items: [], nextOffset: null })
       .mockRejectedValueOnce(new Error("Ledger refresh failed"))
       .mockRejectedValueOnce(new Error("Ledger refresh still failed"))
-      .mockResolvedValue({ items: [entryView("entry-1", "Lunch")], nextOffset: null });
+      .mockResolvedValue({
+        items: [transactionOccurrence("entry-1", "entry-1", "Lunch")],
+        nextOffset: null,
+      });
+    vi.spyOn(ledgerApi, "tableLookups")
+      .mockResolvedValue({ accounts: [], categories: [], currencies: [] });
+    vi.spyOn(ledgerApi, "listEntries")
+      .mockResolvedValue({ items: [], nextOffset: null });
     vi.spyOn(ledgerApi, "listCurrencies")
       .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
     vi.spyOn(ledgerApi, "listAccountCategories")
@@ -2114,12 +2220,16 @@ describe("LedgerPanel", () => {
     "keeps creation recovery mounted when %s refresh is superseded by a failed peer",
     async (order) => {
       const user = userEvent.setup();
-      const older = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
-      const winner = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
-      vi.spyOn(ledgerApi, "listEntries")
+      const older = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+      const winner = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+      vi.spyOn(ledgerApi, "queryTable")
         .mockResolvedValueOnce({ items: [], nextOffset: null })
         .mockReturnValueOnce(older.promise)
         .mockReturnValueOnce(winner.promise);
+      vi.spyOn(ledgerApi, "tableLookups")
+        .mockResolvedValue({ accounts: [], categories: [], currencies: [] });
+      vi.spyOn(ledgerApi, "listEntries")
+        .mockResolvedValue({ items: [], nextOffset: null });
       vi.spyOn(ledgerApi, "listCurrencies")
         .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
       vi.spyOn(ledgerApi, "listAccountCategories")
@@ -2150,16 +2260,16 @@ describe("LedgerPanel", () => {
         act(() => {
           ordinary = liveController.archive("entry-existing");
         });
-        await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
         await user.click(screen.getByRole("button", { name: "Save" }));
       } else {
         await user.click(screen.getByRole("button", { name: "Save" }));
-        await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
         act(() => {
           ordinary = liveController.archive("entry-existing");
         });
       }
-      await waitFor(() => expect(ledgerApi.listEntries).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(3));
 
       await act(async () => {
         winner.reject(new Error("Mixed refresh failed"));
@@ -2438,9 +2548,9 @@ describe("LedgerPanel", () => {
   it("keeps a persisted archive hidden across Ledger tab unmounts", async () => {
     const user = userEvent.setup();
     mockLedgerLoads();
-    vi.mocked(ledgerApi.listEntries)
+    vi.mocked(ledgerApi.queryTable)
       .mockResolvedValueOnce({
-        items: [transactionEntry("expense-1", "Lunch")],
+        items: [transactionOccurrence("expense-1", "expense-1", "Lunch")],
         nextOffset: null,
       })
       .mockRejectedValueOnce(new Error("Ledger refresh failed"))
@@ -2984,7 +3094,7 @@ describe("LedgerPanel", () => {
     expect(compare).toHaveBeenLastCalledWith({ period: "previous_month" });
   });
 
-  it("retains all controller records across subsequent pages", async () => {
+  it("retains all on-demand reference records across subsequent pages", async () => {
     const secondAccount = { ...loadedState.accounts[0], id: "account-bank", name: "Bank" };
     vi.spyOn(ledgerApi, "listEntries")
       .mockResolvedValueOnce({ items: [entryView("entry-1", "Lunch")], nextOffset: 100 })
@@ -3003,6 +3113,9 @@ describe("LedgerPanel", () => {
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await act(async () => {
+      expect(await result.current.ensureReferenceData!("ledger.transactions")).toBe(true);
+    });
 
     expect(result.current.state.accounts.map((account) => account.name))
       .toEqual(["Cash", "Bank"]);
@@ -3014,10 +3127,234 @@ describe("LedgerPanel", () => {
     );
   });
 
-  it("reports an initial refresh failure and recovers on retry", async () => {
-    vi.spyOn(ledgerApi, "listEntries")
+  it("loads one table page and appends deduplicated occurrences on demand", async () => {
+    mockLedgerLoads();
+    const next = deferred<{
+      items: LedgerTableOccurrence[];
+      nextOffset: number | null;
+    }>();
+    const first = transactionOccurrence("first", "entry-1", "Lunch");
+    const second = transactionOccurrence("second", "entry-2", "Dinner");
+    vi.spyOn(ledgerApi, "queryTable")
+      .mockResolvedValueOnce({ items: [first], nextOffset: 50 })
+      .mockReturnValueOnce(next.promise);
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await act(async () => result.current.ensureTable!("ledger.transactions"));
+    expect(ledgerApi.queryTable).toHaveBeenNthCalledWith(
+      1,
+      "ledger.transactions",
+      result.current.tableSettings("ledger.transactions"),
+      0,
+    );
+
+    act(() => {
+      void result.current.loadMore!("ledger.transactions");
+      void result.current.loadMore!("ledger.transactions");
+    });
+    expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2);
+    await act(async () => next.resolve({ items: [first, second], nextOffset: null }));
+    expect(result.current.tablePage!("ledger.transactions").items.map(({ key }) => key))
+      .toEqual(["first", "second"]);
+  });
+
+  it("preserves rows after a next-page failure and retries the same offset", async () => {
+    mockLedgerLoads();
+    const first = transactionOccurrence("first", "entry-1", "Lunch");
+    vi.spyOn(ledgerApi, "queryTable")
+      .mockResolvedValueOnce({ items: [first], nextOffset: 50 })
+      .mockRejectedValueOnce(new Error("private storage detail"))
+      .mockResolvedValueOnce({
+        items: [transactionOccurrence("second", "entry-2", "Dinner")],
+        nextOffset: null,
+      });
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await act(async () => result.current.ensureTable!("ledger.transactions"));
+    await act(async () => result.current.loadMore!("ledger.transactions"));
+    expect(result.current.tablePage!("ledger.transactions")).toMatchObject({
+      items: [first],
+      nextOffset: 50,
+      moreStatus: "idle",
+      moreError: "Could not load more rows.",
+    });
+
+    await act(async () => result.current.loadMore!("ledger.transactions"));
+    expect(vi.mocked(ledgerApi.queryTable).mock.calls.slice(-2).map((call) => call[2]))
+      .toEqual([50, 50]);
+    expect(result.current.tablePage!("ledger.transactions").items).toHaveLength(2);
+  });
+
+  it("resets only the changed table and ignores its stale page response", async () => {
+    mockLedgerLoads();
+    const stale = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+    const current = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+    vi.spyOn(ledgerApi, "queryTable")
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(current.promise);
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    let initial!: Promise<void>;
+    act(() => {
+      initial = result.current.ensureTable!("ledger.transactions");
+    });
+    act(() => result.current.updateTableSettings("ledger.transactions", (settings) => ({
+      ...settings,
+      sortRules: [{ id: "content", field: "content", direction: "asc" }],
+    })));
+    await act(async () => current.resolve({
+      items: [transactionOccurrence("current", "entry-2", "Current")],
+      nextOffset: null,
+    }));
+    await act(async () => {
+      stale.resolve({
+        items: [transactionOccurrence("stale", "entry-1", "Stale")],
+        nextOffset: null,
+      });
+      await initial;
+    });
+
+    expect(result.current.tablePage!("ledger.transactions").items[0]?.key).toBe("current");
+    expect(result.current.tablePage!("ledger.accounts").generation).toBe(0);
+  });
+
+  it("renders server-grouped occurrences and loads more from every table footer", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({ ...loadedState, entries: [] });
+    const grouped = {
+      ...transactionOccurrence("cash:entry-1", "entry-1", "Server Lunch"),
+      groupKey: "account-cash",
+      groupLabel: "Cash",
+      record: {
+        ...transactionOccurrence("cash:entry-1", "entry-1", "Server Lunch").record,
+        amountMinor: 123,
+        currencyCode: "USD",
+        currencyId: "currency-usd",
+        decimalPlaces: 2,
+      },
+    } satisfies LedgerTableOccurrence;
+    ledger.tablePage = vi.fn((scope) => ({
+      items: scope === "ledger.transactions" ? [grouped] : [],
+      nextOffset: 50,
+      moreStatus: "idle" as const,
+      moreError: null,
+      generation: 1,
+    }));
+    ledger.ensureTable = vi.fn().mockResolvedValue(undefined);
+    ledger.loadMore = vi.fn().mockResolvedValue(undefined);
+
+    const view = render(<LedgerPanel controller={ledger} />);
+    expect(screen.getByRole("rowgroup", { name: "Cash group" })).toHaveTextContent(
+      "Server Lunch",
+    );
+    expect(screen.getByText("−1.23 USD")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(ledger.loadMore).toHaveBeenCalledWith("ledger.transactions");
+
+    view.rerender(<LedgerPanel controller={ledger} leafTabId="accounts" />);
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(ledger.loadMore).toHaveBeenCalledWith("ledger.accounts");
+
+    view.rerender(<LedgerPanel controller={ledger} leafTabId="categories" />);
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(ledger.loadMore).toHaveBeenCalledWith("ledger.categories");
+  });
+
+  it("enters Ledger without draining any legacy table or reference list", async () => {
+    const lists = [
+      vi.spyOn(ledgerApi, "listEntries"),
+      vi.spyOn(ledgerApi, "listCurrencies"),
+      vi.spyOn(ledgerApi, "listAccountCategories"),
+      vi.spyOn(ledgerApi, "listAccounts"),
+      vi.spyOn(ledgerApi, "listTransactionCategories"),
+      vi.spyOn(ledgerApi, "listAccountBalances"),
+    ];
+    vi.spyOn(ledgerApi, "queryTable").mockResolvedValue({
+      items: [transactionOccurrence("first", "entry-1", "Lazy Lunch")],
+      nextOffset: null,
+    });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({
+      accounts: [], categories: [], currencies: [],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+
+    function ProductionLedgerPanel() {
+      return <LedgerPanel controller={useLedgerController()} />;
+    }
+    render(<ProductionLedgerPanel />);
+    expect(await screen.findByText("Lazy Lunch")).toBeInTheDocument();
+    expect(lists.every((list) => list.mock.calls.length === 0)).toBe(true);
+    expect(ledgerApi.queryTable).toHaveBeenCalledOnce();
+    expect(ledgerApi.tableLookups).toHaveBeenCalledWith("ledger.transactions");
+  });
+
+  it("loads rich group candidates once when the Group panel first opens", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(ledgerApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({
+      accounts: [], categories: [], currencies: [],
+    });
+    const entries = vi.spyOn(ledgerApi, "listEntries")
+      .mockResolvedValue({ items: transactionEntries(), nextOffset: null });
+    const currencies = vi.spyOn(ledgerApi, "listCurrencies")
+      .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
+    const accounts = vi.spyOn(ledgerApi, "listAccounts")
+      .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
+    const categories = vi.spyOn(ledgerApi, "listTransactionCategories")
+      .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+
+    function ProductionLedgerPanel() {
+      return <LedgerPanel controller={useLedgerController()} />;
+    }
+    render(<ProductionLedgerPanel />);
+    const group = await screen.findByRole("button", { name: "Group Transactions" });
+    await user.click(group);
+    expect(await screen.findByRole("dialog", { name: "Group Transactions" }))
+      .toBeInTheDocument();
+    expect([entries, currencies, accounts, categories].map((spy) => spy.mock.calls.length))
+      .toEqual([1, 1, 1, 1]);
+
+    await user.keyboard("{Escape}");
+    await user.click(group);
+    expect(await screen.findByRole("dialog", { name: "Group Transactions" }))
+      .toBeInTheDocument();
+    expect([entries, currencies, accounts, categories].map((spy) => spy.mock.calls.length))
+      .toEqual([1, 1, 1, 1]);
+  });
+
+  it("suppresses duplicate Group preparation and stays closed after a safe failure", async () => {
+    const prepare = deferred<boolean>();
+    const ledger = controller();
+    ledger.ensureReferenceData = vi.fn(() => prepare.promise);
+    render(
+      <LedgerTableViewHeader
+        controller={ledger}
+        scope="ledger.transactions"
+        title="Transactions"
+        headingId="transactions-heading"
+      />,
+    );
+    const group = screen.getByRole("button", { name: "Group Transactions" });
+    fireEvent.click(group);
+    fireEvent.click(group);
+    expect(ledger.ensureReferenceData).toHaveBeenCalledOnce();
+    expect(group).toHaveAttribute("aria-disabled", "true");
+
+    await act(async () => prepare.resolve(false));
+    expect(screen.queryByRole("dialog", { name: "Group Transactions" })).toBeNull();
+    expect(screen.queryByText(/storage|database|raw/i)).toBeNull();
+  });
+
+  it("reports an initial table failure and recovers on retry", async () => {
+    vi.spyOn(ledgerApi, "queryTable")
       .mockRejectedValueOnce(new Error("Initial Ledger load failed"))
       .mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "tableLookups")
+      .mockResolvedValue({ accounts: [], categories: [], currencies: [] });
     vi.spyOn(ledgerApi, "listCurrencies")
       .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
     vi.spyOn(ledgerApi, "listAccountCategories")
@@ -3030,22 +3367,21 @@ describe("LedgerPanel", () => {
       .mockResolvedValue({ items: [], nextOffset: null });
 
     const { result } = renderHook(() => useLedgerController());
+    await act(async () => result.current.ensureTable!("ledger.transactions"));
     await waitFor(() => expect(result.current.state.status).toBe("error"));
     expect(result.current.state.error).toBe("Initial Ledger load failed");
 
-    let refreshed!: boolean;
-    await act(async () => {
-      refreshed = await result.current.refresh();
-    });
-    expect(refreshed).toBe(true);
+    await act(async () => expect(await result.current.refresh()).toBe(true));
     expect(result.current.state.status).toBe("loaded");
     expect(result.current.state.error).toBeNull();
   });
 
   it("limits persisted refresh failures to transaction creation methods", async () => {
-    vi.spyOn(ledgerApi, "listEntries")
+    vi.spyOn(ledgerApi, "queryTable")
       .mockResolvedValueOnce({ items: [], nextOffset: null })
       .mockRejectedValue(new Error("Ledger refresh failed"));
+    vi.spyOn(ledgerApi, "tableLookups")
+      .mockResolvedValue({ accounts: [], categories: [], currencies: [] });
     vi.spyOn(ledgerApi, "listCurrencies")
       .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
     vi.spyOn(ledgerApi, "listAccountCategories")
@@ -3070,6 +3406,7 @@ describe("LedgerPanel", () => {
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await act(async () => result.current.ensureTable!("ledger.transactions"));
 
     const ordinaryMutations = [
       () => result.current.updateEntry("entry", {} as never),
@@ -3095,7 +3432,7 @@ describe("LedgerPanel", () => {
     expect(result.current.state.status).toBe("loaded");
     expect(result.current.state.error).toBe("Ledger refresh failed");
 
-    vi.mocked(ledgerApi.listEntries)
+    vi.mocked(ledgerApi.queryTable)
       .mockResolvedValueOnce({ items: [], nextOffset: null });
     await act(async () => {
       expect(await result.current.refresh()).toBe(true);
@@ -3115,12 +3452,14 @@ describe("LedgerPanel", () => {
   it.each(["success", "error"] as const)(
     "coalesces a superseded refresh into the newer %s result",
     async (newerCompletion) => {
-      const older = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
-      const newer = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
-      vi.spyOn(ledgerApi, "listEntries")
+      const older = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+      const newer = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+      vi.spyOn(ledgerApi, "queryTable")
         .mockResolvedValueOnce({ items: [], nextOffset: null })
         .mockReturnValueOnce(older.promise)
         .mockReturnValueOnce(newer.promise);
+      vi.spyOn(ledgerApi, "tableLookups")
+        .mockResolvedValue({ accounts: [], categories: [], currencies: [] });
       vi.spyOn(ledgerApi, "listCurrencies")
         .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
       vi.spyOn(ledgerApi, "listAccountCategories")
@@ -3134,6 +3473,7 @@ describe("LedgerPanel", () => {
 
       const { result } = renderHook(() => useLedgerController());
       await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+      await act(async () => result.current.ensureTable!("ledger.transactions"));
       let olderRequest!: Promise<boolean>;
       let newerRequest!: Promise<boolean>;
       act(() => {
@@ -3145,7 +3485,10 @@ describe("LedgerPanel", () => {
         olderSettled = true;
       });
       await act(async () => {
-        older.resolve({ items: [entryView("older", "Older")], nextOffset: null });
+        older.resolve({
+          items: [transactionOccurrence("older", "older", "Older")],
+          nextOffset: null,
+        });
         await Promise.resolve();
       });
       expect(olderSettled).toBe(false);
@@ -3153,7 +3496,10 @@ describe("LedgerPanel", () => {
       let outcomes!: boolean[];
       await act(async () => {
         if (newerCompletion === "success") {
-          newer.resolve({ items: [entryView("newer", "Newer")], nextOffset: null });
+          newer.resolve({
+            items: [transactionOccurrence("newer", "newer", "Newer")],
+            nextOffset: null,
+          });
         } else {
           newer.reject(new Error("Winning refresh failed"));
         }
@@ -3166,7 +3512,9 @@ describe("LedgerPanel", () => {
         : [false, false]);
       if (newerCompletion === "success") {
         expect(result.current.state.error).toBeNull();
-        expect(result.current.state.entries[0]?.entry.content).toBe("Newer");
+        const item = result.current.tablePage!("ledger.transactions").items[0];
+        expect(item?.scope === "ledger.transactions" ? item.record.content : undefined)
+          .toBe("Newer");
       } else {
         expect(result.current.state.error).toBe("Winning refresh failed");
       }
@@ -3174,12 +3522,14 @@ describe("LedgerPanel", () => {
   );
 
   it("does not let a late stale refresh overwrite the applied result", async () => {
-    const older = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
-    const newer = deferred<{ items: LedgerEntryView[]; nextOffset: null }>();
-    vi.spyOn(ledgerApi, "listEntries")
+    const older = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerTableOccurrence[]; nextOffset: null }>();
+    vi.spyOn(ledgerApi, "queryTable")
       .mockResolvedValueOnce({ items: [], nextOffset: null })
       .mockReturnValueOnce(older.promise)
       .mockReturnValueOnce(newer.promise);
+    vi.spyOn(ledgerApi, "tableLookups")
+      .mockResolvedValue({ accounts: [], categories: [], currencies: [] });
     vi.spyOn(ledgerApi, "listCurrencies")
       .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
     vi.spyOn(ledgerApi, "listAccountCategories")
@@ -3193,6 +3543,7 @@ describe("LedgerPanel", () => {
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    await act(async () => result.current.ensureTable!("ledger.transactions"));
     let olderRequest!: Promise<boolean>;
     let newerRequest!: Promise<boolean>;
     act(() => {
@@ -3201,7 +3552,10 @@ describe("LedgerPanel", () => {
     });
 
     await act(async () => {
-      newer.resolve({ items: [entryView("newer", "Newer")], nextOffset: null });
+      newer.resolve({
+        items: [transactionOccurrence("newer", "newer", "Newer")],
+        nextOffset: null,
+      });
       expect(await newerRequest).toBe(true);
     });
     await act(async () => {
@@ -3211,7 +3565,9 @@ describe("LedgerPanel", () => {
 
     expect(result.current.state.status).toBe("loaded");
     expect(result.current.state.error).toBeNull();
-    expect(result.current.state.entries[0]?.entry.content).toBe("Newer");
+    const item = result.current.tablePage!("ledger.transactions").items[0];
+    expect(item?.scope === "ledger.transactions" ? item.record.content : undefined)
+      .toBe("Newer");
   });
 
   it("exposes Ledger view save failures with a retry action", async () => {

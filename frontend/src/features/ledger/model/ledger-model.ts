@@ -130,6 +130,66 @@ export type TransferView = {
   toAccountName: string | null;
 };
 
+export type LedgerTableScope =
+  | "ledger.transactions"
+  | "ledger.accounts"
+  | "ledger.categories";
+export type LedgerTableOccurrence =
+  | LedgerTableOccurrenceBase<"ledger.transactions", LedgerTransactionTableRecord>
+  | LedgerTableOccurrenceBase<"ledger.accounts", LedgerAccountTableRecord>
+  | LedgerTableOccurrenceBase<"ledger.categories", LedgerCategoryTableRecord>;
+export type LedgerTableOccurrenceBase<S extends LedgerTableScope, R> = {
+  key: string;
+  groupKey: string | null;
+  groupLabel: string | null;
+  scope: S;
+  record: R;
+};
+export type LedgerTransactionTableRecord = {
+  id: string;
+  archiveEntryId: string;
+  detailEntry: LedgerEntryView;
+  transferEntry: LedgerEntryView | null;
+  kind: "expense" | "income" | "transfer";
+  date: string;
+  content: string;
+  accountIds: string[];
+  accountLabels: string[];
+  accountLabel: string;
+  categoryId: string | null;
+  categoryLabel: string;
+  amountMinor: number;
+  currencyId: string;
+  currencyCode: string;
+  decimalPlaces: number;
+  updatedAt: string;
+};
+export type LedgerAccountTableRecord = {
+  id: string;
+  account: Account;
+  name: string;
+  accountTypeId: string;
+  accountTypeLabel: string;
+  currencyId: string;
+  currencyCode: string;
+  decimalPlaces: number;
+  currentBalanceMinor: number;
+};
+export type LedgerCategoryTableRecord = {
+  id: string;
+  category: TransactionCategory;
+  name: string;
+  kind: TransactionCategoryKind;
+  kindLabel: "Expense" | "Income";
+  parentId: string | null;
+  parentLabel: string;
+};
+export type LedgerLookupOption = { id: string; label: string };
+export type LedgerTableLookups = Partial<Record<
+  "accounts" | "categories" | "currencies" | "accountTypes",
+  LedgerLookupOption[]
+>>;
+
 export type ReportRange = { start: string; end: string };
 export type CurrencySummary = {
   currencyId: string;
@@ -289,6 +349,118 @@ export function mapTransfer(value: unknown): TransferView {
     currencyCode: nullableString(wire.currency_code, "transfer.currency_code"),
     fromAccountName: nullableString(wire.from_account_name, "transfer.from_account_name"),
     toAccountName: nullableString(wire.to_account_name, "transfer.to_account_name"),
+  };
+}
+
+export function mapLedgerTablePage(
+  value: unknown,
+  scope: LedgerTableScope,
+): { items: LedgerTableOccurrence[]; nextOffset: number | null } {
+  return mapPage(value, (item) => {
+    const wire = record(item, "ledger table occurrence");
+    return {
+      key: nonEmptyString(wire.key, "ledger table occurrence.key"),
+      groupKey: nullableString(wire.group_key, "ledger table occurrence.group_key"),
+      groupLabel: nullableString(wire.group_label, "ledger table occurrence.group_label"),
+      scope,
+      record: scope === "ledger.transactions"
+        ? mapTransactionTableRecord(wire.record)
+        : scope === "ledger.accounts"
+          ? mapAccountTableRecord(wire.record)
+          : mapCategoryTableRecord(wire.record),
+    } as LedgerTableOccurrence;
+  });
+}
+
+export function mapLedgerTableLookups(value: unknown): LedgerTableLookups {
+  const wire = record(value, "ledger table lookups");
+  const mapOptions = (field: string) => array(wire[field], `ledger table lookups.${field}`).map(
+    (item) => {
+      const option = record(item, `ledger table lookups.${field} option`);
+      return {
+        id: id(option.id, `ledger table lookups.${field}.id`),
+        label: nonEmptyString(option.label, `ledger table lookups.${field}.label`),
+      };
+    },
+  );
+  return {
+    ...(wire.accounts === undefined ? {} : { accounts: mapOptions("accounts") }),
+    ...(wire.categories === undefined ? {} : { categories: mapOptions("categories") }),
+    ...(wire.currencies === undefined ? {} : { currencies: mapOptions("currencies") }),
+    ...(wire.account_types === undefined ? {} : { accountTypes: mapOptions("account_types") }),
+  };
+}
+
+function mapTransactionTableRecord(value: unknown): LedgerTransactionTableRecord {
+  const wire = record(value, "ledger transaction table record");
+  const kind = string(wire.kind, "ledger transaction table record.kind");
+  if (kind !== "expense" && kind !== "income" && kind !== "transfer") {
+    throw new TypeError("invalid ledger transaction table record.kind");
+  }
+  return {
+    id: id(wire.id, "ledger transaction table record.id"),
+    archiveEntryId: id(wire.archive_entry_id, "ledger transaction table record.archive_entry_id"),
+    detailEntry: mapLedgerEntryView(wire.detail_entry),
+    transferEntry: wire.transfer_entry === null ? null : mapLedgerEntryView(wire.transfer_entry),
+    kind,
+    date: isoDate(wire.date, "ledger transaction table record.date"),
+    content: nonEmptyString(wire.content, "ledger transaction table record.content"),
+    accountIds: array(wire.account_ids, "ledger transaction table record.account_ids")
+      .map((item) => id(item, "ledger transaction table record.account_ids item")),
+    accountLabels: array(wire.account_labels, "ledger transaction table record.account_labels")
+      .map((item) => string(item, "ledger transaction table record.account_labels item")),
+    accountLabel: string(wire.account_label, "ledger transaction table record.account_label"),
+    categoryId: nullableString(wire.category_id, "ledger transaction table record.category_id"),
+    categoryLabel: string(wire.category_label, "ledger transaction table record.category_label"),
+    amountMinor: safeInteger(wire.amount_minor, "ledger transaction table record.amount_minor"),
+    currencyId: id(wire.currency_id, "ledger transaction table record.currency_id"),
+    currencyCode: string(wire.currency_code, "ledger transaction table record.currency_code"),
+    decimalPlaces: rangeInteger(
+      wire.decimal_places,
+      "ledger transaction table record.decimal_places",
+      0,
+      18,
+    ),
+    updatedAt: timestamp(wire.updated_at, "ledger transaction table record.updated_at"),
+  };
+}
+
+function mapAccountTableRecord(value: unknown): LedgerAccountTableRecord {
+  const wire = record(value, "ledger account table record");
+  return {
+    id: id(wire.id, "ledger account table record.id"),
+    account: mapAccount(wire.account),
+    name: nonEmptyString(wire.name, "ledger account table record.name"),
+    accountTypeId: id(wire.account_type_id, "ledger account table record.account_type_id"),
+    accountTypeLabel: nonEmptyString(
+      wire.account_type_label,
+      "ledger account table record.account_type_label",
+    ),
+    currencyId: id(wire.currency_id, "ledger account table record.currency_id"),
+    currencyCode: nonEmptyString(wire.currency_code, "ledger account table record.currency_code"),
+    decimalPlaces: rangeInteger(
+      wire.decimal_places,
+      "ledger account table record.decimal_places",
+      0,
+      18,
+    ),
+    currentBalanceMinor: safeInteger(
+      wire.current_balance_minor,
+      "ledger account table record.current_balance_minor",
+    ),
+  };
+}
+
+function mapCategoryTableRecord(value: unknown): LedgerCategoryTableRecord {
+  const wire = record(value, "ledger category table record");
+  return {
+    id: id(wire.id, "ledger category table record.id"),
+    category: mapTransactionCategory(wire.category),
+    name: nonEmptyString(wire.name, "ledger category table record.name"),
+    kind: categoryKind(wire.kind),
+    kindLabel: categoryKindLabel(wire.kind_label),
+    parentId: nullableString(wire.parent_id, "ledger category table record.parent_id"),
+    parentLabel: nonEmptyString(wire.parent_label, "ledger category table record.parent_label"),
   };
 }
 
@@ -491,6 +663,14 @@ function categoryKind(value: unknown): TransactionCategoryKind {
   const result = string(value, "transaction category.kind");
   if (result !== "expense" && result !== "income") {
     throw new TypeError("invalid transaction category.kind");
+  }
+  return result;
+}
+
+function categoryKindLabel(value: unknown): "Expense" | "Income" {
+  const result = string(value, "ledger category table record.kind_label");
+  if (result !== "Expense" && result !== "Income") {
+    throw new TypeError("invalid ledger category table record.kind_label");
   }
   return result;
 }

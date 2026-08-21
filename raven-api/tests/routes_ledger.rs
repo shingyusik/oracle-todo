@@ -163,6 +163,9 @@ async fn table_query_serves_all_ledger_scopes_without_changing_legacy_lists() {
         if let Some(first) = value["items"].as_array().unwrap().first() {
             assert!(first["key"].is_string());
             assert!(first["record"][record_field].is_string());
+            if scope == "ledger.transactions" {
+                assert_eq!(first["record"]["decimal_places"], 0);
+            }
         }
     }
 

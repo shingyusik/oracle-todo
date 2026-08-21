@@ -614,6 +614,7 @@ pub struct TransactionTableRecord {
     pub amount_minor: i64,
     pub currency_id: String,
     pub currency_code: String,
+    pub decimal_places: u8,
     pub updated_at: String,
 }
 
