@@ -46,6 +46,17 @@ async function collectSourceFiles(relativeDir: string): Promise<string[]> {
 }
 
 describe("design system boundaries", () => {
+  it("keeps Health dialog fieldsets borderless and textareas fixed", async () => {
+    const css = await readSource("src/styles/globals.css");
+
+    expect(css).toContain(
+      ".confirmation-dialog form > fieldset {\n  min-width: 0;\n  margin: 0;\n  border: 0;\n  padding: 0;\n}",
+    );
+    expect(css).toContain(
+      ".confirmation-dialog .field-label textarea {\n  resize: none;\n}",
+    );
+  });
+
   it("exposes non-empty tokens, copy, and layout constants", () => {
     expect(designTokens.colors.aloe).toBe("#c1fbd4");
     expect(designTokens.colors.aloeStrong).toBe("#3fae6a");

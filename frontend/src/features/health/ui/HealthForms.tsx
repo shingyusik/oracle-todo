@@ -562,6 +562,9 @@ export function MetricsForm({
             : {}),
         });
       }
+      if (conditionScore === "" && conditionNote.trim()) {
+        throw new Error("Select Condition to save Note");
+      }
       if (conditionScore !== "") {
         const score = integerInRange(
           conditionScore,
@@ -690,7 +693,6 @@ export function MetricsForm({
             onChange={(event) => {
               pristineRef.current = false;
               setConditionScore(event.target.value);
-              if (!event.target.value) setConditionNote("");
             }}
           >
             <option value="">None</option>
@@ -707,7 +709,6 @@ export function MetricsForm({
               pristineRef.current = false;
               setConditionNote(event.target.value);
             }}
-            disabled={!conditionScore}
           />
       </label>
       <FormResult action={action} />

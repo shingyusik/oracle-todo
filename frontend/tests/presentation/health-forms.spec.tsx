@@ -1732,13 +1732,16 @@ describe("Health Journal forms", () => {
     expect(screen.getByLabelText(label)).toHaveValue(0);
   });
 
-  it("requires a measurement and gates Note behind Condition", async () => {
+  it("allows a Health Metrics note draft but requires Condition before saving it", async () => {
     const health = controller();
     render(<MetricsDialogHarness health={health} />);
-    expect(screen.getByLabelText("Note")).toBeDisabled();
+    const note = screen.getByLabelText("Note");
+    expect(note).toBeEnabled();
+    fireEvent.change(note, { target: { value: "Keep this" } });
     fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Enter at least one daily metric");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Select Condition to save Note");
     expect(health.saveMetrics).not.toHaveBeenCalled();
+    expect(note).toHaveValue("Keep this");
   });
 
   it.each([

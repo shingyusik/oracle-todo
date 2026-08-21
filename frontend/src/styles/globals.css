@@ -2166,6 +2166,17 @@ button {
   padding: 20px;
 }
 
+.confirmation-dialog form > fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.confirmation-dialog .field-label textarea {
+  resize: none;
+}
+
 .transaction-type-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
