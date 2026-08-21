@@ -3563,6 +3563,73 @@ describe("LedgerPanel", () => {
     expect(screen.queryByText(/storage|database|raw/i)).toBeNull();
   });
 
+  it.each(["Filter", "Sort"] as const)(
+    "keeps the %s menu open when stale Group preparation completes",
+    async (menu) => {
+      const prepare = deferred<boolean>();
+      const ledger = controller();
+      ledger.ensureReferenceData = vi.fn(() => prepare.promise);
+      render(
+        <LedgerTableViewHeader
+          controller={ledger}
+          scope="ledger.transactions"
+          title="Transactions"
+          headingId="transactions-heading"
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+      fireEvent.click(screen.getByRole("button", { name: `${menu} Transactions` }));
+      expect(screen.getByRole("dialog", { name: `${menu} Transactions` }))
+        .toBeInTheDocument();
+
+      await act(async () => prepare.resolve(true));
+
+      expect(screen.getByRole("dialog", { name: `${menu} Transactions` }))
+        .toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Group Transactions" })).toBeNull();
+    },
+  );
+
+  it("recovers an initial scope after another scope clears its global error", async () => {
+    const user = userEvent.setup();
+    let transactionCalls = 0;
+    vi.spyOn(ledgerApi, "queryTable").mockImplementation(async (scope, _settings, offset) => {
+      if (scope === "ledger.transactions" && transactionCalls++ === 0) {
+        throw new Error("raw transaction storage failure");
+      }
+      return scope === "ledger.transactions"
+        ? { items: [transactionOccurrence("recovered", "entry-1", "Recovered")], nextOffset: null }
+        : { items: [], nextOffset: null };
+    });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({
+      accounts: [], categories: [], currencies: [],
+    });
+
+    function RecoveryHarness() {
+      const ledger = useLedgerController();
+      return (
+        <>
+          <button type="button" onClick={() => void ledger.ensureTable?.("ledger.accounts")}>
+            Load accounts scope
+          </button>
+          <LedgerPanel controller={ledger} />
+        </>
+      );
+    }
+    render(<RecoveryHarness />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("raw transaction storage failure");
+    await user.click(screen.getByRole("button", { name: "Load accounts scope" }));
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText("No transactions yet.")).toBeNull();
+    expect(screen.queryByText("raw transaction storage failure")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Recovered")).toBeInTheDocument();
+    expect(ledgerApi.queryTable).toHaveBeenCalledWith(
+      "ledger.transactions", expect.anything(), 0,
+    );
+  });
+
   it("reports an initial table failure and recovers on retry", async () => {
     vi.spyOn(ledgerApi, "queryTable")
       .mockRejectedValueOnce(new Error("Initial Ledger load failed"))

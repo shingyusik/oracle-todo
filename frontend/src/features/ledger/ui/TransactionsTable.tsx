@@ -70,7 +70,7 @@ export function TransactionsTable({
             <th scope="col">Amount</th>
           </tr>
         </thead>
-        <TransactionTableBody
+        {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : <TransactionTableBody
           controller={controller}
           groups={groups}
           rows={rows}
@@ -80,7 +80,7 @@ export function TransactionsTable({
             : "No transactions match this view.")}
           onOpen={onOpen}
           onToggle={onToggle}
-        />
+        />}
         <InfiniteTableFooter
           nextOffset={page.nextOffset}
           status={page.moreStatus}

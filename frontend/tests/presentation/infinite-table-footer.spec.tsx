@@ -128,7 +128,7 @@ describe("InfiniteTableFooter", () => {
         <tbody><tr><td>Existing row</td></tr></tbody>
         <InfiniteTableFooter
           nextOffset={50}
-          status="idle"
+          status="error"
           error="Could not load more rows."
           loadMore={loadMore}
           columnCount={1}

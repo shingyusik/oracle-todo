@@ -69,7 +69,7 @@ type RefreshOutcome = { ok: true } | { ok: false; error: string };
 export type LedgerTablePageState = {
   items: LedgerTableOccurrence[];
   nextOffset: number | null;
-  moreStatus: "idle" | "loading";
+  moreStatus: "idle" | "loading" | "error";
   moreError: string | null;
   generation: number;
 };
@@ -255,7 +255,8 @@ export function useLedgerController(): LedgerController {
   const loadInitialTable = useCallback(async (scope: LedgerTableScopeId) => {
     const wasInitialized = initializedTables.current.has(scope);
     initializedTables.current.add(scope);
-    const generation = tablePagesRef.current[scope].generation + 1;
+    const previousPage = tablePagesRef.current[scope];
+    const generation = previousPage.generation + 1;
     const page = { ...emptyTablePage(), moreStatus: "loading" as const, generation };
     tablePagesRef.current = { ...tablePagesRef.current, [scope]: page };
     setTablePages(tablePagesRef.current);
@@ -283,6 +284,16 @@ export function useLedgerController(): LedgerController {
     } catch (error) {
       if (tablePagesRef.current[scope].generation !== generation) return true;
       const message = errorMessage(error);
+      const failed = previousPage.items.length > 0
+        ? { ...previousPage, moreStatus: "idle" as const, moreError: null, generation }
+        : {
+            ...page,
+            nextOffset: 0,
+            moreStatus: "error" as const,
+            moreError: "Could not load rows.",
+          };
+      tablePagesRef.current = { ...tablePagesRef.current, [scope]: failed };
+      setTablePages(tablePagesRef.current);
       setState((current) => wasInitialized
         ? { ...current, error: message }
         : { ...current, status: "error", error: message });
@@ -313,7 +324,7 @@ export function useLedgerController(): LedgerController {
       if (tablePagesRef.current[scope].generation !== generation) return;
       const next = {
         ...tablePagesRef.current[scope],
-        items: dedupeOccurrences([...current.items, ...result.items]),
+        items: dedupeOccurrences(offset === 0 ? result.items : [...current.items, ...result.items]),
         nextOffset: result.nextOffset,
         moreStatus: "idle" as const,
         moreError: null,

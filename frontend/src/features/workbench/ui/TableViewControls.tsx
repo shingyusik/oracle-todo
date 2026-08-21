@@ -113,6 +113,8 @@ export function TableViewControls({
   const sortPanelRef = useRef<HTMLDivElement>(null);
   const groupPanelRef = useRef<HTMLDivElement>(null);
   const preparingGroupRef = useRef(false);
+  const menuIntentRef = useRef(0);
+  const mountedRef = useRef(true);
   const [preparingGroup, setPreparingGroup] = React.useState(false);
   const safeScopeId = adapter.scopeId.replaceAll(".", "-");
   const dropdownIds: Record<TableViewDropdownKind, string> = {
@@ -137,6 +139,14 @@ export function TableViewControls({
     group: groupPanelRef,
   };
   const showSort = !adapter.isDefaultSort(adapter.settings.sortRules);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      menuIntentRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (!openDropdown) return;
@@ -180,17 +190,19 @@ export function TableViewControls({
   }, [openDropdown]);
 
   async function toggleDropdown(kind: TableViewDropdownKind) {
+    if (kind === "group" && preparingGroupRef.current) return;
+    const intent = ++menuIntentRef.current;
     if (kind === "group" && openDropdown !== "group" && adapter.prepareGroup) {
-      if (preparingGroupRef.current) return;
       preparingGroupRef.current = true;
       setPreparingGroup(true);
       try {
         if (!await adapter.prepareGroup()) return;
       } finally {
         preparingGroupRef.current = false;
-        setPreparingGroup(false);
+        if (mountedRef.current) setPreparingGroup(false);
       }
     }
+    if (!mountedRef.current || menuIntentRef.current !== intent) return;
     setOpenDropdown((current) => (current === kind ? null : kind));
   }
 

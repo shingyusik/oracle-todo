@@ -10,7 +10,7 @@ export function InfiniteTableFooter({
   columnCount,
 }: {
   nextOffset: number | null;
-  status: "idle" | "loading";
+  status: "idle" | "loading" | "error";
   error?: string | null;
   loadMore(): void;
   columnCount: number;
@@ -28,12 +28,14 @@ export function InfiniteTableFooter({
   };
 
   useEffect(() => {
-    if (status === "idle") latchedRef.current = false;
+    if (status !== "loading") latchedRef.current = false;
   }, [nextOffset, status, error]);
 
   useEffect(() => {
     const footer = footerRef.current;
-    if (!footer || status === "loading" || error || typeof IntersectionObserver === "undefined") {
+    if (
+      !footer || status !== "idle" || error || typeof IntersectionObserver === "undefined"
+    ) {
       return;
     }
 
@@ -65,7 +67,9 @@ export function InfiniteTableFooter({
           ) : (
             <>
               {error ? <span role="alert">{error}</span> : null}
-              <button type="button" onClick={trigger}>{error ? "Retry" : "Load more"}</button>
+              <button type="button" onClick={trigger}>
+                {status === "error" || error ? "Retry" : "Load more"}
+              </button>
             </>
           )}
         </td>

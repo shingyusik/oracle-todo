@@ -65,7 +65,7 @@ export function AccountsTable({
             <th scope="col">Current balance</th>
           </tr>
         </thead>
-        <AccountTableBody
+        {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : <AccountTableBody
           groups={groups}
           rows={rows}
           selectedIds={selectedIds}
@@ -74,7 +74,7 @@ export function AccountsTable({
             : "No accounts match this view.")}
           onOpen={onOpen}
           onToggle={onToggle}
-        />
+        />}
         <InfiniteTableFooter
           nextOffset={page.nextOffset}
           status={page.moreStatus}

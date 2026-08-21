@@ -64,7 +64,7 @@ export function CategoriesTable({
             <th scope="col">Parent category</th>
           </tr>
         </thead>
-        <CategoryTableBody
+        {page.moreStatus === "error" && rows.length === 0 ? <tbody /> : <CategoryTableBody
           groups={groups}
           rows={rows}
           selectedIds={selectedIds}
@@ -73,7 +73,7 @@ export function CategoriesTable({
             : "No categories match this view.")}
           onOpen={onOpen}
           onToggle={onToggle}
-        />
+        />}
         <InfiniteTableFooter
           nextOffset={page.nextOffset}
           status={page.moreStatus}
