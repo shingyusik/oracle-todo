@@ -218,6 +218,9 @@ function resolveAccountDetail(
   const currency = controller.state.currencies.find(
     ({ id, active }) => id === account.currencyId && active,
   );
+  const balance = controller.state.balances.find(
+    ({ account: candidate }) => candidate.id === account.id,
+  );
   return {
     ...fallback,
     id: account.id,
@@ -226,8 +229,9 @@ function resolveAccountDetail(
     accountTypeId: account.categoryId,
     accountTypeLabel: accountType?.name ?? fallback.accountTypeLabel,
     currencyId: account.currencyId,
-    currencyCode: currency?.code ?? fallback.currencyCode,
-    decimalPlaces: currency?.decimalPlaces ?? fallback.decimalPlaces,
+    currencyCode: balance?.currencyCode ?? currency?.code ?? fallback.currencyCode,
+    decimalPlaces: balance?.decimalPlaces ?? currency?.decimalPlaces ?? fallback.decimalPlaces,
+    currentBalanceMinor: balance?.currentBalanceMinor ?? fallback.currentBalanceMinor,
   };
 }
 

@@ -356,13 +356,14 @@ export function useLedgerController(): LedgerController {
             ...current, error: null, entries, currencies, accounts, categories,
           }));
         } else if (scope === "ledger.accounts") {
-          const [currencies, accountCategories, accounts] = await Promise.all([
+          const [currencies, accountCategories, accounts, balances] = await Promise.all([
             drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
             drainPages((offset) => ledgerApi.listAccountCategories({ limit: 200, offset })),
             drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
+            drainPages((offset) => ledgerApi.listAccountBalances({ limit: 200, offset })),
           ]);
           setState((current) => ({
-            ...current, error: null, currencies, accountCategories, accounts,
+            ...current, error: null, currencies, accountCategories, accounts, balances,
           }));
         } else {
           const categories = await drainPages((offset) =>

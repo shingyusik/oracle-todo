@@ -3370,7 +3370,20 @@ describe("LedgerPanel", () => {
 
   it("keeps a page-two account detail mounted after save reloads offset zero", async () => {
     const user = userEvent.setup();
-    const updatedAccount = { ...loadedState.accounts[0]!, name: "Wallet" };
+    const updatedAccount = {
+      ...loadedState.accounts[0]!, name: "Wallet", openingBalanceMinor: 2500,
+    };
+    const initialBalance = {
+      account: loadedState.accounts[0]!,
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: 0,
+    };
+    const updatedBalance = {
+      ...initialBalance,
+      account: updatedAccount,
+      currentBalanceMinor: 2500,
+    };
     vi.spyOn(ledgerApi, "queryTable")
       .mockResolvedValue({ items: [accountOccurrence()], nextOffset: null });
     vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({
@@ -3383,20 +3396,35 @@ describe("LedgerPanel", () => {
     vi.spyOn(ledgerApi, "listAccounts")
       .mockResolvedValueOnce({ items: loadedState.accounts, nextOffset: null })
       .mockResolvedValue({ items: [updatedAccount], nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccountBalances")
+      .mockResolvedValueOnce({ items: [initialBalance], nextOffset: 200 })
+      .mockResolvedValueOnce({ items: [], nextOffset: null })
+      .mockResolvedValue({ items: [updatedBalance], nextOffset: null });
     vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue(updatedAccount);
 
     function ProductionAccounts() {
       return <LedgerPanel controller={useLedgerController()} leafTabId="accounts" />;
     }
     render(<ProductionAccounts />);
-    await user.click(await screen.findByRole("button", { name: /Open details for Cash/ }));
+    const accountRow = await screen.findByRole("button", { name: /Open details for Cash/ });
+    fireEvent.click(accountRow);
+    fireEvent.click(accountRow);
+    expect(await screen.findByRole("region", { name: "Cash details" })).toBeInTheDocument();
+    expect(ledgerApi.listAccounts).toHaveBeenCalledOnce();
+    expect(ledgerApi.listAccountBalances).toHaveBeenNthCalledWith(2, {
+      limit: 200, offset: 200,
+    });
     vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
     await user.clear(screen.getByLabelText("Account name"));
     await user.type(screen.getByLabelText("Account name"), "Wallet");
+    await user.clear(screen.getByLabelText("Opening balance"));
+    await user.type(screen.getByLabelText("Opening balance"), "2500");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("region", { name: "Wallet details" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Current balance")).toHaveTextContent("2500 KRW");
+    expect(ledgerApi.listAccountBalances).toHaveBeenCalledTimes(3);
   });
 
   it("keeps a page-two transaction detail mounted after save reloads offset zero", async () => {
