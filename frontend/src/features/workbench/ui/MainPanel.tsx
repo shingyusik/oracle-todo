@@ -52,6 +52,7 @@ import {
   clonePlannerTableSettings,
   type DailyPlannerSection,
   effectivePlannerFilterRules,
+  filterPlannerItemsByRules,
   type MonthlyPlannerWeekModel,
   type PeriodGoalBucketModel,
   type PeriodGoalCardModel,
@@ -810,6 +811,14 @@ function LinkedItemTable({
   const lookups = controller.todoTableLookups(queryScope);
   const relatedItems = lookups?.relatedItems ?? controller.workspaceItems.relatedItems;
   const pageItems = page.items.map(({ record }) => record);
+  const candidateItems = items.length > 0 ? items : pageItems;
+  const filteredCandidateItems = filterPlannerItemsByRules(
+    candidateItems,
+    controller.workspaceItems.relatedItems,
+    effectivePlannerFilterRules(settings.filterRules, workspaceFilterFieldsForScope(scope)),
+    settings.filterMode,
+    page.referenceDate,
+  );
   const filterOptions: PlannerFilterOptions = {
     ...plannerFilterOptionsForLookups(lookups, pageItems, relatedItems),
     storedRelationLabels: {
@@ -830,7 +839,7 @@ function LinkedItemTable({
     candidates: buildPlannerGroupCandidates({
       view: "daily",
       groupBy: settings.groupSettings.groupBy,
-      items: items.length > 0 ? items : pageItems,
+      items: filteredCandidateItems,
       relatedItems: controller.workspaceItems.relatedItems,
     }),
     filterOptions,
@@ -1021,6 +1030,7 @@ function YearlyPeriodPlanner({
           title="Year Goals"
           heading="Year Goals"
           rawItems={periodGoalItems}
+          referenceDate={periodPage.page.referenceDate}
           creationContext={{
             tableId: "yearly.period-goals",
             itemTypes: ["goal"],
@@ -1048,6 +1058,7 @@ function YearlyPeriodPlanner({
           title="Month Goals"
           heading="Month Goals"
           rawItems={monthGoalItems}
+          referenceDate={monthPage.page.referenceDate}
           creationContext={{
             tableId: "yearly.month-goals",
             itemTypes: ["goal"],
@@ -1102,6 +1113,7 @@ function MonthlyPeriodPlanner({
           title="Month Goals"
           heading="Month Goals"
           rawItems={periodGoalItems}
+          referenceDate={periodPage.page.referenceDate}
           creationContext={{
             tableId: "monthly.period-goals",
             itemTypes: ["goal"],
@@ -1131,6 +1143,7 @@ function MonthlyPeriodPlanner({
               title="Calendar"
               heading="Calendar"
               rawItems={calendarItems}
+              referenceDate={calendarPage.page.referenceDate}
               groupUniverseItems={calendarItems}
               creationContext={{
                 tableId: "monthly.calendar",
@@ -1147,6 +1160,7 @@ function MonthlyPeriodPlanner({
               title="Week Goals"
               heading="Week Goals"
               rawItems={weekGoalItems}
+              referenceDate={weekPage.page.referenceDate}
               groupUniverseItems={weekGoalItems}
               creationContext={{
                 tableId: "monthly.week-goals",
@@ -1533,6 +1547,7 @@ function WeeklyPlanner({
             title="Month Goals"
             heading="Goals for this month"
             rawItems={monthPage.items}
+            referenceDate={monthPage.page.referenceDate}
             creationContext={{
               tableId: "weekly.month-goals",
               itemTypes: ["goal"],
@@ -1552,6 +1567,7 @@ function WeeklyPlanner({
             title="Week Goals"
             heading="Goals for this week"
             rawItems={weekPage.items}
+            referenceDate={weekPage.page.referenceDate}
             creationContext={{
               tableId: "weekly.week-goals",
               itemTypes: ["goal"],
@@ -1572,6 +1588,7 @@ function WeeklyPlanner({
           title="Weekday grid"
           heading="Weekday grid"
           rawItems={dayGridItems}
+          referenceDate={dayPage.page.referenceDate}
           groupUniverseItems={dayGridItems}
           creationContext={{
             tableId: "weekly.day-grid",
@@ -1694,6 +1711,7 @@ function PlannerTableHeader({
   heading,
   rawItems,
   groupUniverseItems = rawItems,
+  referenceDate,
   creationContext,
 }: {
   controller: WorkbenchController;
@@ -1702,6 +1720,7 @@ function PlannerTableHeader({
   heading: string;
   rawItems: WorkspaceItemModel[];
   groupUniverseItems?: WorkspaceItemModel[];
+  referenceDate: string;
   creationContext: PlannerCreationSourceContext;
 }) {
   const settings = controller.plannerTableSettings(tableId);
@@ -1724,15 +1743,22 @@ function PlannerTableHeader({
     controller.workspaceItems.allItems,
     controller.planner.date,
   );
-  const candidates = plannerTableGroupCandidates(
-    tableId,
-    settings.groupSettings,
-    referenceItems.length > 0 ? referenceItems : groupUniverseItems,
-    controller.workspaceItems.relatedItems,
-  );
   const effectiveFilterRules = effectivePlannerFilterRules(
     settings.filterRules,
     filterFields,
+  );
+  const candidateItems = referenceItems.length > 0 ? referenceItems : groupUniverseItems;
+  const candidates = plannerTableGroupCandidates(
+    tableId,
+    settings.groupSettings,
+    filterPlannerItemsByRules(
+      candidateItems,
+      controller.workspaceItems.relatedItems,
+      effectiveFilterRules,
+      settings.filterMode,
+      referenceDate,
+    ),
+    controller.workspaceItems.relatedItems,
   );
   const controlsAdapter: TableViewControlsAdapter = {
     scopeId: tableId,
@@ -2288,6 +2314,7 @@ function DailyPlannerSectionView({
         title={controlTitle}
         heading={title}
         rawItems={items}
+        referenceDate={page.referenceDate}
         creationContext={creationContext}
       />
       {renderPlannerGroups(
@@ -4563,6 +4590,16 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
   const columns = columnsForPanel(panel.id);
   const lookups = controller.todoTableLookups(scope);
   const relatedItems = lookups?.relatedItems ?? workspaceItems.relatedItems;
+  const candidateItems = workspaceItems.allItems.some((item) => item.type === scope.split(".")[1])
+    ? workspaceItems.allItems.filter((item) => item.type === scope.split(".")[1])
+    : page.items.map(({ record }) => record);
+  const filteredCandidateItems = filterPlannerItemsByRules(
+    candidateItems,
+    workspaceItems.relatedItems,
+    effectivePlannerFilterRules(settings.filterRules, workspaceFilterFieldsForScope(scope)),
+    settings.filterMode,
+    page.referenceDate,
+  );
   const tableWorkspaceItems = lookups ? {
     ...workspaceItems,
     tagOptions: lookups.tags,
@@ -4588,9 +4625,7 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
     candidates: buildPlannerGroupCandidates({
       view: "daily",
       groupBy: settings.groupSettings.groupBy,
-      items: workspaceItems.allItems.some((item) => item.type === scope.split(".")[1])
-        ? workspaceItems.allItems.filter((item) => item.type === scope.split(".")[1])
-        : page.items.map(({ record }) => record),
+      items: filteredCandidateItems,
       relatedItems: workspaceItems.relatedItems,
     }),
     filterOptions,

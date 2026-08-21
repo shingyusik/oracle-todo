@@ -12496,7 +12496,7 @@ describe("WorkbenchPageClient", () => {
     }
   });
 
-  it("uses the deliberate rich reference set for Workspace, Planner, and linked group counts", async () => {
+  it("filters the deliberate rich reference set before Workspace, Planner, and linked group counts", async () => {
     const user = userEvent.setup();
     const area = { id: "area-rich", type: "area", title: "Rich area", status: "active" } as WorkspaceItemModel;
     const tasks = Array.from({ length: 51 }, (_, index) => ({
@@ -12509,11 +12509,13 @@ describe("WorkbenchPageClient", () => {
     } as WorkspaceItemModel));
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string };
-        const record = body.scope === "workspace.area" ? area : tasks[0]!;
+        const body = JSON.parse(String(init?.body)) as { scope: string; filters: unknown[] };
+        const record = body.scope === "workspace.area"
+          ? area
+          : body.filters.length > 0 ? tasks[50]! : tasks[0]!;
         return fixtureJson({
           items: [{ key: `${body.scope}-first`, group_key: null, group_label: null, record: fixtureWireRecord(record) }],
-          next_offset: body.scope === "workspace.area" ? null : 50,
+          next_offset: body.scope === "workspace.area" || body.filters.length > 0 ? null : 50,
         });
       }
       if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
@@ -12521,14 +12523,25 @@ describe("WorkbenchPageClient", () => {
       return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
     }));
 
+    const applyTitleFilter = async (filterButton: HTMLElement, dialogName: string) => {
+      await user.click(filterButton);
+      const dialog = await screen.findByRole("dialog", { name: dialogName });
+      await user.click(within(dialog).getByRole("button", { name: "Add filter rule" }));
+      await user.click(within(dialog).getByRole("option", { name: "Title" }));
+      await user.type(within(dialog).getByLabelText("Filter value"), "Rich task 50");
+    };
     const expectActiveCount = async (groupButton: HTMLElement, dialogName: string) => {
       await user.click(groupButton);
       const dialog = await screen.findByRole("dialog", { name: dialogName });
       await user.click(within(dialog).getByRole("button", { name: "Choose group property" }));
       await user.click(within(dialog).getByRole("option", { name: "Status" }));
-      expect(within(dialog).getByRole("listitem")).toHaveTextContent(/^Active51/);
+      expect(within(dialog).getByRole("listitem")).toHaveTextContent(/^Active1/);
       await user.click(within(dialog).getByRole("button", { name: "Remove grouping" }));
       await user.keyboard("{Escape}");
+    };
+    const discardChangesIfPrompted = async () => {
+      const discard = screen.queryByRole("button", { name: "Discard changes" });
+      if (discard) await user.click(discard);
     };
 
     render(<WorkbenchPageClient />);
@@ -12537,21 +12550,28 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Tasks" }));
     await screen.findByText("Rich task 0");
     expect(within(screen.getByRole("table", { name: "Tasks items" })).queryByRole("rowheader")).toBeNull();
+    await applyTitleFilter(screen.getByRole("button", { name: "Filter Tasks" }), "Filter Tasks");
     await expectActiveCount(screen.getByRole("button", { name: "Group Tasks" }), "Group Tasks");
 
     await user.click(screen.getByRole("button", { name: "Planner" }));
+    await discardChangesIfPrompted();
     await user.click(screen.getByRole("button", { name: "Daily" }));
     expect((await screen.findAllByRole("button", { name: "Rich task 0" })).length).toBeGreaterThan(0);
+    await applyTitleFilter(screen.getByRole("button", { name: "Filter Today" }), "Filter Today");
     await expectActiveCount(screen.getByRole("button", { name: "Group Today" }), "Group Today");
 
     await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await discardChangesIfPrompted();
     if (!screen.queryByRole("button", { name: "Areas" })) {
       await user.click(screen.getByRole("button", { name: "Workspace" }));
+      await discardChangesIfPrompted();
     }
     await user.click(screen.getByRole("button", { name: "Areas" }));
+    await discardChangesIfPrompted();
     await user.click(await screen.findByRole("button", { name: "Open details for Rich area" }));
     expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
     expect(within(screen.getByRole("table", { name: "Tasks linked items" })).queryByRole("rowheader")).toBeNull();
+    await applyTitleFilter(screen.getByRole("button", { name: "Filter Tasks" }), "Filter Tasks");
     await expectActiveCount(screen.getByRole("button", { name: "Group Tasks" }), "Group Tasks");
   });
 
