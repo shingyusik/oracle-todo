@@ -857,6 +857,12 @@ describe("Health Metrics table", () => {
   });
 
   it("renders the saved-view header and fixed daily columns with units", () => {
+    const expectIconButton = (name: string, iconClass: string) => {
+      const button = screen.getByRole("button", { name });
+      expect(button).toHaveAttribute("title", name);
+      expect(button).toContainElement(button.querySelector(`.${iconClass}`));
+      expect(button).not.toHaveTextContent(name);
+    };
     render(<HealthMetricsPanel controller={panelController()} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
@@ -869,7 +875,8 @@ describe("Health Metrics table", () => {
     expect(screen.getByText("0.4 mg/L")).toBeInTheDocument();
     expect(screen.getByText("120 µg/g")).toBeInTheDocument();
     expect(screen.getByText("Steady")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add health metrics entry" })).toBeInTheDocument();
+    expectIconButton("Add health metrics entry", "lucide-plus");
+    expectIconButton("Archive selected health metrics entries", "lucide-trash-2");
     expect(screen.getByRole("button", { name: "Archive selected health metrics entries" }))
       .toBeDisabled();
   });
