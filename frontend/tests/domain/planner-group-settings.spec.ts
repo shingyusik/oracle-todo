@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPlannerGroupCandidates,
+  compareUnicodeText,
   defaultPlannerGroupSettings,
   moveManualGroup,
   normalizePlannerGroupSettings,
@@ -34,6 +35,11 @@ function candidate(key: string, label: string, count = 1): PlannerGroupCandidate
 }
 
 describe("planner group settings", () => {
+  it("orders Unicode by lowercase code points with an original-text tie", () => {
+    expect(["😀", "한", "ı", "á", "İ", "I", "a", "A"].sort(compareUnicodeText)).toEqual([
+      "A", "a", "I", "İ", "á", "ı", "한", "😀",
+    ]);
+  });
   it("uses independent versioned storage keys", () => {
     expect(plannerGroupStorageKey("yearly")).toBe(
       "raven.planner-group-settings.v1.yearly",

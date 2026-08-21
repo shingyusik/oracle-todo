@@ -1,5 +1,6 @@
 import {
   defaultPlannerGroupSettings,
+  compareUnicodeText,
   normalizePlannerGroupSettings,
   orderVisiblePlannerGroups,
   type PlannerGroupCandidate,
@@ -254,7 +255,7 @@ const plannerGoalSortFields = [
 
 const plannerGoalGroupByValues: readonly PlannerGroupBy[] = ["none", "tag", "status"];
 const plannerDateWorkGroupByValues: readonly PlannerGroupBy[] = [
-  "none", "area", "project", "routine", "tag", "item_type", "status",
+  "none", "month", "week", "day", "area", "project", "routine", "tag", "item_type", "status",
 ];
 const maxRelativeDateAmount = 100_000;
 
@@ -1096,7 +1097,7 @@ function comparePlannerItems(
   }
   return compareText(left.scheduled, right.scheduled)
     || compareText(right.updated_at, left.updated_at)
-    || left.title.localeCompare(right.title);
+    || compareUnicodeText(left.title, right.title);
 }
 
 function comparePlannerSortRule(
@@ -1145,7 +1146,7 @@ function compareText(
   left: string | null | undefined,
   right: string | null | undefined,
 ): number {
-  return (left ?? "").localeCompare(right ?? "");
+  return compareUnicodeText(left ?? "", right ?? "");
 }
 
 export function sortPlannerItems(
@@ -1214,6 +1215,10 @@ function groupKeys(item: WorkspaceItemModel, groupBy: PlannerGroupBy): string[] 
   if (groupBy === "routine") return [item.routine_id ?? "none"];
   if (groupBy === "item_type") return [item.type];
   if (groupBy === "status") return [item.status];
+  const scheduled = datePart(item.scheduled);
+  if (groupBy === "month") return [scheduled?.slice(0, 7) ?? "none"];
+  if (groupBy === "week") return [scheduled ? isoWeekStart(scheduled) : "none"];
+  if (groupBy === "day") return [scheduled ?? "none"];
   return ["all"];
 }
 
@@ -1222,11 +1227,16 @@ function groupLabel(
   groupBy: PlannerGroupBy,
   relatedItems: WorkspaceItemsModel["relatedItems"],
 ): string {
-  if (key === "none") return "No value";
+  if (key === "none") return ["month", "week", "day"].includes(groupBy) ? "No date" : "No value";
   if (key === "untagged") return "Untagged";
   if (groupBy === "area") return relatedItems.areas[key] ?? key;
   if (groupBy === "project") return relatedItems.projects[key] ?? key;
   if (groupBy === "routine") return relatedItems.routines[key] ?? key;
+  if (groupBy === "month") {
+    const month = Number(key.slice(5, 7));
+    return `${monthLabels[month - 1] ?? key} ${key.slice(0, 4)}`;
+  }
+  if (groupBy === "week") return `Week of ${key}`;
   return key;
 }
 

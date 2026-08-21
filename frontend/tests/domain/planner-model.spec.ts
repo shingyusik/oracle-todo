@@ -264,7 +264,7 @@ describe("planner model", () => {
   });
 
   it.each(["month", "week", "day"] as const)(
-    "rejects Ledger-only %s grouping from persisted and legacy ToDo settings",
+    "accepts %s grouping for dated work tables but not goal tables",
     (groupBy) => {
       const legacy = legacyPlannerControls();
       legacy.groupSettings = {
@@ -275,11 +275,12 @@ describe("planner model", () => {
       };
 
       for (const tableId of plannerTableIds) {
+        const expected = tableId.endsWith("goals") ? "none" : groupBy;
         expect(normalizePlannerTableSettings(tableId, {
           groupSettings: { groupBy },
-        }, legacy).groupSettings.groupBy).toBe("none");
+        }, legacy).groupSettings.groupBy).toBe(expected);
         expect(normalizePlannerTableSettings(tableId, undefined, legacy).groupSettings.groupBy)
-          .toBe("none");
+          .toBe(expected);
       }
     },
   );

@@ -3,6 +3,7 @@ use crate::application::error::{TodoError, TodoResult};
 use rusqlite::Connection;
 
 pub fn init_schema(conn: &Connection) -> TodoResult<()> {
+    super::register_sort_key(conn)?;
     match init_schema_inner(conn) {
         Ok(()) => Ok(()),
         Err(error) => {

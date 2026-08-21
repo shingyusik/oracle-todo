@@ -1,6 +1,6 @@
 use time::{Date, Month, OffsetDateTime};
 use todo_engine::application::error::TodoError;
-use todo_engine::application::service::{ProposeTask, TodoService};
+use todo_engine::application::service::{ProposeProject, ProposeTask, TodoService};
 use todo_engine::application::table::{
     FilterMode, GroupSort, MAX_CANONICAL_GROUP_KEY_BYTES, MAX_TABLE_TEXT_BYTES, PlannerFilterField,
     PlannerSortField, PlannerTableGroup, PlannerTableScope, RelativeDateUnit, SortDirection,
@@ -103,6 +103,123 @@ fn table_pages_match_between_memory_and_sqlite() {
     assert_eq!(
         memory_page.items[0].record().title,
         sqlite_page.items[0].record().title
+    );
+}
+
+#[test]
+fn linked_project_tasks_match_runtime_context_and_parent_type() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    let project_request = || ProposeProject {
+        title: "Parent".into(),
+        definition_of_done: Some("Done".into()),
+        actor: Actor::User,
+        ..Default::default()
+    };
+    let memory_parent = memory.propose_project(project_request()).unwrap();
+    let sqlite_parent = sqlite.propose_project(project_request()).unwrap();
+    memory
+        .propose_task(
+            "Linked",
+            ProposeTask {
+                project_id: Some(memory_parent.id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    sqlite
+        .propose_task(
+            "Linked",
+            ProposeTask {
+                project_id: Some(sqlite_parent.id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    memory.propose_task("Other", Default::default()).unwrap();
+    sqlite.propose_task("Other", Default::default()).unwrap();
+
+    let query = |parent_id| {
+        TodoTableQuery::new(
+            TodoTableScope::Linked {
+                parent: ItemType::Project,
+                child: ItemType::Task,
+            },
+            TableContext::Linked {
+                parent_id,
+                parent_type: ItemType::Project,
+            },
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![],
+            groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+            None,
+        )
+        .unwrap()
+    };
+    let memory_page = memory.query_table(&query(memory_parent.id)).unwrap();
+    let sqlite_page = sqlite.query_table(&query(sqlite_parent.id)).unwrap();
+    assert_eq!(memory_page.items.len(), 1);
+    assert_eq!(memory_page.items[0].record().title, "Linked");
+    assert_eq!(
+        memory_page.items[0].record().title,
+        sqlite_page.items[0].record().title
+    );
+}
+
+#[test]
+fn planner_work_lifecycle_matches_visible_frontend_statuses() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    for service in [&mut memory, &mut sqlite] {
+        let request = || ProposeTask {
+            scheduled: Some("2026-08-22".into()),
+            ..Default::default()
+        };
+        service.propose_task("Active", request()).unwrap();
+        let completed = service.propose_task("Completed", request()).unwrap();
+        service.complete(&completed.id, None).unwrap();
+        let dropped = service.propose_task("Dropped", request()).unwrap();
+        service.drop(&dropped.id, None).unwrap();
+    }
+    let query = TodoTableQuery::new(
+        TodoTableScope::Planner(PlannerTableScope::DailyToday),
+        TableContext::Planner {
+            from: date(2026, Month::August, 22),
+            to: date(2026, Month::August, 22),
+        },
+        0,
+        50,
+        FilterMode::And,
+        vec![],
+        vec![],
+        groups(TodoTableGroup::Planner(PlannerTableGroup::Status)),
+        None,
+    )
+    .unwrap();
+    let titles = |page: &TablePage<TodoTableRow>| {
+        page.items
+            .iter()
+            .map(|row| row.record().title.clone())
+            .collect::<Vec<_>>()
+    };
+    let memory_page = memory.query_table(&query).unwrap();
+    let sqlite_page = sqlite.query_table(&query).unwrap();
+    assert_eq!(titles(&memory_page), vec!["Completed", "Active"]);
+    assert_eq!(titles(&memory_page), titles(&sqlite_page));
+    assert_eq!(
+        memory_page
+            .items
+            .iter()
+            .map(|row| row.group_label().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["Completed", "Active"]
     );
 }
 
@@ -299,6 +416,199 @@ fn relative_calendar_dates_and_or_filters_match_between_stores() {
     };
     assert_eq!(titles(&mut memory), vec!["Other", "Month rollover"]);
     assert_eq!(titles(&mut sqlite), titles(&mut memory));
+
+    for (group, key, label) in [
+        (PlannerTableGroup::Month, "2026-03", "March 2026"),
+        (PlannerTableGroup::Week, "2026-03-02", "Week of 2026-03-02"),
+        (PlannerTableGroup::Day, "2026-03-03", "2026-03-03"),
+    ] {
+        let grouped = TodoTableQuery::new(
+            TodoTableScope::Planner(PlannerTableScope::DailyToday),
+            TableContext::Planner {
+                from: date(2026, Month::March, 3),
+                to: date(2026, Month::March, 3),
+            },
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![],
+            groups(TodoTableGroup::Planner(group)),
+            None,
+        )
+        .unwrap();
+        let projection = |service: &mut TodoService| {
+            service
+                .query_table(&grouped)
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|row| {
+                    (
+                        row.group_key().unwrap().to_string(),
+                        row.group_label().unwrap().to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let memory_rows = projection(&mut memory);
+        assert!(
+            memory_rows
+                .iter()
+                .all(|value| value == &(key.into(), label.into()))
+        );
+        assert_eq!(projection(&mut sqlite), memory_rows);
+    }
+
+    let lookup_titles = |service: &mut TodoService| {
+        service
+            .table_lookups(TodoTableScope::Planner(PlannerTableScope::DailyToday))
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry.item_type == ItemType::Task)
+            .map(|entry| entry.title)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(lookup_titles(&mut sqlite), lookup_titles(&mut memory));
+    assert_eq!(lookup_titles(&mut memory), vec!["Month rollover", "Other"]);
+}
+
+#[test]
+fn unicode_and_field_specific_null_sorting_match_between_stores() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    for (title, due) in [
+        ("😀", None),
+        ("한", None),
+        ("ı", None),
+        ("á", None),
+        ("İ", None),
+        ("I", None),
+        ("a", None),
+        ("A", Some("2026-09-01")),
+    ] {
+        for service in [&mut memory, &mut sqlite] {
+            service
+                .propose_task(
+                    title,
+                    ProposeTask {
+                        due: due.map(str::to_string),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+    }
+    let sorted = |field, direction| {
+        TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            0,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![TodoTableSort::Workspace { field, direction }],
+            groups(TodoTableGroup::Workspace(WorkspaceTableGroup::None)),
+            None,
+        )
+        .unwrap()
+    };
+    let titles = |service: &mut TodoService, query: &TodoTableQuery| {
+        service
+            .query_table(query)
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|row| row.record().title.clone())
+            .collect::<Vec<_>>()
+    };
+    let title_query = sorted(WorkspaceSortField::Title, SortDirection::Asc);
+    assert_eq!(
+        titles(&mut memory, &title_query),
+        vec!["A", "a", "I", "İ", "á", "ı", "한", "😀"]
+    );
+    assert_eq!(
+        titles(&mut sqlite, &title_query),
+        titles(&mut memory, &title_query)
+    );
+    let due_asc = sorted(WorkspaceSortField::Due, SortDirection::Asc);
+    let due_desc = sorted(WorkspaceSortField::Due, SortDirection::Desc);
+    assert_eq!(titles(&mut sqlite, &due_asc), titles(&mut memory, &due_asc));
+    assert_eq!(
+        titles(&mut sqlite, &due_desc),
+        titles(&mut memory, &due_desc)
+    );
+    assert_eq!(
+        titles(&mut memory, &due_asc).last().map(String::as_str),
+        Some("A")
+    );
+    assert_eq!(
+        titles(&mut memory, &due_desc).first().map(String::as_str),
+        Some("A")
+    );
+}
+
+#[test]
+fn group_rank_is_contiguous_across_pages_and_honors_partial_manual_order() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    for index in 0..53 {
+        let tag = if index < 51 { "a" } else { "b" };
+        for service in [&mut memory, &mut sqlite] {
+            service
+                .propose_task(
+                    format!("row-{index:02}"),
+                    ProposeTask {
+                        tags: vec![tag.into()],
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+    }
+    let query = |offset, hidden| {
+        TodoTableQuery::new(
+            TodoTableScope::Workspace(WorkspaceTableScope::Task),
+            TableContext::Workspace,
+            offset,
+            50,
+            FilterMode::And,
+            vec![],
+            vec![],
+            TodoTableGroupSettings::new(
+                TodoTableGroup::Workspace(WorkspaceTableGroup::Tag),
+                GroupSort::Manual,
+                false,
+                vec!["a".into()],
+                hidden,
+            )
+            .unwrap(),
+            None,
+        )
+        .unwrap()
+    };
+    let keys = |service: &mut TodoService, query: &TodoTableQuery| {
+        service
+            .query_table(query)
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|row| row.group_key().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let first = query(0, vec![]);
+    let second = query(50, vec![]);
+    assert_eq!(keys(&mut memory, &first), vec!["a"; 50]);
+    assert_eq!(keys(&mut sqlite, &first), keys(&mut memory, &first));
+    assert_eq!(keys(&mut memory, &second), vec!["a", "b", "b"]);
+    assert_eq!(keys(&mut sqlite, &second), keys(&mut memory, &second));
+    let hidden = query(0, vec!["b".into()]);
+    assert!(keys(&mut memory, &hidden).iter().all(|key| key == "a"));
+    assert_eq!(keys(&mut sqlite, &hidden), keys(&mut memory, &hidden));
 }
 
 #[test]
@@ -862,6 +1172,9 @@ fn mirrors_every_planner_goal_and_work_allowlist() {
                 G::Tag,
                 G::ItemType,
                 G::Status,
+                G::Month,
+                G::Week,
+                G::Day,
             ],
         ),
         (
@@ -876,6 +1189,9 @@ fn mirrors_every_planner_goal_and_work_allowlist() {
                 G::Tag,
                 G::ItemType,
                 G::Status,
+                G::Month,
+                G::Week,
+                G::Day,
             ],
         ),
         (
@@ -890,6 +1206,9 @@ fn mirrors_every_planner_goal_and_work_allowlist() {
                 G::Tag,
                 G::ItemType,
                 G::Status,
+                G::Month,
+                G::Week,
+                G::Day,
             ],
         ),
         (
@@ -904,6 +1223,9 @@ fn mirrors_every_planner_goal_and_work_allowlist() {
                 G::Tag,
                 G::ItemType,
                 G::Status,
+                G::Month,
+                G::Week,
+                G::Day,
             ],
         ),
         (
@@ -918,6 +1240,9 @@ fn mirrors_every_planner_goal_and_work_allowlist() {
                 G::Tag,
                 G::ItemType,
                 G::Status,
+                G::Month,
+                G::Week,
+                G::Day,
             ],
         ),
     ];
@@ -1052,6 +1377,37 @@ fn validates_operator_values_and_requires_explicit_relative_reference_date() {
         )
         .is_ok()
     );
+}
+
+#[test]
+fn rejects_relative_dates_that_overflow_the_explicit_reference() {
+    let query = |reference_date, unit| {
+        TodoTableQuery::new(
+            TodoTableScope::Planner(PlannerTableScope::DailyToday),
+            TableContext::Planner {
+                from: Date::MAX,
+                to: Date::MAX,
+            },
+            0,
+            50,
+            FilterMode::And,
+            vec![TodoTableFilter::Planner {
+                field: PlannerFilterField::Scheduled,
+                operator: TodoFilterOperator::IsRelativeToToday,
+                value: TodoTableFilterValue::Relative {
+                    amount: "100000".into(),
+                    unit,
+                },
+            }],
+            vec![],
+            groups(TodoTableGroup::Planner(PlannerTableGroup::None)),
+            Some(reference_date),
+        )
+    };
+    assert!(query(Date::MAX, RelativeDateUnit::Day).is_err());
+    assert!(query(Date::MAX, RelativeDateUnit::Week).is_err());
+    assert!(query(Date::MAX, RelativeDateUnit::Month).is_err());
+    assert!(query(Date::MIN, RelativeDateUnit::Day).is_ok());
 }
 
 #[test]
@@ -1241,6 +1597,10 @@ fn row_keys_are_constructor_derived_and_group_values_preserve_saved_keys_safely(
     assert_eq!(
         missing_group(TodoTableGroup::Planner(PlannerTableGroup::Routine)),
         Some(("none", "No routine"))
+    );
+    assert_eq!(
+        missing_group(TodoTableGroup::Planner(PlannerTableGroup::Day)),
+        Some(("none", "No date"))
     );
     assert_eq!(
         missing_group(TodoTableGroup::Planner(PlannerTableGroup::None)),

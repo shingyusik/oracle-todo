@@ -1,5 +1,6 @@
 use crate::application::error::{TodoError, TodoResult};
 use crate::domain::TodoEvent;
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OpenFlags};
 use time::OffsetDateTime;
 
@@ -13,18 +14,36 @@ pub use schema::{init_schema, user_version};
 use mapping::{row_to_event, storage_error};
 
 pub fn connect(path: &str) -> TodoResult<Connection> {
-    Connection::open(path).map_err(|error| TodoError::Storage(error.to_string()))
+    let connection =
+        Connection::open(path).map_err(|error| TodoError::Storage(error.to_string()))?;
+    register_sort_key(&connection)?;
+    Ok(connection)
 }
 
 pub fn connect_read_only(path: &str) -> TodoResult<Connection> {
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| TodoError::Storage(error.to_string()))?;
+    register_sort_key(&connection)?;
     match user_version(&connection)? {
         1 => Ok(connection),
         version => Err(TodoError::Migration(format!(
             "unsupported todo schema version {version}"
         ))),
     }
+}
+
+pub(super) fn register_sort_key(connection: &Connection) -> TodoResult<()> {
+    connection
+        .create_scalar_function(
+            "todo_sort_key",
+            1,
+            FunctionFlags::SQLITE_DETERMINISTIC | FunctionFlags::SQLITE_INNOCUOUS,
+            |context| {
+                let value = context.get::<String>(0)?;
+                Ok(crate::application::table::unicode_sort_key(&value))
+            },
+        )
+        .map_err(storage_error)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

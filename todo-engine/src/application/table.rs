@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use time::{Date, OffsetDateTime};
+use time::{Date, Duration, Month, OffsetDateTime};
 
 use crate::application::error::{TodoError, TodoResult};
 use crate::domain::{ItemStatus, ItemType, TodoItem};
@@ -300,6 +300,9 @@ pub enum WorkspaceTableGroup {
 #[serde(rename_all = "snake_case")]
 pub enum PlannerTableGroup {
     None,
+    Month,
+    Week,
+    Day,
     Area,
     Project,
     Routine,
@@ -418,6 +421,13 @@ impl TodoTableQuery {
             return Err(validation(
                 "relative date filters require a local reference date",
             ));
+        }
+        if let Some(reference) = reference_date {
+            for filter in &filters {
+                if let TodoTableFilterValue::Relative { amount, unit } = filter.value() {
+                    checked_relative_date(reference, amount, *unit)?;
+                }
+            }
         }
         Ok(Self {
             scope,
@@ -675,6 +685,44 @@ fn planner_group_allowed(field: PlannerTableGroup, scope: Option<PlannerTableSco
     }
 }
 
+pub(crate) fn checked_relative_date(
+    date: Date,
+    amount: &str,
+    unit: RelativeDateUnit,
+) -> TodoResult<Date> {
+    let amount = amount
+        .parse::<i64>()
+        .map_err(|_| validation("relative date amount is invalid"))?;
+    let value = match unit {
+        RelativeDateUnit::Day => date.checked_add(Duration::days(amount)),
+        RelativeDateUnit::Week => amount
+            .checked_mul(7)
+            .and_then(|days| date.checked_add(Duration::days(days))),
+        RelativeDateUnit::Month => {
+            let total = i64::from(date.year())
+                .checked_mul(12)
+                .and_then(|value| value.checked_add(i64::from(date.month() as u8 - 1)))
+                .and_then(|value| value.checked_add(amount));
+            total.and_then(|total| {
+                let year = i32::try_from(total.div_euclid(12)).ok()?;
+                let month = Month::try_from((total.rem_euclid(12) + 1) as u8).ok()?;
+                Date::from_calendar_date(year, month, 1)
+                    .ok()?
+                    .checked_add(Duration::days(i64::from(date.day() - 1)))
+            })
+        }
+    };
+    value.ok_or_else(|| validation("relative date exceeds the supported calendar range"))
+}
+
+pub(crate) fn unicode_sort_key(value: &str) -> Vec<u8> {
+    value
+        .chars()
+        .flat_map(char::to_lowercase)
+        .flat_map(|character| u32::from(character).to_be_bytes())
+        .collect()
+}
+
 #[derive(Clone, Copy)]
 enum FieldType {
     Text,
@@ -834,6 +882,9 @@ pub const fn missing_group(group: TodoTableGroup) -> Option<(&'static str, &'sta
         | TodoTableGroup::Planner(PlannerTableGroup::Routine) => Some(("none", "No routine")),
         TodoTableGroup::Workspace(WorkspaceTableGroup::Tag)
         | TodoTableGroup::Planner(PlannerTableGroup::Tag) => Some(("untagged", "Untagged")),
+        TodoTableGroup::Planner(PlannerTableGroup::Month)
+        | TodoTableGroup::Planner(PlannerTableGroup::Week)
+        | TodoTableGroup::Planner(PlannerTableGroup::Day) => Some(("none", "No date")),
         _ => None,
     }
 }

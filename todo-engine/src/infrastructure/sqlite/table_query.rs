@@ -2,11 +2,11 @@ use std::fmt::Write as _;
 
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
-use time::{Date, Duration, Month};
+use time::Date;
 
 use super::SqliteTodoRepository;
 use super::mapping::{row_to_item, storage_error};
-use crate::application::error::TodoResult;
+use crate::application::error::{TodoError, TodoResult};
 use crate::application::service::table::build_lookups;
 use crate::application::table::*;
 use crate::domain::ItemType;
@@ -16,7 +16,7 @@ impl SqliteTodoRepository {
         &mut self,
         query: &TodoTableQuery,
     ) -> TodoResult<TablePage<TodoTableRow>> {
-        let (sql, params) = table_sql(query);
+        let (sql, params) = table_sql(query)?;
         let mut statement = self.conn.prepare(&sql).map_err(storage_error)?;
         let mut rows = statement
             .query(params_from_iter(params.iter()))
@@ -52,7 +52,7 @@ impl SqliteTodoRepository {
         // Lookups intentionally select only compact columns. No note/body/metadata is read.
         let mut statement = self
             .conn
-            .prepare("SELECT id, type, title, tags FROM items WHERE status NOT IN ('completed','cancelled','dropped','archived','missed','rejected') ORDER BY type, lower(title), id")
+            .prepare("SELECT id, type, title, tags FROM items WHERE status NOT IN ('completed','cancelled','dropped','archived','missed','rejected') ORDER BY type, todo_sort_key(title), title, id")
             .map_err(storage_error)?;
         let values = statement
             .query_map([], |row| {
@@ -85,7 +85,7 @@ impl SqliteTodoRepository {
     }
 }
 
-fn table_sql(query: &TodoTableQuery) -> (String, Vec<Value>) {
+fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
     let mut params = Vec::new();
     let mut predicates = Vec::new();
     context_predicates(query, &mut predicates, &mut params);
@@ -94,7 +94,7 @@ fn table_sql(query: &TodoTableQuery) -> (String, Vec<Value>) {
             .filters()
             .iter()
             .map(|filter| filter_predicate(filter, query.reference_date(), &mut params))
-            .collect::<Vec<_>>();
+            .collect::<TodoResult<Vec<_>>>()?;
         predicates.push(format!(
             "({})",
             rules.join(match query.filter_mode() {
@@ -113,37 +113,25 @@ fn table_sql(query: &TodoTableQuery) -> (String, Vec<Value>) {
         }
     }
 
-    let mut order = Vec::new();
-    if let Some(group) = &canonical_group {
-        let label = group_label
-            .as_deref()
-            .expect("group label accompanies group key");
-        match query.group_settings().sort() {
-            GroupSort::Manual if !query.group_settings().manual_order().is_empty() => {
-                let mut rank = format!("CASE {group}");
-                for (index, key) in query.group_settings().manual_order().iter().enumerate() {
-                    write!(rank, " WHEN ? THEN {index}").expect("write string");
-                    params.push(Value::Text(key.clone()));
-                }
-                rank.push_str(" ELSE 1000000 END ASC");
-                order.push(rank);
-            }
-            GroupSort::Alphabetical => order.push(format!("lower({label}) ASC")),
-            GroupSort::ReverseAlphabetical => order.push(format!("lower({label}) DESC")),
-            GroupSort::Manual => {}
-        }
-    }
+    let mut item_order = Vec::new();
     for sort in query.sorts() {
         let (field, direction) = sort_sql(*sort);
-        order.push(format!("({field}) IS NULL ASC"));
-        order.push(format!(
-            "{field} COLLATE NOCASE {}",
-            if direction == SortDirection::Asc {
-                "ASC"
-            } else {
-                "DESC"
-            }
-        ));
+        let sql_direction = if direction == SortDirection::Asc {
+            "ASC"
+        } else {
+            "DESC"
+        };
+        if field == "i.priority" {
+            item_order.push(format!("({field}) IS NULL {sql_direction}"));
+            item_order.push(format!("{field} {sql_direction}"));
+        } else {
+            item_order.push(format!(
+                "todo_sort_key(coalesce(CAST({field} AS TEXT),'')) {sql_direction}"
+            ));
+            item_order.push(format!(
+                "coalesce(CAST({field} AS TEXT),'') {sql_direction}"
+            ));
+        }
     }
     if query.sorts().is_empty() {
         match query.scope() {
@@ -152,24 +140,25 @@ fn table_sql(query: &TodoTableQuery) -> (String, Vec<Value>) {
                 | PlannerTableScope::DailyOverdue
                 | PlannerTableScope::DailyUnscheduled,
             ) => {
-                order.extend(["i.priority IS NULL ASC".into(), "i.priority ASC".into()]);
+                item_order.extend(["i.priority IS NULL ASC".into(), "i.priority ASC".into()]);
             }
             TodoTableScope::Planner(_) => {
-                order.extend(["i.scheduled IS NULL ASC".into(), "i.scheduled ASC".into()]);
+                item_order.extend([
+                    "todo_sort_key(coalesce(i.scheduled,'')) ASC".into(),
+                    "coalesce(i.scheduled,'') ASC".into(),
+                ]);
             }
-            _ => order.push("i.updated_at DESC".into()),
+            _ => item_order.push("i.updated_at DESC".into()),
         }
     }
-    order.extend([
-        "i.scheduled IS NULL ASC".into(),
-        "i.scheduled ASC".into(),
+    item_order.extend([
+        "todo_sort_key(coalesce(i.scheduled,'')) ASC".into(),
+        "coalesce(i.scheduled,'') ASC".into(),
         "i.updated_at DESC".into(),
-        "lower(i.title) ASC".into(),
+        "todo_sort_key(i.title) ASC".into(),
+        "i.title ASC".into(),
     ]);
-    order.push("i.id ASC".into());
-    if let Some(group) = &canonical_group {
-        order.push(format!("{group} ASC"));
-    }
+    item_order.push("i.id ASC".into());
 
     let selected = "i.id, i.type, i.title, i.status, i.area_id, i.project_id, i.routine_id, i.parent_id,
         i.description, i.note, i.outcome, i.definition_of_done, i.standard, i.review_cycle,
@@ -179,14 +168,53 @@ fn table_sql(query: &TodoTableQuery) -> (String, Vec<Value>) {
         i.created_at, i.updated_at";
     let key_sql = canonical_group.unwrap_or_else(|| "NULL".into());
     let label_sql = group_label.unwrap_or_else(|| "NULL".into());
-    let sql = format!(
-        "SELECT {selected}, {key_sql} AS group_key, {label_sql} AS group_label FROM items i {join} WHERE {} ORDER BY {} LIMIT ? OFFSET ?",
-        predicates.join(" AND "),
-        order.join(", ")
-    );
+    let sql = if key_sql == "NULL" {
+        format!(
+            "SELECT {selected}, NULL AS group_key, NULL AS group_label FROM items i {join} WHERE {} ORDER BY {} LIMIT ? OFFSET ?",
+            predicates.join(" AND "),
+            item_order.join(", ")
+        )
+    } else {
+        let mut group_order = Vec::new();
+        match query.group_settings().sort() {
+            GroupSort::Manual => {
+                if !query.group_settings().manual_order().is_empty() {
+                    let mut rank = "CASE i.group_key".to_string();
+                    for (index, key) in query.group_settings().manual_order().iter().enumerate() {
+                        write!(rank, " WHEN ? THEN {index}")
+                            .expect("writing to String cannot fail");
+                        params.push(Value::Text(key.clone()));
+                    }
+                    rank.push_str(" ELSE 1000000 END ASC");
+                    group_order.push(rank);
+                }
+                group_order.push("i.group_rank ASC".into());
+            }
+            GroupSort::Alphabetical => {
+                group_order.extend([
+                    "todo_sort_key(i.group_label) ASC".into(),
+                    "i.group_label ASC".into(),
+                ]);
+            }
+            GroupSort::ReverseAlphabetical => {
+                group_order.extend([
+                    "todo_sort_key(i.group_label) DESC".into(),
+                    "i.group_label DESC".into(),
+                ]);
+            }
+        }
+        group_order.push("i.group_key ASC".into());
+        group_order.extend(item_order.iter().cloned());
+        format!(
+            "WITH occurrences AS (SELECT {selected}, {key_sql} AS group_key, {label_sql} AS group_label, ROW_NUMBER() OVER (ORDER BY {}) AS item_rank FROM items i {join} WHERE {}), ranked AS (SELECT occurrences.*, MIN(item_rank) OVER (PARTITION BY group_key) AS group_rank FROM occurrences) SELECT {selected}, i.group_key, i.group_label FROM ranked i ORDER BY {} LIMIT ? OFFSET ?",
+            item_order.join(", "),
+            predicates.join(" AND "),
+            group_order.join(", ")
+        )
+    };
     params.push(Value::Integer(i64::from(query.limit()) + 1));
     params.push(Value::Integer(i64::from(query.offset())));
-    (sql, params)
+    Ok((sql, params))
 }
 
 fn context_predicates(query: &TodoTableQuery, out: &mut Vec<String>, params: &mut Vec<Value>) {
@@ -263,7 +291,7 @@ fn filter_predicate(
     filter: &TodoTableFilter,
     reference: Option<Date>,
     params: &mut Vec<Value>,
-) -> String {
+) -> TodoResult<String> {
     let (field, operator, value) = match filter {
         TodoTableFilter::Workspace {
             field,
@@ -296,10 +324,10 @@ fn filter_predicate(
         format!("({field} IS NULL OR {field} = '')")
     };
     if operator == TodoFilterOperator::IsEmpty {
-        return empty;
+        return Ok(empty);
     }
     if operator == TodoFilterOperator::IsNotEmpty {
-        return format!("NOT {empty}");
+        return Ok(format!("NOT {empty}"));
     }
     let values = match value {
         TodoTableFilterValue::Text(value) => vec![Value::Text(value.to_lowercase())],
@@ -310,16 +338,20 @@ fn filter_predicate(
         TodoTableFilterValue::Range { start, end } => {
             vec![Value::Text(start.clone()), Value::Text(end.clone())]
         }
-        TodoTableFilterValue::Relative { amount, unit } => vec![Value::Text(iso(add_relative(
-            reference.expect("validated reference"),
-            amount.parse().expect("validated amount"),
-            *unit,
-        )))],
+        TodoTableFilterValue::Relative { amount, unit } => {
+            vec![Value::Text(iso(checked_relative_date(
+                reference.ok_or_else(|| {
+                    TodoError::Validation("relative date requires reference date".into())
+                })?,
+                amount,
+                *unit,
+            )?))]
+        }
         TodoTableFilterValue::Empty => vec![],
     };
     let placeholders = (0..values.len()).map(|_| "?").collect::<Vec<_>>().join(",");
     params.extend(values.clone());
-    match operator {
+    Ok(match operator {
         TodoFilterOperator::Is if is_many => format!(
             "EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE lower(CAST(f.value AS TEXT)) IN ({placeholders}))"
         ),
@@ -362,7 +394,7 @@ fn filter_predicate(
         TodoFilterOperator::GreaterThan => format!("CAST({field} AS INTEGER) > CAST(? AS INTEGER)"),
         TodoFilterOperator::LessThan => format!("CAST({field} AS INTEGER) < CAST(? AS INTEGER)"),
         TodoFilterOperator::IsEmpty | TodoFilterOperator::IsNotEmpty => unreachable!(),
-    }
+    })
 }
 
 macro_rules! field_sql {
@@ -402,7 +434,7 @@ macro_rules! sort_field_sql {
             <$type>::Updated => "i.updated_at",
             <$type>::Title => "i.title",
             <$type>::Status => "i.status",
-            <$type>::Tags => "i.tags",
+            <$type>::Tags => "(SELECT group_concat(CAST(value AS TEXT), ', ') FROM json_each(i.tags))",
             <$type>::Note => "i.note",
             <$type>::Area => "i.area_id",
             <$type>::Due => "i.due",
@@ -416,7 +448,7 @@ macro_rules! sort_field_sql {
             <$type>::Description => "i.description",
             <$type>::Routine => "i.routine_id",
             <$type>::Location => "json_extract(i.metadata,'$.location')",
-            <$type>::Participants => "json_extract(i.metadata,'$.participants')",
+            <$type>::Participants => "(SELECT group_concat(CAST(value AS TEXT), ', ') FROM json_each(json_extract(i.metadata,'$.participants')))",
             <$type>::CommitmentType => "json_extract(i.metadata,'$.commitment_type')",
         }
     };
@@ -471,11 +503,12 @@ fn group_projection(group: TodoTableGroup) -> (String, Option<String>, Option<St
         | TodoTableGroup::Planner(PlannerTableGroup::Status) => (
             String::new(),
             Some("i.status".into()),
-            Some("i.status".into()),
+            Some("CASE i.status WHEN 'active' THEN 'Active' WHEN 'waiting' THEN 'Waiting' WHEN 'paused' THEN 'Paused' WHEN 'completed' THEN 'Completed' WHEN 'cancelled' THEN 'Cancelled' WHEN 'dropped' THEN 'Dropped' WHEN 'archived' THEN 'Archived' WHEN 'missed' THEN 'missed' WHEN 'rejected' THEN 'Rejected' ELSE i.status END".into()),
         ),
-        TodoTableGroup::Planner(PlannerTableGroup::ItemType) => {
-            (String::new(), Some("i.type".into()), Some("i.type".into()))
-        }
+        TodoTableGroup::Planner(PlannerTableGroup::ItemType) => (String::new(), Some("i.type".into()), Some("CASE i.type WHEN 'area' THEN 'Area' WHEN 'project' THEN 'Project' WHEN 'routine' THEN 'Routine' WHEN 'task' THEN 'Task' WHEN 'event' THEN 'Event' WHEN 'review' THEN 'Review' WHEN 'archive_item' THEN 'Archive item' WHEN 'goal' THEN 'Goal' ELSE i.type END".into())),
+        TodoTableGroup::Planner(PlannerTableGroup::Day) => (String::new(), Some("coalesce(substr(i.scheduled,1,10),'none')".into()), Some("coalesce(substr(i.scheduled,1,10),'No date')".into())),
+        TodoTableGroup::Planner(PlannerTableGroup::Week) => (String::new(), Some("coalesce(date(substr(i.scheduled,1,10), '-' || ((CAST(strftime('%w',substr(i.scheduled,1,10)) AS INTEGER)+6)%7) || ' days'),'none')".into()), Some("coalesce('Week of ' || date(substr(i.scheduled,1,10), '-' || ((CAST(strftime('%w',substr(i.scheduled,1,10)) AS INTEGER)+6)%7) || ' days'),'No date')".into())),
+        TodoTableGroup::Planner(PlannerTableGroup::Month) => (String::new(), Some("coalesce(substr(i.scheduled,1,7),'none')".into()), Some("CASE WHEN i.scheduled IS NULL OR i.scheduled = '' THEN 'No date' ELSE CASE substr(i.scheduled,6,2) WHEN '01' THEN 'January' WHEN '02' THEN 'February' WHEN '03' THEN 'March' WHEN '04' THEN 'April' WHEN '05' THEN 'May' WHEN '06' THEN 'June' WHEN '07' THEN 'July' WHEN '08' THEN 'August' WHEN '09' THEN 'September' WHEN '10' THEN 'October' WHEN '11' THEN 'November' WHEN '12' THEN 'December' END || ' ' || substr(i.scheduled,1,4) END".into())),
     }
 }
 
@@ -488,22 +521,4 @@ fn canonical_group_sql(raw: &str) -> String {
     format!(
         "CASE WHEN {raw} IN ('none','untagged') OR instr({raw},'\\') > 0 OR {controls} THEN '\\' || lower(hex({raw})) ELSE {raw} END"
     )
-}
-
-fn add_relative(date: Date, amount: i64, unit: RelativeDateUnit) -> Date {
-    match unit {
-        RelativeDateUnit::Day => date.checked_add(Duration::days(amount)),
-        RelativeDateUnit::Week => date.checked_add(Duration::weeks(amount)),
-        RelativeDateUnit::Month => {
-            let total = i64::from(date.year()) * 12 + i64::from(date.month() as u8 - 1) + amount;
-            let year = i32::try_from(total.div_euclid(12)).ok();
-            let month = Month::try_from((total.rem_euclid(12) + 1) as u8).ok();
-            year.zip(month).and_then(|(year, month)| {
-                Date::from_calendar_date(year, month, 1)
-                    .ok()?
-                    .checked_add(Duration::days(i64::from(date.day() - 1)))
-            })
-        }
-    }
-    .expect("validated relative date")
 }

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use time::{Date, Duration, Month};
+use time::Date;
 
 use super::{ServiceStore, TodoService};
 use crate::application::error::TodoResult;
@@ -44,6 +44,11 @@ pub(crate) fn query_items(
         .into_iter()
         .flat_map(|item| group_occurrences(item, &labels, query))
         .collect::<Vec<_>>();
+    let mut first_seen = HashMap::new();
+    for (key, _, _) in &occurrences {
+        let next = first_seen.len();
+        first_seen.entry(key.clone()).or_insert(next);
+    }
     occurrences.sort_by(
         |(left_key, left_label, left), (right_key, right_label, right)| {
             compare_groups(
@@ -52,10 +57,11 @@ pub(crate) fn query_items(
                 right_key.as_deref(),
                 right_label.as_deref(),
                 query,
+                &first_seen,
             )
+            .then_with(|| left_key.cmp(right_key))
             .then_with(|| compare_items(left, right, query))
             .then_with(|| left.id.cmp(&right.id))
-            .then_with(|| left_key.cmp(right_key))
         },
     );
     let start = usize::try_from(query.offset()).unwrap_or(usize::MAX);
@@ -98,7 +104,7 @@ pub(crate) fn build_lookups<'a>(
         left.item_type
             .as_str()
             .cmp(right.item_type.as_str())
-            .then_with(|| left.title.to_lowercase().cmp(&right.title.to_lowercase()))
+            .then_with(|| compare_unicode_text(&left.title, &right.title))
             .then_with(|| left.id.cmp(&right.id))
     });
     values
@@ -112,7 +118,12 @@ fn lookup_type_allowed(item_type: ItemType, scope: TodoTableScope) -> bool {
         TodoTableScope::Linked { child, .. } => item_type == child || relation_type(item_type),
         TodoTableScope::Planner(_) => matches!(
             item_type,
-            ItemType::Area | ItemType::Project | ItemType::Routine | ItemType::Goal
+            ItemType::Area
+                | ItemType::Project
+                | ItemType::Routine
+                | ItemType::Goal
+                | ItemType::Task
+                | ItemType::Event
         ),
     }
 }
@@ -495,24 +506,9 @@ fn matches_date(
             TodoFilterOperator::IsRelativeToToday,
             TodoTableFilterValue::Relative { amount, unit },
         ) => reference
-            .and_then(|date| add_relative(date, amount.parse().ok()?, *unit))
+            .and_then(|date| checked_relative_date(date, amount, *unit).ok())
             .is_some_and(|date| actual == date),
         _ => false,
-    }
-}
-
-fn add_relative(date: Date, amount: i64, unit: RelativeDateUnit) -> Option<Date> {
-    match unit {
-        RelativeDateUnit::Day => date.checked_add(Duration::days(amount)),
-        RelativeDateUnit::Week => date.checked_add(Duration::weeks(amount)),
-        RelativeDateUnit::Month => {
-            let total = i64::from(date.year()) * 12 + i64::from(date.month() as u8 - 1) + amount;
-            let year = i32::try_from(total.div_euclid(12)).ok()?;
-            let month = Month::try_from((total.rem_euclid(12) + 1) as u8).ok()?;
-            Date::from_calendar_date(year, month, 1)
-                .ok()?
-                .checked_add(Duration::days(i64::from(date.day() - 1)))
-        }
     }
 }
 
@@ -566,30 +562,18 @@ fn compare_field(
     option_text_direction(text(left).as_deref(), text(right).as_deref(), direction)
 }
 fn option_text(left: Option<&str>, right: Option<&str>) -> Ordering {
-    match (left, right) {
-        (Some(l), Some(r)) => l.to_lowercase().cmp(&r.to_lowercase()),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        _ => Ordering::Equal,
-    }
+    compare_unicode_text(left.unwrap_or(""), right.unwrap_or(""))
 }
 fn option_text_direction(
     left: Option<&str>,
     right: Option<&str>,
     direction: SortDirection,
 ) -> Ordering {
-    match (left, right) {
-        (Some(l), Some(r)) => {
-            let order = l.to_lowercase().cmp(&r.to_lowercase());
-            if direction == SortDirection::Desc {
-                order.reverse()
-            } else {
-                order
-            }
-        }
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        _ => Ordering::Equal,
+    let order = compare_unicode_text(left.unwrap_or(""), right.unwrap_or(""));
+    if direction == SortDirection::Desc {
+        order.reverse()
+    } else {
+        order
     }
 }
 fn option_number(left: Option<i64>, right: Option<i64>, direction: SortDirection) -> Ordering {
@@ -602,15 +586,27 @@ fn option_number(left: Option<i64>, right: Option<i64>, direction: SortDirection
                 order
             }
         }
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => {
+            if direction == SortDirection::Desc {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        }
+        (None, Some(_)) => {
+            if direction == SortDirection::Desc {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        }
         _ => Ordering::Equal,
     }
 }
 fn planner_fallback(left: &TodoItem, right: &TodoItem) -> Ordering {
     option_text(left.scheduled.as_deref(), right.scheduled.as_deref())
         .then_with(|| right.updated_at.cmp(&left.updated_at))
-        .then_with(|| left.title.to_lowercase().cmp(&right.title.to_lowercase()))
+        .then_with(|| compare_unicode_text(&left.title, &right.title))
         .then_with(|| left.id.cmp(&right.id))
 }
 
@@ -648,17 +644,103 @@ fn group_occurrences(
         }
         TodoTableGroup::Workspace(WorkspaceTableGroup::Status)
         | TodoTableGroup::Planner(PlannerTableGroup::Status) => {
-            vec![(item.status.as_str().into(), item.status.as_str().into())]
+            vec![(
+                item.status.as_str().into(),
+                status_label(item.status).into(),
+            )]
         }
         TodoTableGroup::Planner(PlannerTableGroup::ItemType) => vec![(
             item.item_type.as_str().into(),
-            item.item_type.as_str().into(),
+            item_type_label(item.item_type).into(),
         )],
+        TodoTableGroup::Planner(PlannerTableGroup::Month) => {
+            vec![date_group(item.scheduled.as_deref(), DateGroup::Month)]
+        }
+        TodoTableGroup::Planner(PlannerTableGroup::Week) => {
+            vec![date_group(item.scheduled.as_deref(), DateGroup::Week)]
+        }
+        TodoTableGroup::Planner(PlannerTableGroup::Day) => {
+            vec![date_group(item.scheduled.as_deref(), DateGroup::Day)]
+        }
     };
     raw.into_iter()
         .filter(|(key, _)| !query.group_settings().hidden_group_keys().contains(key))
         .map(|(key, label)| (Some(key), Some(label), item.clone()))
         .collect()
+}
+
+enum DateGroup {
+    Month,
+    Week,
+    Day,
+}
+
+fn date_group(value: Option<&str>, group: DateGroup) -> (String, String) {
+    let Some(date) = value.and_then(parse_date_prefix) else {
+        return ("none".into(), "No date".into());
+    };
+    let day = date.to_string();
+    match group {
+        DateGroup::Day => (day.clone(), day),
+        DateGroup::Week => {
+            let monday =
+                date - time::Duration::days(i64::from(date.weekday().number_days_from_monday()));
+            let key = monday.to_string();
+            (key.clone(), format!("Week of {key}"))
+        }
+        DateGroup::Month => {
+            const MONTHS: [&str; 12] = [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ];
+            let key = day[..7].to_string();
+            (
+                key,
+                format!(
+                    "{} {}",
+                    MONTHS[usize::from(date.month() as u8 - 1)],
+                    date.year()
+                ),
+            )
+        }
+    }
+}
+
+fn status_label(status: ItemStatus) -> &'static str {
+    match status {
+        ItemStatus::Active => "Active",
+        ItemStatus::Waiting => "Waiting",
+        ItemStatus::Paused => "Paused",
+        ItemStatus::Completed => "Completed",
+        ItemStatus::Cancelled => "Cancelled",
+        ItemStatus::Dropped => "Dropped",
+        ItemStatus::Archived => "Archived",
+        ItemStatus::Missed => "missed",
+        ItemStatus::Rejected => "Rejected",
+    }
+}
+
+fn item_type_label(item_type: ItemType) -> &'static str {
+    match item_type {
+        ItemType::Area => "Area",
+        ItemType::Project => "Project",
+        ItemType::Routine => "Routine",
+        ItemType::Task => "Task",
+        ItemType::Event => "Event",
+        ItemType::Review => "Review",
+        ItemType::ArchiveItem => "Archive item",
+        ItemType::Goal => "Goal",
+    }
 }
 fn relation_group(
     id: Option<&String>,
@@ -679,27 +761,34 @@ fn compare_groups(
     right: Option<&str>,
     right_label: Option<&str>,
     query: &TodoTableQuery,
+    first_seen: &HashMap<Option<String>, usize>,
 ) -> Ordering {
     let settings = query.group_settings();
     let left = left.unwrap_or("");
     let right = right.unwrap_or("");
     match settings.sort() {
-        GroupSort::Alphabetical => left_label
-            .unwrap_or("")
-            .to_lowercase()
-            .cmp(&right_label.unwrap_or("").to_lowercase()),
-        GroupSort::ReverseAlphabetical => right_label
-            .unwrap_or("")
-            .to_lowercase()
-            .cmp(&left_label.unwrap_or("").to_lowercase()),
+        GroupSort::Alphabetical => {
+            compare_unicode_text(left_label.unwrap_or(""), right_label.unwrap_or(""))
+        }
+        GroupSort::ReverseAlphabetical => {
+            compare_unicode_text(right_label.unwrap_or(""), left_label.unwrap_or(""))
+        }
         GroupSort::Manual => {
             let rank = |key: &str| settings.manual_order().iter().position(|v| v == key);
             match (rank(left), rank(right)) {
                 (Some(l), Some(r)) => l.cmp(&r),
                 (Some(_), None) => Ordering::Less,
                 (None, Some(_)) => Ordering::Greater,
-                _ => Ordering::Equal,
+                _ => first_seen
+                    .get(&Some(left.to_string()))
+                    .cmp(&first_seen.get(&Some(right.to_string()))),
             }
         }
     }
+}
+
+fn compare_unicode_text(left: &str, right: &str) -> Ordering {
+    unicode_sort_key(left)
+        .cmp(&unicode_sort_key(right))
+        .then_with(|| left.chars().cmp(right.chars()))
 }
