@@ -119,6 +119,7 @@ The existing ToDo router is mounted below `/api/v1/todo`:
 | Method | Relative route |
 | --- | --- |
 | `GET` | `/health`, `/items`, `/items/archive`, `/views/agenda`, `/views/date-range`, `/views/period` |
+| Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
 | `POST` | `/areas`, `/goals/propose`, `/projects/propose`, `/routines/propose`, `/routines/:id/materialize`, `/events/propose`, `/tasks/propose` |
 | `PATCH` | `/items/:id` |
 | `POST` | `/items/:id/pause`, `/miss`, `/postpone`, `/resume`, `/complete`, `/reopen`, `/archive`, `/drop`, `/cancel` |
@@ -145,6 +146,88 @@ ToDo `400 policy_error` uses the generic `validation_error` code and message, an
 Malformed, oversized, status-mismatched, conflicting, payload-too-large, and internal ToDo
 errors use the generic shared contract. They do not expose paths, SQL, raw storage errors,
 tokens, sessions, or arbitrary metadata.
+
+### ToDo table views
+
+`POST /table/query` filters, groups, and sorts the complete active scope before returning a
+page. `offset` defaults to `0`; `limit` defaults to and cannot exceed `50`. JSON bodies are
+limited to 128 KiB and recursively deny unknown fields. Existing `/items` and `/views/*`
+routes keep their array response shapes.
+
+Scopes and contexts use these exact lowercase values:
+
+- Workspace: `workspace.area`, `.project`, `.goal`, `.routine`, `.task`, or `.event`, with
+  `"context": {}`.
+- Planner goal tables: `planner.yearly-period-goals`, `.yearly-month-goals`,
+  `.monthly-period-goals`, `.monthly-week-goals`, `.weekly-month-goals`, or
+  `.weekly-week-goals`.
+- Planner work tables: `planner.monthly-calendar`, `.weekly-day-grid`, `.daily-today`,
+  `.daily-overdue`, or `.daily-unscheduled`.
+- Linked tables: `linked.<parent>.<child>` for `area` to `project|routine|task|event`,
+  `project` to `routine|task|event`, `routine` to `task`, and `goal` to `goal|task`.
+
+Planner context is `{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}` using the selected local
+period, inclusive. Linked context is
+`{"parent_type":"project","parent_id":"<id>"}` and must match the scope. Any context may
+also carry `reference_date:"YYYY-MM-DD"`; it is required whenever a relative-date filter is
+used. Dates require zero-padded calendar form and are never inferred from the server clock.
+
+```json
+{
+  "scope": "workspace.task",
+  "offset": 0,
+  "limit": 50,
+  "filter_mode": "and",
+  "filters": [{"field":"title","operator":"contains","value":{"text":"review"}}],
+  "sorts": [{"field":"updated","direction":"desc"}],
+  "group_by": "tag",
+  "group_settings": {
+    "sort": "manual",
+    "hide_empty": true,
+    "manual_order": [],
+    "hidden_group_keys": []
+  },
+  "context": {"reference_date":"2026-08-22"}
+}
+```
+
+`filter_mode` is `and|or`; sort direction is `asc|desc`; group sort is
+`manual|alphabetical|reverse_alphabetical`. Filter values have exactly one shape:
+`{"text":"..."}`, `{"list":["..."]}`, `{"range":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}}`,
+`{"relative":{"amount":"1","unit":"day|week|month"}}`, or `{"empty":true}`. Operators are
+`is`, `is_not`, `contains`, `does_not_contain`, `starts_with`, `ends_with`, `is_before`,
+`is_after`, `is_on_or_before`, `is_on_or_after`, `is_between`, `is_relative_to_today`,
+`is_empty`, and `is_not_empty`. Field type determines the accepted operator and value shape.
+
+Workspace fields are scope-specific: area has `title,status,tags,note`; project adds
+`area,due`; goal has `title,status,tags,horizon,scheduled,parent,note`; routine has
+`title,status,tags,area,project,recurrence_rule,materialization_policy,priority,description,note`;
+task has `title,status,tags,area,project,routine,scheduled,due,priority,description,note`; and
+event has `title,status,tags,area,project,scheduled,due,priority,location,participants,commitment_type,description,note`.
+Linked tables use their child Workspace fields. Planner goal fields are
+`title,status,tags,horizon,scheduled,due,parent,note`; Planner work fields are
+`title,status,tags,area,project,routine,scheduled,due,priority,recurrence_rule,materialization_policy,location,participants,commitment_type,description,note`.
+Every corresponding sort field is allowed, plus `updated`.
+
+Workspace groups are `none,tag,status`, plus `area` for project/routine/task/event, `project`
+for routine/task/event, and `routine` for task. Linked tables use their child groups. Planner
+goal groups are `none,tag,status`; Planner work groups are
+`none,month,week,day,area,project,routine,tag,item_type,status`. Group keys in
+`manual_order` and `hidden_group_keys` are bounded saved-view keys; `hide_empty` suppresses
+empty relation/date groups.
+
+The page response is exactly `{"items":[...],"next_offset":50|null}`. Each occurrence has
+`key`, nullable `group_key`, nullable `group_label`, and `record`. `key` is deterministic for
+the logical record and group occurrence. The full display record contains `id`, `type`,
+`title`, `status`, `tags`, relation IDs, description/note/outcome/definition fields, recurrence
+and scheduling fields, timestamps, and `metadata_` (`location`, `participants`, and
+`commitment_type`). Enum values use the snake-case forms shown above.
+
+`GET /table/lookups?scope=...` accepts the same scope strings and returns
+`{"items":[{"id":"...","type":"task","title":"...","tags":["..."]}]}`. Results contain
+only non-terminal records relevant to that scope: the displayed item type plus compact area,
+project, routine, or goal relations as applicable. They contain no note, description, full
+record, or audit data.
 
 ## Ledger routes
 

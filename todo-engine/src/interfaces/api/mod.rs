@@ -21,7 +21,9 @@ use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
 
 mod dto;
 mod handlers;
+mod table;
 use handlers::*;
+use table::*;
 
 #[derive(Clone)]
 pub(super) struct ApiState {
@@ -43,6 +45,8 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
         .route("/events/propose", post(propose_event))
         .route("/tasks/propose", post(propose_task))
         .route("/items", get(list_items))
+        .route("/table/query", post(query_table))
+        .route("/table/lookups", get(table_lookups))
         .route("/items/archive", get(archive_items))
         .route("/views/agenda", get(view_agenda))
         .route("/views/date-range", get(view_date_range))
