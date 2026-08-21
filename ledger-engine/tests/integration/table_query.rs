@@ -449,6 +449,139 @@ fn sqlite_table_query_pages_the_full_filtered_and_sorted_transaction_set() {
 }
 
 #[test]
+fn sqlite_table_query_uses_displayed_major_units_for_money_filters_and_sorts() {
+    let mut service = table_service();
+    service
+        .create_currency(CreateCurrency {
+            code: "USD".into(),
+            name: "Dollar".into(),
+            symbol: "$".into(),
+            decimal_places: 2,
+            actor: "test".into(),
+        })
+        .unwrap();
+    service
+        .create_account(CreateAccount {
+            name: "Dollar".into(),
+            category: "Cash".into(),
+            currency: "USD".into(),
+            opening_balance: Money::from_minor_units(0),
+            actor: "test".into(),
+        })
+        .unwrap();
+    for (content, account, currency, amount) in [
+        ("usd-25", "Dollar", "USD", 2_500),
+        ("krw-100", "Wallet", "KRW", 100),
+        ("krw-max", "Bank", "KRW", i64::MAX),
+    ] {
+        service
+            .create_entry(CreateEntry {
+                date: "2026-08-21".into(),
+                written_at: datetime!(2026-08-21 00:00 UTC),
+                content: content.into(),
+                category: Some("Food".into()),
+                account: account.into(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(amount),
+                currency: currency.into(),
+                transfer_group: None,
+                source: "test".into(),
+                notes: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    let sorted = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![],
+                vec![LedgerTableSort::Transactions {
+                    field: TransactionTableSortField::Amount,
+                    direction: SortDirection::Asc,
+                }],
+                group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let contents = sorted
+        .items
+        .iter()
+        .map(|row| match row.record() {
+            LedgerTableRecord::Transactions(record) => record.content.as_str(),
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(contents, ["usd-25", "krw-100", "krw-max"]);
+
+    let equal = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![LedgerTableFilter::Transactions {
+                    field: TransactionTableFilterField::Amount,
+                    operator: LedgerFilterOperator::Is,
+                    value: LedgerTableFilterValue::Text("25".into()),
+                }],
+                vec![transaction_date_sort()],
+                group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(equal.items.len(), 1);
+    assert!(
+        matches!(equal.items[0].record(), LedgerTableRecord::Transactions(record) if record.content == "usd-25")
+    );
+
+    let over_twenty = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![LedgerTableFilter::Transactions {
+                    field: TransactionTableFilterField::Amount,
+                    operator: LedgerFilterOperator::GreaterThan,
+                    value: LedgerTableFilterValue::Text("20".into()),
+                }],
+                vec![transaction_date_sort()],
+                group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(over_twenty.items.len(), 3);
+
+    let accounts = service
+        .query_table(
+            &query(
+                LedgerTableScope::Accounts,
+                FilterMode::And,
+                vec![],
+                vec![LedgerTableSort::Accounts {
+                    field: AccountTableSortField::CurrentBalance,
+                    direction: SortDirection::Asc,
+                }],
+                group_settings(LedgerTableGroup::Accounts(AccountTableGroup::None)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let account_names = accounts
+        .items
+        .iter()
+        .map(|row| match row.record() {
+            LedgerTableRecord::Accounts(record) => record.name.as_str(),
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(account_names, ["Bank", "Wallet", "Dollar"]);
+}
+
+#[test]
 fn sqlite_table_query_probes_exact_pages_and_uses_id_as_the_final_tie_breaker() {
     let mut service = table_service();
     for index in 0..51 {
@@ -596,6 +729,33 @@ fn sqlite_table_query_projects_account_balances_and_parent_category_groups() {
     assert_eq!(food.group_label(), Some("Living"));
     assert_ne!(food.group_key(), None);
     assert!(categories.items.iter().all(|row| row.group_key().is_some()));
+    let categories_with_roots = service
+        .query_table(
+            &query(
+                LedgerTableScope::Categories,
+                FilterMode::And,
+                vec![],
+                vec![LedgerTableSort::Categories {
+                    field: CategoryTableSortField::Name,
+                    direction: SortDirection::Asc,
+                }],
+                LedgerTableGroupSettings::new(
+                    LedgerTableGroup::Categories(CategoryTableGroup::Parent),
+                    GroupSort::Alphabetical,
+                    false,
+                    vec![],
+                    vec![],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        categories_with_roots.items.iter().any(|row| {
+            row.group_key() == Some("none") && row.group_label() == Some("No parent")
+        })
+    );
 }
 
 #[test]
@@ -642,6 +802,46 @@ fn sqlite_table_query_keeps_a_transfer_logical_and_emits_account_occurrences() {
             record.id == result.transfer_group_id && record.transfer_entry.is_some(),
         _ => false,
     }));
+    let account_ids = service
+        .accounts_page(ledger_engine::application::ports::Page {
+            offset: 0,
+            limit: 10,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|account| (account.name().to_string(), account.id().to_string()))
+        .collect::<std::collections::HashMap<_, _>>();
+    for account in ["Wallet", "Bank"] {
+        let filtered = service
+            .query_table(
+                &query(
+                    LedgerTableScope::Transactions,
+                    FilterMode::And,
+                    vec![LedgerTableFilter::Transactions {
+                        field: TransactionTableFilterField::Account,
+                        operator: LedgerFilterOperator::Is,
+                        value: LedgerTableFilterValue::TextList(vec![account_ids[account].clone()]),
+                    }],
+                    vec![transaction_date_sort()],
+                    LedgerTableGroupSettings::new(
+                        LedgerTableGroup::Transactions(TransactionTableGroup::Account),
+                        GroupSort::Alphabetical,
+                        false,
+                        vec![],
+                        vec![],
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(filtered.items.len(), 2);
+        assert!(filtered.items.iter().all(|row| match row.record() {
+            LedgerTableRecord::Transactions(record) => record.id == result.transfer_group_id,
+            _ => false,
+        }));
+    }
 }
 
 #[test]
@@ -836,7 +1036,8 @@ fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before
         categories_with_empty
             .items
             .iter()
-            .any(|row| row.group_key().is_none())
+            .any(|row| row.group_key() == Some("uncategorized")
+                && row.group_label() == Some("Uncategorized"))
     );
     let categories_without_empty = service
         .query_table(
@@ -861,7 +1062,7 @@ fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before
         categories_without_empty
             .items
             .iter()
-            .all(|row| row.group_key().is_some())
+            .all(|row| row.group_key() != Some("uncategorized"))
     );
 
     let accounts = service

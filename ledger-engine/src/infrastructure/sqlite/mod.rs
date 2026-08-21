@@ -172,7 +172,107 @@ fn register_read_functions(connection: &Connection) -> LedgerResult<()> {
                 Ok(unicode_search_key(&content).contains(&unicode_search_key(&needle)))
             },
         )
+        .map_err(storage_error)?;
+    connection
+        .create_scalar_function(
+            "ledger_money_key",
+            2,
+            FunctionFlags::SQLITE_UTF8
+                | FunctionFlags::SQLITE_DETERMINISTIC
+                | FunctionFlags::SQLITE_INNOCUOUS,
+            |context| {
+                Ok(money_sort_key(
+                    context.get::<i64>(0)?,
+                    context.get::<u8>(1)?,
+                ))
+            },
+        )
+        .map_err(storage_error)?;
+    connection
+        .create_scalar_function(
+            "ledger_number_key",
+            1,
+            FunctionFlags::SQLITE_UTF8
+                | FunctionFlags::SQLITE_DETERMINISTIC
+                | FunctionFlags::SQLITE_INNOCUOUS,
+            |context| {
+                decimal_sort_key(&context.get::<String>(0)?).ok_or_else(|| {
+                    rusqlite::Error::UserFunctionError("invalid decimal value".into())
+                })
+            },
+        )
         .map_err(storage_error)
+}
+
+fn money_sort_key(minor: i64, decimal_places: u8) -> String {
+    let negative = minor < 0;
+    let digits = i128::from(minor).abs().to_string();
+    let value = if decimal_places == 0 {
+        digits
+    } else {
+        let decimal_places = usize::from(decimal_places);
+        if digits.len() <= decimal_places {
+            format!("0.{}{digits}", "0".repeat(decimal_places - digits.len()))
+        } else {
+            let split = digits.len() - decimal_places;
+            format!("{}.{}", &digits[..split], &digits[split..])
+        }
+    };
+    decimal_sort_key(&format!("{}{value}", if negative { "-" } else { "" }))
+        .expect("persisted money precision is valid")
+}
+
+fn decimal_sort_key(value: &str) -> Option<String> {
+    const WIDTH: usize = 400;
+    let value = value.trim();
+    let (negative, unsigned) = match value.as_bytes().first() {
+        Some(b'-') => (true, &value[1..]),
+        Some(b'+') => (false, &value[1..]),
+        _ => (false, value),
+    };
+    let (mantissa, exponent) = if let Some((mantissa, exponent)) = unsigned.split_once(['e', 'E']) {
+        (mantissa, exponent.parse::<i32>().ok()?)
+    } else {
+        (unsigned, 0)
+    };
+    if mantissa.is_empty() {
+        return None;
+    }
+    let dot = mantissa.find('.');
+    if dot.is_some_and(|dot| mantissa[dot + 1..].contains('.')) {
+        return None;
+    }
+    let digits = mantissa.replace('.', "");
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let decimal_index = i64::try_from(dot.unwrap_or(mantissa.len()))
+        .ok()?
+        .checked_add(i64::from(exponent))?;
+    let mut normalized = vec![b'0'; WIDTH * 2];
+    for (index, digit) in digits.bytes().enumerate() {
+        let position = i64::try_from(WIDTH).ok()? - decimal_index + i64::try_from(index).ok()?;
+        if position < 0 {
+            return None;
+        }
+        if let Some(slot) = usize::try_from(position)
+            .ok()
+            .and_then(|position| normalized.get_mut(position))
+        {
+            *slot = digit;
+        }
+    }
+    let zero = normalized.iter().all(|digit| *digit == b'0');
+    if negative && !zero {
+        for digit in &mut normalized {
+            *digit = b'9' - (*digit - b'0');
+        }
+    }
+    Some(format!(
+        "{}{}",
+        if negative && !zero { '0' } else { '1' },
+        String::from_utf8(normalized).ok()?
+    ))
 }
 
 fn unicode_search_key(value: &str) -> String {
