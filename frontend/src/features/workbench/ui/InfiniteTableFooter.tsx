@@ -33,7 +33,9 @@ export function InfiniteTableFooter({
 
   useEffect(() => {
     const footer = footerRef.current;
-    if (!footer || status === "loading" || error) return;
+    if (!footer || status === "loading" || error || typeof IntersectionObserver === "undefined") {
+      return;
+    }
 
     let active = true;
     const observer = new IntersectionObserver(
@@ -50,7 +52,7 @@ export function InfiniteTableFooter({
       active = false;
       observer.disconnect();
     };
-  }, [nextOffset, status, error, loadMore]);
+  }, [nextOffset, status, error]);
 
   if (nextOffset === null) return null;
 

@@ -149,6 +149,17 @@ describe("InfiniteTableFooter", () => {
     expect(ObserverStub.instances).toHaveLength(0);
   });
 
+  it("keeps the load button usable when IntersectionObserver is unavailable", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const user = userEvent.setup();
+    const loadMore = vi.fn();
+
+    renderFooter({ loadMore });
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(loadMore).toHaveBeenCalledOnce();
+  });
+
   it("renders a non-interactive loading status with the requested span", () => {
     const { container } = renderFooter({ status: "loading", columnCount: 8 });
 
@@ -181,6 +192,30 @@ describe("InfiniteTableFooter", () => {
     const second = ObserverStub.instances[1];
     view.unmount();
     expect(second?.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("keeps its observer when only loadMore identity changes and calls the latest function", () => {
+    const firstLoadMore = vi.fn();
+    const latestLoadMore = vi.fn();
+    const view = renderFooter({ loadMore: firstLoadMore });
+    const observer = ObserverStub.instances[0];
+
+    view.rerender(
+      <table>
+        <InfiniteTableFooter
+          nextOffset={50}
+          status="idle"
+          error={null}
+          loadMore={latestLoadMore}
+          columnCount={6}
+        />
+      </table>,
+    );
+    observer?.intersect();
+
+    expect(ObserverStub.instances).toHaveLength(1);
+    expect(firstLoadMore).not.toHaveBeenCalled();
+    expect(latestLoadMore).toHaveBeenCalledOnce();
   });
 
   it("ignores non-intersecting observations", () => {
