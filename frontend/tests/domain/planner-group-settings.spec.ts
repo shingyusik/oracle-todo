@@ -103,7 +103,9 @@ describe("planner group settings", () => {
       "completed",
       "missed",
       "waiting",
+      "rejected",
     ]);
+    expect(candidates.find(({ key }) => key === "rejected")?.label).toBe("Rejected");
     expect(candidates.filter(({ key }) => key === "active")).toHaveLength(1);
   });
 

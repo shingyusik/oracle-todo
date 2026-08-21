@@ -279,7 +279,7 @@ fn manual_group_base_order(group: TodoTableGroup) -> Vec<String> {
         ],
         TodoTableGroup::Workspace(WorkspaceTableGroup::Status)
         | TodoTableGroup::Planner(PlannerTableGroup::Status) => vec![
-            "CASE i.group_key WHEN 'active' THEN 0 WHEN 'paused' THEN 1 WHEN 'completed' THEN 2 WHEN 'missed' THEN 3 WHEN 'waiting' THEN 4 ELSE 5 END ASC".into(),
+            "CASE i.group_key WHEN 'active' THEN 0 WHEN 'paused' THEN 1 WHEN 'completed' THEN 2 WHEN 'missed' THEN 3 WHEN 'waiting' THEN 4 WHEN 'rejected' THEN 5 ELSE 6 END ASC".into(),
         ],
         TodoTableGroup::Planner(PlannerTableGroup::ItemType) => vec![
             "CASE i.group_key WHEN 'task' THEN 0 WHEN 'event' THEN 1 WHEN 'routine' THEN 2 ELSE 3 END ASC".into(),
@@ -298,7 +298,9 @@ fn manual_group_base_order(group: TodoTableGroup) -> Vec<String> {
         | TodoTableGroup::Planner(PlannerTableGroup::Routine) => {
             vec![
                 "CASE WHEN i.group_key = 'none' THEN 1 ELSE 0 END ASC".into(),
-                "i.group_rank ASC".into(),
+                "todo_sort_key(i.group_label) ASC".into(),
+                "i.group_label ASC".into(),
+                "i.group_key ASC".into(),
             ]
         }
         TodoTableGroup::Workspace(WorkspaceTableGroup::None)

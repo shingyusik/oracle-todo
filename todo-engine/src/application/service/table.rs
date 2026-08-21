@@ -44,15 +44,6 @@ pub(crate) fn query_items(
         .into_iter()
         .flat_map(|item| group_occurrences(item, &labels, query))
         .collect::<Vec<_>>();
-    let mut base_occurrences = occurrences.iter().collect::<Vec<_>>();
-    base_occurrences.sort_by(|(_, _, left), (_, _, right)| {
-        compare_items(left, right, query).then_with(|| left.id.cmp(&right.id))
-    });
-    let mut first_seen = HashMap::new();
-    for (key, _, _) in base_occurrences {
-        let next = first_seen.len();
-        first_seen.entry(key.clone()).or_insert(next);
-    }
     occurrences.sort_by(
         |(left_key, left_label, left), (right_key, right_label, right)| {
             compare_groups(
@@ -61,7 +52,6 @@ pub(crate) fn query_items(
                 right_key.as_deref(),
                 right_label.as_deref(),
                 query,
-                &first_seen,
             )
             .then_with(|| left_key.cmp(right_key))
             .then_with(|| compare_items(left, right, query))
@@ -768,7 +758,6 @@ fn compare_groups(
     right: Option<&str>,
     right_label: Option<&str>,
     query: &TodoTableQuery,
-    first_seen: &HashMap<Option<String>, usize>,
 ) -> Ordering {
     let settings = query.group_settings();
     let left = left.unwrap_or("");
@@ -792,7 +781,6 @@ fn compare_groups(
                     right,
                     right_label.unwrap_or(""),
                     settings.group_by(),
-                    first_seen,
                 ),
             }
         }
@@ -805,7 +793,6 @@ fn compare_manual_group_base(
     right: &str,
     right_label: &str,
     group: TodoTableGroup,
-    first_seen: &HashMap<Option<String>, usize>,
 ) -> Ordering {
     let fixed_rank = |value: &str, values: &[&str]| {
         values
@@ -821,11 +808,25 @@ fn compare_manual_group_base(
         TodoTableGroup::Workspace(WorkspaceTableGroup::Status)
         | TodoTableGroup::Planner(PlannerTableGroup::Status) => fixed_rank(
             left,
-            &["active", "paused", "completed", "missed", "waiting"],
+            &[
+                "active",
+                "paused",
+                "completed",
+                "missed",
+                "waiting",
+                "rejected",
+            ],
         )
         .cmp(&fixed_rank(
             right,
-            &["active", "paused", "completed", "missed", "waiting"],
+            &[
+                "active",
+                "paused",
+                "completed",
+                "missed",
+                "waiting",
+                "rejected",
+            ],
         )),
         TodoTableGroup::Planner(PlannerTableGroup::ItemType) => {
             fixed_rank(left, &["task", "event", "routine"])
@@ -841,13 +842,10 @@ fn compare_manual_group_base(
         | TodoTableGroup::Workspace(WorkspaceTableGroup::Routine)
         | TodoTableGroup::Planner(PlannerTableGroup::Area)
         | TodoTableGroup::Planner(PlannerTableGroup::Project)
-        | TodoTableGroup::Planner(PlannerTableGroup::Routine) => {
-            (left == "none").cmp(&(right == "none")).then_with(|| {
-                first_seen
-                    .get(&Some(left.to_string()))
-                    .cmp(&first_seen.get(&Some(right.to_string())))
-            })
-        }
+        | TodoTableGroup::Planner(PlannerTableGroup::Routine) => (left == "none")
+            .cmp(&(right == "none"))
+            .then_with(|| compare_unicode_text(left_label, right_label))
+            .then_with(|| left.cmp(right)),
         TodoTableGroup::Workspace(WorkspaceTableGroup::None)
         | TodoTableGroup::Planner(PlannerTableGroup::None) => Ordering::Equal,
     }

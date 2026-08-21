@@ -364,7 +364,22 @@ fn all_link_relationships_execute_with_matching_and_nonmatching_rows() {
         };
         let memory_page = memory.query_table(&query(memory_id)).unwrap();
         let sqlite_page = sqlite.query_table(&query(sqlite_id)).unwrap();
+        assert_eq!(memory_page.items.len(), 1);
+        assert_eq!(sqlite_page.items.len(), 1);
         assert_eq!(memory_page.items[0].record().title, expected);
+        assert_eq!(memory_page.items[0].record().item_type, child);
+        assert!(
+            memory_page
+                .items
+                .iter()
+                .all(|row| row.record().title != "Nonmatching")
+        );
+        assert!(
+            sqlite_page
+                .items
+                .iter()
+                .all(|row| row.record().title != "Nonmatching")
+        );
         assert_eq!(canonical_page(&sqlite_page), canonical_page(&memory_page));
     }
 }
@@ -903,6 +918,89 @@ fn relative_calendar_dates_and_or_filters_match_between_stores() {
 }
 
 #[test]
+fn multi_or_matches_each_rule_independently_and_excludes_neither() {
+    let mut memory = TodoService::in_memory();
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
+    for service in [&mut memory, &mut sqlite] {
+        for (title, scheduled, tags) in [
+            ("Date only", "2026-03-03", vec![]),
+            ("Tag only", "2026-03-04", vec!["calendar"]),
+            ("Neither", "2026-03-05", vec![]),
+        ] {
+            service
+                .propose_task(
+                    title,
+                    ProposeTask {
+                        scheduled: Some(scheduled.into()),
+                        tags: tags.into_iter().map(str::to_string).collect(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+    }
+    let query = TodoTableQuery::new(
+        TodoTableScope::Planner(PlannerTableScope::DailyToday),
+        TableContext::Planner {
+            from: date(2026, Month::March, 1),
+            to: date(2026, Month::March, 31),
+        },
+        0,
+        50,
+        FilterMode::Or,
+        vec![
+            TodoTableFilter::Planner {
+                field: PlannerFilterField::Scheduled,
+                operator: TodoFilterOperator::IsRelativeToToday,
+                value: TodoTableFilterValue::Relative {
+                    amount: "1".into(),
+                    unit: RelativeDateUnit::Month,
+                },
+            },
+            TodoTableFilter::Planner {
+                field: PlannerFilterField::Tags,
+                operator: TodoFilterOperator::Contains,
+                value: TodoTableFilterValue::TextList(vec!["calendar".into()]),
+            },
+        ],
+        vec![TodoTableSort::Planner {
+            field: PlannerSortField::Title,
+            direction: SortDirection::Asc,
+        }],
+        groups(TodoTableGroup::Planner(PlannerTableGroup::None)),
+        Some(date(2026, Month::January, 31)),
+    )
+    .unwrap();
+    let memory_page = memory.query_table(&query).unwrap();
+    let sqlite_page = sqlite.query_table(&query).unwrap();
+    assert_eq!(
+        memory_page
+            .items
+            .iter()
+            .map(|row| row.record().title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Date only", "Tag only"]
+    );
+    assert_eq!(canonical_page(&sqlite_page), canonical_page(&memory_page));
+    assert_eq!(
+        memory
+            .query_table(&query)
+            .unwrap()
+            .items
+            .iter()
+            .map(|row| row.key())
+            .collect::<Vec<_>>(),
+        memory_page
+            .items
+            .iter()
+            .map(|row| row.key())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn unicode_and_field_specific_null_sorting_match_between_stores() {
     let mut memory = TodoService::in_memory();
     let conn = connect(":memory:").unwrap();
@@ -1266,19 +1364,12 @@ fn manual_group_base_orders_match_frontend_candidates() {
 }
 
 #[test]
-fn partial_manual_relation_order_uses_row_rank_then_missing_last() {
+fn partial_manual_relation_order_uses_title_then_id_and_missing_last() {
     let mut memory = TodoService::in_memory();
     let conn = connect(":memory:").unwrap();
     init_schema(&conn).unwrap();
     let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
     let seed = |service: &mut TodoService| {
-        let early = service
-            .propose_project(ProposeProject {
-                title: "Early".into(),
-                definition_of_done: Some("Done".into()),
-                ..Default::default()
-            })
-            .unwrap();
         let late = service
             .propose_project(ProposeProject {
                 title: "Late".into(),
@@ -1286,9 +1377,16 @@ fn partial_manual_relation_order_uses_row_rank_then_missing_last() {
                 ..Default::default()
             })
             .unwrap();
+        let early = service
+            .propose_project(ProposeProject {
+                title: "Early".into(),
+                definition_of_done: Some("Done".into()),
+                ..Default::default()
+            })
+            .unwrap();
         for (title, scheduled, project_id) in [
-            ("Early task", "2026-08-01", Some(early.id)),
             ("Late task", "2026-09-01", Some(late.id.clone())),
+            ("Early task", "2026-08-01", Some(early.id)),
             ("Missing task", "2026-07-01", None),
         ] {
             service
@@ -1338,6 +1436,9 @@ fn partial_manual_relation_order_uses_row_rank_then_missing_last() {
         }
         labels
     };
+    let base = vec!["Early", "Late", "No project"];
+    assert_eq!(labels(&mut memory, "not-present".into()), base);
+    assert_eq!(labels(&mut sqlite, "not-present".into()), base);
     let expected = vec!["Late", "Early", "No project"];
     assert_eq!(labels(&mut memory, memory_late), expected);
     assert_eq!(labels(&mut sqlite, sqlite_late), expected);
