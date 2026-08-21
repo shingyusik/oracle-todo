@@ -33,16 +33,41 @@ pub fn connect_read_only(path: &str) -> TodoResult<Connection> {
 }
 
 pub(super) fn register_sort_key(connection: &Connection) -> TodoResult<()> {
+    let flags = FunctionFlags::SQLITE_DETERMINISTIC | FunctionFlags::SQLITE_INNOCUOUS;
     connection
-        .create_scalar_function(
-            "todo_sort_key",
-            1,
-            FunctionFlags::SQLITE_DETERMINISTIC | FunctionFlags::SQLITE_INNOCUOUS,
-            |context| {
-                let value = context.get::<String>(0)?;
-                Ok(crate::application::table::unicode_sort_key(&value))
-            },
-        )
+        .create_scalar_function("todo_sort_key", 1, flags, |context| {
+            let value = context.get::<String>(0)?;
+            Ok(crate::application::table::unicode_sort_key(&value))
+        })
+        .map_err(storage_error)?;
+    connection
+        .create_scalar_function("todo_fold", 1, flags, |context| {
+            Ok(context.get::<Option<String>>(0)?.map(|value| {
+                value
+                    .chars()
+                    .flat_map(char::to_lowercase)
+                    .collect::<String>()
+            }))
+        })
+        .map_err(storage_error)?;
+    connection
+        .create_scalar_function("todo_group_key", 1, flags, |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .map(|value| crate::application::table::canonical_group_value(&value)))
+        })
+        .map_err(storage_error)?;
+    connection
+        .create_scalar_function("todo_date_ordinal", 1, flags, |context| {
+            Ok(context.get::<Option<String>>(0)?.and_then(|value| {
+                time::Date::parse(
+                    value.get(..10).unwrap_or(""),
+                    time::macros::format_description!("[year]-[month]-[day]"),
+                )
+                .ok()
+                .map(time::Date::to_julian_day)
+            }))
+        })
         .map_err(storage_error)
 }
 

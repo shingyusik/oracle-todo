@@ -69,8 +69,10 @@ impl SqliteTodoRepository {
             .map_err(storage_error)?;
         let items = values
             .into_iter()
-            .filter_map(|(id, kind, title, tags)| {
-                let item_type = kind.parse::<ItemType>().ok()?;
+            .map(|(id, kind, title, tags)| -> TodoResult<_> {
+                let item_type = kind
+                    .parse::<ItemType>()
+                    .map_err(|_| TodoError::Storage("invalid item type in table lookup".into()))?;
                 let mut item = crate::domain::TodoItem::new(
                     id,
                     item_type,
@@ -78,10 +80,11 @@ impl SqliteTodoRepository {
                     crate::domain::Actor::System,
                     time::OffsetDateTime::UNIX_EPOCH,
                 );
-                item.tags = serde_json::from_str(&tags).ok()?;
-                Some(item)
+                item.tags = serde_json::from_str(&tags)
+                    .map_err(|_| TodoError::Storage("invalid tags in table lookup".into()))?;
+                Ok(item)
             })
-            .collect::<Vec<_>>();
+            .collect::<TodoResult<Vec<_>>>()?;
         Ok(build_lookups(items.iter(), scope))
     }
 }
@@ -196,16 +199,16 @@ fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
             }
             TodoTableScope::Planner(_) => {
                 item_order.extend([
-                    "todo_sort_key(coalesce(i.scheduled,'')) ASC".into(),
-                    "coalesce(i.scheduled,'') ASC".into(),
+                    "todo_date_ordinal(i.scheduled) ASC".into(),
+                    "i.scheduled ASC".into(),
                 ]);
             }
             _ => item_order.push("i.updated_at DESC".into()),
         }
     }
     item_order.extend([
-        "todo_sort_key(coalesce(i.scheduled,'')) ASC".into(),
-        "coalesce(i.scheduled,'') ASC".into(),
+        "todo_date_ordinal(i.scheduled) ASC".into(),
+        "i.scheduled ASC".into(),
         "i.updated_at DESC".into(),
         "todo_sort_key(i.title) ASC".into(),
         "i.title ASC".into(),
@@ -258,8 +261,7 @@ fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
         group_order.push("i.group_key ASC".into());
         group_order.extend(item_order.iter().cloned());
         format!(
-            "WITH occurrences AS (SELECT {selected}, {key_sql} AS group_key, {label_sql} AS group_label, ROW_NUMBER() OVER (ORDER BY {}) AS item_rank FROM items i {join} WHERE {}), ranked AS (SELECT occurrences.*, MIN(item_rank) OVER (PARTITION BY group_key) AS group_rank FROM occurrences) SELECT {selected}, i.group_key, i.group_label FROM ranked i ORDER BY {} LIMIT ? OFFSET ?",
-            item_order.join(", "),
+            "WITH occurrences AS (SELECT {selected}, {key_sql} AS group_key, {label_sql} AS group_label FROM items i {join} WHERE {}) SELECT {selected}, i.group_key, i.group_label FROM occurrences i ORDER BY {} LIMIT ? OFFSET ?",
             predicates.join(" AND "),
             group_order.join(", ")
         )
@@ -355,11 +357,11 @@ fn context_predicates(query: &TodoTableQuery, out: &mut Vec<String>, params: &mu
             ]);
             match scope {
                 PlannerTableScope::DailyOverdue => {
-                    out.push("substr(i.scheduled,1,10) < ?".into());
+                    out.push("todo_date_ordinal(i.scheduled) < todo_date_ordinal(?)".into());
                     params.push(Value::Text(iso(*from)));
                 }
                 PlannerTableScope::DailyUnscheduled => {
-                    out.push("(i.scheduled IS NULL OR i.scheduled = '')".into())
+                    out.push("(todo_date_ordinal(i.scheduled) IS NULL)".into())
                 }
                 _ => date_range(out, params, *from, *to),
             }
@@ -369,7 +371,10 @@ fn context_predicates(query: &TodoTableQuery, out: &mut Vec<String>, params: &mu
 }
 
 fn date_range(out: &mut Vec<String>, params: &mut Vec<Value>, from: Date, to: Date) {
-    out.push("substr(i.scheduled,1,10) BETWEEN ? AND ?".into());
+    out.push(
+        "todo_date_ordinal(i.scheduled) BETWEEN todo_date_ordinal(?) AND todo_date_ordinal(?)"
+            .into(),
+    );
     params.extend([Value::Text(iso(from)), Value::Text(iso(to))]);
 }
 
@@ -409,7 +414,9 @@ fn filter_predicate(
         && !is_date
         && field != "i.priority"
         && !matches!(field, "i.status" | "i.horizon" | "i.materialization_policy");
-    let empty = if is_many {
+    let empty = if is_date {
+        format!("todo_date_ordinal({field}) IS NULL")
+    } else if is_many {
         format!("({field} IS NULL OR {field} = '' OR {field} = '[]')")
     } else {
         format!("({field} IS NULL OR {field} = '')")
@@ -444,44 +451,58 @@ fn filter_predicate(
     params.extend(values.clone());
     Ok(match operator {
         TodoFilterOperator::Is if is_many => format!(
-            "EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE lower(CAST(f.value AS TEXT)) IN ({placeholders}))"
+            "EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE todo_fold(CAST(f.value AS TEXT)) IN ({placeholders}))"
         ),
-        TodoFilterOperator::Is if is_date => format!("substr({field},1,10) IN ({placeholders})"),
-        TodoFilterOperator::Is => format!("lower(CAST({field} AS TEXT)) IN ({placeholders})"),
+        TodoFilterOperator::Is if is_date => {
+            format!("todo_date_ordinal({field}) IN (todo_date_ordinal(?))")
+        }
+        TodoFilterOperator::Is => format!("todo_fold(CAST({field} AS TEXT)) IN ({placeholders})"),
         TodoFilterOperator::IsNot if is_many => format!(
-            "NOT EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE lower(CAST(f.value AS TEXT)) IN ({placeholders}))"
+            "NOT EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE todo_fold(CAST(f.value AS TEXT)) IN ({placeholders}))"
         ),
         TodoFilterOperator::IsNot if is_date => {
-            format!("({empty} OR substr({field},1,10) NOT IN ({placeholders}))")
+            format!("({empty} OR todo_date_ordinal({field}) NOT IN (todo_date_ordinal(?)))")
         }
         TodoFilterOperator::IsNot => {
-            format!("({empty} OR lower(CAST({field} AS TEXT)) NOT IN ({placeholders}))")
+            format!("({empty} OR todo_fold(CAST({field} AS TEXT)) NOT IN ({placeholders}))")
         }
         TodoFilterOperator::Contains if is_many => format!(
-            "EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE lower(CAST(f.value AS TEXT)) IN ({placeholders}))"
+            "EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE todo_fold(CAST(f.value AS TEXT)) IN ({placeholders}))"
         ),
-        TodoFilterOperator::Contains if is_text => format!("instr(lower({field}), ?) > 0"),
-        TodoFilterOperator::Contains => format!("lower(CAST({field} AS TEXT)) IN ({placeholders})"),
+        TodoFilterOperator::Contains if is_text => format!("instr(todo_fold({field}), ?) > 0"),
+        TodoFilterOperator::Contains => {
+            format!("todo_fold(CAST({field} AS TEXT)) IN ({placeholders})")
+        }
         TodoFilterOperator::DoesNotContain if is_many => format!(
-            "NOT EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE lower(CAST(f.value AS TEXT)) IN ({placeholders}))"
+            "NOT EXISTS (SELECT 1 FROM json_each({match_field}) f WHERE todo_fold(CAST(f.value AS TEXT)) IN ({placeholders}))"
         ),
         TodoFilterOperator::DoesNotContain if is_text => {
-            format!("({empty} OR instr(lower({field}), ?) = 0)")
+            format!("({empty} OR instr(todo_fold({field}), ?) = 0)")
         }
         TodoFilterOperator::DoesNotContain => {
-            format!("({empty} OR lower(CAST({field} AS TEXT)) NOT IN ({placeholders}))")
+            format!("({empty} OR todo_fold(CAST({field} AS TEXT)) NOT IN ({placeholders}))")
         }
-        TodoFilterOperator::StartsWith => format!("instr(lower({field}), ?) = 1"),
+        TodoFilterOperator::StartsWith => format!("instr(todo_fold({field}), ?) = 1"),
         TodoFilterOperator::EndsWith => {
             params.extend(values);
-            format!("substr(lower({field}), -length(?)) = ?")
+            format!("substr(todo_fold({field}), -length(?)) = ?")
         }
-        TodoFilterOperator::IsBefore => format!("substr({field},1,10) < ?"),
-        TodoFilterOperator::IsAfter => format!("substr({field},1,10) > ?"),
-        TodoFilterOperator::IsOnOrBefore => format!("substr({field},1,10) <= ?"),
-        TodoFilterOperator::IsOnOrAfter => format!("substr({field},1,10) >= ?"),
-        TodoFilterOperator::IsBetween => format!("substr({field},1,10) BETWEEN ? AND ?"),
-        TodoFilterOperator::IsRelativeToToday => format!("substr({field},1,10) = ?"),
+        TodoFilterOperator::IsBefore => {
+            format!("todo_date_ordinal({field}) < todo_date_ordinal(?)")
+        }
+        TodoFilterOperator::IsAfter => format!("todo_date_ordinal({field}) > todo_date_ordinal(?)"),
+        TodoFilterOperator::IsOnOrBefore => {
+            format!("todo_date_ordinal({field}) <= todo_date_ordinal(?)")
+        }
+        TodoFilterOperator::IsOnOrAfter => {
+            format!("todo_date_ordinal({field}) >= todo_date_ordinal(?)")
+        }
+        TodoFilterOperator::IsBetween => format!(
+            "todo_date_ordinal({field}) BETWEEN todo_date_ordinal(?) AND todo_date_ordinal(?)"
+        ),
+        TodoFilterOperator::IsRelativeToToday => {
+            format!("todo_date_ordinal({field}) = todo_date_ordinal(?)")
+        }
         TodoFilterOperator::GreaterThan => format!("CAST({field} AS INTEGER) > CAST(? AS INTEGER)"),
         TodoFilterOperator::LessThan => format!("CAST({field} AS INTEGER) < CAST(? AS INTEGER)"),
         TodoFilterOperator::IsEmpty | TodoFilterOperator::IsNotEmpty => unreachable!(),
@@ -597,19 +618,12 @@ fn group_projection(group: TodoTableGroup) -> (String, Option<String>, Option<St
             Some("CASE i.status WHEN 'active' THEN 'Active' WHEN 'waiting' THEN 'Waiting' WHEN 'paused' THEN 'Paused' WHEN 'completed' THEN 'Completed' WHEN 'cancelled' THEN 'Cancelled' WHEN 'dropped' THEN 'Dropped' WHEN 'archived' THEN 'Archived' WHEN 'missed' THEN 'missed' WHEN 'rejected' THEN 'Rejected' ELSE i.status END".into()),
         ),
         TodoTableGroup::Planner(PlannerTableGroup::ItemType) => (String::new(), Some("i.type".into()), Some("CASE i.type WHEN 'area' THEN 'Area' WHEN 'project' THEN 'Project' WHEN 'routine' THEN 'Routine' WHEN 'task' THEN 'Task' WHEN 'event' THEN 'Event' WHEN 'review' THEN 'Review' WHEN 'archive_item' THEN 'Archive item' WHEN 'goal' THEN 'Goal' ELSE i.type END".into())),
-        TodoTableGroup::Planner(PlannerTableGroup::Day) => (String::new(), Some("coalesce(substr(i.scheduled,1,10),'none')".into()), Some("coalesce(substr(i.scheduled,1,10),'No date')".into())),
+        TodoTableGroup::Planner(PlannerTableGroup::Day) => (String::new(), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'none' ELSE substr(i.scheduled,1,10) END".into()), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'No date' ELSE substr(i.scheduled,1,10) END".into())),
         TodoTableGroup::Planner(PlannerTableGroup::Week) => (String::new(), Some("coalesce(date(substr(i.scheduled,1,10), '-' || ((CAST(strftime('%w',substr(i.scheduled,1,10)) AS INTEGER)+6)%7) || ' days'),'none')".into()), Some("coalesce('Week of ' || date(substr(i.scheduled,1,10), '-' || ((CAST(strftime('%w',substr(i.scheduled,1,10)) AS INTEGER)+6)%7) || ' days'),'No date')".into())),
-        TodoTableGroup::Planner(PlannerTableGroup::Month) => (String::new(), Some("coalesce(substr(i.scheduled,1,7),'none')".into()), Some("CASE WHEN i.scheduled IS NULL OR i.scheduled = '' THEN 'No date' ELSE CASE substr(i.scheduled,6,2) WHEN '01' THEN 'January' WHEN '02' THEN 'February' WHEN '03' THEN 'March' WHEN '04' THEN 'April' WHEN '05' THEN 'May' WHEN '06' THEN 'June' WHEN '07' THEN 'July' WHEN '08' THEN 'August' WHEN '09' THEN 'September' WHEN '10' THEN 'October' WHEN '11' THEN 'November' WHEN '12' THEN 'December' END || ' ' || substr(i.scheduled,1,4) END".into())),
+        TodoTableGroup::Planner(PlannerTableGroup::Month) => (String::new(), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'none' ELSE substr(i.scheduled,1,7) END".into()), Some("CASE WHEN todo_date_ordinal(i.scheduled) IS NULL THEN 'No date' ELSE CASE substr(i.scheduled,6,2) WHEN '01' THEN 'January' WHEN '02' THEN 'February' WHEN '03' THEN 'March' WHEN '04' THEN 'April' WHEN '05' THEN 'May' WHEN '06' THEN 'June' WHEN '07' THEN 'July' WHEN '08' THEN 'August' WHEN '09' THEN 'September' WHEN '10' THEN 'October' WHEN '11' THEN 'November' WHEN '12' THEN 'December' END || ' ' || substr(i.scheduled,1,4) END".into())),
     }
 }
 
 fn canonical_group_sql(raw: &str) -> String {
-    let controls = (1..=31)
-        .map(|code| format!("instr({raw},char({code})) > 0"))
-        .chain([format!("instr({raw},char(127)) > 0")])
-        .collect::<Vec<_>>()
-        .join(" OR ");
-    format!(
-        "CASE WHEN {raw} IN ('none','untagged') OR instr({raw},'\\') > 0 OR {controls} THEN '\\' || lower(hex({raw})) ELSE {raw} END"
-    )
+    format!("todo_group_key({raw})")
 }
