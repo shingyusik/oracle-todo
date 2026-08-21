@@ -109,6 +109,7 @@ import {
 
 type MainPanelProps = {
   controller: WorkbenchController;
+  mutationEpochs?: { ledger: number; health: number };
 };
 
 type DetailHistoryController = BrowserDetailHistory;
@@ -135,7 +136,7 @@ function sameTags(left: string[] | null | undefined, right: string[] | null | un
   return formatTags(left) === formatTags(right);
 }
 
-export function MainPanel({ controller }: MainPanelProps) {
+export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
   const detailHistory = useBrowserDetailHistory({
     stateKey: "__ravenDetailItemId",
     currentId: controller.detailItem?.id ?? null,
@@ -172,6 +173,7 @@ export function MainPanel({ controller }: MainPanelProps) {
         <LedgerWorkspace
           leafTabId={controller.selection.leafTabId}
           workbench={controller}
+          mutationEpoch={mutationEpochs?.ledger ?? 0}
         />
       </main>
     );
@@ -180,7 +182,11 @@ export function MainPanel({ controller }: MainPanelProps) {
   if (controller.selection.mainTabId === "health" && isHealthPanel(controller.selection.leafTabId)) {
     return (
       <main className="main-panel">
-        <HealthWorkspace leafTabId={controller.selection.leafTabId} workbench={controller} />
+        <HealthWorkspace
+          leafTabId={controller.selection.leafTabId}
+          workbench={controller}
+          mutationEpoch={mutationEpochs?.health ?? 0}
+        />
       </main>
     );
   }
@@ -203,11 +209,19 @@ export function MainPanel({ controller }: MainPanelProps) {
 function LedgerWorkspace({
   leafTabId,
   workbench,
+  mutationEpoch,
 }: {
   leafTabId: LedgerTabId;
   workbench: WorkbenchController;
+  mutationEpoch: number;
 }) {
   const controller = useLedgerController();
+  const seenMutationEpoch = useRef(mutationEpoch);
+  useEffect(() => {
+    if (seenMutationEpoch.current === mutationEpoch) return;
+    seenMutationEpoch.current = mutationEpoch;
+    void controller.refresh();
+  }, [controller.refresh, mutationEpoch]);
   function drilldown(target: ReportDrilldownTarget) {
     controller.updateTableSettings("ledger.transactions", (settings) =>
       applyReportDrilldown(settings, target));
@@ -225,11 +239,19 @@ function LedgerWorkspace({
 function HealthWorkspace({
   leafTabId,
   workbench,
+  mutationEpoch,
 }: {
   leafTabId: HealthTabId;
   workbench: WorkbenchController;
+  mutationEpoch: number;
 }) {
   const controller = useHealthController();
+  const seenMutationEpoch = useRef(mutationEpoch);
+  useEffect(() => {
+    if (seenMutationEpoch.current === mutationEpoch) return;
+    seenMutationEpoch.current = mutationEpoch;
+    void controller.refresh();
+  }, [controller.refresh, mutationEpoch]);
   function drilldown(target: HealthReportDrilldown) {
     const scope = (
       `health.${target.tab === "health-metrics" ? "metrics" : target.tab}`

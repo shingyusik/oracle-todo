@@ -25,10 +25,12 @@ type QuickAddKind =
 export function QuickAddDialog({
   controller,
   onClose,
+  onMutation,
   returnFocusRef,
 }: {
   controller: WorkbenchController;
   onClose: () => void;
+  onMutation?: (domain: "ledger" | "health") => void;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [kind, setKind] = React.useState<QuickAddKind>("select");
@@ -132,14 +134,20 @@ export function QuickAddDialog({
             ) : null}
             {kind === "ledger" ? (
               <LedgerQuickAdd
-                onSaved={onClose}
+                onSaved={() => {
+                  onMutation?.("ledger");
+                  onClose();
+                }}
                 onPendingChange={setPending}
               />
             ) : null}
             {kind !== "ledger" ? (
               <HealthQuickAdd
                 kind={kind}
-                onSaved={onClose}
+                onSaved={() => {
+                  onMutation?.("health");
+                  onClose();
+                }}
                 onPendingChange={setPending}
               />
             ) : null}
@@ -161,8 +169,7 @@ function LedgerQuickAdd({
 }: QuickAddFormProps) {
   const controller = useLedgerController();
   const references = useReferencePreload(
-    controller.ensureReferenceData ?? controller.refresh,
-    "ledger.transactions",
+    controller.ensureTransactionFormReferences ?? controller.refresh,
   );
 
   if (references.status === "loading") {
@@ -196,7 +203,10 @@ function HealthQuickAdd({
 }) {
   const controller = useHealthController();
   const scope = `health.${kind}` as const;
-  const references = useReferencePreload(controller.ensureReferenceData, scope);
+  const references = useReferencePreload(
+    controller.ensureQuickAddReferences ?? controller.ensureReferenceData,
+    scope,
+  );
   const props = { controller, onSaved, onPendingChange };
 
   if (references.status === "loading") {
@@ -212,23 +222,26 @@ function HealthQuickAdd({
   }
 
   switch (kind) {
-    case "diet": return <DietForm {...props} />;
+    case "diet": return <DietForm
+      {...props}
+      tagOptions={(controller.state.tableLookups?.[scope]?.tags ?? []).map(({ label }) => label)}
+    />;
     case "bowel": return <BowelForm {...props} />;
     case "medication": return <MedicationForm {...props} />;
     case "metrics": return <MetricsForm {...props} />;
   }
 }
 
-function useReferencePreload<Scope>(
-  ensure: (scope: Scope) => Promise<boolean>,
-  scope: Scope,
+function useReferencePreload<Scope = never>(
+  ensure: ((scope: Scope) => Promise<boolean>) | (() => Promise<boolean>),
+  scope?: Scope,
 ) {
   const [status, setStatus] = React.useState<"loading" | "loaded" | "error">("loading");
   const generation = React.useRef(0);
   const retry = React.useCallback(() => {
     const request = ++generation.current;
     setStatus("loading");
-    void ensure(scope).then((ok) => {
+    void ensure(scope as Scope).then((ok) => {
       if (generation.current === request) setStatus(ok ? "loaded" : "error");
     });
   }, [ensure, scope]);

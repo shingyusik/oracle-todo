@@ -113,6 +113,7 @@ export type LedgerController = {
   ensureTable?(scope: LedgerTableScopeId): Promise<void>;
   loadMore?(scope: LedgerTableScopeId): Promise<void>;
   ensureReferenceData?(scope: LedgerTableScopeId): Promise<boolean>;
+  ensureTransactionFormReferences?(): Promise<boolean>;
   hasReferenceData?(scope: LedgerTableScopeId): boolean;
   updateTableSettings(
     scope: LedgerTableScopeId,
@@ -239,6 +240,8 @@ export function useLedgerController(): LedgerController {
   const pendingMore = useRef(new Set<LedgerTableScopeId>());
   const referenceDataLoaded = useRef(new Set<LedgerTableScopeId>());
   const referenceDataRequests = useRef(new Map<LedgerTableScopeId, Promise<boolean>>());
+  const transactionFormReferencesLoaded = useRef(false);
+  const transactionFormReferencesRequest = useRef<Promise<boolean> | null>(null);
   const tableViewsRef = useRef(tableViews);
   const initialTableViews = useRef(tableViews);
   const tableViewsLoaded = useRef(false);
@@ -365,6 +368,7 @@ export function useLedgerController(): LedgerController {
           setState((current) => ({
             ...current, error: null, entries, currencies, accounts, categories,
           }));
+          transactionFormReferencesLoaded.current = true;
         } else if (scope === "ledger.accounts") {
           const [currencies, accountCategories, accounts, balances] = await Promise.all([
             drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
@@ -396,6 +400,32 @@ export function useLedgerController(): LedgerController {
     (scope: LedgerTableScopeId) => loadReferenceData(scope),
     [loadReferenceData],
   );
+  const loadTransactionFormReferences = useCallback((force = false): Promise<boolean> => {
+    if (!force && transactionFormReferencesLoaded.current) return Promise.resolve(true);
+    if (!force && transactionFormReferencesRequest.current) {
+      return transactionFormReferencesRequest.current;
+    }
+    const request = Promise.all([
+      drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
+      drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
+      drainPages((offset) => ledgerApi.listTransactionCategories({ limit: 200, offset })),
+    ]).then(([currencies, accounts, categories]) => {
+      transactionFormReferencesLoaded.current = true;
+      setState((current) => ({
+        ...current, status: "loaded", error: null, currencies, accounts, categories,
+      }));
+      return true;
+    }, (error) => {
+      setState((current) => ({ ...current, error: errorMessage(error) }));
+      return false;
+    }).finally(() => {
+      if (transactionFormReferencesRequest.current === request) {
+        transactionFormReferencesRequest.current = null;
+      }
+    });
+    transactionFormReferencesRequest.current = request;
+    return request;
+  }, []);
 
   function saveTableViews(next: LedgerTableViewsState) {
     const generation = ++tableViewSaveGeneration.current;
@@ -496,6 +526,12 @@ export function useLedgerController(): LedgerController {
         ),
         Promise.all([...initializedTables.current].map(loadInitialTable)),
       ]);
+      if (
+        transactionFormReferencesLoaded.current &&
+        !referenceDataLoaded.current.has("ledger.transactions")
+      ) {
+        references.push(await loadTransactionFormReferences(true));
+      }
       if (generation !== refreshGeneration.current && latestRefresh.current !== request) {
         return latestRefresh.current ?? { ok: false, error: "Ledger request failed" };
       }
@@ -506,7 +542,7 @@ export function useLedgerController(): LedgerController {
     })();
     latestRefresh.current = request;
     return request.then(({ ok }) => ok);
-  }, [loadInitialTable, loadReferenceData]);
+  }, [loadInitialTable, loadReferenceData, loadTransactionFormReferences]);
 
   useEffect(() => {
     void refreshOutcome();
@@ -648,6 +684,7 @@ export function useLedgerController(): LedgerController {
     ensureTable,
     loadMore,
     ensureReferenceData,
+    ensureTransactionFormReferences: loadTransactionFormReferences,
     hasReferenceData: (scope) => referenceDataLoaded.current.has(scope),
     updateTableSettings: (scope, updater) => {
       updateTableTabs(scope, (tabs) => updateTableViewTabDraft(

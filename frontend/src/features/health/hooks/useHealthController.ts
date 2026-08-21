@@ -100,6 +100,7 @@ export type HealthTablePagingController = {
   ensureTable(scope: HealthTableScopeId): Promise<void>;
   loadMore(scope: HealthTableScopeId): Promise<void>;
   ensureReferenceData(scope: HealthTableScopeId): Promise<boolean>;
+  ensureQuickAddReferences?(scope: HealthTableScopeId): Promise<boolean>;
   hasReferenceData(scope: HealthTableScopeId): boolean;
 };
 
@@ -235,6 +236,8 @@ export function useHealthController(): HealthController {
   const referenceDataGeneration = useRef(Object.fromEntries(
     healthTableScopeIds.map((scope) => [scope, 0]),
   ) as Record<HealthTableScopeId, number>);
+  const dietFormReferencesLoaded = useRef(false);
+  const dietFormReferencesRequest = useRef<Promise<boolean> | null>(null);
   const tableViewsRef = useRef(tableViews);
   const initialTableViews = useRef(tableViews);
   const tableViewsLoaded = useRef(false);
@@ -660,20 +663,56 @@ export function useHealthController(): HealthController {
     (scope: HealthTableScopeId) => loadReferenceData(scope),
     [loadReferenceData],
   );
+  const loadDietFormReferences = useCallback((force = false): Promise<boolean> => {
+    if (!force && dietFormReferencesLoaded.current) return Promise.resolve(true);
+    if (!force && dietFormReferencesRequest.current) return dietFormReferencesRequest.current;
+    const request = healthApi.tableLookups("health.diet").then((lookups) => {
+      dietFormReferencesLoaded.current = true;
+      setState((current) => ({
+        ...current,
+        dietError: null,
+        tableLookups: {
+          ...initialState.tableLookups!,
+          ...current.tableLookups,
+          "health.diet": lookups,
+        },
+      }));
+      return true;
+    }, (error) => {
+      setState((current) => ({
+        ...current,
+        dietError: errorMessage(error, "Diet request failed"),
+      }));
+      return false;
+    }).finally(() => {
+      if (dietFormReferencesRequest.current === request) {
+        dietFormReferencesRequest.current = null;
+      }
+    });
+    dietFormReferencesRequest.current = request;
+    return request;
+  }, []);
+  const ensureQuickAddReferences = useCallback((scope: HealthTableScopeId) => {
+    if (scope === "health.diet") return loadDietFormReferences();
+    if (scope === "health.metrics") return loadReferenceData(scope);
+    return Promise.resolve(true);
+  }, [loadDietFormReferences, loadReferenceData]);
 
   const refreshScope = useCallback(async (scope: HealthTableScopeId) => {
     const requests: Promise<boolean>[] = [];
     if (initializedTables.current.has(scope)) requests.push(loadInitialTable(scope));
     if (referenceDataRequested.current.has(scope)) {
       requests.push(loadReferenceData(scope, true));
+    } else if (scope === "health.diet" && dietFormReferencesLoaded.current) {
+      requests.push(loadDietFormReferences(true));
     }
-    if (requests.length === 0) requests.push(loadInitialTable(scope));
     const outcomes = await Promise.all(requests);
     return outcomes.every(Boolean);
-  }, [loadInitialTable, loadReferenceData]);
+  }, [loadDietFormReferences, loadInitialTable, loadReferenceData]);
 
   const refresh = useCallback(async () => {
     const scopes = new Set([...initializedTables.current, ...referenceDataRequested.current]);
+    if (dietFormReferencesLoaded.current) scopes.add("health.diet");
     const outcomes = await Promise.all([...scopes].map((scope) => refreshScope(scope)));
     return outcomes.every(Boolean);
   }, [refreshScope]);
@@ -886,6 +925,7 @@ export function useHealthController(): HealthController {
     ensureTable,
     loadMore,
     ensureReferenceData,
+    ensureQuickAddReferences,
     hasReferenceData: (scope) => referenceDataLoaded.current.has(scope),
     updateTableSettings: (scope, updater) => {
       updateTableTabs(scope, (tabs) => updateTableViewTabDraft(
