@@ -27,6 +27,8 @@ import { defaultHealthTableSettings } from "@/features/health/model/health-table
 import type {
   DietEntry,
   HealthEvent,
+  HealthTableOccurrence,
+  HealthTableScope,
 } from "@/features/health/model/health-model";
 import { HealthPanel } from "@/features/health/ui/HealthPanel";
 
@@ -197,6 +199,44 @@ function tableOccurrences(scope: Parameters<HealthController["tablePage"]>[0], s
 
 function metricValue(events: HealthEvent[], key: string) {
   return events.find(({ metricKey }) => metricKey === key)?.value ?? null;
+}
+
+function productionOccurrences(scope: HealthTableScope): HealthTableOccurrence[] {
+  const groups = ["Server group B", "Server group A", "Server group C"];
+  if (scope === "health.diet") return ["Server diet B", "Server diet A", "Server diet C"]
+    .map((food, index) => {
+      const entry = { ...diet, id: `diet-page-${index}`, foodName: food };
+      return { key: `diet:${index}`, groupKey: `diet-group-${index}`,
+        groupLabel: groups[index]!, scope, record: { kind: "diet" as const, id: entry.id,
+          entry, date: entry.occurredAt.slice(0, 10), mealLabel: "Lunch", food,
+          tags: entry.tags, hasPhoto: false, note: "" } };
+    });
+  if (scope === "health.bowel") return [7, 3, 5].map((bristolScale, index) => {
+    const event = { ...bowel, id: `bowel-page-${index}`,
+      attributes: { kind: "bowel" as const, bristolScale, bloodVisible: false } };
+    return { key: `bowel:${index}`, groupKey: `bowel-group-${index}`,
+      groupLabel: groups[index]!, scope, record: { kind: "bowel" as const, id: event.id,
+        event, date: event.occurredAt.slice(0, 10), bristolScale, bloodVisible: false,
+        bloodLabel: "No", note: "" } };
+  });
+  if (scope === "health.medication") return [
+    "Server medication B", "Server medication A", "Server medication C",
+  ].map((medicationName, index) => {
+    const event = { ...medication, id: `medication-page-${index}`, name: medicationName,
+      metricKey: medicationName, attributes: { ...medication.attributes, medicationName } };
+    return { key: `medication:${index}`, groupKey: `medication-group-${index}`,
+      groupLabel: groups[index]!, scope, record: { kind: "medication" as const, id: event.id,
+        event, date: event.occurredAt.slice(0, 10), medicationName, dose: 1000,
+        unit: "mg", unitLabel: "mg", note: "" } };
+  });
+  return ["2026-08-22", "2026-08-21", "2026-08-20"].map((date, index) => {
+    const event = { ...metric, id: `metric-page-${index}`, occurredAt: `${date}T03:00:00Z` };
+    return { key: `metrics:${index}`, groupKey: `metrics-group-${index}`,
+      groupLabel: groups[index]!, scope, record: { kind: "metrics" as const, id: date,
+        date, events: [event], weight: event.value, sleep: null, crp: null,
+        calprotectin: null, condition: null, note: "", createdAt: event.createdAt,
+        updatedAt: event.updatedAt } };
+  });
 }
 
 function deferred<T>() {
@@ -796,6 +836,151 @@ describe("HealthPanel", () => {
     });
     expect(healthApi.queryTable).toHaveBeenCalledTimes(2);
   });
+
+  it("offers initial Diet tag lookups through the real controller without a rich-data drain", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(healthApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({
+      tags: [{ id: "lookup-tag", label: "Lookup tag" }],
+    });
+    const legacyDiet = vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    const legacyEvents = vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+
+    function ProductionPanel() {
+      return <HealthPanel controller={useHealthController()} leafTabId="diet" />;
+    }
+    render(<ProductionPanel />);
+    await waitFor(() => expect(healthApi.tableLookups).toHaveBeenCalledWith("health.diet"));
+    await user.click(screen.getByRole("button", { name: "Filter Diet" }));
+    const filter = screen.getByRole("dialog", { name: "Filter Diet" });
+    await user.click(within(filter).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filter).getByRole("option", { name: "Tags" }));
+    await user.click(within(filter).getByRole("button", { name: "Select Tags filter values" }));
+
+    expect(within(filter).getByText("Lookup tag")).toBeInTheDocument();
+    expect(legacyDiet).not.toHaveBeenCalled();
+    expect(legacyEvents).not.toHaveBeenCalled();
+    expect(healthApi.queryTable).toHaveBeenCalledWith(
+      "health.diet", expect.anything(), 0,
+    );
+  });
+
+  it.each([
+    ["health.diet", "diet", ["Server diet B", "Server diet A"], "Server diet C"],
+    ["health.bowel", "bowel", ["Type 7", "Type 3"], "Type 5"],
+    ["health.medication", "medication", ["Server medication B", "Server medication A"], "Server medication C"],
+    ["health.metrics", "health-metrics", ["2026-08-22", "2026-08-21"], "2026-08-20"],
+  ] as const)("renders real %s hook pages in server order and retries the same next offset",
+    async (scope, leaf, firstLabels, appendedLabel) => {
+      const pages = productionOccurrences(scope);
+      let nextAttempts = 0;
+      vi.spyOn(healthApi, "queryTable").mockImplementation(async (actualScope, _settings, offset) => {
+        expect(actualScope).toBe(scope);
+        if (offset === 0) return { items: pages.slice(0, 2), nextOffset: 50 };
+        nextAttempts += 1;
+        if (nextAttempts === 1) throw new Error("page unavailable");
+        return { items: pages.slice(2), nextOffset: null };
+      });
+      vi.spyOn(healthApi, "tableLookups").mockResolvedValue(
+        scope === "health.diet" ? { tags: [{ id: "lookup", label: "Lookup" }] } : {},
+      );
+      const legacyDiet = vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+      const legacyEvents = vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+
+      function ProductionPanel() {
+        return <HealthPanel controller={useHealthController()} leafTabId={leaf} />;
+      }
+      render(<ProductionPanel />);
+
+      const table = await screen.findByRole("table");
+      await waitFor(() => expect([...table.querySelectorAll("tbody tr[tabindex='0']")]
+        .map((row) => row.textContent).join(" ")).toContain(firstLabels[0]));
+      const firstText = [...table.querySelectorAll("tbody tr[tabindex='0']")]
+        .map((row) => row.textContent ?? "");
+      expect(firstText[0]).toContain(firstLabels[0]);
+      expect(firstText[1]).toContain(firstLabels[1]);
+      expect(screen.getByText("Server group B")).toBeInTheDocument();
+      expect(screen.getByText("Server group A")).toBeInTheDocument();
+      expect(healthApi.queryTable).toHaveBeenCalledWith(scope, defaultHealthTableSettings(scope), 0);
+      expect(healthApi.tableLookups).toHaveBeenCalledWith(scope);
+      expect(legacyDiet).not.toHaveBeenCalled();
+      expect(legacyEvents).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+      expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+      expect(screen.getByText(firstLabels[0])).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+      expect(await screen.findByText(appendedLabel)).toBeInTheDocument();
+      expect(vi.mocked(healthApi.queryTable).mock.calls.map((call) => call[2])).toEqual([0, 50, 50]);
+    });
+
+  it.each([
+    ["health.diet", "diet", "Server diet C"],
+    ["health.bowel", "bowel", "Type 5"],
+    ["health.medication", "medication", "Server medication C"],
+    ["health.metrics", "health-metrics", "2026-08-20"],
+  ] as const)("opens a real %s page-two snapshot and refreshes offset zero after archive",
+    async (scope, leaf, pageTwoLabel) => {
+      const pages = productionOccurrences(scope);
+      let initialLoads = 0;
+      vi.spyOn(healthApi, "queryTable").mockImplementation(async (_scope, _settings, offset) => {
+        if (offset === 50) return { items: pages.slice(2), nextOffset: null };
+        initialLoads += 1;
+        return initialLoads === 1
+          ? { items: pages.slice(0, 1), nextOffset: 50 }
+          : { items: [], nextOffset: null };
+      });
+      vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+      const dietReferences = pages.flatMap(({ record }) =>
+        record.kind === "diet" ? [record.entry] : []);
+      const eventReferences = pages.flatMap(({ record }) =>
+        record.kind === "metrics" ? record.events
+          : record.kind === "bowel" || record.kind === "medication" ? [record.event] : []);
+      vi.spyOn(healthApi, "listDiet").mockResolvedValue(
+        dietReferences,
+      );
+      vi.spyOn(healthApi, "listEvents").mockResolvedValue(eventReferences);
+      const archiveDiet = vi.spyOn(healthApi, "archiveDiet").mockResolvedValue(
+        dietReferences[0] ?? diet,
+      );
+      const archiveEvent = vi.spyOn(healthApi, "archiveEvent").mockResolvedValue(
+        eventReferences[0] ?? bowel,
+      );
+      const saveMetrics = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([]);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+
+      function ProductionPanel() {
+        return <HealthPanel controller={useHealthController()} leafTabId={leaf} />;
+      }
+      render(<ProductionPanel />);
+      await screen.findByRole("button", { name: "Load more" });
+      await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+      const table = screen.getByRole("table");
+      const pageTwoRow = await waitFor(() => {
+        const row = [...table.querySelectorAll<HTMLElement>("tbody tr[tabindex='0']")]
+          .find((candidate) => candidate.textContent?.includes(pageTwoLabel));
+        expect(row).toBeDefined();
+        return row!;
+      });
+      await userEvent.click(pageTwoRow);
+      expect(await screen.findByRole("button", { name: "Delete" })).toBeInTheDocument();
+      if (scope === "health.metrics") {
+        expect(screen.getByRole("region", {
+          name: `Health Metrics ${pageTwoLabel} details`,
+        })).toBeInTheDocument();
+      } else {
+        expect(screen.getByText(pageTwoLabel)).toBeInTheDocument();
+      }
+
+      await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+      await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+      await waitFor(() => expect(vi.mocked(healthApi.queryTable).mock.calls.at(-1)?.[2]).toBe(0));
+      if (scope === "health.diet") expect(archiveDiet).toHaveBeenCalledOnce();
+      else if (scope === "health.metrics") expect(saveMetrics).toHaveBeenCalledOnce();
+      else expect(archiveEvent).toHaveBeenCalledOnce();
+    });
 
   it("preserves rows on page errors, retries the same offset, and ignores stale pages", async () => {
     const stale = deferred<Awaited<ReturnType<typeof healthApi.queryTable>>>();

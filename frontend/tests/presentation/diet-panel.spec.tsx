@@ -862,6 +862,24 @@ describe("DietPanel table", () => {
     ]);
   });
 
+  it("offers compact Diet tag lookups before rich reference data is loaded", async () => {
+    const user = userEvent.setup();
+    const filtered = defaultHealthTableSettings("health.diet");
+    filtered.filterRules = [{ id: "tag", field: "tags", type: "multiSelect",
+      operator: "is", value: [] }];
+    const health = controller({ ...loadedState, dietEntries: [], tableLookups: {
+      "health.diet": { tags: [{ id: "lookup-tag", label: "Lookup tag" }] },
+      "health.bowel": {}, "health.medication": {}, "health.metrics": {},
+    } }, filtered);
+
+    render(<DietPanel controller={health} />);
+    await user.click(screen.getByRole("button", { name: "Filter Diet" }));
+    const filter = screen.getByRole("dialog", { name: "Filter Diet" });
+    await user.click(within(filter).getByRole("button", { name: "Select Tags filter values" }));
+    expect(within(filter).getByText("Lookup tag")).toBeInTheDocument();
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
+  });
+
   it("shows initial loading/error and retains rows for a refresh error", async () => {
     const retry = vi.fn();
     const view = render(<DietPanel controller={{
