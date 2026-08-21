@@ -210,7 +210,7 @@ fn filter_sql(query: &LedgerTableQuery, values: &mut Vec<Value>) -> String {
     query
         .filters()
         .iter()
-        .map(|filter| one_filter_sql(filter, values))
+        .map(|filter| format!("({})", one_filter_sql(filter, values)))
         .collect::<Vec<_>>()
         .join(joiner)
 }

@@ -645,6 +645,63 @@ fn sqlite_table_query_keeps_a_transfer_logical_and_emits_account_occurrences() {
 }
 
 #[test]
+fn sqlite_table_query_keeps_multi_expression_filters_inside_their_and_rule() {
+    let mut service = table_service();
+    service
+        .transfer(TransferCommand {
+            operation_key: TransferOperationKey::generate(),
+            date: "2026-08-21".into(),
+            written_at: datetime!(2026-08-21 00:00 UTC),
+            content: "small transfer".into(),
+            from_account: "Wallet".into(),
+            to_account: "Bank".into(),
+            amount: Money::from_minor_units(50),
+            currency: "KRW".into(),
+            source: "test".into(),
+            notes: None,
+            actor: "test".into(),
+        })
+        .unwrap();
+    let bank_id = service
+        .accounts_page(ledger_engine::application::ports::Page {
+            offset: 0,
+            limit: 10,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|account| account.name() == "Bank")
+        .unwrap()
+        .id()
+        .to_string();
+
+    let page = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![
+                    LedgerTableFilter::Transactions {
+                        field: TransactionTableFilterField::Account,
+                        operator: LedgerFilterOperator::Is,
+                        value: LedgerTableFilterValue::TextList(vec![bank_id]),
+                    },
+                    LedgerTableFilter::Transactions {
+                        field: TransactionTableFilterField::Amount,
+                        operator: LedgerFilterOperator::GreaterThan,
+                        value: LedgerTableFilterValue::Text("100".into()),
+                    },
+                ],
+                vec![transaction_date_sort()],
+                group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(page.items.is_empty());
+}
+
+#[test]
 fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before_page() {
     let mut service = table_service();
     for (date, content, account) in [
@@ -669,6 +726,22 @@ fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before
             })
             .unwrap();
     }
+    service
+        .create_entry(CreateEntry {
+            date: "2026-08-25".into(),
+            written_at: datetime!(2026-08-21 00:00 UTC),
+            content: "uncategorized".into(),
+            category: None,
+            account: "Bank".into(),
+            entry_type: EntryType::AdjustmentOut,
+            amount: Money::from_minor_units(100),
+            currency: "KRW".into(),
+            transfer_group: None,
+            source: "test".into(),
+            notes: None,
+            actor: "test".into(),
+        })
+        .unwrap();
     let week_page = service
         .query_table(
             &query(
@@ -711,6 +784,84 @@ fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before
             .items
             .iter()
             .all(|row| row.group_label() == Some("Week of 2026-08-17"))
+    );
+
+    let reverse = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![],
+                vec![transaction_date_sort()],
+                LedgerTableGroupSettings::new(
+                    LedgerTableGroup::Transactions(TransactionTableGroup::Week),
+                    GroupSort::ReverseAlphabetical,
+                    false,
+                    vec![],
+                    vec![],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut reverse_groups = reverse
+        .items
+        .iter()
+        .filter_map(|row| row.group_key().map(str::to_string))
+        .collect::<Vec<_>>();
+    reverse_groups.dedup();
+    assert_eq!(reverse_groups, ["2026-08-24", "2026-08-17"]);
+
+    let categories_with_empty = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![],
+                vec![transaction_date_sort()],
+                LedgerTableGroupSettings::new(
+                    LedgerTableGroup::Transactions(TransactionTableGroup::Category),
+                    GroupSort::Alphabetical,
+                    false,
+                    vec![],
+                    vec![],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        categories_with_empty
+            .items
+            .iter()
+            .any(|row| row.group_key().is_none())
+    );
+    let categories_without_empty = service
+        .query_table(
+            &query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![],
+                vec![transaction_date_sort()],
+                LedgerTableGroupSettings::new(
+                    LedgerTableGroup::Transactions(TransactionTableGroup::Category),
+                    GroupSort::Alphabetical,
+                    true,
+                    vec![],
+                    vec![],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        categories_without_empty
+            .items
+            .iter()
+            .all(|row| row.group_key().is_some())
     );
 
     let accounts = service
