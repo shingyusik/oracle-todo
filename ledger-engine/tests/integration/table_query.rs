@@ -19,7 +19,7 @@ use ledger_engine::domain::{
     TransactionCategoryKind,
 };
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
-use time::macros::datetime;
+use time::macros::{date, datetime};
 
 #[test]
 fn table_queries_accept_each_scope_and_both_filter_modes() {
@@ -53,6 +53,7 @@ fn table_queries_accept_each_scope_and_both_filter_modes() {
             direction: SortDirection::Asc,
         }],
         group_settings(LedgerTableGroup::Accounts(AccountTableGroup::Currency)),
+        None,
     )
     .unwrap();
     assert_eq!(accounts.offset(), 4);
@@ -125,6 +126,7 @@ fn table_queries_reject_invalid_pages_missing_sorts_and_cross_scope_fields() {
                 vec![],
                 vec![transaction_date_sort()],
                 group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+                None,
             ),
             Err(LedgerError::Validation { field: "page", .. })
         ));
@@ -274,6 +276,83 @@ fn relative_date_filter_rejects_an_oversized_leading_zero_amount() {
             ..
         })
     ));
+}
+
+#[test]
+fn relative_date_filter_requires_an_explicit_local_reference_date() {
+    let result = LedgerTableQuery::new(
+        LedgerTableScope::Transactions,
+        0,
+        TABLE_PAGE_LIMIT,
+        FilterMode::And,
+        vec![LedgerTableFilter::Transactions {
+            field: TransactionTableFilterField::Date,
+            operator: LedgerFilterOperator::IsRelativeToToday,
+            value: LedgerTableFilterValue::Relative {
+                amount: "1".into(),
+                unit: ledger_engine::application::table::RelativeDateUnit::Day,
+            },
+        }],
+        vec![transaction_date_sort()],
+        group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+        None,
+    );
+    assert!(matches!(
+        result,
+        Err(LedgerError::Validation {
+            field: "reference_date",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn sqlite_relative_date_filter_uses_the_explicit_local_reference_only() {
+    let mut service = table_service();
+    for day in [20, 21, 22] {
+        service
+            .create_entry(CreateEntry {
+                date: format!("2026-08-{day}"),
+                written_at: datetime!(2026-08-21 00:00 UTC),
+                content: format!("day-{day}"),
+                category: Some("Food".into()),
+                account: "Wallet".into(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(100),
+                currency: "KRW".into(),
+                transfer_group: None,
+                source: "test".into(),
+                notes: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    for (amount, expected) in [("0", "day-21"), ("1", "day-22")] {
+        let query = LedgerTableQuery::new(
+            LedgerTableScope::Transactions,
+            0,
+            TABLE_PAGE_LIMIT,
+            FilterMode::And,
+            vec![LedgerTableFilter::Transactions {
+                field: TransactionTableFilterField::Date,
+                operator: LedgerFilterOperator::IsRelativeToToday,
+                value: LedgerTableFilterValue::Relative {
+                    amount: amount.into(),
+                    unit: ledger_engine::application::table::RelativeDateUnit::Day,
+                },
+            }],
+            vec![transaction_date_sort()],
+            group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::None)),
+            Some(date!(2026 - 08 - 21)),
+        )
+        .unwrap();
+        assert_eq!(query.reference_date(), Some(date!(2026 - 08 - 21)));
+        let page = service.query_table(&query).unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert!(
+            matches!(page.items[0].record(), LedgerTableRecord::Transactions(record) if record.content == expected)
+        );
+    }
 }
 
 #[test]
@@ -646,6 +725,7 @@ fn sqlite_table_query_probes_exact_pages_and_uses_id_as_the_final_tie_breaker() 
         second_query.filters().to_vec(),
         second_query.sorts().to_vec(),
         second_query.group_settings().clone(),
+        None,
     )
     .unwrap();
     let second = service.query_table(&second_query).unwrap();
@@ -1203,7 +1283,16 @@ fn query(
     sorts: Vec<LedgerTableSort>,
     groups: LedgerTableGroupSettings,
 ) -> Result<LedgerTableQuery, LedgerError> {
-    LedgerTableQuery::new(scope, 0, TABLE_PAGE_LIMIT, mode, filters, sorts, groups)
+    LedgerTableQuery::new(
+        scope,
+        0,
+        TABLE_PAGE_LIMIT,
+        mode,
+        filters,
+        sorts,
+        groups,
+        None,
+    )
 }
 
 fn group_settings(group_by: LedgerTableGroup) -> LedgerTableGroupSettings {

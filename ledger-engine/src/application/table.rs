@@ -279,6 +279,7 @@ pub struct LedgerTableQuery {
     filters: Vec<LedgerTableFilter>,
     sorts: Vec<LedgerTableSort>,
     group_settings: LedgerTableGroupSettings,
+    reference_date: Option<Date>,
 }
 
 impl LedgerTableQuery {
@@ -291,6 +292,7 @@ impl LedgerTableQuery {
         filters: Vec<LedgerTableFilter>,
         sorts: Vec<LedgerTableSort>,
         group_settings: LedgerTableGroupSettings,
+        reference_date: Option<Date>,
     ) -> LedgerResult<Self> {
         validate_limit(limit)?;
         if filters.len() > MAX_FILTERS {
@@ -320,6 +322,12 @@ impl LedgerTableQuery {
                 "group field does not match table scope",
             ));
         }
+        if filters.iter().any(LedgerTableFilter::is_relative_date) && reference_date.is_none() {
+            return Err(validation(
+                "reference_date",
+                "a local reference date is required for relative date filters",
+            ));
+        }
         Ok(Self {
             scope,
             offset,
@@ -328,6 +336,7 @@ impl LedgerTableQuery {
             filters,
             sorts,
             group_settings,
+            reference_date,
         })
     }
 
@@ -357,6 +366,10 @@ impl LedgerTableQuery {
 
     pub const fn group_settings(&self) -> &LedgerTableGroupSettings {
         &self.group_settings
+    }
+
+    pub const fn reference_date(&self) -> Option<Date> {
+        self.reference_date
     }
 }
 
@@ -388,6 +401,17 @@ impl LedgerTableFilter {
             } => (field.field_type(), *operator, value),
         };
         field_type.accepts(operator, value)
+    }
+
+    fn is_relative_date(&self) -> bool {
+        matches!(
+            self,
+            Self::Transactions {
+                field: TransactionTableFilterField::Date,
+                operator: LedgerFilterOperator::IsRelativeToToday,
+                ..
+            }
+        )
     }
 }
 

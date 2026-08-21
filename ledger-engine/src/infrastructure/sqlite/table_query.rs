@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rusqlite::{Connection, params_from_iter, types::Value};
-use time::{Date, Duration, Month, OffsetDateTime};
+use time::{Date, Duration, Month};
 
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::queries::EntryView;
@@ -237,12 +237,21 @@ fn filter_sql(query: &LedgerTableQuery, values: &mut Vec<Value>) -> String {
     query
         .filters()
         .iter()
-        .map(|filter| format!("({})", one_filter_sql(filter, values)))
+        .map(|filter| {
+            format!(
+                "({})",
+                one_filter_sql(filter, query.reference_date(), values)
+            )
+        })
         .collect::<Vec<_>>()
         .join(joiner)
 }
 
-fn one_filter_sql(filter: &LedgerTableFilter, values: &mut Vec<Value>) -> String {
+fn one_filter_sql(
+    filter: &LedgerTableFilter,
+    reference_date: Option<Date>,
+    values: &mut Vec<Value>,
+) -> String {
     let (expressions, operator, value) = match filter {
         LedgerTableFilter::Transactions {
             field,
@@ -298,7 +307,7 @@ fn one_filter_sql(filter: &LedgerTableFilter, values: &mut Vec<Value>) -> String
     let glue = if negative { " AND " } else { " OR " };
     expressions
         .iter()
-        .map(|expression| scalar_filter_sql(expression, operator, value, values))
+        .map(|expression| scalar_filter_sql(expression, operator, value, reference_date, values))
         .collect::<Vec<_>>()
         .join(glue)
 }
@@ -307,6 +316,7 @@ fn scalar_filter_sql(
     expression: &str,
     operator: LedgerFilterOperator,
     value: &LedgerTableFilterValue,
+    reference_date: Option<Date>,
     values: &mut Vec<Value>,
 ) -> String {
     use LedgerFilterOperator as O;
@@ -351,8 +361,12 @@ fn scalar_filter_sql(
                 unreachable!()
             };
             let amount = amount.parse::<u32>().expect("validated relative amount");
-            let target = relative_target_date(OffsetDateTime::now_utc().date(), amount, *unit)
-                .map_or_else(|| "__out_of_range__".to_string(), |date| date.to_string());
+            let target = relative_target_date(
+                reference_date.expect("relative date query was validated"),
+                amount,
+                *unit,
+            )
+            .map_or_else(|| "__out_of_range__".to_string(), |date| date.to_string());
             values.push(Value::Text(target));
             format!("{expression} = ?")
         }
