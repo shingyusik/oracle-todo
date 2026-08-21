@@ -336,7 +336,7 @@ fn diet_filters_before_multi_tag_expansion_and_applies_group_order() {
             .iter()
             .map(|row| row.group_key().unwrap())
             .collect::<Vec<_>>(),
-        vec!["alpha"]
+        vec!["alpha", "untagged"]
     );
 
     let ungrouped = groups(

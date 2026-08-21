@@ -424,15 +424,6 @@ fn scalar(
 
 fn hidden_sql(query: &HealthTableQuery, values: &mut Vec<Value>) -> String {
     let mut clauses = Vec::new();
-    if query.group_settings().hide_empty()
-        && matches!(
-            query.group_settings().group_by(),
-            HealthTableGroup::Diet(DietTableGroup::Tag)
-        )
-    {
-        values.push(Value::Text("untagged".into()));
-        clauses.push("group_key<>?".to_string());
-    }
     let hidden = query.group_settings().hidden_group_keys();
     if !hidden.is_empty() {
         values.extend(hidden.iter().cloned().map(Value::Text));
