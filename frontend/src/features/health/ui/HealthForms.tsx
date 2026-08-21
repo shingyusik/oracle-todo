@@ -51,6 +51,7 @@ export function DietForm({
   controller,
   onSaved,
   onPendingChange,
+  onRecoveryChange,
   dialogActions,
   tagOptions,
 }: HealthFormProps & { tagOptions?: readonly string[] }) {
@@ -82,7 +83,10 @@ export function DietForm({
         await controller.createDiet(input, image ?? undefined);
       } catch (cause) {
         if (cause instanceof HealthMutationRefreshError) {
-          setRefreshRecovery(true);
+          if (action.isMounted()) {
+            setRefreshRecovery(true);
+            onRecoveryChange?.(true);
+          }
           return;
         }
         throw cause;
@@ -103,7 +107,10 @@ export function DietForm({
 
   async function retryRefresh() {
     await action.run(async () => {
-      if (await controller.refresh()) onSaved?.();
+      if (await controller.refresh() && action.isMounted()) {
+        onRecoveryChange?.(false);
+        onSaved?.();
+      }
     });
   }
 
@@ -198,6 +205,7 @@ export function BowelForm({
   controller,
   onSaved,
   onPendingChange,
+  onRecoveryChange,
   dialogActions,
 }: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
@@ -224,7 +232,10 @@ export function BowelForm({
         await controller.createBowel(input);
       } catch (cause) {
         if (cause instanceof HealthMutationRefreshError) {
-          setRefreshRecovery(true);
+          if (action.isMounted()) {
+            setRefreshRecovery(true);
+            onRecoveryChange?.(true);
+          }
           return;
         }
         throw cause;
@@ -238,7 +249,10 @@ export function BowelForm({
 
   async function retryRefresh() {
     await action.run(async () => {
-      if (await controller.refreshBowel()) onSaved?.();
+      if (await controller.refreshBowel() && action.isMounted()) {
+        onRecoveryChange?.(false);
+        onSaved?.();
+      }
     });
   }
 
@@ -314,6 +328,7 @@ export function MedicationForm({
   controller,
   onSaved,
   onPendingChange,
+  onRecoveryChange,
   dialogActions,
 }: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
@@ -345,7 +360,10 @@ export function MedicationForm({
         await controller.createMedication(input);
       } catch (cause) {
         if (cause instanceof HealthMutationRefreshError) {
-          if (action.isMounted()) setRefreshRecovery(true);
+          if (action.isMounted()) {
+            setRefreshRecovery(true);
+            onRecoveryChange?.(true);
+          }
           return;
         }
         throw cause;
@@ -360,7 +378,10 @@ export function MedicationForm({
 
   async function retryRefresh() {
     await action.run(async () => {
-      if (await controller.refreshMedication() && action.isMounted()) onSaved?.();
+      if (await controller.refreshMedication() && action.isMounted()) {
+        onRecoveryChange?.(false);
+        onSaved?.();
+      }
     });
   }
 

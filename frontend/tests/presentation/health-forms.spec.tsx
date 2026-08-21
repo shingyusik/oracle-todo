@@ -688,6 +688,15 @@ describe("Health Journal forms", () => {
       expect(screen.getByLabelText(label)).toBeDisabled();
     }
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    const dialog = screen.getByRole("dialog", { name: "Add bowel entry" });
+    const close = screen.getByRole("button", { name: "Close Add bowel entry" });
+    expect(close).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.mouseDown(dialog.parentElement!);
+    fireEvent.click(close);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Retry refresh" })).toBeVisible();
+    expect(health.createBowel).toHaveBeenCalledOnce();
     await userEvent.type(screen.getByLabelText("Note"), "Changed");
     fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
     expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
@@ -932,6 +941,32 @@ describe("Health Journal forms", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("keeps Diet focus inside the dialog when pending leaves no enabled controls", async () => {
+    const save = deferred<void>();
+    const health = controller({ createDiet: vi.fn(() => save.promise) });
+    render(<DietDialogHarness health={health} />);
+    fireEvent.change(screen.getByLabelText("Food"), { target: { value: "Lunch" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Diet entry" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Add diet entry" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+    expect(dialog).toHaveAttribute("tabindex", "-1");
+
+    const background = screen.getByRole("button", { name: "Open diet", hidden: true });
+    for (const shiftKey of [false, true]) {
+      background.focus();
+      const tab = new KeyboardEvent("keydown", {
+        key: "Tab", shiftKey, bubbles: true, cancelable: true,
+      });
+      dialog.dispatchEvent(tab);
+      expect(tab.defaultPrevented).toBe(true);
+      expect(dialog).toHaveFocus();
+    }
+
+    save.resolve();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull());
+  });
+
   it("retries only reads after Diet creation committed and freezes the draft", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
@@ -953,6 +988,15 @@ describe("Health Journal forms", () => {
     expect(screen.getByLabelText("Food")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Tags" })).toBeDisabled();
+    const dialog = screen.getByRole("dialog", { name: "Add diet entry" });
+    const close = screen.getByRole("button", { name: "Close Add diet entry" });
+    expect(close).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.mouseDown(dialog.parentElement!);
+    fireEvent.click(close);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Retry refresh" })).toBeVisible();
+    expect(health.createDiet).toHaveBeenCalledOnce();
     fireEvent.change(screen.getByLabelText("Food"), { target: { value: "Dinner" } });
     fireEvent.submit(screen.getByRole("form", { name: "Diet entry" }));
 
@@ -1256,6 +1300,15 @@ describe("Health Journal forms", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes were saved, but Health could not refresh.");
     expect(screen.getByLabelText("Medication name")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    const dialog = screen.getByRole("dialog", { name: "Add medication entry" });
+    const close = screen.getByRole("button", { name: "Close Add medication entry" });
+    expect(close).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.mouseDown(dialog.parentElement!);
+    fireEvent.click(close);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Retry refresh" })).toBeVisible();
+    expect(health.createMedication).toHaveBeenCalledOnce();
     fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
     expect(health.createMedication).toHaveBeenCalledOnce();
 

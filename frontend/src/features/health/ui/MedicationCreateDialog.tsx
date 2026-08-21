@@ -41,7 +41,9 @@ function MedicationCreateDialogContent({
   returnFocusRef,
 }: MedicationCreateDialogProps) {
   const [pending, setPending] = React.useState(false);
+  const [recovering, setRecovering] = React.useState(false);
   const pendingRef = React.useRef(false);
+  const recoveringRef = React.useRef(false);
   const mountedRef = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
@@ -58,8 +60,10 @@ function MedicationCreateDialogContent({
   }, [returnFocusRef]);
 
   React.useEffect(() => {
-    if (pending && dialogRef.current?.contains(document.activeElement)) dialogRef.current.focus();
-  }, [pending]);
+    if ((pending || recovering) && dialogRef.current?.contains(document.activeElement)) {
+      dialogRef.current.focus();
+    }
+  }, [pending, recovering]);
 
   function updatePending(nextPending: boolean) {
     pendingRef.current = nextPending;
@@ -67,7 +71,12 @@ function MedicationCreateDialogContent({
   }
 
   function close() {
-    if (!pendingRef.current) onClose();
+    if (!pendingRef.current && !recoveringRef.current) onClose();
+  }
+
+  function updateRecovery(nextRecovering: boolean) {
+    recoveringRef.current = nextRecovering;
+    if (mountedRef.current) setRecovering(nextRecovering);
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -111,7 +120,7 @@ function MedicationCreateDialogContent({
         role="dialog"
         aria-modal="true"
         aria-label="Add medication entry"
-        aria-busy={pending}
+        aria-busy={pending || recovering}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
@@ -122,6 +131,7 @@ function MedicationCreateDialogContent({
           controller={controller}
           onSaved={onClose}
           onPendingChange={updatePending}
+          onRecoveryChange={updateRecovery}
           dialogActions={{ closeLabel: "Close Add medication entry", onClose: close }}
         />
       </div>

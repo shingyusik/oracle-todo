@@ -35,30 +35,64 @@ function DietCreateDialogContent({
   tagOptions,
 }: DietCreateDialogProps) {
   const [pending, setPending] = React.useState(false);
+  const [recovering, setRecovering] = React.useState(false);
+  const pendingRef = React.useRef(false);
+  const recoveringRef = React.useRef(false);
+  const mountedRef = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
 
   React.useEffect(() => {
+    mountedRef.current = true;
     dialogRef.current?.querySelector<HTMLElement>(
       'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])',
     )?.focus();
     return () => {
+      mountedRef.current = false;
       if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
     };
   }, [returnFocusRef]);
 
+  React.useEffect(() => {
+    if ((pending || recovering) && dialogRef.current?.contains(document.activeElement)) {
+      dialogRef.current.focus();
+    }
+  }, [pending, recovering]);
+
+  function updatePending(nextPending: boolean) {
+    pendingRef.current = nextPending;
+    if (mountedRef.current) setPending(nextPending);
+  }
+
+  function updateRecovery(nextRecovering: boolean) {
+    recoveringRef.current = nextRecovering;
+    if (mountedRef.current) setRecovering(nextRecovering);
+  }
+
+  function close() {
+    if (!pendingRef.current && !recoveringRef.current) onClose();
+  }
+
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      if (!pending) onClose();
+      close();
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
     const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
       'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ));
+    )).filter((element) => !element.matches(":disabled"));
+    if (focusables.length === 0) {
+      event.preventDefault();
+      dialogRef.current.focus();
+      return;
+    }
     const index = focusables.indexOf(document.activeElement as HTMLElement);
-    if (!event.shiftKey && index === focusables.length - 1) {
+    if (index === -1) {
+      event.preventDefault();
+      (event.shiftKey ? focusables.at(-1) : focusables[0])?.focus();
+    } else if (!event.shiftKey && index === focusables.length - 1) {
       event.preventDefault();
       focusables[0]?.focus();
     } else if (event.shiftKey && index === 0) {
@@ -71,7 +105,7 @@ function DietCreateDialogContent({
     <div
       className="confirmation-backdrop"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose();
+        if (event.target === event.currentTarget) close();
       }}
     >
       <div
@@ -80,7 +114,8 @@ function DietCreateDialogContent({
         role="dialog"
         aria-modal="true"
         aria-label="Add diet entry"
-        aria-busy={pending}
+        aria-busy={pending || recovering}
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         <header className="dashboard-widget-header">
@@ -89,8 +124,9 @@ function DietCreateDialogContent({
         <DietForm
           controller={controller}
           onSaved={onClose}
-          onPendingChange={setPending}
-          dialogActions={{ closeLabel: "Close Add diet entry", onClose }}
+          onPendingChange={updatePending}
+          onRecoveryChange={updateRecovery}
+          dialogActions={{ closeLabel: "Close Add diet entry", onClose: close }}
           tagOptions={tagOptions}
         />
       </div>
