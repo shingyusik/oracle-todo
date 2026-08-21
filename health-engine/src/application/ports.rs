@@ -316,6 +316,7 @@ pub trait HealthRepository: Send {}
 #[allow(dead_code)]
 pub(crate) trait HealthReadRepository: HealthRepository {
     fn query_table(&self, query: &HealthTableQuery) -> HealthResult<TablePage<HealthTableRow>>;
+    fn list_active_diet_tags(&self) -> HealthResult<Vec<String>>;
     fn get_diet(&self, id: &str, include_archived: bool) -> HealthResult<Option<DietEntry>>;
     fn list_diet(&self, page: Page, include_archived: bool) -> HealthResult<Vec<DietEntry>>;
     fn get_event(&self, id: &str, include_archived: bool) -> HealthResult<Option<HealthEvent>>;

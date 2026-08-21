@@ -20,6 +20,23 @@ struct PageKey {
     group_label: String,
 }
 
+pub(super) fn list_active_diet_tags(connection: &Connection) -> HealthResult<Vec<String>> {
+    connection
+        .prepare(
+            "SELECT DISTINCT t.name
+             FROM diet_tags t
+             JOIN diet_entry_tags l ON l.tag_id = t.id
+             JOIN diet_entries d ON d.id = l.diet_entry_id
+             WHERE d.deleted_at IS NULL
+             ORDER BY t.name",
+        )
+        .map_err(storage_error)?
+        .query_map([], |row| row.get(0))
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)
+}
+
 pub(super) fn query_table(
     connection: &Connection,
     query: &HealthTableQuery,

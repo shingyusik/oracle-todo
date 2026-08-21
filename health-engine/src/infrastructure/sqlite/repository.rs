@@ -26,6 +26,9 @@ impl HealthReadRepository for SqliteHealthRepository {
     fn query_table(&self, query: &HealthTableQuery) -> HealthResult<TablePage<HealthTableRow>> {
         super::table_query::query_table(&self.connection, query)
     }
+    fn list_active_diet_tags(&self) -> HealthResult<Vec<String>> {
+        super::table_query::list_active_diet_tags(&self.connection)
+    }
     fn get_diet(&self, id: &str, include_archived: bool) -> HealthResult<Option<DietEntry>> {
         get_diet_on(&self.connection, id, include_archived)
     }

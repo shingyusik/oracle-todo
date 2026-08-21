@@ -358,18 +358,8 @@ async fn table_lookups(
     let value = match scope {
         HealthTableScope::Diet => {
             let tags = health(&state, false, |service| {
-                let mut tags = std::collections::BTreeSet::new();
-                let mut offset = 0;
-                loop {
-                    let page = service.list_diet(Page::new(offset, 500)?)?;
-                    let count = page.len();
-                    tags.extend(page.into_iter().flat_map(|entry| entry.tags().to_vec()));
-                    if count < 500 {
-                        break;
-                    }
-                    offset += 500;
-                }
-                Ok(tags
+                Ok(service
+                    .list_active_diet_tags()?
                     .into_iter()
                     .map(|tag| LookupOption {
                         id: tag.clone(),

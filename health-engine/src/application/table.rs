@@ -751,6 +751,10 @@ impl<R: HealthReadRepository, M: MediaStore> HealthService<R, M> {
     pub fn query_table(&self, query: &HealthTableQuery) -> HealthResult<TablePage<HealthTableRow>> {
         self.repository.query_table(query)
     }
+
+    pub fn list_active_diet_tags(&self) -> HealthResult<Vec<String>> {
+        self.repository.list_active_diet_tags()
+    }
 }
 fn validation(field: &'static str, message: impl Into<String>) -> HealthError {
     HealthError::Validation {

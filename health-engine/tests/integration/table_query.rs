@@ -17,6 +17,42 @@ fn groups(_scope: HealthTableScope, group_by: HealthTableGroup) -> HealthTableGr
 }
 
 #[test]
+fn active_diet_tag_lookup_is_sorted_distinct_and_excludes_archived_only_tags() {
+    let directory = tempfile::tempdir().unwrap();
+    let repository = SqliteHealthRepository::open(directory.path().join("health.sqlite")).unwrap();
+    let media = LocalMediaStore::new(directory.path().join("media")).unwrap();
+    let mut service = HealthService::new(repository, media);
+    let mut create = |food: &str, tags: Vec<&str>| {
+        service
+            .create_diet(CreateDietEntry {
+                occurred_at: datetime!(2025-01-01 00:00 UTC),
+                meal_type: MealType::Breakfast,
+                food_name: food.into(),
+                note: None,
+                tags: tags.into_iter().map(str::to_string).collect(),
+                media: None,
+                actor: "test".into(),
+            })
+            .unwrap()
+            .id()
+            .as_str()
+            .to_string()
+    };
+    create(
+        "active-one",
+        vec!["Shared", "DUP", "untagged", "\\untagged"],
+    );
+    create("active-two", vec!["shared", "dup"]);
+    let archived = create("archived", vec!["archived-only", "SHARED"]);
+    service.archive_diet(&archived).unwrap();
+
+    assert_eq!(
+        service.list_active_diet_tags().unwrap(),
+        vec!["\\untagged", "dup", "shared", "untagged"]
+    );
+}
+
+#[test]
 fn diet_pages_fifty_rows_then_one_without_hydrating_the_probe() {
     let directory = tempfile::tempdir().unwrap();
     let repository = SqliteHealthRepository::open(directory.path().join("health.sqlite")).unwrap();
