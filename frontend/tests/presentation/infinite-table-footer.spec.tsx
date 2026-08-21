@@ -176,6 +176,8 @@ describe("InfiniteTableFooter", () => {
 
     expect(first?.disconnect).toHaveBeenCalledOnce();
     expect(ObserverStub.instances).toHaveLength(2);
+    first?.intersect();
+    expect(loadMore).not.toHaveBeenCalled();
     const second = ObserverStub.instances[1];
     view.unmount();
     expect(second?.disconnect).toHaveBeenCalledOnce();

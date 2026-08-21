@@ -35,15 +35,21 @@ export function InfiniteTableFooter({
     const footer = footerRef.current;
     if (!footer || status === "loading" || error) return;
 
+    let active = true;
     const observer = new IntersectionObserver(
       ([entry]) => {
         const current = currentRef.current;
-        if (entry?.isIntersecting && current.status === "idle" && !current.error) trigger();
+        if (active && entry?.isIntersecting && current.status === "idle" && !current.error) {
+          trigger();
+        }
       },
       { rootMargin: "240px" },
     );
     observer.observe(footer);
-    return () => observer.disconnect();
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
   }, [nextOffset, status, error, loadMore]);
 
   if (nextOffset === null) return null;
