@@ -11,11 +11,12 @@ import {
 } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { healthApi } from "@/features/health/api/health-api";
 import type {
   HealthController,
+  HealthTablePagingController,
   HealthState,
 } from "@/features/health/hooks/useHealthController";
 import {
@@ -130,6 +131,13 @@ function controller(state: HealthState = loadedState): HealthController {
     }),
     tableSettings: () => settings,
     tableIsDirty: vi.fn(() => false),
+    tablePage: vi.fn(() => ({
+      items: [], nextOffset: null, moreStatus: "idle" as const, moreError: null, generation: 0,
+    })),
+    ensureTable: vi.fn().mockResolvedValue(undefined),
+    loadMore: vi.fn().mockResolvedValue(undefined),
+    ensureReferenceData: vi.fn().mockResolvedValue(true),
+    hasReferenceData: vi.fn(() => false),
     updateTableSettings: vi.fn(),
     selectTableTab: vi.fn(),
     saveTableTab: vi.fn(),
@@ -710,6 +718,10 @@ describe("HealthPanel", () => {
     expect(result.current.tableViewSaveError).toBeNull();
   });
 
+  it("requires paging on the production Health controller contract", () => {
+    expectTypeOf<HealthController>().toMatchTypeOf<HealthTablePagingController>();
+  });
+
   it("loads Health table scopes lazily and appends one deduplicated page", async () => {
     const second = deferred<Awaited<ReturnType<typeof healthApi.queryTable>>>();
     vi.spyOn(healthApi, "queryTable")
@@ -723,15 +735,15 @@ describe("HealthPanel", () => {
     const { result } = renderHook(() => useHealthController());
 
     expect(healthApi.queryTable).not.toHaveBeenCalled();
-    await act(async () => result.current.ensureTable!("health.diet"));
+    await act(async () => result.current.ensureTable("health.diet"));
     expect(healthApi.queryTable).toHaveBeenCalledOnce();
-    expect(result.current.tablePage!("health.diet").items.map(({ key }) => key)).toEqual(["first"]);
+    expect(result.current.tablePage("health.diet").items.map(({ key }) => key)).toEqual(["first"]);
     expect(result.current.state.dietEntries).toEqual([]);
 
     let firstMore!: Promise<void>;
     act(() => {
-      firstMore = result.current.loadMore!("health.diet");
-      void result.current.loadMore!("health.diet");
+      firstMore = result.current.loadMore("health.diet");
+      void result.current.loadMore("health.diet");
     });
     expect(healthApi.queryTable).toHaveBeenCalledTimes(2);
     expect(healthApi.queryTable).toHaveBeenLastCalledWith(
@@ -745,7 +757,7 @@ describe("HealthPanel", () => {
       nextOffset: null,
     }));
     await firstMore;
-    expect(result.current.tablePage!("health.diet")).toMatchObject({
+    expect(result.current.tablePage("health.diet")).toMatchObject({
       nextOffset: null,
       moreStatus: "idle",
       items: [{ key: "first" }, { key: "second" }],
@@ -766,16 +778,16 @@ describe("HealthPanel", () => {
     vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
     const { result } = renderHook(() => useHealthController());
-    await act(async () => result.current.ensureTable!("health.bowel"));
+    await act(async () => result.current.ensureTable("health.bowel"));
 
-    await act(async () => result.current.loadMore!("health.bowel"));
-    expect(result.current.tablePage!("health.bowel")).toMatchObject({
+    await act(async () => result.current.loadMore("health.bowel"));
+    expect(result.current.tablePage("health.bowel")).toMatchObject({
       items: [{ key: "old" }], nextOffset: 50, moreStatus: "idle",
       moreError: "Could not load more rows.",
     });
     let retry!: Promise<void>;
     act(() => {
-      retry = result.current.loadMore!("health.bowel");
+      retry = result.current.loadMore("health.bowel");
       result.current.updateTableSettings("health.bowel", (settings) => ({
         ...settings,
         sortRules: [{ id: "date", field: "date", direction: "asc" }],
@@ -787,7 +799,7 @@ describe("HealthPanel", () => {
       nextOffset: null,
     }));
     await retry;
-    expect(result.current.tablePage!("health.bowel").items).toEqual([]);
+    expect(result.current.tablePage("health.bowel").items).toEqual([]);
   });
 
   it("reloads only the affected initialized Health scope after mutation", async () => {
@@ -797,9 +809,11 @@ describe("HealthPanel", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
     const { result } = renderHook(() => useHealthController());
     await act(async () => {
-      await result.current.ensureTable!("health.bowel");
-      await result.current.ensureTable!("health.diet");
+      await result.current.ensureTable("health.bowel");
+      await result.current.ensureTable("health.diet");
     });
+    const dietPage = result.current.tablePage("health.diet");
+    const bowelGeneration = result.current.tablePage("health.bowel").generation;
     vi.mocked(healthApi.queryTable).mockClear();
 
     await act(async () => result.current.createBowel({} as never));
@@ -808,6 +822,8 @@ describe("HealthPanel", () => {
     expect(healthApi.queryTable).toHaveBeenCalledWith(
       "health.bowel", expect.anything(), 0,
     );
+    expect(result.current.tablePage("health.diet")).toBe(dietPage);
+    expect(result.current.tablePage("health.bowel").generation).toBe(bowelGeneration + 1);
   });
 
   it("retries an initial table failure at offset zero without exposing its cause", async () => {
@@ -818,16 +834,79 @@ describe("HealthPanel", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
     const { result } = renderHook(() => useHealthController());
 
-    await act(async () => result.current.ensureTable!("health.metrics"));
-    expect(result.current.tablePage!("health.metrics")).toMatchObject({
+    await act(async () => result.current.ensureTable("health.metrics"));
+    expect(result.current.tablePage("health.metrics")).toMatchObject({
       items: [], nextOffset: 0, moreStatus: "error", moreError: "Could not load rows.",
     });
     expect(result.current.state.metricsError).toBe("Metrics request failed");
 
-    await act(async () => result.current.loadMore!("health.metrics"));
-    expect(result.current.tablePage!("health.metrics")).toMatchObject({
+    await act(async () => result.current.loadMore("health.metrics"));
+    expect(result.current.tablePage("health.metrics")).toMatchObject({
       items: [], nextOffset: null, moreStatus: "idle", moreError: null,
     });
     expect(result.current.state.metricsError).toBeNull();
+  });
+
+  it("keeps all four table slices independent while Medication appends", async () => {
+    const calls = new Map<string, number>();
+    vi.spyOn(healthApi, "queryTable").mockImplementation(async (scope, _settings, offset) => {
+      const call = (calls.get(scope) ?? 0) + 1;
+      calls.set(scope, call);
+      return {
+        items: [{
+          key: `${scope}-${offset}-${call}`,
+          groupKey: null,
+          groupLabel: null,
+          scope,
+          record: {} as never,
+        } as never],
+        nextOffset: scope === "health.medication" && offset === 0 ? 50 : null,
+      };
+    });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+    const { result } = renderHook(() => useHealthController());
+
+    for (const scope of [
+      "health.diet", "health.bowel", "health.medication", "health.metrics",
+    ] as const) {
+      await act(async () => result.current.ensureTable(scope));
+    }
+    const before = Object.fromEntries([
+      "health.diet", "health.bowel", "health.medication", "health.metrics",
+    ].map((scope) => [scope, result.current.tablePage(scope as never)]));
+
+    await act(async () => result.current.loadMore("health.medication"));
+
+    expect(result.current.tablePage("health.medication").items.map(({ key }) => key)).toEqual([
+      "health.medication-0-1", "health.medication-50-2",
+    ]);
+    for (const scope of ["health.diet", "health.bowel", "health.metrics"] as const) {
+      expect(result.current.tablePage(scope)).toBe(before[scope]);
+    }
+
+    const unaffected = Object.fromEntries([
+      "health.bowel", "health.medication", "health.metrics",
+    ].map((scope) => [scope, result.current.tablePage(scope as never)]));
+    act(() => result.current.updateTableSettings("health.diet", (settings) => ({
+      ...settings,
+      sortRules: [{ id: "date", field: "date", direction: "asc" }],
+    })));
+    await waitFor(() => expect(calls.get("health.diet")).toBe(2));
+    for (const scope of ["health.bowel", "health.medication", "health.metrics"] as const) {
+      expect(result.current.tablePage(scope)).toBe(unaffected[scope]);
+    }
+  });
+
+  it("keeps the Reports error behavior unchanged", async () => {
+    vi.spyOn(healthApi, "reports").mockRejectedValue(new Error("Report unavailable"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+    const { result } = renderHook(() => useHealthController());
+
+    await act(async () => {
+      expect(await result.current.runReports({ preset: 30 })).toBe(false);
+    });
+
+    expect(result.current.state.reportError).toBe("Report unavailable");
   });
 });

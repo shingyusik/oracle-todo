@@ -94,6 +94,14 @@ export type HealthState = {
   tableLookups?: Record<HealthTableScopeId, HealthTableLookups>;
 };
 
+export type HealthTablePagingController = {
+  tablePage(scope: HealthTableScopeId): HealthTablePageState;
+  ensureTable(scope: HealthTableScopeId): Promise<void>;
+  loadMore(scope: HealthTableScopeId): Promise<void>;
+  ensureReferenceData(scope: HealthTableScopeId): Promise<boolean>;
+  hasReferenceData(scope: HealthTableScopeId): boolean;
+};
+
 export type HealthController = {
   state: HealthState;
   tableViewSaveError: string | null;
@@ -102,11 +110,6 @@ export type HealthController = {
   tableTabs(scope: HealthTableScopeId): TableViewTabsState<PlannerTableSettings>;
   tableSettings(scope: HealthTableScopeId): PlannerTableSettings;
   tableIsDirty(scope: HealthTableScopeId): boolean;
-  tablePage?(scope: HealthTableScopeId): HealthTablePageState;
-  ensureTable?(scope: HealthTableScopeId): Promise<void>;
-  loadMore?(scope: HealthTableScopeId): Promise<void>;
-  ensureReferenceData?(scope: HealthTableScopeId): Promise<boolean>;
-  hasReferenceData?(scope: HealthTableScopeId): boolean;
   updateTableSettings(
     scope: HealthTableScopeId,
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
@@ -136,7 +139,7 @@ export type HealthController = {
   archiveMedication(id: string): Promise<void>;
   upsertMetrics(input: DailyMetricInput[]): Promise<void>;
   saveMetrics(input: DailyMetricsMutation): Promise<void>;
-};
+} & HealthTablePagingController;
 
 const DIET_PAGE_SIZE = 200;
 const EVENT_PAGE_SIZE = 200;
@@ -964,8 +967,7 @@ export function useHealthController(): HealthController {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  void error;
-  return fallback;
+  return error instanceof Error ? error.message : fallback;
 }
 
 function dedupeOccurrences(items: HealthTableOccurrence[]): HealthTableOccurrence[] {
