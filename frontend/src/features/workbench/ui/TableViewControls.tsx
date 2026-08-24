@@ -563,8 +563,9 @@ function TableViewFilterRulePanel({
   adapter: TableViewControlsAdapter;
   rules: PlannerFilterRule[];
 }) {
+  const panelRef = React.useRef<HTMLDivElement>(null);
   const [focusRequest, setFocusRequest] = React.useState<
-    { index: number } | { empty: true } | null
+    { index: number; count: number } | { empty: true; count: number } | null
   >(null);
   const fields = tableViewFilterFieldConfigs(
     adapter.filterOptions,
@@ -574,63 +575,68 @@ function TableViewFilterRulePanel({
 
   React.useEffect(() => {
     if (!focusRequest) return;
+    if (rules.length >= focusRequest.count) return;
     const selector = "empty" in focusRequest
       ? 'button[aria-label="Add filter rule"]'
       : `button[data-filter-rule-index="${focusRequest.index}"]`;
-    document.querySelector<HTMLButtonElement>(selector)?.focus();
+    const target = panelRef.current?.querySelector<HTMLButtonElement>(selector);
+    if (!target) return;
+    target.focus();
     setFocusRequest(null);
   }, [focusRequest, rules]);
 
-  if (rules.length === 0) {
-    return (
-      <TableViewFilterFieldPicker
-        fields={fields}
-        onPick={(field) => addTableViewRule(adapter, field)}
-      />
-    );
-  }
-
   return (
-    <div className="planner-filter-rule-panel">
-      {rules.length > 1 ? <TableViewFilterModeControl adapter={adapter} /> : null}
-      {rules.map((rule, index) => (
-        <TableViewAdvancedFilterRuleRow
-          key={rule.id}
-          adapter={adapter}
+    <div ref={panelRef} className={rules.length === 0 ? undefined : "planner-filter-rule-panel"}>
+      {rules.length === 0 ? (
+        <TableViewFilterFieldPicker
           fields={fields}
-          rule={rule}
-          prefix={index === 0
-            ? "Where"
-            : formatTableViewFilterMode(adapter.settings.filterMode)}
-          onRemove={() => {
-            setFocusRequest(index + 1 < rules.length
-              ? { index }
-              : index > 0
-                ? { index: index - 1 }
-                : { empty: true });
-            removeTableViewRule(adapter, rule.id, index);
-          }}
-          ruleIndex={index}
+          onPick={(field) => addTableViewRule(adapter, field)}
         />
-      ))}
-      <button
-        type="button"
-        className="planner-filter-action"
-        aria-label="Add filter rule"
-        onClick={() => addTableViewRule(adapter, fields[0])}
-      >
-        + Add filter rule
-      </button>
-      <button
-        type="button"
-        className="planner-filter-action planner-filter-action-danger"
-        onClick={() => adapter.update((current) => ({
-          ...current,
-          filterRules: [],
-        }))}
-      >
-        Delete filter
-      </button>
+      ) : (
+        <>
+          {rules.length > 1 ? <TableViewFilterModeControl adapter={adapter} /> : null}
+          {rules.map((rule, index) => (
+            <TableViewAdvancedFilterRuleRow
+              key={rules.findIndex((candidate) => candidate.id === rule.id) === index
+                ? rule.id
+                : `${rule.id}-${index}`}
+              adapter={adapter}
+              fields={fields}
+              rule={rule}
+              prefix={index === 0
+                ? "Where"
+                : formatTableViewFilterMode(adapter.settings.filterMode)}
+              onRemove={() => {
+                setFocusRequest(index + 1 < rules.length
+                  ? { index, count: rules.length }
+                  : index > 0
+                    ? { index: index - 1, count: rules.length }
+                    : { empty: true, count: rules.length });
+                removeTableViewRule(adapter, rule.id);
+              }}
+              ruleIndex={index}
+            />
+          ))}
+          <button
+            type="button"
+            className="planner-filter-action"
+            aria-label="Add filter rule"
+            onClick={() => addTableViewRule(adapter, fields[0])}
+          >
+            + Add filter rule
+          </button>
+          <button
+            type="button"
+            className="planner-filter-action planner-filter-action-danger"
+            onClick={() => adapter.update((current) => ({
+              ...current,
+              filterRules: [],
+            }))}
+          >
+            Delete filter
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -1304,12 +1310,10 @@ function updateTableViewRule(
 function removeTableViewRule(
   adapter: TableViewControlsAdapter,
   ruleId: string,
-  ruleIndex: number,
 ) {
   adapter.update((current) => ({
     ...current,
-    filterRules: current.filterRules.filter((rule, index) =>
-      index !== ruleIndex || rule.id !== ruleId),
+    filterRules: current.filterRules.filter((rule) => rule.id !== ruleId),
   }));
 }
 

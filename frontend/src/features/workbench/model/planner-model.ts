@@ -402,7 +402,18 @@ function normalizeFilterRules(
     if (!normalized) return null;
     rules.push(normalized);
   }
-  return rules;
+  return ensureUniquePlannerFilterRuleIds(rules);
+}
+
+function ensureUniquePlannerFilterRuleIds(rules: PlannerFilterRule[]): PlannerFilterRule[] {
+  const used = new Set<string>();
+  return rules.map((rule) => {
+    let id = rule.id;
+    let suffix = 2;
+    while (used.has(id)) id = `${rule.id}-${suffix++}`;
+    used.add(id);
+    return id === rule.id ? rule : { ...rule, id };
+  });
 }
 
 export function normalizePlannerFilterRule(
@@ -461,7 +472,9 @@ function sanitizeLegacyFilterRules(
   allowedFields: readonly PlannerFilterField[],
 ): PlannerFilterRule[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((rule) => normalizeFilterRules([rule], allowedFields) ?? []);
+  return ensureUniquePlannerFilterRuleIds(
+    value.flatMap((rule) => normalizeFilterRules([rule], allowedFields) ?? []),
+  );
 }
 
 function sanitizeLegacySortRules(

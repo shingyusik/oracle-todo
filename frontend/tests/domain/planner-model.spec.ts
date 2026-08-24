@@ -520,6 +520,19 @@ describe("planner model", () => {
     expect(settings.sortRules).toEqual(defaultPlannerTableSettings("daily.today").sortRules);
   });
 
+  it("rewrites duplicate persisted filter IDs without dropping rules", () => {
+    const settings = normalizePlannerTableSettings("daily.today", {
+      filterRules: [
+        { id: "duplicate", field: "title", type: "text", operator: "contains", value: "one" },
+        { id: "duplicate", field: "title", type: "text", operator: "contains", value: "two" },
+      ],
+    }, legacyPlannerControls());
+
+    expect(settings.filterRules).toHaveLength(2);
+    expect(new Set(settings.filterRules.map((rule) => rule.id)).size).toBe(2);
+    expect(settings.filterRules.map((rule) => rule.value)).toEqual(["one", "two"]);
+  });
+
   it("falls back malformed date filter settings and retains valid calendar dates", () => {
     const settings = normalizePlannerTableSettings("daily.today", {
       filterRules: [

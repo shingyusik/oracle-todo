@@ -1300,6 +1300,50 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("waits for deferred filter updates before restoring removal focus", async () => {
+    const user = userEvent.setup();
+    let settings = {
+      filterMode: "and" as const,
+      filterRules: [
+        { id: "title-rule", field: "title" as const, type: "text" as const, operator: "contains" as const, value: "" },
+        { id: "status-rule", field: "status" as const, type: "select" as const, operator: "is" as const, value: [] as string[] },
+      ],
+      sortRules: [],
+      groupSettings: defaultPlannerGroupSettings(),
+    };
+    let deferredUpdater: ((value: typeof settings) => typeof settings) | undefined;
+    const adapter = {
+      scopeId: "deferred.scope",
+      title: "Deferred",
+      settings,
+      filterFields: ["title", "status"] as const,
+      sortFields: ["updated"] as const,
+      groupOptions: [{ value: "none" as const, label: "None" }],
+      candidates: [],
+      filterOptions: {
+        tags: [],
+        daily: {
+          tags: [], areas: [], projects: [], currencies: [], routines: [], statuses: [{ value: "active", label: "active" }],
+          priorities: [], horizons: [], parents: [], materializationPolicies: [], participants: [],
+        },
+      },
+      dropdownIdPrefix: "deferred",
+      isDefaultSort: () => true,
+      update: (updater: typeof deferredUpdater extends ((value: infer T) => infer R) ? (value: T) => R : never) => {
+        deferredUpdater = updater;
+      },
+    };
+    const { rerender } = render(<TableViewControls adapter={adapter} />);
+    await user.click(screen.getByRole("button", { name: "Filter Deferred" }));
+    const filter = screen.getByRole("dialog", { name: "Filter Deferred" });
+    await user.click(within(filter).getByRole("button", { name: "Remove Title filter rule" }));
+    expect(within(filter).getByRole("button", { name: "Remove Title filter rule" })).toHaveFocus();
+
+    settings = deferredUpdater!(settings);
+    rerender(<TableViewControls adapter={{ ...adapter, settings }} />);
+    expect(screen.getByRole("button", { name: "Remove Status filter rule" })).toHaveFocus();
+  });
+
   it("isolates the page while using supplied confirmation lookups", () => {
     const target = { surface: "unconventional", scope: "unconventional.scope" };
     const confirmation = {
