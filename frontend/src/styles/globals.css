@@ -1348,6 +1348,7 @@ button {
 }
 
 .planner-filter-remove {
+  grid-column: -2 / -1;
   display: inline-flex;
   width: 28px;
   height: 28px;

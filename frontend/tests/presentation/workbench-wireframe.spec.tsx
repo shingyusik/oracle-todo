@@ -2639,6 +2639,8 @@ describe("WorkbenchPageClient", () => {
 
     const filter = screen.getByRole("dialog", { name: "Filter Tasks" });
     await user.click(within(filter).getByRole("button", { name: "Add filter rule" }));
+    await user.selectOptions(within(filter).getByRole("combobox", { name: "Operator for Title" }), "is_empty");
+    expect(within(filter).getByRole("button", { name: "Remove Title filter rule" })).toBeInTheDocument();
     await user.click(within(filter).getByRole("button", { name: "Remove Title filter rule" }));
 
     expect(within(filter).getAllByLabelText("Filter field")).toHaveLength(1);
