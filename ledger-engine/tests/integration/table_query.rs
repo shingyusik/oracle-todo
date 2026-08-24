@@ -19,6 +19,8 @@ use ledger_engine::domain::{
     TransactionCategoryKind,
 };
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use time::macros::{date, datetime};
 
 #[test]
@@ -517,6 +519,10 @@ fn sqlite_table_query_pages_the_full_filtered_and_sorted_transaction_set() {
     assert_eq!(page.items.len(), 16);
     assert_eq!(page.next_offset, None);
     assert_eq!(page.items[0].group_key(), Some("2026-07"));
+    let LedgerTableRecord::Transactions(first) = page.items[0].record() else {
+        unreachable!()
+    };
+    assert!(OffsetDateTime::parse(&first.updated_at, &Rfc3339).is_ok());
     let amounts = page
         .items
         .iter()

@@ -16,7 +16,9 @@ use crate::application::table::{
 };
 use crate::domain::{EntryType, TransactionCategoryKind};
 
-use super::mapping::{ENTRY_COLUMNS, row_to_account, row_to_entry, row_to_transaction_category};
+use super::mapping::{
+    ENTRY_COLUMNS, format_time, row_to_account, row_to_entry, row_to_transaction_category,
+};
 use super::storage_error;
 
 #[derive(Debug)]
@@ -582,7 +584,7 @@ fn load_transaction_records(
             .transpose()?;
         records.insert(
             key.id.clone(),
-            transaction_record(detail, transfer, decimal_places),
+            transaction_record(detail, transfer, decimal_places)?,
         );
     }
     Ok(records)
@@ -592,7 +594,7 @@ fn transaction_record(
     detail: EntryView,
     transfer: Option<EntryView>,
     decimal_places: u8,
-) -> LedgerTableRecord {
+) -> LedgerResult<LedgerTableRecord> {
     let kind = match detail.entry_type() {
         EntryType::Expense | EntryType::AdjustmentOut => TransactionRowKind::Expense,
         EntryType::Income | EntryType::AdjustmentIn => TransactionRowKind::Income,
@@ -604,28 +606,30 @@ fn transaction_record(
         account_ids.push(other.account_id().to_string());
         account_labels.push(other.account_name.clone().unwrap_or_default());
     }
-    LedgerTableRecord::Transactions(Box::new(TransactionTableRecord {
-        id: detail
-            .transfer_group_id()
-            .unwrap_or(detail.id())
-            .to_string(),
-        archive_entry_id: detail.id().to_string(),
-        kind,
-        date: detail.date().to_string(),
-        content: detail.content().to_string(),
-        account_label: account_labels.join(" -> "),
-        account_ids,
-        account_labels,
-        category_id: detail.transaction_category_id().map(str::to_string),
-        category_label: detail.category_name.clone().unwrap_or_default(),
-        amount_minor: detail.amount().minor_units(),
-        currency_id: detail.currency_id().to_string(),
-        currency_code: detail.currency_code.clone().unwrap_or_default(),
-        decimal_places,
-        updated_at: detail.updated_at().to_string(),
-        detail_entry: detail,
-        transfer_entry: transfer,
-    }))
+    Ok(LedgerTableRecord::Transactions(Box::new(
+        TransactionTableRecord {
+            id: detail
+                .transfer_group_id()
+                .unwrap_or(detail.id())
+                .to_string(),
+            archive_entry_id: detail.id().to_string(),
+            kind,
+            date: detail.date().to_string(),
+            content: detail.content().to_string(),
+            account_label: account_labels.join(" -> "),
+            account_ids,
+            account_labels,
+            category_id: detail.transaction_category_id().map(str::to_string),
+            category_label: detail.category_name.clone().unwrap_or_default(),
+            amount_minor: detail.amount().minor_units(),
+            currency_id: detail.currency_id().to_string(),
+            currency_code: detail.currency_code.clone().unwrap_or_default(),
+            decimal_places,
+            updated_at: format_time(detail.updated_at())?,
+            detail_entry: detail,
+            transfer_entry: transfer,
+        },
+    )))
 }
 
 fn load_account_records(
