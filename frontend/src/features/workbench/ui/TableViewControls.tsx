@@ -590,6 +590,7 @@ function TableViewFilterRulePanel({
           prefix={index === 0
             ? "Where"
             : formatTableViewFilterMode(adapter.settings.filterMode)}
+          onRemove={() => removeTableViewRule(adapter, rule.id)}
         />
       ))}
       <button
@@ -859,11 +860,13 @@ function TableViewAdvancedFilterRuleRow({
   fields,
   rule,
   prefix,
+  onRemove,
 }: {
   adapter: TableViewControlsAdapter;
   fields: PlannerFilterFieldConfig[];
   rule: PlannerFilterRule;
   prefix: string;
+  onRemove: () => void;
 }) {
   const baseField = fields.find((option) => option.field === rule.field) ?? fields[0];
   const field = tableViewFilterFieldWithStoredOptions(
@@ -922,6 +925,14 @@ function TableViewAdvancedFilterRuleRow({
         field={field}
         onChange={(value) => updateTableViewRule(adapter, rule.id, { value })}
       />
+      <button
+        type="button"
+        className="planner-filter-remove"
+        aria-label={`Remove ${field.label} filter rule`}
+        onClick={onRemove}
+      >
+        <X size={14} aria-hidden="true" />
+      </button>
     </div>
   );
 }
@@ -1264,6 +1275,13 @@ function updateTableViewRule(
     ...current,
     filterRules: current.filterRules.map((rule) =>
       rule.id === ruleId ? { ...rule, ...patch } : rule),
+  }));
+}
+
+function removeTableViewRule(adapter: TableViewControlsAdapter, ruleId: string) {
+  adapter.update((current) => ({
+    ...current,
+    filterRules: current.filterRules.filter((rule) => rule.id !== ruleId),
   }));
 }
 

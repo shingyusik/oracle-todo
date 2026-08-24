@@ -2609,6 +2609,46 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("checkbox", { name: "Select Active task" })).toBeChecked();
   });
 
+  it("removes one filter rule while keeping its siblings", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      {
+        id: "task-active",
+        type: "task",
+        title: "Active task",
+        status: "active",
+        updated_at: "2026-07-01T09:00:00Z",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () =>
+            url === "/api/v1/todo/items?type=task" || url === "/api/v1/todo/items"
+              ? tasks
+              : [],
+        }),
+      ),
+    );
+
+    render(<WorkbenchPageClient />);
+    await openWorkspaceTasks(user);
+    await addWorkspaceStatusFilter(user, "active");
+
+    const filter = screen.getByRole("dialog", { name: "Filter Tasks" });
+    await user.click(within(filter).getByRole("button", { name: "Add filter rule" }));
+    await user.click(within(filter).getByRole("button", { name: "Remove Title filter rule" }));
+
+    expect(within(filter).getAllByLabelText("Filter field")).toHaveLength(1);
+    expect(within(filter).getByLabelText("Filter field")).toHaveValue("status");
+
+    await user.click(within(filter).getByRole("button", { name: "Remove Status filter rule" }));
+    expect(within(filter).getByRole("button", { name: "Add filter rule" })).toBeInTheDocument();
+    expect(within(filter).queryByRole("button", { name: "Delete filter" })).toBeNull();
+  });
+
   it("keeps Workspace rows visible while new select, relation, text, and date filters have no value", async () => {
     const user = userEvent.setup();
     const tasks = [

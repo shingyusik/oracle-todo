@@ -1337,7 +1337,7 @@ button {
 }
 
 .planner-advanced-filter-row {
-  grid-template-columns: 58px max-content max-content minmax(160px, max-content);
+  grid-template-columns: 58px max-content max-content minmax(160px, max-content) 28px;
   width: max-content;
   max-width: calc(100vw - 48px);
   min-height: 32px;
@@ -1345,6 +1345,23 @@ button {
   gap: 4px;
   border-radius: var(--radius-xs);
   padding: 2px;
+}
+
+.planner-filter-remove {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-shade-50);
+}
+
+.planner-filter-remove:hover {
+  background: var(--color-canvas-cream);
+  color: var(--color-ink);
 }
 
 .planner-filter-select-label {
@@ -1489,6 +1506,11 @@ button {
 @media (max-width: 640px) {
   .planner-advanced-filter-row {
     grid-template-columns: 1fr;
+  }
+
+  .planner-filter-remove {
+    grid-column: 1;
+    justify-self: end;
   }
 }
 
