@@ -1,5 +1,9 @@
-import type { PlannerTableId, PlannerTableSettings } from "@/features/workbench/model/planner-model";
-import { localCalendarDate } from "@/features/workbench/model/planner-model";
+import type { PlannerFilterField, PlannerTableId, PlannerTableSettings } from "@/features/workbench/model/planner-model";
+import {
+  effectivePlannerFilterRules,
+  localCalendarDate,
+  plannerFilterFieldTypes,
+} from "@/features/workbench/model/planner-model";
 import { tableFilterValue } from "@/features/workbench/model/table-query";
 import type {
   TodoTableLookup,
@@ -27,7 +31,10 @@ export async function queryTodoTable(
     offset: query.offset ?? 0,
     limit: 50,
     filter_mode: query.settings.filterMode,
-    filters: query.settings.filterRules.map((rule) => ({
+    filters: effectivePlannerFilterRules(
+      query.settings.filterRules,
+      Object.keys(plannerFilterFieldTypes) as PlannerFilterField[],
+    ).map((rule) => ({
       field: rule.field, operator: rule.operator, value: tableFilterValue(rule.value, rule.operator),
     })),
     sorts: query.settings.sortRules.map((rule) => ({ field: rule.field, direction: rule.direction })),

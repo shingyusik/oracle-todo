@@ -195,6 +195,29 @@ describe("ToDo table API", () => {
     expect(bodies[0].context).toMatchObject({ from: "2026-08-22", to: "2026-08-22", reference_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
     expect(bodies[1].context).toMatchObject({ parent_type: "project", parent_id: "project-1", reference_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   });
+
+  it("omits incomplete filters from table queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(JSON.stringify({
+      items: [], next_offset: null,
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+    const settings = defaultWorkspaceTableSettings();
+    settings.filterRules = [
+      { id: "active", field: "status", type: "select", operator: "is", value: ["active"] },
+      { id: "blank-title", field: "title", type: "text", operator: "contains", value: "" },
+    ];
+
+    await queryTodoTable({
+      scope: "planner.daily-today",
+      context: { kind: "planner", from: "2026-08-24", to: "2026-08-24" },
+      settings,
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.filters).toEqual([
+      { field: "status", operator: "is", value: { list: ["active"] } },
+    ]);
+  });
 });
 
 describe("Health table API", () => {
