@@ -81,6 +81,18 @@ describe("ledger table views", () => {
     }).sortRules).toEqual([{ id: "updated", field: "updated", direction: "desc" }]);
   });
 
+  it("rewrites duplicate ledger filter IDs without dropping rules", () => {
+    const normalized = normalizeLedgerTableSettings("ledger.transactions", {
+      filterRules: [
+        { id: "duplicate", field: "content", type: "text", operator: "contains", value: "one" },
+        { id: "duplicate", field: "content", type: "text", operator: "contains", value: "two" },
+      ],
+    });
+
+    expect(normalized.filterRules).toHaveLength(2);
+    expect(new Set(normalized.filterRules.map((rule) => rule.id)).size).toBe(2);
+  });
+
   it("normalizes each persisted scope locally", () => {
     const views = createLedgerTableViews({
       "ledger.transactions": {

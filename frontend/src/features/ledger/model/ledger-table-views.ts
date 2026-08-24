@@ -5,6 +5,7 @@ import {
 import {
   clonePlannerTableSettings,
   normalizePlannerFilterRule,
+  ensureUniquePlannerFilterRuleIds,
   normalizePlannerSortRule,
   type PlannerFilterField,
   type PlannerFilterMode,
@@ -134,10 +135,10 @@ export function normalizeLedgerTableSettings(
   if (!isRecord(candidate)) return defaults;
   const allowedFields = ledgerFilterFieldsForScope(scope);
   const filterRules = Array.isArray(candidate.filterRules)
-    ? candidate.filterRules.flatMap((rule) => {
+    ? ensureUniquePlannerFilterRuleIds(candidate.filterRules.flatMap((rule) => {
         const normalized = normalizePlannerFilterRule(rule, allowedFields);
         return normalized ? [normalized] : [];
-      })
+      }))
     : defaults.filterRules;
   const sortRules = Array.isArray(candidate.sortRules)
     ? candidate.sortRules.flatMap((rule) => {

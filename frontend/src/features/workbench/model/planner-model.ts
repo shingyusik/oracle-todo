@@ -405,7 +405,7 @@ function normalizeFilterRules(
   return ensureUniquePlannerFilterRuleIds(rules);
 }
 
-function ensureUniquePlannerFilterRuleIds(rules: PlannerFilterRule[]): PlannerFilterRule[] {
+export function ensureUniquePlannerFilterRuleIds(rules: PlannerFilterRule[]): PlannerFilterRule[] {
   const used = new Set<string>();
   return rules.map((rule) => {
     let id = rule.id;

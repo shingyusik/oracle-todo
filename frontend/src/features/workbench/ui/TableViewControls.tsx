@@ -597,7 +597,7 @@ function TableViewFilterRulePanel({
           {rules.length > 1 ? <TableViewFilterModeControl adapter={adapter} /> : null}
           {rules.map((rule, index) => (
             <TableViewAdvancedFilterRuleRow
-              key={rules.findIndex((candidate) => candidate.id === rule.id) === index
+              key={new Set(rules.map((candidate) => candidate.id)).size === rules.length
                 ? rule.id
                 : `${rule.id}-${index}`}
               adapter={adapter}

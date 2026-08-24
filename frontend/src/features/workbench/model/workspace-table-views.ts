@@ -11,6 +11,7 @@ import {
   groupPlannerItems,
   localCalendarDate,
   normalizePlannerFilterRule,
+  ensureUniquePlannerFilterRuleIds,
   normalizePlannerSortRule,
   sortPlannerItems,
   type PlannerFilterField,
@@ -202,10 +203,10 @@ export function normalizeWorkspaceTableSettings(
   const filterFields = workspaceFilterFieldsForScope(scope);
   const sortFields = workspaceSortFieldsForScope(scope);
   const filterRules = Array.isArray(candidate.filterRules)
-    ? candidate.filterRules.flatMap((rule) => {
+    ? ensureUniquePlannerFilterRuleIds(candidate.filterRules.flatMap((rule) => {
         const normalized = normalizePlannerFilterRule(rule, filterFields);
         return normalized ? [normalized] : [];
-      })
+      }))
     : defaults.filterRules;
   const sortRules = Array.isArray(candidate.sortRules)
     ? candidate.sortRules.flatMap((rule) => {

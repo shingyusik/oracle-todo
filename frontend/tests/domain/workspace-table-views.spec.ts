@@ -197,6 +197,21 @@ describe("workspace table views", () => {
     expect(normalized.groupSettings.groupBy).toBe("none");
   });
 
+  it("rewrites duplicate workspace filter IDs without dropping rules", () => {
+    const normalized = workspaceTableViewSettingsAdapter.normalizeSettings(
+      "workspace.task",
+      {
+        filterRules: [
+          { id: "duplicate", field: "title", type: "text", operator: "contains", value: "one" },
+          { id: "duplicate", field: "title", type: "text", operator: "contains", value: "two" },
+        ],
+      },
+    );
+
+    expect(normalized.filterRules).toHaveLength(2);
+    expect(new Set(normalized.filterRules.map((rule) => rule.id)).size).toBe(2);
+  });
+
   it("filters, sorts, and groups workspace rows with Planner semantics", () => {
     const groups = deriveWorkspaceViewGroups(
       "detail.area.task",

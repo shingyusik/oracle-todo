@@ -179,6 +179,18 @@ describe("Health table views", () => {
     expect(settings.groupSettings.hiddenGroupKeys).toEqual(["no"]);
   });
 
+  it("rewrites duplicate health filter IDs without dropping rules", () => {
+    const normalized = normalizeHealthTableSettings("health.diet", {
+      filterRules: [
+        { id: "duplicate", field: "food", type: "text", operator: "contains", value: "one" },
+        { id: "duplicate", field: "food", type: "text", operator: "contains", value: "two" },
+      ],
+    });
+
+    expect(normalized.filterRules).toHaveLength(2);
+    expect(new Set(normalized.filterRules.map((rule) => rule.id)).size).toBe(2);
+  });
+
   it("normalizes every persisted control against the Diet allowlists", () => {
     const settings = normalizeHealthTableSettings("health.diet", {
       filterMode: "or",

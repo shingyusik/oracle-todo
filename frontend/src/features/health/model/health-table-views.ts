@@ -4,6 +4,7 @@ import {
 } from "@/features/workbench/model/planner-group-settings";
 import {
   clonePlannerTableSettings,
+  ensureUniquePlannerFilterRuleIds,
   normalizePlannerFilterRule,
   normalizePlannerSortRule,
   type PlannerFilterField,
@@ -153,10 +154,10 @@ export function normalizeHealthTableSettings(
   const groupOptions = healthGroupOptionsForScope(scope);
   if (!isRecord(candidate)) return defaults;
   const filterRules = Array.isArray(candidate.filterRules)
-    ? candidate.filterRules.flatMap((rule) => {
+    ? ensureUniquePlannerFilterRuleIds(candidate.filterRules.flatMap((rule) => {
         const normalized = normalizePlannerFilterRule(rule, filterFields);
         return normalized ? [normalized] : [];
-      })
+      }))
     : defaults.filterRules;
   const sortRules = Array.isArray(candidate.sortRules)
     ? candidate.sortRules.flatMap((rule) => {
