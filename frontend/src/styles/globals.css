@@ -1349,20 +1349,6 @@ button {
 
 .planner-filter-remove {
   grid-column: -2 / -1;
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--color-shade-50);
-}
-
-.planner-filter-remove:hover {
-  background: var(--color-canvas-cream);
-  color: var(--color-ink);
 }
 
 .planner-filter-select-label {

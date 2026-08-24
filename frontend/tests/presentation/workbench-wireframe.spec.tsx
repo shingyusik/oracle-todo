@@ -2642,11 +2642,13 @@ describe("WorkbenchPageClient", () => {
     await user.selectOptions(within(filter).getByRole("combobox", { name: "Operator for Title" }), "is_empty");
     expect(within(filter).getByRole("button", { name: "Remove Title filter rule" })).toBeInTheDocument();
     await user.click(within(filter).getByRole("button", { name: "Remove Title filter rule" }));
+    expect(within(filter).getByRole("button", { name: "Remove Status filter rule" })).toHaveFocus();
 
     expect(within(filter).getAllByLabelText("Filter field")).toHaveLength(1);
     expect(within(filter).getByLabelText("Filter field")).toHaveValue("status");
 
     await user.click(within(filter).getByRole("button", { name: "Remove Status filter rule" }));
+    expect(within(filter).getByRole("button", { name: "Add filter rule" })).toHaveFocus();
     expect(within(filter).getByRole("button", { name: "Add filter rule" })).toBeInTheDocument();
     expect(within(filter).queryByRole("button", { name: "Delete filter" })).toBeNull();
   });

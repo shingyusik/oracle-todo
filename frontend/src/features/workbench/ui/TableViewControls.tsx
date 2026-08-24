@@ -563,11 +563,23 @@ function TableViewFilterRulePanel({
   adapter: TableViewControlsAdapter;
   rules: PlannerFilterRule[];
 }) {
+  const [focusRequest, setFocusRequest] = React.useState<
+    { index: number } | { empty: true } | null
+  >(null);
   const fields = tableViewFilterFieldConfigs(
     adapter.filterOptions,
     adapter.filterFields,
     adapter.fieldLabels,
   );
+
+  React.useEffect(() => {
+    if (!focusRequest) return;
+    const selector = "empty" in focusRequest
+      ? 'button[aria-label="Add filter rule"]'
+      : `button[data-filter-rule-index="${focusRequest.index}"]`;
+    document.querySelector<HTMLButtonElement>(selector)?.focus();
+    setFocusRequest(null);
+  }, [focusRequest, rules]);
 
   if (rules.length === 0) {
     return (
@@ -590,7 +602,15 @@ function TableViewFilterRulePanel({
           prefix={index === 0
             ? "Where"
             : formatTableViewFilterMode(adapter.settings.filterMode)}
-          onRemove={() => removeTableViewRule(adapter, rule.id)}
+          onRemove={() => {
+            setFocusRequest(index + 1 < rules.length
+              ? { index }
+              : index > 0
+                ? { index: index - 1 }
+                : { empty: true });
+            removeTableViewRule(adapter, rule.id, index);
+          }}
+          ruleIndex={index}
         />
       ))}
       <button
@@ -861,12 +881,14 @@ function TableViewAdvancedFilterRuleRow({
   rule,
   prefix,
   onRemove,
+  ruleIndex,
 }: {
   adapter: TableViewControlsAdapter;
   fields: PlannerFilterFieldConfig[];
   rule: PlannerFilterRule;
   prefix: string;
   onRemove: () => void;
+  ruleIndex: number;
 }) {
   const baseField = fields.find((option) => option.field === rule.field) ?? fields[0];
   const field = tableViewFilterFieldWithStoredOptions(
@@ -927,7 +949,8 @@ function TableViewAdvancedFilterRuleRow({
       />
       <button
         type="button"
-        className="planner-filter-remove"
+        className="planner-sort-remove planner-filter-remove"
+        data-filter-rule-index={ruleIndex}
         aria-label={`Remove ${field.label} filter rule`}
         onClick={onRemove}
       >
@@ -1278,10 +1301,15 @@ function updateTableViewRule(
   }));
 }
 
-function removeTableViewRule(adapter: TableViewControlsAdapter, ruleId: string) {
+function removeTableViewRule(
+  adapter: TableViewControlsAdapter,
+  ruleId: string,
+  ruleIndex: number,
+) {
   adapter.update((current) => ({
     ...current,
-    filterRules: current.filterRules.filter((rule) => rule.id !== ruleId),
+    filterRules: current.filterRules.filter((rule, index) =>
+      index !== ruleIndex || rule.id !== ruleId),
   }));
 }
 
