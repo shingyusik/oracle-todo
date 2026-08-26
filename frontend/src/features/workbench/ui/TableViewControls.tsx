@@ -1043,7 +1043,7 @@ function TableViewFilterOptionDropdown({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [open]);
+  }, [field.options, open, rule.value]);
 
   function toggleValue(optionValue: string) {
     onChange(

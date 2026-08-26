@@ -1302,11 +1302,15 @@ describe("WorkbenchPageClient", () => {
 
   it("positions filter option lists against the viewport instead of the filter panel", async () => {
     const user = userEvent.setup();
+    vi.stubGlobal("innerHeight", 800);
+    vi.stubGlobal("innerWidth", 1024);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement): DOMRect {
         const isValueTrigger = this.getAttribute("aria-label") === "Select Status filter values";
         const isOptionList = this.classList.contains("planner-filter-option-list");
-        const top = isValueTrigger ? 700 : 0;
+        const top = isValueTrigger
+          ? this.querySelector(".planner-filter-chip") ? 620 : 700
+          : 0;
         const left = isValueTrigger ? 120 : 0;
         const width = isOptionList ? 240 : isValueTrigger ? 180 : 0;
         const height = isOptionList ? 200 : isValueTrigger ? 30 : 0;
@@ -1323,21 +1327,24 @@ describe("WorkbenchPageClient", () => {
         } as DOMRect;
       },
     );
+    let settings: PlannerTableSettings = {
+      filterMode: "and",
+      filterRules: [{
+        id: "status-rule",
+        field: "status",
+        type: "select",
+        operator: "is",
+        value: [],
+      }],
+      sortRules: [],
+      groupSettings: defaultPlannerGroupSettings(),
+    };
+    let applyUpdate:
+      ((current: PlannerTableSettings) => PlannerTableSettings) | undefined;
     const adapter = {
       scopeId: "filter-position.scope",
       title: "Filter position",
-      settings: {
-        filterMode: "and" as const,
-        filterRules: [{
-          id: "status-rule",
-          field: "status" as const,
-          type: "select" as const,
-          operator: "is" as const,
-          value: [] as string[],
-        }],
-        sortRules: [],
-        groupSettings: defaultPlannerGroupSettings(),
-      },
+      settings,
       filterFields: ["status"] as const,
       sortFields: ["updated"] as const,
       groupOptions: [{ value: "none" as const, label: "None" }],
@@ -1352,9 +1359,11 @@ describe("WorkbenchPageClient", () => {
       },
       dropdownIdPrefix: "filter-position",
       isDefaultSort: () => true,
-      update: () => undefined,
+      update: (updater: (current: PlannerTableSettings) => PlannerTableSettings) => {
+        applyUpdate = updater;
+      },
     };
-    render(<TableViewControls adapter={adapter} />);
+    const { rerender } = render(<TableViewControls adapter={adapter} />);
 
     await user.click(screen.getByRole("button", { name: "Filter Filter position" }));
     const trigger = screen.getByRole("button", { name: "Select Status filter values" });
@@ -1366,6 +1375,14 @@ describe("WorkbenchPageClient", () => {
     expect(Number.parseFloat(optionList!.style.top)).toBeLessThan(
       trigger.getBoundingClientRect().top,
     );
+    expect(optionList).toHaveStyle({ top: "496px" });
+
+    await user.click(within(optionList!).getByRole("checkbox", { name: "active" }));
+    settings = applyUpdate!(settings);
+    rerender(<TableViewControls adapter={{ ...adapter, settings }} />);
+
+    expect(trigger).toHaveTextContent("active");
+    expect(optionList).toHaveStyle({ top: "416px" });
   });
 
   it("waits for deferred filter updates before restoring removal focus", async () => {
