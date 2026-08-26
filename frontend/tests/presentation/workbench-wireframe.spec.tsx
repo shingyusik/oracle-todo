@@ -1304,16 +1304,17 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     vi.stubGlobal("innerHeight", 800);
     vi.stubGlobal("innerWidth", 1024);
+    let smallViewport = false;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement): DOMRect {
         const isValueTrigger = this.getAttribute("aria-label") === "Select Status filter values";
         const isOptionList = this.classList.contains("planner-filter-option-list");
         const top = isValueTrigger
-          ? this.querySelector(".planner-filter-chip") ? 620 : 700
+          ? smallViewport ? 260 : this.querySelector(".planner-filter-chip") ? 620 : 700
           : 0;
         const left = isValueTrigger ? 120 : 0;
         const width = isOptionList ? 240 : isValueTrigger ? 180 : 0;
-        const height = isOptionList ? 220 : isValueTrigger ? 30 : 0;
+        const height = isOptionList ? smallViewport ? 120 : 220 : isValueTrigger ? 30 : 0;
         return {
           x: left,
           y: top,
@@ -1390,6 +1391,12 @@ describe("WorkbenchPageClient", () => {
 
     expect(trigger).toHaveTextContent("active");
     expect(optionList).toHaveStyle({ top: "396px", maxHeight: "220px" });
+
+    smallViewport = true;
+    vi.stubGlobal("innerHeight", 300);
+    fireEvent(window, new Event("resize"));
+
+    expect(optionList).toHaveStyle({ top: "136px", maxHeight: "120px" });
   });
 
   it("waits for deferred filter updates before restoring removal focus", async () => {
