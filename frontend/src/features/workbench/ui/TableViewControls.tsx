@@ -1019,9 +1019,31 @@ function TableViewFilterOptionDropdown({
   onChange: (value: PlannerFilterValue) => void;
 }) {
   const [open, setOpen] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const optionListRef = React.useRef<HTMLDivElement | null>(null);
+  const [style, setStyle] = React.useState<React.CSSProperties>();
   const selectedValues = new Set(Array.isArray(rule.value) ? rule.value : []);
   const selectedOptions = field.options.filter((option) =>
     selectedValues.has(option.value));
+
+  React.useLayoutEffect(() => {
+    if (!open) return;
+
+    function update() {
+      const trigger = triggerRef.current;
+      const optionList = optionListRef.current;
+      if (!trigger || !optionList) return;
+      setStyle(tableViewControlDropdownStyle(trigger, optionList));
+    }
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
 
   function toggleValue(optionValue: string) {
     onChange(
@@ -1034,6 +1056,7 @@ function TableViewFilterOptionDropdown({
   return (
     <div className="planner-filter-value" role="group" aria-label={`Filter by ${field.label}`}>
       <button
+        ref={triggerRef}
         type="button"
         className="planner-filter-value-trigger"
         aria-label={`Select ${field.label} filter values`}
@@ -1051,7 +1074,7 @@ function TableViewFilterOptionDropdown({
         )}
       </button>
       {open ? (
-        <div className="planner-filter-option-list">
+        <div ref={optionListRef} className="planner-filter-option-list" style={style}>
           {field.options.length > 0 ? (
             field.options.map((option) => (
               <label

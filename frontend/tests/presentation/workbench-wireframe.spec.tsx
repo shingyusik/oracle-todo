@@ -1300,6 +1300,74 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
+  it("positions filter option lists against the viewport instead of the filter panel", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement): DOMRect {
+        const isValueTrigger = this.getAttribute("aria-label") === "Select Status filter values";
+        const isOptionList = this.classList.contains("planner-filter-option-list");
+        const top = isValueTrigger ? 700 : 0;
+        const left = isValueTrigger ? 120 : 0;
+        const width = isOptionList ? 240 : isValueTrigger ? 180 : 0;
+        const height = isOptionList ? 200 : isValueTrigger ? 30 : 0;
+        return {
+          x: left,
+          y: top,
+          top,
+          right: left + width,
+          bottom: top + height,
+          left,
+          width,
+          height,
+          toJSON: () => ({}),
+        } as DOMRect;
+      },
+    );
+    const adapter = {
+      scopeId: "filter-position.scope",
+      title: "Filter position",
+      settings: {
+        filterMode: "and" as const,
+        filterRules: [{
+          id: "status-rule",
+          field: "status" as const,
+          type: "select" as const,
+          operator: "is" as const,
+          value: [] as string[],
+        }],
+        sortRules: [],
+        groupSettings: defaultPlannerGroupSettings(),
+      },
+      filterFields: ["status"] as const,
+      sortFields: ["updated"] as const,
+      groupOptions: [{ value: "none" as const, label: "None" }],
+      candidates: [],
+      filterOptions: {
+        tags: [],
+        daily: {
+          tags: [], areas: [], projects: [], currencies: [], routines: [],
+          statuses: [{ value: "active", label: "active" }], priorities: [],
+          horizons: [], parents: [], materializationPolicies: [], participants: [],
+        },
+      },
+      dropdownIdPrefix: "filter-position",
+      isDefaultSort: () => true,
+      update: () => undefined,
+    };
+    render(<TableViewControls adapter={adapter} />);
+
+    await user.click(screen.getByRole("button", { name: "Filter Filter position" }));
+    const trigger = screen.getByRole("button", { name: "Select Status filter values" });
+    await user.click(trigger);
+
+    const optionList = document.querySelector<HTMLElement>(".planner-filter-option-list");
+    expect(optionList).not.toBeNull();
+    expect(optionList).toHaveStyle({ position: "fixed" });
+    expect(Number.parseFloat(optionList!.style.top)).toBeLessThan(
+      trigger.getBoundingClientRect().top,
+    );
+  });
+
   it("waits for deferred filter updates before restoring removal focus", async () => {
     const user = userEvent.setup();
     let settings = {
