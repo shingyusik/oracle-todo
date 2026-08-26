@@ -14,7 +14,7 @@ This removes the list from the scroll panel's absolute-positioning boundary. The
 
 ### Tag input
 
-`TagsInput` keeps the existing accessible trigger button but removes the visible `Add` label. The tag field opens the dropdown when its background, placeholder, or a tag chip is clicked; remove buttons continue to remove only their tag. An empty field displays `Select or enter tags...`, while a populated field leaves the remaining trigger area visually empty.
+The shared `TagsInput` component keeps the existing accessible trigger button but removes the visible `Add` label. This applies to every current consumer, including ToDo workspace table/detail/create fields and Health diet form/detail fields, as well as future consumers of the component. The tag field opens the dropdown when its background, placeholder, or a tag chip is clicked; remove buttons continue to remove only their tag. An empty field displays `Select or enter tags...`, while a populated field leaves the remaining trigger area visually empty.
 
 No API, persistence, or tag parsing behavior changes.
 
@@ -31,7 +31,7 @@ If a trigger or dropdown cannot be measured during a render, the existing in-flo
 ## Testing
 
 - Add a presentation regression test that opens a filter option list with constrained geometry and verifies viewport-fixed placement.
-- Add a presentation regression test that confirms no visible `Add` control remains and clicking the tag field opens the combobox.
+- Add presentation regression coverage through the shared component that confirms no visible `Add` control remains and clicking the tag field opens the combobox. Existing ToDo and Health consumer tests must remain green.
 - Run the focused presentation tests, frontend typecheck, and frontend test suite.
 
 ## Out of Scope
