@@ -1033,7 +1033,14 @@ function TableViewFilterOptionDropdown({
       const trigger = triggerRef.current;
       const optionList = optionListRef.current;
       if (!trigger || !optionList) return;
-      setStyle(tableViewControlDropdownStyle(trigger, optionList));
+      const previousMaxHeight = optionList.style.maxHeight;
+      optionList.style.maxHeight = "";
+      const nextStyle = tableViewControlDropdownStyle(trigger, optionList);
+      optionList.style.maxHeight = previousMaxHeight;
+      setStyle({
+        ...nextStyle,
+        maxHeight: `${Math.min(220, Number.parseFloat(String(nextStyle.maxHeight)))}px`,
+      });
     }
 
     update();

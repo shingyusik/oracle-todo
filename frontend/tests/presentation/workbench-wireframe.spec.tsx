@@ -1313,7 +1313,7 @@ describe("WorkbenchPageClient", () => {
           : 0;
         const left = isValueTrigger ? 120 : 0;
         const width = isOptionList ? 240 : isValueTrigger ? 180 : 0;
-        const height = isOptionList ? 200 : isValueTrigger ? 30 : 0;
+        const height = isOptionList ? 220 : isValueTrigger ? 30 : 0;
         return {
           x: left,
           y: top,
@@ -1353,7 +1353,13 @@ describe("WorkbenchPageClient", () => {
         tags: [],
         daily: {
           tags: [], areas: [], projects: [], currencies: [], routines: [],
-          statuses: [{ value: "active", label: "active" }], priorities: [],
+          statuses: [
+            { value: "active", label: "active" },
+            ...Array.from({ length: 11 }, (_, index) => ({
+              value: `status-${index}`,
+              label: `status ${index}`,
+            })),
+          ], priorities: [],
           horizons: [], parents: [], materializationPolicies: [], participants: [],
         },
       },
@@ -1371,18 +1377,19 @@ describe("WorkbenchPageClient", () => {
 
     const optionList = document.querySelector<HTMLElement>(".planner-filter-option-list");
     expect(optionList).not.toBeNull();
+    expect(within(optionList!).getAllByRole("checkbox")).toHaveLength(12);
     expect(optionList).toHaveStyle({ position: "fixed" });
     expect(Number.parseFloat(optionList!.style.top)).toBeLessThan(
       trigger.getBoundingClientRect().top,
     );
-    expect(optionList).toHaveStyle({ top: "496px" });
+    expect(optionList).toHaveStyle({ top: "476px", maxHeight: "220px" });
 
     await user.click(within(optionList!).getByRole("checkbox", { name: "active" }));
     settings = applyUpdate!(settings);
     rerender(<TableViewControls adapter={{ ...adapter, settings }} />);
 
     expect(trigger).toHaveTextContent("active");
-    expect(optionList).toHaveStyle({ top: "416px" });
+    expect(optionList).toHaveStyle({ top: "396px", maxHeight: "220px" });
   });
 
   it("waits for deferred filter updates before restoring removal focus", async () => {
