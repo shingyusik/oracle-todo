@@ -339,6 +339,21 @@ describe("Health Journal forms", () => {
     expect(screen.queryByRole("button", { name: /^Close Add / })).toBeNull();
   });
 
+  it("opens the shared tag dropdown from the field without a visible Add button", async () => {
+    const user = userEvent.setup();
+    render(<TagsInput label="Tags" value={[]} tagOptions={["rice"]} onCommit={vi.fn()} />);
+
+    const trigger = screen.getByRole("button", { name: "Tags" });
+    const inputLayout = trigger.closest(".tag-input");
+    expect(inputLayout).not.toBeNull();
+    expect(inputLayout).toHaveTextContent(/^Select or enter tags\.\.\.$/);
+    expect(screen.queryByText(/^Add$/)).toBeNull();
+
+    await user.click(inputLayout!);
+
+    expect(screen.getByRole("combobox", { name: "Tags" })).toBeVisible();
+  });
+
   it("gives each tag popup a distinct valid listbox relationship", async () => {
     const user = userEvent.setup();
     render(<>

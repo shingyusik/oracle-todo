@@ -1949,6 +1949,20 @@ button {
   padding: 4px 6px;
 }
 
+.tag-input-trigger {
+  min-height: 26px;
+  min-width: 80px;
+  flex: 1 1 80px;
+  align-self: stretch;
+  border: 0;
+  background: transparent;
+  padding: 0 2px;
+  color: var(--color-shade-50);
+  font: inherit;
+  text-align: left;
+  cursor: text;
+}
+
 .tag-chip {
   display: inline-flex;
   max-width: 100%;

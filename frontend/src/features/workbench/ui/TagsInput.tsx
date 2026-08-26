@@ -42,6 +42,7 @@ export function TagsInput({
   const [draft, setDraft] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const tagInputRef = React.useRef<HTMLDivElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const listboxId = React.useId();
   const [dropdownStyle, setDropdownStyle] = React.useState<React.CSSProperties>();
@@ -103,7 +104,7 @@ export function TagsInput({
 
     const dismiss = (event: MouseEvent) => {
       if (!(event.target instanceof Node)) return;
-      if (triggerRef.current?.contains(event.target) || dropdownRef.current?.contains(event.target)) {
+      if (tagInputRef.current?.contains(event.target) || dropdownRef.current?.contains(event.target)) {
         return;
       }
       closeDropdown();
@@ -182,7 +183,14 @@ export function TagsInput({
         }
       }}
     >
-      <div className="tag-input">
+      <div
+        ref={tagInputRef}
+        className="tag-input"
+        onClick={(event) => {
+          stopEvent(event);
+          if (!disabled) setOpen(true);
+        }}
+      >
         {currentTags.map((tag) => (
           <span className="tag-chip" key={tag}>
             {tag}
@@ -211,7 +219,7 @@ export function TagsInput({
             stopEvent(event);
             setOpen(true);
           }}
-        >Add</button>
+        >{currentTags.length === 0 ? "Select or enter tags..." : null}</button>
       </div>
       {open ? (portalDropdown ? createPortal(dropdown, document.body) : dropdown) : null}
     </div>
