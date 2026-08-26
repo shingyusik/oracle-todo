@@ -351,7 +351,7 @@ describe("DietPanel table", () => {
       .toBeInTheDocument();
     expect([...screen.getByRole("region", { name: "Edit diet properties" }).children]
       .map((field) => field.textContent?.trim())).toEqual([
-        "Time", "MealBreakfastLunchDinnerSnackLate night", "Food", "TagsriceAdd", "PhotoNo photo", "Note",
+        "Time", "MealBreakfastLunchDinnerSnackLate night", "Food", "Tagsrice", "PhotoNo photo", "Note",
       ]);
 
     await user.click(screen.getByRole("button", { name: "< Back" }));
