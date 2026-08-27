@@ -1798,6 +1798,10 @@ button {
   min-width: 0;
 }
 
+.weekly-day-grid .planner-card > .planner-card-list + .planner-card-list {
+  margin-top: 7px;
+}
+
 .planner-item-row {
   position: relative;
   display: flex;
