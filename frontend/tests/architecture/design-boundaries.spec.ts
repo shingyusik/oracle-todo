@@ -370,7 +370,7 @@ describe("design system boundaries", () => {
     expect(source).toContain("var(--dashboard-status-incomplete-stop)");
     expect(source).toContain("var(--dashboard-status-paused-stop)");
     expect(source).toMatch(
-      /\.dashboard-status-tile\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;[^}]*minmax\(0, 1fr\) 60px;[^}]*padding:\s*9px 10px;/s,
+      /\.dashboard-status-tile\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;[^}]*minmax\(0, 1fr\) 60px;[^}]*border:\s*1px solid var\(--color-hairline-light\);[^}]*padding:\s*9px 10px;/s,
     );
     expect(source).toMatch(
       /\.dashboard-status-donut\s*\{[^}]*background:\s*conic-gradient\([\s\S]*?var\(--color-accent-strong\)[\s\S]*?var\(--color-ink\)[\s\S]*?var\(--color-shade-30\)[\s\S]*?var\(--color-chart-warning\)[\s\S]*?100%\s*\);/,
