@@ -328,6 +328,9 @@ describe("design system boundaries", () => {
     expect(source).toContain(
       ".weekly-day-grid .planner-card > .planner-card-list + .planner-card-list {\n  margin-top: 7px;\n}",
     );
+    expect(source).toContain(
+      ".weekly-day-grid .planner-card > .planner-card-list > h3 {\n  margin-bottom: 0;\n}",
+    );
   });
 
   it("keeps the Dashboard donut fluid inside the four-column desktop card", async () => {

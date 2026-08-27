@@ -1802,6 +1802,10 @@ button {
   margin-top: 7px;
 }
 
+.weekly-day-grid .planner-card > .planner-card-list > h3 {
+  margin-bottom: 0;
+}
+
 .planner-item-row {
   position: relative;
   display: flex;
