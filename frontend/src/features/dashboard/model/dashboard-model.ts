@@ -252,9 +252,11 @@ function buildProjectStats(
   today: string,
 ): DashboardProjectRow[] {
   return items
-    .filter((item) => item.type === "project" && isActiveOrPaused(item))
+    .filter((item) => item.type === "project" && item.status === "active")
     .map((project) => {
-      const linked = work.filter((item) => item.project_id === project.id);
+      const linked = work.filter(
+        (item) => item.project_id === project.id && item.status !== "paused",
+      );
       const status = statusValues(linked);
       return {
         id: project.id,

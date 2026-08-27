@@ -245,8 +245,7 @@ export const dashboardWidgets: DashboardWidget[] = [
         id: "project-status",
         title: "Project status",
         description: "Task and Event status distribution and progress by Project.",
-        emptyMessage:
-          "Create an active or paused Project to view status distribution.",
+        emptyMessage: "Create an active Project to view status distribution.",
         destination: { kind: "projects" },
         chart: {
           kind: "heatmap",

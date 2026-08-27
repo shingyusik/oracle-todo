@@ -176,6 +176,72 @@ describe("dashboard model", () => {
     });
   });
 
+  it("excludes paused projects and work only from Project status", () => {
+    const snapshot = buildDashboardSnapshot([
+      { id: "area", type: "area", title: "Area", status: "active" },
+      { id: "active-project", type: "project", title: "Active", status: "active" },
+      { id: "paused-project", type: "project", title: "Paused", status: "paused" },
+      {
+        id: "completed",
+        type: "task",
+        title: "Completed",
+        status: "completed",
+        project_id: "active-project",
+        area_id: "area",
+        scheduled: today,
+      },
+      {
+        id: "event",
+        type: "event",
+        title: "Event",
+        status: "active",
+        project_id: "active-project",
+        area_id: "area",
+        scheduled: today,
+      },
+      {
+        id: "paused-task",
+        type: "task",
+        title: "Paused task",
+        status: "paused",
+        project_id: "active-project",
+        area_id: "area",
+        scheduled: today,
+      },
+      {
+        id: "paused-project-task",
+        type: "task",
+        title: "Paused project task",
+        status: "active",
+        project_id: "paused-project",
+        area_id: "area",
+        scheduled: today,
+      },
+    ], today);
+
+    expect(snapshot.projects).toHaveLength(1);
+    expect(snapshot.projects[0]).toMatchObject({
+      id: "active-project",
+      values: { completed: 1, incomplete: 1, paused: 0, missed: 0 },
+      total: 2,
+      progress: 0.5,
+    });
+    expect(snapshot.areas[0]).toMatchObject({
+      values: { completed: 1, incomplete: 2, paused: 1, missed: 0 },
+      total: 4,
+    });
+    expect(snapshot.todayOutcomes).toMatchObject({
+      completed: 1,
+      incomplete: 3,
+      total: 4,
+    });
+    expect(snapshot.completionHistory.days.at(-1)).toMatchObject({
+      date: today,
+      completed: 1,
+      total: 4,
+    });
+  });
+
   it("uses zero intensities and unavailable progress for containers without work", () => {
     const snapshot = buildDashboardSnapshot([
       { id: "area", type: "area", title: "Health", status: "paused" },

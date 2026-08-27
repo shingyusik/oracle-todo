@@ -244,7 +244,7 @@ describe("dashboard widget registry", () => {
     expect(model).toMatchObject({
       id: "project-status",
       title: "Project status",
-      emptyMessage: "Create an active or paused Project to view status distribution.",
+      emptyMessage: "Create an active Project to view status distribution.",
       chart: {
         kind: "heatmap",
         ariaLabel: "Project status",
