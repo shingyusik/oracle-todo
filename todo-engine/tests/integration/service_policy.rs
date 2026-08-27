@@ -722,9 +722,32 @@ fn postpone_rejects_invalid_or_non_future_dates() {
             service
                 .postpone(&task.id, target, "2026-05-31", None)
                 .unwrap_err(),
-            TodoError::Validation("Postpone target date must be later than today".to_string())
+            TodoError::Validation(
+                "Postpone target date must be later than today unless the source is overdue"
+                    .to_string()
+            )
         );
     }
+}
+
+#[test]
+fn postpone_allows_today_for_overdue_work() {
+    let mut service = TodoService::in_memory();
+    let task = service
+        .propose_task(
+            "Overdue work",
+            ProposeTask {
+                scheduled: Some("2026-05-30".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let (_, follow_up) = service
+        .postpone(&task.id, "2026-05-31", "2026-05-31", None)
+        .unwrap();
+
+    assert_eq!(follow_up.scheduled.as_deref(), Some("2026-05-31"));
 }
 
 #[test]

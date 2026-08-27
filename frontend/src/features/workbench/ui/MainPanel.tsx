@@ -2584,7 +2584,11 @@ function PlannerMissButton({
     (item.type === "task" || item.type === "event") &&
     item.status === "active";
   const transitionState = controller.workspaceItemTransitionState(item.id);
-  const minimumPostponeDate = browserTomorrow();
+  const today = formatDateForPlanner(new Date());
+  const scheduledDate = item.scheduled?.slice(0, 10);
+  const minimumPostponeDate = scheduledDate !== undefined && scheduledDate < today
+    ? today
+    : browserTomorrow();
   const canPostpone = postponeDate >= minimumPostponeDate;
 
   useEffect(() => {
@@ -2594,7 +2598,7 @@ function PlannerMissButton({
   if (!visible) return null;
 
   function openDialog() {
-    setPostponeDate(browserTomorrow());
+    setPostponeDate(minimumPostponeDate);
     setOpen(true);
   }
 

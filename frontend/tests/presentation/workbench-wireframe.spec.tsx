@@ -4796,6 +4796,36 @@ describe("WorkbenchPageClient", () => {
     vi.useRealTimers();
   });
 
+  it("allows an overdue Planner item to be postponed to today", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 6, 25, 12));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const task = {
+      id: "task-overdue",
+      type: "task",
+      title: "Overdue task",
+      status: "active",
+      scheduled: "2026-07-24",
+    };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve({
+      ok: true,
+      json: async () => url === "/api/v1/todo/items?type=task" ? [task] : [],
+    } as Response)));
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(await screen.findByRole("button", { name: "Miss Overdue task" }));
+
+    const postponeDate = within(
+      screen.getByRole("dialog", { name: "Miss Overdue task?" }),
+    ).getByLabelText("Postpone date");
+    expect(postponeDate).toHaveValue("2026-07-25");
+    expect(postponeDate).toHaveAttribute("min", "2026-07-25");
+    vi.useRealTimers();
+  });
+
   it("does not expose postpone controls in the detail panel", async () => {
     const user = userEvent.setup();
     const task = {

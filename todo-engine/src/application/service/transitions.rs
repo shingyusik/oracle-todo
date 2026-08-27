@@ -97,9 +97,18 @@ impl TodoService {
     ) -> TodoResult<(TodoItem, TodoItem)> {
         let target_date = parse_day(target_date)?;
         let today = parse_day(today)?;
-        if target_date <= today {
+        let overdue = target_date == today
+            && self
+                .get(item_id)?
+                .scheduled
+                .as_deref()
+                .and_then(|value| value.get(..10))
+                .and_then(|value| parse_day(value).ok())
+                .is_some_and(|scheduled| scheduled < today);
+        if target_date < today || (target_date == today && !overdue) {
             return Err(TodoError::Validation(
-                "Postpone target date must be later than today".to_string(),
+                "Postpone target date must be later than today unless the source is overdue"
+                    .to_string(),
             ));
         }
 

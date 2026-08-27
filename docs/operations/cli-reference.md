@@ -73,6 +73,8 @@ raven todo complete <item-id>
 
 Projects require a non-blank `definition_of_done`; routines require a non-blank RRULE;
 events require `scheduled`. ToDo uses its status lifecycle and does not expose purge.
+`postpone --scheduled <date>` accepts today only for work scheduled before today; other
+postpone targets must be later than today.
 `raven todo api` is explicitly unsupported; use authenticated `raven api` or `raven ui`.
 Reopening a completed task or event is available through the ToDo HTTP API, not the CLI.
 Run `raven todo --help` and `raven todo <command> --help` for the complete existing flags.

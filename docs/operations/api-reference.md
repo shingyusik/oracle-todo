@@ -126,6 +126,10 @@ The existing ToDo router is mounted below `/api/v1/todo`:
 
 Example full route: `GET /api/v1/todo/items`.
 
+`POST /items/:id/postpone` requires caller-local `today` and a target `scheduled` date.
+The target may be today only when the source schedule is earlier than today; otherwise it
+must be later than today.
+
 The standalone ToDo API command is not part of Raven's supported surface:
 `raven todo api` is rejected. Use `raven api` or `raven ui`, both of which apply Raven
 authentication and bind policy.
