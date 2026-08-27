@@ -352,6 +352,15 @@ describe("design system boundaries", () => {
     const source = await readSource("src/styles/globals.css");
 
     expect(source).toMatch(
+      /\.dashboard-status-tabs\s*\{[^}]*display:\s*flex;[^}]*gap:\s*4px;/s,
+    );
+    expect(source).toMatch(
+      /\.dashboard-status-tabs > button,\n\.dashboard-status-toggle\s*\{[^}]*border:\s*1px solid var\(--color-hairline-light\);[^}]*padding:\s*6px 10px;/s,
+    );
+    expect(source).toMatch(
+      /\.dashboard-status-tabs > button\[aria-selected="true"\]\s*\{[^}]*background:\s*var\(--color-ink\);[^}]*color:\s*var\(--color-on-dark\);/s,
+    );
+    expect(source).toMatch(
       /\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s,
     );
     expect(source).toMatch(
@@ -361,10 +370,25 @@ describe("design system boundaries", () => {
     expect(source).toContain("var(--dashboard-status-incomplete-stop)");
     expect(source).toContain("var(--dashboard-status-paused-stop)");
     expect(source).toMatch(
+      /\.dashboard-status-tile\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;[^}]*minmax\(0, 1fr\) 60px;[^}]*padding:\s*9px 10px;/s,
+    );
+    expect(source).toMatch(
       /\.dashboard-status-donut\s*\{[^}]*background:\s*conic-gradient\([\s\S]*?var\(--color-accent-strong\)[\s\S]*?var\(--color-ink\)[\s\S]*?var\(--color-shade-30\)[\s\S]*?var\(--color-chart-warning\)[\s\S]*?100%\s*\);/,
     );
     expect(source).toMatch(
+      /\.dashboard-status-donut\s*\{[^}]*display:\s*grid;[^}]*width:\s*60px;[^}]*aspect-ratio:\s*1;[^}]*place-items:\s*center;/s,
+    );
+    expect(source).toMatch(
       /\.dashboard-status-donut\.is-empty\s*\{[^}]*background:\s*var\(--color-hairline-light\);/s,
+    );
+    expect(source).toMatch(
+      /\.dashboard-status-donut::after\s*\{[^}]*position:\s*absolute;[^}]*width:\s*66%;[^}]*aspect-ratio:\s*1;[^}]*background:\s*var\(--color-canvas-light\);/s,
+    );
+    expect(source).toMatch(
+      /\.dashboard-status-donut-center\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;[^}]*max-width:\s*38px;/s,
+    );
+    expect(source).toMatch(
+      /\.dashboard-status-meta\s*\{[^}]*grid-area:\s*meta;[^}]*min-width:\s*0;[^}]*font-size:\s*10px;[^}]*line-height:\s*1\.3;/s,
     );
     expect(source).toMatch(/\.dashboard-status-tile\.attention-risk\s*\{[^}]*border-color:\s*var\(--color-danger-text\);/s);
     expect(source).toMatch(/\.dashboard-status-tile\.attention-attention\s*\{[^}]*border-color:\s*var\(--color-chart-secondary\);/s);
@@ -377,6 +401,9 @@ describe("design system boundaries", () => {
     expect(source).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.dashboard-status-tabs > button,[\s\S]*?\.dashboard-status-tile,[\s\S]*?\.dashboard-status-toggle\s*\{[^}]*transition:\s*none;/);
     expect(source).not.toMatch(/\.dashboard-status-(?:grid|skeleton-grid)\b/);
     expect(source).not.toContain(`.${["dashboard", "heatmap"].join("-")}-`);
+    expect(source).not.toMatch(
+      /\.dashboard-(?:widget|skeleton)-(?:area|project)-status\b/,
+    );
   });
 
   it("keeps planner period cards motion-safe and dependency-free", async () => {
