@@ -4113,10 +4113,6 @@ button {
   border-color: var(--color-chart-secondary);
 }
 
-.dashboard-status-tile.attention-normal {
-  border-color: var(--color-hairline-light);
-}
-
 .dashboard-status-tile:hover {
   background: var(--color-canvas-light);
 }
@@ -4140,10 +4136,11 @@ button {
   place-items: center;
   border-radius: var(--radius-pill);
   background: conic-gradient(
-    var(--color-accent-strong) 0 var(--dashboard-status-completed-stop),
+    color-mix(in srgb, var(--color-accent-strong) 70%, var(--color-ink)) 0
+      var(--dashboard-status-completed-stop),
     var(--color-ink) var(--dashboard-status-completed-stop)
       var(--dashboard-status-incomplete-stop),
-    var(--color-shade-30) var(--dashboard-status-incomplete-stop)
+    var(--color-shade-50) var(--dashboard-status-incomplete-stop)
       var(--dashboard-status-paused-stop),
     var(--color-chart-warning) var(--dashboard-status-paused-stop) 100%
   );
@@ -4177,7 +4174,7 @@ button {
   grid-area: meta;
   min-width: 0;
   color: var(--color-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.3;
 }
 

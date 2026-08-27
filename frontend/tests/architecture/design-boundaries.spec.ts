@@ -335,21 +335,45 @@ describe("design system boundaries", () => {
 
   it("keeps Dashboard cards and skeletons aligned across approved breakpoints", async () => {
     const source = await readSource("src/styles/globals.css");
+    const wideStart = source.indexOf("@media (min-width: 1440px) {");
+    const mediumStart = source.indexOf(
+      "@media (min-width: 768px) and (max-width: 1439px) {",
+    );
+    const mobileStart = source.indexOf("@media (max-width: 767px) {");
 
-    expect(source).toMatch(
-      /@media \(min-width: 1440px\)[\s\S]*?\.dashboard-panel,\n  \.dashboard-loading \{[^}]*grid-template-columns:\s*minmax\(0, 22fr\) minmax\(0, 43fr\) minmax\(0, 35fr\);[\s\S]*?\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes \{[^}]*grid-column:\s*1;[\s\S]*?\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history \{[^}]*grid-column:\s*2;[\s\S]*?\.dashboard-widget-status,\n  \.dashboard-skeleton-status \{[^}]*grid-column:\s*3;/,
-    );
-    expect(source).toMatch(
-      /@media \(min-width: 768px\) and \(max-width: 1439px\)[\s\S]*?\.dashboard-panel,\n  \.dashboard-loading \{[^}]*grid-template-columns:\s*repeat\(12, minmax\(0, 1fr\)\);[\s\S]*?\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes \{[^}]*grid-column:\s*span 4;[\s\S]*?\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history \{[^}]*grid-column:\s*span 8;[\s\S]*?\.dashboard-widget-status,\n  \.dashboard-skeleton-status \{[^}]*grid-column:\s*1 \/ -1;/,
-    );
-    expect(source).toMatch(
-      /@media \(max-width: 767px\)[\s\S]*?\.dashboard-panel,\n  \.dashboard-loading \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?\.dashboard-widget-today-outcomes,\n  \.dashboard-widget-completion-history,\n  \.dashboard-widget-status,\n  \.dashboard-skeleton-today-outcomes,\n  \.dashboard-skeleton-completion-history,\n  \.dashboard-skeleton-status \{[^}]*grid-column:\s*1;/,
-    );
+    expect(wideStart).toBeGreaterThan(-1);
+    expect(mediumStart).toBeGreaterThan(-1);
+    expect(mobileStart).toBeGreaterThan(-1);
+
+    const wide = cssBlockAt(source, wideStart);
+    const medium = cssBlockAt(source, mediumStart);
+    const mobile = cssBlockAt(source, mobileStart);
+
+    expect(wide).toMatch(/\.dashboard-panel,\n  \.dashboard-loading\s*\{[^}]*grid-template-columns:\s*minmax\(0, 22fr\) minmax\(0, 43fr\) minmax\(0, 35fr\);/);
+    expect(wide).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes\s*\{[^}]*grid-column:\s*1;/);
+    expect(wide).toMatch(/\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history\s*\{[^}]*grid-column:\s*2;/);
+    expect(wide).toMatch(/\.dashboard-widget-status,\n  \.dashboard-skeleton-status\s*\{[^}]*grid-column:\s*3;/);
+    expect(medium).toMatch(/\.dashboard-panel,\n  \.dashboard-loading\s*\{[^}]*grid-template-columns:\s*repeat\(12, minmax\(0, 1fr\)\);/);
+    expect(medium).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes\s*\{[^}]*grid-column:\s*span 4;/);
+    expect(medium).toMatch(/\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history\s*\{[^}]*grid-column:\s*span 8;/);
+    expect(medium).toMatch(/\.dashboard-widget-status,\n  \.dashboard-skeleton-status\s*\{[^}]*grid-column:\s*1 \/ -1;/);
+    expect(mobile).toMatch(/\.dashboard-panel,\n  \.dashboard-loading\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/);
+    expect(mobile).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-widget-completion-history,\n  \.dashboard-widget-status,\n  \.dashboard-skeleton-today-outcomes,\n  \.dashboard-skeleton-completion-history,\n  \.dashboard-skeleton-status\s*\{[^}]*grid-column:\s*1;/);
     expect(source).toMatch(/\.dashboard-panel-header\s*\{[^}]*grid-column:\s*1 \/ -1;/s);
   });
 
   it("styles Dashboard status mini-donuts with accessible interactive states", async () => {
     const source = await readSource("src/styles/globals.css");
+    const mobileStart = source.indexOf("@media (max-width: 767px) {");
+    const reducedMotionStart = source.lastIndexOf(
+      "@media (prefers-reduced-motion: reduce) {",
+    );
+
+    expect(mobileStart).toBeGreaterThan(-1);
+    expect(reducedMotionStart).toBeGreaterThan(-1);
+
+    const mobile = cssBlockAt(source, mobileStart);
+    const reducedMotion = cssBlockAt(source, reducedMotionStart);
 
     expect(source).toMatch(
       /\.dashboard-status-tabs\s*\{[^}]*display:\s*flex;[^}]*gap:\s*4px;/s,
@@ -363,8 +387,8 @@ describe("design system boundaries", () => {
     expect(source).toMatch(
       /\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s,
     );
-    expect(source).toMatch(
-      /@media \(max-width: 767px\)[\s\S]*?\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/,
+    expect(mobile).toMatch(
+      /\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/,
     );
     expect(source).toContain("var(--dashboard-status-completed-stop)");
     expect(source).toContain("var(--dashboard-status-incomplete-stop)");
@@ -373,7 +397,7 @@ describe("design system boundaries", () => {
       /\.dashboard-status-tile\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;[^}]*minmax\(0, 1fr\) 60px;[^}]*border:\s*1px solid var\(--color-hairline-light\);[^}]*padding:\s*9px 10px;/s,
     );
     expect(source).toMatch(
-      /\.dashboard-status-donut\s*\{[^}]*background:\s*conic-gradient\([\s\S]*?var\(--color-accent-strong\)[\s\S]*?var\(--color-ink\)[\s\S]*?var\(--color-shade-30\)[\s\S]*?var\(--color-chart-warning\)[\s\S]*?100%\s*\);/,
+      /\.dashboard-status-donut\s*\{[^}]*background:\s*conic-gradient\([\s\S]*?color-mix\(in srgb, var\(--color-accent-strong\) 70%, var\(--color-ink\)\)[\s\S]*?var\(--color-ink\)[\s\S]*?var\(--color-shade-50\)[\s\S]*?var\(--color-chart-warning\)[\s\S]*?100%\s*\);/,
     );
     expect(source).toMatch(
       /\.dashboard-status-donut\s*\{[^}]*display:\s*grid;[^}]*width:\s*60px;[^}]*aspect-ratio:\s*1;[^}]*place-items:\s*center;/s,
@@ -388,17 +412,16 @@ describe("design system boundaries", () => {
       /\.dashboard-status-donut-center\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;[^}]*max-width:\s*38px;/s,
     );
     expect(source).toMatch(
-      /\.dashboard-status-meta\s*\{[^}]*grid-area:\s*meta;[^}]*min-width:\s*0;[^}]*font-size:\s*10px;[^}]*line-height:\s*1\.3;/s,
+      /\.dashboard-status-meta\s*\{[^}]*grid-area:\s*meta;[^}]*min-width:\s*0;[^}]*font-size:\s*11px;[^}]*line-height:\s*1\.3;/s,
     );
     expect(source).toMatch(/\.dashboard-status-tile\.attention-risk\s*\{[^}]*border-color:\s*var\(--color-danger-text\);/s);
     expect(source).toMatch(/\.dashboard-status-tile\.attention-attention\s*\{[^}]*border-color:\s*var\(--color-chart-secondary\);/s);
-    expect(source).toMatch(/\.dashboard-status-tile\.attention-normal\s*\{[^}]*border-color:\s*var\(--color-hairline-light\);/s);
     expect(source).toContain(".dashboard-status-label");
     expect(source).toContain(".dashboard-status-meta");
     expect(source).toContain(".dashboard-status-tabs > button:focus-visible,");
     expect(source).toContain(".dashboard-status-tile:focus-visible,");
     expect(source).toContain(".dashboard-status-toggle:focus-visible,");
-    expect(source).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.dashboard-status-tabs > button,[\s\S]*?\.dashboard-status-tile,[\s\S]*?\.dashboard-status-toggle\s*\{[^}]*transition:\s*none;/);
+    expect(reducedMotion).toMatch(/\.dashboard-status-tabs > button,\n  \.dashboard-status-tile,\n  \.dashboard-status-toggle\s*\{[^}]*transition:\s*none;/);
     expect(source).not.toMatch(/\.dashboard-status-(?:grid|skeleton-grid)\b/);
     expect(source).not.toContain(`.${["dashboard", "heatmap"].join("-")}-`);
     expect(source).not.toMatch(
