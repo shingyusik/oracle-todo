@@ -302,17 +302,17 @@ describe("DashboardPanel", () => {
     expect(
       screen.getByText("No Tasks or Events are scheduled or due in this range."),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Create an active Project to view status distribution.",
-      ),
-    ).toBeInTheDocument();
+    const projectEmpty = screen.getByText(
+      "Create an active Project to view status distribution.",
+    );
+    expect(projectEmpty).toBeVisible();
     await setupUser().click(screen.getByRole("tab", { name: "Area" }));
     expect(
       screen.getByText(
         "Create an active or paused Area to view status distribution.",
       ),
-    ).toBeInTheDocument();
+    ).toBeVisible();
+    expect(projectEmpty).not.toBeVisible();
     expect(
       screen.getByRole("group", { name: "Completion history" })
         .querySelectorAll(".dashboard-line-point"),
