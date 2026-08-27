@@ -18,10 +18,10 @@ import {
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { CompletionRangeControls } from "@/features/dashboard/ui/CompletionRangeControls";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
-import type { DashboardStatusVisibility } from "@/features/dashboard/ui/DashboardStatusDonutGrid";
+import { DashboardStatusCard } from "@/features/dashboard/ui/DashboardStatusCard";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 
-const DASHBOARD_STATUS_PREVIEW_LIMIT = 5;
+const DASHBOARD_STATUS_PREVIEW_LIMIT = 4;
 
 type DashboardPanelProps = {
   controller: WorkbenchController;
@@ -31,13 +31,13 @@ type DashboardStatusWidgetId = "area-status" | "project-status";
 
 type DashboardStatusWidgetModel = DashboardWidgetModel & {
   id: DashboardStatusWidgetId;
+  chart: Extract<DashboardChartSpec, { kind: "status" }>;
 };
 
 type DashboardWidgetProps = {
   model: DashboardWidgetModel;
   onNavigate: (destination: DashboardDestination) => void;
   headerControls?: React.ReactNode;
-  statusVisibility?: DashboardStatusVisibility;
 };
 
 export function DashboardPanel({ controller }: DashboardPanelProps) {
@@ -91,6 +91,10 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
     (model) => !isDashboardStatusWidget(model),
   );
   const statusModels = models.filter(isDashboardStatusWidget);
+  const statusModelsByScope = snapshot === null ? null : {
+    project: statusModels.find((model) => model.id === "project-status")!,
+    area: statusModels.find((model) => model.id === "area-status")!,
+  };
   const areaStatusRowCount = dashboardStatusRowCount(
     statusModels,
     "area-status",
@@ -168,24 +172,32 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
           />
         );
       })}
-      <div className="dashboard-status-grid">
-        {statusModels.map((model) => (
-          <DashboardWidget
-            key={model.id}
-            model={model}
-            onNavigate={controller.navigateDashboard}
-            statusVisibility={{
+      {statusModelsByScope ? (
+        <DashboardStatusCard
+          models={statusModelsByScope}
+          onNavigate={controller.navigateDashboard}
+          visibility={{
+            project: {
               limit: DASHBOARD_STATUS_PREVIEW_LIMIT,
-              expanded: expandedStatus[model.id],
+              expanded: expandedStatus["project-status"],
               onExpandedChange: (expanded) =>
                 setExpandedStatus((current) => ({
                   ...current,
-                  [model.id]: expanded,
+                  "project-status": expanded,
                 })),
-            }}
-          />
-        ))}
-      </div>
+            },
+            area: {
+              limit: DASHBOARD_STATUS_PREVIEW_LIMIT,
+              expanded: expandedStatus["area-status"],
+              onExpandedChange: (expanded) =>
+                setExpandedStatus((current) => ({
+                  ...current,
+                  "area-status": expanded,
+                })),
+            },
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -202,7 +214,8 @@ function DashboardHeader() {
 function isDashboardStatusWidget(
   model: DashboardWidgetModel,
 ): model is DashboardStatusWidgetModel {
-  return model.id === "area-status" || model.id === "project-status";
+  return (model.id === "area-status" || model.id === "project-status")
+    && model.chart?.kind === "status";
 }
 
 function dashboardStatusRowCount(
@@ -238,24 +251,14 @@ function DashboardLoading() {
             <span />
           </div>
         ))}
-      <div className="dashboard-status-skeleton-grid">
-        {dashboardWidgets
-          .filter(
-            (widget) =>
-              widget.id === "area-status" || widget.id === "project-status",
-          )
-          .map((widget) => (
-            <div
-              className={`dashboard-skeleton-card dashboard-skeleton-${widget.id}`}
-              data-testid="dashboard-skeleton-card"
-              aria-hidden="true"
-              key={widget.id}
-            >
-              <span />
-              <span />
-              <span />
-            </div>
-          ))}
+      <div
+        className="dashboard-skeleton-card dashboard-skeleton-status"
+        data-testid="dashboard-skeleton-card"
+        aria-hidden="true"
+      >
+        <span />
+        <span />
+        <span />
       </div>
     </section>
   );
@@ -265,7 +268,6 @@ function DashboardWidget({
   model,
   onNavigate,
   headerControls,
-  statusVisibility,
 }: DashboardWidgetProps) {
   const chartHasData = model.chart && shouldRenderChart(model.chart);
   const chartIsEmpty = model.chart && isEmptyChart(model.chart);
@@ -312,7 +314,6 @@ function DashboardWidget({
           <DashboardChart
             chart={model.chart}
             onNavigate={onNavigate}
-            statusVisibility={statusVisibility}
           />
         )
       ) : null}

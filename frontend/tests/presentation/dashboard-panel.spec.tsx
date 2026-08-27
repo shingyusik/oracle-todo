@@ -225,8 +225,7 @@ describe("DashboardPanel", () => {
     for (const name of [
       "Today's work",
       "Completion history",
-      "Area status",
-      "Project status",
+      "Status",
     ]) {
       expect(screen.getByRole("region", { name })).toBeVisible();
     }
@@ -269,7 +268,7 @@ describe("DashboardPanel", () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it("renders four card-shaped skeletons while Dashboard items load", () => {
+  it("renders three card-shaped skeletons while Dashboard items load", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => new Promise<Response>(() => {})),
@@ -282,7 +281,9 @@ describe("DashboardPanel", () => {
     });
     expect(
       within(loading).getAllByTestId("dashboard-skeleton-card"),
-    ).toHaveLength(4);
+    ).toHaveLength(3);
+    expect(loading.querySelector(".dashboard-skeleton-status"))
+      .toBeInTheDocument();
   });
 
   it("renders all widget-specific empty states and the default zero line", async () => {
@@ -291,8 +292,7 @@ describe("DashboardPanel", () => {
     for (const name of [
       "Today's work",
       "Completion history",
-      "Area status",
-      "Project status",
+      "Status",
     ]) {
       expect(screen.getByRole("region", { name })).toBeInTheDocument();
     }
@@ -304,12 +304,13 @@ describe("DashboardPanel", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Create an active or paused Area to view status distribution.",
+        "Create an active Project to view status distribution.",
       ),
     ).toBeInTheDocument();
+    await setupUser().click(screen.getByRole("tab", { name: "Area" }));
     expect(
       screen.getByText(
-        "Create an active Project to view status distribution.",
+        "Create an active or paused Area to view status distribution.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -577,6 +578,7 @@ describe("DashboardPanel", () => {
   it("renders Area status totals and opens Area detail from its tile", async () => {
     const user = setupUser();
     await renderLoadedDashboard(populatedItems());
+    await user.click(screen.getByRole("tab", { name: "Area" }));
 
     const tile = screen.getByRole("button", {
       name: "Health: Total 4, 1 completed, 2 incomplete, 0 paused, 1 miss",
@@ -611,82 +613,88 @@ describe("DashboardPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("groups Area and Project status previews and expands each card independently", async () => {
+  it("tabs between Project and Area status with linked accessible panels", async () => {
     const user = setupUser();
-    await renderLoadedDashboard(statusCardItems());
+    await renderLoadedDashboard(populatedItems());
 
-    const statusGrid = document.querySelector(".dashboard-status-grid");
-    const area = screen.getByRole("region", { name: "Area status" });
-    const project = screen.getByRole("region", { name: "Project status" });
+    const status = screen.getByRole("region", { name: "Status" });
+    const tablist = within(status).getByRole("tablist", {
+      name: "Status scope",
+    });
+    const project = within(tablist).getByRole("tab", { name: "Project" });
+    const area = within(tablist).getByRole("tab", { name: "Area" });
+    expect(project).toHaveAttribute("aria-selected", "true");
+    expect(project).toHaveAttribute("tabindex", "0");
+    expect(project).toHaveAttribute(
+      "aria-controls",
+      "dashboard-status-panel-project",
+    );
+    expect(area).toHaveAttribute("aria-selected", "false");
+    expect(area).toHaveAttribute("tabindex", "-1");
+    expect(area).toHaveAttribute(
+      "aria-controls",
+      "dashboard-status-panel-area",
+    );
+    expect(within(status).getByRole("tabpanel")).toHaveAttribute(
+      "aria-labelledby",
+      "dashboard-status-tab-project",
+    );
+    expect(within(status).getByText("Release")).toBeVisible();
 
-    expect(statusGrid).toContainElement(area);
-    expect(statusGrid).toContainElement(project);
-    expect(area).not.toBe(project);
-    expect(area.querySelectorAll(".dashboard-status-tile")).toHaveLength(5);
-    expect(project.querySelectorAll(".dashboard-status-tile")).toHaveLength(5);
-
-    await user.click(within(area).getByRole("button", {
-      name: "Area status 전체 보기",
-    }));
-
-    expect(area.querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
-    expect(project.querySelectorAll(".dashboard-status-tile")).toHaveLength(5);
-    expect(within(area).getByRole("button", {
-      name: "Area status 접기",
-    })).toHaveAttribute("aria-expanded", "true");
-    expect(within(project).getByRole("button", {
-      name: "Project status 전체 보기",
-    })).toHaveAttribute("aria-expanded", "false");
+    await user.click(area);
+    expect(area).toHaveAttribute("aria-selected", "true");
+    expect(within(status).getByRole("tabpanel")).toHaveAttribute(
+      "aria-labelledby",
+      "dashboard-status-tab-area",
+    );
+    expect(within(status).getByText("Health")).toBeVisible();
   });
 
-  it("resets only an expanded Area preview after its rows shrink to zero and grow again", async () => {
+  it("selects and focuses status tabs with wrapping arrow and boundary keys", async () => {
     const user = setupUser();
-    const items = statusCardItems();
-    const { rerender } = render(
-      <DashboardPanel controller={dashboardPanelController(items)} />,
-    );
-    const area = screen.getByRole("region", { name: "Area status" });
-    const project = screen.getByRole("region", { name: "Project status" });
-
-    await user.click(within(area).getByRole("button", {
-      name: "Area status 전체 보기",
-    }));
-    await user.click(within(project).getByRole("button", {
-      name: "Project status 전체 보기",
-    }));
-
-    rerender(
+    render(
       <DashboardPanel
-        controller={dashboardPanelController(
-          items.filter((item) => item.type !== "area"),
-        )}
+        controller={dashboardPanelController(populatedItems())}
       />,
     );
+    const project = screen.getByRole("tab", { name: "Project" });
+    const area = screen.getByRole("tab", { name: "Area" });
 
-    expect(
-      within(screen.getByRole("region", { name: "Area status" })).queryByRole(
-        "group",
-        { name: "Area status" },
-      ),
-    ).toBeNull();
-    expect(within(screen.getByRole("region", { name: "Project status" }))
-      .getByRole("button", { name: "Project status 접기" }))
-      .toHaveAttribute("aria-expanded", "true");
+    project.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(area).toHaveFocus();
+    expect(area).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowRight}");
+    expect(project).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(area).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(project).toHaveFocus();
+    expect(project).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{End}");
+    expect(area).toHaveFocus();
+    expect(area).toHaveAttribute("aria-selected", "true");
+  });
 
-    rerender(
-      <DashboardPanel controller={dashboardPanelController(items)} />,
-    );
+  it("limits status previews to four and preserves expansion per scope", async () => {
+    const user = setupUser();
+    const items = statusCardItems();
+    render(<DashboardPanel controller={dashboardPanelController(items)} />);
+    const status = screen.getByRole("region", { name: "Status" });
 
-    expect(
-      screen.getByRole("region", { name: "Area status" })
-        .querySelectorAll(".dashboard-status-tile"),
-    ).toHaveLength(5);
-    expect(within(screen.getByRole("region", { name: "Area status" }))
-      .getByRole("button", { name: "Area status 전체 보기" }))
-      .toHaveAttribute("aria-expanded", "false");
-    expect(within(screen.getByRole("region", { name: "Project status" }))
-      .getByRole("button", { name: "Project status 접기" }))
-      .toHaveAttribute("aria-expanded", "true");
+    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(4);
+    await user.click(within(status).getByRole("button", { expanded: false }));
+    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
+
+    await user.click(within(status).getByRole("tab", { name: "Area" }));
+    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(4);
+    await user.click(within(status).getByRole("button", { expanded: false }));
+    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
+
+    await user.click(within(status).getByRole("tab", { name: "Project" }));
+    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
+    expect(within(status).getByRole("button", { expanded: true }))
+      .toBeInTheDocument();
   });
 
   it("retries a failed all-items request", async () => {
