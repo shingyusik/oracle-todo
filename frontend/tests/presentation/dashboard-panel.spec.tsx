@@ -309,7 +309,7 @@ describe("DashboardPanel", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Create an active or paused Project to view status distribution.",
+        "Create an active Project to view status distribution.",
       ),
     ).toBeInTheDocument();
     expect(
