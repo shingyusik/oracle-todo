@@ -453,14 +453,17 @@ function mapAccountTableRecord(value: unknown): LedgerAccountTableRecord {
 
 function mapCategoryTableRecord(value: unknown): LedgerCategoryTableRecord {
   const wire = record(value, "ledger category table record");
+  const parentId = nullableString(wire.parent_id, "ledger category table record.parent_id");
   return {
     id: id(wire.id, "ledger category table record.id"),
     category: mapTransactionCategory(wire.category),
     name: nonEmptyString(wire.name, "ledger category table record.name"),
     kind: categoryKind(wire.kind),
     kindLabel: categoryKindLabel(wire.kind_label),
-    parentId: nullableString(wire.parent_id, "ledger category table record.parent_id"),
-    parentLabel: nonEmptyString(wire.parent_label, "ledger category table record.parent_label"),
+    parentId,
+    parentLabel: parentId === null
+      ? "No parent"
+      : nonEmptyString(wire.parent_label, "ledger category table record.parent_label"),
   };
 }
 

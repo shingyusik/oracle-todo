@@ -9,6 +9,7 @@ import {
   mapLedgerEntry,
   mapLedgerSummary,
   mapLedgerTrend,
+  mapLedgerTablePage,
   mapPage,
 } from "@/features/ledger/model/ledger-model";
 
@@ -87,6 +88,37 @@ function stubCrypto() {
 }
 
 describe("Ledger wire boundary", () => {
+  it("maps a root category with no parent label", () => {
+    const mapped = mapLedgerTablePage({
+      items: [{
+        key: "category-root",
+        group_key: null,
+        group_label: null,
+        record: {
+          id: "category-root",
+          category: {
+            id: "category-root",
+            name: "Food",
+            parent_id: null,
+            kind: "expense",
+            active: true,
+          },
+          name: "Food",
+          kind: "expense",
+          kind_label: "Expense",
+          parent_id: null,
+          parent_label: "",
+        },
+      }],
+      next_offset: null,
+    }, "ledger.categories");
+
+    expect(mapped.items[0]?.record).toMatchObject({
+      parentId: null,
+      parentLabel: "No parent",
+    });
+  });
+
   it("maps aligned comparison and trend ordinal dates", () => {
     const currencySummary = (
       currencyId: string,
