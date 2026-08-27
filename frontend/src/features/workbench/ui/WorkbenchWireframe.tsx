@@ -7,7 +7,6 @@ import type {
   WorkbenchController,
 } from "@/features/workbench/model/workbench-model";
 import { MainPanel } from "@/features/workbench/ui/MainPanel";
-import { QuickAddDialog } from "@/features/workbench/ui/QuickAddDialog";
 import {
   TableViewTabConfirmationDialog,
   type TableViewTabConfirmationDialogAdapter,
@@ -23,8 +22,6 @@ type WorkbenchWireframeProps = {
 };
 
 export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
-  const [quickAddOpen, setQuickAddOpen] = React.useState(false);
-  const [mutationEpochs, setMutationEpochs] = React.useState({ ledger: 0, health: 0 });
   const [navigationOpen, setNavigationOpen] = React.useState(false);
   const mobile = useMobileNavigation();
   const navigationRef = React.useRef<HTMLElement>(null);
@@ -141,31 +138,9 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
           ariaLabel={workbenchCopy.navigation.shellLabel}
           onNavigate={mobile ? () => closeNavigation() : undefined}
         />
-        <button
-          type="button"
-          className="items-toolbar-button"
-          aria-haspopup="dialog"
-          onClick={() => {
-            setNavigationOpen(false);
-            setQuickAddOpen(true);
-          }}
-        >
-          Quick Add
-        </button>
       </aside>
-      <MainPanel controller={controller} mutationEpochs={mutationEpochs} />
+      <MainPanel controller={controller} />
       <TableViewTabConfirmationDialog adapter={confirmationAdapter} />
-      {quickAddOpen ? (
-        <QuickAddDialog
-          controller={controller}
-          onClose={() => setQuickAddOpen(false)}
-          onMutation={(domain) => setMutationEpochs((current) => ({
-            ...current,
-            [domain]: current[domain] + 1,
-          }))}
-          returnFocusRef={mobile ? navigationToggleRef : undefined}
-        />
-      ) : null}
     </div>
   );
 }

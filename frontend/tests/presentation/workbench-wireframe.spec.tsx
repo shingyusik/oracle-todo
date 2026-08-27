@@ -1562,6 +1562,7 @@ describe("WorkbenchPageClient", () => {
     expect(ledger.compareDocumentPosition(health) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
     expect(navigation.querySelector(".tree-sidebar-divider")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Quick Add" })).toBeNull();
   });
 
   it("opens the mobile navigation as a modal drawer and restores focus on Escape", async () => {
@@ -1600,7 +1601,7 @@ describe("WorkbenchPageClient", () => {
     expect(close).toHaveFocus();
 
     await user.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(within(drawer).getByRole("button", { name: "Quick Add" })).toHaveFocus();
+    expect(within(drawer).getByRole("button", { name: "Health Journal" })).toHaveFocus();
     await user.tab();
     expect(close).toHaveFocus();
 
@@ -1613,27 +1614,6 @@ describe("WorkbenchPageClient", () => {
     expect(trigger).not.toHaveAttribute("aria-hidden");
     expect(main).not.toHaveAttribute("inert");
     expect(main).not.toHaveAttribute("aria-hidden");
-  });
-
-  it("keeps body scroll locked from the mobile drawer through Quick Add", async () => {
-    useMobileViewport();
-    document.body.style.overflow = "scroll";
-    const user = userEvent.setup();
-    render(<WorkbenchPageClient />);
-
-    const trigger = screen.getByRole("button", { name: "Open Raven navigation" });
-    await user.click(trigger);
-    expect(document.body.style.overflow).toBe("hidden");
-
-    const drawer = screen.getByRole("dialog", { name: "Raven navigation drawer" });
-    await user.click(within(drawer).getByRole("button", { name: "Quick Add" }));
-    expect(screen.getByRole("dialog", { name: "Quick Add" })).toBeInTheDocument();
-    expect(document.body.style.overflow).toBe("hidden");
-
-    await user.click(screen.getByRole("button", { name: "Close Quick Add" }));
-    expect(document.body.style.overflow).toBe("scroll");
-    await waitFor(() => expect(trigger).toHaveFocus());
-    document.body.style.overflow = "";
   });
 
   it("opens Ledger and Health Journal at their default leaves one at a time", async () => {
