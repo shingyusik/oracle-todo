@@ -5,7 +5,7 @@ served by `raven ui` from the same origin as the authenticated API.
 
 ## Navigation
 
-- Dashboard: ToDo analytics for Today's work, Completion history, Area status, and Project status
+- Dashboard: Today's work, Completion history, and Project/Area mini-donut Status analytics
 - ToDo: Workspace and Planner
 - Ledger: Transactions, Accounts, Categories, Reports
 - Health Journal: Diet / Bowel / Medication / Health Metrics / Reports
