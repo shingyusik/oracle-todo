@@ -78,7 +78,10 @@ export function DashboardStatusDonutGrid({
               key={row.id}
             >
               <span className="dashboard-status-label">{row.label}</span>
-              <span className="dashboard-status-donut" aria-hidden="true">
+              <span
+                className={`dashboard-status-donut${row.total === 0 ? " is-empty" : ""}`}
+                aria-hidden="true"
+              >
                 <span className="dashboard-status-donut-center">{center}</span>
               </span>
               <span className="dashboard-status-meta">{meta}</span>

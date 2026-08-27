@@ -598,9 +598,12 @@ describe("DashboardPanel", () => {
     });
     expect(release).toHaveTextContent("25%");
     expect(release).toHaveTextContent("Risk / Miss 1 / Total 4");
-    expect(screen.getByRole("button", {
+    const unplanned = screen.getByRole("button", {
       name: "Unplanned: Progress —, Normal, 0 completed, 0 incomplete, 0 paused, 0 miss",
-    })).toHaveTextContent("—");
+    });
+    expect(unplanned).toHaveTextContent("—");
+    expect(unplanned.querySelector(".dashboard-status-donut"))
+      .toHaveClass("is-empty");
     await user.click(release);
 
     expect(
