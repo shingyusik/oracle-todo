@@ -333,35 +333,50 @@ describe("design system boundaries", () => {
     );
   });
 
-  it("keeps the Dashboard donut fluid inside the four-column desktop card", async () => {
+  it("keeps Dashboard cards and skeletons aligned across approved breakpoints", async () => {
     const source = await readSource("src/styles/globals.css");
 
-    expect(source).toContain(
-      ".dashboard-widget-today-outcomes {\n  grid-column: span 4;\n}",
-    );
-    expect(source).toContain(
-      ".dashboard-widget-completion-history {\n  grid-column: span 8;\n}",
+    expect(source).toMatch(
+      /@media \(min-width: 1440px\)[\s\S]*?\.dashboard-panel,\n  \.dashboard-loading \{[^}]*grid-template-columns:\s*minmax\(0, 22fr\) minmax\(0, 43fr\) minmax\(0, 35fr\);[\s\S]*?\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes \{[^}]*grid-column:\s*1;[\s\S]*?\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history \{[^}]*grid-column:\s*2;[\s\S]*?\.dashboard-widget-status,\n  \.dashboard-skeleton-status \{[^}]*grid-column:\s*3;/,
     );
     expect(source).toMatch(
-      /\.dashboard-chart-donut\s*\{[^}]*width:\s*100%;/s,
+      /@media \(min-width: 768px\) and \(max-width: 1439px\)[\s\S]*?\.dashboard-panel,\n  \.dashboard-loading \{[^}]*grid-template-columns:\s*repeat\(12, minmax\(0, 1fr\)\);[\s\S]*?\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes \{[^}]*grid-column:\s*span 4;[\s\S]*?\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history \{[^}]*grid-column:\s*span 8;[\s\S]*?\.dashboard-widget-status,\n  \.dashboard-skeleton-status \{[^}]*grid-column:\s*1 \/ -1;/,
     );
     expect(source).toMatch(
-      /\.dashboard-donut-ring\s*\{[^}]*width:\s*min\(180px,\s*100%\);/s,
+      /@media \(max-width: 767px\)[\s\S]*?\.dashboard-panel,\n  \.dashboard-loading \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?\.dashboard-widget-today-outcomes,\n  \.dashboard-widget-completion-history,\n  \.dashboard-widget-status,\n  \.dashboard-skeleton-today-outcomes,\n  \.dashboard-skeleton-completion-history,\n  \.dashboard-skeleton-status \{[^}]*grid-column:\s*1;/,
     );
-    expect(source).toContain(
-      `@media (max-width: ${workbenchLayout.mobileBreakpointPx - 1}px)`,
-    );
+    expect(source).toMatch(/\.dashboard-panel-header\s*\{[^}]*grid-column:\s*1 \/ -1;/s);
   });
 
-  it("keeps Dashboard status cards on one row until the mobile breakpoint", async () => {
+  it("styles Dashboard status mini-donuts with accessible interactive states", async () => {
     const source = await readSource("src/styles/globals.css");
 
-    expect(source).toContain(
-      ".dashboard-status-grid,\n.dashboard-status-skeleton-grid {\n  grid-column: 1 / -1;\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));",
+    expect(source).toMatch(
+      /\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s,
     );
     expect(source).toMatch(
-      /@media \(max-width: 767px\)[\s\S]*?\.dashboard-status-grid,\n  \.dashboard-status-skeleton-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/,
+      /@media \(max-width: 767px\)[\s\S]*?\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/,
     );
+    expect(source).toContain("var(--dashboard-status-completed-stop)");
+    expect(source).toContain("var(--dashboard-status-incomplete-stop)");
+    expect(source).toContain("var(--dashboard-status-paused-stop)");
+    expect(source).toMatch(
+      /\.dashboard-status-donut\s*\{[^}]*background:\s*conic-gradient\([\s\S]*?var\(--color-accent-strong\)[\s\S]*?var\(--color-ink\)[\s\S]*?var\(--color-shade-30\)[\s\S]*?var\(--color-chart-warning\)[\s\S]*?100%\s*\);/,
+    );
+    expect(source).toMatch(
+      /\.dashboard-status-donut\.is-empty\s*\{[^}]*background:\s*var\(--color-hairline-light\);/s,
+    );
+    expect(source).toMatch(/\.dashboard-status-tile\.attention-risk\s*\{[^}]*border-color:\s*var\(--color-danger-text\);/s);
+    expect(source).toMatch(/\.dashboard-status-tile\.attention-attention\s*\{[^}]*border-color:\s*var\(--color-chart-secondary\);/s);
+    expect(source).toMatch(/\.dashboard-status-tile\.attention-normal\s*\{[^}]*border-color:\s*var\(--color-hairline-light\);/s);
+    expect(source).toContain(".dashboard-status-label");
+    expect(source).toContain(".dashboard-status-meta");
+    expect(source).toContain(".dashboard-status-tabs > button:focus-visible,");
+    expect(source).toContain(".dashboard-status-tile:focus-visible,");
+    expect(source).toContain(".dashboard-status-toggle:focus-visible,");
+    expect(source).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.dashboard-status-tabs > button,[\s\S]*?\.dashboard-status-tile,[\s\S]*?\.dashboard-status-toggle\s*\{[^}]*transition:\s*none;/);
+    expect(source).not.toMatch(/\.dashboard-status-(?:grid|skeleton-grid)\b/);
+    expect(source).not.toContain(`.${["dashboard", "heatmap"].join("-")}-`);
   });
 
   it("keeps planner period cards motion-safe and dependency-free", async () => {
