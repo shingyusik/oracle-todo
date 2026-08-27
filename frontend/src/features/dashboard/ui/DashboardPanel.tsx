@@ -91,10 +91,14 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
     (model) => !isDashboardStatusWidget(model),
   );
   const statusModels = models.filter(isDashboardStatusWidget);
-  const statusModelsByScope = snapshot === null ? null : {
-    project: statusModels.find((model) => model.id === "project-status")!,
-    area: statusModels.find((model) => model.id === "area-status")!,
-  };
+  const projectStatusModel = dashboardStatusWidget(
+    statusModels,
+    "project-status",
+  );
+  const areaStatusModel = dashboardStatusWidget(statusModels, "area-status");
+  const statusModelsByScope = projectStatusModel && areaStatusModel
+    ? { project: projectStatusModel, area: areaStatusModel }
+    : null;
   const areaStatusRowCount = dashboardStatusRowCount(
     statusModels,
     "area-status",
@@ -224,6 +228,13 @@ function dashboardStatusRowCount(
 ): number | null {
   const chart = models.find((model) => model.id === id)?.chart;
   return chart?.kind === "status" ? chart.rows.length : null;
+}
+
+function dashboardStatusWidget(
+  models: DashboardStatusWidgetModel[],
+  id: DashboardStatusWidgetId,
+): DashboardStatusWidgetModel | undefined {
+  return models.find((model) => model.id === id);
 }
 
 function DashboardLoading() {

@@ -35,8 +35,6 @@ export function DashboardStatusCard({
     project: null,
     area: null,
   });
-  const selected = models[scope];
-
   const selectAndFocus = (next: StatusScope) => {
     setScope(next);
     tabRefs.current[next]?.focus();
@@ -71,7 +69,11 @@ export function DashboardStatusCard({
           <p>Task and Event status by Project or Area.</p>
         </div>
       </header>
-      <div role="tablist" aria-label="Status scope">
+      <div
+        className="dashboard-status-tabs"
+        role="tablist"
+        aria-label="Status scope"
+      >
         {scopes.map((candidate) => {
           const selectedTab = candidate === scope;
           return (
@@ -94,21 +96,28 @@ export function DashboardStatusCard({
           );
         })}
       </div>
-      <div
-        role="tabpanel"
-        id={`dashboard-status-panel-${scope}`}
-        aria-labelledby={`dashboard-status-tab-${scope}`}
-      >
-        {selected.chart.rows.length === 0 ? (
-          <p className="dashboard-widget-empty">{selected.emptyMessage}</p>
-        ) : (
-          <DashboardStatusDonutGrid
-            chart={selected.chart}
-            onNavigate={onNavigate}
-            visibility={visibility[scope]}
-          />
-        )}
-      </div>
+      {scopes.map((candidate) => {
+        const model = models[candidate];
+        return (
+          <div
+            role="tabpanel"
+            id={`dashboard-status-panel-${candidate}`}
+            aria-labelledby={`dashboard-status-tab-${candidate}`}
+            hidden={candidate !== scope}
+            key={candidate}
+          >
+            {model.chart.rows.length === 0 ? (
+              <p className="dashboard-widget-empty">{model.emptyMessage}</p>
+            ) : (
+              <DashboardStatusDonutGrid
+                chart={model.chart}
+                onNavigate={onNavigate}
+                visibility={visibility[candidate]}
+              />
+            )}
+          </div>
+        );
+      })}
     </section>
   );
 }

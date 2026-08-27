@@ -635,18 +635,29 @@ describe("DashboardPanel", () => {
       "aria-controls",
       "dashboard-status-panel-area",
     );
-    expect(within(status).getByRole("tabpanel")).toHaveAttribute(
+    const projectPanel = document.getElementById(
+      project.getAttribute("aria-controls")!,
+    );
+    const areaPanel = document.getElementById(
+      area.getAttribute("aria-controls")!,
+    );
+    expect(projectPanel).toBeVisible();
+    expect(areaPanel).not.toBeVisible();
+    expect(tablist).toHaveClass("dashboard-status-tabs");
+    expect(projectPanel).toHaveAttribute(
       "aria-labelledby",
       "dashboard-status-tab-project",
+    );
+    expect(areaPanel).toHaveAttribute(
+      "aria-labelledby",
+      "dashboard-status-tab-area",
     );
     expect(within(status).getByText("Release")).toBeVisible();
 
     await user.click(area);
     expect(area).toHaveAttribute("aria-selected", "true");
-    expect(within(status).getByRole("tabpanel")).toHaveAttribute(
-      "aria-labelledby",
-      "dashboard-status-tab-area",
-    );
+    expect(projectPanel).not.toBeVisible();
+    expect(areaPanel).toBeVisible();
     expect(within(status).getByText("Health")).toBeVisible();
   });
 
@@ -682,18 +693,53 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel controller={dashboardPanelController(items)} />);
     const status = screen.getByRole("region", { name: "Status" });
 
-    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(4);
+    expect(within(status).getByRole("tabpanel")
+      .querySelectorAll(".dashboard-status-tile")).toHaveLength(4);
     await user.click(within(status).getByRole("button", { expanded: false }));
-    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
+    expect(within(status).getByRole("tabpanel")
+      .querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
 
     await user.click(within(status).getByRole("tab", { name: "Area" }));
-    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(4);
+    expect(within(status).getByRole("tabpanel")
+      .querySelectorAll(".dashboard-status-tile")).toHaveLength(4);
     await user.click(within(status).getByRole("button", { expanded: false }));
-    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
+    expect(within(status).getByRole("tabpanel")
+      .querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
 
     await user.click(within(status).getByRole("tab", { name: "Project" }));
-    expect(status.querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
+    expect(within(status).getByRole("tabpanel")
+      .querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
     expect(within(status).getByRole("button", { expanded: true }))
+      .toBeInTheDocument();
+  });
+
+  it("collapses an expanded status scope when its rows shrink to four", async () => {
+    const user = setupUser();
+    const items = statusCardItems();
+    const { rerender } = render(
+      <DashboardPanel controller={dashboardPanelController(items)} />,
+    );
+    const status = screen.getByRole("region", { name: "Status" });
+
+    await user.click(within(status).getByRole("button", { expanded: false }));
+    expect(within(status).getByRole("tabpanel")
+      .querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
+
+    rerender(
+      <DashboardPanel
+        controller={dashboardPanelController(
+          items.filter(
+            (item) => !item.id.endsWith("-5") && !item.id.endsWith("-6"),
+          ),
+        )}
+      />,
+    );
+    expect(within(status).queryByRole("button", { expanded: true })).toBeNull();
+
+    rerender(<DashboardPanel controller={dashboardPanelController(items)} />);
+    expect(within(status).getByRole("tabpanel")
+      .querySelectorAll(".dashboard-status-tile")).toHaveLength(4);
+    expect(within(status).getByRole("button", { expanded: false }))
       .toBeInTheDocument();
   });
 
