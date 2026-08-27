@@ -34,25 +34,23 @@ export type LineChartSpec = {
   }>;
 };
 
-export type HeatmapChartSpec = {
-  kind: "heatmap";
+export type StatusChartSpec = {
+  kind: "status";
+  scope: "area" | "project";
   ariaLabel: string;
-  columns: Array<{
-    id: DashboardStatusKey;
-    label: string;
-    tone: "success" | "primary" | "secondary" | "warning";
-  }>;
   rows: Array<{
     id: string;
     label: string;
-    progressLabel?: string;
+    total: number;
+    progressPercent?: number | null;
     attention?: ProjectAttention;
     destination: DashboardDestination;
-    cells: Array<{
-      id: string;
-      columnId: DashboardStatusKey;
+    segments: Array<{
+      id: DashboardStatusKey;
+      label: string;
       value: number;
-      intensityPercent: number;
+      percentage: number;
+      tone: "success" | "primary" | "secondary" | "warning";
       ariaLabel: string;
     }>;
   }>;
@@ -61,7 +59,7 @@ export type HeatmapChartSpec = {
 export type DashboardChartSpec =
   | DonutChartSpec
   | LineChartSpec
-  | HeatmapChartSpec;
+  | StatusChartSpec;
 
 export type DashboardLinkedStat = {
   kind: "linked";
@@ -110,7 +108,7 @@ export function unifiedTodoStats(
   ];
 }
 
-const heatmapColumns = [
+const statusSegments = [
   { id: "completed", label: "Completed", tone: "success" },
   { id: "incomplete", label: "Incomplete", tone: "primary" },
   { id: "paused", label: "Paused", tone: "secondary" },
@@ -195,7 +193,7 @@ export const dashboardWidgets: DashboardWidget[] = [
   {
     id: "area-status",
     build: (snapshot) => {
-      const rows = heatmapRows(
+      const rows = statusRows(
         snapshot.areas,
         (area) => ({ kind: "area-detail", itemId: area.id }),
       );
@@ -207,9 +205,9 @@ export const dashboardWidgets: DashboardWidget[] = [
           "Create an active or paused Area to view status distribution.",
         destination: { kind: "areas" },
         chart: {
-          kind: "heatmap",
+          kind: "status",
+          scope: "area",
           ariaLabel: "Area status",
-          columns: [...heatmapColumns],
           rows,
         },
       };
@@ -218,26 +216,23 @@ export const dashboardWidgets: DashboardWidget[] = [
   {
     id: "project-status",
     build: (snapshot) => {
-      const rows: HeatmapChartSpec["rows"] = heatmapRows(
-        snapshot.projects,
+      const projects = snapshot.projects
+        .map((project, index) => ({ project, index }))
+        .sort((left, right) =>
+          attentionRank(left.project.attention)
+          - attentionRank(right.project.attention)
+          || left.index - right.index)
+        .map(({ project }) => project);
+      const rows: StatusChartSpec["rows"] = statusRows(
+        projects,
         (project) => ({ kind: "project-detail", itemId: project.id }),
       ).map((row, index) => {
-        const project = snapshot.projects[index];
-        const progressLabel =
-          project.progress === null
-            ? "Progress —"
-            : `Progress ${Math.round(project.progress * 100)}%`;
-        const attentionLabel =
-          project.attention === "risk"
-            ? "Risk"
-            : project.attention === "attention"
-              ? "Attention"
-              : null;
+        const project = projects[index];
         return {
           ...row,
-          progressLabel: attentionLabel
-            ? `${progressLabel} · ${attentionLabel}`
-            : progressLabel,
+          progressPercent: project.progress === null
+            ? null
+            : Math.round(project.progress * 100),
           attention: project.attention,
         };
       });
@@ -248,9 +243,9 @@ export const dashboardWidgets: DashboardWidget[] = [
         emptyMessage: "Create an active Project to view status distribution.",
         destination: { kind: "projects" },
         chart: {
-          kind: "heatmap",
+          kind: "status",
+          scope: "project",
           ariaLabel: "Project status",
-          columns: [...heatmapColumns],
           rows,
         },
       };
@@ -279,23 +274,27 @@ function donutSegment(
   };
 }
 
-function heatmapRows(
+function statusRows(
   sourceRows: DashboardHeatmapRow[],
   destination: (row: DashboardHeatmapRow) => DashboardDestination,
-): HeatmapChartSpec["rows"] {
+): StatusChartSpec["rows"] {
   return sourceRows.map((row) => ({
     id: row.id,
     label: row.title,
+    total: row.total,
     destination: destination(row),
-    cells: heatmapColumns.map((column) => ({
-      id: `${row.id}-${column.id}`,
-      columnId: column.id,
-      value: row.values[column.id],
-      intensityPercent: row.percentages[column.id],
+    segments: statusSegments.map((segment) => ({
+      ...segment,
+      value: row.values[segment.id],
+      percentage: row.percentages[segment.id],
       ariaLabel:
-        `${row.title}: ${row.values[column.id]} ${column.label.toLowerCase()}`,
+        `${row.title}: ${row.values[segment.id]} ${segment.label.toLowerCase()}`,
     })),
   }));
+}
+
+function attentionRank(attention: ProjectAttention): number {
+  return attention === "risk" ? 0 : attention === "attention" ? 1 : 2;
 }
 
 function percent(value: number, total: number): number {

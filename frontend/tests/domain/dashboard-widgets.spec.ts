@@ -159,51 +159,51 @@ describe("dashboard widget registry", () => {
     );
   });
 
-  it("builds exact Area heatmap values and row-relative intensities", () => {
+  it("builds exact Area status segments from snapshot values and percentages", () => {
     expect(widget("area-status")).toMatchObject({
       id: "area-status",
       title: "Area status",
       emptyMessage: "Create an active or paused Area to view status distribution.",
       chart: {
-        kind: "heatmap",
+        kind: "status",
+        scope: "area",
         ariaLabel: "Area status",
-        columns: [
-          { id: "completed", label: "Completed", tone: "success" },
-          { id: "incomplete", label: "Incomplete", tone: "primary" },
-          { id: "paused", label: "Paused", tone: "secondary" },
-          { id: "missed", label: "Miss", tone: "warning" },
-        ],
         rows: [{
           id: "area-health",
           label: "Health",
+          total: 4,
           destination: { kind: "area-detail", itemId: "area-health" },
-          cells: [
+          segments: [
             {
-              id: "area-health-completed",
-              columnId: "completed",
+              id: "completed",
+              label: "Completed",
               value: 2,
-              intensityPercent: 50,
+              percentage: 50,
+              tone: "success",
               ariaLabel: "Health: 2 completed",
             },
             {
-              id: "area-health-incomplete",
-              columnId: "incomplete",
+              id: "incomplete",
+              label: "Incomplete",
               value: 1,
-              intensityPercent: 25,
+              percentage: 25,
+              tone: "primary",
               ariaLabel: "Health: 1 incomplete",
             },
             {
-              id: "area-health-paused",
-              columnId: "paused",
+              id: "paused",
+              label: "Paused",
               value: 1,
-              intensityPercent: 25,
+              percentage: 25,
+              tone: "secondary",
               ariaLabel: "Health: 1 paused",
             },
             {
-              id: "area-health-missed",
-              columnId: "missed",
+              id: "missed",
+              label: "Miss",
               value: 0,
-              intensityPercent: 0,
+              percentage: 0,
+              tone: "warning",
               ariaLabel: "Health: 0 miss",
             },
           ],
@@ -219,16 +219,6 @@ describe("dashboard widget registry", () => {
     const model = projectWidget?.build({
       ...sampleDashboardSnapshot,
       projects: [
-        sampleDashboardSnapshot.projects[0],
-        {
-          id: "project-watch",
-          title: "Watch",
-          values: { completed: 1, incomplete: 1, paused: 0, missed: 0 },
-          percentages: { completed: 50, incomplete: 50, paused: 0, missed: 0 },
-          total: 2,
-          progress: 0.5,
-          attention: "attention",
-        },
         {
           id: "project-empty",
           title: "Unplanned",
@@ -238,6 +228,16 @@ describe("dashboard widget registry", () => {
           progress: null,
           attention: "normal",
         },
+        {
+          id: "project-watch",
+          title: "Watch",
+          values: { completed: 1, incomplete: 1, paused: 0, missed: 0 },
+          percentages: { completed: 50, incomplete: 50, paused: 0, missed: 0 },
+          total: 2,
+          progress: 0.5,
+          attention: "attention",
+        },
+        sampleDashboardSnapshot.projects[0],
       ],
     });
 
@@ -246,23 +246,27 @@ describe("dashboard widget registry", () => {
       title: "Project status",
       emptyMessage: "Create an active Project to view status distribution.",
       chart: {
-        kind: "heatmap",
+        kind: "status",
+        scope: "project",
         ariaLabel: "Project status",
         rows: [
           {
             label: "Release",
-            progressLabel: "Progress 82% · Risk",
+            total: 11,
+            progressPercent: 82,
             attention: "risk",
             destination: { kind: "project-detail", itemId: "project-release" },
           },
           {
             label: "Watch",
-            progressLabel: "Progress 50% · Attention",
+            total: 2,
+            progressPercent: 50,
             attention: "attention",
           },
           {
             label: "Unplanned",
-            progressLabel: "Progress —",
+            total: 0,
+            progressPercent: null,
             attention: "normal",
           },
         ],

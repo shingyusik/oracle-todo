@@ -17,8 +17,8 @@ import {
 } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { CompletionRangeControls } from "@/features/dashboard/ui/CompletionRangeControls";
-import type { DashboardHeatmapVisibility } from "@/features/dashboard/ui/DashboardHeatmap";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
+import type { DashboardStatusVisibility } from "@/features/dashboard/ui/DashboardStatusDonutGrid";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 
 const DASHBOARD_STATUS_PREVIEW_LIMIT = 5;
@@ -37,7 +37,7 @@ type DashboardWidgetProps = {
   model: DashboardWidgetModel;
   onNavigate: (destination: DashboardDestination) => void;
   headerControls?: React.ReactNode;
-  heatmapVisibility?: DashboardHeatmapVisibility;
+  statusVisibility?: DashboardStatusVisibility;
 };
 
 export function DashboardPanel({ controller }: DashboardPanelProps) {
@@ -174,7 +174,7 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
             key={model.id}
             model={model}
             onNavigate={controller.navigateDashboard}
-            heatmapVisibility={{
+            statusVisibility={{
               limit: DASHBOARD_STATUS_PREVIEW_LIMIT,
               expanded: expandedStatus[model.id],
               onExpandedChange: (expanded) =>
@@ -210,7 +210,7 @@ function dashboardStatusRowCount(
   id: DashboardStatusWidgetId,
 ): number | null {
   const chart = models.find((model) => model.id === id)?.chart;
-  return chart?.kind === "heatmap" ? chart.rows.length : null;
+  return chart?.kind === "status" ? chart.rows.length : null;
 }
 
 function DashboardLoading() {
@@ -265,7 +265,7 @@ function DashboardWidget({
   model,
   onNavigate,
   headerControls,
-  heatmapVisibility,
+  statusVisibility,
 }: DashboardWidgetProps) {
   const chartHasData = model.chart && shouldRenderChart(model.chart);
   const chartIsEmpty = model.chart && isEmptyChart(model.chart);
@@ -312,7 +312,7 @@ function DashboardWidget({
           <DashboardChart
             chart={model.chart}
             onNavigate={onNavigate}
-            heatmapVisibility={heatmapVisibility}
+            statusVisibility={statusVisibility}
           />
         )
       ) : null}
@@ -329,7 +329,7 @@ function shouldRenderChart(chart: DashboardChartSpec): boolean {
       return chart.total > 0;
     case "line":
       return true;
-    case "heatmap":
+    case "status":
       return chart.rows.length > 0;
   }
 }
@@ -340,7 +340,7 @@ function isEmptyChart(chart: DashboardChartSpec): boolean {
       return chart.total === 0;
     case "line":
       return chart.total === 0;
-    case "heatmap":
+    case "status":
       return chart.rows.length === 0;
   }
 }

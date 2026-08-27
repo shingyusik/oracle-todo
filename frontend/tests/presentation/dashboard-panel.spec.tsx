@@ -574,40 +574,34 @@ describe("DashboardPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders Area heatmap names and opens Area detail from a cell", async () => {
+  it("renders Area status totals and opens Area detail from its tile", async () => {
     const user = setupUser();
     await renderLoadedDashboard(populatedItems());
 
-    expect(
-      screen.getByRole("button", { name: "Health: 1 completed" }),
-    ).toHaveTextContent("1");
-    expect(
-      screen.getByRole("button", { name: "Health: 2 incomplete" }),
-    ).toHaveTextContent("2");
-    await user.click(
-      screen.getByRole("button", { name: "Health: 1 miss" }),
-    );
+    const tile = screen.getByRole("button", {
+      name: "Health: Total 4, 1 completed, 2 incomplete, 0 paused, 1 miss",
+    });
+    expect(tile).toHaveTextContent("Completed 25% / Total 4");
+    await user.click(tile);
 
     expect(
       await screen.findByRole("region", { name: "Health details" }),
     ).toBeInTheDocument();
   });
 
-  it("renders Project Risk in its name and progress and opens detail from a cell", async () => {
+  it("renders Project Risk and progress and opens detail from its tile", async () => {
     const user = setupUser();
     await renderLoadedDashboard(populatedItems());
 
-    expect(
-      screen.getByRole("button", { name: "Release · Risk" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Progress 25% · Risk")).toBeInTheDocument();
-    expect(screen.getByText("Progress —")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Release: 1 miss" }),
-    ).toHaveTextContent("1");
-    await user.click(
-      screen.getByRole("button", { name: "Release: 1 miss" }),
-    );
+    const release = screen.getByRole("button", {
+      name: "Release: Progress 25%, Risk, 1 completed, 2 incomplete, 0 paused, 1 miss",
+    });
+    expect(release).toHaveTextContent("25%");
+    expect(release).toHaveTextContent("Risk / Miss 1 / Total 4");
+    expect(screen.getByRole("button", {
+      name: "Unplanned: Progress —, Normal, 0 completed, 0 incomplete, 0 paused, 0 miss",
+    })).toHaveTextContent("—");
+    await user.click(release);
 
     expect(
       await screen.findByRole("region", { name: "Release details" }),
@@ -625,15 +619,15 @@ describe("DashboardPanel", () => {
     expect(statusGrid).toContainElement(area);
     expect(statusGrid).toContainElement(project);
     expect(area).not.toBe(project);
-    expect(within(area).getAllByRole("row")).toHaveLength(6);
-    expect(within(project).getAllByRole("row")).toHaveLength(6);
+    expect(area.querySelectorAll(".dashboard-status-tile")).toHaveLength(5);
+    expect(project.querySelectorAll(".dashboard-status-tile")).toHaveLength(5);
 
     await user.click(within(area).getByRole("button", {
       name: "Area status 전체 보기",
     }));
 
-    expect(within(area).getAllByRole("row")).toHaveLength(7);
-    expect(within(project).getAllByRole("row")).toHaveLength(6);
+    expect(area.querySelectorAll(".dashboard-status-tile")).toHaveLength(6);
+    expect(project.querySelectorAll(".dashboard-status-tile")).toHaveLength(5);
     expect(within(area).getByRole("button", {
       name: "Area status 접기",
     })).toHaveAttribute("aria-expanded", "true");
@@ -668,7 +662,8 @@ describe("DashboardPanel", () => {
 
     expect(
       within(screen.getByRole("region", { name: "Area status" })).queryByRole(
-        "table",
+        "group",
+        { name: "Area status" },
       ),
     ).toBeNull();
     expect(within(screen.getByRole("region", { name: "Project status" }))
@@ -680,9 +675,9 @@ describe("DashboardPanel", () => {
     );
 
     expect(
-      within(screen.getByRole("region", { name: "Area status" }))
-        .getAllByRole("row"),
-    ).toHaveLength(6);
+      screen.getByRole("region", { name: "Area status" })
+        .querySelectorAll(".dashboard-status-tile"),
+    ).toHaveLength(5);
     expect(within(screen.getByRole("region", { name: "Area status" }))
       .getByRole("button", { name: "Area status 전체 보기" }))
       .toHaveAttribute("aria-expanded", "false");
@@ -980,123 +975,99 @@ describe("DashboardPanel", () => {
       .toBeInTheDocument();
   });
 
-  it("renders semantic heatmap row and cell buttons with typed destinations", async () => {
+  it("renders an accessible Project status donut and navigates from its tile", async () => {
     const user = setupUser();
     const onNavigate = vi.fn();
     const chart: DashboardChartSpec = {
-      kind: "heatmap",
+      kind: "status",
+      scope: "project",
       ariaLabel: "Project status",
-      columns: [
-        { id: "completed", label: "Completed", tone: "success" },
-      ],
       rows: [
-        {
-          id: "area-health",
-          label: "Health",
-          destination: { kind: "area-detail", itemId: "area-health" },
-          cells: [{
-            id: "area-health-completed",
-            columnId: "completed",
-            value: 1,
-            intensityPercent: 50,
-            ariaLabel: "Health: 1 completed",
-          }],
-        },
         {
           id: "project-release",
           label: "Release",
-          progressLabel: "Progress 50%",
+          total: 4,
+          progressPercent: 50,
           attention: "risk",
           destination: {
             kind: "project-detail",
             itemId: "project-release",
           },
-          cells: [{
-            id: "project-release-completed",
-            columnId: "completed",
-            value: 2,
-            intensityPercent: 50,
-            ariaLabel: "Release: 2 completed",
-          }],
+          segments: [
+            { id: "completed", label: "Completed", value: 2, percentage: 50, tone: "success", ariaLabel: "Release: 2 completed" },
+            { id: "incomplete", label: "Incomplete", value: 1, percentage: 25, tone: "primary", ariaLabel: "Release: 1 incomplete" },
+            { id: "paused", label: "Paused", value: 0, percentage: 0, tone: "secondary", ariaLabel: "Release: 0 paused" },
+            { id: "missed", label: "Miss", value: 1, percentage: 25, tone: "warning", ariaLabel: "Release: 1 miss" },
+          ],
         },
       ],
     };
 
     render(<DashboardChart chart={chart} onNavigate={onNavigate} />);
 
-    const table = screen.getByRole("table");
-    const rows = within(table).getAllByRole("row");
-    expect(rows).toHaveLength(3);
-    expect(within(rows[0]).getAllByRole("columnheader")).toHaveLength(3);
-    expect(
-      within(rows[1]).getByRole("rowheader"),
-    ).toContainElement(screen.getByRole("button", { name: "Health" }));
-    expect(within(rows[1]).getAllByRole("cell")).toHaveLength(2);
-    expect(
-      within(rows[2]).getByRole("rowheader"),
-    ).toContainElement(screen.getByRole("button", { name: "Release · Risk" }));
-    expect(within(rows[2]).getAllByRole("cell")).toHaveLength(2);
-
-    const areaCell = screen.getByRole("button", { name: "Health: 1 completed" });
-    expect(areaCell).toHaveTextContent("1");
-    expect(areaCell.style.getPropertyValue("--dashboard-heatmap-intensity"))
-      .toBe("0.5");
-    await user.click(areaCell);
-    await user.click(screen.getByRole("button", { name: "Release · Risk" }));
-    expect(onNavigate.mock.calls).toEqual([
-      [{ kind: "area-detail", itemId: "area-health" }],
-      [{ kind: "project-detail", itemId: "project-release" }],
-    ]);
-    expect(screen.getByText("Progress 50%")).toBeInTheDocument();
+    const tile = screen.getByRole("button", {
+      name: "Release: Progress 50%, Risk, 2 completed, 1 incomplete, 0 paused, 1 miss",
+    });
+    expect(tile).toHaveClass("attention-risk");
+    expect(tile.querySelector(".dashboard-status-donut-center"))
+      .toHaveTextContent("50%");
+    expect(tile).toHaveTextContent("Risk / Miss 1 / Total 4");
+    expect(tile.style.getPropertyValue("--dashboard-status-completed-stop"))
+      .toBe("50%");
+    expect(tile.style.getPropertyValue("--dashboard-status-incomplete-stop"))
+      .toBe("75%");
+    expect(tile.style.getPropertyValue("--dashboard-status-paused-stop"))
+      .toBe("75%");
+    await user.click(tile);
+    expect(onNavigate).toHaveBeenCalledWith({
+      kind: "project-detail",
+      itemId: "project-release",
+    });
   });
 
-  it("limits controlled heatmap previews and requests expansion", async () => {
+  it("limits controlled status previews and requests expansion", async () => {
     const user = setupUser();
     const onExpandedChange = vi.fn();
     const chart: DashboardChartSpec = {
-      kind: "heatmap",
+      kind: "status",
+      scope: "area",
       ariaLabel: "Area status",
-      columns: [{ id: "completed", label: "Completed", tone: "success" }],
-      rows: heatmapRows(6),
+      rows: statusRows(6),
     };
 
     render(
       <DashboardChart
         chart={chart}
         onNavigate={vi.fn()}
-        heatmapVisibility={{
-          limit: 5,
+        statusVisibility={{
+          limit: 4,
           expanded: false,
           onExpandedChange,
         }}
       />,
     );
 
-    expect(within(screen.getByRole("table")).getAllByRole("row"))
-      .toHaveLength(6);
-    const toggle = screen.getByRole("button", {
-      name: "Area status 전체 보기",
-    });
-    expect(toggle).toHaveTextContent("전체 보기 (총 6개)");
+    expect(screen.getAllByRole("button", { name: /^Area \d:/ })).toHaveLength(4);
+    const toggle = screen.getByRole("button", { expanded: false });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     await user.click(toggle);
     expect(onExpandedChange).toHaveBeenCalledWith(true);
   });
 
-  it("omits the controlled heatmap toggle when every row is visible", () => {
+  it("omits the controlled status toggle when every row is visible", () => {
     const chart: DashboardChartSpec = {
-      kind: "heatmap",
+      kind: "status",
+      scope: "area",
       ariaLabel: "Area status",
-      columns: [{ id: "completed", label: "Completed", tone: "success" }],
-      rows: heatmapRows(5),
+      rows: statusRows(4),
     };
 
     render(
       <DashboardChart
         chart={chart}
         onNavigate={vi.fn()}
-        heatmapVisibility={{
-          limit: 5,
+        statusVisibility={{
+          limit: 4,
           expanded: false,
           onExpandedChange: vi.fn(),
         }}
@@ -1104,24 +1075,24 @@ describe("DashboardPanel", () => {
     );
 
     expect(
-      screen.queryByRole("button", { name: "Area status 전체 보기" }),
+      screen.queryByRole("button", { expanded: false }),
     ).toBeNull();
   });
 
-  it("requests one collapse when an expanded controlled heatmap shrinks to its preview limit", () => {
+  it("requests one collapse when an expanded controlled status chart shrinks to its preview limit", () => {
     const onExpandedChange = vi.fn();
     const chart: DashboardChartSpec = {
-      kind: "heatmap",
+      kind: "status",
+      scope: "area",
       ariaLabel: "Area status",
-      columns: [{ id: "completed", label: "Completed", tone: "success" }],
-      rows: heatmapRows(6),
+      rows: statusRows(6),
     };
     const { rerender } = render(
       <DashboardChart
         chart={chart}
         onNavigate={vi.fn()}
-        heatmapVisibility={{
-          limit: 5,
+        statusVisibility={{
+          limit: 4,
           expanded: true,
           onExpandedChange,
         }}
@@ -1130,10 +1101,10 @@ describe("DashboardPanel", () => {
 
     rerender(
       <DashboardChart
-        chart={{ ...chart, rows: heatmapRows(5) }}
+        chart={{ ...chart, rows: statusRows(4) }}
         onNavigate={vi.fn()}
-        heatmapVisibility={{
-          limit: 5,
+        statusVisibility={{
+          limit: 4,
           expanded: true,
           onExpandedChange,
         }}
@@ -1145,10 +1116,10 @@ describe("DashboardPanel", () => {
 
     rerender(
       <DashboardChart
-        chart={{ ...chart, rows: heatmapRows(5) }}
+        chart={{ ...chart, rows: statusRows(4) }}
         onNavigate={vi.fn()}
-        heatmapVisibility={{
-          limit: 5,
+        statusVisibility={{
+          limit: 4,
           expanded: false,
           onExpandedChange,
         }}
@@ -1159,20 +1130,28 @@ describe("DashboardPanel", () => {
   });
 });
 
-function heatmapRows(count: number): Extract<
+function statusRows(count: number): Extract<
   DashboardChartSpec,
-  { kind: "heatmap" }
+  { kind: "status" }
 >["rows"] {
   return Array.from({ length: count }, (_, index) => ({
     id: `area-${index + 1}`,
     label: `Area ${index + 1}`,
+    total: index,
     destination: { kind: "area-detail", itemId: `area-${index + 1}` },
-    cells: [{
-      id: `area-${index + 1}-completed`,
-      columnId: "completed",
+    segments: [{
+      id: "completed",
+      label: "Completed",
       value: index,
-      intensityPercent: 0,
+      percentage: 0,
+      tone: "success",
       ariaLabel: `Area ${index + 1}: ${index} completed`,
+    }, {
+      id: "incomplete", label: "Incomplete", value: 0, percentage: 0, tone: "primary", ariaLabel: `Area ${index + 1}: 0 incomplete`,
+    }, {
+      id: "paused", label: "Paused", value: 0, percentage: 0, tone: "secondary", ariaLabel: `Area ${index + 1}: 0 paused`,
+    }, {
+      id: "missed", label: "Miss", value: 0, percentage: 0, tone: "warning", ariaLabel: `Area ${index + 1}: 0 miss`,
     }],
   }));
 }
