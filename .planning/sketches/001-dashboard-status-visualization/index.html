@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raven Dashboard Status Visualization</title>
+  <link rel="stylesheet" href="../themes/default.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-sans); }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    .variant-nav { position: fixed; inset: 0 0 auto; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--color-border); background: rgba(255,255,255,.96); backdrop-filter: blur(10px); }
+    .variant-tab, .scope-tab, .range-pill { border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface); color: var(--color-text-muted); padding: 7px 12px; font-size: 12px; font-weight: 700; transition: all .15s ease; }
+    .variant-tab:hover, .scope-tab:hover, .range-pill:hover { border-color: #aaa99f; color: var(--color-text); }
+    .variant-tab.active, .scope-tab.active, .range-pill.active { border-color: #171812; background: #171812; color: #fff; }
+    .variant-note { margin-left: auto; color: var(--color-text-muted); font-size: 12px; }
+    #preview { width: 100%; margin: 0 auto; transition: width .2s ease; }
+    .variant { display: none; min-height: 100vh; padding: 78px 20px 22px; }
+    .variant.active { display: block; }
+    .dashboard { display: grid; grid-template-columns: 22fr 43fr 35fr; gap: 14px; min-height: 690px; }
+    .card { min-width: 0; min-height: 650px; padding: 18px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); overflow: hidden; }
+    .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 18px; }
+    .card h2 { margin: 0 0 6px; font-size: 18px; }
+    .card p { margin: 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.45; }
+    .today { display: grid; align-content: start; }
+    .donut-main { display: grid; place-items: center; width: 180px; height: 180px; margin: 26px auto 18px; border-radius: 50%; background: conic-gradient(var(--color-success) 0 44%, #111 44% 100%); }
+    .donut-main::after { display: grid; place-items: center; width: 118px; height: 118px; border-radius: 50%; background: #fff; content: "9"; font-size: 34px; font-weight: 800; }
+    .legend { display: grid; gap: 8px; }
+    .legend-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 9px 10px; border: 1px solid var(--color-border); border-radius: 7px; background: #fcfbf7; font-size: 12px; }
+    .legend-label { display: flex; align-items: center; gap: 8px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .history-controls { display: flex; gap: 6px; margin-bottom: 18px; }
+    .history svg { width: 100%; height: 320px; overflow: visible; }
+    .grid-line { stroke: #ecebe5; stroke-width: 1; }
+    .trend { fill: none; stroke: var(--color-success); stroke-width: 2.2; }
+    .trend-dot { fill: var(--color-success); stroke: #fff; stroke-width: 3; filter: drop-shadow(0 0 0.5px var(--color-success)); }
+    .axis-label { fill: #777a72; font-size: 10px; }
+    .status-card { display: grid; grid-template-rows: auto auto 1fr auto; }
+    .scope-tabs { display: flex; gap: 5px; margin-bottom: 13px; }
+    .scope-panel { display: none; min-height: 0; }
+    .scope-panel.active { display: block; }
+    .status-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; color: var(--color-text-muted); font-size: 10px; }
+    .status-legend span { display: flex; align-items: center; gap: 5px; }
+    .status-legend i { width: 8px; height: 8px; border-radius: 2px; }
+    .tile, .bubble, .mini-card { border: 0; text-align: left; transition: transform .15s ease, box-shadow .15s ease, filter .15s ease; }
+    .tile:hover, .bubble:hover, .mini-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); filter: saturate(1.06); }
+    .treemap { display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: repeat(6, 72px); gap: 7px; }
+    .tile { position: relative; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; padding: 12px; border-radius: 9px; overflow: hidden; color: #35120f; }
+    .tile.risk { background: #efb1ac; }
+    .tile.attention { background: #f4cf9b; color: #4a2b03; }
+    .tile.normal { background: #e8e7e1; color: #282922; }
+    .tile .name { overflow: hidden; font-size: 13px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .tile .meta { display: flex; justify-content: space-between; gap: 6px; font-size: 10px; font-weight: 700; }
+    .risk-badge { align-self: flex-start; border-radius: 99px; background: rgba(255,255,255,.64); padding: 3px 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .progress { height: 5px; margin: 8px 0 6px; border-radius: 99px; background: rgba(255,255,255,.55); overflow: hidden; }
+    .progress i { display: block; height: 100%; border-radius: inherit; background: rgba(35,37,31,.68); }
+    .tile-big { grid-column: span 4; grid-row: span 3; }
+    .tile-tall { grid-column: span 2; grid-row: span 3; }
+    .tile-wide { grid-column: span 3; grid-row: span 3; }
+    .area-map { display: grid; grid-template-columns: 1.4fr 1fr; grid-template-rows: repeat(3, 138px); gap: 7px; }
+    .area-tile { display: grid; grid-template-rows: 1fr 20px; border: 1px solid var(--color-border); border-radius: 9px; background: #fbfaf6; overflow: hidden; }
+    .area-name { display: flex; align-items: center; justify-content: space-between; padding: 12px; font-weight: 800; }
+    .segments { display: flex; }
+    .segments span { min-width: 2px; }
+    .completed { background: #92d0ad; }
+    .incomplete { background: #777973; }
+    .paused { background: #d5d5cf; }
+    .miss { background: #d96c65; }
+    .lanes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; height: 448px; }
+    .lane { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 10px 7px; border: 1px solid var(--color-border); border-radius: 9px; background: #fbfaf6; overflow: auto; }
+    .lane h3 { width: 100%; margin: 0; padding-bottom: 8px; border-bottom: 1px solid var(--color-border); font-size: 11px; text-align: center; text-transform: uppercase; }
+    .lane-risk h3 { color: #b33b35; }
+    .lane-attention h3 { color: #ad6a14; }
+    .bubble { display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; padding: 12px; color: var(--color-text); text-align: center; }
+    .bubble.risk { background: #efb1ac; }
+    .bubble.attention { background: #f4cf9b; }
+    .bubble.normal { background: #e8e7e1; }
+    .bubble strong { max-width: 86px; font-size: 11px; line-height: 1.2; }
+    .bubble small { margin-top: 4px; font-size: 9px; }
+    .b-lg { width: 132px; height: 132px; }
+    .b-md { width: 106px; height: 106px; }
+    .b-sm { width: 82px; height: 82px; }
+    .area-lanes .bubble { border: 5px solid rgba(255,255,255,.7); }
+    .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+    .mini-card { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 10px; min-height: 128px; padding: 10px; border: 2px solid transparent; border-radius: 10px; background: #fbfaf6; color: var(--color-text); }
+    .mini-card.risk { border-color: #d96c65; }
+    .mini-card.attention { border-color: #e0a149; }
+    .mini-card.normal { border-color: #d6d5ce; }
+    .mini-donut { display: grid; place-items: center; width: 70px; height: 70px; border-radius: 50%; background: conic-gradient(#92d0ad 0 var(--done), #777973 var(--done) var(--open), #d5d5cf var(--open) var(--pause), #d96c65 var(--pause) 100%); }
+    .mini-donut::after { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; background: #fff; content: attr(data-center); font-size: 11px; font-weight: 800; }
+    .mini-info strong { display: block; margin-bottom: 6px; font-size: 11px; }
+    .mini-info small { display: block; color: var(--color-text-muted); font-size: 9px; line-height: 1.5; }
+    .toast { position: fixed; left: 50%; bottom: 24px; z-index: 40; transform: translate(-50%, 20px); opacity: 0; border-radius: 99px; background: #171812; color: white; padding: 10px 16px; font-size: 12px; transition: all .2s ease; pointer-events: none; }
+    .toast.show { transform: translate(-50%, 0); opacity: 1; }
+    #sketch-tools { position: fixed; right: 12px; bottom: 12px; z-index: 30; display: flex; gap: 6px; align-items: center; border-radius: 8px; background: rgba(0,0,0,.76); color: white; padding: 8px 10px; font: 11px system-ui; opacity: .42; transition: opacity .2s; }
+    #sketch-tools:hover { opacity: 1; }
+    #sketch-tools button, #sketch-tools select { border: 1px solid #555; border-radius: 4px; background: #222; color: #fff; padding: 4px 6px; }
+    @media (max-width: 1100px) { .dashboard { grid-template-columns: 1fr 2fr; } .status-card { grid-column: 1 / -1; } .card { min-height: 520px; } }
+  </style>
+</head>
+<body>
+  <nav class="variant-nav">
+    <button class="variant-tab" onclick="showVariant('a', this)">A · 위험도 트리맵</button>
+    <button class="variant-tab" onclick="showVariant('b', this)">B · 위험도 레인</button>
+    <button class="variant-tab active" onclick="showVariant('c', this)">C · 프로젝트 미니 도넛 ✓ Selected</button>
+    <span class="variant-note">Project / Area 탭도 눌러보세요</span>
+  </nav>
+
+  <main id="preview">
+    <section id="variant-a" class="variant"></section>
+    <section id="variant-b" class="variant"></section>
+    <section id="variant-c" class="variant active"></section>
+  </main>
+
+  <div id="sketch-tools">
+    <span>Viewport</span>
+    <button onclick="setViewport('100%')">Full</button>
+    <button onclick="setViewport('1280px')">1280</button>
+    <button onclick="setViewport('768px')">768</button>
+    <select onchange="document.querySelector('link[href*=themes]').href='../themes/'+this.value+'.css'">
+      <option value="default.css">Raven</option>
+    </select>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <template id="today-template">
+    <article class="card today">
+      <header class="card-header"><div><h2>Today's work</h2><p>Completed, incomplete, and missed Tasks and Events scheduled or due today.</p></div></header>
+      <div class="donut-main"></div>
+      <div class="legend">
+        <div class="legend-row"><span class="legend-label" style="color:#47b477"><i class="dot"></i><b style="color:#171812">Completed</b></span><b>4</b><span>44%</span></div>
+        <div class="legend-row"><span class="legend-label" style="color:#111"><i class="dot"></i><b style="color:#171812">Incomplete</b></span><b>5</b><span>56%</span></div>
+        <div class="legend-row"><span class="legend-label" style="color:#c4352a"><i class="dot"></i><b style="color:#171812">Miss</b></span><b>0</b><span>0%</span></div>
+      </div>
+    </article>
+  </template>
+
+  <template id="history-template">
+    <article class="card history">
+      <header class="card-header"><div><h2>Completion history</h2><p>Completion rate for Tasks and Events scheduled or due by browser-local calendar date.</p></div></header>
+      <div class="history-controls"><button class="range-pill">7 days</button><button class="range-pill active">14 days</button><button class="range-pill">30 days</button><button class="range-pill">Custom range</button></div>
+      <svg viewBox="0 0 720 300" role="img" aria-label="Completion history line chart">
+        <line class="grid-line" x1="36" y1="45" x2="705" y2="45"/><line class="grid-line" x1="36" y1="120" x2="705" y2="120"/><line class="grid-line" x1="36" y1="195" x2="705" y2="195"/><line class="grid-line" x1="36" y1="270" x2="705" y2="270"/>
+        <text class="axis-label" x="5" y="49">100%</text><text class="axis-label" x="12" y="124">75%</text><text class="axis-label" x="12" y="199">50%</text><text class="axis-label" x="12" y="274">25%</text>
+        <polyline class="trend" points="42,82 92,114 142,76 192,108 242,90 292,126 342,88 392,60 442,158 492,220 542,140 592,124 642,82 700,160"/>
+        <g><circle class="trend-dot" cx="42" cy="82" r="6"/><circle class="trend-dot" cx="92" cy="114" r="6"/><circle class="trend-dot" cx="142" cy="76" r="6"/><circle class="trend-dot" cx="192" cy="108" r="6"/><circle class="trend-dot" cx="242" cy="90" r="6"/><circle class="trend-dot" cx="292" cy="126" r="6"/><circle class="trend-dot" cx="342" cy="88" r="6"/><circle class="trend-dot" cx="392" cy="60" r="6"/><circle class="trend-dot" cx="442" cy="158" r="6"/><circle class="trend-dot" cx="492" cy="220" r="6"/><circle class="trend-dot" cx="542" cy="140" r="6"/><circle class="trend-dot" cx="592" cy="124" r="6"/><circle class="trend-dot" cx="642" cy="82" r="6"/><circle class="trend-dot" cx="700" cy="160" r="6"/></g>
+        <text class="axis-label" x="36" y="292">2026-08-14</text><text class="axis-label" x="360" y="292">2026-08-21</text><text class="axis-label" x="650" y="292">2026-08-27</text>
+      </svg>
+    </article>
+  </template>
+
+  <script>
+    const projects = `
+      <button class="tile risk tile-big" onclick="notify('panorion 런칭 프로젝트 열기')"><span class="risk-badge">Risk · 14일+ 방치</span><span class="name">panorion 런칭</span><div><div class="progress"><i style="width:22%"></i></div><span class="meta"><b>진행 22%</b><b>Miss 6 · 업무 9</b></span></div></button>
+      <button class="tile normal tile-tall" onclick="notify('CAE Agent AI 프로젝트 열기')"><span class="risk-badge">Normal</span><span class="name">CAE Agent AI (8/10)</span><div><div class="progress"><i style="width:55%"></i></div><span class="meta"><b>진행 55%</b><b>Miss 5 · 업무 11</b></span></div></button>
+      <button class="tile attention tile-wide" onclick="notify('Oracle Todo 프로젝트 열기')"><span class="risk-badge">Attention · 7일+</span><span class="name">Oracle Todo</span><div><div class="progress"><i style="width:68%"></i></div><span class="meta"><b>진행 68%</b><b>Miss 1 · 업무 18</b></span></div></button>
+      <button class="tile normal tile-wide" onclick="notify('Health Dashboard 프로젝트 열기')"><span class="risk-badge">Normal</span><span class="name">Health Dashboard</span><div><div class="progress"><i style="width:75%"></i></div><span class="meta"><b>진행 75%</b><b>Miss 0 · 업무 8</b></span></div></button>`;
+    const areas = `
+      <button class="area-tile tile" onclick="notify('Health Area 열기')"><span class="area-name">Health <small>293</small></span><span class="segments"><span class="completed" style="width:40%"></span><span class="incomplete" style="width:51%"></span><span class="paused" style="width:0%"></span><span class="miss" style="width:9%"></span></span></button>
+      <button class="area-tile tile" onclick="notify('Housekeeping Area 열기')"><span class="area-name">Housekeeping <small>157</small></span><span class="segments"><span class="completed" style="width:41%"></span><span class="incomplete" style="width:38%"></span><span class="miss" style="width:21%"></span></span></button>
+      <button class="area-tile tile" onclick="notify('E8ight Area 열기')"><span class="area-name">E8ight <small>132</small></span><span class="segments"><span class="completed" style="width:48%"></span><span class="incomplete" style="width:48%"></span><span class="miss" style="width:4%"></span></span></button>
+      <button class="area-tile tile" onclick="notify('Finance Area 열기')"><span class="area-name">Finance <small>126</small></span><span class="segments"><span class="completed" style="width:32%"></span><span class="incomplete" style="width:66%"></span><span class="miss" style="width:2%"></span></span></button>
+      <button class="area-tile tile" onclick="notify('Side hustle Area 열기')"><span class="area-name">Side hustle <small>13</small></span><span class="segments"><span class="completed" style="width:46%"></span><span class="incomplete" style="width:8%"></span><span class="miss" style="width:46%"></span></span></button>`;
+
+    function statusCard(kind) {
+      const content = kind === 'treemap'
+        ? `<div class="scope-panel project-panel active"><div class="treemap">${projects}</div></div><div class="scope-panel area-panel"><div class="area-map">${areas}</div></div>`
+        : kind === 'lanes'
+          ? `<div class="scope-panel project-panel active"><div class="lanes"><div class="lane lane-risk"><h3>Risk</h3><button class="bubble risk b-lg" onclick="notify('panorion 런칭 프로젝트 열기')"><strong>panorion 런칭</strong><small>업무 9 · 22%</small></button></div><div class="lane lane-attention"><h3>Attention</h3><button class="bubble attention b-lg" onclick="notify('Oracle Todo 프로젝트 열기')"><strong>Oracle Todo</strong><small>업무 18 · 68%</small></button></div><div class="lane"><h3>Normal</h3><button class="bubble normal b-md" onclick="notify('CAE Agent AI 프로젝트 열기')"><strong>CAE Agent AI</strong><small>업무 11 · 55%</small></button><button class="bubble normal b-sm" onclick="notify('Health Dashboard 프로젝트 열기')"><strong>Health Dashboard</strong><small>업무 8 · 75%</small></button></div></div></div><div class="scope-panel area-panel"><div class="lanes area-lanes"><div class="lane lane-risk"><h3>High Miss</h3><button class="bubble risk b-lg"><strong>Side hustle</strong><small>Miss 46%</small></button></div><div class="lane lane-attention"><h3>Incomplete</h3><button class="bubble attention b-lg"><strong>Finance</strong><small>Incomplete 66%</small></button><button class="bubble attention b-md"><strong>Health</strong><small>Incomplete 51%</small></button></div><div class="lane"><h3>Stable</h3><button class="bubble normal b-md"><strong>E8ight</strong><small>Complete 48%</small></button></div></div></div>`
+          : `<div class="scope-panel project-panel active"><div class="mini-grid">${miniProject('panorion 런칭','risk','22%','0%','22%','22%','Miss 6 · 업무 9')}${miniProject('Oracle Todo','attention','68%','38%','72%','72%','Miss 1 · 업무 18')}${miniProject('CAE Agent AI','normal','55%','55%','55%','55%','Miss 5 · 업무 11')}${miniProject('Health Dashboard','normal','75%','75%','75%','75%','Miss 0 · 업무 8')}</div></div><div class="scope-panel area-panel"><div class="mini-grid">${miniArea('Health','40%','91%','91%','293')}${miniArea('Housekeeping','41%','79%','79%','157')}${miniArea('E8ight','48%','96%','96%','132')}${miniArea('Finance','32%','98%','98%','126')}</div></div>`;
+      return `<article class="card status-card"><header class="card-header"><div><h2>Status</h2><p>${kind === 'treemap' ? 'Tile size represents linked work. Color reveals abandoned Projects.' : kind === 'lanes' ? 'Projects grouped by existing Risk and Attention rules.' : 'Status distribution per Project with attention borders.'}</p></div></header><div class="scope-tabs"><button class="scope-tab active" onclick="switchScope(this,'project')">Project</button><button class="scope-tab" onclick="switchScope(this,'area')">Area</button></div>${content}<div class="status-legend"><span><i style="background:#d96c65"></i>Risk / Miss</span><span><i style="background:#f3a84b"></i>Attention</span><span><i style="background:#92d0ad"></i>Completed</span><span><i style="background:#777973"></i>Incomplete</span></div></article>`;
+    }
+    function miniProject(name, attention, center, done, open, pause, meta) { return `<button class="mini-card ${attention}" onclick="notify('${name} 프로젝트 열기')"><span class="mini-donut" data-center="${center}" style="--done:${done};--open:${open};--pause:${pause}"></span><span class="mini-info"><strong>${name}</strong><small>${attention.toUpperCase()}</small><small>${meta}</small></span></button>`; }
+    function miniArea(name, done, open, pause, total) { return `<button class="mini-card normal"><span class="mini-donut" data-center="${total}" style="--done:${done};--open:${open};--pause:${pause}"></span><span class="mini-info"><strong>${name}</strong><small>Completed ${done}</small><small>Total ${total}</small></span></button>`; }
+    function renderVariant(id, kind) { const root = document.getElementById('variant-' + id); root.innerHTML = `<div class="dashboard">${document.getElementById('today-template').innerHTML}${document.getElementById('history-template').innerHTML}${statusCard(kind)}</div>`; }
+    function showVariant(id, button) { document.querySelectorAll('.variant').forEach(v => v.classList.remove('active')); document.querySelectorAll('.variant-tab').forEach(v => v.classList.remove('active')); document.getElementById('variant-' + id).classList.add('active'); button.classList.add('active'); }
+    function switchScope(button, scope) { const card = button.closest('.status-card'); card.querySelectorAll('.scope-tab').forEach(v => v.classList.remove('active')); button.classList.add('active'); card.querySelector('.project-panel').classList.toggle('active', scope === 'project'); card.querySelector('.area-panel').classList.toggle('active', scope === 'area'); }
+    function setViewport(width) { document.getElementById('preview').style.width = width; }
+    let toastTimer; function notify(message) { const toast = document.getElementById('toast'); toast.textContent = message; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('show'), 1400); }
+    renderVariant('a','treemap'); renderVariant('b','lanes'); renderVariant('c','donuts');
+  </script>
+</body>
+</html>
