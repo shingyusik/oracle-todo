@@ -84,9 +84,11 @@ if (-not $isDefaultHome) {
     }
 }
 
-if ($isDefaultHome -and $null -ne (Get-ExistingPathEntry $DataHome)) {
+if ($isDefaultHome) {
     Assert-DefaultHomeSafe
-    Remove-Item -Recurse -Force -LiteralPath $DataHome
+    if ($null -ne (Get-ExistingPathEntry $DataHome)) {
+        Remove-Item -Recurse -Force -LiteralPath $DataHome
+    }
 }
 New-Item -ItemType Directory -Force -Path $DataHome | Out-Null
 

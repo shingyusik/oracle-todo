@@ -108,7 +108,9 @@ try {
         else { Remove-Item Env:RAVEN_HOME -ErrorAction SilentlyContinue }
     }
 
+    $beforeSeedDate = (Get-Date).Date
     & $seedScript -DataHome $smokeHome | Out-Null
+    $afterSeedDate = (Get-Date).Date
     Assert-True ((Test-Path Env:RAVEN_CONSOLE_LOG) -eq $hadConsoleLog -and $env:RAVEN_CONSOLE_LOG -ceq $consoleLogBefore) 'seed changed caller RAVEN_CONSOLE_LOG'
 
     foreach ($file in @('todo.sqlite', 'ledger.sqlite', 'health.sqlite')) {
@@ -122,6 +124,7 @@ try {
     $todayEntry = @($entries | Where-Object { $_.content -eq 'Today coffee and movie' })
     Assert-True ($todayEntry.Count -eq 1) 'today anchor entry is missing or duplicated'
     $todayDate = [datetime]::ParseExact($todayEntry[0].date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture).Date
+    Assert-True ($todayDate -eq $beforeSeedDate -or $todayDate -eq $afterSeedDate) 'today anchor is stale'
     $today = $todayDate.ToString('yyyy-MM-dd')
     $yesterday = $todayDate.AddDays(-1).ToString('yyyy-MM-dd')
     $tomorrow = $todayDate.AddDays(1).ToString('yyyy-MM-dd')
@@ -169,6 +172,7 @@ try {
         Assert-True ($transferEntry.date -eq $todayDate.AddDays(-7).ToString('yyyy-MM-dd') -and $transferEntry.amount_minor -eq 500000 -and $transferEntry.content -eq 'Mock savings transfer' -and $transferEntry.source -eq 'mock-seed') 'transfer values differ from the fixture'
     }
     Assert-True ($transferOut[0].account_name -eq 'Checking' -and $transferIn[0].account_name -eq 'Savings') 'transfer accounts differ from the fixture'
+    Assert-True (-not [string]::IsNullOrWhiteSpace($transferOut[0].transfer_group_id) -and $transferOut[0].transfer_group_id -eq $transferIn[0].transfer_group_id) 'transfer group id is missing or mismatched'
 
     $nonTransferEntries = @($entries | Where-Object { -not $_.transfer_group_id })
     $actualEntrySignatures = @($nonTransferEntries | ForEach-Object { "$($_.date)|$($_.entry_type)|$($_.amount_minor)|$($_.account_name)|$($_.category_name)|$($_.content)|$($_.source)" } | Sort-Object)
