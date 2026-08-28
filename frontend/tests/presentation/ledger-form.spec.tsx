@@ -82,7 +82,6 @@ function controller(
       comparison: null,
       trend: null,
       summary: null,
-      accountBreakdown: [],
       categoryBreakdown: [],
     },
     tableViewSaveError: null,

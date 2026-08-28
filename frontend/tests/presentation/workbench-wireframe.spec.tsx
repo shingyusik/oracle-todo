@@ -425,15 +425,6 @@ function reportLedgerController() {
       }],
     },
     summary: current,
-    accountBreakdown: [{
-      ...current.currencies[0]!,
-      referenceId: "account-cash",
-      name: "Cash",
-    }, {
-      ...current.currencies[0]!,
-      referenceId: null,
-      name: "Unknown account",
-    }],
     categoryBreakdown: [{
       ...current.currencies[0]!,
       incomeMinor: 0,

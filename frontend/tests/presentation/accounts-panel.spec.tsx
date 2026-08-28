@@ -60,7 +60,6 @@ const state: LedgerState = {
   comparison: null,
   trend: null,
   summary: null,
-  accountBreakdown: [],
   categoryBreakdown: [],
 };
 
