@@ -2900,6 +2900,51 @@ describe("LedgerPanel", () => {
       .toBeInTheDocument();
   });
 
+  it("shows one category heading and matching color keys for donut legend rows", () => {
+    const { container } = render(
+      <LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />,
+    );
+
+    expect(screen.getAllByRole("heading", { name: "Spending by category" }))
+      .toHaveLength(1);
+    const keys = container.querySelectorAll(".ledger-report-donut-key");
+    expect(keys).toHaveLength(5);
+    expect(keys[0]).toHaveStyle({ background: "var(--color-chart-primary)" });
+    expect(keys[1]).toHaveStyle({ background: "var(--color-chart-secondary)" });
+  });
+
+  it("drills from Uncategorized while keeping Other noninteractive", async () => {
+    const user = userEvent.setup();
+    const onReportDrilldown = vi.fn();
+    const categoryBreakdown = Array.from({ length: 8 }, (_, index) => ({
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      referenceId: index === 0 ? null : `category-${index}`,
+      name: index === 0 ? "Uncategorized" : `Category ${index}`,
+      incomeMinor: 0,
+      expenseMinor: 800 - index * 50,
+      netChangeMinor: -(800 - index * 50),
+      entryCount: 1,
+    }));
+    render(
+      <LedgerPanel
+        leafTabId="reports"
+        controller={controller(reportAnalysisState({ categoryBreakdown }))}
+        onReportDrilldown={onReportDrilldown}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Uncategorized.*expense category/ }));
+    expect(screen.queryByRole("button", { name: /Other.*expense category/ })).toBeNull();
+    expect(onReportDrilldown).toHaveBeenCalledWith({
+      kind: "category",
+      currencyId: "currency-krw",
+      referenceId: null,
+      range: { start: "2026-08-01", end: "2026-08-31" },
+    });
+  });
+
   it("renders distinct null-id composition slices without a duplicate-key warning", () => {
     const categoryBreakdown = Array.from({ length: 8 }, (_, index) => ({
       currencyId: "currency-krw",

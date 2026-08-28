@@ -1707,7 +1707,7 @@ describe("WorkbenchPageClient", () => {
     };
     const view = render(<MainPanel controller={reportsController} />);
 
-    expect(screen.queryByRole("button", { name: /No reference/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /No reference/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", {
       name: "Food, 88%, 700 KRW, expense category composition",
     }));

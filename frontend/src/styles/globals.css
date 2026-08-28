@@ -393,6 +393,19 @@ button {
   text-align: left;
 }
 
+.ledger-report-donut-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ledger-report-donut-key {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: var(--radius-pill);
+}
+
 .ledger-report-section-heading,
 .ledger-report-trend-legend,
 .ledger-report-error {

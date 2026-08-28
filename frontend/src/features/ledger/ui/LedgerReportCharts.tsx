@@ -20,6 +20,12 @@ const reportPresets: ReadonlyArray<{
   { period: "current_year", label: "Current year" },
 ];
 
+const chartColors = [
+  "var(--color-chart-primary)",
+  "var(--color-chart-secondary)",
+  "var(--color-chart-warning)",
+] as const;
+
 export function ReportPeriodControls({
   selection,
   disabled,
@@ -191,12 +197,13 @@ export function ExpenseCategoryDonut(props: ReportSectionProps) {
       <h2>Spending by category</h2>
       <CompositionDonut
         title="Spending by category"
+        showTitle={false}
         slices={model.categories}
         emptyMessage="No spending categories for this period."
         ariaLabel="Expense category composition"
         formatValue={(value) => reportMoney(value, currency, model.currencyCode)}
         onSelect={(slice) => {
-          if (slice.id && model.range) onDrilldown?.({
+          if (slice.interactive && model.range) onDrilldown?.({
             kind: "category",
             range: model.range,
             currencyId: model.currencyId,
@@ -215,6 +222,7 @@ function CompositionDonut({
   ariaLabel,
   formatValue,
   onSelect,
+  showTitle = true,
 }: {
   title: string;
   slices: CompositionSlice[];
@@ -222,20 +230,21 @@ function CompositionDonut({
   ariaLabel: string;
   formatValue: (valueMinor: number) => string;
   onSelect?: (slice: CompositionSlice) => void;
+  showTitle?: boolean;
 }) {
   const totalLabel = formatValue(slices.reduce((sum, slice) => sum + slice.valueMinor, 0));
   if (slices.length === 0) {
     return (
-      <section className="ledger-report-composition">
-        <h3>{title}</h3>
+      <div className="ledger-report-composition">
+        {showTitle ? <h3>{title}</h3> : null}
         <p className="items-message">{emptyMessage}</p>
-      </section>
+      </div>
     );
   }
 
   return (
-    <section className="ledger-report-composition">
-      <h3>{title}</h3>
+    <div className="ledger-report-composition">
+      {showTitle ? <h3>{title}</h3> : null}
       <div className="ledger-report-donut-panel">
         <div
           className="ledger-report-donut"
@@ -250,10 +259,17 @@ function CompositionDonut({
           <strong>{totalLabel}</strong>
         </div>
         <div className="ledger-report-donut-legend">
-          {slices.map((slice) => {
+          {slices.map((slice, index) => {
             const content = (
               <>
-                <span>{slice.label} · {slice.percentage}%</span>
+                <span className="ledger-report-donut-label">
+                  <span
+                    className="ledger-report-donut-key"
+                    aria-hidden="true"
+                    style={{ background: chartColors[index % chartColors.length] }}
+                  />
+                  {slice.label} · {slice.percentage}%
+                </span>
                 <span>{formatValue(slice.valueMinor)}</span>
               </>
             );
@@ -270,7 +286,7 @@ function CompositionDonut({
           })}
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -375,15 +391,10 @@ function reportMoney(
 
 function categoryGradient(values: number[]): string {
   const total = values.reduce((sum, value) => sum + value, 0);
-  const colors = [
-    "var(--color-chart-primary)",
-    "var(--color-chart-secondary)",
-    "var(--color-chart-warning)",
-  ];
   let start = 0;
   const stops = values.map((value, index) => {
     const end = start + value / total * 100;
-    const stop = `${colors[index % colors.length]} ${start}% ${end}%`;
+    const stop = `${chartColors[index % chartColors.length]} ${start}% ${end}%`;
     start = end;
     return stop;
   });

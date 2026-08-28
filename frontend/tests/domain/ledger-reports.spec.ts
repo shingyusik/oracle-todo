@@ -47,11 +47,72 @@ describe("ledger report model", () => {
   });
 
   it("keeps a balance-only currency visible with zero period activity", () => {
-    expect(reportCurrencyOptions(comparison, balances)).toContainEqual({ id: "currency-eur", code: "EUR" });
-    const model = buildLedgerReportModel(comparison, categories, balances, trend, "currency-eur");
+    const jpyBalance = {
+      ...balance("asset-jpy", "JPY cash", "currency-jpy", 99_000),
+      currencyCode: "JPY",
+      decimalPlaces: 0,
+    };
+    expect(reportCurrencyOptions(comparison, [...balances, jpyBalance]))
+      .toContainEqual({ id: "currency-jpy", code: "JPY" });
+    const model = buildLedgerReportModel(
+      comparison,
+      categories,
+      [...balances, jpyBalance],
+      trend,
+      "currency-jpy",
+    );
     expect(model.metrics.incomeMinor).toBe(0);
     expect(model.metrics.expenseMinor).toBe(0);
-    expect(model.metrics.totalAssetsMinor).toBe(99000);
+    expect(model.metrics.totalAssetsMinor).toBe(99_000);
+    expect(model.categories).toEqual([]);
+    expect(model.trend.points).toEqual([]);
+  });
+
+  it("excludes zero balances from both account compositions", () => {
+    const model = buildLedgerReportModel(
+      comparison,
+      categories,
+      [...balances, balance("zero", "Zero balance", "currency-usd", 0)],
+      trend,
+      "currency-usd",
+    );
+    expect([...model.assets, ...model.liabilities].map(({ id }) => id))
+      .not.toContain("zero");
+  });
+
+  it.each([
+    ["weekly", [{ start: "2026-08-27", end: "2026-08-30" }, { start: "2026-08-31", end: "2026-08-31" }], [400, 100]],
+    ["monthly", [{ start: "2026-08-27", end: "2026-08-31" }], [500]],
+  ] as const)("scales average spending pace to partial %s buckets", (granularity, points, expected) => {
+    const partialComparison = {
+      ...comparison,
+      current: {
+        ...comparison.current,
+        range: { start: "2026-08-27", end: "2026-08-31" },
+      },
+      currencies: comparison.currencies.map((row) => ({
+        ...row,
+        current: { ...row.current, expenseMinor: 500 },
+      })),
+    };
+    const partialTrend: LedgerTrend = {
+      range: partialComparison.current.range,
+      granularity,
+      currencies: [{
+        currencyId: "currency-usd",
+        currencyCode: "USD",
+        points: points.map((point) => ({ ...point, incomeMinor: 0, expenseMinor: 0 })),
+      }],
+    };
+    const model = buildLedgerReportModel(
+      partialComparison,
+      categories,
+      balances,
+      partialTrend,
+      "currency-usd",
+    );
+    expect(model.trend.points.map(({ averageExpensePaceMinor }) => averageExpensePaceMinor))
+      .toEqual(expected);
   });
 
   it("uses currency and account rules for account drilldowns", () => {
@@ -68,6 +129,22 @@ describe("ledger report model", () => {
     expect(category.filterRules.map(({ field }) => field)).toEqual(["date", "currency", "category"]);
     expect(incomeBucket.filterRules.map(({ field }) => field)).toEqual(["date", "currency", "entry_type"]);
     expect(incomeBucket.filterRules.at(-1)).toMatchObject({ type: "select", operator: "is", value: ["income"] });
+  });
+
+  it("uses an empty category rule for Uncategorized drilldowns", () => {
+    const settings = { ...defaultLedgerTableSettings("ledger.transactions"), filterRules: [] };
+    const uncategorized = applyReportDrilldown(settings, {
+      kind: "category",
+      range: comparison.current.range,
+      currencyId: "currency-usd",
+      referenceId: null,
+    });
+    expect(uncategorized.filterRules.at(-1)).toMatchObject({
+      field: "category",
+      type: "relation",
+      operator: "is_empty",
+      value: null,
+    });
   });
 });
 
