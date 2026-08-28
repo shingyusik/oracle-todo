@@ -4,8 +4,25 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 home="${1:-"$repo_root/.mock-data/todo-engine"}"
 default_home="$repo_root/.mock-data/todo-engine"
-home_real="$(realpath -m -- "$home")"
-default_home_real="$(realpath -m -- "$default_home")"
+path_os="$(uname -s)"
+
+canonical_path() {
+  local normalized="$1"
+  case "$path_os" in
+    MSYS_*|MINGW*|CYGWIN_*)
+      normalized="$(cygpath -am -- "$normalized")"
+      normalized="$(realpath -m -- "$normalized")"
+      normalized="$(cygpath -am -- "$normalized")"
+      printf '%s\n' "${normalized,,}"
+      ;;
+    *)
+      realpath -m -- "$normalized"
+      ;;
+  esac
+}
+
+home_real="$(canonical_path "$home")"
+default_home_real="$(canonical_path "$default_home")"
 
 live_homes=("$HOME/.todo-engine" "$HOME/.raven")
 raven_home="${RAVEN_HOME:-}"
@@ -13,7 +30,7 @@ if [[ -n "${raven_home//[[:space:]]/}" ]]; then
   live_homes+=("$raven_home")
 fi
 for live_home in "${live_homes[@]}"; do
-  live_home_real="$(realpath -m -- "$live_home")"
+  live_home_real="$(canonical_path "$live_home")"
   if [[ "$home_real" == "$live_home_real" ]]; then
     echo "refusing to write mock data to live home: $home" >&2
     exit 1

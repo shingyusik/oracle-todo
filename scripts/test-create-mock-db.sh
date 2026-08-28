@@ -26,6 +26,22 @@ test ! -e "$raven_home/todo.sqlite"
 test ! -e "$raven_home/ledger.sqlite"
 test ! -e "$raven_home/health.sqlite"
 
+case "$(uname -s)" in
+  MSYS_*|MINGW*|CYGWIN_*)
+    raven_home_windows="$(cygpath -aw -- "$raven_home")"
+    raven_home_windows_case="${raven_home_windows^^}"
+    raven_home_posix_case="${raven_home^^}"
+    if raven_alias_output="$(RAVEN_HOME="$raven_home_windows_case" "$repo_root/scripts/create-mock-db.sh" "$raven_home_posix_case" 2>&1)"; then
+      echo "expected alternate RAVEN_HOME spelling to be rejected" >&2
+      exit 1
+    fi
+    grep -q "refusing to write mock data to live home: $raven_home_posix_case" <<<"$raven_alias_output"
+    test ! -e "$raven_home/todo.sqlite"
+    test ! -e "$raven_home/ledger.sqlite"
+    test ! -e "$raven_home/health.sqlite"
+    ;;
+esac
+
 eval "$(
   python3 <<'PY'
 from datetime import date, timedelta
