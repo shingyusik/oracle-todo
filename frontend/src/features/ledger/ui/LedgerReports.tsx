@@ -5,12 +5,13 @@ import React, { useEffect, useRef, useState } from "react";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {
   buildLedgerReportModel,
+  reportCurrencyOptions,
   type ReportDrilldownTarget,
 } from "@/features/ledger/model/ledger-reports";
 import {
-  AccountReportSection,
-  ExpenseCategorySection,
-  LedgerTrendChart,
+  AccountBalanceDonuts,
+  ExpenseCategoryDonut,
+  IncomeExpenseTrendChart,
   ReportCurrencyTabs,
   ReportPeriodControls,
   ReportSummaryCards,
@@ -25,10 +26,7 @@ export function LedgerReports({
 }) {
   const defaultReportRequested = useRef(false);
   const { state } = controller;
-  const reportCurrencies = state.comparison?.currencies.map((currency) => ({
-    id: currency.currencyId,
-    code: currency.currencyCode,
-  })) ?? [];
+  const reportCurrencies = reportCurrencyOptions(state.comparison, state.balances);
   const [currencyId, setCurrencyId] = useState(reportCurrencies[0]?.id ?? "");
 
   useEffect(() => {
@@ -47,7 +45,7 @@ export function LedgerReports({
     ? buildLedgerReportModel(
       state.comparison,
       state.categoryBreakdown,
-      state.accountBreakdown,
+      state.balances,
       state.trend,
       currencyId,
     )
@@ -95,17 +93,21 @@ export function LedgerReports({
         {model ? (
           <>
             <ReportSummaryCards model={model} currency={currency} />
-            <ExpenseCategorySection
+            <AccountBalanceDonuts
               model={model}
               currency={currency}
               onDrilldown={onDrilldown}
             />
-            <AccountReportSection
+            <IncomeExpenseTrendChart
               model={model}
               currency={currency}
               onDrilldown={onDrilldown}
             />
-            <LedgerTrendChart model={model} currency={currency} />
+            <ExpenseCategoryDonut
+              model={model}
+              currency={currency}
+              onDrilldown={onDrilldown}
+            />
           </>
         ) : state.reportStatus === "idle" ? (
           <p className="items-message">Choose a report period to view analysis.</p>

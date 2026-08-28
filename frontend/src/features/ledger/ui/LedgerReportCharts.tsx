@@ -5,6 +5,7 @@ import React from "react";
 import type { ReportSelection } from "@/features/ledger/api/ledger-api";
 import type { Currency } from "@/features/ledger/model/ledger-model";
 import type {
+  CompositionSlice,
   LedgerReportModel,
   ReportDrilldownTarget,
 } from "@/features/ledger/model/ledger-reports";
@@ -119,179 +120,223 @@ export function ReportSummaryCards({
   model: LedgerReportModel;
   currency: Pick<Currency, "code" | "decimalPlaces"> | undefined;
 }) {
-  const cards = [model.summary[0], model.summary[1], model.summary[2], model.summary[3]];
-  const labels = ["Income", "Expenses", "Net", "Entries"];
+  const cards = [
+    ["Total assets", model.metrics.totalAssetsMinor, "Current balance"],
+    ["Total liabilities", model.metrics.totalLiabilitiesMinor, "Current balance"],
+    ["Net assets", model.metrics.netAssetsMinor, "Current balance"],
+    ["Income", model.metrics.incomeMinor, "Selected period"],
+    ["Spending", model.metrics.expenseMinor, "Selected period"],
+    [
+      "Average daily spending",
+      model.metrics.averageDailyExpenseMinor,
+      "Selected period calendar days",
+    ],
+  ] as const;
   return (
     <section className="ledger-report-section" aria-label="Summary">
       <h2>Summary</h2>
       <div className="ledger-report-summary">
-        {cards.map((card, index) => {
-          const isCount = card.id === "entries";
-          const value = isCount
-            ? card.count.toString()
-            : reportMoney(card.valueMinor, currency, model.currencyCode);
-          return (
-            <div
-              key={card.id}
-              className="ledger-report-card"
-              role="group"
-              aria-label={labels[index]}
-            >
-              <span>{labels[index]}</span>
-              <strong>{value}</strong>
-              <small>{signedValue(card.changeMinor, isCount, currency, model.currencyCode)} vs previous period</small>
-            </div>
-          );
-        })}
+        {cards.map(([label, value, context]) => (
+          <div key={label} className="ledger-report-card" role="group" aria-label={label}>
+            <span>{label}</span>
+            <strong>{reportMoney(value, currency, model.currencyCode)}</strong>
+            <small>{context}</small>
+          </div>
+        ))}
       </div>
     </section>
   );
 }
 
-export function ExpenseCategorySection({
-  model,
-  currency,
-  onDrilldown,
-}: ReportSectionProps) {
-  const total = model.categories.reduce((sum, row) => sum + row.expenseMinor, 0);
-  const gradient = categoryGradient(model.categories.map(({ expenseMinor }) => expenseMinor));
-  const totalLabel = reportMoney(total, currency, model.currencyCode);
+export function AccountBalanceDonuts(props: ReportSectionProps) {
+  const { model, currency, onDrilldown } = props;
+  const formatValue = (value: number) => reportMoney(value, currency, model.currencyCode);
+  const selectAccount = (slice: CompositionSlice) => {
+    if (slice.id) onDrilldown?.({
+      kind: "account",
+      currencyId: model.currencyId,
+      referenceId: slice.id,
+    });
+  };
+
   return (
-    <section className="ledger-report-section" aria-label="Expense categories">
-      <h2>Expense categories</h2>
-      {model.categories.length === 0 ? (
-        <p className="items-message">No expense categories for this period.</p>
-      ) : (
-        <div className="ledger-report-category-layout">
-          <div className="ledger-report-donut-panel">
-            <div
-              className="ledger-report-donut"
-              role="img"
-              aria-label={`Expense category total ${totalLabel}`}
-              style={{ "--ledger-report-donut": gradient } as React.CSSProperties}
-            >
-              <strong>{totalLabel}</strong>
-            </div>
-            <div className="ledger-report-donut-legend">
-              {model.categories.map((row) => {
-                const label = `${row.name}, ${reportMoney(row.expenseMinor, currency, model.currencyCode)}, ${Math.round(row.expenseMinor / total * 100)}%`;
-                return row.referenceId && model.range ? (
-                  <button
-                    key={row.referenceId}
-                    type="button"
-                    aria-label={label}
-                    onClick={() => onDrilldown?.(drilldown(model, "category", row.referenceId!))}
-                  >
-                    <span>{row.name}</span>
-                    <span>{reportMoney(row.expenseMinor, currency, model.currencyCode)}</span>
-                  </button>
-                ) : (
-                  <div key={`${row.name}-${row.currencyId}`} aria-label={label}>
-                    <span>{row.name}</span>
-                    <span>{reportMoney(row.expenseMinor, currency, model.currencyCode)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className="items-section">
-            <table className="items-table ledger-report-table" aria-label="Expense categories">
-              <thead><tr><th scope="col">Category</th><th scope="col">Expense</th></tr></thead>
-              <tbody>
-                {model.categories.map((row) => (
-                  <tr key={`${row.referenceId ?? row.name}-${row.currencyId}`}>
-                    <td>{row.name}</td>
-                    <td>{reportMoney(row.expenseMinor, currency, model.currencyCode)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr><th scope="row">Total</th><td>{totalLabel}</td></tr></tfoot>
-            </table>
-          </div>
-        </div>
-      )}
+    <section className="ledger-report-section" aria-label="Account balances">
+      <h2>Account balances</h2>
+      <div className="ledger-report-compositions">
+        <CompositionDonut
+          title="Assets"
+          slices={model.assets}
+          emptyMessage="No asset balances for this currency."
+          ariaLabel="Asset composition"
+          formatValue={formatValue}
+          onSelect={selectAccount}
+        />
+        <CompositionDonut
+          title="Liabilities"
+          slices={model.liabilities}
+          emptyMessage="No liability balances for this currency."
+          ariaLabel="Liability composition"
+          formatValue={formatValue}
+          onSelect={selectAccount}
+        />
+      </div>
     </section>
   );
 }
 
-export function AccountReportSection({
-  model,
-  currency,
-  onDrilldown,
-}: ReportSectionProps) {
+export function ExpenseCategoryDonut(props: ReportSectionProps) {
+  const { model, currency, onDrilldown } = props;
   return (
-    <section className="ledger-report-section" aria-label="Accounts">
-      <h2>Accounts</h2>
-      {model.accounts.length === 0 ? (
-        <p className="items-message">No account activity for this period.</p>
-      ) : (
-        <div className="items-section">
-          <table className="items-table ledger-report-table" aria-label="Accounts">
-            <thead>
-              <tr><th scope="col">Account</th><th scope="col">Income</th><th scope="col">Expense</th><th scope="col">Net</th></tr>
-            </thead>
-            <tbody>
-              {model.accounts.map((row) => (
-                <tr key={`${row.referenceId ?? row.name}-${row.currencyId}`}>
-                  <td>
-                    {row.referenceId && model.range ? (
-                      <button
-                        type="button"
-                        onClick={() => onDrilldown?.(drilldown(model, "account", row.referenceId!))}
-                      >
-                        <span aria-hidden="true">{row.name}</span>
-                        <span className="sr-only">View {row.name} transactions</span>
-                      </button>
-                    ) : row.name}
-                  </td>
-                  <td>{reportMoney(row.incomeMinor, currency, model.currencyCode)}</td>
-                  <td>{reportMoney(row.expenseMinor, currency, model.currencyCode)}</td>
-                  <td>{reportMoney(row.netChangeMinor, currency, model.currencyCode)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <section className="ledger-report-section" aria-label="Spending by category">
+      <h2>Spending by category</h2>
+      <CompositionDonut
+        title="Spending by category"
+        slices={model.categories}
+        emptyMessage="No spending categories for this period."
+        ariaLabel="Expense category composition"
+        formatValue={(value) => reportMoney(value, currency, model.currencyCode)}
+        onSelect={(slice) => {
+          if (slice.id && model.range) onDrilldown?.({
+            kind: "category",
+            range: model.range,
+            currencyId: model.currencyId,
+            referenceId: slice.id,
+          });
+        }}
+      />
     </section>
   );
 }
 
-export function LedgerTrendChart({
+function CompositionDonut({
+  title,
+  slices,
+  emptyMessage,
+  ariaLabel,
+  formatValue,
+  onSelect,
+}: {
+  title: string;
+  slices: CompositionSlice[];
+  emptyMessage: string;
+  ariaLabel: string;
+  formatValue: (valueMinor: number) => string;
+  onSelect?: (slice: CompositionSlice) => void;
+}) {
+  const totalLabel = formatValue(slices.reduce((sum, slice) => sum + slice.valueMinor, 0));
+  if (slices.length === 0) {
+    return (
+      <section className="ledger-report-composition">
+        <h3>{title}</h3>
+        <p className="items-message">{emptyMessage}</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="ledger-report-composition">
+      <h3>{title}</h3>
+      <div className="ledger-report-donut-panel">
+        <div
+          className="ledger-report-donut"
+          role="img"
+          aria-label={`${ariaLabel}, total ${totalLabel}`}
+          style={{
+            "--ledger-report-donut": categoryGradient(
+              slices.map(({ valueMinor }) => valueMinor),
+            ),
+          } as React.CSSProperties}
+        >
+          <strong>{totalLabel}</strong>
+        </div>
+        <div className="ledger-report-donut-legend">
+          {slices.map((slice) => {
+            const content = (
+              <>
+                <span>{slice.label} · {slice.percentage}%</span>
+                <span>{formatValue(slice.valueMinor)}</span>
+              </>
+            );
+            return slice.interactive && onSelect ? (
+              <button
+                key={slice.id}
+                type="button"
+                aria-label={`${slice.label}, ${slice.percentage}%, ${ariaLabel.toLowerCase()}`}
+                onClick={() => onSelect(slice)}
+              >
+                {content}
+              </button>
+            ) : <div key={slice.id ?? "other"}>{content}</div>;
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function IncomeExpenseTrendChart({
   model,
   currency,
+  onDrilldown,
 }: {
   model: LedgerReportModel;
   currency: Pick<Currency, "code" | "decimalPlaces"> | undefined;
+  onDrilldown?: (target: ReportDrilldownTarget) => void;
 }) {
   const points = model.trend.points;
-  const maximum = Math.max(1, ...points.flatMap((point) => [point.incomeMinor, point.expenseMinor]));
-  const coordinates = (key: "incomeMinor" | "expenseMinor") => points
-    .map((point, index) => `${pointX(index, points.length)},${100 - point[key] / maximum * 100}`)
-    .join(" ");
+  const maximum = Math.max(1, ...points.flatMap((point) => [
+    point.incomeMinor,
+    point.expenseMinor,
+    point.averageExpensePaceMinor,
+  ]));
+  const height = (value: number) => `${value / maximum * 100}%`;
   const granularity = `${model.trend.granularity[0]?.toUpperCase()}${model.trend.granularity.slice(1)}`;
 
   return (
-    <section className="ledger-report-section" aria-label="Trend">
+    <section className="ledger-report-section" aria-label="Income and spending pattern">
       <div className="ledger-report-section-heading">
-        <h2>Trend</h2>
+        <h2>Income and spending pattern</h2>
         <p>{granularity} granularity</p>
       </div>
       {points.length === 0 ? (
-        <p className="items-message">No trend data for this period.</p>
+        <p className="items-message">No income or spending for this period.</p>
       ) : (
         <div className="ledger-report-trend">
-          <div className="ledger-report-trend-legend" aria-hidden="true">
-            <span>Income</span><span>Expense</span>
+          <div className="ledger-report-trend-legend">
+            <span>Income</span><span>Spending</span><span>Average daily pace</span>
           </div>
-          <svg viewBox="0 0 100 100" role="img" aria-label="Income and expense trend" preserveAspectRatio="none">
-            <polyline className="ledger-report-trend-income" points={coordinates("incomeMinor")} />
-            <polyline className="ledger-report-trend-expense" points={coordinates("expenseMinor")} />
-          </svg>
+          <div className="ledger-report-bars" role="group" aria-label="Income and spending pattern">
+            {points.map((point) => (
+              <div className="ledger-report-bar-group" key={`${point.start}-${point.end}`}>
+                <div className="ledger-report-bar-plot">
+                  <button
+                    type="button"
+                    className="ledger-report-bar-income"
+                    style={{ height: height(point.incomeMinor) }}
+                    aria-label={`${point.start} Income ${reportMoney(point.incomeMinor, currency, model.currencyCode)}`}
+                    onClick={() => onDrilldown?.(trendDrilldown(model, point, "income"))}
+                  />
+                  <button
+                    type="button"
+                    className="ledger-report-bar-expense"
+                    style={{ height: height(point.expenseMinor) }}
+                    aria-label={`${point.start} Expense ${reportMoney(point.expenseMinor, currency, model.currencyCode)}`}
+                    onClick={() => onDrilldown?.(trendDrilldown(model, point, "expense"))}
+                  />
+                  <span
+                    className="ledger-report-average-marker"
+                    style={{ bottom: height(point.averageExpensePaceMinor) }}
+                    aria-hidden="true"
+                  />
+                </div>
+                <span>{point.start}</span>
+              </div>
+            ))}
+          </div>
           <ul className="sr-only">
             {points.map((point) => (
               <li key={`${point.start}-${point.end}`}>
-                {point.start}{point.end === point.start ? "" : ` to ${point.end}`}: Income {reportMoney(point.incomeMinor, currency, model.currencyCode)}; Expense {reportMoney(point.expenseMinor, currency, model.currencyCode)}
+                {point.start}{point.end === point.start ? "" : ` to ${point.end}`}: Income {reportMoney(point.incomeMinor, currency, model.currencyCode)}; Spending {reportMoney(point.expenseMinor, currency, model.currencyCode)}; Average daily pace {reportMoney(point.averageExpensePaceMinor, currency, model.currencyCode)}
               </li>
             ))}
           </ul>
@@ -299,6 +344,19 @@ export function LedgerTrendChart({
       )}
     </section>
   );
+}
+
+function trendDrilldown(
+  model: LedgerReportModel,
+  point: LedgerReportModel["trend"]["points"][number],
+  entryType: "income" | "expense",
+): ReportDrilldownTarget {
+  return {
+    kind: "trend",
+    range: { start: point.start, end: point.end },
+    currencyId: model.currencyId,
+    entryType,
+  };
 }
 
 type ReportSectionProps = {
@@ -313,24 +371,6 @@ function reportMoney(
   code: string,
 ): string {
   return formatMoney(value, currency, code);
-}
-
-function signedValue(
-  value: number,
-  count: boolean,
-  currency: Pick<Currency, "code" | "decimalPlaces"> | undefined,
-  code: string,
-): string {
-  const formatted = count ? Math.abs(value).toString() : reportMoney(Math.abs(value), currency, code);
-  return value > 0 ? `+${formatted}` : value < 0 ? `−${formatted}` : formatted;
-}
-
-function drilldown(
-  model: LedgerReportModel,
-  kind: ReportDrilldownTarget["kind"],
-  referenceId: string,
-): ReportDrilldownTarget {
-  return { range: model.range!, currencyId: model.currencyId, kind, referenceId };
 }
 
 function categoryGradient(values: number[]): string {
@@ -348,8 +388,4 @@ function categoryGradient(values: number[]): string {
     return stop;
   });
   return `conic-gradient(${stops.join(", ")})`;
-}
-
-function pointX(index: number, length: number): number {
-  return length === 1 ? 50 : index / (length - 1) * 100;
 }

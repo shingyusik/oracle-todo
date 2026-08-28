@@ -564,6 +564,32 @@ function reportAnalysisState(
       netChangeMinor: -200,
       entryCount: 1,
     }],
+    balances: [{
+      account: loadedState.accounts[0]!,
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: 2_000,
+    }, {
+      account: { ...loadedState.accounts[0]!, id: "account-savings", name: "Savings" },
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: 1_000,
+    }, {
+      account: { ...loadedState.accounts[0]!, id: "account-card", name: "Credit card" },
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: -500,
+    }, {
+      account: {
+        ...loadedState.accounts[0]!,
+        id: "account-dollar-cash",
+        name: "Dollar cash",
+        currencyId: "currency-usd",
+      },
+      currencyCode: "USD",
+      decimalPlaces: 2,
+      currentBalanceMinor: 2_500,
+    }],
     trend: {
       range: current.range,
       granularity: "daily",
@@ -2837,41 +2863,23 @@ describe("LedgerPanel", () => {
     expect(retryReports).toHaveBeenCalledTimes(1);
   });
 
-  it("renders four report summary cards with signed previous-period changes", () => {
+  it("renders the balanced six-metric summary and separate asset and liability donuts", () => {
     render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />);
 
     const summary = screen.getByRole("region", { name: "Summary" });
-    expect(within(summary).getByRole("group", { name: "Income" }))
-      .toHaveTextContent("3000 KRW");
-    expect(within(summary).getByRole("group", { name: "Income" }))
-      .toHaveTextContent("+1000 KRW");
-    expect(within(summary).getByRole("group", { name: "Expenses" }))
-      .toHaveTextContent("−300 KRW");
-    expect(within(summary).getByRole("group", { name: "Net" }))
-      .toHaveTextContent("+1300 KRW");
-    expect(within(summary).getByRole("group", { name: "Entries" }))
-      .toHaveTextContent("+1");
+    for (const label of [
+      "Total assets",
+      "Total liabilities",
+      "Net assets",
+      "Income",
+      "Spending",
+      "Average daily spending",
+    ]) expect(within(summary).getByRole("group", { name: label })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Asset composition/ })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Liability composition/ })).toBeInTheDocument();
   });
 
-  it("uses the same expense rows and total for the category donut and table", () => {
-    const onReportDrilldown = vi.fn();
-    render(
-      <LedgerPanel
-        leafTabId="reports"
-        controller={controller(reportAnalysisState())}
-        onReportDrilldown={onReportDrilldown}
-      />,
-    );
-
-    const categories = screen.getByRole("region", { name: "Expense categories" });
-    expect(within(categories).getAllByText("1200 KRW")).toHaveLength(2);
-    expect(within(categories).getByRole("button", { name: /Food, 700 KRW/ }))
-      .toBeInTheDocument();
-    expect(within(categories).getByRole("row", { name: /Transit 500 KRW/ }))
-      .toBeInTheDocument();
-  });
-
-  it("renders account income, expense, and net while omitting invalid drilldowns", async () => {
+  it("drills from an account, a trend bar, and an expense category", async () => {
     const user = userEvent.setup();
     const onReportDrilldown = vi.fn();
     render(
@@ -2882,30 +2890,37 @@ describe("LedgerPanel", () => {
       />,
     );
 
-    const accounts = screen.getByRole("region", { name: "Accounts" });
-    expect(within(accounts).getByRole("row", {
-      name: /View Cash transactions 3000 KRW 1200 KRW 1800 KRW/,
-    }))
-      .toBeInTheDocument();
-    expect(within(accounts).queryByRole("button", { name: /Unknown account/ })).toBeNull();
-    await user.click(within(accounts).getByRole("button", { name: "View Cash transactions" }));
-    expect(onReportDrilldown).toHaveBeenCalledWith({
-      range: { start: "2026-08-01", end: "2026-08-31" },
-      currencyId: "currency-krw",
+    await user.click(screen.getByRole("button", { name: /Cash.*asset/ }));
+    await user.click(screen.getByRole("button", { name: /2026-08-01.*Expense/ }));
+    await user.click(screen.getByRole("button", { name: /Food.*expense category/ }));
+
+    expect(onReportDrilldown).toHaveBeenNthCalledWith(1, {
       kind: "account",
+      currencyId: "currency-krw",
       referenceId: "account-cash",
+    });
+    expect(onReportDrilldown).toHaveBeenNthCalledWith(2, {
+      kind: "trend",
+      currencyId: "currency-krw",
+      entryType: "expense",
+      range: { start: "2026-08-01", end: "2026-08-01" },
+    });
+    expect(onReportDrilldown).toHaveBeenNthCalledWith(3, {
+      kind: "category",
+      currencyId: "currency-krw",
+      referenceId: "category-food",
+      range: { start: "2026-08-01", end: "2026-08-31" },
     });
   });
 
-  it("announces trend granularity and exposes both series at every point", () => {
+  it("exposes income, spending, and average pace text without nesting buttons in an image", () => {
     render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />);
 
-    const trendChart = screen.getByRole("img", { name: "Income and expense trend" });
-    expect(screen.getByRole("region", { name: "Trend" })).toHaveTextContent("Daily granularity");
-    expect(trendChart.querySelectorAll("polyline")).toHaveLength(2);
-    expect(screen.getByText("2026-08-01: Income 1000 KRW; Expense 700 KRW"))
+    const trendChart = screen.getByRole("group", { name: "Income and spending pattern" });
+    expect(trendChart.querySelectorAll("button")).toHaveLength(4);
+    expect(screen.getByText(/2026-08-01: Income 1000 KRW; Spending 700 KRW; Average daily pace/))
       .toBeInTheDocument();
-    expect(screen.getByText("2026-08-02: Income 2000 KRW; Expense 500 KRW"))
+    expect(screen.getByText(/2026-08-02: Income 2000 KRW; Spending 500 KRW; Average daily pace/))
       .toBeInTheDocument();
   });
 
@@ -2917,6 +2932,7 @@ describe("LedgerPanel", () => {
         currencies: [],
       },
       categoryBreakdown: [],
+      balances: [],
       trend: {
         range: { start: "2026-08-01", end: "2026-08-31" },
         granularity: "daily",
@@ -2925,10 +2941,10 @@ describe("LedgerPanel", () => {
     });
     render(<LedgerPanel leafTabId="reports" controller={controller(empty)} />);
 
-    expect(screen.getByRole("region", { name: "Summary" })).toHaveTextContent("Income0");
-    expect(screen.getByText("No expense categories for this period.")).toBeInTheDocument();
-    expect(screen.getByText("No account activity for this period.")).toBeInTheDocument();
-    expect(screen.getByText("No trend data for this period.")).toBeInTheDocument();
+    expect(screen.getByText("No asset balances for this currency.")).toBeInTheDocument();
+    expect(screen.getByText("No liability balances for this currency.")).toBeInTheDocument();
+    expect(screen.getByText("No spending categories for this period.")).toBeInTheDocument();
+    expect(screen.getByText("No income or spending for this period.")).toBeInTheDocument();
   });
 
   it("formats two-decimal transaction, balance, and report minor units exactly", () => {
@@ -3010,10 +3026,10 @@ describe("LedgerPanel", () => {
     const reportSummary = screen.getByRole("region", { name: "Summary" });
     expect(within(reportSummary).getByRole("group", { name: "Income" }))
       .toHaveTextContent("12.34 USD");
-    expect(within(reportSummary).getByRole("group", { name: "Expenses" }))
+    expect(within(reportSummary).getByRole("group", { name: "Spending" }))
       .toHaveTextContent("2.00 USD");
-    expect(within(reportSummary).getByRole("group", { name: "Net" }))
-      .toHaveTextContent("10.34 USD");
+    expect(within(reportSummary).getByRole("group", { name: "Net assets" }))
+      .toHaveTextContent("25.00 USD");
     expect(screen.queryByRole("region", { name: "Briefing" })).toBeNull();
   });
 
