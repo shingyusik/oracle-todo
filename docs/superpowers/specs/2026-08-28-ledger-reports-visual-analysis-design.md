@@ -11,6 +11,7 @@ The approved layout is the balanced single-page option: summary metrics first, a
 - Keep Reports as the detailed Ledger analysis surface.
 - Defer Dashboard Ledger highlights until the redesigned Reports page establishes which insights deserve promotion.
 - Keep currencies separate through the existing currency tabs. Do not introduce exchange rates or cross-currency totals.
+- Include a currency when it appears in either the selected-period report or current account balances. A balance-only currency still shows its asset and liability composition while period income and spending remain zero.
 - Do not add storage, schema, lifecycle, or audit changes.
 - Do not add a chart dependency.
 - Do not show previous-period comparisons.
@@ -71,6 +72,7 @@ Reuse the current Ledger controller and API responses:
 
 - `state.balances` supplies current account balances for the asset and liability donuts.
 - The current side of the existing comparison response supplies the selected range and period summary. The previous side remains unused in the UI; retaining the endpoint avoids adding a second preset-resolution path.
+- Currency options are the union of currencies in the comparison and current balances, so an account funded only by its opening balance remains visible.
 - The existing trend response supplies automatically bucketed income and spending.
 - The existing category breakdown supplies category composition.
 - The account activity breakdown is no longer rendered and its report request can be removed.
