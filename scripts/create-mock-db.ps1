@@ -24,11 +24,11 @@ function Test-SamePath {
            [System.IO.Path]::GetFullPath($Right).TrimEnd('\')
 }
 
-function Test-OccupiedPath {
+function Get-ExistingPathEntry {
     param([string]$Path)
 
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-    if ($null -ne $item) { return $true }
+    if ($null -ne $item) { return $item }
 
     # Get-Item can miss a broken link because its target cannot resolve. Enumerating
     # the exact parent still sees the link entry (and its LinkType), so it remains
@@ -38,13 +38,38 @@ function Test-OccupiedPath {
     $entry = Get-ChildItem -LiteralPath $parent -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -ieq $leaf } |
         Select-Object -First 1
-    return $null -ne $entry
+    return $entry
 }
 
-# The live home is canonical. Resolve it the way the engine does (HOME), and cover
-# USERPROFILE too so a Windows shell that never sets HOME is still protected.
-foreach ($base in @($env:HOME, $env:USERPROFILE)) {
-    if ($base -and (Test-SamePath $DataHome (Join-Path $base '.todo-engine'))) {
+function Test-OccupiedPath {
+    param([string]$Path)
+
+    return $null -ne (Get-ExistingPathEntry $Path)
+}
+
+function Assert-DefaultHomeSafe {
+    foreach ($path in @($repoRoot, (Join-Path $repoRoot '.mock-data'), $defaultHome)) {
+        $item = Get-ExistingPathEntry $path
+        if ($null -eq $item) { continue }
+        $linkType = $item.PSObject.Properties['LinkType']
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            ($null -ne $linkType -and $linkType.Value)) {
+            throw "refusing to remove default mock home through a link or junction: $path"
+        }
+    }
+}
+
+# The live homes are canonical. Cover explicit RAVEN_HOME and legacy ToDo paths.
+$liveHomes = @()
+if (-not [string]::IsNullOrWhiteSpace($env:RAVEN_HOME)) { $liveHomes += $env:RAVEN_HOME }
+foreach ($base in @($HOME, $env:HOME, $env:USERPROFILE)) {
+    if (-not [string]::IsNullOrWhiteSpace($base)) {
+        $liveHomes += Join-Path $base '.todo-engine'
+        $liveHomes += Join-Path $base '.raven'
+    }
+}
+foreach ($liveHome in ($liveHomes | Select-Object -Unique)) {
+    if (Test-SamePath $DataHome $liveHome) {
         throw "refusing to write mock data to live home: $DataHome"
     }
 }
@@ -59,12 +84,11 @@ if (-not $isDefaultHome) {
     }
 }
 
-if ($isDefaultHome -and (Test-Path -LiteralPath $DataHome)) {
+if ($isDefaultHome -and $null -ne (Get-ExistingPathEntry $DataHome)) {
+    Assert-DefaultHomeSafe
     Remove-Item -Recurse -Force -LiteralPath $DataHome
 }
 New-Item -ItemType Directory -Force -Path $DataHome | Out-Null
-
-$env:RAVEN_CONSOLE_LOG = 'error'
 
 function Invoke-Raven {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$RavenArgs)
@@ -75,7 +99,10 @@ function Invoke-Raven {
     # ConvertFrom-Json then chokes on JSON the engine wrote correctly. Pin the
     # decode to UTF-8 for the call and hand the console back as it was.
     $previousEncoding = [Console]::OutputEncoding
+    $hadConsoleLog = Test-Path Env:RAVEN_CONSOLE_LOG
+    $previousConsoleLog = $env:RAVEN_CONSOLE_LOG
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $env:RAVEN_CONSOLE_LOG = 'error'
     try {
         $output = & cargo run -q -p raven-cli -- --home $DataHome @RavenArgs
         if ($LASTEXITCODE -ne 0) {
@@ -85,6 +112,8 @@ function Invoke-Raven {
     }
     finally {
         [Console]::OutputEncoding = $previousEncoding
+        if ($hadConsoleLog) { $env:RAVEN_CONSOLE_LOG = $previousConsoleLog }
+        else { Remove-Item Env:RAVEN_CONSOLE_LOG -ErrorAction SilentlyContinue }
     }
 }
 
@@ -125,6 +154,7 @@ $weekStart = $todayDate.AddDays(-((([int]$todayDate.DayOfWeek) + 6) % 7))
 $today = Format-Day $todayDate
 $yesterday = Format-Day $todayDate.AddDays(-1)
 $tomorrow = Format-Day $todayDate.AddDays(1)
+# Intentional 90-day anchor retained for parity with the Bash seed contract.
 $ledgerStart = Format-Day $todayDate.AddDays(-89)
 $yearStart = Format-Day (Get-Date -Year $todayDate.Year -Month 1 -Day 1).Date
 $monthStart = Format-Day (Get-Date -Year $todayDate.Year -Month $todayDate.Month -Day 1).Date
