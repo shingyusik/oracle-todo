@@ -3,7 +3,18 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 smoke_home="$(mktemp -d)"
-trap 'rm -rf "$smoke_home"' EXIT
+occupied_home="$(mktemp -d)"
+trap 'rm -rf "$smoke_home" "$occupied_home"' EXIT
+
+sentinel_bytes='sentinel ledger bytes'
+printf '%s' "$sentinel_bytes" >"$occupied_home/ledger.sqlite"
+if refusal_output="$("$repo_root/scripts/create-mock-db.sh" "$occupied_home" 2>&1)"; then
+  echo "expected occupied custom home to be rejected" >&2
+  exit 1
+fi
+grep -q "refusing to overwrite existing database: $occupied_home/ledger.sqlite" <<<"$refusal_output"
+test "$(cat "$occupied_home/ledger.sqlite")" = "$sentinel_bytes"
+test ! -e "$occupied_home/todo.sqlite"
 
 eval "$(
   python3 <<'PY'
@@ -87,6 +98,16 @@ expense_total="$(sqlite3 "$smoke_home/ledger.sqlite" "
 SELECT COALESCE(SUM(amount_minor), 0) FROM ledger_entries
 WHERE entry_type = 'expense' AND deleted_at IS NULL
   AND date BETWEEN '$ledger_start' AND '$today_date';")"
+transfer_pairs="$(sqlite3 "$smoke_home/ledger.sqlite" "
+SELECT COUNT(*) FROM (
+  SELECT transfer_group_id
+  FROM ledger_entries
+  WHERE transfer_group_id IS NOT NULL AND deleted_at IS NULL
+  GROUP BY transfer_group_id
+  HAVING COUNT(*) = 2
+     AND SUM(CASE WHEN entry_type = 'transfer_out' THEN 1 ELSE 0 END) = 1
+     AND SUM(CASE WHEN entry_type = 'transfer_in' THEN 1 ELSE 0 END) = 1
+);")"
 usd_balance_only="$(sqlite3 "$smoke_home/ledger.sqlite" "
 SELECT COUNT(*) FROM (
   SELECT a.id FROM accounts AS a
@@ -107,5 +128,6 @@ WHERE ac.liability = 1 AND a.opening_balance_minor < 0
 [[ "$expense_categories" -ge 8 ]]
 [[ "$income_total" -gt 0 ]]
 [[ "$expense_total" -gt 0 ]]
+[[ "$transfer_pairs" -ge 1 ]]
 [[ "$usd_balance_only" -ge 1 ]]
 [[ "$liabilities" -ge 1 ]]

@@ -3,16 +3,20 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 home="${1:-"$repo_root/.mock-data/todo-engine"}"
-db_path="$home/todo.sqlite"
 
 if [[ "$home" == "$HOME/.todo-engine" || "$home" == "$HOME/.todo-engine/" ]]; then
   echo "refusing to write mock data to live home: $home" >&2
   exit 1
 fi
 
-if [[ -e "$db_path" && "$home" != "$repo_root/.mock-data/todo-engine" ]]; then
-  echo "refusing to overwrite existing database: $db_path" >&2
-  exit 1
+if [[ "$home" != "$repo_root/.mock-data/todo-engine" ]]; then
+  for db_name in todo.sqlite ledger.sqlite health.sqlite; do
+    db_path="$home/$db_name"
+    if [[ -e "$db_path" || -L "$db_path" ]]; then
+      echo "refusing to overwrite existing database: $db_path" >&2
+      exit 1
+    fi
+  done
 fi
 
 if [[ "$home" == "$repo_root/.mock-data/todo-engine" ]]; then
