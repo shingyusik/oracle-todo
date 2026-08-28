@@ -401,7 +401,19 @@ function reportLedgerController() {
     accountCategories: [],
     accounts: [],
     categories: [],
-    balances: [],
+    balances: [{
+      account: {
+        id: "account-cash",
+        name: "Cash",
+        categoryId: "account-category-cash",
+        currencyId: "currency-krw",
+        openingBalanceMinor: 0,
+        active: true,
+      },
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: 1_500,
+    }],
     reportStatus: "loaded",
     reportError: null,
     reportSelection: { period: "current_month" },
@@ -1696,7 +1708,9 @@ describe("WorkbenchPageClient", () => {
     const view = render(<MainPanel controller={reportsController} />);
 
     expect(screen.queryByRole("button", { name: /No reference/ })).toBeNull();
-    await user.click(screen.getByRole("button", { name: /Food, 700 KRW/ }));
+    await user.click(screen.getByRole("button", {
+      name: "Food, 88%, 700 KRW, expense category composition",
+    }));
 
     expect(workbench.result.current.selection.leafTabId).toBe("transactions");
     expect(ledger.tableSettings("ledger.transactions").filterRules).toEqual([
@@ -1733,12 +1747,12 @@ describe("WorkbenchPageClient", () => {
       }} />,
     );
 
-    expect(screen.queryByRole("button", { name: /Unknown account/ })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "View Cash transactions" }));
+    await user.click(screen.getByRole("button", {
+      name: "Cash, 100%, 1500 KRW, asset composition",
+    }));
 
     expect(workbench.result.current.selection.leafTabId).toBe("transactions");
     expect(ledger.tableSettings("ledger.transactions").filterRules).toEqual([
-      expect.objectContaining({ field: "date", operator: "is_between" }),
       expect.objectContaining({ field: "currency", operator: "is" }),
       expect.objectContaining({ field: "account", operator: "is" }),
     ]);
@@ -1750,7 +1764,7 @@ describe("WorkbenchPageClient", () => {
     expect(within(transactions).getByText("Matching lunch")).toBeInTheDocument();
     expect(within(transactions).getByText("Bus fare")).toBeInTheDocument();
     expect(within(transactions).queryByText("Card lunch")).toBeNull();
-    expect(within(transactions).queryByText("July lunch")).toBeNull();
+    expect(within(transactions).getByText("July lunch")).toBeInTheDocument();
     expect(within(transactions).queryByText("Dollar lunch")).toBeNull();
   });
 
