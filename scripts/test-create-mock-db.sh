@@ -5,6 +5,25 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 smoke_home="$(mktemp -d)"
 trap 'rm -rf "$smoke_home"' EXIT
 
+eval "$(
+  python3 <<'PY'
+from datetime import date, timedelta
+
+today = date.today()
+week_start = today - timedelta(days=today.weekday())
+for key, value in {
+    "today_date": today,
+    "yesterday_date": today - timedelta(days=1),
+    "tomorrow_date": today + timedelta(days=1),
+    "ledger_start": today - timedelta(days=89),
+    "week_start_date": week_start,
+    "month_start_date": date(today.year, today.month, 1),
+    "year_start_date": date(today.year, 1, 1),
+}.items():
+    print(f'{key}="{value.isoformat()}"')
+PY
+)"
+
 mkdir -p "$repo_root/.mock-data/todo-engine"
 touch "$repo_root/.mock-data/todo-engine/keep"
 "$repo_root/scripts/create-mock-db.sh" "$smoke_home" >/dev/null
@@ -32,3 +51,52 @@ daily_sections="$(sqlite3 "$smoke_home/todo.sqlite" "SELECT COUNT(*) FROM items 
 [[ "$weekly_tasks" -eq 7 ]]
 [[ "$period_goals" -ge 3 ]]
 [[ "$daily_sections" -eq 4 ]]
+
+todo_relative="$(sqlite3 "$smoke_home/todo.sqlite" "
+SELECT COUNT(*) FROM items WHERE
+  (title = '어제 넘긴 데이터 정리' AND scheduled = '$yesterday_date') OR
+  (title = 'Workbench 테이블 편집 플로우 점검' AND scheduled = '$today_date') OR
+  (title = '내일 오전 planner 필터 확인' AND scheduled = '$tomorrow_date') OR
+  (type = 'goal' AND horizon = 'week' AND scheduled = '$week_start_date') OR
+  (type = 'goal' AND horizon = 'month' AND scheduled = '$month_start_date') OR
+  (type = 'goal' AND horizon = 'year' AND scheduled = '$year_start_date');")"
+[[ "$todo_relative" -eq 6 ]]
+
+test -f "$smoke_home/ledger.sqlite"
+cargo run -q -p raven-cli -- --home "$smoke_home" ledger balances --format json >/dev/null
+cargo run -q -p raven-cli -- --home "$smoke_home" ledger reports \
+  --from "$ledger_start" --to "$today_date" --format json >/dev/null
+
+ledger_out_of_range="$(sqlite3 "$smoke_home/ledger.sqlite" "
+SELECT COUNT(*) FROM ledger_entries WHERE date < '$ledger_start' OR date > '$today_date';")"
+expense_categories="$(sqlite3 "$smoke_home/ledger.sqlite" "
+SELECT COUNT(DISTINCT transaction_category_id) FROM ledger_entries
+WHERE entry_type = 'expense' AND deleted_at IS NULL
+  AND date BETWEEN '$ledger_start' AND '$today_date';")"
+income_total="$(sqlite3 "$smoke_home/ledger.sqlite" "
+SELECT COALESCE(SUM(amount_minor), 0) FROM ledger_entries
+WHERE entry_type = 'income' AND deleted_at IS NULL
+  AND date BETWEEN '$ledger_start' AND '$today_date';")"
+expense_total="$(sqlite3 "$smoke_home/ledger.sqlite" "
+SELECT COALESCE(SUM(amount_minor), 0) FROM ledger_entries
+WHERE entry_type = 'expense' AND deleted_at IS NULL
+  AND date BETWEEN '$ledger_start' AND '$today_date';")"
+usd_balance_only="$(sqlite3 "$smoke_home/ledger.sqlite" "
+SELECT COUNT(*) FROM (
+  SELECT a.id FROM accounts AS a
+  JOIN currencies AS c ON c.id = a.currency_id
+  LEFT JOIN ledger_entries AS e ON e.account_id = a.id
+  WHERE c.code = 'USD' AND a.opening_balance_minor > 0
+  GROUP BY a.id HAVING COUNT(e.id) = 0
+);")"
+liabilities="$(sqlite3 "$smoke_home/ledger.sqlite" "
+SELECT COUNT(*) FROM accounts AS a
+JOIN account_categories AS ac ON ac.id = a.account_category_id
+WHERE ac.liability = 1 AND a.opening_balance_minor < 0;")"
+
+[[ "$ledger_out_of_range" -eq 0 ]]
+[[ "$expense_categories" -ge 8 ]]
+[[ "$income_total" -gt 0 ]]
+[[ "$expense_total" -gt 0 ]]
+[[ "$usd_balance_only" -ge 1 ]]
+[[ "$liabilities" -ge 1 ]]
