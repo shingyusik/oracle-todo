@@ -39,7 +39,6 @@ Seed a compact KRW dataset that makes every Reports section meaningful:
 - several positive-balance asset accounts and one negative-balance credit account;
 - salary and secondary income distributed through the 90-day window;
 - recurring and irregular expenses across at least eight named categories;
-- one uncategorized expense;
 - enough date variation for daily, weekly, and monthly trend buckets;
 - at least one transfer so balance composition is realistic without inflating income or
   spending;
@@ -47,8 +46,9 @@ Seed a compact KRW dataset that makes every Reports section meaningful:
   behavior.
 
 Amounts remain deterministic; only their dates move. The fixture should be small enough to
-create quickly and large enough to show category Top 7 + Other, Uncategorized drilldown,
-asset/liability donuts, and income/spending patterns.
+create quickly and large enough to show category Top 7 + Other, asset/liability donuts,
+and income/spending patterns. It does not seed Uncategorized spending because Ledger's domain
+policy requires every expense and income entry to have a compatible category.
 
 ## ToDo correction
 
@@ -64,7 +64,7 @@ Extend the mock seed smoke test to create a temporary home and assert:
 - expected ToDo records land on yesterday, today, tomorrow, and current period anchors;
 - Ledger balances include positive assets, a liability, and the balance-only USD account;
 - the current 90-day report contains both income and spending;
-- at least eight expense categories plus an uncategorized row are present;
+- at least eight expense categories are present;
 - all seeded Ledger entry dates fall within the computed 90-day range.
 
 The verification remains isolated from live data and may inspect the temporary databases
