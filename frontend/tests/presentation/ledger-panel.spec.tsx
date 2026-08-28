@@ -112,7 +112,6 @@ const loadedState: LedgerState = {
   comparison: null,
   trend: null,
   summary: null,
-  accountBreakdown: [],
   categoryBreakdown: [],
 };
 
@@ -564,37 +563,6 @@ function reportAnalysisState(
       expenseMinor: 200,
       netChangeMinor: -200,
       entryCount: 1,
-    }],
-    accountBreakdown: [{
-      currencyId: "currency-krw",
-      currencyCode: "KRW",
-      decimalPlaces: 0,
-      referenceId: "account-cash",
-      name: "Cash",
-      incomeMinor: 3000,
-      expenseMinor: 1200,
-      netChangeMinor: 1800,
-      entryCount: 3,
-    }, {
-      currencyId: "currency-krw",
-      currencyCode: "KRW",
-      decimalPlaces: 0,
-      referenceId: null,
-      name: "Unknown account",
-      incomeMinor: 0,
-      expenseMinor: 0,
-      netChangeMinor: 0,
-      entryCount: 0,
-    }, {
-      currencyId: "currency-usd",
-      currencyCode: "USD",
-      decimalPlaces: 2,
-      referenceId: "account-card",
-      name: "Card",
-      incomeMinor: 1234,
-      expenseMinor: 200,
-      netChangeMinor: 1034,
-      entryCount: 2,
     }],
     trend: {
       range: current.range,
@@ -2948,7 +2916,6 @@ describe("LedgerPanel", () => {
         previous: { range: { start: "2026-07-01", end: "2026-07-31" }, currencies: [] },
         currencies: [],
       },
-      accountBreakdown: [],
       categoryBreakdown: [],
       trend: {
         range: { start: "2026-08-01", end: "2026-08-31" },
@@ -3119,7 +3086,7 @@ describe("LedgerPanel", () => {
     });
 
     expect(compare).toHaveBeenCalledWith({ period: "current_month" });
-    expect(accounts).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
+    expect(accounts).not.toHaveBeenCalled();
     expect(categories).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
     expect(reportTrend).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
     expect(result.current.state.reportSelection).toEqual({ period: "current_month" });
@@ -3137,7 +3104,6 @@ describe("LedgerPanel", () => {
       vi.spyOn(ledgerApi, "compare")
         .mockReturnValueOnce(older.promise)
         .mockResolvedValueOnce(comparison("2026-08-01", "2026-08-31"));
-      vi.spyOn(ledgerApi, "accountReport").mockResolvedValue([]);
       vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
       vi.spyOn(ledgerApi, "trend").mockResolvedValue(trend("2026-08-01", "2026-08-31"));
       const { result } = renderHook(() => useLedgerController());
@@ -3174,7 +3140,6 @@ describe("LedgerPanel", () => {
       .mockResolvedValueOnce(comparison("2026-08-01", "2026-08-31"))
       .mockRejectedValueOnce(new Error("Report service unavailable"))
       .mockResolvedValueOnce(comparison("2026-08-01", "2026-08-31"));
-    vi.spyOn(ledgerApi, "accountReport").mockResolvedValue([]);
     vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
     vi.spyOn(ledgerApi, "trend").mockResolvedValue(trend("2026-08-01", "2026-08-31"));
     const { result } = renderHook(() => useLedgerController());

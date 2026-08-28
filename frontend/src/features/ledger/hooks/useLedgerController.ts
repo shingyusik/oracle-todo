@@ -98,7 +98,6 @@ export type LedgerState = {
   comparison: LedgerComparison | null;
   trend: LedgerTrend | null;
   summary: LedgerSummary | null;
-  accountBreakdown: BreakdownRow[];
   categoryBreakdown: BreakdownRow[];
 };
 
@@ -180,7 +179,6 @@ const initialState: LedgerState = {
   comparison: null,
   trend: null,
   summary: null,
-  accountBreakdown: [],
   categoryBreakdown: [],
 };
 
@@ -581,8 +579,7 @@ export function useLedgerController(): LedgerController {
         from: comparison.current.range.start,
         to: comparison.current.range.end,
       };
-      const [accountBreakdown, categoryBreakdown, trend] = await Promise.all([
-        ledgerApi.accountReport(range),
+      const [categoryBreakdown, trend] = await Promise.all([
         ledgerApi.categoryReport(range),
         ledgerApi.trend(range),
       ]);
@@ -594,7 +591,6 @@ export function useLedgerController(): LedgerController {
         comparison,
         trend,
         summary: comparison.current,
-        accountBreakdown,
         categoryBreakdown,
       }));
     } catch (error) {
