@@ -2009,6 +2009,18 @@ describe("LedgerPanel", () => {
     expect(ledgerRule).toContain("justify-content: space-between;");
   });
 
+  it("uses the balanced Ledger report grid and stacks it at the narrow breakpoint", async () => {
+    const css = await fs.readFile(
+      path.join(process.cwd(), "src/styles/globals.css"),
+      "utf8",
+    );
+    expect(css).toMatch(/\.ledger-report-compositions\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
+    const narrow = css.slice(css.indexOf("@media (max-width: 760px)"));
+    expect(narrow).toMatch(/\.ledger-report-compositions\s*\{[^}]*grid-template-columns:\s*1fr/s);
+    expect(css).toContain(".ledger-report-bars");
+    expect(css).toContain(".ledger-report-bar-income:focus-visible");
+  });
+
   it("uses the Transactions header structure for Accounts", () => {
     render(<LedgerPanel controller={controller()} leafTabId="accounts" />);
 

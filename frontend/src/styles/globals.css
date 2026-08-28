@@ -279,7 +279,6 @@ button {
 .ledger-report-currencies button,
 .ledger-report-donut-legend button,
 .ledger-report-donut-legend > div,
-.ledger-report-table td button,
 .ledger-report-error button {
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
@@ -320,7 +319,7 @@ button {
 
 .ledger-report-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -343,9 +342,9 @@ button {
   font-size: 22px;
 }
 
-.ledger-report-category-layout {
+.ledger-report-compositions {
   display: grid;
-  grid-template-columns: minmax(200px, 0.7fr) minmax(300px, 1.3fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -394,16 +393,6 @@ button {
   text-align: left;
 }
 
-.ledger-report-table td button {
-  padding: 4px 7px;
-}
-
-.ledger-report-table tfoot th,
-.ledger-report-table tfoot td {
-  border-top: 2px solid var(--color-ink);
-  font-weight: 700;
-}
-
 .ledger-report-section-heading,
 .ledger-report-trend-legend,
 .ledger-report-error {
@@ -442,40 +431,78 @@ button {
   background: var(--color-chart-secondary);
 }
 
-.ledger-report-trend svg {
-  width: 100%;
-  height: 240px;
-  overflow: visible;
+.ledger-report-trend-legend span:nth-child(3)::before {
+  height: 0;
+  border-top: 2px dashed var(--color-chart-warning);
+  background: transparent;
 }
 
-.ledger-report-trend polyline {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2.5;
-  vector-effect: non-scaling-stroke;
+.ledger-report-bars {
+  display: flex;
+  min-height: 260px;
+  gap: 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-hairline-light);
+  padding: 16px 8px 0;
 }
 
-.ledger-report-trend-income {
-  stroke: var(--color-chart-primary);
+.ledger-report-bar-group {
+  display: grid;
+  min-width: 52px;
+  flex: 1 0 52px;
+  grid-template-rows: minmax(180px, 1fr) auto;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-align: center;
 }
 
-.ledger-report-trend-expense {
-  stroke: var(--color-chart-secondary);
+.ledger-report-bar-plot {
+  position: relative;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 4px;
+}
+
+.ledger-report-bar-income,
+.ledger-report-bar-expense {
+  width: min(18px, 42%);
+  min-height: 2px;
+  border: 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  padding: 0;
+}
+
+.ledger-report-bar-income {
+  background: var(--color-chart-primary);
+}
+
+.ledger-report-bar-expense {
+  background: var(--color-chart-secondary);
+}
+
+.ledger-report-average-marker {
+  position: absolute;
+  right: 0;
+  left: 0;
+  border-top: 2px dashed var(--color-chart-warning);
 }
 
 .ledger-report-period button:focus-visible,
 .ledger-report-period input:focus-visible,
 .ledger-report-currencies button:focus-visible,
 .ledger-report-donut-legend button:focus-visible,
-.ledger-report-table td button:focus-visible,
+.ledger-report-bar-income:focus-visible,
+.ledger-report-bar-expense:focus-visible,
 .ledger-report-error button:focus-visible {
   outline: 3px solid var(--color-ink);
   outline-offset: 3px;
 }
 
 @media (max-width: 760px) {
-  .ledger-report-category-layout {
+  .ledger-report-summary,
+  .ledger-report-compositions {
     grid-template-columns: 1fr;
   }
 }
