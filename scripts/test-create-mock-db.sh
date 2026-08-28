@@ -53,14 +53,20 @@ daily_sections="$(sqlite3 "$smoke_home/todo.sqlite" "SELECT COUNT(*) FROM items 
 [[ "$daily_sections" -eq 4 ]]
 
 todo_relative="$(sqlite3 "$smoke_home/todo.sqlite" "
-SELECT COUNT(*) FROM items WHERE
-  (title = '어제 넘긴 데이터 정리' AND scheduled = '$yesterday_date') OR
-  (title = 'Workbench 테이블 편집 플로우 점검' AND scheduled = '$today_date') OR
-  (title = '내일 오전 planner 필터 확인' AND scheduled = '$tomorrow_date') OR
-  (type = 'goal' AND horizon = 'week' AND scheduled = '$week_start_date') OR
-  (type = 'goal' AND horizon = 'month' AND scheduled = '$month_start_date') OR
-  (type = 'goal' AND horizon = 'year' AND scheduled = '$year_start_date');")"
-[[ "$todo_relative" -eq 6 ]]
+SELECT
+  (SELECT COUNT(*) FROM items
+   WHERE title = '어제 넘긴 데이터 정리' AND scheduled = '$yesterday_date') = 1
+  AND (SELECT COUNT(*) FROM items
+       WHERE title = 'Workbench 테이블 편집 플로우 점검' AND scheduled = '$today_date') = 1
+  AND (SELECT COUNT(*) FROM items
+       WHERE title = '내일 오전 planner 필터 확인' AND scheduled = '$tomorrow_date') = 1
+  AND (SELECT COUNT(*) FROM items
+       WHERE type = 'goal' AND horizon = 'week' AND scheduled = '$week_start_date') = 1
+  AND (SELECT COUNT(*) FROM items
+       WHERE type = 'goal' AND horizon = 'month' AND scheduled = '$month_start_date') = 1
+  AND (SELECT COUNT(*) FROM items
+       WHERE type = 'goal' AND horizon = 'year' AND scheduled = '$year_start_date') = 1;")"
+[[ "$todo_relative" -eq 1 ]]
 
 test -f "$smoke_home/ledger.sqlite"
 cargo run -q -p raven-cli -- --home "$smoke_home" ledger balances --format json >/dev/null
@@ -85,14 +91,17 @@ usd_balance_only="$(sqlite3 "$smoke_home/ledger.sqlite" "
 SELECT COUNT(*) FROM (
   SELECT a.id FROM accounts AS a
   JOIN currencies AS c ON c.id = a.currency_id
-  LEFT JOIN ledger_entries AS e ON e.account_id = a.id
+  LEFT JOIN ledger_entries AS e
+    ON e.account_id = a.id AND e.deleted_at IS NULL
   WHERE c.code = 'USD' AND a.opening_balance_minor > 0
+    AND a.active = 1 AND a.deleted_at IS NULL
   GROUP BY a.id HAVING COUNT(e.id) = 0
 );")"
 liabilities="$(sqlite3 "$smoke_home/ledger.sqlite" "
 SELECT COUNT(*) FROM accounts AS a
 JOIN account_categories AS ac ON ac.id = a.account_category_id
-WHERE ac.liability = 1 AND a.opening_balance_minor < 0;")"
+WHERE ac.liability = 1 AND a.opening_balance_minor < 0
+  AND a.active = 1 AND a.deleted_at IS NULL;")"
 
 [[ "$ledger_out_of_range" -eq 0 ]]
 [[ "$expense_categories" -ge 8 ]]
