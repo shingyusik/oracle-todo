@@ -4,7 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 smoke_home="$(mktemp -d)"
 occupied_home="$(mktemp -d)"
-trap 'rm -rf "$smoke_home" "$occupied_home"' EXIT
+raven_home="$(mktemp -d)"
+trap 'rm -rf -- "$smoke_home" "$occupied_home" "$raven_home"' EXIT
 
 sentinel_bytes='sentinel ledger bytes'
 printf '%s' "$sentinel_bytes" >"$occupied_home/ledger.sqlite"
@@ -15,6 +16,15 @@ fi
 grep -q "refusing to overwrite existing database: $occupied_home/ledger.sqlite" <<<"$refusal_output"
 test "$(cat "$occupied_home/ledger.sqlite")" = "$sentinel_bytes"
 test ! -e "$occupied_home/todo.sqlite"
+
+if raven_home_output="$(RAVEN_HOME="$raven_home" "$repo_root/scripts/create-mock-db.sh" "$raven_home" 2>&1)"; then
+  echo "expected RAVEN_HOME to be rejected" >&2
+  exit 1
+fi
+grep -q "refusing to write mock data to live home: $raven_home" <<<"$raven_home_output"
+test ! -e "$raven_home/todo.sqlite"
+test ! -e "$raven_home/ledger.sqlite"
+test ! -e "$raven_home/health.sqlite"
 
 eval "$(
   python3 <<'PY'

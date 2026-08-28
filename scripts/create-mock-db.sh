@@ -3,13 +3,33 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 home="${1:-"$repo_root/.mock-data/todo-engine"}"
+default_home="$repo_root/.mock-data/todo-engine"
+home_real="$(realpath -m -- "$home")"
+default_home_real="$(realpath -m -- "$default_home")"
 
-if [[ "$home" == "$HOME/.todo-engine" || "$home" == "$HOME/.todo-engine/" ]]; then
-  echo "refusing to write mock data to live home: $home" >&2
-  exit 1
+live_homes=("$HOME/.todo-engine" "$HOME/.raven")
+raven_home="${RAVEN_HOME:-}"
+if [[ -n "${raven_home//[[:space:]]/}" ]]; then
+  live_homes+=("$raven_home")
+fi
+for live_home in "${live_homes[@]}"; do
+  live_home_real="$(realpath -m -- "$live_home")"
+  if [[ "${home_real,,}" == "${live_home_real,,}" ]]; then
+    echo "refusing to write mock data to live home: $home" >&2
+    exit 1
+  fi
+done
+
+if [[ "${home_real,,}" == "${default_home_real,,}" ]]; then
+  for path in "$repo_root" "$repo_root/.mock-data" "$default_home" "$home"; do
+    if [[ -L "$path" ]]; then
+      echo "refusing to remove default mock home through a link or junction: $path" >&2
+      exit 1
+    fi
+  done
 fi
 
-if [[ "$home" != "$repo_root/.mock-data/todo-engine" ]]; then
+if [[ "${home_real,,}" != "${default_home_real,,}" ]]; then
   for db_name in todo.sqlite ledger.sqlite health.sqlite; do
     db_path="$home/$db_name"
     if [[ -e "$db_path" || -L "$db_path" ]]; then
@@ -19,8 +39,8 @@ if [[ "$home" != "$repo_root/.mock-data/todo-engine" ]]; then
   done
 fi
 
-if [[ "$home" == "$repo_root/.mock-data/todo-engine" ]]; then
-  rm -rf "$home"
+if [[ "${home_real,,}" == "${default_home_real,,}" ]]; then
+  rm -rf -- "$home"
 fi
 mkdir -p "$home"
 
