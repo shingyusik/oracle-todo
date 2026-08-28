@@ -40,6 +40,12 @@ describe("ledger report model", () => {
     expect(model.categories.at(-1)).toMatchObject({ id: null, label: "Other", valueMinor: 300, interactive: false });
   });
 
+  it("keeps Other as the final slice when category values tie", () => {
+    const rows = Array.from({ length: 9 }, (_, index) => breakdown(`category-${index}`, `Category ${index}`, 0, 100, 0));
+    const model = buildLedgerReportModel(comparison, rows, balances, trend, "currency-usd");
+    expect(model.categories.at(-1)).toMatchObject({ id: null, label: "Other", valueMinor: 200, interactive: false });
+  });
+
   it("keeps a balance-only currency visible with zero period activity", () => {
     expect(reportCurrencyOptions(comparison, balances)).toContainEqual({ id: "currency-eur", code: "EUR" });
     const model = buildLedgerReportModel(comparison, categories, balances, trend, "currency-eur");
