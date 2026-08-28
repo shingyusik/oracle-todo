@@ -2879,6 +2879,40 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("img", { name: /Liability composition/ })).toBeInTheDocument();
   });
 
+  it("includes each donut slice value in its accessible button name", () => {
+    render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />);
+
+    expect(screen.getByRole("button", { name: /Cash, 67%, 2000 KRW/ }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Food, 58%, 700 KRW/ }))
+      .toBeInTheDocument();
+  });
+
+  it("renders distinct null-id composition slices without a duplicate-key warning", () => {
+    const categoryBreakdown = Array.from({ length: 8 }, (_, index) => ({
+      currencyId: "currency-krw",
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      referenceId: index === 0 ? null : `category-${index}`,
+      name: index === 0 ? "Uncategorized" : `Category ${index}`,
+      incomeMinor: 0,
+      expenseMinor: 800 - index * 50,
+      netChangeMinor: -(800 - index * 50),
+      entryCount: 1,
+    }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState({
+      categoryBreakdown,
+    }))} />);
+
+    expect(screen.getByText(/^Uncategorized/)).toBeInTheDocument();
+    expect(screen.getByText(/^Other/)).toBeInTheDocument();
+    const errors = consoleError.mock.calls.flat().join(" ");
+    consoleError.mockRestore();
+    expect(errors).not.toMatch(/same key|unique.*key/i);
+  });
+
   it("drills from an account, a trend bar, and an expense category", async () => {
     const user = userEvent.setup();
     const onReportDrilldown = vi.fn();

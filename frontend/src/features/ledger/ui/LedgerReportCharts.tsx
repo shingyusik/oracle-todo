@@ -261,12 +261,12 @@ function CompositionDonut({
               <button
                 key={slice.id}
                 type="button"
-                aria-label={`${slice.label}, ${slice.percentage}%, ${ariaLabel.toLowerCase()}`}
+                aria-label={`${slice.label}, ${slice.percentage}%, ${formatValue(slice.valueMinor)}, ${ariaLabel.toLowerCase()}`}
                 onClick={() => onSelect(slice)}
               >
                 {content}
               </button>
-            ) : <div key={slice.id ?? "other"}>{content}</div>;
+            ) : <div key={slice.id ?? `${slice.label}-${slice.valueMinor}`}>{content}</div>;
           })}
         </div>
       </div>
