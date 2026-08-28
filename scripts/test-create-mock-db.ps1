@@ -51,10 +51,24 @@ function Assert-TitleOnce {
     Assert-True (@($Items | Where-Object { $_.title -eq $Title }).Count -eq 1) $Message
 }
 
+function Get-ChildSignature {
+    param([string]$Path)
+
+    Get-ChildItem -LiteralPath $Path -Force |
+        ForEach-Object {
+            $linkType = $_.PSObject.Properties['LinkType']
+            $kind = if ($null -ne $linkType -and $linkType.Value) { "link:$($linkType.Value)" } elseif ($_.PSIsContainer) { 'directory' } else { 'file' }
+            "$($_.Name)|$kind"
+        } |
+        Sort-Object
+}
+
 try {
     New-Item -ItemType Directory -Path $occupiedHome | Out-Null
     $sentinel = [Text.Encoding]::UTF8.GetBytes('sentinel ledger bytes')
     [IO.File]::WriteAllBytes((Join-Path $occupiedHome 'ledger.sqlite'), $sentinel)
+    $beforeSignature = @(Get-ChildSignature $occupiedHome)
+    Assert-True ($beforeSignature.Count -eq 1 -and $beforeSignature[0] -ceq 'ledger.sqlite|file') 'occupied home setup is not sentinel-only'
     $refusal = $null
     try {
         & $seedScript -DataHome $occupiedHome | Out-Null
@@ -64,8 +78,12 @@ try {
     }
     Assert-True ($null -ne $refusal) 'expected occupied custom home to be rejected'
     Assert-True ($refusal.Exception.Message -like "*refusing to overwrite existing database: $occupiedHome\ledger.sqlite*") 'custom-home refusal did not identify ledger.sqlite'
+    $afterSignature = @(Get-ChildSignature $occupiedHome)
+    Assert-True ([string]::Join("`n", $beforeSignature) -ceq [string]::Join("`n", $afterSignature)) 'custom-home refusal changed occupied-home contents'
     Assert-True ([Linq.Enumerable]::SequenceEqual([byte[]]$sentinel, [IO.File]::ReadAllBytes((Join-Path $occupiedHome 'ledger.sqlite'))) ) 'custom-home refusal changed sentinel ledger bytes'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $occupiedHome 'todo.sqlite'))) 'custom-home refusal initialized todo.sqlite'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $occupiedHome 'health.sqlite'))) 'custom-home refusal initialized health.sqlite'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $occupiedHome 'media'))) 'custom-home refusal initialized media'
 
     & $seedScript -DataHome $smokeHome | Out-Null
 
@@ -97,7 +115,9 @@ try {
     Assert-TitleOnce @($monthPeriod.roots | ForEach-Object { $_.goal }) '이번 달 UI 데이터 흐름 검증' 'month goal is missing or duplicated'
     Assert-TitleOnce @($yearPeriod.roots | ForEach-Object { $_.goal }) '올해 Workbench 품질 기준 세우기' 'year goal is missing or duplicated'
 
-    $entries = (Invoke-Raven $smokeHome ledger entry list --from $ledgerStart --to $today --format json | ConvertFrom-Json).items
+    $entryPage = Invoke-Raven $smokeHome ledger entry list --format json | ConvertFrom-Json
+    Assert-True ($null -eq $entryPage.next) 'Ledger entry list did not return every fixture entry.'
+    $entries = $entryPage.items
     Assert-True (@($entries | Where-Object { $_.date -lt $ledgerStart -or $_.date -gt $today }).Count -eq 0) 'Ledger contains stale dates.'
 
     $summary = Invoke-Raven $smokeHome ledger reports --from $ledgerStart --to $today --format json | ConvertFrom-Json
