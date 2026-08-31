@@ -435,7 +435,9 @@ fn normalized_windows_components(
     for component in absolute.components() {
         match component {
             Component::Prefix(prefix) => match prefix.kind() {
-                Prefix::Disk(value) if drive.is_none() => drive = Some(value),
+                Prefix::Disk(value) | Prefix::VerbatimDisk(value) if drive.is_none() => {
+                    drive = Some(value);
+                }
                 _ => anyhow::bail!("UI artifact path has an unsupported Windows prefix"),
             },
             Component::RootDir => rooted = true,
@@ -1113,8 +1115,18 @@ mod windows_path_tests {
     #[test]
     fn unc_device_and_parent_escape_paths_are_rejected() {
         assert!(normalized_windows_components(Path::new(r"\\server\share\ui")).is_err());
-        assert!(normalized_windows_components(Path::new(r"\\?\C:\ui")).is_err());
         assert!(normalized_windows_components(Path::new(r"C:\..\ui")).is_err());
+    }
+
+    #[test]
+    fn verbatim_local_drive_components_are_accepted() {
+        let (root, components) =
+            normalized_windows_components(Path::new(r"\\?\C:\safe\ui")).unwrap();
+        assert_eq!(root, Path::new(r"C:\"));
+        assert_eq!(
+            components,
+            vec![OsString::from("safe"), OsString::from("ui")]
+        );
     }
 
     #[test]

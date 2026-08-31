@@ -3,20 +3,61 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 home="${1:-"$repo_root/.mock-data/todo-engine"}"
-db_path="$home/todo.sqlite"
+default_home="$repo_root/.mock-data/todo-engine"
+path_os="$(uname -s)"
 
-if [[ "$home" == "$HOME/.todo-engine" || "$home" == "$HOME/.todo-engine/" ]]; then
-  echo "refusing to write mock data to live home: $home" >&2
-  exit 1
+canonical_path() {
+  local normalized="$1"
+  case "$path_os" in
+    MSYS_*|MINGW*|CYGWIN_*)
+      normalized="$(cygpath -am -- "$normalized")"
+      normalized="$(realpath -m -- "$normalized")"
+      normalized="$(cygpath -am -- "$normalized")"
+      printf '%s\n' "${normalized,,}"
+      ;;
+    *)
+      realpath -m -- "$normalized"
+      ;;
+  esac
+}
+
+home_real="$(canonical_path "$home")"
+default_home_real="$(canonical_path "$default_home")"
+
+live_homes=("$HOME/.todo-engine" "$HOME/.raven")
+raven_home="${RAVEN_HOME:-}"
+if [[ -n "${raven_home//[[:space:]]/}" ]]; then
+  live_homes+=("$raven_home")
+fi
+for live_home in "${live_homes[@]}"; do
+  live_home_real="$(canonical_path "$live_home")"
+  if [[ "$home_real" == "$live_home_real" ]]; then
+    echo "refusing to write mock data to live home: $home" >&2
+    exit 1
+  fi
+done
+
+if [[ "$home_real" == "$default_home_real" ]]; then
+  for path in "$repo_root" "$repo_root/.mock-data" "$default_home" "$home"; do
+    if [[ -L "$path" ]]; then
+      echo "refusing to remove default mock home through a link or junction: $path" >&2
+      exit 1
+    fi
+  done
 fi
 
-if [[ -e "$db_path" && "$home" != "$repo_root/.mock-data/todo-engine" ]]; then
-  echo "refusing to overwrite existing database: $db_path" >&2
-  exit 1
+if [[ "$home_real" != "$default_home_real" ]]; then
+  for db_name in todo.sqlite ledger.sqlite health.sqlite; do
+    db_path="$home/$db_name"
+    if [[ -e "$db_path" || -L "$db_path" ]]; then
+      echo "refusing to overwrite existing database: $db_path" >&2
+      exit 1
+    fi
+  done
 fi
 
-if [[ "$home" == "$repo_root/.mock-data/todo-engine" ]]; then
-  rm -rf "$home"
+if [[ "$home_real" == "$default_home_real" ]]; then
+  rm -rf -- "$home"
 fi
 mkdir -p "$home"
 
@@ -26,6 +67,25 @@ run_raven() {
 
 run() {
   run_raven todo "$@"
+}
+
+ledger() {
+  run_raven ledger "$@"
+}
+
+day_offset() {
+  python3 - "$today" "$1" <<'PY'
+from datetime import date, timedelta
+import sys
+print((date.fromisoformat(sys.argv[1]) + timedelta(days=int(sys.argv[2]))).isoformat())
+PY
+}
+
+add_entry() {
+  local offset="$1" type="$2" amount="$3" account="$4" category="$5" content="$6"
+  ledger entry add --date "$(day_offset "$offset")" --type "$type" --amount "$amount" \
+    --currency KRW --account "$account" --category "$category" --content "$content" \
+    --source mock-seed >/dev/null
 }
 
 json_id() {
@@ -50,6 +110,7 @@ today = date.today()
 week_start = today - timedelta(days=today.weekday())
 values = {
     "today": today,
+    "ledger_start": today - timedelta(days=89),
     "yesterday": today - timedelta(days=1),
     "tomorrow": today + timedelta(days=1),
     "year_start": date(today.year, 1, 1),
@@ -237,6 +298,58 @@ tomorrow_event="$(run event propose "내일 planner 리뷰" "${tomorrow}T10:30" 
   --commitment-type review \
   --description "Daily upcoming 및 weekly event 표시 확인" | json_id)"
 tag_item "$tomorrow_event" planner event upcoming
+
+ledger currency create --code KRW --name "Korean Won" --symbol KRW --decimal-places 0 >/dev/null
+ledger currency create --code USD --name "US Dollar" --symbol USD --decimal-places 2 >/dev/null
+
+ledger account-category create --name "Cash assets" >/dev/null
+ledger account-category create --name "Savings assets" >/dev/null
+ledger account-category create --name "Credit liabilities" --liability >/dev/null
+
+ledger account create --name Checking --category "Cash assets" --currency KRW --opening-balance 4000000 >/dev/null
+ledger account create --name Cash --category "Cash assets" --currency KRW --opening-balance 300000 >/dev/null
+ledger account create --name Savings --category "Savings assets" --currency KRW --opening-balance 6000000 >/dev/null
+ledger account create --name "Credit card" --category "Credit liabilities" --currency KRW --opening-balance=-650000 >/dev/null
+ledger account create --name "USD wallet" --category "Cash assets" --currency USD --opening-balance 1250.00 >/dev/null
+
+for category in Food Housing Transport Utilities Health Shopping Leisure Education Subscriptions; do
+  ledger category create --name "$category" --kind expense >/dev/null
+done
+ledger category create --name Salary --kind income >/dev/null
+ledger category create --name Freelance --kind income >/dev/null
+
+entries=(
+  "-85|income|3200000|Checking|Salary|Monthly salary 1"
+  "-82|expense|120000|Checking|Food|Groceries 1"
+  "-75|expense|800000|Checking|Housing|Monthly rent 1"
+  "-70|expense|45000|Checking|Transport|Transit pass"
+  "-64|expense|135000|Checking|Utilities|Utilities 1"
+  "-58|expense|72000|Checking|Health|Clinic"
+  "-52|income|3200000|Checking|Salary|Monthly salary 2"
+  "-48|expense|185000|Checking|Shopping|Household goods"
+  "-43|expense|95000|Checking|Leisure|Weekend outing"
+  "-39|expense|210000|Checking|Education|Course"
+  "-34|expense|19000|Checking|Subscriptions|Streaming"
+  "-29|expense|138000|Checking|Food|Groceries 2"
+  "-23|income|3200000|Checking|Salary|Monthly salary 3"
+  "-20|expense|800000|Checking|Housing|Monthly rent 2"
+  "-16|expense|62000|Checking|Transport|Taxi and transit"
+  "-12|expense|148000|Checking|Utilities|Utilities 2"
+  "-9|income|450000|Checking|Freelance|Side project"
+  "-6|expense|87000|Checking|Food|Groceries 3"
+  "-3|expense|125000|Checking|Shopping|Recent shopping"
+  "0|expense|24000|Cash|Leisure|Today coffee and movie"
+)
+for row in "${entries[@]}"; do
+  IFS="|" read -r offset type amount account category content <<<"$row"
+  add_entry "$offset" "$type" "$amount" "$account" "$category" "$content"
+done
+
+ledger transfer \
+  --operation-key 10000000-0000-4000-8000-000000000001 \
+  --date "$(day_offset -7)" --amount 500000 --currency KRW \
+  --from-account Checking --to-account Savings --content "Mock savings transfer" \
+  --source mock-seed >/dev/null
 
 run_raven health-check
 echo "TODO_ENGINE_HOME=$home"

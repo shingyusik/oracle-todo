@@ -492,7 +492,7 @@ fn raven_home_from_dotenv_precedes_the_default_home() {
     let dotenv_home = working_dir.path().join("from-dotenv");
     std::fs::write(
         working_dir.path().join(".env"),
-        format!("RAVEN_HOME={}\n", dotenv_home.display()),
+        format!("RAVEN_HOME='{}'\n", dotenv_home.display()),
     )
     .unwrap();
 

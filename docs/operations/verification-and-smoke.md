@@ -34,6 +34,42 @@ Expected health output includes:
 todo=ok user_version=1 ledger=ok user_version=2 health=ok user_version=1 media=ok
 ```
 
+### Mock data
+
+The mock-data scripts seed ToDo records around the local run date and Ledger activity over
+the inclusive 90-day period ending today. Without an argument, they delete and rebuild
+`.mock-data/todo-engine`:
+
+```bash
+bash scripts/create-mock-db.sh
+```
+
+```powershell
+./scripts/create-mock-db.ps1
+```
+
+For an isolated custom home, pass an empty throwaway location. Custom homes are no-clobber:
+the scripts refuse to continue if `todo.sqlite`, `ledger.sqlite`, or `health.sqlite` already
+exists. Never point either command at a live Raven home.
+
+```bash
+mock_home="$(mktemp -d)"
+bash scripts/create-mock-db.sh "$mock_home"
+from="$(python3 -c 'from datetime import date,timedelta; print(date.today()-timedelta(days=89))')"
+to="$(python3 -c 'from datetime import date; print(date.today())')"
+cargo run -q -p raven-cli -- --home "$mock_home" ledger reports --from "$from" --to "$to"
+cargo run -q -p raven-cli -- --home "$mock_home" ledger balances
+```
+
+```powershell
+$mockHome = Join-Path ([IO.Path]::GetTempPath()) "raven-mock-$([guid]::NewGuid())"
+./scripts/create-mock-db.ps1 -DataHome $mockHome
+$from = (Get-Date).Date.AddDays(-89).ToString('yyyy-MM-dd')
+$to = (Get-Date).Date.ToString('yyyy-MM-dd')
+cargo run -q -p raven-cli -- --home $mockHome ledger reports --from $from --to $to
+cargo run -q -p raven-cli -- --home $mockHome ledger balances
+```
+
 ## Domain smoke
 
 ```bash

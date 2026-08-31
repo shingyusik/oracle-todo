@@ -11,6 +11,27 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "correct-token-value";
 
+#[cfg(unix)]
+fn secure_test_token_file(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+#[cfg(windows)]
+fn secure_test_token_file(path: &std::path::Path) {
+    let output = std::process::Command::new("whoami").output().unwrap();
+    assert!(output.status.success());
+    let identity = String::from_utf8(output.stdout).unwrap();
+    let acl_output = std::process::Command::new("icacls")
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r"])
+        .arg(format!("{}:(F)", identity.trim()))
+        .output()
+        .unwrap();
+    assert!(acl_output.status.success());
+}
+
 fn app() -> axum::Router {
     router(config(AuthMode::Bearer {
         token: TOKEN.to_owned(),
@@ -155,11 +176,7 @@ fn token_sources_and_values_are_strict() {
     let temp = tempfile::tempdir().unwrap();
     let file = temp.path().join("token");
     fs::write(&file, format!("{TOKEN}\n")).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
-    }
+    secure_test_token_file(&file);
     assert!(load_bearer(None, Some(&file)).is_ok());
     assert!(load_bearer(Some(TOKEN), Some(&file)).is_err());
 

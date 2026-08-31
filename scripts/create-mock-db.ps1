@@ -24,25 +24,73 @@ function Test-SamePath {
            [System.IO.Path]::GetFullPath($Right).TrimEnd('\')
 }
 
-# The live home is canonical. Resolve it the way the engine does (HOME), and cover
-# USERPROFILE too so a Windows shell that never sets HOME is still protected.
-foreach ($base in @($env:HOME, $env:USERPROFILE)) {
-    if ($base -and (Test-SamePath $DataHome (Join-Path $base '.todo-engine'))) {
+function Get-ExistingPathEntry {
+    param([string]$Path)
+
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($null -ne $item) { return $item }
+
+    # Get-Item can miss a broken link because its target cannot resolve. Enumerating
+    # the exact parent still sees the link entry (and its LinkType), so it remains
+    # an occupied database path rather than an overwrite target.
+    $parent = Split-Path -Parent $Path
+    $leaf = Split-Path -Leaf $Path
+    $entry = Get-ChildItem -LiteralPath $parent -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ieq $leaf } |
+        Select-Object -First 1
+    return $entry
+}
+
+function Test-OccupiedPath {
+    param([string]$Path)
+
+    return $null -ne (Get-ExistingPathEntry $Path)
+}
+
+function Assert-DefaultHomeSafe {
+    foreach ($path in @($repoRoot, (Join-Path $repoRoot '.mock-data'), $defaultHome)) {
+        $item = Get-ExistingPathEntry $path
+        if ($null -eq $item) { continue }
+        $linkType = $item.PSObject.Properties['LinkType']
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            ($null -ne $linkType -and $linkType.Value)) {
+            throw "refusing to remove default mock home through a link or junction: $path"
+        }
+    }
+}
+
+# The live homes are canonical. Cover explicit RAVEN_HOME and legacy ToDo paths.
+$liveHomes = @()
+if (-not [string]::IsNullOrWhiteSpace($env:RAVEN_HOME)) { $liveHomes += $env:RAVEN_HOME }
+foreach ($base in @($HOME, $env:HOME, $env:USERPROFILE)) {
+    if (-not [string]::IsNullOrWhiteSpace($base)) {
+        $liveHomes += Join-Path $base '.todo-engine'
+        $liveHomes += Join-Path $base '.raven'
+    }
+}
+foreach ($liveHome in ($liveHomes | Select-Object -Unique)) {
+    if (Test-SamePath $DataHome $liveHome) {
         throw "refusing to write mock data to live home: $DataHome"
     }
 }
 
 $isDefaultHome = Test-SamePath $DataHome $defaultHome
-if ((Test-Path -LiteralPath $dbPath) -and -not $isDefaultHome) {
-    throw "refusing to overwrite existing database: $dbPath"
+if (-not $isDefaultHome) {
+    foreach ($database in @('todo.sqlite', 'ledger.sqlite', 'health.sqlite')) {
+        $databasePath = Join-Path $DataHome $database
+        if (Test-OccupiedPath $databasePath) {
+            throw "refusing to overwrite existing database: $databasePath"
+        }
+    }
 }
 
-if ($isDefaultHome -and (Test-Path -LiteralPath $DataHome)) {
-    Remove-Item -Recurse -Force -LiteralPath $DataHome
+if ($isDefaultHome) {
+    Assert-DefaultHomeSafe
+    if ($null -ne (Get-ExistingPathEntry $DataHome)) {
+        Remove-Item -Recurse -Force -LiteralPath $DataHome
+    }
 }
 New-Item -ItemType Directory -Force -Path $DataHome | Out-Null
-
-$env:RAVEN_CONSOLE_LOG = 'error'
 
 function Invoke-Raven {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$RavenArgs)
@@ -53,7 +101,10 @@ function Invoke-Raven {
     # ConvertFrom-Json then chokes on JSON the engine wrote correctly. Pin the
     # decode to UTF-8 for the call and hand the console back as it was.
     $previousEncoding = [Console]::OutputEncoding
+    $hadConsoleLog = Test-Path Env:RAVEN_CONSOLE_LOG
+    $previousConsoleLog = $env:RAVEN_CONSOLE_LOG
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $env:RAVEN_CONSOLE_LOG = 'error'
     try {
         $output = & cargo run -q -p raven-cli -- --home $DataHome @RavenArgs
         if ($LASTEXITCODE -ne 0) {
@@ -63,6 +114,8 @@ function Invoke-Raven {
     }
     finally {
         [Console]::OutputEncoding = $previousEncoding
+        if ($hadConsoleLog) { $env:RAVEN_CONSOLE_LOG = $previousConsoleLog }
+        else { Remove-Item Env:RAVEN_CONSOLE_LOG -ErrorAction SilentlyContinue }
     }
 }
 
@@ -70,6 +123,12 @@ function Invoke-Todo {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CliArgs)
 
     Invoke-Raven todo @CliArgs
+}
+
+function Invoke-Ledger {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CliArgs)
+
+    Invoke-Raven ledger @CliArgs
 }
 
 function Get-ItemId {
@@ -97,8 +156,31 @@ $weekStart = $todayDate.AddDays(-((([int]$todayDate.DayOfWeek) + 6) % 7))
 $today = Format-Day $todayDate
 $yesterday = Format-Day $todayDate.AddDays(-1)
 $tomorrow = Format-Day $todayDate.AddDays(1)
+# Intentional 90-day anchor retained for parity with the Bash seed contract.
+$ledgerStart = Format-Day $todayDate.AddDays(-89)
 $yearStart = Format-Day (Get-Date -Year $todayDate.Year -Month 1 -Day 1).Date
 $monthStart = Format-Day (Get-Date -Year $todayDate.Year -Month $todayDate.Month -Day 1).Date
+
+function Get-RelativeDay {
+    param([int]$Offset)
+
+    Format-Day $todayDate.AddDays($Offset)
+}
+
+function Add-LedgerEntry {
+    param(
+        [int]$Offset,
+        [string]$Type,
+        [string]$Amount,
+        [string]$Account,
+        [string]$Category,
+        [string]$Content
+    )
+
+    Invoke-Ledger entry add --date (Get-RelativeDay $Offset) --type $Type `
+        --amount $Amount --currency KRW --account $Account --category $Category `
+        --content $Content --source mock-seed
+}
 
 $weekDays = @{}
 $dayNames = @('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
@@ -287,6 +369,57 @@ $tomorrowEvent = Get-ItemId (Invoke-Todo event propose '내일 planner 리뷰' "
         --commitment-type review `
         --description 'Daily upcoming 및 weekly event 표시 확인')
 Set-ItemTags $tomorrowEvent @('planner', 'event', 'upcoming')
+
+Invoke-Ledger currency create --code KRW --name 'Korean Won' --symbol KRW --decimal-places 0 | Out-Null
+Invoke-Ledger currency create --code USD --name 'US Dollar' --symbol USD --decimal-places 2 | Out-Null
+
+Invoke-Ledger account-category create --name 'Cash assets' | Out-Null
+Invoke-Ledger account-category create --name 'Savings assets' | Out-Null
+Invoke-Ledger account-category create --name 'Credit liabilities' --liability | Out-Null
+
+Invoke-Ledger account create --name Checking --category 'Cash assets' --currency KRW --opening-balance 4000000 | Out-Null
+Invoke-Ledger account create --name Cash --category 'Cash assets' --currency KRW --opening-balance 300000 | Out-Null
+Invoke-Ledger account create --name Savings --category 'Savings assets' --currency KRW --opening-balance 6000000 | Out-Null
+Invoke-Ledger account create --name 'Credit card' --category 'Credit liabilities' --currency KRW --opening-balance=-650000 | Out-Null
+Invoke-Ledger account create --name 'USD wallet' --category 'Cash assets' --currency USD --opening-balance 1250.00 | Out-Null
+
+foreach ($category in @('Food', 'Housing', 'Transport', 'Utilities', 'Health', 'Shopping', 'Leisure', 'Education', 'Subscriptions')) {
+    Invoke-Ledger category create --name $category --kind expense | Out-Null
+}
+Invoke-Ledger category create --name Salary --kind income | Out-Null
+Invoke-Ledger category create --name Freelance --kind income | Out-Null
+
+$ledgerEntries = @(
+    @(-85, 'income', '3200000', 'Checking', 'Salary', 'Monthly salary 1'),
+    @(-82, 'expense', '120000', 'Checking', 'Food', 'Groceries 1'),
+    @(-75, 'expense', '800000', 'Checking', 'Housing', 'Monthly rent 1'),
+    @(-70, 'expense', '45000', 'Checking', 'Transport', 'Transit pass'),
+    @(-64, 'expense', '135000', 'Checking', 'Utilities', 'Utilities 1'),
+    @(-58, 'expense', '72000', 'Checking', 'Health', 'Clinic'),
+    @(-52, 'income', '3200000', 'Checking', 'Salary', 'Monthly salary 2'),
+    @(-48, 'expense', '185000', 'Checking', 'Shopping', 'Household goods'),
+    @(-43, 'expense', '95000', 'Checking', 'Leisure', 'Weekend outing'),
+    @(-39, 'expense', '210000', 'Checking', 'Education', 'Course'),
+    @(-34, 'expense', '19000', 'Checking', 'Subscriptions', 'Streaming'),
+    @(-29, 'expense', '138000', 'Checking', 'Food', 'Groceries 2'),
+    @(-23, 'income', '3200000', 'Checking', 'Salary', 'Monthly salary 3'),
+    @(-20, 'expense', '800000', 'Checking', 'Housing', 'Monthly rent 2'),
+    @(-16, 'expense', '62000', 'Checking', 'Transport', 'Taxi and transit'),
+    @(-12, 'expense', '148000', 'Checking', 'Utilities', 'Utilities 2'),
+    @(-9, 'income', '450000', 'Checking', 'Freelance', 'Side project'),
+    @(-6, 'expense', '87000', 'Checking', 'Food', 'Groceries 3'),
+    @(-3, 'expense', '125000', 'Checking', 'Shopping', 'Recent shopping'),
+    @(0, 'expense', '24000', 'Cash', 'Leisure', 'Today coffee and movie')
+)
+foreach ($entry in $ledgerEntries) {
+    Add-LedgerEntry $entry[0] $entry[1] $entry[2] $entry[3] $entry[4] $entry[5] | Out-Null
+}
+
+Invoke-Ledger transfer `
+    --operation-key 10000000-0000-4000-8000-000000000001 `
+    --date (Get-RelativeDay -7) --amount 500000 --currency KRW `
+    --from-account Checking --to-account Savings --content 'Mock savings transfer' `
+    --source mock-seed | Out-Null
 
 Invoke-Raven health-check
 Write-Output "TODO_ENGINE_HOME=$DataHome"
