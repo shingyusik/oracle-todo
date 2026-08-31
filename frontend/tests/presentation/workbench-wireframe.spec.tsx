@@ -1748,7 +1748,7 @@ describe("WorkbenchPageClient", () => {
     );
 
     await user.click(screen.getByRole("button", {
-      name: "Cash, 100%, 1500 KRW, asset composition",
+      name: "Cash, 100%, 1,500 KRW, asset composition",
     }));
 
     expect(workbench.result.current.selection.leafTabId).toBe("transactions");
