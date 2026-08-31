@@ -39,12 +39,24 @@ export function ReportPeriodControls({
     ? { from: selection.from, to: selection.to }
     : { from: "", to: "" });
   const [customOpen, setCustomOpen] = React.useState(false);
+  const customButtonRef = React.useRef<HTMLButtonElement>(null);
+  const focusCustomOnClose = React.useRef(false);
   const validRange = range.from !== "" && range.to !== "" && range.from <= range.to;
+
+  React.useEffect(() => {
+    if (!customOpen && focusCustomOnClose.current) {
+      focusCustomOnClose.current = false;
+      customButtonRef.current?.focus();
+    }
+  }, [customOpen]);
 
   async function applyCustomRange(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!validRange) return;
-    if (await onChange({ period: "custom", ...range })) setCustomOpen(false);
+    if (await onChange({ period: "custom", ...range })) {
+      focusCustomOnClose.current = true;
+      setCustomOpen(false);
+    }
   }
 
   return (
@@ -65,6 +77,7 @@ export function ReportPeriodControls({
           </button>
         ))}
         <button
+          ref={customButtonRef}
           type="button"
           aria-pressed={selection.period === "custom"}
           aria-expanded={customOpen}
@@ -85,6 +98,7 @@ export function ReportPeriodControls({
             <input
               type="date"
               required
+              disabled={disabled}
               value={range.from}
               onChange={(event) => setRange((current) => ({
                 ...current,
@@ -97,6 +111,7 @@ export function ReportPeriodControls({
             <input
               type="date"
               required
+              disabled={disabled}
               value={range.to}
               onChange={(event) => setRange((current) => ({
                 ...current,

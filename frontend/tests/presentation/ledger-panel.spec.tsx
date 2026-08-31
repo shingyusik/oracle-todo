@@ -2795,14 +2795,21 @@ describe("LedgerPanel", () => {
   it("opens Custom range and applies a valid range explicitly", async () => {
     const user = userEvent.setup();
     const runReports = vi.fn();
+    const applyRequest = deferred<void>();
 
     function CustomRangeHarness() {
       const [reportSelection, setReportSelection] = React.useState<LedgerState["reportSelection"]>({
         period: "current_month",
       });
-      const ledger = controller({ ...loadedState, reportSelection });
+      const [reportStatus, setReportStatus] = React.useState<LedgerState["reportStatus"]>("idle");
+      const ledger = controller({ ...loadedState, reportSelection, reportStatus });
       runReports.mockImplementation(async (selection: LedgerState["reportSelection"]) => {
+        if (selection.period === "custom") {
+          setReportStatus("loading");
+          await applyRequest.promise;
+        }
         setReportSelection(selection);
+        setReportStatus("loaded");
       });
       ledger.runReports = runReports;
       return <LedgerPanel leafTabId="reports" controller={ledger} />;
@@ -2831,9 +2838,19 @@ describe("LedgerPanel", () => {
       from: "2026-07-01",
       to: "2026-07-31",
     });
+    expect(screen.getByLabelText("Start")).toBeDisabled();
+    expect(screen.getByLabelText("End")).toBeDisabled();
+
+    await act(async () => applyRequest.resolve(undefined));
+
+    await waitFor(() => expect(custom).toHaveAttribute("aria-expanded", "false"));
     expect(custom).toHaveAttribute("aria-pressed", "true");
-    expect(custom).toHaveAttribute("aria-expanded", "false");
+    expect(custom).toHaveFocus();
     expect(screen.queryByLabelText("Start")).toBeNull();
+
+    await user.click(custom);
+    expect(screen.getByLabelText("Start")).toHaveValue("2026-07-01");
+    expect(screen.getByLabelText("End")).toHaveValue("2026-07-31");
   });
 
   it("keeps invalid custom ranges disabled and collapses the editor for a preset", async () => {
