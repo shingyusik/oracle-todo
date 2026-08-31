@@ -3190,10 +3190,10 @@ describe("LedgerPanel", () => {
     render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
 
     expect(screen.getByRole("button", { name: "2026-08-01 Expense 0 KRW" }))
-      .toHaveStyle({ height: "0%" });
+      .toHaveStyle({ height: "0%", minHeight: "0" });
     await user.click(screen.getByRole("tab", { name: "Income" }));
     expect(screen.getByRole("button", { name: "2026-08-01 Income 0 KRW" }))
-      .toHaveStyle({ height: "0%" });
+      .toHaveStyle({ height: "0%", minHeight: "0" });
   });
 
   it("shows zero cards and section-specific messages for an empty report", () => {

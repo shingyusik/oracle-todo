@@ -410,7 +410,7 @@ export function IncomeExpenseTrendChart({
                       <button
                         type="button"
                         className={isExpense ? "ledger-report-bar-expense" : "ledger-report-bar-income"}
-                        style={{ height: height(value) }}
+                        style={{ height: height(value), minHeight: value === 0 ? 0 : undefined }}
                         aria-label={`${point.start} ${label} ${reportMoney(value, currency, model.currencyCode)}`}
                         onClick={() => onDrilldown?.(trendDrilldown(model, point, series))}
                       />
