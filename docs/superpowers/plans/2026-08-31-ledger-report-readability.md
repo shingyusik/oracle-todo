@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Ledger Reports load account balances directly, present income and spending as readable tabbed charts with a visible money axis, retain zero-value currency compositions, group report amounts, and apply valid custom ranges immediately.
+**Goal:** Make Ledger Reports load account balances directly, present income and spending as readable tabbed charts with a visible money axis, retain zero-value currency compositions, group report amounts, and expose an explicit collapsible custom range.
 
 **Architecture:** Keep report orchestration in `useLedgerController` and presentation behavior in the existing report components. Reuse the current model and APIs; add no dependency, persisted preference, endpoint, or schema. Keep money grouping report-local so existing transaction and master-data formatting does not change.
 
@@ -13,7 +13,7 @@
 ## File Structure
 
 - Modify `frontend/src/features/ledger/hooks/useLedgerController.ts`: include paginated balances in every report request.
-- Modify `frontend/src/features/ledger/ui/LedgerReportCharts.tsx`: immediate custom ranges, report-only grouped money, stable zero donuts, trend tabs, and Y-axis rendering.
+- Modify `frontend/src/features/ledger/ui/LedgerReportCharts.tsx`: collapsible custom ranges, report-only grouped money, stable zero donuts, trend tabs, and Y-axis rendering.
 - Modify `frontend/src/styles/globals.css`: style tabs, fixed Y-axis column, selected-series bars, and zero donuts responsively.
 - Modify `frontend/tests/presentation/ledger-panel.spec.tsx`: cover controller requests and all user-visible report behavior.
 
@@ -86,102 +86,128 @@ Stage the controller hunk and its matching test hunk without staging later UI wo
 - Accounts 화면 방문 여부와 무관하게 자산 및 부채 분석을 구성
 ```
 
-### Task 2: Apply custom ranges without a submit button
+### Task 2: Add a collapsible explicit custom range
 
 **Files:**
 - Modify: `frontend/src/features/ledger/ui/LedgerReportCharts.tsx:29-84`
+- Modify: `frontend/src/features/ledger/ui/LedgerReports.tsx`
 - Test: `frontend/tests/presentation/ledger-panel.spec.tsx:2794-2840`
 
-- [ ] **Step 1: Replace the submit test with immediate valid-range tests**
+- [ ] **Step 1: Replace the auto-apply tests with disclosure and Apply tests**
 
 ```tsx
-it("runs a custom report as soon as both dates form a valid range", async () => {
+it("opens Custom range and applies a valid range explicitly", async () => {
   const user = userEvent.setup();
   const ledger = controller();
   render(<LedgerPanel leafTabId="reports" controller={ledger} />);
 
-  await user.type(screen.getByLabelText("From"), "2026-07-01");
-  expect(ledger.runReports).toHaveBeenCalledTimes(1);
-  await user.type(screen.getByLabelText("To"), "2026-07-31");
+  const custom = screen.getByRole("button", { name: "Custom range" });
+  expect(custom).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByLabelText("Start")).toBeNull();
 
-  expect(screen.queryByRole("button", { name: "Run reports" })).toBeNull();
+  await user.click(custom);
+  expect(custom).toHaveAttribute("aria-expanded", "true");
+  const apply = screen.getByRole("button", { name: "Apply" });
+  expect(apply).toBeDisabled();
+
+  await user.type(screen.getByLabelText("Start"), "2026-07-01");
+  await user.type(screen.getByLabelText("End"), "2026-07-31");
+  expect(ledger.runReports).toHaveBeenCalledTimes(1);
+  expect(apply).toBeEnabled();
+
+  await user.click(apply);
+
   expect(ledger.runReports).toHaveBeenLastCalledWith({
     period: "custom",
     from: "2026-07-01",
     to: "2026-07-31",
   });
+  expect(custom).toHaveAttribute("aria-pressed", "true");
+  expect(custom).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByLabelText("Start")).toBeNull();
 });
 
-it("does not run an incomplete or inverted custom range", async () => {
+it("keeps invalid custom ranges disabled and collapses the editor for a preset", async () => {
   const user = userEvent.setup();
   const ledger = controller();
   render(<LedgerPanel leafTabId="reports" controller={ledger} />);
 
-  await user.type(screen.getByLabelText("From"), "2026-08-31");
-  await user.type(screen.getByLabelText("To"), "2026-08-01");
+  await user.click(screen.getByRole("button", { name: "Custom range" }));
+  await user.type(screen.getByLabelText("Start"), "2026-08-31");
+  await user.type(screen.getByLabelText("End"), "2026-08-01");
 
+  expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
   expect(ledger.runReports).toHaveBeenCalledTimes(1);
+
+  await user.click(screen.getByRole("button", { name: "Previous month" }));
+  expect(screen.queryByLabelText("Start")).toBeNull();
+  expect(ledger.runReports).toHaveBeenLastCalledWith({ period: "previous_month" });
 });
 ```
+
+Add a failure case whose mocked `runReports` rejects: after entering valid dates and clicking
+Apply, the editor remains open and both date values are retained. Update the existing Retry test
+to open Custom range, enter the dates, and click Apply; the error appears without collapsing the
+editor, and Retry still clears it.
 
 - [ ] **Step 2: Run the focused tests and verify RED**
 
 Run `npm --prefix frontend test -- ledger-panel.spec.tsx`.
 
-Expected: FAIL because `Run reports` still exists and no custom request occurs before clicking it.
+Expected: FAIL because Custom range is not yet a disclosure and Apply does not wait for an
+explicit valid submission.
 
-- [ ] **Step 3: Replace the form submission with one guarded range updater**
+- [ ] **Step 3: Add the disclosure and return report success to it**
 
-Inside `ReportPeriodControls`, use:
+Change `ReportPeriodControls.onChange` to return `Promise<boolean>`. In `LedgerReports`, keep the
+controller's error handling intact and return whether the request resolved:
 
 ```tsx
-function updateRange(field: "from" | "to", value: string) {
-  const next = { ...range, [field]: value };
-  setRange(next);
-  if (next.from !== "" && next.to !== "" && next.from <= next.to) {
-    onChange({ period: "custom", ...next });
+async function runReports(
+  selection: Parameters<LedgerController["runReports"]>[0],
+): Promise<boolean> {
+  try {
+    await controller.runReports(selection);
+    return true;
+  } catch {
+    return false;
   }
 }
 ```
 
-Render `.ledger-report-custom` as a `div`, remove the submit button, and wire the native date inputs:
+Inside `ReportPeriodControls`, track only whether the custom editor is open and whether its current
+range is valid:
 
 ```tsx
-<div className="ledger-report-custom" aria-label="Ledger report range">
-  <label>
-    From
-    <input
-      type="date"
-      value={range.from}
-      onChange={(event) => updateRange("from", event.target.value)}
-    />
-  </label>
-  <label>
-    To
-    <input
-      type="date"
-      value={range.to}
-      onChange={(event) => updateRange("to", event.target.value)}
-    />
-  </label>
-</div>
+const [customOpen, setCustomOpen] = React.useState(false);
+const validRange = range.from !== "" && range.to !== "" && range.from <= range.to;
+
+async function applyCustomRange(event: React.FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  if (!validRange) return;
+  if (await onChange({ period: "custom", ...range })) setCustomOpen(false);
+}
 ```
 
-Update the retry test to trigger the error by entering the second valid date instead of clicking a removed button.
+Render four peer buttons. Custom range toggles `customOpen`, exposes `aria-expanded`, and preserves
+its existing `aria-pressed` selection state. Conditionally render a form with Start, End, and an
+Apply submit button disabled by `disabled || !validRange`. Each preset closes the custom editor
+and calls `void onChange({ period })`. Date edits only update local state. A failed Apply leaves
+the editor and values intact; a successful Apply closes it and keeps Custom range selected.
 
 - [ ] **Step 4: Run the focused tests and verify GREEN**
 
 Run `npm --prefix frontend test -- ledger-panel.spec.tsx`.
 
-Expected: both custom-range tests and the retry test pass.
+Expected: disclosure, validation, success, failure-retention, preset-collapse, and Retry tests pass.
 
 - [ ] **Step 5: Commit the period-control change**
 
 ```text
-[UPDATE] Apply Ledger report ranges immediately
+[UPDATE] Add collapsible Ledger custom range
 
-- 유효한 시작일과 종료일이 완성되면 사용자 지정 보고서를 즉시 실행
-- 불완전하거나 역전된 기간은 요청하지 않고 별도 실행 버튼 제거
+- Custom range 버튼에서 기간 입력과 Apply 동작을 명시적으로 펼침
+- 성공 시 접고 실패 시 입력값을 유지하며 프리셋 전환 시 편집 영역 정리
 ```
 
 ### Task 3: Group report money and retain zero composition donuts

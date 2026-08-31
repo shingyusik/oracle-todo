@@ -13,14 +13,18 @@ and graph-first; no API, database, or lifecycle contract changes are required.
   scaled series share one axis.
 - Show exact chart scale values and grouped report amounts.
 - Keep the asset and liability composition layout stable when one side is zero.
-- Remove the unnecessary custom-range submit step.
+- Keep custom dates hidden until requested and apply them explicitly.
 
 ## Period Controls
 
-Current month, Previous month, and Current year remain immediate preset controls. The custom
-range retains native start and end date inputs but removes the `Run reports` button. Changing
-either date applies the custom report as soon as both dates are present and `from <= to`.
-Incomplete or inverted ranges do not issue a request.
+Current month, Previous month, Current year, and Custom range are peer controls. Selecting a
+preset runs it immediately and closes an open custom editor. Selecting Custom range toggles an
+inline editor with native Start and End date inputs plus an Apply button.
+
+Changing a custom date never issues a request. Apply remains disabled until both dates are
+present and `from <= to`; submitting a valid range runs the custom report. On success, the editor
+closes while Custom range remains selected. On failure, it stays open with the entered dates so
+the existing safe error and Retry flow can be used. Reopening the editor restores those dates.
 
 ## Account Balances
 
@@ -78,8 +82,8 @@ analysis. A stale report request must not overwrite a newer selection.
   Accounts visit and retains stale-request protection.
 - Presentation tests cover the Spending default tab, Income/Spending switching, selected-series
   bars, three visible Y-axis ticks, spending-only average pace, and both drilldown types.
-- Presentation tests cover immediate valid custom ranges and no request for incomplete or inverted
-  ranges.
+- Presentation tests cover explicit valid custom-range application, disabled incomplete or
+  inverted ranges, preset-driven collapse, successful collapse, and retained inputs on failure.
 - Formatting tests cover grouped positive, negative, zero-decimal, and two-decimal report amounts.
 - Composition tests cover a stable `0 USD` donut when no USD liability exists.
 - Run the focused Ledger tests, the full frontend test suite, typecheck, and production build.
