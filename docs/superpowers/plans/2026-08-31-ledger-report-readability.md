@@ -593,4 +593,4 @@ $env:RAVEN_HOME = "$PWD\.mock-data\todo-engine"
 npm --prefix frontend run ui -- --no-open
 ```
 
-Expected: KRW shows populated asset and liability donuts, USD keeps a `0 USD` liability donut, Summary uses commas, Spending opens first with a left money axis, Income switches cleanly, and custom dates apply without a button.
+Expected: KRW shows populated asset and liability donuts, USD keeps a `0 USD` liability donut, Summary uses commas, Spending opens first with a left money axis, Income switches cleanly, and Custom range expands Start, End, and Apply controls.
