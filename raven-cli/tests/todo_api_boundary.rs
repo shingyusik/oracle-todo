@@ -3,7 +3,9 @@ use predicates::str::contains;
 use std::ffi::OsString;
 
 fn raven() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_raven"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_raven"));
+    command.env("HOME", std::env::temp_dir());
+    command
 }
 
 #[test]
