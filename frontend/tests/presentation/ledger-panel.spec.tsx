@@ -2939,6 +2939,10 @@ describe("LedgerPanel", () => {
     expect(usd).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("region", { name: "Report analysis" })).toHaveTextContent("12.34 USD");
     expect(screen.getByRole("region", { name: "Report analysis" })).not.toHaveTextContent("3000 KRW");
+    expect(screen.getByRole("img", { name: "Liability composition, total 0 USD" }))
+      .toBeInTheDocument();
+    expect(screen.getByText("No liability balances for this currency."))
+      .toBeInTheDocument();
 
     view.rerender(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState({
       reportStatus: "loading",
@@ -2974,11 +2978,34 @@ describe("LedgerPanel", () => {
   });
 
   it("includes each donut slice value in its accessible button name", () => {
-    render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />);
+    const state = reportAnalysisState();
+    state.comparison!.currencies[0]!.current.incomeMinor = 3_650_000;
+    state.comparison!.current.currencies[0]!.incomeMinor = 3_650_000;
+    render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
 
-    expect(screen.getByRole("button", { name: /Cash, 67%, 2000 KRW/ }))
+    expect(within(screen.getByRole("region", { name: "Summary" }))
+      .getByRole("group", { name: "Income" }))
+      .toHaveTextContent("3,650,000 KRW");
+    expect(screen.getByRole("button", { name: /Cash, 67%, 2,000 KRW/ }))
       .toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Food, 58%, 700 KRW/ }))
+      .toBeInTheDocument();
+  });
+
+  it("groups signed and two-decimal account composition amounts", async () => {
+    const user = userEvent.setup();
+    const state = reportAnalysisState();
+    state.balances = state.balances.map((balance) => balance.account.id === "account-card"
+      ? { ...balance, currentBalanceMinor: -650_000 }
+      : balance.account.id === "account-dollar-cash"
+        ? { ...balance, currentBalanceMinor: 125_000 }
+        : balance);
+    render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
+
+    expect(screen.getByRole("button", { name: /Credit card, 100%, 650,000 KRW/ }))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "USD" }));
+    expect(screen.getByRole("img", { name: /Asset composition, total 1,250.00 USD/ }))
       .toBeInTheDocument();
   });
 
@@ -3091,9 +3118,9 @@ describe("LedgerPanel", () => {
 
     const trendChart = screen.getByRole("group", { name: "Income and spending pattern" });
     expect(trendChart.querySelectorAll("button")).toHaveLength(4);
-    expect(screen.getByText(/2026-08-01: Income 1000 KRW; Spending 700 KRW; Average daily pace/))
+    expect(screen.getByText(/2026-08-01: Income 1,000 KRW; Spending 700 KRW; Average daily pace/))
       .toBeInTheDocument();
-    expect(screen.getByText(/2026-08-02: Income 2000 KRW; Spending 500 KRW; Average daily pace/))
+    expect(screen.getByText(/2026-08-02: Income 2,000 KRW; Spending 500 KRW; Average daily pace/))
       .toBeInTheDocument();
   });
 

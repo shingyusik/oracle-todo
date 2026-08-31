@@ -9,7 +9,7 @@ import type {
   LedgerReportModel,
   ReportDrilldownTarget,
 } from "@/features/ledger/model/ledger-reports";
-import { formatMoney } from "@/features/ledger/ui/ledger-ui";
+import { formatMinorUnits } from "@/features/ledger/ui/ledger-ui";
 
 const reportPresets: ReadonlyArray<{
   period: Exclude<ReportSelection["period"], "custom">;
@@ -189,7 +189,9 @@ export function ReportSummaryCards({
 
 export function AccountBalanceDonuts(props: ReportSectionProps) {
   const { model, currency, onDrilldown } = props;
-  const formatValue = (value: number) => reportMoney(value, currency, model.currencyCode);
+  const formatValue = (value: number) => value === 0
+    ? `0 ${currency?.code ?? model.currencyCode}`
+    : reportMoney(value, currency, model.currencyCode);
   const selectAccount = (slice: CompositionSlice) => {
     if (slice.id) onDrilldown?.({
       kind: "account",
@@ -205,6 +207,7 @@ export function AccountBalanceDonuts(props: ReportSectionProps) {
         <CompositionDonut
           title="Assets"
           slices={model.assets}
+          showZeroDonut
           emptyMessage="No asset balances for this currency."
           ariaLabel="Asset composition"
           formatValue={formatValue}
@@ -213,6 +216,7 @@ export function AccountBalanceDonuts(props: ReportSectionProps) {
         <CompositionDonut
           title="Liabilities"
           slices={model.liabilities}
+          showZeroDonut
           emptyMessage="No liability balances for this currency."
           ariaLabel="Liability composition"
           formatValue={formatValue}
@@ -256,6 +260,7 @@ function CompositionDonut({
   formatValue,
   onSelect,
   showTitle = true,
+  showZeroDonut = false,
 }: {
   title: string;
   slices: CompositionSlice[];
@@ -264,9 +269,10 @@ function CompositionDonut({
   formatValue: (valueMinor: number) => string;
   onSelect?: (slice: CompositionSlice) => void;
   showTitle?: boolean;
+  showZeroDonut?: boolean;
 }) {
   const totalLabel = formatValue(slices.reduce((sum, slice) => sum + slice.valueMinor, 0));
-  if (slices.length === 0) {
+  if (slices.length === 0 && !showZeroDonut) {
     return (
       <div className="ledger-report-composition">
         {showTitle ? <h3>{title}</h3> : null}
@@ -283,7 +289,7 @@ function CompositionDonut({
           className="ledger-report-donut"
           role="img"
           aria-label={`${ariaLabel}, total ${totalLabel}`}
-          style={{
+          style={slices.length === 0 ? undefined : {
             "--ledger-report-donut": categoryGradient(
               slices.map(({ valueMinor }) => valueMinor),
             ),
@@ -291,33 +297,37 @@ function CompositionDonut({
         >
           <strong>{totalLabel}</strong>
         </div>
-        <div className="ledger-report-donut-legend">
-          {slices.map((slice, index) => {
-            const content = (
-              <>
-                <span className="ledger-report-donut-label">
-                  <span
-                    className="ledger-report-donut-key"
-                    aria-hidden="true"
-                    style={{ background: chartColors[index % chartColors.length] }}
-                  />
-                  {slice.label} · {slice.percentage}%
-                </span>
-                <span>{formatValue(slice.valueMinor)}</span>
-              </>
-            );
-            return slice.interactive && onSelect ? (
-              <button
-                key={slice.id}
-                type="button"
-                aria-label={`${slice.label}, ${slice.percentage}%, ${formatValue(slice.valueMinor)}, ${ariaLabel.toLowerCase()}`}
-                onClick={() => onSelect(slice)}
-              >
-                {content}
-              </button>
-            ) : <div key={slice.id ?? `${slice.label}-${slice.valueMinor}`}>{content}</div>;
-          })}
-        </div>
+        {slices.length === 0 ? (
+          <p className="items-message">{emptyMessage}</p>
+        ) : (
+          <div className="ledger-report-donut-legend">
+            {slices.map((slice, index) => {
+              const content = (
+                <>
+                  <span className="ledger-report-donut-label">
+                    <span
+                      className="ledger-report-donut-key"
+                      aria-hidden="true"
+                      style={{ background: chartColors[index % chartColors.length] }}
+                    />
+                    {slice.label} · {slice.percentage}%
+                  </span>
+                  <span>{formatValue(slice.valueMinor)}</span>
+                </>
+              );
+              return slice.interactive && onSelect ? (
+                <button
+                  key={slice.id}
+                  type="button"
+                  aria-label={`${slice.label}, ${slice.percentage}%, ${formatValue(slice.valueMinor)}, ${ariaLabel.toLowerCase()}`}
+                  onClick={() => onSelect(slice)}
+                >
+                  {content}
+                </button>
+              ) : <div key={slice.id ?? `${slice.label}-${slice.valueMinor}`}>{content}</div>;
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -419,7 +429,12 @@ function reportMoney(
   currency: Pick<Currency, "code" | "decimalPlaces"> | undefined,
   code: string,
 ): string {
-  return formatMoney(value, currency, code);
+  const amount = formatMinorUnits(value, currency?.decimalPlaces ?? 0);
+  const [whole, fraction] = amount.split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const display = fraction === undefined ? grouped : `${grouped}.${fraction}`;
+  const currencyCode = currency?.code ?? code;
+  return currencyCode ? `${display} ${currencyCode}` : display;
 }
 
 function categoryGradient(values: number[]): string {
