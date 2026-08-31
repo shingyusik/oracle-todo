@@ -579,9 +579,10 @@ export function useLedgerController(): LedgerController {
         from: comparison.current.range.start,
         to: comparison.current.range.end,
       };
-      const [categoryBreakdown, trend] = await Promise.all([
+      const [categoryBreakdown, trend, balances] = await Promise.all([
         ledgerApi.categoryReport(range),
         ledgerApi.trend(range),
+        drainPages((offset) => ledgerApi.listAccountBalances({ limit: 200, offset })),
       ]);
       if (generation !== reportGeneration.current) return;
       setState((current) => ({
@@ -592,6 +593,7 @@ export function useLedgerController(): LedgerController {
         trend,
         summary: comparison.current,
         categoryBreakdown,
+        balances,
       }));
     } catch (error) {
       if (generation !== reportGeneration.current) return;
