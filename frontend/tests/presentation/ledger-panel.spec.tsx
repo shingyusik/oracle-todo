@@ -2018,7 +2018,7 @@ describe("LedgerPanel", () => {
     const narrow = css.slice(css.indexOf("@media (max-width: 760px)"));
     expect(narrow).toMatch(/\.ledger-report-compositions\s*\{[^}]*grid-template-columns:\s*1fr/s);
     expect(css).toContain(".ledger-report-bars");
-    expect(css).toContain(".ledger-report-bar-income:focus-visible");
+    expect(css).toContain(".ledger-report-bar-button:focus-visible");
   });
 
   it("uses the Transactions header structure for Accounts", () => {
@@ -3178,8 +3178,35 @@ describe("LedgerPanel", () => {
     expect(screen.queryByText("Average daily pace")).toBeNull();
   });
 
+  it("supports the complete keyboard pattern and ARIA links for trend tabs", async () => {
+    const user = userEvent.setup();
+    render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />);
+
+    const incomeTab = screen.getByRole("tab", { name: "Income" });
+    const spendingTab = screen.getByRole("tab", { name: "Spending" });
+    const panel = screen.getByRole("tabpanel");
+    expect(spendingTab).toHaveAttribute("tabindex", "0");
+    expect(incomeTab).toHaveAttribute("tabindex", "-1");
+    expect(spendingTab).toHaveAttribute("aria-controls", panel.id);
+    expect(panel).toHaveAttribute("aria-labelledby", spendingTab.id);
+
+    spendingTab.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(incomeTab).toHaveFocus();
+    expect(incomeTab).toHaveAttribute("aria-selected", "true");
+    expect(panel).toHaveAttribute("aria-labelledby", incomeTab.id);
+
+    await user.keyboard("{End}");
+    expect(spendingTab).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(incomeTab).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(incomeTab).toHaveFocus();
+  });
+
   it("keeps zero-valued selected trend bars at zero height", async () => {
     const user = userEvent.setup();
+    const onReportDrilldown = vi.fn();
     const state = reportAnalysisState();
     state.trend!.currencies[0]!.points = [{
       start: "2026-08-01",
@@ -3187,13 +3214,66 @@ describe("LedgerPanel", () => {
       incomeMinor: 0,
       expenseMinor: 0,
     }];
+    render(
+      <LedgerPanel
+        leafTabId="reports"
+        controller={controller(state)}
+        onReportDrilldown={onReportDrilldown}
+      />,
+    );
+
+    const expenseButton = screen.getByRole("button", { name: "2026-08-01 Expense 0 KRW" });
+    const expenseVisual = expenseButton.querySelector(".ledger-report-bar-expense");
+    expect(expenseVisual)
+      .toHaveStyle({ height: "0%", minHeight: "0" });
+    expenseButton.focus();
+    expect(expenseButton).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onReportDrilldown).toHaveBeenCalledWith({
+      kind: "trend",
+      currencyId: "currency-krw",
+      entryType: "expense",
+      range: { start: "2026-08-01", end: "2026-08-01" },
+    });
+
+    await user.click(screen.getByRole("tab", { name: "Income" }));
+    const incomeButton = screen.getByRole("button", { name: "2026-08-01 Income 0 KRW" });
+    expect(incomeButton.querySelector(".ledger-report-bar-income"))
+      .toHaveStyle({ height: "0%", minHeight: "0" });
+  });
+
+  it("scales trend bars against the selected series and an expense average maximum", async () => {
+    const user = userEvent.setup();
+    const state = reportAnalysisState();
+    state.comparison!.current.currencies[0]!.expenseMinor = 31_000;
+    state.trend!.currencies[0]!.points = [{
+      start: "2026-08-01",
+      end: "2026-08-01",
+      incomeMinor: 800,
+      expenseMinor: 500,
+    }, {
+      start: "2026-08-02",
+      end: "2026-08-02",
+      incomeMinor: 400,
+      expenseMinor: 250,
+    }];
     render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
 
-    expect(screen.getByRole("button", { name: "2026-08-01 Expense 0 KRW" }))
-      .toHaveStyle({ height: "0%", minHeight: "0" });
+    expect(screen.getByLabelText("Spending Y-axis"))
+      .toHaveTextContent("1,000 KRW500 KRW0 KRW");
+    expect(document.querySelector(".ledger-report-average-marker"))
+      .toHaveStyle({ bottom: "100%" });
+    expect(screen.getByRole("button", { name: "2026-08-01 Expense 500 KRW" })
+      .querySelector(".ledger-report-bar-expense"))
+      .toHaveStyle({ height: "50%" });
+
     await user.click(screen.getByRole("tab", { name: "Income" }));
-    expect(screen.getByRole("button", { name: "2026-08-01 Income 0 KRW" }))
-      .toHaveStyle({ height: "0%", minHeight: "0" });
+    expect(screen.getByRole("button", { name: "2026-08-01 Income 800 KRW" })
+      .querySelector(".ledger-report-bar-income"))
+      .toHaveStyle({ height: "100%" });
+    expect(screen.getByRole("button", { name: "2026-08-02 Income 400 KRW" })
+      .querySelector(".ledger-report-bar-income"))
+      .toHaveStyle({ height: "50%" });
   });
 
   it("shows zero cards and section-specific messages for an empty report", () => {

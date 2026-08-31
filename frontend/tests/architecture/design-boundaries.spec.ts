@@ -101,8 +101,8 @@ describe("design system boundaries", () => {
     expect(component).toContain('type="date"');
     expect(component).toContain("conic-gradient(");
     expect(component).not.toContain("<svg");
-    expect(component).toMatch(/<button[^>]*className="ledger-report-bar-income"/s);
-    expect(component).toMatch(/<button[^>]*className="ledger-report-bar-expense"/s);
+    expect(component).toMatch(/<span[^>]*ledger-report-bar-income/s);
+    expect(component).toMatch(/<span[^>]*ledger-report-bar-expense/s);
     expect(css).toMatch(/\.ledger-report-bar-income\s*\{[^}]*background:\s*var\(--color-chart-primary\);/s);
     expect(css).toMatch(/\.ledger-report-bar-expense\s*\{[^}]*background:\s*var\(--color-chart-secondary\);/s);
     expect(css).toMatch(/\.ledger-report-average-marker\s*\{[^}]*border-top:\s*2px dashed var\(--color-chart-warning\);/s);

@@ -344,6 +344,9 @@ export function IncomeExpenseTrendChart({
 }) {
   const points = model.trend.points;
   const [series, setSeries] = React.useState<"income" | "expense">("expense");
+  const trendId = React.useId();
+  const incomeTabRef = React.useRef<HTMLButtonElement>(null);
+  const expenseTabRef = React.useRef<HTMLButtonElement>(null);
   const isExpense = series === "expense";
   const maximum = Math.max(0, ...points.flatMap((point) => isExpense
     ? [point.expenseMinor, point.averageExpensePaceMinor]
@@ -351,6 +354,30 @@ export function IncomeExpenseTrendChart({
   const height = (value: number) => maximum === 0 ? "0%" : `${value / maximum * 100}%`;
   const ticks = [maximum, Math.round(maximum / 2), 0];
   const granularity = `${model.trend.granularity[0]?.toUpperCase()}${model.trend.granularity.slice(1)}`;
+  const incomeTabId = `${trendId}-income-tab`;
+  const expenseTabId = `${trendId}-expense-tab`;
+  const panelId = `${trendId}-panel`;
+
+  function handleTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    let next: "income" | "expense";
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowRight":
+        next = isExpense ? "income" : "expense";
+        break;
+      case "Home":
+        next = "income";
+        break;
+      case "End":
+        next = "expense";
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    setSeries(next);
+    (next === "income" ? incomeTabRef : expenseTabRef).current?.focus();
+  }
 
   return (
     <section className="ledger-report-section" aria-label="Income and spending pattern">
@@ -364,79 +391,101 @@ export function IncomeExpenseTrendChart({
         <div className="ledger-report-trend">
           <div className="ledger-report-trend-tabs" role="tablist" aria-label="Trend series">
             <button
+              id={incomeTabId}
+              ref={incomeTabRef}
               type="button"
               role="tab"
               aria-selected={!isExpense}
+              aria-controls={panelId}
+              tabIndex={isExpense ? -1 : 0}
               onClick={() => setSeries("income")}
+              onKeyDown={handleTabKeyDown}
             >
               Income
             </button>
             <button
+              id={expenseTabId}
+              ref={expenseTabRef}
               type="button"
               role="tab"
               aria-selected={isExpense}
+              aria-controls={panelId}
+              tabIndex={isExpense ? 0 : -1}
               onClick={() => setSeries("expense")}
+              onKeyDown={handleTabKeyDown}
             >
               Spending
             </button>
           </div>
-          {isExpense ? (
-            <div className="ledger-report-trend-legend">
-              <span>Average daily pace</span>
-            </div>
-          ) : null}
-          <div className="ledger-report-trend-chart">
-            <div
-              className="ledger-report-y-axis"
-              aria-label={`${isExpense ? "Spending" : "Income"} Y-axis`}
-            >
-              {ticks.map((tick, index) => (
-                <span key={`${tick}-${index}`}>
-                  {reportMoney(tick, currency, model.currencyCode)}
-                </span>
-              ))}
-            </div>
-            <div
-              className="ledger-report-bars"
-              role="group"
-              aria-label={`${isExpense ? "Spending" : "Income"} pattern`}
-            >
-              {points.map((point) => {
-                const value = isExpense ? point.expenseMinor : point.incomeMinor;
-                const label = isExpense ? "Expense" : "Income";
-                return (
-                  <div className="ledger-report-bar-group" key={`${point.start}-${point.end}`}>
-                    <div className="ledger-report-bar-plot">
-                      <button
-                        type="button"
-                        className={isExpense ? "ledger-report-bar-expense" : "ledger-report-bar-income"}
-                        style={{ height: height(value), minHeight: value === 0 ? 0 : undefined }}
-                        aria-label={`${point.start} ${label} ${reportMoney(value, currency, model.currencyCode)}`}
-                        onClick={() => onDrilldown?.(trendDrilldown(model, point, series))}
-                      />
-                      {isExpense ? (
-                        <span
-                          className="ledger-report-average-marker"
-                          style={{ bottom: height(point.averageExpensePaceMinor) }}
-                          aria-hidden="true"
-                        />
-                      ) : null}
+          <div
+            id={panelId}
+            className="ledger-report-trend-panel"
+            role="tabpanel"
+            aria-labelledby={isExpense ? expenseTabId : incomeTabId}
+          >
+            {isExpense ? (
+              <div className="ledger-report-trend-legend">
+                <span>Average daily pace</span>
+              </div>
+            ) : null}
+            <div className="ledger-report-trend-chart">
+              <div
+                className="ledger-report-y-axis"
+                aria-label={`${isExpense ? "Spending" : "Income"} Y-axis`}
+              >
+                {ticks.map((tick, index) => (
+                  <span key={`${tick}-${index}`}>
+                    {reportMoney(tick, currency, model.currencyCode)}
+                  </span>
+                ))}
+              </div>
+              <div
+                className="ledger-report-bars"
+                role="group"
+                aria-label={`${isExpense ? "Spending" : "Income"} pattern`}
+              >
+                {points.map((point) => {
+                  const value = isExpense ? point.expenseMinor : point.incomeMinor;
+                  const label = isExpense ? "Expense" : "Income";
+                  return (
+                    <div className="ledger-report-bar-group" key={`${point.start}-${point.end}`}>
+                      <div className="ledger-report-bar-plot">
+                        <button
+                          type="button"
+                          className="ledger-report-bar-button"
+                          aria-label={`${point.start} ${label} ${reportMoney(value, currency, model.currencyCode)}`}
+                          onClick={() => onDrilldown?.(trendDrilldown(model, point, series))}
+                        >
+                          <span
+                            className={isExpense ? "ledger-report-bar-expense" : "ledger-report-bar-income"}
+                            style={{ height: height(value), minHeight: value === 0 ? 0 : undefined }}
+                            aria-hidden="true"
+                          />
+                        </button>
+                        {isExpense ? (
+                          <span
+                            className="ledger-report-average-marker"
+                            style={{ bottom: height(point.averageExpensePaceMinor) }}
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                      </div>
+                      <span>{point.start}</span>
                     </div>
-                    <span>{point.start}</span>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
+            <ul className="sr-only">
+              {points.map((point) => (
+                <li key={`${point.start}-${point.end}`}>
+                  {point.start}{point.end === point.start ? "" : ` to ${point.end}`}: {isExpense
+                    ? <>Spending {reportMoney(point.expenseMinor, currency, model.currencyCode)}; Average daily pace {reportMoney(point.averageExpensePaceMinor, currency, model.currencyCode)}</>
+                    : <>Income {reportMoney(point.incomeMinor, currency, model.currencyCode)}</>}
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="sr-only">
-            {points.map((point) => (
-              <li key={`${point.start}-${point.end}`}>
-                {point.start}{point.end === point.start ? "" : ` to ${point.end}`}: {isExpense
-                  ? <>Spending {reportMoney(point.expenseMinor, currency, model.currencyCode)}; Average daily pace {reportMoney(point.averageExpensePaceMinor, currency, model.currencyCode)}</>
-                  : <>Income {reportMoney(point.incomeMinor, currency, model.currencyCode)}</>}
-              </li>
-            ))}
-          </ul>
         </div>
       )}
     </section>
