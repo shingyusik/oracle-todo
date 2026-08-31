@@ -2999,9 +2999,12 @@ describe("LedgerPanel", () => {
       ? { ...balance, currentBalanceMinor: -650_000 }
       : balance.account.id === "account-dollar-cash"
         ? { ...balance, currentBalanceMinor: 125_000 }
-        : balance);
+        : { ...balance, currentBalanceMinor: 0 });
     render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
 
+    expect(within(screen.getByRole("region", { name: "Summary" }))
+      .getByRole("group", { name: "Net assets" }))
+      .toHaveTextContent("-650,000 KRW");
     expect(screen.getByRole("button", { name: /Credit card, 100%, 650,000 KRW/ }))
       .toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "USD" }));
