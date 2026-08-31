@@ -3438,14 +3438,18 @@ describe("LedgerPanel", () => {
 
   it("loads report analysis from the comparison's canonical current range", async () => {
     mockLedgerLoads();
-    const balanceRows = [{
+    const firstBalanceRows = [{
       account: loadedState.accounts[0]!,
       currencyCode: "KRW",
       decimalPlaces: 0,
       currentBalanceMinor: 2_000,
     }];
-    vi.mocked(ledgerApi.listAccountBalances)
-      .mockResolvedValue({ items: balanceRows, nextOffset: null });
+    const secondBalanceRows = [{
+      account: { ...loadedState.accounts[0]!, id: "account-bank", name: "Bank" },
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: 3_000,
+    }];
     const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(
       comparison("2026-08-01", "2026-08-31"),
     );
@@ -3456,6 +3460,10 @@ describe("LedgerPanel", () => {
     );
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    vi.mocked(ledgerApi.listAccountBalances)
+      .mockClear()
+      .mockResolvedValueOnce({ items: firstBalanceRows, nextOffset: 200 })
+      .mockResolvedValueOnce({ items: secondBalanceRows, nextOffset: null });
 
     await act(async () => {
       await result.current.runReports({ period: "current_month" });
@@ -3465,8 +3473,19 @@ describe("LedgerPanel", () => {
     expect(accounts).not.toHaveBeenCalled();
     expect(categories).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
     expect(reportTrend).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
-    expect(ledgerApi.listAccountBalances).toHaveBeenCalledWith({ limit: 200, offset: undefined });
-    expect(result.current.state.balances).toEqual(balanceRows);
+    expect(ledgerApi.listAccountBalances).toHaveBeenNthCalledWith(
+      1,
+      { limit: 200, offset: undefined },
+    );
+    expect(ledgerApi.listAccountBalances).toHaveBeenNthCalledWith(
+      2,
+      { limit: 200, offset: 200 },
+    );
+    expect(ledgerApi.listAccountBalances).toHaveBeenCalledTimes(2);
+    expect(result.current.state.balances).toEqual([
+      ...firstBalanceRows,
+      ...secondBalanceRows,
+    ]);
     expect(result.current.state.reportSelection).toEqual({ period: "current_month" });
     expect(result.current.state.comparison?.current.range).toEqual({
       start: "2026-08-01",
