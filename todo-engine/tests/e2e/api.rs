@@ -1040,7 +1040,7 @@ async fn postpone_rejects_today_past_dates_and_malformed_scheduling_input() {
         assert_eq!(response.status(), 400);
         assert_eq!(
             body_json(response).await["detail"],
-            "Postpone target date must be later than today"
+            "Postpone target date must be later than today unless the source is overdue"
         );
     }
 
