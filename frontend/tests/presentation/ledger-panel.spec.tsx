@@ -3082,7 +3082,7 @@ describe("LedgerPanel", () => {
     expect(errors).not.toMatch(/same key|unique.*key/i);
   });
 
-  it("drills from an account, a trend bar, and an expense category", async () => {
+  it("drills from an account, both trend series, and an expense category", async () => {
     const user = userEvent.setup();
     const onReportDrilldown = vi.fn();
     render(
@@ -3095,6 +3095,8 @@ describe("LedgerPanel", () => {
 
     await user.click(screen.getByRole("button", { name: /Cash.*asset/ }));
     await user.click(screen.getByRole("button", { name: /2026-08-01.*Expense/ }));
+    await user.click(screen.getByRole("tab", { name: "Income" }));
+    await user.click(screen.getByRole("button", { name: /2026-08-01.*Income/ }));
     await user.click(screen.getByRole("button", { name: /Food.*expense category/ }));
 
     expect(onReportDrilldown).toHaveBeenNthCalledWith(1, {
@@ -3109,6 +3111,12 @@ describe("LedgerPanel", () => {
       range: { start: "2026-08-01", end: "2026-08-01" },
     });
     expect(onReportDrilldown).toHaveBeenNthCalledWith(3, {
+      kind: "trend",
+      currencyId: "currency-krw",
+      entryType: "income",
+      range: { start: "2026-08-01", end: "2026-08-01" },
+    });
+    expect(onReportDrilldown).toHaveBeenNthCalledWith(4, {
       kind: "category",
       currencyId: "currency-krw",
       referenceId: "category-food",
@@ -3116,15 +3124,76 @@ describe("LedgerPanel", () => {
     });
   });
 
-  it("exposes income, spending, and average pace text without nesting buttons in an image", () => {
+  it("exposes screen-reader text for only the selected trend series", async () => {
+    const user = userEvent.setup();
     render(<LedgerPanel leafTabId="reports" controller={controller(reportAnalysisState())} />);
 
-    const trendChart = screen.getByRole("group", { name: "Income and spending pattern" });
-    expect(trendChart.querySelectorAll("button")).toHaveLength(4);
-    expect(screen.getByText(/2026-08-01: Income 1,000 KRW; Spending 700 KRW; Average daily pace/))
+    expect(screen.getByText(/2026-08-01: Spending 700 KRW; Average daily pace/))
       .toBeInTheDocument();
-    expect(screen.getByText(/2026-08-02: Income 2,000 KRW; Spending 500 KRW; Average daily pace/))
+    expect(screen.queryByText(/2026-08-01: Income/)).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: "Income" }));
+    expect(screen.getByText("2026-08-01: Income 1,000 KRW"))
       .toBeInTheDocument();
+    expect(screen.queryByText(/2026-08-01: Spending/)).toBeNull();
+  });
+
+  it("shows Spending first and switches to an Income chart with grouped Y-axis values", async () => {
+    const user = userEvent.setup();
+    const state = reportAnalysisState();
+    state.trend = {
+      range: { start: "2026-08-01", end: "2026-08-02" },
+      granularity: "daily",
+      currencies: [{
+        currencyId: "currency-krw",
+        currencyCode: "KRW",
+        points: [{
+          start: "2026-08-01",
+          end: "2026-08-01",
+          incomeMinor: 3_200_000,
+          expenseMinor: 800_000,
+        }, {
+          start: "2026-08-02",
+          end: "2026-08-02",
+          incomeMinor: 1_600_000,
+          expenseMinor: 400_000,
+        }],
+      }],
+    };
+    render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
+
+    expect(screen.getByRole("tab", { name: "Spending" }))
+      .toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "2026-08-01 Expense 800,000 KRW" }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText("Spending Y-axis"))
+      .toHaveTextContent("800,000 KRW400,000 KRW0 KRW");
+    expect(screen.getByText("Average daily pace")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Income" }));
+    expect(screen.getByRole("button", { name: "2026-08-01 Income 3,200,000 KRW" }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText("Income Y-axis"))
+      .toHaveTextContent("3,200,000 KRW1,600,000 KRW0 KRW");
+    expect(screen.queryByText("Average daily pace")).toBeNull();
+  });
+
+  it("keeps zero-valued selected trend bars at zero height", async () => {
+    const user = userEvent.setup();
+    const state = reportAnalysisState();
+    state.trend!.currencies[0]!.points = [{
+      start: "2026-08-01",
+      end: "2026-08-01",
+      incomeMinor: 0,
+      expenseMinor: 0,
+    }];
+    render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
+
+    expect(screen.getByRole("button", { name: "2026-08-01 Expense 0 KRW" }))
+      .toHaveStyle({ height: "0%" });
+    await user.click(screen.getByRole("tab", { name: "Income" }));
+    expect(screen.getByRole("button", { name: "2026-08-01 Income 0 KRW" }))
+      .toHaveStyle({ height: "0%" });
   });
 
   it("shows zero cards and section-specific messages for an empty report", () => {

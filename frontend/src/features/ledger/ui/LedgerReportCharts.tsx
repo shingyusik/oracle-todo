@@ -343,12 +343,13 @@ export function IncomeExpenseTrendChart({
   onDrilldown?: (target: ReportDrilldownTarget) => void;
 }) {
   const points = model.trend.points;
-  const maximum = Math.max(1, ...points.flatMap((point) => [
-    point.incomeMinor,
-    point.expenseMinor,
-    point.averageExpensePaceMinor,
-  ]));
-  const height = (value: number) => `${value / maximum * 100}%`;
+  const [series, setSeries] = React.useState<"income" | "expense">("expense");
+  const isExpense = series === "expense";
+  const maximum = Math.max(0, ...points.flatMap((point) => isExpense
+    ? [point.expenseMinor, point.averageExpensePaceMinor]
+    : [point.incomeMinor]));
+  const height = (value: number) => maximum === 0 ? "0%" : `${value / maximum * 100}%`;
+  const ticks = [maximum, Math.round(maximum / 2), 0];
   const granularity = `${model.trend.granularity[0]?.toUpperCase()}${model.trend.granularity.slice(1)}`;
 
   return (
@@ -361,41 +362,78 @@ export function IncomeExpenseTrendChart({
         <p className="items-message">No income or spending for this period.</p>
       ) : (
         <div className="ledger-report-trend">
-          <div className="ledger-report-trend-legend">
-            <span>Income</span><span>Spending</span><span>Average daily pace</span>
+          <div className="ledger-report-trend-tabs" role="tablist" aria-label="Trend series">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!isExpense}
+              onClick={() => setSeries("income")}
+            >
+              Income
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isExpense}
+              onClick={() => setSeries("expense")}
+            >
+              Spending
+            </button>
           </div>
-          <div className="ledger-report-bars" role="group" aria-label="Income and spending pattern">
-            {points.map((point) => (
-              <div className="ledger-report-bar-group" key={`${point.start}-${point.end}`}>
-                <div className="ledger-report-bar-plot">
-                  <button
-                    type="button"
-                    className="ledger-report-bar-income"
-                    style={{ height: height(point.incomeMinor) }}
-                    aria-label={`${point.start} Income ${reportMoney(point.incomeMinor, currency, model.currencyCode)}`}
-                    onClick={() => onDrilldown?.(trendDrilldown(model, point, "income"))}
-                  />
-                  <button
-                    type="button"
-                    className="ledger-report-bar-expense"
-                    style={{ height: height(point.expenseMinor) }}
-                    aria-label={`${point.start} Expense ${reportMoney(point.expenseMinor, currency, model.currencyCode)}`}
-                    onClick={() => onDrilldown?.(trendDrilldown(model, point, "expense"))}
-                  />
-                  <span
-                    className="ledger-report-average-marker"
-                    style={{ bottom: height(point.averageExpensePaceMinor) }}
-                    aria-hidden="true"
-                  />
-                </div>
-                <span>{point.start}</span>
-              </div>
-            ))}
+          {isExpense ? (
+            <div className="ledger-report-trend-legend">
+              <span>Average daily pace</span>
+            </div>
+          ) : null}
+          <div className="ledger-report-trend-chart">
+            <div
+              className="ledger-report-y-axis"
+              aria-label={`${isExpense ? "Spending" : "Income"} Y-axis`}
+            >
+              {ticks.map((tick, index) => (
+                <span key={`${tick}-${index}`}>
+                  {reportMoney(tick, currency, model.currencyCode)}
+                </span>
+              ))}
+            </div>
+            <div
+              className="ledger-report-bars"
+              role="group"
+              aria-label={`${isExpense ? "Spending" : "Income"} pattern`}
+            >
+              {points.map((point) => {
+                const value = isExpense ? point.expenseMinor : point.incomeMinor;
+                const label = isExpense ? "Expense" : "Income";
+                return (
+                  <div className="ledger-report-bar-group" key={`${point.start}-${point.end}`}>
+                    <div className="ledger-report-bar-plot">
+                      <button
+                        type="button"
+                        className={isExpense ? "ledger-report-bar-expense" : "ledger-report-bar-income"}
+                        style={{ height: height(value) }}
+                        aria-label={`${point.start} ${label} ${reportMoney(value, currency, model.currencyCode)}`}
+                        onClick={() => onDrilldown?.(trendDrilldown(model, point, series))}
+                      />
+                      {isExpense ? (
+                        <span
+                          className="ledger-report-average-marker"
+                          style={{ bottom: height(point.averageExpensePaceMinor) }}
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </div>
+                    <span>{point.start}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
           <ul className="sr-only">
             {points.map((point) => (
               <li key={`${point.start}-${point.end}`}>
-                {point.start}{point.end === point.start ? "" : ` to ${point.end}`}: Income {reportMoney(point.incomeMinor, currency, model.currencyCode)}; Spending {reportMoney(point.expenseMinor, currency, model.currencyCode)}; Average daily pace {reportMoney(point.averageExpensePaceMinor, currency, model.currencyCode)}
+                {point.start}{point.end === point.start ? "" : ` to ${point.end}`}: {isExpense
+                  ? <>Spending {reportMoney(point.expenseMinor, currency, model.currencyCode)}; Average daily pace {reportMoney(point.averageExpensePaceMinor, currency, model.currencyCode)}</>
+                  : <>Income {reportMoney(point.incomeMinor, currency, model.currencyCode)}</>}
               </li>
             ))}
           </ul>

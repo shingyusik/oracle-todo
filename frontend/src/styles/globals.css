@@ -433,25 +433,50 @@ button {
 .ledger-report-trend-legend span::before {
   display: inline-block;
   width: 18px;
-  height: 3px;
   margin-right: 6px;
-  background: var(--color-chart-primary);
+  border-top: 2px dashed var(--color-chart-warning);
   content: "";
   vertical-align: middle;
 }
 
-.ledger-report-trend-legend span + span::before {
-  background: var(--color-chart-secondary);
+.ledger-report-trend-tabs {
+  display: flex;
+  gap: 8px;
 }
 
-.ledger-report-trend-legend span:nth-child(3)::before {
-  height: 0;
-  border-top: 2px dashed var(--color-chart-warning);
-  background: transparent;
+.ledger-report-trend-tabs button {
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-pill);
+  background: var(--color-canvas-cream);
+  padding: 7px 12px;
+}
+
+.ledger-report-trend-tabs button[aria-selected="true"] {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-on-dark);
+}
+
+.ledger-report-trend-chart {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 12px;
+}
+
+.ledger-report-y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px 0 29px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-align: right;
 }
 
 .ledger-report-bars {
   display: flex;
+  min-width: 0;
   min-height: 260px;
   gap: 12px;
   overflow-x: auto;
@@ -480,7 +505,7 @@ button {
 
 .ledger-report-bar-income,
 .ledger-report-bar-expense {
-  width: min(18px, 42%);
+  width: min(24px, 60%);
   min-height: 2px;
   border: 0;
   border-radius: var(--radius-xs) var(--radius-xs) 0 0;
@@ -506,6 +531,7 @@ button {
 .ledger-report-period input:focus-visible,
 .ledger-report-currencies button:focus-visible,
 .ledger-report-donut-legend button:focus-visible,
+.ledger-report-trend-tabs button:focus-visible,
 .ledger-report-bar-income:focus-visible,
 .ledger-report-bar-expense:focus-visible,
 .ledger-report-error button:focus-visible {
