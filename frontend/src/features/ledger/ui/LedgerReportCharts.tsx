@@ -33,12 +33,19 @@ export function ReportPeriodControls({
 }: {
   selection: ReportSelection;
   disabled: boolean;
-  onChange: (selection: ReportSelection) => void;
+  onChange: (selection: ReportSelection) => Promise<boolean>;
 }) {
   const [range, setRange] = React.useState(() => selection.period === "custom"
     ? { from: selection.from, to: selection.to }
     : { from: "", to: "" });
+  const [customOpen, setCustomOpen] = React.useState(false);
   const validRange = range.from !== "" && range.to !== "" && range.from <= range.to;
+
+  async function applyCustomRange(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!validRange) return;
+    if (await onChange({ period: "custom", ...range })) setCustomOpen(false);
+  }
 
   return (
     <div className="ledger-report-period" aria-label="Report period">
@@ -49,46 +56,57 @@ export function ReportPeriodControls({
             type="button"
             aria-pressed={selection.period === period}
             disabled={disabled}
-            onClick={() => onChange({ period })}
+            onClick={() => {
+              setCustomOpen(false);
+              void onChange({ period });
+            }}
           >
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          aria-pressed={selection.period === "custom"}
+          aria-expanded={customOpen}
+          disabled={disabled}
+          onClick={() => setCustomOpen((open) => !open)}
+        >
+          Custom range
+        </button>
       </div>
-      <form
-        className="ledger-report-custom"
-        aria-label="Ledger report range"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (validRange) onChange({ period: "custom", ...range });
-        }}
-      >
-        <label>
-          From
-          <input
-            type="date"
-            required
-            value={range.from}
-            onChange={(event) => setRange((current) => ({
-              ...current,
-              from: event.target.value,
-            }))}
-          />
-        </label>
-        <label>
-          To
-          <input
-            type="date"
-            required
-            value={range.to}
-            onChange={(event) => setRange((current) => ({
-              ...current,
-              to: event.target.value,
-            }))}
-          />
-        </label>
-        <button type="submit" disabled={disabled || !validRange}>Run reports</button>
-      </form>
+      {customOpen && (
+        <form
+          className="ledger-report-custom"
+          aria-label="Ledger report range"
+          onSubmit={applyCustomRange}
+        >
+          <label>
+            Start
+            <input
+              type="date"
+              required
+              value={range.from}
+              onChange={(event) => setRange((current) => ({
+                ...current,
+                from: event.target.value,
+              }))}
+            />
+          </label>
+          <label>
+            End
+            <input
+              type="date"
+              required
+              value={range.to}
+              onChange={(event) => setRange((current) => ({
+                ...current,
+                to: event.target.value,
+              }))}
+            />
+          </label>
+          <button type="submit" disabled={disabled || !validRange}>Apply</button>
+        </form>
+      )}
     </div>
   );
 }

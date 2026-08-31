@@ -55,8 +55,15 @@ export function LedgerReports({
     decimalPlaces: model.decimalPlaces,
   } : undefined;
 
-  function runReports(selection: Parameters<LedgerController["runReports"]>[0]) {
-    void controller.runReports(selection).catch(() => undefined);
+  async function runReports(
+    selection: Parameters<LedgerController["runReports"]>[0],
+  ): Promise<boolean> {
+    try {
+      await controller.runReports(selection);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function retryReports() {

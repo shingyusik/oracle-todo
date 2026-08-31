@@ -2792,20 +2792,82 @@ describe("LedgerPanel", () => {
     expect(ledger.runReports).toHaveBeenNthCalledWith(3, { period: "current_year" });
   });
 
-  it("submits a custom Reports date range", async () => {
+  it("opens Custom range and applies a valid range explicitly", async () => {
     const user = userEvent.setup();
-    const ledger = controller();
-    render(<LedgerPanel leafTabId="reports" controller={ledger} />);
+    const runReports = vi.fn();
 
-    await user.type(screen.getByLabelText("From"), "2026-07-01");
-    await user.type(screen.getByLabelText("To"), "2026-07-31");
-    await user.click(screen.getByRole("button", { name: "Run reports" }));
+    function CustomRangeHarness() {
+      const [reportSelection, setReportSelection] = React.useState<LedgerState["reportSelection"]>({
+        period: "current_month",
+      });
+      const ledger = controller({ ...loadedState, reportSelection });
+      runReports.mockImplementation(async (selection: LedgerState["reportSelection"]) => {
+        setReportSelection(selection);
+      });
+      ledger.runReports = runReports;
+      return <LedgerPanel leafTabId="reports" controller={ledger} />;
+    }
 
-    expect(ledger.runReports).toHaveBeenLastCalledWith({
+    render(<CustomRangeHarness />);
+
+    const custom = screen.getByRole("button", { name: "Custom range" });
+    expect(custom).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("Start")).toBeNull();
+
+    await user.click(custom);
+    expect(custom).toHaveAttribute("aria-expanded", "true");
+    const apply = screen.getByRole("button", { name: "Apply" });
+    expect(apply).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Start"), "2026-07-01");
+    await user.type(screen.getByLabelText("End"), "2026-07-31");
+    expect(runReports).toHaveBeenCalledTimes(1);
+    expect(apply).toBeEnabled();
+
+    await user.click(apply);
+
+    expect(runReports).toHaveBeenLastCalledWith({
       period: "custom",
       from: "2026-07-01",
       to: "2026-07-31",
     });
+    expect(custom).toHaveAttribute("aria-pressed", "true");
+    expect(custom).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("Start")).toBeNull();
+  });
+
+  it("keeps invalid custom ranges disabled and collapses the editor for a preset", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(<LedgerPanel leafTabId="reports" controller={ledger} />);
+
+    await user.click(screen.getByRole("button", { name: "Custom range" }));
+    await user.type(screen.getByLabelText("Start"), "2026-08-31");
+    await user.type(screen.getByLabelText("End"), "2026-08-01");
+
+    expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
+    expect(ledger.runReports).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Previous month" }));
+    expect(screen.queryByLabelText("Start")).toBeNull();
+    expect(ledger.runReports).toHaveBeenLastCalledWith({ period: "previous_month" });
+  });
+
+  it("keeps a failed custom range open with its entered dates", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    ledger.runReports = vi.fn().mockRejectedValue(new Error("Custom range failed"));
+    render(<LedgerPanel leafTabId="reports" controller={ledger} />);
+
+    const custom = screen.getByRole("button", { name: "Custom range" });
+    await user.click(custom);
+    await user.type(screen.getByLabelText("Start"), "2026-07-01");
+    await user.type(screen.getByLabelText("End"), "2026-07-31");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(custom).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Start")).toHaveValue("2026-07-01");
+    expect(screen.getByLabelText("End")).toHaveValue("2026-07-31");
   });
 
   it("clears a rejected custom-range error after report retry succeeds", async () => {
@@ -2829,10 +2891,13 @@ describe("LedgerPanel", () => {
     }
 
     render(<ReportRetryHarness />);
-    await user.type(screen.getByLabelText("From"), "2026-07-01");
-    await user.type(screen.getByLabelText("To"), "2026-07-31");
-    await user.click(screen.getByRole("button", { name: "Run reports" }));
+    const custom = screen.getByRole("button", { name: "Custom range" });
+    await user.click(custom);
+    await user.type(screen.getByLabelText("Start"), "2026-07-01");
+    await user.type(screen.getByLabelText("End"), "2026-07-31");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Custom range failed");
+    expect(custom).toHaveAttribute("aria-expanded", "true");
 
     await user.click(screen.getByRole("button", { name: "Retry reports" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
