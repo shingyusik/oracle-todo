@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -198,21 +198,95 @@ describe("Dashboard Ledger highlights", () => {
     await waitFor(() => expect(loadLedgerReport).toHaveBeenCalledTimes(2));
     expect(loadLedgerReport).toHaveBeenLastCalledWith({ period: "current_month" });
   });
+
+  it("ignores an older request that settles after the latest mutation reload", async () => {
+    const older = deferred<LedgerReportData>();
+    const latest = deferred<LedgerReportData>();
+    vi.mocked(loadLedgerReport)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(latest.promise);
+    const { rerender } = render(
+      <DashboardLedgerHighlights mutationEpoch={0} onNavigate={vi.fn()} />,
+    );
+    await waitFor(() => expect(loadLedgerReport).toHaveBeenCalledTimes(1));
+
+    rerender(<DashboardLedgerHighlights mutationEpoch={1} onNavigate={vi.fn()} />);
+    await waitFor(() => expect(loadLedgerReport).toHaveBeenCalledTimes(2));
+    await act(async () => latest.resolve(reportData({
+      incomeMinor: 222,
+      expenseMinor: 0,
+      currency: { id: "currency-usd", code: "USD", decimalPlaces: 2 },
+    })));
+
+    const surface = screen.getByRole("region", { name: "Ledger highlights" });
+    const cashFlow = within(surface).getByRole("region", { name: "Cash Flow" });
+    expect(within(surface).getByRole("button", { name: "USD" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(within(cashFlow).getByText("Income").parentElement).toHaveTextContent("2.22 USD");
+
+    await act(async () => older.resolve(reportData({
+      incomeMinor: 1_000_000,
+      expenseMinor: 0,
+    })));
+
+    expect(within(surface).getByRole("button", { name: "USD" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(within(surface).queryByRole("button", { name: "KRW" })).not.toBeInTheDocument();
+    expect(within(cashFlow).getByText("Income").parentElement).toHaveTextContent("2.22 USD");
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "does no post-unmount work when a pending request %ss",
+    async (outcome) => {
+      const pending = deferred<LedgerReportData>();
+      const data = reportData({ incomeMinor: 100, expenseMinor: 25 });
+      let comparisonReads = 0;
+      Object.defineProperty(data, "comparison", {
+        configurable: true,
+        get: () => {
+          comparisonReads += 1;
+          return reportData({ incomeMinor: 100, expenseMinor: 25 }).comparison;
+        },
+      });
+      vi.mocked(loadLedgerReport).mockReturnValue(pending.promise);
+      const onNavigate = vi.fn();
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const { unmount } = render(
+        <DashboardLedgerHighlights mutationEpoch={0} onNavigate={onNavigate} />,
+      );
+      expect(loadLedgerReport).toHaveBeenCalledOnce();
+
+      unmount();
+      await act(async () => {
+        if (outcome === "resolve") pending.resolve(data);
+        else pending.reject(new Error("request settled after unmount"));
+        await pending.promise.catch(() => undefined);
+      });
+
+      expect(comparisonReads).toBe(0);
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(loadLedgerReport).toHaveBeenCalledOnce();
+      expect(onNavigate).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    },
+  );
 });
 
 function reportData({
   incomeMinor,
   expenseMinor,
   balanceOnlyUsd = false,
+  currency = { id: "currency-krw", code: "KRW", decimalPlaces: 0 },
 }: {
   incomeMinor: number;
   expenseMinor: number;
   balanceOnlyUsd?: boolean;
+  currency?: { id: string; code: string; decimalPlaces: number };
 }): LedgerReportData {
   const current = {
-    currencyId: "currency-krw",
-    currencyCode: "KRW",
-    decimalPlaces: 0,
+    currencyId: currency.id,
+    currencyCode: currency.code,
+    decimalPlaces: currency.decimalPlaces,
     incomeMinor,
     expenseMinor,
     netChangeMinor: incomeMinor - expenseMinor,
@@ -222,15 +296,15 @@ function reportData({
   const range = { start: "2026-08-01", end: "2026-08-31" };
   const balances: LedgerReportData["balances"] = [{
     account: {
-      id: "account-cash",
+      id: `account-${currency.code.toLowerCase()}`,
       name: "Cash",
       categoryId: "account-category-cash",
-      currencyId: "currency-krw",
+      currencyId: currency.id,
       openingBalanceMinor: 0,
       active: true,
     },
-    currencyCode: "KRW",
-    decimalPlaces: 0,
+    currencyCode: currency.code,
+    decimalPlaces: currency.decimalPlaces,
     currentBalanceMinor: incomeMinor - expenseMinor,
   }];
   if (balanceOnlyUsd) balances.push({
@@ -253,7 +327,12 @@ function reportData({
         range: { start: "2026-07-01", end: "2026-07-31" },
         currencies: [previous],
       },
-      currencies: [{ currencyId: "currency-krw", currencyCode: "KRW", current, previous }],
+      currencies: [{
+        currencyId: currency.id,
+        currencyCode: currency.code,
+        current,
+        previous,
+      }],
     },
     categoryBreakdown: expenseMinor > 0 ? [{
       ...current,
@@ -266,11 +345,21 @@ function reportData({
       range,
       granularity: "daily",
       currencies: [{
-        currencyId: "currency-krw",
-        currencyCode: "KRW",
+        currencyId: currency.id,
+        currencyCode: currency.code,
         points: [{ start: range.start, end: range.start, incomeMinor, expenseMinor }],
       }],
     },
     balances,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
