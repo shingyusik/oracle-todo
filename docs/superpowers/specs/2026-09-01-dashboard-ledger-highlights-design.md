@@ -35,6 +35,7 @@ The new Cash Flow donut shows spending as a share of income.
 - Supporting values are income, spending, remaining amount, and average daily spending.
 - Average daily spending uses the same inclusive-day calculation as Ledger Reports.
 - When spending exceeds income, the ring is fully red, the center shows `Over N%`, and the remaining amount is negative.
+- When income is zero and spending is positive, the ring is fully red, the center shows `No income`, and the remaining amount is negative because an overage percentage is undefined.
 - When both income and spending are zero, the panel shows its empty state instead of a zero donut.
 
 ## Reused Report Charts
