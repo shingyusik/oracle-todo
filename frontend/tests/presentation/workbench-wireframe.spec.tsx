@@ -302,6 +302,8 @@ function fixtureJson(value: unknown) {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 6, 15, 12));
   vi.spyOn(vi, "stubGlobal").mockImplementation(((name: string, value: unknown) => {
     installFixtureGlobal(name, value);
     return vi;
@@ -1227,6 +1229,7 @@ describe("WorkbenchPageClient", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
