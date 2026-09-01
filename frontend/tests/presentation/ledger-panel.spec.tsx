@@ -31,6 +31,7 @@ import {
   createLedgerTableViews,
   defaultLedgerTableSettings,
 } from "@/features/ledger/model/ledger-table-views";
+import { applyReportDrilldown } from "@/features/ledger/model/ledger-reports";
 import type {
   LedgerController,
   LedgerState,
@@ -4706,6 +4707,49 @@ describe("LedgerPanel", () => {
         },
       },
     });
+  });
+
+  it("replays an early report drilldown over a delayed stored preference without saving", async () => {
+    mockLedgerLoads();
+    const stored = deferred<Response>();
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      init
+        ? Promise.resolve(new Response("{}", { status: 200 }))
+        : stored.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    const target = {
+      kind: "category" as const,
+      range: { start: "2026-08-01", end: "2026-08-31" },
+      currencyId: "currency-usd",
+      referenceId: "category-food",
+    };
+    const expected = applyReportDrilldown(
+      defaultLedgerTableSettings("ledger.transactions"),
+      target,
+    );
+
+    const { result } = renderHook(() => useLedgerController());
+    await waitFor(() => expect(result.current.state.status).toBe("loaded"));
+    act(() => {
+      result.current.updateTableSettings("ledger.transactions", (settings) =>
+        applyReportDrilldown(settings, target));
+    });
+
+    await act(async () => stored.resolve(new Response(JSON.stringify({
+      "ledger.transactions": {
+        tabs: [{ id: "stored-tx", name: "Stored transactions", settings: {} }],
+      },
+    }), { status: 200 })));
+
+    await waitFor(() => expect(
+      result.current.tableSettings("ledger.transactions").filterRules,
+    ).toEqual(expected.filterRules));
+    expect(result.current.tableTabs("ledger.transactions").tabs[0]).toMatchObject({
+      name: "Stored transactions",
+      settings: { filterRules: [] },
+    });
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT"))
+      .toHaveLength(0);
   });
 
   it("reports a failed view preference write and retries the current views", async () => {

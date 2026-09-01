@@ -158,6 +158,23 @@ export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
   const handleLedgerNavigation = React.useCallback((navigation: DashboardLedgerNavigation) => {
     setLedgerNavigation((current) => current === navigation ? null : current);
   }, []);
+  React.useEffect(() => {
+    if (!ledgerNavigation) return;
+    const expectedLeaf = ledgerNavigation.kind === "report" ? "reports" : "transactions";
+    if (
+      controller.detailItem ||
+      controller.selection.mainTabId !== "ledger" ||
+      controller.selection.leafTabId !== expectedLeaf
+    ) {
+      handleLedgerNavigation(ledgerNavigation);
+    }
+  }, [
+    controller.detailItem,
+    controller.selection.leafTabId,
+    controller.selection.mainTabId,
+    handleLedgerNavigation,
+    ledgerNavigation,
+  ]);
 
   if (controller.detailItem) {
     return (

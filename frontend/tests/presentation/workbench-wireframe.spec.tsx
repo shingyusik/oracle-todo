@@ -578,21 +578,36 @@ function reportLedgerController() {
   return { ledger, savedSettings };
 }
 
-function DashboardHarness() {
+function DashboardHarness({ navigationControls = false }: { navigationControls?: boolean }) {
   const controller = useWorkbenchController();
   return (
-    <MainPanel
-      controller={{
-        ...controller,
-        workspaceItems: {
-          status: "loaded",
-          items: [],
-          allItems: [],
-          tagOptions: [],
-          relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
-        },
-      }}
-    />
+    <>
+      {navigationControls ? (
+        <>
+          <button type="button" onClick={() => controller.selectTab("dashboard")}>
+            Return to Dashboard
+          </button>
+          <button type="button" onClick={() => {
+            controller.selectTab("ledger");
+            controller.selectTab("reports");
+          }}>
+            Open Ledger Reports manually
+          </button>
+        </>
+      ) : null}
+      <MainPanel
+        controller={{
+          ...controller,
+          workspaceItems: {
+            status: "loaded",
+            items: [],
+            allItems: [],
+            tagOptions: [],
+            relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
+          },
+        }}
+      />
+    </>
   );
 }
 
@@ -1882,6 +1897,70 @@ describe("WorkbenchPageClient", () => {
     expect(idleLedger.runReports).not.toHaveBeenCalledWith({ period: "current_month" });
     expect(screen.getByRole("button", { name: "USD" }))
       .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("clears a Dashboard report intent abandoned during Ledger loading", async () => {
+    const user = userEvent.setup();
+    const { ledger } = reportLedgerController();
+    const idleLedger = {
+      ...ledger,
+      state: { ...ledger.state, reportStatus: "idle" as const },
+    };
+    const loadingLedger = {
+      ...idleLedger,
+      state: { ...idleLedger.state, status: "loading" as const },
+    };
+    let finishLoading!: () => void;
+    const loading = new Promise<void>((resolve) => {
+      finishLoading = resolve;
+    });
+    vi.spyOn(ledgerControllerHooks, "useLedgerController").mockImplementation(
+      function useControlledLedgerController() {
+        const [loaded, setLoaded] = React.useState(false);
+        React.useEffect(() => {
+          let active = true;
+          void loading.then(() => {
+            if (active) setLoaded(true);
+          });
+          return () => {
+            active = false;
+          };
+        }, []);
+        return loaded ? idleLedger : loadingLedger;
+      },
+    );
+    vi.mocked(loadLedgerReport).mockResolvedValue({
+      comparison: ledger.state.comparison!,
+      categoryBreakdown: ledger.state.categoryBreakdown,
+      trend: ledger.state.trend!,
+      balances: ledger.state.balances,
+    } satisfies LedgerReportData);
+    render(<DashboardHarness navigationControls />);
+
+    const highlights = await screen.findByRole("region", { name: "Ledger highlights" });
+    await user.click(within(highlights).getByRole("button", { name: "Previous month" }));
+    await waitFor(() => expect(loadLedgerReport)
+      .toHaveBeenLastCalledWith({ period: "previous_month" }));
+    await user.click(within(highlights).getByRole("button", { name: "USD" }));
+    await user.click(within(highlights).getByRole("button", { name: "Ledger highlights" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Loading Ledger");
+
+    await user.click(screen.getByRole("button", { name: "Return to Dashboard" }));
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeVisible();
+    await act(async () => {
+      finishLoading();
+      await loading;
+    });
+    await user.click(screen.getByRole("button", { name: "Open Ledger Reports manually" }));
+
+    expect(await screen.findByRole("region", { name: "Report analysis" })).toBeVisible();
+    expect(idleLedger.runReports).toHaveBeenCalledTimes(1);
+    expect(idleLedger.runReports).toHaveBeenCalledWith({ period: "current_month" });
+    expect(idleLedger.runReports).not.toHaveBeenCalledWith({ period: "previous_month" });
+    expect(screen.getByRole("button", { name: "KRW" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "USD" }))
+      .toHaveAttribute("aria-pressed", "false");
   });
 
   it("applies a Dashboard Ledger category drilldown to Transactions once", async () => {
