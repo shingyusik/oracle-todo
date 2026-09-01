@@ -1018,6 +1018,45 @@ describe("DashboardPanel", () => {
     ]);
   });
 
+  it("spaces fourteen-day completion labels evenly through both endpoints", () => {
+    const points = Array.from({ length: 14 }, (_, index) => {
+      const date = `2026-07-${String(index + 1).padStart(2, "0")}`;
+      return {
+        id: date,
+        label: date,
+        value: 0,
+        ariaLabel: `${date}: 0 completed`,
+      };
+    });
+
+    const { container } = render(
+      <DashboardChart
+        chart={{
+          kind: "line",
+          ariaLabel: "Completion history",
+          total: 0,
+          points,
+        }}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(
+      Array.from(
+        container.querySelectorAll(".dashboard-line-x-tick"),
+        (tick) => tick.textContent,
+      ),
+    ).toEqual([
+      "2026-07-01",
+      "2026-07-03",
+      "2026-07-05",
+      "2026-07-08",
+      "2026-07-10",
+      "2026-07-12",
+      "2026-07-14",
+    ]);
+  });
+
   it("derives evenly spaced endpoint-inclusive dates for longer ranges", () => {
     const points = Array.from({ length: 30 }, (_, index) => {
       const date = `2026-07-${String(index + 1).padStart(2, "0")}`;
@@ -1051,8 +1090,8 @@ describe("DashboardPanel", () => {
       "2026-07-06",
       "2026-07-11",
       "2026-07-16",
-      "2026-07-21",
-      "2026-07-26",
+      "2026-07-20",
+      "2026-07-25",
       "2026-07-30",
     ]);
   });

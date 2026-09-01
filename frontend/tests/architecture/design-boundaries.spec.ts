@@ -118,6 +118,14 @@ describe("design system boundaries", () => {
     expect(css).toMatch(/\.ledger-report-average-marker\s*\{[^}]*border-top:\s*2px dashed var\(--color-chart-warning\);/s);
   });
 
+  it("keeps Cash Flow metric text clear of its grid separators", async () => {
+    const css = await readSource("src/styles/globals.css");
+
+    expect(css).toMatch(
+      /\.dashboard-ledger-cash-flow-metric\s*\{[^}]*padding:\s*10px 12px;/s,
+    );
+  });
+
   it("keeps the one-column tree sidebar at the typed total width", async () => {
     const source = await readSource("src/styles/globals.css");
     const totalSidebarWidth =

@@ -25,17 +25,14 @@ export function DashboardLineChart({
     y: 94 - (point.value / maximum) * 84,
   }));
   const maximumXAxisTicks = 7;
-  const xTickStep = Math.max(
-    1,
-    Math.ceil((coordinates.length - 1) / (maximumXAxisTicks - 1)),
-  );
-  const xTicks = coordinates.filter(
-    (_, index) =>
-      coordinates.length <= maximumXAxisTicks ||
-      index === 0 ||
-      index === coordinates.length - 1 ||
-      index % xTickStep === 0,
-  );
+  const xTicks = coordinates.length <= maximumXAxisTicks
+    ? coordinates
+    : Array.from(
+      { length: maximumXAxisTicks },
+      (_, index) => coordinates[Math.round(
+        index * (coordinates.length - 1) / (maximumXAxisTicks - 1),
+      )],
+    );
   const yTickStep = Math.max(1, Math.ceil(maximum / 4));
   const yTicks = scale === "percentage"
     ? [100, 75, 50, 25, 0]

@@ -4494,7 +4494,7 @@ button {
   display: grid;
   gap: 4px;
   background: var(--color-canvas-light);
-  padding: 10px 0;
+  padding: 10px 12px;
 }
 
 .dashboard-ledger-cash-flow-metric span {
