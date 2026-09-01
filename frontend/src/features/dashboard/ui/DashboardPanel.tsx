@@ -17,6 +17,10 @@ import {
 } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { CompletionRangeControls } from "@/features/dashboard/ui/CompletionRangeControls";
+import {
+  DashboardLedgerHighlights,
+  type DashboardLedgerNavigation,
+} from "@/features/dashboard/ui/DashboardLedgerHighlights";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
 import { DashboardStatusCard } from "@/features/dashboard/ui/DashboardStatusCard";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
@@ -25,6 +29,8 @@ const DASHBOARD_STATUS_PREVIEW_LIMIT = 4;
 
 type DashboardPanelProps = {
   controller: WorkbenchController;
+  ledgerMutationEpoch: number;
+  onLedgerNavigate: (navigation: DashboardLedgerNavigation) => void;
 };
 
 type DashboardStatusWidgetId = "area-status" | "project-status";
@@ -40,7 +46,11 @@ type DashboardWidgetProps = {
   headerControls?: React.ReactNode;
 };
 
-export function DashboardPanel({ controller }: DashboardPanelProps) {
+export function DashboardPanel({
+  controller,
+  ledgerMutationEpoch,
+  onLedgerNavigate,
+}: DashboardPanelProps) {
   const { workspaceItems } = controller;
   const today = dashboardToday();
   const [selectedPreset, setSelectedPreset] =
@@ -202,6 +212,10 @@ export function DashboardPanel({ controller }: DashboardPanelProps) {
           }}
         />
       ) : null}
+      <DashboardLedgerHighlights
+        mutationEpoch={ledgerMutationEpoch}
+        onNavigate={onLedgerNavigate}
+      />
     </section>
   );
 }

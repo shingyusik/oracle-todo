@@ -162,7 +162,14 @@ export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
   if (controller.selection.leafTabId === "dashboard") {
     return (
       <main className="main-panel">
-        <DashboardPanel controller={controller} />
+        <DashboardPanel
+          controller={controller}
+          ledgerMutationEpoch={mutationEpochs?.ledger ?? 0}
+          onLedgerNavigate={(navigation) =>
+            controller.selectTab(
+              navigation.kind === "report" ? "reports" : "transactions",
+            )}
+        />
       </main>
     );
   }

@@ -10,8 +10,17 @@ import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
 import { HealthSummaryCard } from "@/features/dashboard/ui/HealthSummaryCard";
 import { RecentActivityCard } from "@/features/dashboard/ui/RecentActivityCard";
+import {
+  loadLedgerReport,
+  type LedgerReportData,
+} from "@/features/ledger/api/ledger-report-loader";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
+
+vi.mock("@/features/ledger/api/ledger-report-loader", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/features/ledger/api/ledger-report-loader")>(),
+  loadLedgerReport: vi.fn(),
+}));
 
 type TestItem = {
   id: string;
@@ -28,6 +37,10 @@ type TestItem = {
 };
 
 const today = "2026-07-29";
+const dashboardLedgerProps = {
+  ledgerMutationEpoch: 0,
+  onLedgerNavigate: vi.fn(),
+};
 
 function jsonResponse(value: unknown = []): Response {
   return {
@@ -196,10 +209,26 @@ function dashboardPanelController(items: TestItem[]): WorkbenchController {
   } as unknown as WorkbenchController;
 }
 
+function emptyLedgerReportData(): LedgerReportData {
+  const currentRange = { start: "2026-07-01", end: "2026-07-31" };
+  const previousRange = { start: "2026-06-01", end: "2026-06-30" };
+  return {
+    comparison: {
+      current: { range: currentRange, currencies: [] },
+      previous: { range: previousRange, currencies: [] },
+      currencies: [],
+    },
+    categoryBreakdown: [],
+    trend: { range: currentRange, granularity: "daily", currencies: [] },
+    balances: [],
+  };
+}
+
 describe("DashboardPanel", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 6, 29, 12));
+    vi.mocked(loadLedgerReport).mockReset().mockReturnValue(new Promise(() => undefined));
   });
 
   afterEach(() => {
@@ -219,7 +248,8 @@ describe("DashboardPanel", () => {
       .toHaveTextContent("Detailed analysis is available in Reports.");
   });
 
-  it("renders only ToDo analytics without requesting unified summaries", async () => {
+  it("renders ToDo analytics followed by Ledger highlights without requesting unified summaries", async () => {
+    vi.mocked(loadLedgerReport).mockResolvedValueOnce(emptyLedgerReportData());
     const fetchMock = await renderLoadedDashboard(populatedItems());
 
     for (const name of [
@@ -229,17 +259,33 @@ describe("DashboardPanel", () => {
     ]) {
       expect(screen.getByRole("region", { name })).toBeVisible();
     }
-    for (const name of [
-      "Today's Plan",
-      "Cash Flow",
-      "Health Journal summary",
-      "Recent activity",
-    ]) {
+    for (const name of ["Today's Plan", "Health Journal summary", "Recent activity"]) {
       expect(screen.queryByRole("region", { name })).toBeNull();
     }
+    const ledger = await screen.findByRole("region", { name: "Ledger highlights" });
+    expect(await within(ledger).findByText("No Ledger currencies available."))
+      .toBeVisible();
+    expect(document.querySelector(".dashboard-panel")?.lastElementChild).toBe(ledger);
     expect(
       fetchMock.mock.calls.some(([url]) => url === "/api/v1/dashboard"),
     ).toBe(false);
+  });
+
+  it("keeps loaded ToDo analytics when Ledger highlights fail", async () => {
+    vi.mocked(loadLedgerReport).mockRejectedValueOnce(
+      new Error("C:\\private\\ledger.sqlite failed"),
+    );
+    await renderLoadedDashboard(populatedItems());
+
+    for (const name of ["Today's work", "Completion history", "Status"]) {
+      expect(screen.getByRole("region", { name })).toBeVisible();
+    }
+    const ledger = await screen.findByRole("region", { name: "Ledger highlights" });
+    expect(within(ledger).getByRole("alert"))
+      .toHaveTextContent("Could not load Ledger highlights.");
+    expect(within(ledger).getByRole("button", { name: "Retry Ledger highlights" }))
+      .toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry Dashboard" })).toBeNull();
   });
 
   it("keeps same-time activity actions as distinct React rows", () => {
@@ -665,6 +711,7 @@ describe("DashboardPanel", () => {
     const user = setupUser();
     render(
       <DashboardPanel
+        {...dashboardLedgerProps}
         controller={dashboardPanelController(populatedItems())}
       />,
     );
@@ -690,7 +737,12 @@ describe("DashboardPanel", () => {
   it("limits status previews to four and preserves expansion per scope", async () => {
     const user = setupUser();
     const items = statusCardItems();
-    render(<DashboardPanel controller={dashboardPanelController(items)} />);
+    render(
+      <DashboardPanel
+        {...dashboardLedgerProps}
+        controller={dashboardPanelController(items)}
+      />,
+    );
     const status = screen.getByRole("region", { name: "Status" });
 
     expect(within(status).getByRole("tabpanel")
@@ -717,7 +769,10 @@ describe("DashboardPanel", () => {
     const user = setupUser();
     const items = statusCardItems();
     const { rerender } = render(
-      <DashboardPanel controller={dashboardPanelController(items)} />,
+      <DashboardPanel
+        {...dashboardLedgerProps}
+        controller={dashboardPanelController(items)}
+      />,
     );
     const status = screen.getByRole("region", { name: "Status" });
 
@@ -727,6 +782,7 @@ describe("DashboardPanel", () => {
 
     rerender(
       <DashboardPanel
+        {...dashboardLedgerProps}
         controller={dashboardPanelController(
           items.filter(
             (item) => !item.id.endsWith("-5") && !item.id.endsWith("-6"),
@@ -736,7 +792,12 @@ describe("DashboardPanel", () => {
     );
     expect(within(status).queryByRole("button", { expanded: true })).toBeNull();
 
-    rerender(<DashboardPanel controller={dashboardPanelController(items)} />);
+    rerender(
+      <DashboardPanel
+        {...dashboardLedgerProps}
+        controller={dashboardPanelController(items)}
+      />,
+    );
     expect(within(status).getByRole("tabpanel")
       .querySelectorAll(".dashboard-status-tile")).toHaveLength(4);
     expect(within(status).getByRole("button", { expanded: false }))
@@ -1014,6 +1075,7 @@ describe("DashboardPanel", () => {
     }));
     render(
       <DashboardPanel
+        {...dashboardLedgerProps}
         controller={dashboardPanelController([...completedItems, ...openItems])}
       />,
     );

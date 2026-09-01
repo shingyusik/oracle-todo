@@ -4341,6 +4341,250 @@ button {
   height: 110px;
 }
 
+.dashboard-ledger {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-lg);
+  background: var(--color-canvas-light);
+}
+
+.dashboard-ledger-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--color-hairline-light);
+  padding: 16px 20px;
+}
+
+.dashboard-ledger-header h2,
+.dashboard-ledger-cash-flow h2,
+.dashboard-ledger .ledger-report-section > h2,
+.dashboard-ledger .ledger-report-section-heading h2,
+.dashboard-ledger-error p,
+.dashboard-ledger-grid > .items-message {
+  margin: 0;
+}
+
+.dashboard-ledger-header h2,
+.dashboard-ledger-cash-flow h2,
+.dashboard-ledger .ledger-report-section > h2,
+.dashboard-ledger .ledger-report-section-heading h2 {
+  font-size: 18px;
+}
+
+.dashboard-ledger-header h2 button {
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+}
+
+.dashboard-ledger-controls,
+.dashboard-ledger-period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-ledger-period button {
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-pill);
+  background: var(--color-canvas-cream);
+  padding: 7px 10px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dashboard-ledger-period button:hover:not(:disabled),
+.dashboard-ledger-period button[aria-pressed="true"] {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-on-dark);
+}
+
+.dashboard-ledger-period button:disabled,
+.dashboard-ledger-header h2 button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.dashboard-ledger .ledger-report-currencies {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.dashboard-ledger-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dashboard-ledger-grid > * {
+  min-width: 0;
+  padding: 20px;
+}
+
+.dashboard-ledger-grid > * + * {
+  border-top: 1px solid var(--color-hairline-light);
+}
+
+.dashboard-ledger-cash-flow {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 16px;
+}
+
+.dashboard-ledger-cash-flow-donut {
+  --dashboard-ledger-ring-stop: 0%;
+  position: relative;
+  display: grid;
+  width: min(190px, 100%);
+  aspect-ratio: 1;
+  place-items: center;
+  justify-self: center;
+  border-radius: var(--radius-pill);
+  background: conic-gradient(
+    var(--color-chart-secondary) 0 var(--dashboard-ledger-ring-stop),
+    var(--color-hairline-light) var(--dashboard-ledger-ring-stop) 100%
+  );
+}
+
+.dashboard-ledger-cash-flow-donut.is-over {
+  background: conic-gradient(var(--color-danger-text) 0 100%);
+}
+
+.dashboard-ledger-cash-flow-donut::after {
+  position: absolute;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-pill);
+  background: var(--color-canvas-light);
+  content: "";
+}
+
+.dashboard-ledger-cash-flow-donut strong {
+  position: relative;
+  z-index: 1;
+  max-width: 58%;
+  font-size: 16px;
+  text-align: center;
+}
+
+.dashboard-ledger-cash-flow-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  background: var(--color-hairline-light);
+}
+
+.dashboard-ledger-cash-flow-metric {
+  display: grid;
+  gap: 4px;
+  background: var(--color-canvas-light);
+  padding: 10px 0;
+}
+
+.dashboard-ledger-cash-flow-metric span {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.dashboard-ledger-cash-flow-metric strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.dashboard-ledger-skeleton {
+  display: grid;
+  min-height: 280px;
+  align-content: start;
+  gap: 14px;
+}
+
+.dashboard-ledger-skeleton span {
+  height: 18px;
+  border-radius: var(--radius-xs);
+  background: var(--color-hairline-light);
+}
+
+.dashboard-ledger-skeleton span:nth-child(1) {
+  width: 42%;
+}
+
+.dashboard-ledger-skeleton span:nth-child(2) {
+  width: 70%;
+}
+
+.dashboard-ledger-skeleton span:nth-child(3) {
+  height: 180px;
+}
+
+.dashboard-ledger-error,
+.dashboard-ledger-grid > .items-message {
+  grid-column: 1 / -1;
+}
+
+.dashboard-ledger-error {
+  display: grid;
+  gap: 12px;
+}
+
+.dashboard-ledger-error p {
+  color: var(--color-danger-text);
+}
+
+.dashboard-ledger-error button {
+  width: fit-content;
+  border: 1px solid var(--color-ink);
+  border-radius: var(--radius-xs);
+  background: var(--color-ink);
+  padding: 8px 12px;
+  color: var(--color-on-dark);
+  font-weight: 600;
+}
+
+.dashboard-ledger .ledger-report-section {
+  align-content: start;
+}
+
+.dashboard-ledger .ledger-report-section > h2,
+.dashboard-ledger .ledger-report-section-heading {
+  border-bottom: 1px solid var(--color-hairline-light);
+  padding-bottom: 12px;
+}
+
+.dashboard-ledger .ledger-report-section-heading p {
+  font-size: 12px;
+}
+
+.dashboard-ledger .ledger-report-trend {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.dashboard-ledger-header h2 button:focus-visible,
+.dashboard-ledger-period button:focus-visible,
+.dashboard-ledger-error button:focus-visible {
+  outline: 3px solid var(--color-ink);
+  outline-offset: 3px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .dashboard-donut-segment,
   .dashboard-range-controls button,
@@ -4373,6 +4617,15 @@ button {
   .dashboard-skeleton-status {
     grid-column: 3;
   }
+
+  .dashboard-ledger-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+  }
+
+  .dashboard-ledger-grid > * + * {
+    border-top: 0;
+    border-left: 1px solid var(--color-hairline-light);
+  }
 }
 
 @media (min-width: 768px) and (max-width: 1439px) {
@@ -4394,6 +4647,10 @@ button {
   .dashboard-widget-status,
   .dashboard-skeleton-status {
     grid-column: 1 / -1;
+  }
+
+  .dashboard-ledger-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -4420,5 +4677,13 @@ button {
 
   .dashboard-status-donut-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-ledger-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-ledger-header {
+    align-items: flex-start;
   }
 }

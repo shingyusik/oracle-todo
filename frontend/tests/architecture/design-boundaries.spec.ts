@@ -91,6 +91,9 @@ describe("design system boundaries", () => {
     const component = await readSource(
       "src/features/ledger/ui/LedgerReportCharts.tsx",
     );
+    const dashboard = await readSource(
+      "src/features/dashboard/ui/DashboardLedgerHighlights.tsx",
+    );
     const css = await readSource("src/styles/globals.css");
     const externalImports = Array.from(
       component.matchAll(/from "([^"]+)"/g),
@@ -98,6 +101,13 @@ describe("design system boundaries", () => {
     ).filter((dependency) => dependency !== "react" && !dependency.startsWith("@/"));
 
     expect(externalImports).toEqual([]);
+    expect(Array.from(
+      dashboard.matchAll(/from "([^"]+)"/g),
+      ([, dependency]) => dependency,
+    ).filter((dependency) => dependency !== "react" && !dependency.startsWith("@/")))
+      .toEqual([]);
+    expect(dashboard).toContain("ExpenseCategoryDonut");
+    expect(dashboard).toContain("IncomeExpenseTrendChart");
     expect(component).toContain('type="date"');
     expect(component).toContain("conic-gradient(");
     expect(component).not.toContain("<svg");
@@ -356,12 +366,15 @@ describe("design system boundaries", () => {
     expect(wide).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes\s*\{[^}]*grid-column:\s*1;/);
     expect(wide).toMatch(/\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history\s*\{[^}]*grid-column:\s*2;/);
     expect(wide).toMatch(/\.dashboard-widget-status,\n  \.dashboard-skeleton-status\s*\{[^}]*grid-column:\s*3;/);
+    expect(wide).toMatch(/\.dashboard-ledger-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\) minmax\(0, 2fr\);/);
     expect(medium).toMatch(/\.dashboard-panel,\n  \.dashboard-loading\s*\{[^}]*grid-template-columns:\s*repeat\(12, minmax\(0, 1fr\)\);/);
     expect(medium).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes\s*\{[^}]*grid-column:\s*span 4;/);
     expect(medium).toMatch(/\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history\s*\{[^}]*grid-column:\s*span 8;/);
     expect(medium).toMatch(/\.dashboard-widget-status,\n  \.dashboard-skeleton-status\s*\{[^}]*grid-column:\s*1 \/ -1;/);
+    expect(medium).toMatch(/\.dashboard-ledger-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/);
     expect(mobile).toMatch(/\.dashboard-panel,\n  \.dashboard-loading\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/);
     expect(mobile).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-widget-completion-history,\n  \.dashboard-widget-status,\n  \.dashboard-skeleton-today-outcomes,\n  \.dashboard-skeleton-completion-history,\n  \.dashboard-skeleton-status\s*\{[^}]*grid-column:\s*1;/);
+    expect(mobile).toMatch(/\.dashboard-ledger-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/);
     expect(source).toMatch(/\.dashboard-panel-header\s*\{[^}]*grid-column:\s*1 \/ -1;/s);
   });
 
