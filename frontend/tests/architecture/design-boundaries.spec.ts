@@ -362,6 +362,7 @@ describe("design system boundaries", () => {
     const medium = cssBlockAt(source, mediumStart);
     const mobile = cssBlockAt(source, mobileStart);
 
+    expect(source).toMatch(/\.dashboard-ledger-grid\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s);
     expect(wide).toMatch(/\.dashboard-panel,\n  \.dashboard-loading\s*\{[^}]*grid-template-columns:\s*minmax\(0, 22fr\) minmax\(0, 43fr\) minmax\(0, 35fr\);/);
     expect(wide).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes\s*\{[^}]*grid-column:\s*1;/);
     expect(wide).toMatch(/\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history\s*\{[^}]*grid-column:\s*2;/);
@@ -371,10 +372,10 @@ describe("design system boundaries", () => {
     expect(medium).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-skeleton-today-outcomes\s*\{[^}]*grid-column:\s*span 4;/);
     expect(medium).toMatch(/\.dashboard-widget-completion-history,\n  \.dashboard-skeleton-completion-history\s*\{[^}]*grid-column:\s*span 8;/);
     expect(medium).toMatch(/\.dashboard-widget-status,\n  \.dashboard-skeleton-status\s*\{[^}]*grid-column:\s*1 \/ -1;/);
-    expect(medium).toMatch(/\.dashboard-ledger-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/);
+    expect(medium).not.toContain(".dashboard-ledger-grid");
     expect(mobile).toMatch(/\.dashboard-panel,\n  \.dashboard-loading\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/);
     expect(mobile).toMatch(/\.dashboard-widget-today-outcomes,\n  \.dashboard-widget-completion-history,\n  \.dashboard-widget-status,\n  \.dashboard-skeleton-today-outcomes,\n  \.dashboard-skeleton-completion-history,\n  \.dashboard-skeleton-status\s*\{[^}]*grid-column:\s*1;/);
-    expect(mobile).toMatch(/\.dashboard-ledger-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/);
+    expect(mobile).not.toContain(".dashboard-ledger-grid");
     expect(source).toMatch(/\.dashboard-panel-header\s*\{[^}]*grid-column:\s*1 \/ -1;/s);
   });
 

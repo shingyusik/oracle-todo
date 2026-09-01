@@ -24,6 +24,10 @@ import type {
   LedgerState,
 } from "@/features/ledger/hooks/useLedgerController";
 import * as ledgerControllerHooks from "@/features/ledger/hooks/useLedgerController";
+import {
+  loadLedgerReport,
+  type LedgerReportData,
+} from "@/features/ledger/api/ledger-report-loader";
 import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
 import {
   createLedgerTableViews,
@@ -54,6 +58,11 @@ import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableVie
 import { WorkbenchPageClient } from "@/features/workbench/ui/WorkbenchPageClient";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
 import { deriveWorkspaceOccurrenceGroups, deriveWorkspaceViewGroups, type WorkspaceTableScopeId } from "@/features/workbench/model/workspace-table-views";
+
+vi.mock("@/features/ledger/api/ledger-report-loader", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/features/ledger/api/ledger-report-loader")>(),
+  loadLedgerReport: vi.fn(),
+}));
 
 type FixtureFetch = (url: string, init?: RequestInit) => Promise<{ json(): Promise<unknown> }>;
 const originalStubGlobal = vi.stubGlobal.bind(vi);
@@ -310,6 +319,7 @@ beforeEach(() => {
   }) as typeof vi.stubGlobal);
   window.localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+  vi.mocked(loadLedgerReport).mockReset().mockReturnValue(new Promise(() => undefined));
 });
 
 function reportTransaction(
@@ -1731,6 +1741,43 @@ describe("WorkbenchPageClient", () => {
     expect(within(transactions).getByText("Card lunch")).toBeInTheDocument();
     expect(within(transactions).queryByText("July lunch")).toBeNull();
     expect(within(transactions).queryByText("Dollar lunch")).toBeNull();
+  });
+
+  it("opens Ledger Reports from Dashboard Ledger highlights", async () => {
+    const user = userEvent.setup();
+    const { ledger } = reportLedgerController();
+    vi.spyOn(ledgerControllerHooks, "useLedgerController").mockReturnValue(ledger);
+    vi.mocked(loadLedgerReport).mockResolvedValue({
+      comparison: ledger.state.comparison!,
+      categoryBreakdown: ledger.state.categoryBreakdown,
+      trend: ledger.state.trend!,
+      balances: ledger.state.balances,
+    } satisfies LedgerReportData);
+    const loadedWorkspaceItems: WorkspaceItemsModel = {
+      status: "loaded",
+      items: [],
+      allItems: [],
+      tagOptions: [],
+      relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
+    };
+    function DashboardHarness() {
+      const controller = useWorkbenchController();
+      return (
+        <MainPanel
+          controller={{ ...controller, workspaceItems: loadedWorkspaceItems }}
+        />
+      );
+    }
+    render(<DashboardHarness />);
+
+    await user.click(await screen.findByRole("button", {
+      name: "Ledger highlights",
+    }));
+
+    expect(await screen.findByRole("region", { name: "Report analysis" }))
+      .toBeVisible();
+    expect(document.querySelector(".ledger-reports")).toBeInTheDocument();
+    expect(document.querySelector(".health-reports")).toBeNull();
   });
 
   it("drills an account report into Transactions without changing saved views", async () => {

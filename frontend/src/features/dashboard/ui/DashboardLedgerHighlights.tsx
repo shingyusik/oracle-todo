@@ -38,11 +38,25 @@ export function DashboardLedgerHighlights({
   const [status, setStatus] = React.useState<"loading" | "loaded" | "error">("loading");
   const [currencyId, setCurrencyId] = React.useState("");
   const [retry, setRetry] = React.useState(0);
+  const inFlight = React.useRef<{
+    key: string;
+    promise: Promise<LedgerReportData>;
+  } | null>(null);
 
   React.useEffect(() => {
     let active = true;
     setStatus("loading");
-    void loadLedgerReport(selection).then((result) => {
+    const key = JSON.stringify([selection, mutationEpoch, retry]);
+    let request = inFlight.current;
+    if (request?.key !== key) {
+      request = { key, promise: loadLedgerReport(selection) };
+      inFlight.current = request;
+      const clear = () => {
+        if (inFlight.current === request) inFlight.current = null;
+      };
+      void request.promise.then(clear, clear);
+    }
+    void request.promise.then((result) => {
       if (!active) return;
       const currencies = reportCurrencyOptions(result.comparison, result.balances);
       setData(result);

@@ -4648,10 +4648,6 @@ button {
   .dashboard-skeleton-status {
     grid-column: 1 / -1;
   }
-
-  .dashboard-ledger-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 767px) {
@@ -4676,10 +4672,6 @@ button {
   }
 
   .dashboard-status-donut-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .dashboard-ledger-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

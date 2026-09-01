@@ -42,6 +42,25 @@ describe("Dashboard Ledger highlights", () => {
     expect(within(body as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("reuses the initial request across StrictMode effect replay", async () => {
+    const pending = deferred<LedgerReportData>();
+    vi.mocked(loadLedgerReport).mockReturnValue(pending.promise);
+
+    render(
+      <React.StrictMode>
+        <DashboardLedgerHighlights mutationEpoch={0} onNavigate={vi.fn()} />
+      </React.StrictMode>,
+    );
+
+    expect(loadLedgerReport).toHaveBeenCalledOnce();
+    await act(async () => pending.resolve(reportData({
+      incomeMinor: 100,
+      expenseMinor: 25,
+    })));
+    expect(await screen.findByRole("region", { name: "Cash Flow" }))
+      .toBeVisible();
+  });
+
   it("shares month and currency across Cash Flow and the real report charts", async () => {
     vi.mocked(loadLedgerReport).mockResolvedValue(reportData({
       incomeMinor: 3_650_000,

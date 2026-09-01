@@ -165,10 +165,14 @@ export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
         <DashboardPanel
           controller={controller}
           ledgerMutationEpoch={mutationEpochs?.ledger ?? 0}
-          onLedgerNavigate={(navigation) =>
-            controller.selectTab(
-              navigation.kind === "report" ? "reports" : "transactions",
-            )}
+          onLedgerNavigate={(navigation) => {
+            if (navigation.kind === "report") {
+              controller.selectTab("ledger");
+              controller.selectTab("reports");
+              return;
+            }
+            controller.selectTab("transactions");
+          }}
         />
       </main>
     );
