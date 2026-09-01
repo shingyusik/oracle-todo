@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { LedgerTabId } from "@/domain/workbench/navigation";
+import type { ReportSelection } from "@/features/ledger/api/ledger-api";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import {
@@ -27,12 +28,16 @@ type LedgerPanelProps = {
   controller: LedgerController;
   leafTabId?: LedgerTabId;
   onReportDrilldown?: (target: ReportDrilldownTarget) => void;
+  initialReportSelection?: ReportSelection;
+  initialReportCurrencyId?: string;
 };
 
 export function LedgerPanel({
   controller,
   leafTabId = "transactions",
   onReportDrilldown,
+  initialReportSelection,
+  initialReportCurrencyId,
 }: LedgerPanelProps) {
   const [tombstonedIds, setTombstonedIds] = useState<Set<string>>(() => new Set());
 
@@ -68,7 +73,14 @@ export function LedgerPanel({
     : leafTabId === "categories"
       ? <CategoriesPanel controller={controller} />
       : leafTabId === "reports"
-        ? <LedgerReports controller={controller} onDrilldown={onReportDrilldown} />
+        ? (
+            <LedgerReports
+              controller={controller}
+              onDrilldown={onReportDrilldown}
+              initialReportSelection={initialReportSelection}
+              initialReportCurrencyId={initialReportCurrencyId}
+            />
+          )
         : (
             <TransactionsPanel
               controller={controller}

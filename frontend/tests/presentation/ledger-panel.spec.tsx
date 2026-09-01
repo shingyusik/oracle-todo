@@ -2781,6 +2781,33 @@ describe("LedgerPanel", () => {
       .toHaveAttribute("aria-pressed", "true");
   });
 
+  it("uses the initial report period and preserves its currency until options load", async () => {
+    const ledger = controller();
+    const view = render(
+      <LedgerPanel
+        leafTabId="reports"
+        controller={ledger}
+        initialReportSelection={{ period: "previous_month" }}
+        initialReportCurrencyId="currency-usd"
+      />,
+    );
+
+    await waitFor(() => expect(ledger.runReports).toHaveBeenCalledTimes(1));
+    expect(ledger.runReports).toHaveBeenCalledWith({ period: "previous_month" });
+    expect(ledger.runReports).not.toHaveBeenCalledWith({ period: "current_month" });
+
+    view.rerender(
+      <LedgerPanel
+        leafTabId="reports"
+        controller={controller(reportAnalysisState())}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "USD" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(ledger.runReports).toHaveBeenCalledTimes(1);
+  });
+
   it("submits each Reports period preset", async () => {
     const user = userEvent.setup();
     const ledger = controller();

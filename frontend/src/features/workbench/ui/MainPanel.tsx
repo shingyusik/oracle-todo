@@ -19,6 +19,7 @@ import type {
   WorkspaceChildTabId,
 } from "@/domain/workbench/navigation";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
+import type { DashboardLedgerNavigation } from "@/features/dashboard/ui/DashboardLedgerHighlights";
 import { useHealthController } from "@/features/health/hooks/useHealthController";
 import {
   applyHealthReportDrilldown,
@@ -146,6 +147,17 @@ export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
     open: controller.openDetailView,
     close: controller.closeDetailView,
   });
+  const [ledgerNavigation, setLedgerNavigation] = React.useState<DashboardLedgerNavigation | null>(
+    null,
+  );
+  const navigateLedger = React.useCallback((navigation: DashboardLedgerNavigation) => {
+    setLedgerNavigation(navigation);
+    controller.selectTab("ledger");
+    controller.selectTab(navigation.kind === "report" ? "reports" : "transactions");
+  }, [controller.selectTab]);
+  const handleLedgerNavigation = React.useCallback((navigation: DashboardLedgerNavigation) => {
+    setLedgerNavigation((current) => current === navigation ? null : current);
+  }, []);
 
   if (controller.detailItem) {
     return (
@@ -165,14 +177,7 @@ export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
         <DashboardPanel
           controller={controller}
           ledgerMutationEpoch={mutationEpochs?.ledger ?? 0}
-          onLedgerNavigate={(navigation) => {
-            if (navigation.kind === "report") {
-              controller.selectTab("ledger");
-              controller.selectTab("reports");
-              return;
-            }
-            controller.selectTab("transactions");
-          }}
+          onLedgerNavigate={navigateLedger}
         />
       </main>
     );
@@ -185,6 +190,8 @@ export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
           leafTabId={controller.selection.leafTabId}
           workbench={controller}
           mutationEpoch={mutationEpochs?.ledger ?? 0}
+          navigation={ledgerNavigation}
+          onNavigationHandled={handleLedgerNavigation}
         />
       </main>
     );
@@ -221,18 +228,32 @@ function LedgerWorkspace({
   leafTabId,
   workbench,
   mutationEpoch,
+  navigation,
+  onNavigationHandled,
 }: {
   leafTabId: LedgerTabId;
   workbench: WorkbenchController;
   mutationEpoch: number;
+  navigation: DashboardLedgerNavigation | null;
+  onNavigationHandled: (navigation: DashboardLedgerNavigation) => void;
 }) {
   const controller = useLedgerController();
   const seenMutationEpoch = useRef(mutationEpoch);
+  const handledNavigation = useRef<DashboardLedgerNavigation | null>(null);
   useEffect(() => {
     if (seenMutationEpoch.current === mutationEpoch) return;
     seenMutationEpoch.current = mutationEpoch;
     void controller.refresh();
   }, [controller.refresh, mutationEpoch]);
+  useEffect(() => {
+    if (!navigation || handledNavigation.current === navigation) return;
+    handledNavigation.current = navigation;
+    if (navigation.kind === "drilldown") {
+      controller.updateTableSettings("ledger.transactions", (settings) =>
+        applyReportDrilldown(settings, navigation.target));
+    }
+    onNavigationHandled(navigation);
+  }, [controller, navigation, onNavigationHandled]);
   function drilldown(target: ReportDrilldownTarget) {
     controller.updateTableSettings("ledger.transactions", (settings) =>
       applyReportDrilldown(settings, target));
@@ -243,6 +264,8 @@ function LedgerWorkspace({
       controller={controller}
       leafTabId={leafTabId}
       onReportDrilldown={drilldown}
+      initialReportSelection={navigation?.kind === "report" ? navigation.selection : undefined}
+      initialReportCurrencyId={navigation?.kind === "report" ? navigation.currencyId : undefined}
     />
   );
 }

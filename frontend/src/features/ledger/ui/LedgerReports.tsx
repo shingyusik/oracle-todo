@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
+import type { ReportSelection } from "@/features/ledger/api/ledger-api";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {
   buildLedgerReportModel,
@@ -20,24 +21,34 @@ import {
 export function LedgerReports({
   controller,
   onDrilldown,
+  initialReportSelection,
+  initialReportCurrencyId,
 }: {
   controller: LedgerController;
   onDrilldown?: (target: ReportDrilldownTarget) => void;
+  initialReportSelection?: ReportSelection;
+  initialReportCurrencyId?: string;
 }) {
   const defaultReportRequested = useRef(false);
+  const initialRequest = useRef<ReportSelection>(
+    initialReportSelection ?? { period: "current_month" },
+  );
   const { state } = controller;
   const reportCurrencies = reportCurrencyOptions(state.comparison, state.balances);
-  const [currencyId, setCurrencyId] = useState(reportCurrencies[0]?.id ?? "");
+  const [currencyId, setCurrencyId] = useState(
+    initialReportCurrencyId ?? reportCurrencies[0]?.id ?? "",
+  );
 
   useEffect(() => {
     if (defaultReportRequested.current || state.reportStatus !== "idle") return;
     defaultReportRequested.current = true;
-    void controller.runReports({ period: "current_month" }).catch(() => undefined);
+    void controller.runReports(initialRequest.current).catch(() => undefined);
   }, [controller, state.reportStatus]);
 
   useEffect(() => {
+    if (reportCurrencies.length === 0) return;
     if (!reportCurrencies.some(({ id }) => id === currencyId)) {
-      setCurrencyId(reportCurrencies[0]?.id ?? "");
+      setCurrencyId(reportCurrencies[0]!.id);
     }
   }, [currencyId, reportCurrencies]);
 

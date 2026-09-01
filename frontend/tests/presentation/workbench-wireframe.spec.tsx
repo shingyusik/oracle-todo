@@ -365,6 +365,14 @@ function reportLedgerController() {
       expenseMinor: 800,
       netChangeMinor: 2200,
       entryCount: 2,
+    }, {
+      currencyId: "currency-usd",
+      currencyCode: "USD",
+      decimalPlaces: 2,
+      incomeMinor: 1234,
+      expenseMinor: 200,
+      netChangeMinor: 1034,
+      entryCount: 2,
     }],
   };
   const previous = {
@@ -377,6 +385,14 @@ function reportLedgerController() {
       expenseMinor: 500,
       netChangeMinor: 1500,
       entryCount: 1,
+    }, {
+      currencyId: "currency-usd",
+      currencyCode: "USD",
+      decimalPlaces: 2,
+      incomeMinor: 1000,
+      expenseMinor: 350,
+      netChangeMinor: 650,
+      entryCount: 3,
     }],
   };
   const state: LedgerState = {
@@ -432,12 +448,12 @@ function reportLedgerController() {
     comparison: {
       current,
       previous,
-      currencies: [{
-        currencyId: "currency-krw",
-        currencyCode: "KRW",
-        current: current.currencies[0]!,
-        previous: previous.currencies[0]!,
-      }],
+      currencies: current.currencies.map((currency, index) => ({
+        currencyId: currency.currencyId,
+        currencyCode: currency.currencyCode,
+        current: currency,
+        previous: previous.currencies[index]!,
+      })),
     },
     trend: {
       range: current.range,
@@ -445,7 +461,21 @@ function reportLedgerController() {
       currencies: [{
         currencyId: "currency-krw",
         currencyCode: "KRW",
-        points: [],
+        points: [{
+          start: "2026-08-05",
+          end: "2026-08-05",
+          incomeMinor: 3000,
+          expenseMinor: 800,
+        }],
+      }, {
+        currencyId: "currency-usd",
+        currencyCode: "USD",
+        points: [{
+          start: "2026-08-05",
+          end: "2026-08-05",
+          incomeMinor: 1234,
+          expenseMinor: 200,
+        }],
       }],
     },
     summary: current,
@@ -496,7 +526,7 @@ function reportLedgerController() {
     tableTabs: (scope) => views[scope],
     tableSettings: (scope) => views[scope].draftSettings,
     tableIsDirty: vi.fn(() => false),
-    updateTableSettings: (scope, updater) => {
+    updateTableSettings: vi.fn<LedgerController["updateTableSettings"]>((scope, updater) => {
       views = {
         ...views,
         [scope]: {
@@ -504,7 +534,7 @@ function reportLedgerController() {
           draftSettings: updater(views[scope].draftSettings),
         },
       };
-    },
+    }),
     selectTableTab: vi.fn(),
     saveTableTab: vi.fn(),
     createTableTab: vi.fn(() => true),
@@ -541,11 +571,29 @@ function reportLedgerController() {
     deactivateAccountCategory: vi.fn(),
     previewAccountCategoryPurge: vi.fn(),
     purgeAccountCategory: vi.fn(),
-    runReports: vi.fn(),
-    retryReports: vi.fn(),
+    runReports: vi.fn().mockResolvedValue(undefined),
+    retryReports: vi.fn().mockResolvedValue(undefined),
   } satisfies LedgerController;
 
   return { ledger, savedSettings };
+}
+
+function DashboardHarness() {
+  const controller = useWorkbenchController();
+  return (
+    <MainPanel
+      controller={{
+        ...controller,
+        workspaceItems: {
+          status: "loaded",
+          items: [],
+          allItems: [],
+          tagOptions: [],
+          relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
+        },
+      }}
+    />
+  );
 }
 
 function reportHealthController() {
@@ -1743,7 +1791,39 @@ describe("WorkbenchPageClient", () => {
     expect(within(transactions).queryByText("Dollar lunch")).toBeNull();
   });
 
-  it("opens Ledger Reports from Dashboard Ledger highlights", async () => {
+  it("preserves the Dashboard Ledger period and currency when opening Reports", async () => {
+    const user = userEvent.setup();
+    const { ledger } = reportLedgerController();
+    const idleLedger = {
+      ...ledger,
+      state: { ...ledger.state, reportStatus: "idle" as const },
+    };
+    vi.spyOn(ledgerControllerHooks, "useLedgerController").mockReturnValue(idleLedger);
+    vi.mocked(loadLedgerReport).mockResolvedValue({
+      comparison: ledger.state.comparison!,
+      categoryBreakdown: ledger.state.categoryBreakdown,
+      trend: ledger.state.trend!,
+      balances: ledger.state.balances,
+    } satisfies LedgerReportData);
+    render(<DashboardHarness />);
+
+    const highlights = await screen.findByRole("region", { name: "Ledger highlights" });
+    await user.click(within(highlights).getByRole("button", { name: "Previous month" }));
+    await waitFor(() => expect(loadLedgerReport)
+      .toHaveBeenLastCalledWith({ period: "previous_month" }));
+    await user.click(within(highlights).getByRole("button", { name: "USD" }));
+    await user.click(within(highlights).getByRole("button", { name: "Ledger highlights" }));
+
+    expect(await screen.findByRole("region", { name: "Report analysis" }))
+      .toBeVisible();
+    expect(idleLedger.runReports).toHaveBeenCalledTimes(1);
+    expect(idleLedger.runReports).toHaveBeenCalledWith({ period: "previous_month" });
+    expect(idleLedger.runReports).not.toHaveBeenCalledWith({ period: "current_month" });
+    expect(screen.getByRole("button", { name: "USD" }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("applies a Dashboard Ledger category drilldown to Transactions once", async () => {
     const user = userEvent.setup();
     const { ledger } = reportLedgerController();
     vi.spyOn(ledgerControllerHooks, "useLedgerController").mockReturnValue(ledger);
@@ -1753,31 +1833,68 @@ describe("WorkbenchPageClient", () => {
       trend: ledger.state.trend!,
       balances: ledger.state.balances,
     } satisfies LedgerReportData);
-    const loadedWorkspaceItems: WorkspaceItemsModel = {
-      status: "loaded",
-      items: [],
-      allItems: [],
-      tagOptions: [],
-      relatedItems: { areas: {}, goals: {}, projects: {}, routines: {} },
-    };
-    function DashboardHarness() {
-      const controller = useWorkbenchController();
-      return (
-        <MainPanel
-          controller={{ ...controller, workspaceItems: loadedWorkspaceItems }}
-        />
-      );
-    }
+    render(
+      <React.StrictMode>
+        <DashboardHarness />
+      </React.StrictMode>,
+    );
+
+    await user.click(await screen.findByRole("button", {
+      name: "Food, 88%, 700 KRW, expense category composition",
+    }));
+
+    expect(await screen.findByRole("heading", { name: "Transactions" })).toBeVisible();
+    expect(ledger.updateTableSettings).toHaveBeenCalledTimes(1);
+    expect(ledger.tableSettings("ledger.transactions").filterRules).toEqual([
+      expect.objectContaining({
+        field: "date",
+        operator: "is_between",
+        value: { start: "2026-08-01", end: "2026-08-31" },
+      }),
+      expect.objectContaining({ field: "currency", operator: "is", value: ["currency-krw"] }),
+      expect.objectContaining({ field: "category", operator: "is", value: ["category-food"] }),
+    ]);
+    const transactions = screen.getByRole("table", { name: "Transactions" });
+    expect(within(transactions).getByText("Matching lunch")).toBeInTheDocument();
+    expect(within(transactions).getByText("Card lunch")).toBeInTheDocument();
+    expect(within(transactions).queryByText("Bus fare")).toBeNull();
+    expect(within(transactions).queryByText("July lunch")).toBeNull();
+    expect(within(transactions).queryByText("Dollar lunch")).toBeNull();
+  });
+
+  it("applies a Dashboard Ledger trend drilldown to Transactions once", async () => {
+    const user = userEvent.setup();
+    const { ledger } = reportLedgerController();
+    vi.spyOn(ledgerControllerHooks, "useLedgerController").mockReturnValue(ledger);
+    vi.mocked(loadLedgerReport).mockResolvedValue({
+      comparison: ledger.state.comparison!,
+      categoryBreakdown: ledger.state.categoryBreakdown,
+      trend: ledger.state.trend!,
+      balances: ledger.state.balances,
+    } satisfies LedgerReportData);
     render(<DashboardHarness />);
 
     await user.click(await screen.findByRole("button", {
-      name: "Ledger highlights",
+      name: "2026-08-05 Expense 800 KRW",
     }));
 
-    expect(await screen.findByRole("region", { name: "Report analysis" }))
-      .toBeVisible();
-    expect(document.querySelector(".ledger-reports")).toBeInTheDocument();
-    expect(document.querySelector(".health-reports")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "Transactions" })).toBeVisible();
+    expect(ledger.updateTableSettings).toHaveBeenCalledTimes(1);
+    expect(ledger.tableSettings("ledger.transactions").filterRules).toEqual([
+      expect.objectContaining({
+        field: "date",
+        operator: "is_between",
+        value: { start: "2026-08-05", end: "2026-08-05" },
+      }),
+      expect.objectContaining({ field: "currency", operator: "is", value: ["currency-krw"] }),
+      expect.objectContaining({ field: "entry_type", operator: "is", value: ["expense"] }),
+    ]);
+    const transactions = screen.getByRole("table", { name: "Transactions" });
+    expect(within(transactions).getByText("Matching lunch")).toBeInTheDocument();
+    expect(within(transactions).getByText("Bus fare")).toBeInTheDocument();
+    expect(within(transactions).getByText("Card lunch")).toBeInTheDocument();
+    expect(within(transactions).queryByText("July lunch")).toBeNull();
+    expect(within(transactions).queryByText("Dollar lunch")).toBeNull();
   });
 
   it("drills an account report into Transactions without changing saved views", async () => {
