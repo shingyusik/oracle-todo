@@ -14,3 +14,4 @@ Keep the existing warm, quiet Raven Dashboard while fitting Today's work, Comple
 | # | Name | Design Question | Winner | Tags |
 |---|------|----------------|--------|------|
 | 001 | Dashboard status visualization | Which visual form reveals abandoned Projects fastest in a single-row Dashboard? | C | dashboard, status, visualization |
+| 002 | Dashboard Ledger highlights | Should the 1:1:2 Ledger row use separate cards or one divided surface? | B | dashboard, ledger, charts, layout |

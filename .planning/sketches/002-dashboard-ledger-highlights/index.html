@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raven Dashboard Ledger Highlights</title>
+  <link rel="stylesheet" href="../themes/default.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-sans); }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible { outline: 3px solid #171812; outline-offset: 3px; }
+
+    .variant-nav { position: fixed; inset: 0 0 auto; z-index: 30; display: flex; align-items: center; gap: 8px; min-height: 54px; padding: 9px 18px; border-bottom: 1px solid var(--color-border); background: rgba(255,255,255,.96); backdrop-filter: blur(10px); }
+    .variant-tab, .pill, .trend-tab { border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface); padding: 7px 12px; color: var(--color-text); font-size: 12px; font-weight: 750; transition: all .15s ease; }
+    .variant-tab:hover, .pill:hover, .trend-tab:hover { border-color: #171812; }
+    .variant-tab.active, .pill.active, .trend-tab.active { border-color: #171812; background: #171812; color: #fff; }
+    .variant-note { margin-left: auto; color: var(--color-text-muted); font-size: 12px; }
+
+    #preview { width: 100%; margin: 0 auto; transition: width .2s ease; }
+    .variant { display: none; min-height: 100vh; padding: 76px 22px 32px; }
+    .variant.active { display: block; }
+    .dashboard { max-width: 1780px; margin: 0 auto; }
+    .page-kicker { margin: 0 0 4px; color: var(--color-primary-hover); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 38px); line-height: 1.1; }
+
+    .todo-context { display: grid; grid-template-columns: 22fr 43fr 35fr; gap: 14px; margin: 18px 0 24px; }
+    .todo-card { min-height: 112px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); padding: 16px; }
+    .todo-card h2 { margin: 0 0 6px; font-size: 16px; }
+    .todo-card p { margin: 0; color: var(--color-text-muted); font-size: 11px; }
+    .todo-ghost { display: flex; align-items: end; gap: 5px; height: 42px; margin-top: 10px; }
+    .todo-ghost i { display: block; flex: 1; border-radius: 3px 3px 0 0; background: #e5e4dc; }
+    .todo-ghost i:nth-child(2n) { background: #9bd8b4; }
+
+    .ledger-heading { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+    .ledger-title { border: 0; border-radius: 5px; background: transparent; padding: 0; color: inherit; text-align: left; }
+    .ledger-title:hover h2 { text-decoration: underline; text-underline-offset: 4px; }
+    .ledger-title h2 { margin: 0 0 5px; font-size: 24px; }
+    .ledger-title p { margin: 0; color: var(--color-text-muted); font-size: 13px; }
+    .controls, .control-group { display: flex; flex-wrap: wrap; gap: 6px; }
+    .controls { justify-content: flex-end; }
+    .control-group { padding-left: 8px; border-left: 1px solid var(--color-border); }
+    .control-group:first-child { padding-left: 0; border-left: 0; }
+
+    .ledger-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,2fr); gap: 14px; }
+    .panel { min-width: 0; min-height: 480px; background: var(--color-surface); }
+    .separate .panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-sm); }
+    .shared-shell { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); overflow: hidden; }
+    .shared-shell .ledger-heading { margin: 0; padding: 18px 20px; border-bottom: 1px solid var(--color-border); }
+    .shared-shell .ledger-grid { gap: 0; }
+    .shared-shell .panel { padding: 18px; }
+    .shared-shell .panel + .panel { border-left: 1px solid var(--color-border); }
+
+    .panel-header { display: flex; min-height: 52px; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+    .panel-header h3 { margin: 0 0 5px; font-size: 17px; }
+    .panel-header p { margin: 0; color: var(--color-text-muted); font-size: 11px; line-height: 1.4; }
+
+    .donut-wrap { display: grid; place-items: center; min-height: 190px; }
+    .donut { --ring: conic-gradient(var(--color-primary) 0 38%, #e8e7df 38% 100%); position: relative; display: grid; width: 174px; aspect-ratio: 1; place-items: center; border-radius: 50%; background: var(--ring); transition: background .2s ease; }
+    .donut::after { position: absolute; width: 66%; aspect-ratio: 1; border-radius: 50%; background: var(--color-surface); content: ""; }
+    .donut-center { position: relative; z-index: 1; display: grid; gap: 4px; text-align: center; }
+    .donut-center strong { font-size: 26px; line-height: 1; }
+    .donut-center span { color: var(--color-text-muted); font-size: 10px; font-weight: 700; }
+    .donut.overspent { --ring: conic-gradient(var(--color-danger) 0 100%); }
+    .donut.overspent .donut-center strong { color: #b42318; }
+    .category-donut { --ring: conic-gradient(#171812 0 58%, #47b477 58% 74%, #72736d 74% 85%, #d96c65 85% 94%, #e1b457 94% 100%); }
+    .category-donut::after { width: 62%; }
+
+    .metric-list, .legend { display: grid; gap: 7px; }
+    .metric, .legend-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; min-height: 37px; border: 1px solid var(--color-border); border-radius: 7px; background: #fcfbf7; padding: 8px 9px; font-size: 11px; }
+    .metric span, .legend-label { color: var(--color-text-muted); }
+    .metric strong, .legend-row strong { font-variant-numeric: tabular-nums; }
+    .metric.negative strong { color: #b42318; }
+    .legend-row { grid-template-columns: auto minmax(0,1fr) auto; width: 100%; border: 1px solid var(--color-border); color: inherit; text-align: left; transition: all .15s ease; }
+    .legend-row:hover { border-color: #171812; background: #fff; }
+    .swatch { width: 9px; height: 9px; border-radius: 50%; background: var(--swatch); }
+    .legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .legend-value { display: grid; justify-items: end; gap: 1px; }
+    .legend-value small { color: var(--color-text-muted); font-size: 9px; }
+
+    .trend-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .trend-tabs { display: flex; gap: 5px; }
+    .average-key { display: flex; align-items: center; gap: 6px; color: var(--color-text-muted); font-size: 10px; }
+    .average-key::before { width: 20px; border-top: 2px dashed #b42318; content: ""; }
+    .chart-frame { display: grid; grid-template-columns: 52px minmax(0,1fr); gap: 8px; min-height: 340px; }
+    .y-axis { position: relative; height: 286px; color: var(--color-text-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+    .y-axis span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
+    .plot { position: relative; display: flex; height: 286px; align-items: end; gap: 4px; border-bottom: 1px solid var(--color-border); background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(25% - 1px), #ecebe5 25%); padding: 0 5px; }
+    .average-line { position: absolute; right: 0; left: 0; bottom: 17%; z-index: 1; border-top: 2px dashed #b42318; pointer-events: none; }
+    .bar-group { display: grid; min-width: 0; flex: 1; height: 100%; align-items: end; }
+    .bar { width: 100%; min-height: 0; border: 0; border-radius: 3px 3px 0 0; background: #555752; transition: height .2s ease, background .2s ease, filter .15s ease; }
+    .bar:hover { filter: brightness(.75); }
+    .bar.income { background: var(--color-primary); }
+    .x-axis { display: flex; justify-content: space-between; margin: 7px 4px 0 60px; color: var(--color-text-muted); font-size: 9px; }
+
+    .empty { display: none; min-height: 335px; place-items: center; border: 1px solid var(--color-border); border-radius: 8px; background: #fcfbf7; color: var(--color-text-muted); font-size: 12px; text-align: center; }
+    .is-empty .data-view { display: none; }
+    .is-empty .empty { display: grid; }
+
+    .toast { position: fixed; left: 50%; bottom: 26px; z-index: 50; border-radius: 999px; background: #171812; padding: 10px 16px; color: #fff; font-size: 12px; opacity: 0; pointer-events: none; transform: translate(-50%, 16px); transition: all .2s ease; }
+    .toast.show { opacity: 1; transform: translate(-50%,0); }
+    #sketch-tools { position: fixed; right: 12px; bottom: 12px; z-index: 40; display: flex; align-items: center; gap: 5px; border-radius: 8px; background: rgba(0,0,0,.76); padding: 8px 10px; color: white; font: 11px system-ui; opacity: .42; transition: opacity .2s; }
+    #sketch-tools:hover { opacity: 1; }
+    #sketch-tools button, #sketch-tools select { border: 1px solid #555; border-radius: 4px; background: #222; padding: 4px 6px; color: #fff; }
+
+    @media (max-width: 1100px) {
+      .todo-context { grid-template-columns: 1fr 2fr; }
+      .todo-card:last-child { grid-column: 1 / -1; }
+      .ledger-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .panel-trend { grid-column: 1 / -1; }
+      .shared-shell .panel-trend { border-top: 1px solid var(--color-border); border-left: 0; }
+    }
+    @media (max-width: 700px) {
+      .variant-note { display: none; }
+      .variant { padding-inline: 12px; }
+      .todo-context, .ledger-grid { grid-template-columns: 1fr; }
+      .todo-card:last-child, .panel-trend { grid-column: auto; }
+      .ledger-heading { align-items: flex-start; }
+      .controls { justify-content: flex-start; }
+      .shared-shell .panel + .panel { border-top: 1px solid var(--color-border); border-left: 0; }
+      .panel { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="variant-nav" aria-label="Mockup variants">
+    <button class="variant-tab" onclick="showVariant('a', this)">A · Three cards</button>
+    <button class="variant-tab active" onclick="showVariant('b', this)">B · Shared surface ✓ Selected</button>
+    <span class="variant-note">Compare the border structure; layout and data are identical.</span>
+  </nav>
+
+  <main id="preview">
+    <section id="variant-a" class="variant"></section>
+    <section id="variant-b" class="variant active"></section>
+  </main>
+
+  <div id="sketch-tools">
+    <span>Viewport</span>
+    <button onclick="setViewport('100%')">Full</button>
+    <button onclick="setViewport('1440px')">1440</button>
+    <button onclick="setViewport('768px')">768</button>
+    <button onclick="setViewport('375px')">375</button>
+    <select aria-label="Theme" onchange="document.querySelector('link[href*=themes]').href='../themes/'+this.value">
+      <option value="default.css">Raven</option>
+    </select>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+
+  <template id="dashboard-template">
+    <div class="dashboard">
+      <p class="page-kicker">Analytics</p>
+      <h1>Dashboard</h1>
+      <section class="todo-context" aria-label="ToDo analytics context">
+        <article class="todo-card"><h2>Today's work</h2><p>4 completed · 5 incomplete</p><div class="todo-ghost"><i style="height:35%"></i><i style="height:72%"></i><i style="height:52%"></i><i style="height:88%"></i><i style="height:45%"></i></div></article>
+        <article class="todo-card"><h2>Completion history</h2><p>14-day completion rate</p><div class="todo-ghost"><i style="height:45%"></i><i style="height:62%"></i><i style="height:40%"></i><i style="height:76%"></i><i style="height:58%"></i><i style="height:83%"></i><i style="height:66%"></i><i style="height:91%"></i></div></article>
+        <article class="todo-card"><h2>Status</h2><p>Projects and Areas needing attention</p><div class="todo-ghost"><i style="height:70%"></i><i style="height:42%"></i><i style="height:82%"></i><i style="height:55%"></i></div></article>
+      </section>
+      <div class="ledger-host"></div>
+    </div>
+  </template>
+
+  <template id="heading-template">
+    <header class="ledger-heading">
+      <button class="ledger-title" onclick="notify('Open Ledger Report with this period and currency')">
+        <h2>Ledger highlights</h2>
+        <p>Monthly cash flow, spending composition, and daily pattern.</p>
+      </button>
+      <div class="controls">
+        <div class="control-group period-controls">
+          <button class="pill active" data-period="current" onclick="setPeriod('current')">Current month</button>
+          <button class="pill" data-period="previous" onclick="setPeriod('previous')">Previous month</button>
+        </div>
+        <div class="control-group currency-controls">
+          <button class="pill active" data-currency="KRW" onclick="setCurrency('KRW')">KRW</button>
+          <button class="pill" data-currency="USD" onclick="setCurrency('USD')">USD</button>
+        </div>
+      </div>
+    </header>
+  </template>
+
+  <template id="panels-template">
+    <div class="ledger-grid">
+      <article class="panel panel-cash">
+        <header class="panel-header"><div><h3>Cash flow</h3><p>Spending as a share of income.</p></div></header>
+        <div class="data-view">
+          <div class="donut-wrap"><div class="donut cash-donut"><div class="donut-center"><strong class="cash-ratio">38%</strong><span class="cash-caption">spent</span></div></div></div>
+          <div class="metric-list">
+            <div class="metric"><span>Income</span><strong class="income-value">3,650,000 KRW</strong></div>
+            <div class="metric"><span>Spending</span><strong class="expense-value">1,384,000 KRW</strong></div>
+            <div class="metric balance-metric"><span>Remaining</span><strong class="balance-value">2,266,000 KRW</strong></div>
+            <div class="metric"><span>Average daily spending</span><strong class="average-value">44,645 KRW</strong></div>
+          </div>
+        </div>
+        <div class="empty">No income or spending for this period.</div>
+      </article>
+
+      <article class="panel panel-category">
+        <header class="panel-header"><div><h3>Spending by category</h3><p>Share of total spending.</p></div></header>
+        <div class="data-view">
+          <div class="donut-wrap"><div class="donut category-donut"><div class="donut-center"><strong class="category-total">1.38M</strong><span>total spending</span></div></div></div>
+          <div class="legend">
+            <button class="legend-row" onclick="notify('Open Housing transactions')"><i class="swatch" style="--swatch:#171812"></i><span class="legend-label">Housing</span><span class="legend-value"><strong>800,000</strong><small>58%</small></span></button>
+            <button class="legend-row" onclick="notify('Open Food transactions')"><i class="swatch" style="--swatch:#47b477"></i><span class="legend-label">Food</span><span class="legend-value"><strong>225,000</strong><small>16%</small></span></button>
+            <button class="legend-row" onclick="notify('Open Utilities transactions')"><i class="swatch" style="--swatch:#72736d"></i><span class="legend-label">Utilities</span><span class="legend-value"><strong>148,000</strong><small>11%</small></span></button>
+            <button class="legend-row" onclick="notify('Open Shopping transactions')"><i class="swatch" style="--swatch:#d96c65"></i><span class="legend-label">Shopping</span><span class="legend-value"><strong>125,000</strong><small>9%</small></span></button>
+          </div>
+        </div>
+        <div class="empty">No spending categories for this period.</div>
+      </article>
+
+      <article class="panel panel-trend">
+        <header class="panel-header"><div><h3>Income and spending pattern</h3><p>Daily granularity</p></div></header>
+        <div class="data-view">
+          <div class="trend-controls">
+            <div class="trend-tabs" role="tablist">
+              <button class="trend-tab" data-trend="income" onclick="setTrend('income')">Income</button>
+              <button class="trend-tab active" data-trend="spending" onclick="setTrend('spending')">Spending</button>
+            </div>
+            <span class="average-key">Average daily pace</span>
+          </div>
+          <div class="chart-frame">
+            <div class="y-axis"><span style="top:0">800,000</span><span style="top:25%">600,000</span><span style="top:50%">400,000</span><span style="top:75%">200,000</span><span style="top:100%">0</span></div>
+            <div class="plot">
+              <div class="average-line"></div>
+              <div class="bar-group"><button class="bar" style="height:17%" onclick="notify('Open spending on Aug 2')"></button></div>
+              <div class="bar-group"><button class="bar" style="height:0"></button></div>
+              <div class="bar-group"><button class="bar" style="height:100%" onclick="notify('Open spending on Aug 11')"></button></div>
+              <div class="bar-group"><button class="bar" style="height:8%" onclick="notify('Open spending on Aug 15')"></button></div>
+              <div class="bar-group"><button class="bar" style="height:19%" onclick="notify('Open spending on Aug 19')"></button></div>
+              <div class="bar-group"><button class="bar" style="height:11%" onclick="notify('Open spending on Aug 25')"></button></div>
+              <div class="bar-group"><button class="bar" style="height:16%" onclick="notify('Open spending on Aug 28')"></button></div>
+              <div class="bar-group"><button class="bar" style="height:3%" onclick="notify('Open spending on Aug 31')"></button></div>
+            </div>
+          </div>
+          <div class="x-axis"><span>Aug 1</span><span>Aug 8</span><span>Aug 15</span><span>Aug 22</span><span>Aug 31</span></div>
+        </div>
+        <div class="empty">No income or spending for this period.</div>
+      </article>
+    </div>
+  </template>
+
+  <script>
+    const state = { period: 'current', currency: 'KRW', trend: 'spending' };
+    const spendingHeights = [17, 0, 100, 8, 19, 11, 16, 3];
+    const incomeHeights = [0, 0, 88, 0, 0, 0, 13, 0];
+
+    function template(name) {
+      return document.getElementById(name).content.cloneNode(true);
+    }
+
+    function buildVariant(id, shared) {
+      const root = document.getElementById('variant-' + id);
+      root.append(template('dashboard-template'));
+      const host = root.querySelector('.ledger-host');
+      if (shared) {
+        const shell = document.createElement('section');
+        shell.className = 'shared-shell';
+        shell.append(template('heading-template'), template('panels-template'));
+        host.append(shell);
+      } else {
+        host.className += ' separate';
+        host.append(template('heading-template'), template('panels-template'));
+      }
+    }
+
+    buildVariant('a', false);
+    buildVariant('b', true);
+
+    function showVariant(id, button) {
+      document.querySelectorAll('.variant').forEach((node) => node.classList.remove('active'));
+      document.querySelectorAll('.variant-tab').forEach((node) => node.classList.remove('active'));
+      document.getElementById('variant-' + id).classList.add('active');
+      button.classList.add('active');
+    }
+
+    function setPeriod(period) {
+      state.period = period;
+      syncControls();
+      renderData();
+    }
+
+    function setCurrency(currency) {
+      state.currency = currency;
+      syncControls();
+      renderData();
+    }
+
+    function setTrend(trend) {
+      state.trend = trend;
+      syncControls();
+      renderTrend();
+    }
+
+    function syncControls() {
+      document.querySelectorAll('[data-period]').forEach((button) => button.classList.toggle('active', button.dataset.period === state.period));
+      document.querySelectorAll('[data-currency]').forEach((button) => button.classList.toggle('active', button.dataset.currency === state.currency));
+      document.querySelectorAll('[data-trend]').forEach((button) => button.classList.toggle('active', button.dataset.trend === state.trend));
+    }
+
+    function renderData() {
+      const empty = state.currency === 'USD';
+      document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('is-empty', empty));
+      if (empty) return;
+
+      const previous = state.period === 'previous';
+      const values = previous
+        ? { income: 3200000, expense: 3968000, average: 128000 }
+        : { income: 3650000, expense: 1384000, average: 44645 };
+      const balance = values.income - values.expense;
+      const ratio = Math.round(values.expense / values.income * 100);
+      document.querySelectorAll('.cash-donut').forEach((donut) => {
+        donut.classList.toggle('overspent', ratio > 100);
+        donut.style.setProperty('--ring', ratio > 100
+          ? 'conic-gradient(#d96c65 0 100%)'
+          : `conic-gradient(#47b477 0 ${ratio}%, #e8e7df ${ratio}% 100%)`);
+      });
+      setText('.cash-ratio', ratio > 100 ? `Over ${ratio - 100}%` : `${ratio}%`);
+      setText('.cash-caption', ratio > 100 ? 'overspent' : 'spent');
+      setText('.income-value', format(values.income));
+      setText('.expense-value', format(values.expense));
+      setText('.balance-value', format(balance));
+      setText('.average-value', format(values.average));
+      document.querySelectorAll('.balance-metric').forEach((row) => row.classList.toggle('negative', balance < 0));
+      setText('.category-total', previous ? '3.97M' : '1.38M');
+      renderTrend();
+    }
+
+    function renderTrend() {
+      const income = state.trend === 'income';
+      const previous = state.period === 'previous';
+      const base = income ? incomeHeights : spendingHeights;
+      const heights = base.map((height, index) => previous ? Math.min(100, height * (index % 2 ? 1.7 : 1.3)) : height);
+      document.querySelectorAll('.plot').forEach((plot) => {
+        plot.querySelector('.average-line').style.display = income ? 'none' : 'block';
+        plot.querySelectorAll('.bar').forEach((bar, index) => {
+          bar.style.height = `${heights[index]}%`;
+          bar.classList.toggle('income', income);
+        });
+      });
+      document.querySelectorAll('.average-key').forEach((key) => key.style.visibility = income ? 'hidden' : 'visible');
+    }
+
+    function format(value) {
+      return `${value.toLocaleString('en-US')} KRW`;
+    }
+
+    function setText(selector, value) {
+      document.querySelectorAll(selector).forEach((node) => { node.textContent = value; });
+    }
+
+    let toastTimer;
+    function notify(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+    }
+
+    function setViewport(width) {
+      document.getElementById('preview').style.width = width;
+    }
+
+    renderData();
+    if (location.hash === '#a') {
+      showVariant('a', document.querySelectorAll('.variant-tab')[0]);
+    }
+  </script>
+</body>
+</html>
