@@ -16,6 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ledgerApi } from "@/features/ledger/api/ledger-api";
+import { loadLedgerReport } from "@/features/ledger/api/ledger-report-loader";
 import type {
   LedgerComparison,
   LedgerEntryView,
@@ -3395,6 +3396,50 @@ describe("LedgerPanel", () => {
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
 
     expect(compare).not.toHaveBeenCalled();
+  });
+
+  it("loads all report data from the comparison's canonical current range", async () => {
+    const reportComparison = comparison("2026-08-01", "2026-08-31");
+    const reportTrend = trend("2026-08-01", "2026-08-31");
+    const firstBalanceRows = [{
+      account: loadedState.accounts[0]!,
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: 2_000,
+    }];
+    const secondBalanceRows = [{
+      account: { ...loadedState.accounts[0]!, id: "account-bank", name: "Bank" },
+      currencyCode: "KRW",
+      decimalPlaces: 0,
+      currentBalanceMinor: 3_000,
+    }];
+    const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(reportComparison);
+    const categories = vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
+    const requestTrend = vi.spyOn(ledgerApi, "trend").mockResolvedValue(reportTrend);
+    vi.spyOn(ledgerApi, "listAccountBalances")
+      .mockResolvedValueOnce({ items: firstBalanceRows, nextOffset: 200 })
+      .mockResolvedValueOnce({ items: secondBalanceRows, nextOffset: null });
+
+    const result = await loadLedgerReport({ period: "current_month" });
+
+    expect(compare).toHaveBeenCalledWith({ period: "current_month" });
+    expect(categories).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
+    expect(requestTrend).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
+    expect(ledgerApi.listAccountBalances).toHaveBeenNthCalledWith(
+      1,
+      { limit: 200, offset: undefined },
+    );
+    expect(ledgerApi.listAccountBalances).toHaveBeenNthCalledWith(
+      2,
+      { limit: 200, offset: 200 },
+    );
+    expect(ledgerApi.listAccountBalances).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({
+      comparison: reportComparison,
+      categoryBreakdown: [],
+      trend: reportTrend,
+      balances: [...firstBalanceRows, ...secondBalanceRows],
+    });
   });
 
   it("does not render unknown report error details", async () => {

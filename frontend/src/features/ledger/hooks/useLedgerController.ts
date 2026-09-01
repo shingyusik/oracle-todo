@@ -11,6 +11,7 @@ import {
   type ReportSelection,
   type TransactionCategoryInput,
 } from "@/features/ledger/api/ledger-api";
+import { loadLedgerReport } from "@/features/ledger/api/ledger-report-loader";
 import type {
   Account,
   AccountBalance,
@@ -574,16 +575,8 @@ export function useLedgerController(): LedgerController {
       reportSelection: selection,
     }));
     try {
-      const comparison = await ledgerApi.compare(selection);
-      const range = {
-        from: comparison.current.range.start,
-        to: comparison.current.range.end,
-      };
-      const [categoryBreakdown, trend, balances] = await Promise.all([
-        ledgerApi.categoryReport(range),
-        ledgerApi.trend(range),
-        drainPages((offset) => ledgerApi.listAccountBalances({ limit: 200, offset })),
-      ]);
+      const { comparison, categoryBreakdown, trend, balances } =
+        await loadLedgerReport(selection);
       if (generation !== reportGeneration.current) return;
       setState((current) => ({
         ...current,
