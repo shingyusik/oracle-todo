@@ -247,13 +247,14 @@ function LedgerWorkspace({
   }, [controller.refresh, mutationEpoch]);
   useEffect(() => {
     if (!navigation || handledNavigation.current === navigation) return;
+    if (navigation.kind === "report" && controller.state.status !== "loaded") return;
     handledNavigation.current = navigation;
     if (navigation.kind === "drilldown") {
       controller.updateTableSettings("ledger.transactions", (settings) =>
         applyReportDrilldown(settings, navigation.target));
     }
     onNavigationHandled(navigation);
-  }, [controller, navigation, onNavigationHandled]);
+  }, [controller, controller.state.status, navigation, onNavigationHandled]);
   function drilldown(target: ReportDrilldownTarget) {
     controller.updateTableSettings("ledger.transactions", (settings) =>
       applyReportDrilldown(settings, target));
