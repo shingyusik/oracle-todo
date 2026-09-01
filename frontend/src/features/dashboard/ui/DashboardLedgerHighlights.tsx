@@ -87,6 +87,7 @@ export function DashboardLedgerHighlights({
         <h2 id="dashboard-ledger-heading">
           <button
             type="button"
+            disabled={status !== "loaded" || !model}
             onClick={() => {
               if (model) onNavigate({ kind: "report", selection, currencyId });
             }}
@@ -148,7 +149,9 @@ export function DashboardLedgerHighlights({
               onDrilldown={drilldown}
             />
           </>
-        ) : null}
+        ) : (
+          <p className="items-message">No Ledger currencies available.</p>
+        )}
       </div>
     </section>
   );

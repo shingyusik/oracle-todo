@@ -26,7 +26,7 @@ describe("Dashboard Ledger highlights", () => {
 
     const surface = screen.getByRole("region", { name: "Ledger highlights" });
     expect(within(surface).getByRole("button", { name: "Ledger highlights" }))
-      .toBeVisible();
+      .toBeDisabled();
     expect(within(surface).getByRole("button", { name: "Current month" }))
       .toBeDisabled();
     expect(within(surface).getByRole("button", { name: "Previous month" }))
@@ -50,8 +50,8 @@ describe("Dashboard Ledger highlights", () => {
     const onNavigate = vi.fn();
     render(<DashboardLedgerHighlights mutationEpoch={0} onNavigate={onNavigate} />);
 
-    const surface = await screen.findByRole("region", { name: "Ledger highlights" });
-    const cashFlow = within(surface).getByRole("region", { name: "Cash Flow" });
+    const cashFlow = await screen.findByRole("region", { name: "Cash Flow" });
+    const surface = screen.getByRole("region", { name: "Ledger highlights" });
     expect(cashFlow).toHaveTextContent("3,650,000 KRW");
     expect(cashFlow).toHaveTextContent("1,384,000 KRW");
     expect(cashFlow).toHaveTextContent("2,266,000 KRW");
@@ -63,7 +63,9 @@ describe("Dashboard Ledger highlights", () => {
     expect(within(surface).getByRole("region", { name: "Income and spending pattern" }))
       .toBeInTheDocument();
 
-    await userEvent.click(within(surface).getByRole("button", { name: "Ledger highlights" }));
+    const heading = within(surface).getByRole("button", { name: "Ledger highlights" });
+    expect(heading).toBeEnabled();
+    await userEvent.click(heading);
     expect(onNavigate).toHaveBeenLastCalledWith({
       kind: "report",
       selection: { period: "current_month" },
@@ -155,8 +157,8 @@ describe("Dashboard Ledger highlights", () => {
     }));
     render(<DashboardLedgerHighlights mutationEpoch={0} onNavigate={vi.fn()} />);
 
-    const surface = await screen.findByRole("region", { name: "Ledger highlights" });
-    const usd = within(surface).getByRole("button", { name: "USD" });
+    const usd = await screen.findByRole("button", { name: "USD" });
+    const surface = screen.getByRole("region", { name: "Ledger highlights" });
     await userEvent.click(usd);
 
     expect(usd).toHaveAttribute("aria-pressed", "true");
@@ -182,6 +184,24 @@ describe("Dashboard Ledger highlights", () => {
     await screen.findByRole("region", { name: "Cash Flow" });
     expect(loadLedgerReport).toHaveBeenCalledTimes(2);
     expect(loadLedgerReport).toHaveBeenLastCalledWith({ period: "current_month" });
+  });
+
+  it("shows an explicit empty state when no Ledger currencies are available", async () => {
+    vi.mocked(loadLedgerReport).mockResolvedValue(emptyReportData());
+    render(<DashboardLedgerHighlights mutationEpoch={0} onNavigate={vi.fn()} />);
+
+    expect(await screen.findByText("No Ledger currencies available.")).toBeVisible();
+    const surface = screen.getByRole("region", { name: "Ledger highlights" });
+    expect(within(surface).getByRole("button", { name: "Ledger highlights" }))
+      .toBeDisabled();
+    expect(within(surface).getByRole("button", { name: "Current month" }))
+      .toBeEnabled();
+    expect(within(surface).queryByRole("region", { name: "Cash Flow" }))
+      .not.toBeInTheDocument();
+    expect(within(surface).queryByRole("region", { name: "Spending by category" }))
+      .not.toBeInTheDocument();
+    expect(within(surface).queryByRole("region", { name: "Income and spending pattern" }))
+      .not.toBeInTheDocument();
   });
 
   it("reloads the current selection when the mutation epoch changes", async () => {
@@ -362,4 +382,20 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function emptyReportData(): LedgerReportData {
+  const data = reportData({ incomeMinor: 0, expenseMinor: 0 });
+  return {
+    ...data,
+    comparison: {
+      ...data.comparison,
+      current: { ...data.comparison.current, currencies: [] },
+      previous: { ...data.comparison.previous, currencies: [] },
+      currencies: [],
+    },
+    categoryBreakdown: [],
+    trend: { ...data.trend, currencies: [] },
+    balances: [],
+  };
 }
