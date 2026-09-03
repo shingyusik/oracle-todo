@@ -168,7 +168,7 @@ export function ReportSummaryCards({
     [
       "Average daily spending",
       model.metrics.averageDailyExpenseMinor,
-      "Selected period calendar days",
+      "Elapsed calendar days",
     ],
   ] as const;
   return (
@@ -425,7 +425,13 @@ export function IncomeExpenseTrendChart({
           >
             {isExpense ? (
               <div className="ledger-report-trend-legend">
-                <span>Average daily pace</span>
+                <span>
+                  Average daily · {reportMoney(
+                    model.metrics.averageDailyExpenseMinor,
+                    currency,
+                    model.currencyCode,
+                  )}
+                </span>
               </div>
             ) : null}
             <div className="ledger-report-trend-chart">

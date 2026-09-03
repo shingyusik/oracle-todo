@@ -81,6 +81,8 @@ describe("Dashboard Ledger highlights", () => {
       .toBeInTheDocument();
     expect(within(surface).getByRole("region", { name: "Income and spending pattern" }))
       .toBeInTheDocument();
+    expect(within(surface).getByText("Average daily · 44,645 KRW"))
+      .toBeInTheDocument();
 
     const heading = within(surface).getByRole("button", { name: "Ledger highlights" });
     expect(heading).toBeEnabled();

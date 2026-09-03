@@ -3002,6 +3002,8 @@ describe("LedgerPanel", () => {
       "Spending",
       "Average daily spending",
     ]) expect(within(summary).getByRole("group", { name: label })).toBeInTheDocument();
+    expect(within(summary).getByRole("group", { name: "Average daily spending" }))
+      .toHaveTextContent("Elapsed calendar days");
     expect(screen.getByRole("img", { name: /Asset composition/ })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /Liability composition/ })).toBeInTheDocument();
   });
@@ -3213,14 +3215,14 @@ describe("LedgerPanel", () => {
       .toBeInTheDocument();
     expect(screen.getByLabelText("Spending Y-axis"))
       .toHaveTextContent("800,000 KRW400,000 KRW0 KRW");
-    expect(screen.getByText("Average daily pace")).toBeInTheDocument();
+    expect(screen.getByText("Average daily · 39 KRW")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Income" }));
     expect(screen.getByRole("button", { name: "2026-08-01 Income 3,200,000 KRW" }))
       .toBeInTheDocument();
     expect(screen.getByLabelText("Income Y-axis"))
       .toHaveTextContent("3,200,000 KRW1,600,000 KRW0 KRW");
-    expect(screen.queryByText("Average daily pace")).toBeNull();
+    expect(screen.queryByText(/Average daily ·/)).toBeNull();
   });
 
   it("supports the complete keyboard pattern and ARIA links for trend tabs", async () => {
