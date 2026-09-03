@@ -3002,8 +3002,26 @@ describe("LedgerPanel", () => {
       "Spending",
       "Average daily spending",
     ]) expect(within(summary).getByRole("group", { name: label })).toBeInTheDocument();
+    expect(within(summary).getByRole("group", { name: "Average daily spending" }))
+      .toHaveTextContent("Elapsed calendar days");
     expect(screen.getByRole("img", { name: /Asset composition/ })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /Liability composition/ })).toBeInTheDocument();
+  });
+
+  it("uses the observed summary range for Reports average daily spending", () => {
+    const state = reportAnalysisState();
+    state.comparison!.current.range = { start: "2026-09-01", end: "2026-09-30" };
+    state.comparison!.current.currencies[0]!.expenseMinor = 34_089;
+    state.summary = {
+      range: { start: "2026-09-01", end: "2026-09-03" },
+      currencies: [{ ...state.comparison!.current.currencies[0]!, expenseMinor: 34_089 }],
+    };
+
+    render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
+
+    expect(within(screen.getByRole("region", { name: "Summary" }))
+      .getByRole("group", { name: "Average daily spending" }))
+      .toHaveTextContent("11,363 KRW");
   });
 
   it("includes each donut slice value in its accessible button name", () => {
@@ -3197,14 +3215,14 @@ describe("LedgerPanel", () => {
       .toBeInTheDocument();
     expect(screen.getByLabelText("Spending Y-axis"))
       .toHaveTextContent("800,000 KRW400,000 KRW0 KRW");
-    expect(screen.getByText("Average daily pace")).toBeInTheDocument();
+    expect(screen.getByText("Average daily · 39 KRW")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Income" }));
     expect(screen.getByRole("button", { name: "2026-08-01 Income 3,200,000 KRW" }))
       .toBeInTheDocument();
     expect(screen.getByLabelText("Income Y-axis"))
       .toHaveTextContent("3,200,000 KRW1,600,000 KRW0 KRW");
-    expect(screen.queryByText("Average daily pace")).toBeNull();
+    expect(screen.queryByText(/Average daily ·/)).toBeNull();
   });
 
   it("supports the complete keyboard pattern and ARIA links for trend tabs", async () => {
@@ -3426,7 +3444,44 @@ describe("LedgerPanel", () => {
     expect(compare).not.toHaveBeenCalled();
   });
 
-  it("loads all report data from the comparison's canonical current range", async () => {
+  it.each([
+    ["current month", { period: "current_month" } as const, "2026-09-01", "2026-09-30"],
+    ["current year", { period: "current_year" } as const, "2026-01-01", "2026-12-31"],
+    [
+      "future-ending custom range",
+      { period: "custom", from: "2026-09-01", to: "2026-09-10" } as const,
+      "2026-09-01",
+      "2026-09-10",
+    ],
+  ])("loads the observed-period summary for the %s", async (_label, selection, start, end) => {
+    const reportComparison = comparison(start, end);
+    const observedSummary = comparison(start, "2026-09-03").current;
+    const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(reportComparison);
+    const requestSummary = vi.spyOn(ledgerApi, "summary").mockResolvedValue(observedSummary);
+    const categories = vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
+    const reportTrend = trend(start, end);
+    const requestTrend = vi.spyOn(ledgerApi, "trend").mockResolvedValue(reportTrend);
+    const balances = vi.spyOn(ledgerApi, "listAccountBalances")
+      .mockResolvedValue({ items: [], nextOffset: null });
+
+    const result = await loadLedgerReport(selection, "2026-09-03");
+
+    expect(compare).toHaveBeenCalledWith(selection);
+    expect(requestSummary).toHaveBeenCalledOnce();
+    expect(requestSummary).toHaveBeenCalledWith({ from: start, to: "2026-09-03" });
+    expect(categories).toHaveBeenCalledWith({ from: start, to: end });
+    expect(requestTrend).toHaveBeenCalledWith({ from: start, to: end });
+    expect(balances).toHaveBeenCalledWith({ limit: 200, offset: undefined });
+    expect(result).toEqual({
+      comparison: reportComparison,
+      categoryBreakdown: [],
+      trend: reportTrend,
+      balances: [],
+      summary: observedSummary,
+    });
+  });
+
+  it("reuses the selected summary for a completed previous month", async () => {
     const reportComparison = comparison("2026-08-01", "2026-08-31");
     const reportTrend = trend("2026-08-01", "2026-08-31");
     const firstBalanceRows = [{
@@ -3442,15 +3497,17 @@ describe("LedgerPanel", () => {
       currentBalanceMinor: 3_000,
     }];
     const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(reportComparison);
+    const requestSummary = vi.spyOn(ledgerApi, "summary");
     const categories = vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
     const requestTrend = vi.spyOn(ledgerApi, "trend").mockResolvedValue(reportTrend);
     vi.spyOn(ledgerApi, "listAccountBalances")
       .mockResolvedValueOnce({ items: firstBalanceRows, nextOffset: 200 })
       .mockResolvedValueOnce({ items: secondBalanceRows, nextOffset: null });
 
-    const result = await loadLedgerReport({ period: "current_month" });
+    const result = await loadLedgerReport({ period: "previous_month" }, "2026-09-03");
 
-    expect(compare).toHaveBeenCalledWith({ period: "current_month" });
+    expect(compare).toHaveBeenCalledWith({ period: "previous_month" });
+    expect(requestSummary).not.toHaveBeenCalled();
     expect(categories).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
     expect(requestTrend).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
     expect(ledgerApi.listAccountBalances).toHaveBeenNthCalledWith(
@@ -3467,6 +3524,34 @@ describe("LedgerPanel", () => {
       categoryBreakdown: [],
       trend: reportTrend,
       balances: [...firstBalanceRows, ...secondBalanceRows],
+      summary: reportComparison.current,
+    });
+  });
+
+  it("returns no summary or summary request for a future-only custom range", async () => {
+    const selection = { period: "custom", from: "2026-09-10", to: "2026-09-20" } as const;
+    const reportComparison = comparison("2026-09-10", "2026-09-20");
+    const reportTrend = trend("2026-09-10", "2026-09-20");
+    const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(reportComparison);
+    const requestSummary = vi.spyOn(ledgerApi, "summary");
+    const categories = vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
+    const requestTrend = vi.spyOn(ledgerApi, "trend").mockResolvedValue(reportTrend);
+    const balances = vi.spyOn(ledgerApi, "listAccountBalances")
+      .mockResolvedValue({ items: [], nextOffset: null });
+
+    const result = await loadLedgerReport(selection, "2026-09-03");
+
+    expect(compare).toHaveBeenCalledWith(selection);
+    expect(requestSummary).not.toHaveBeenCalled();
+    expect(categories).toHaveBeenCalledWith({ from: "2026-09-10", to: "2026-09-20" });
+    expect(requestTrend).toHaveBeenCalledWith({ from: "2026-09-10", to: "2026-09-20" });
+    expect(balances).toHaveBeenCalledWith({ limit: 200, offset: undefined });
+    expect(result).toEqual({
+      comparison: reportComparison,
+      categoryBreakdown: [],
+      trend: reportTrend,
+      balances: [],
+      summary: null,
     });
   });
 
@@ -3564,6 +3649,29 @@ describe("LedgerPanel", () => {
       start: "2026-08-01",
       end: "2026-08-31",
     });
+  });
+
+  it("retains the observed summary returned by the report loader", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 3, 12));
+    try {
+      mockLedgerLoads();
+      const reportComparison = comparison("2026-09-01", "2026-09-30");
+      const observedSummary = comparison("2026-09-01", "2026-09-03").current;
+      vi.spyOn(ledgerApi, "compare").mockResolvedValue(reportComparison);
+      vi.spyOn(ledgerApi, "summary").mockResolvedValue(observedSummary);
+      vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
+      vi.spyOn(ledgerApi, "trend").mockResolvedValue(trend("2026-09-01", "2026-09-30"));
+      const { result } = renderHook(() => useLedgerController());
+
+      await act(async () => {
+        await result.current.runReports({ period: "current_month" });
+      });
+
+      expect(result.current.state.summary).toBe(observedSummary);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(["success", "failure"] as const)(

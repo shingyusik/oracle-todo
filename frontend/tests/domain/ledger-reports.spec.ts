@@ -33,6 +33,57 @@ describe("ledger report model", () => {
     expect(model.trend.points[0]).toMatchObject({ averageExpensePaceMinor: 13 });
   });
 
+  it("uses the inclusive observed range for average daily spending", () => {
+    const selectedComparison: LedgerComparison = {
+      ...comparison,
+      current: {
+        ...comparison.current,
+        range: { start: "2026-09-01", end: "2026-09-30" },
+      },
+    };
+    const observedSummary = {
+      range: { start: "2026-09-01", end: "2026-09-03" },
+      currencies: [{ ...current, expenseMinor: 34_089 }],
+    };
+
+    const model = buildLedgerReportModel(
+      selectedComparison,
+      categories,
+      balances,
+      trend,
+      "currency-usd",
+      observedSummary,
+    );
+
+    expect(model.metrics.averageDailyExpenseMinor).toBe(11_363);
+  });
+
+  it("uses zero average daily spending without an observed summary", () => {
+    const model = buildLedgerReportModel(
+      comparison,
+      categories,
+      balances,
+      trend,
+      "currency-usd",
+      null,
+    );
+
+    expect(model.metrics.averageDailyExpenseMinor).toBe(0);
+  });
+
+  it("uses zero average daily spending when the observed summary omits the currency", () => {
+    const model = buildLedgerReportModel(
+      comparison,
+      categories,
+      balances,
+      trend,
+      "currency-usd",
+      { ...comparison.current, currencies: [] },
+    );
+
+    expect(model.metrics.averageDailyExpenseMinor).toBe(0);
+  });
+
   it("keeps seven categories and combines the rest into Other", () => {
     const rows = Array.from({ length: 9 }, (_, index) => breakdown(`category-${index}`, `Category ${index}`, 0, 900 - index * 100, 0));
     const model = buildLedgerReportModel(comparison, rows, balances, trend, "currency-usd");
@@ -89,6 +140,10 @@ describe("ledger report model", () => {
       current: {
         ...comparison.current,
         range: { start: "2026-08-27", end: "2026-08-31" },
+        currencies: comparison.current.currencies.map((row) => ({
+          ...row,
+          expenseMinor: 500,
+        })),
       },
       currencies: comparison.currencies.map((row) => ({
         ...row,

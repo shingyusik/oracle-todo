@@ -59,6 +59,7 @@ export function LedgerReports({
       state.balances,
       state.trend,
       currencyId,
+      state.summary,
     )
     : null;
   const currency = model ? {

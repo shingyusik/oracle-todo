@@ -575,7 +575,7 @@ export function useLedgerController(): LedgerController {
       reportSelection: selection,
     }));
     try {
-      const { comparison, categoryBreakdown, trend, balances } =
+      const { comparison, summary, categoryBreakdown, trend, balances } =
         await loadLedgerReport(selection);
       if (generation !== reportGeneration.current) return;
       setState((current) => ({
@@ -584,7 +584,7 @@ export function useLedgerController(): LedgerController {
         reportError: null,
         comparison,
         trend,
-        summary: comparison.current,
+        summary,
         categoryBreakdown,
         balances,
       }));

@@ -81,6 +81,8 @@ describe("Dashboard Ledger highlights", () => {
       .toBeInTheDocument();
     expect(within(surface).getByRole("region", { name: "Income and spending pattern" }))
       .toBeInTheDocument();
+    expect(within(surface).getByText("Average daily · 44,645 KRW"))
+      .toBeInTheDocument();
 
     const heading = within(surface).getByRole("button", { name: "Ledger highlights" });
     expect(heading).toBeEnabled();
@@ -120,6 +122,21 @@ describe("Dashboard Ledger highlights", () => {
     await userEvent.click(within(surface).getByRole("button", { name: "Previous month" }));
     await waitFor(() => expect(loadLedgerReport)
       .toHaveBeenLastCalledWith({ period: "previous_month" }));
+  });
+
+  it("shows elapsed daily spending for a partial current month", async () => {
+    const data = reportData({ incomeMinor: 100_000, expenseMinor: 34_089 });
+    data.comparison.current.range = { start: "2026-09-01", end: "2026-09-30" };
+    data.summary = {
+      ...data.summary!,
+      range: { start: "2026-09-01", end: "2026-09-03" },
+    };
+    vi.mocked(loadLedgerReport).mockResolvedValue(data);
+
+    render(<DashboardLedgerHighlights mutationEpoch={0} onNavigate={vi.fn()} />);
+
+    const cashFlow = await screen.findByRole("region", { name: "Cash Flow" });
+    expect(cashFlow).toHaveTextContent("11,363 KRW");
   });
 
   it("shows a full overage ring and negative remaining amount", async () => {
@@ -333,6 +350,7 @@ function reportData({
   };
   const previous = { ...current, incomeMinor: 0, expenseMinor: 0, netChangeMinor: 0 };
   const range = { start: "2026-08-01", end: "2026-08-31" };
+  const summary = { range, currencies: [current] };
   const balances: LedgerReportData["balances"] = [{
     account: {
       id: `account-${currency.code.toLowerCase()}`,
@@ -361,7 +379,7 @@ function reportData({
   });
   return {
     comparison: {
-      current: { range, currencies: [current] },
+      current: summary,
       previous: {
         range: { start: "2026-07-01", end: "2026-07-31" },
         currencies: [previous],
@@ -373,6 +391,7 @@ function reportData({
         previous,
       }],
     },
+    summary,
     categoryBreakdown: expenseMinor > 0 ? [{
       ...current,
       referenceId: "category-food",
@@ -413,6 +432,7 @@ function emptyReportData(): LedgerReportData {
       previous: { ...data.comparison.previous, currencies: [] },
       currencies: [],
     },
+    summary: { ...data.comparison.current, currencies: [] },
     categoryBreakdown: [],
     trend: { ...data.trend, currencies: [] },
     balances: [],

@@ -82,6 +82,7 @@ export function DashboardLedgerHighlights({
       data.balances,
       data.trend,
       currencyId,
+      data.summary,
     )
     : null;
   const currency = model ? {
