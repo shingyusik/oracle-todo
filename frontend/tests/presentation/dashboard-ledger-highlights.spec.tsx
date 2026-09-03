@@ -333,6 +333,7 @@ function reportData({
   };
   const previous = { ...current, incomeMinor: 0, expenseMinor: 0, netChangeMinor: 0 };
   const range = { start: "2026-08-01", end: "2026-08-31" };
+  const summary = { range, currencies: [current] };
   const balances: LedgerReportData["balances"] = [{
     account: {
       id: `account-${currency.code.toLowerCase()}`,
@@ -361,7 +362,7 @@ function reportData({
   });
   return {
     comparison: {
-      current: { range, currencies: [current] },
+      current: summary,
       previous: {
         range: { start: "2026-07-01", end: "2026-07-31" },
         currencies: [previous],
@@ -373,6 +374,7 @@ function reportData({
         previous,
       }],
     },
+    summary,
     categoryBreakdown: expenseMinor > 0 ? [{
       ...current,
       referenceId: "category-food",
@@ -413,6 +415,7 @@ function emptyReportData(): LedgerReportData {
       previous: { ...data.comparison.previous, currencies: [] },
       currencies: [],
     },
+    summary: { ...data.comparison.current, currencies: [] },
     categoryBreakdown: [],
     trend: { ...data.trend, currencies: [] },
     balances: [],

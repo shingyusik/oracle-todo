@@ -1819,6 +1819,7 @@ describe("WorkbenchPageClient", () => {
       categoryBreakdown: ledger.state.categoryBreakdown,
       trend: ledger.state.trend!,
       balances: ledger.state.balances,
+      summary: ledger.state.comparison!.current,
     } satisfies LedgerReportData);
     render(<DashboardHarness />);
 
@@ -1873,6 +1874,7 @@ describe("WorkbenchPageClient", () => {
       categoryBreakdown: ledger.state.categoryBreakdown,
       trend: ledger.state.trend!,
       balances: ledger.state.balances,
+      summary: ledger.state.comparison!.current,
     } satisfies LedgerReportData);
     render(<DashboardHarness />);
 
@@ -1934,6 +1936,7 @@ describe("WorkbenchPageClient", () => {
       categoryBreakdown: ledger.state.categoryBreakdown,
       trend: ledger.state.trend!,
       balances: ledger.state.balances,
+      summary: ledger.state.comparison!.current,
     } satisfies LedgerReportData);
     render(<DashboardHarness navigationControls />);
 
@@ -1972,6 +1975,7 @@ describe("WorkbenchPageClient", () => {
       categoryBreakdown: ledger.state.categoryBreakdown,
       trend: ledger.state.trend!,
       balances: ledger.state.balances,
+      summary: ledger.state.comparison!.current,
     } satisfies LedgerReportData);
     render(
       <React.StrictMode>
@@ -2011,6 +2015,7 @@ describe("WorkbenchPageClient", () => {
       categoryBreakdown: ledger.state.categoryBreakdown,
       trend: ledger.state.trend!,
       balances: ledger.state.balances,
+      summary: ledger.state.comparison!.current,
     } satisfies LedgerReportData);
     render(<DashboardHarness />);
 

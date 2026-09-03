@@ -212,15 +212,17 @@ function dashboardPanelController(items: TestItem[]): WorkbenchController {
 function emptyLedgerReportData(): LedgerReportData {
   const currentRange = { start: "2026-07-01", end: "2026-07-31" };
   const previousRange = { start: "2026-06-01", end: "2026-06-30" };
+  const current = { range: currentRange, currencies: [] };
   return {
     comparison: {
-      current: { range: currentRange, currencies: [] },
+      current,
       previous: { range: previousRange, currencies: [] },
       currencies: [],
     },
     categoryBreakdown: [],
     trend: { range: currentRange, granularity: "daily", currencies: [] },
     balances: [],
+    summary: current,
   };
 }
 
