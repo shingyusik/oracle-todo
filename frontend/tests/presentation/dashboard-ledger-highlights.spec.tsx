@@ -122,6 +122,21 @@ describe("Dashboard Ledger highlights", () => {
       .toHaveBeenLastCalledWith({ period: "previous_month" }));
   });
 
+  it("shows elapsed daily spending for a partial current month", async () => {
+    const data = reportData({ incomeMinor: 100_000, expenseMinor: 34_089 });
+    data.comparison.current.range = { start: "2026-09-01", end: "2026-09-30" };
+    data.summary = {
+      ...data.summary!,
+      range: { start: "2026-09-01", end: "2026-09-03" },
+    };
+    vi.mocked(loadLedgerReport).mockResolvedValue(data);
+
+    render(<DashboardLedgerHighlights mutationEpoch={0} onNavigate={vi.fn()} />);
+
+    const cashFlow = await screen.findByRole("region", { name: "Cash Flow" });
+    expect(cashFlow).toHaveTextContent("11,363 KRW");
+  });
+
   it("shows a full overage ring and negative remaining amount", async () => {
     vi.mocked(loadLedgerReport).mockResolvedValue(reportData({
       incomeMinor: 1_000_000,

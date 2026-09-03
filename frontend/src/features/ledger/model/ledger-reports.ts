@@ -2,6 +2,7 @@ import type {
   AccountBalance,
   BreakdownRow,
   LedgerComparison,
+  LedgerSummary,
   LedgerTrend,
   ReportRange,
 } from "@/features/ledger/model/ledger-model";
@@ -51,6 +52,7 @@ export function buildLedgerReportModel(
   balances: AccountBalance[],
   trend: LedgerTrend,
   currencyId: string,
+  observedSummary: LedgerSummary | null = comparison.current,
 ): LedgerReportModel {
   const selected = comparison.currencies.find((row) => row.currencyId === currencyId);
   const balanceMetadata = balances.find((row) => row.account.currencyId === currencyId);
@@ -81,9 +83,13 @@ export function buildLedgerReportModel(
     netChangeMinor: 0,
     entryCount: 0,
   };
-  const averageDailyExpenseMinor = Math.round(
-    current.expenseMinor / inclusiveDays(range.start, range.end),
-  );
+  const observed = observedSummary?.currencies.find((row) => row.currencyId === currencyId);
+  const observedDays = observedSummary
+    ? inclusiveDays(observedSummary.range.start, observedSummary.range.end)
+    : 0;
+  const averageDailyExpenseMinor = observedDays === 0
+    ? 0
+    : Math.round((observed?.expenseMinor ?? 0) / observedDays);
   const selectedTrend = trend.currencies.find((row) => row.currencyId === currencyId);
   return {
     currencyId,

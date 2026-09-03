@@ -3006,6 +3006,22 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("img", { name: /Liability composition/ })).toBeInTheDocument();
   });
 
+  it("uses the observed summary range for Reports average daily spending", () => {
+    const state = reportAnalysisState();
+    state.comparison!.current.range = { start: "2026-09-01", end: "2026-09-30" };
+    state.comparison!.current.currencies[0]!.expenseMinor = 34_089;
+    state.summary = {
+      range: { start: "2026-09-01", end: "2026-09-03" },
+      currencies: [{ ...state.comparison!.current.currencies[0]!, expenseMinor: 34_089 }],
+    };
+
+    render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
+
+    expect(within(screen.getByRole("region", { name: "Summary" }))
+      .getByRole("group", { name: "Average daily spending" }))
+      .toHaveTextContent("11,363 KRW");
+  });
+
   it("includes each donut slice value in its accessible button name", () => {
     const state = reportAnalysisState();
     state.comparison!.currencies[0]!.current.incomeMinor = 3_650_000;
@@ -3631,6 +3647,29 @@ describe("LedgerPanel", () => {
       start: "2026-08-01",
       end: "2026-08-31",
     });
+  });
+
+  it("retains the observed summary returned by the report loader", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 3, 12));
+    try {
+      mockLedgerLoads();
+      const reportComparison = comparison("2026-09-01", "2026-09-30");
+      const observedSummary = comparison("2026-09-01", "2026-09-03").current;
+      vi.spyOn(ledgerApi, "compare").mockResolvedValue(reportComparison);
+      vi.spyOn(ledgerApi, "summary").mockResolvedValue(observedSummary);
+      vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
+      vi.spyOn(ledgerApi, "trend").mockResolvedValue(trend("2026-09-01", "2026-09-30"));
+      const { result } = renderHook(() => useLedgerController());
+
+      await act(async () => {
+        await result.current.runReports({ period: "current_month" });
+      });
+
+      expect(result.current.state.summary).toBe(observedSummary);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(["success", "failure"] as const)(
