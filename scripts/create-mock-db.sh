@@ -16,7 +16,7 @@ canonical_path() {
       printf '%s\n' "${normalized,,}"
       ;;
     *)
-      realpath -m -- "$normalized"
+      python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$normalized"
       ;;
   esac
 }

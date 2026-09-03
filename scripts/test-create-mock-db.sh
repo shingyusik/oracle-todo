@@ -5,10 +5,31 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 smoke_home="$(mktemp -d)"
 occupied_home="$(mktemp -d)"
 raven_home="$(mktemp -d)"
-trap 'rm -rf -- "$smoke_home" "$occupied_home" "$raven_home"' EXIT
+portable_bin="$(mktemp -d)"
+trap 'rm -rf -- "$smoke_home" "$occupied_home" "$raven_home" "$portable_bin"' EXIT
 
 sentinel_bytes='sentinel ledger bytes'
 printf '%s' "$sentinel_bytes" >"$occupied_home/ledger.sqlite"
+case "$(uname -s)" in
+  MSYS_*|MINGW*|CYGWIN_*) ;;
+  *)
+    system_realpath="$(command -v realpath)"
+    cat >"$portable_bin/realpath" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-m" ]]; then
+  echo "portable realpath rejects -m" >&2
+  exit 64
+fi
+exec "$SYSTEM_REALPATH" "$@"
+EOF
+    chmod +x "$portable_bin/realpath"
+    if portable_output="$(PATH="$portable_bin:$PATH" SYSTEM_REALPATH="$system_realpath" "$repo_root/scripts/create-mock-db.sh" "$occupied_home" 2>&1)"; then
+      echo "expected occupied custom home to be rejected" >&2
+      exit 1
+    fi
+    grep -q "refusing to overwrite existing database: $occupied_home/ledger.sqlite" <<<"$portable_output"
+    ;;
+esac
 if refusal_output="$("$repo_root/scripts/create-mock-db.sh" "$occupied_home" 2>&1)"; then
   echo "expected occupied custom home to be rejected" >&2
   exit 1
