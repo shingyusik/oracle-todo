@@ -283,7 +283,7 @@ describe("DashboardPanel", () => {
       expect(screen.getByRole("region", { name })).toBeVisible();
     }
     const ledger = await screen.findByRole("region", { name: "Ledger highlights" });
-    expect(within(ledger).getByRole("alert"))
+    expect(await within(ledger).findByRole("alert"))
       .toHaveTextContent("Could not load Ledger highlights.");
     expect(within(ledger).getByRole("button", { name: "Retry Ledger highlights" }))
       .toBeVisible();
