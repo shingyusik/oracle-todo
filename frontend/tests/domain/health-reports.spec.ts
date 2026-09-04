@@ -29,7 +29,7 @@ describe("Health report analysis", () => {
       { metric: "body_weight", name: "Weight", unit: "kg", current: null, previous: null },
       { metric: "sleep_duration", name: "Sleep", unit: "hours", current: null, previous: null },
       { metric: "crp", name: "CRP", unit: "mg/L", current: null, previous: null },
-      { metric: "fecal_calprotectin", name: "Calprotectin", unit: "쨉g/g", current: null, previous: null },
+      { metric: "fecal_calprotectin", name: "Calprotectin", unit: "µg/g", current: null, previous: null },
       { metric: "overall_condition", name: "Condition", unit: null, current: null, previous: null },
     ],
     bowelPoints: [], metricSeries: [
