@@ -518,36 +518,26 @@ describe("Health Reports workspace", () => {
     const summary = screen.getByRole("region", { name: "Summary" });
     expect(within(summary).getAllByRole("button").map((button) =>
       button.getAttribute("data-report-card"))).toEqual([
-      "Weight", "Sleep", "CRP", "Calprotectin", "Condition",
-      "Diet count", "Bowel count", "Bowel average", "Medication count",
+      "Latest daily Bristol average", "Latest weight", "Weight change",
     ]);
-    expect(within(summary).getByRole("button", { name: /View Weight records/ }))
+    expect(within(summary).getByText("Latest weight").parentElement)
       .toHaveTextContent("72 kg");
-    expect(within(summary).getByRole("button", { name: /View Weight records/ }))
-      .toHaveTextContent("Previous 71 kg · +1 kg");
-    expect(within(summary).getByRole("button", { name: /View CRP records/ }))
-      .toHaveTextContent("Unavailable");
-    await user.click(within(summary).getByRole("button", { name: /View Diet count records/ }));
-    expect(onDrilldown).toHaveBeenLastCalledWith({
-      tab: "diet", range: { start: "2026-08-01", end: "2026-08-20" },
-    });
+    expect(within(summary).getByText("Weight change").parentElement)
+      .toHaveTextContent("+0.5 kg");
+    expect(within(summary).queryByText("Diet count")).toBeNull();
 
     const bowelChart = screen.getByRole("group", {
-      name: "Bowel Bristol scale. Typical Bristol band 3 to 5",
+      name: "Daily average Bristol score. Typical Bristol band 3 to 5",
     });
     expect(bowelChart).toBeInTheDocument();
     expect(within(bowelChart).getAllByRole("img").map((point) =>
       point.getAttribute("aria-label"))).toEqual([
-      `${new Date("2026-08-10T08:30:00Z").toLocaleString()}: Bristol 4`,
-      `${new Date("2026-08-12T09:45:00Z").toLocaleString()}: Bristol 6`,
+      "2026-08-10: Average Bristol 4 from 2 records",
+      "2026-08-12: Average Bristol 6 from 1 record",
     ]);
-    expect(within(bowelChart).queryByRole("img", {
-      name: "2026-08-12 09:45: Bristol 6",
-    })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "View abnormal bowel records" }));
+    await user.click(screen.getByRole("button", { name: "View bowel records" }));
     expect(onDrilldown).toHaveBeenLastCalledWith({
-      tab: "bowel", field: "bristol_scale",
-      range: { start: "2026-08-01", end: "2026-08-20" },
+      tab: "bowel", range: { start: "2026-08-01", end: "2026-08-20" },
     });
 
     const selector = screen.getByRole("combobox", { name: "Metric" });
@@ -604,8 +594,88 @@ describe("Health Reports workspace", () => {
     expect(within(responses).getByText(
       "Observed associations only; they do not establish causation.",
     )).toBeInTheDocument();
-    expect(document.querySelector(".health-report-chart-grid")).toBeInTheDocument();
-    expect(document.querySelector(".health-report-summary-metrics")).toBeInTheDocument();
+    expect(document.querySelector(".health-report-primary-grid")).toBeInTheDocument();
+    expect(document.querySelector(".health-report-primary-summary")).toBeInTheDocument();
+  });
+
+  it("leads with daily Bristol and weight primary analysis", async () => {
+    const user = userEvent.setup();
+    const onDrilldown = vi.fn<(target: HealthReportDrilldown) => void>();
+    render(<HealthReports controller={controller()} onDrilldown={onDrilldown} />);
+
+    const summary = screen.getByRole("region", { name: "Summary" });
+    expect(within(summary).getAllByRole("button").map((button) =>
+      button.getAttribute("data-report-card"))).toEqual([
+      "Latest daily Bristol average", "Latest weight", "Weight change",
+    ]);
+    expect(within(summary).getByText("Latest daily Bristol average").parentElement)
+      .toHaveTextContent("62026-08-12");
+    expect(within(summary).getByText("Latest weight").parentElement)
+      .toHaveTextContent("72 kg2026-08-20");
+    expect(within(summary).getByText("Weight change").parentElement)
+      .toHaveTextContent("+0.5 kgFirst to latest record in selected period");
+    expect(within(summary).queryByText("Diet count")).toBeNull();
+    await user.click(within(summary).getByRole("button", {
+      name: /Latest daily Bristol average/,
+    }));
+    expect(onDrilldown).toHaveBeenLastCalledWith({
+      tab: "bowel", range: { start: "2026-08-01", end: "2026-08-20" },
+    });
+    await user.click(within(summary).getByRole("button", { name: /Latest weight/ }));
+    expect(onDrilldown).toHaveBeenLastCalledWith({
+      tab: "health-metrics", field: "weight", range: { start: "2026-08-01", end: "2026-08-20" },
+    });
+    await user.click(within(summary).getByRole("button", { name: /Weight change/ }));
+    expect(onDrilldown).toHaveBeenLastCalledWith({
+      tab: "health-metrics", field: "weight", range: { start: "2026-08-01", end: "2026-08-20" },
+    });
+
+    const bowel = screen.getByRole("group", {
+      name: "Daily average Bristol score. Typical Bristol band 3 to 5",
+    });
+    expect(within(bowel).getAllByRole("img").map((point) => point.getAttribute("aria-label")))
+      .toEqual([
+        "2026-08-10: Average Bristol 4 from 2 records",
+        "2026-08-12: Average Bristol 6 from 1 record",
+      ]);
+    expect([...bowel.querySelectorAll(".dashboard-line-y-tick")].map((tick) => tick.textContent))
+      .toEqual(["7", "5.5", "4", "2.5", "1"]);
+    expect(bowel.querySelector(".dashboard-line-reference-band"))
+      .toHaveTextContent("Typical Bristol 3 to 5");
+    await user.click(screen.getByRole("button", { name: "View bowel records" }));
+    expect(onDrilldown).toHaveBeenLastCalledWith({
+      tab: "bowel", range: { start: "2026-08-01", end: "2026-08-20" },
+    });
+
+    const weight = screen.getByRole("group", { name: "Weight trend (kg)" });
+    expect(within(weight).getAllByRole("img").map((point) => point.getAttribute("aria-label")))
+      .toEqual([
+        "2026-08-10: Weight 71.5 kg",
+        "2026-08-20: Weight 72 kg",
+      ]);
+    expect(within(weight.parentElement!).getByText("First 71.5 kg · Latest 72 kg"))
+      .toBeInTheDocument();
+    expect(within(weight).getByText("70 kg")).toBeInTheDocument();
+    await user.click(within(weight.parentElement!).getByRole("button", {
+      name: "View weight records",
+    }));
+    expect(onDrilldown).toHaveBeenLastCalledWith({
+      tab: "health-metrics", field: "weight", range: { start: "2026-08-01", end: "2026-08-20" },
+    });
+  });
+
+  it("shows no weight comparison for one weight reading", () => {
+    const value = populatedReport();
+    value.metricSeries = value.metricSeries.map((series) => series.metric === "body_weight"
+      ? {
+        ...series,
+        points: [{ localDate: "2026-08-20", occurredAt: "2026-08-20T08:30:00Z", value: 72 }],
+      }
+      : series);
+    render(<HealthReports controller={controller({ report: value })} />);
+
+    expect(within(screen.getByRole("region", { name: "Summary" }))
+      .getByText("Weight change").parentElement).toHaveTextContent("No comparison available");
   });
 
   it("defaults to the first metric with points and keeps later units isolated", async () => {
@@ -653,10 +723,6 @@ describe("Health Reports workspace", () => {
     expect(screen.getByRole("img", {
       name: `${new Date("2026-08-20T12:00:00Z").toLocaleString()}: 0.123456789012345 mg/L`,
     })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "CRP" }))
-      .toHaveTextContent("68.2 mg/L2026-08-20Previous 68.1 mg/L · +0.1 mg/L");
-    expect(screen.getByRole("group", { name: "Condition" }))
-      .toHaveTextContent("02026-08-20Previous 0 · 0");
   });
 
   it("uses unique chart point keys when timestamps repeat", () => {
@@ -678,9 +744,9 @@ describe("Health Reports workspace", () => {
     render(<HealthReports controller={controller({ report: value })} />);
 
     expect(within(screen.getByRole("group", {
-      name: "Bowel Bristol scale. Typical Bristol band 3 to 5",
-    })).getAllByRole("img")).toHaveLength(2);
-    expect(within(screen.getByRole("group", { name: "Weight (kg)" }))
+      name: "Daily average Bristol score. Typical Bristol band 3 to 5",
+    })).getAllByRole("img")).toHaveLength(1);
+    expect(within(screen.getByRole("group", { name: "Weight trend (kg)" }))
       .getAllByRole("img")).toHaveLength(2);
     const errors = consoleError.mock.calls.flat().join(" ");
     consoleError.mockRestore();
@@ -703,9 +769,11 @@ describe("Health Reports workspace", () => {
     render(<HealthReports controller={controller({ report: empty })} />);
     expect(screen.getByText("No health records are available for this period."))
       .toBeInTheDocument();
-    expect(screen.getByText("No bowel Bristol readings are available for this period."))
+    expect(within(screen.getByRole("region", { name: "Daily average Bristol score" }))
+      .getByText("No bowel Bristol readings are available for this period."))
       .toBeInTheDocument();
-    expect(screen.getByText("No weight readings are available for this period."))
+    expect(within(screen.getByRole("region", { name: "Weight trend" }))
+      .getByText("No weight readings are available for this period."))
       .toBeInTheDocument();
   });
 
@@ -754,9 +822,8 @@ describe("Health Reports workspace", () => {
     const css = readFileSync(resolve(process.cwd(), "src/styles/globals.css"), "utf8");
     const narrow = cssBlock(css, "@media (max-width: 760px)", css.indexOf(".health-reports"));
     for (const selector of [
-      ".health-report-summary-metrics",
-      ".health-report-summary-counts",
-      ".health-report-chart-grid",
+      ".health-report-primary-summary",
+      ".health-report-primary-grid",
       ".health-report-list-grid",
     ]) expect(narrow).toContain(selector);
     expect(narrow).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
@@ -783,7 +850,8 @@ function populatedReport(): HealthReport {
     medicationCount: { current: 4, previous: 3 },
     bowelPoints: [
       { localDate: "2026-08-12", occurredAt: "2026-08-12T09:45:00Z", bristolScale: 6 },
-      { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", bristolScale: 4 },
+      { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", bristolScale: 3 },
+      { localDate: "2026-08-10", occurredAt: "2026-08-10T09:30:00Z", bristolScale: 5 },
     ],
     metricSeries: [
       { metric: "body_weight", points: [reading("2026-08-10", 71.5), reading("2026-08-20", 72)] },

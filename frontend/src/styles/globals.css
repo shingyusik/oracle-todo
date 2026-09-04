@@ -637,23 +637,19 @@ button {
   margin: 0;
 }
 
-.health-report-summary,
-.health-report-chart-grid,
+.health-report-primary-summary,
+.health-report-primary-grid,
 .health-report-list-grid {
   display: grid;
   min-width: 0;
   gap: 12px;
 }
 
-.health-report-summary-metrics {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+.health-report-primary-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.health-report-summary-counts {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.health-report-chart-grid,
+.health-report-primary-grid,
 .health-report-list-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -728,9 +724,8 @@ button {
 }
 
 @media (max-width: 760px) {
-  .health-report-summary-metrics,
-  .health-report-summary-counts,
-  .health-report-chart-grid,
+  .health-report-primary-summary,
+  .health-report-primary-grid,
   .health-report-list-grid {
     grid-template-columns: minmax(0, 1fr);
   }

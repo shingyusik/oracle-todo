@@ -6,10 +6,12 @@ import type { LineChartSpec } from "@/features/dashboard/model/dashboard-widgets
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
 import type {
   HealthReport,
+  HealthReportAnalysis as ReportAnalysis,
   HealthReportDrilldown,
   HealthReportMetric,
   HealthReportMetricSummary,
 } from "@/features/health/model/health-reports";
+import { buildHealthReportAnalysis } from "@/features/health/model/health-reports";
 
 type Drilldown = (target: HealthReportDrilldown) => void;
 type Range = HealthReportDrilldown["range"];
@@ -34,16 +36,18 @@ export function HealthReportAnalysis({
   onDrilldown?: Drilldown;
 }) {
   const range = { start: report.range.from, end: report.range.to };
+  const analysis = buildHealthReportAnalysis(report);
   return (
     <>
       {!hasUsableData(report) && (
         <p className="items-message">No health records are available for this period.</p>
       )}
-      <Summary report={report} range={range} onDrilldown={onDrilldown} />
-      <div className="health-report-chart-grid">
-        <BowelChart report={report} range={range} onDrilldown={onDrilldown} />
-        <MetricChart report={report} range={range} onDrilldown={onDrilldown} />
+      <Summary analysis={analysis} range={range} onDrilldown={onDrilldown} />
+      <div className="health-report-primary-grid">
+        <BowelChart analysis={analysis} range={range} onDrilldown={onDrilldown} />
+        <WeightChart analysis={analysis} range={range} onDrilldown={onDrilldown} />
       </div>
+      <MetricChart report={report} range={range} onDrilldown={onDrilldown} />
       <div className="health-report-list-grid">
         <FrequencyList
           heading="Medication frequency"
@@ -68,69 +72,40 @@ export function HealthReportAnalysis({
 }
 
 function Summary({
-  report,
+  analysis,
   range,
   onDrilldown,
 }: {
-  report: HealthReport;
+  analysis: ReportAnalysis;
   range: Range;
   onDrilldown?: Drilldown;
 }) {
-  const metricCards = metrics.map((definition) => ({
-    label: definition.label,
-    summary: report.metrics.find(({ metric }) => metric === definition.metric) ?? null,
-    target: { tab: "health-metrics", field: definition.field, range } as const,
-  }));
-  const aggregateCards = [
-    {
-      label: "Diet count",
-      current: report.dietCount.current,
-      previous: report.dietCount.previous,
-      target: { tab: "diet", range } as const,
-    },
-    {
-      label: "Bowel count",
-      current: report.bowel.currentCount,
-      previous: report.bowel.previousCount,
-      target: { tab: "bowel", range } as const,
-    },
-    {
-      label: "Bowel average",
-      current: report.bowel.currentAverage,
-      previous: report.bowel.previousAverage,
-      target: { tab: "bowel", range } as const,
-    },
-    {
-      label: "Medication count",
-      current: report.medicationCount.current,
-      previous: report.medicationCount.previous,
-      target: { tab: "medication", range } as const,
-    },
-  ];
+  const bowelDrilldown = () => onDrilldown?.({ tab: "bowel", range });
+  const weightDrilldown = () => onDrilldown?.({
+    tab: "health-metrics", field: "weight", range,
+  });
   return (
     <section className="health-report-section" aria-label="Summary">
       <h2>Summary</h2>
-      <div className="health-report-summary health-report-summary-metrics">
-        {metricCards.map(({ label, summary, target }) => (
-          <ReportCard
-            key={label}
-            label={label}
-            onClick={onDrilldown && (() => onDrilldown(target))}
-          >
-            <MetricComparison summary={summary} />
-          </ReportCard>
-        ))}
-      </div>
-      <div className="health-report-summary health-report-summary-counts">
-        {aggregateCards.map(({ label, current, previous, target }) => (
-          <ReportCard
-            key={label}
-            label={label}
-            onClick={onDrilldown && (() => onDrilldown(target))}
-          >
-            <NumberComparison current={current} previous={previous} />
-          </ReportCard>
-        ))}
+      <div className="health-report-primary-summary">
+        <ReportCard
+          label="Latest daily Bristol average"
+          onClick={onDrilldown && bowelDrilldown}
+        >
+          <strong>{analysis.latestDailyBowel ? number(analysis.latestDailyBowel.value) : "Unavailable"}</strong>
+          <small>{analysis.latestDailyBowel
+            ? `${analysis.latestDailyBowel.localDate} · ${recordCount(analysis.latestDailyBowel.recordCount)}`
+            : "No records in selected period"}</small>
+        </ReportCard>
+        <ReportCard label="Latest weight" onClick={onDrilldown && weightDrilldown}>
+          <strong>{analysis.latestWeight ? `${number(analysis.latestWeight.value)} kg` : "Unavailable"}</strong>
+          <small>{analysis.latestWeight?.localDate ?? "No records in selected period"}</small>
+        </ReportCard>
+        <ReportCard label="Weight change" onClick={onDrilldown && weightDrilldown}>
+          <strong>{analysis.weightChange === null
+            ? "No comparison available" : `${signed(analysis.weightChange)} kg`}</strong>
+          <small>First to latest record in selected period</small>
+        </ReportCard>
       </div>
     </section>
   );
@@ -175,51 +150,31 @@ function MetricComparison({ summary }: { summary: HealthReportMetricSummary | nu
   );
 }
 
-function NumberComparison({
-  current,
-  previous,
-}: {
-  current: number | null;
-  previous: number | null;
-}) {
-  return (
-    <>
-      <strong>{current === null ? "Unavailable" : number(current)}</strong>
-      <small>
-        Previous {previous === null ? "Unavailable" : number(previous)}
-        {current !== null && previous !== null ? ` · ${signed(current - previous)}` : ""}
-      </small>
-    </>
-  );
-}
-
 function BowelChart({
-  report,
+  analysis,
   range,
   onDrilldown,
 }: {
-  report: HealthReport;
+  analysis: ReportAnalysis;
   range: Range;
   onDrilldown?: Drilldown;
 }) {
-  const points = [...report.bowelPoints]
-    .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))
-    .map((point, index) => ({
-      id: `${point.occurredAt}-${index}`,
-      label: point.localDate,
-      value: point.bristolScale,
-      ariaLabel: `${dateTime(point.occurredAt)}: Bristol ${point.bristolScale}`,
-    }));
+  const points = analysis.dailyBowelPoints.map((point) => ({
+    id: point.localDate,
+    label: point.localDate,
+    value: point.value,
+    ariaLabel: `${point.localDate}: Average Bristol ${number(point.value)} from ${recordCount(point.recordCount)}`,
+  }));
   return (
-    <section className="health-report-section" aria-label="Bowel Bristol scale">
+    <section className="health-report-section" aria-label="Daily average Bristol score">
       <div className="health-report-section-heading">
-        <h2>Bowel Bristol scale</h2>
+        <h2>Daily average Bristol score</h2>
         {onDrilldown && (
           <button
             type="button"
-            onClick={() => onDrilldown({ tab: "bowel", field: "bristol_scale", range })}
+            onClick={() => onDrilldown({ tab: "bowel", range })}
           >
-            View abnormal bowel records
+            View bowel records
           </button>
         )}
       </div>
@@ -229,12 +184,63 @@ function BowelChart({
         <DashboardLineChart
           chart={{
             kind: "line",
-            ariaLabel: "Bowel Bristol scale. Typical Bristol band 3 to 5",
+            ariaLabel: "Daily average Bristol score. Typical Bristol band 3 to 5",
             total: points.length,
             points,
           }}
+          domain={{ minimum: 1, maximum: 7 }}
           referenceBand={{ minimum: 3, maximum: 5, label: "Typical Bristol 3 to 5" }}
         />
+      )}
+    </section>
+  );
+}
+
+function WeightChart({
+  analysis,
+  range,
+  onDrilldown,
+}: {
+  analysis: ReportAnalysis;
+  range: Range;
+  onDrilldown?: Drilldown;
+}) {
+  const points = analysis.weightPoints.map((point, index) => ({
+    id: `${point.occurredAt}-${index}`,
+    label: point.localDate,
+    value: point.value,
+    ariaLabel: `${point.localDate}: Weight ${number(point.value)} kg`,
+  }));
+  const values = analysis.weightPoints.map(({ value }) => value);
+  const domain = values.length === 0 ? undefined : {
+    minimum: Math.floor(Math.min(...values) - 1),
+    maximum: Math.ceil(Math.max(...values) + 1),
+  };
+  return (
+    <section className="health-report-section" aria-label="Weight trend">
+      <div className="health-report-section-heading">
+        <h2>Weight trend</h2>
+        {analysis.weightPoints.length > 0 && (
+          <small>First {number(analysis.weightPoints[0]!.value)} kg · Latest {number(analysis.latestWeight!.value)} kg</small>
+        )}
+      </div>
+      {points.length === 0 ? (
+        <p className="items-message">No weight readings are available for this period.</p>
+      ) : (
+        <DashboardLineChart
+          chart={{ kind: "line", ariaLabel: "Weight trend (kg)", total: points.length, points }}
+          domain={domain}
+          valueSuffix=" kg"
+        />
+      )}
+      {onDrilldown && (
+        <button
+          type="button"
+          className="health-report-chart-action"
+          onClick={() => onDrilldown({ tab: "health-metrics", field: "weight", range })}
+        >
+          View weight records
+        </button>
       )}
     </section>
   );
@@ -393,6 +399,10 @@ function number(value: number): string {
 function signed(value: number): string {
   const rounded = Number(value.toPrecision(12));
   return `${rounded > 0 ? "+" : ""}${number(rounded)}`;
+}
+
+function recordCount(value: number): string {
+  return `${value} record${value === 1 ? "" : "s"}`;
 }
 
 function dateTime(value: string): string {
