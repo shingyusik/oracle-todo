@@ -83,6 +83,17 @@ function Summary({
   const weightDrilldown = () => onDrilldown?.({
     tab: "health-metrics", field: "weight", range,
   });
+  const latestBowelValue = analysis.latestDailyBowel
+    ? bristolAverage(analysis.latestDailyBowel.value) : "Unavailable";
+  const latestBowelContext = analysis.latestDailyBowel
+    ? `${analysis.latestDailyBowel.localDate}, ${recordCount(analysis.latestDailyBowel.recordCount)}`
+    : "No records in selected period";
+  const latestWeightValue = analysis.latestWeight
+    ? `${number(analysis.latestWeight.value)} kg` : "Unavailable";
+  const latestWeightContext = analysis.latestWeight?.localDate ?? "No records in selected period";
+  const weightChangeValue = analysis.weightChange === null
+    ? "No comparison available" : `${signed(analysis.weightChange)} kg`;
+  const weightChangeContext = "First to latest record in selected period";
   return (
     <section className="health-report-section" aria-label="Summary">
       <h2>Summary</h2>
@@ -90,20 +101,26 @@ function Summary({
         <ReportCard
           label="Latest daily Bristol average"
           onClick={onDrilldown && bowelDrilldown}
+          ariaLabel={`Latest daily Bristol average: ${latestBowelValue}, ${latestBowelContext}`}
         >
-          <strong>{analysis.latestDailyBowel ? bristolAverage(analysis.latestDailyBowel.value) : "Unavailable"}</strong>
-          <small>{analysis.latestDailyBowel
-            ? `${analysis.latestDailyBowel.localDate} · ${recordCount(analysis.latestDailyBowel.recordCount)}`
-            : "No records in selected period"}</small>
+          <strong>{latestBowelValue}</strong>
+          <small>{analysis.latestDailyBowel ? `${analysis.latestDailyBowel.localDate} · ${recordCount(analysis.latestDailyBowel.recordCount)}` : latestBowelContext}</small>
         </ReportCard>
-        <ReportCard label="Latest weight" onClick={onDrilldown && weightDrilldown}>
-          <strong>{analysis.latestWeight ? `${number(analysis.latestWeight.value)} kg` : "Unavailable"}</strong>
-          <small>{analysis.latestWeight?.localDate ?? "No records in selected period"}</small>
+        <ReportCard
+          label="Latest weight"
+          onClick={onDrilldown && weightDrilldown}
+          ariaLabel={`Latest weight: ${latestWeightValue}, ${latestWeightContext}`}
+        >
+          <strong>{latestWeightValue}</strong>
+          <small>{latestWeightContext}</small>
         </ReportCard>
-        <ReportCard label="Weight change" onClick={onDrilldown && weightDrilldown}>
-          <strong>{analysis.weightChange === null
-            ? "No comparison available" : `${signed(analysis.weightChange)} kg`}</strong>
-          <small>First to latest record in selected period</small>
+        <ReportCard
+          label="Weight change"
+          onClick={onDrilldown && weightDrilldown}
+          ariaLabel={`Weight change: ${weightChangeValue}, ${weightChangeContext}`}
+        >
+          <strong>{weightChangeValue}</strong>
+          <small>{weightChangeContext}</small>
         </ReportCard>
       </div>
     </section>
@@ -113,13 +130,15 @@ function Summary({
 function ReportCard({
   label,
   onClick,
+  ariaLabel,
   children,
-}: React.PropsWithChildren<{ label: string; onClick?: () => void }>) {
+}: React.PropsWithChildren<{ label: string; onClick?: () => void; ariaLabel?: string }>) {
   const content = <><span>{label}</span>{children}</>;
   return onClick ? (
     <button
       type="button"
       className="health-report-card"
+      aria-label={ariaLabel}
       data-report-card={label}
       onClick={onClick}
     >

@@ -591,19 +591,19 @@ describe("Health Reports workspace", () => {
       .toHaveTextContent("+0.5 kgFirst to latest record in selected period");
     expect(within(summary).queryByText("Diet count")).toBeNull();
     await user.click(within(summary).getByRole("button", {
-      name: "Latest daily Bristol average62026-08-12 · 1 record",
+      name: "Latest daily Bristol average: 6, 2026-08-12, 1 record",
     }));
     expect(onDrilldown).toHaveBeenLastCalledWith({
       tab: "bowel", range: { start: "2026-08-01", end: "2026-08-20" },
     });
     await user.click(within(summary).getByRole("button", {
-      name: "Latest weight72 kg2026-08-20",
+      name: "Latest weight: 72 kg, 2026-08-20",
     }));
     expect(onDrilldown).toHaveBeenLastCalledWith({
       tab: "health-metrics", field: "weight", range: { start: "2026-08-01", end: "2026-08-20" },
     });
     await user.click(within(summary).getByRole("button", {
-      name: "Weight change+0.5 kgFirst to latest record in selected period",
+      name: "Weight change: +0.5 kg, First to latest record in selected period",
     }));
     expect(onDrilldown).toHaveBeenLastCalledWith({
       tab: "health-metrics", field: "weight", range: { start: "2026-08-01", end: "2026-08-20" },
@@ -690,7 +690,10 @@ describe("Health Reports workspace", () => {
 
     expect(within(screen.getByRole("region", { name: "Summary" }))
       .getByRole("group", { name: "Weight change" })).toHaveTextContent("0 kg");
-    expect(screen.getByRole("group", { name: "Weight trend (kg)" })).toBeInTheDocument();
+    const chart = screen.getByRole("group", { name: "Weight trend (kg)" });
+    expect([...chart.querySelectorAll(".dashboard-line-y-tick")].map((tick) => tick.textContent))
+      .toEqual(["73 kg", "72.5 kg", "72 kg", "71.5 kg", "71 kg"]);
+    expect(within(chart).queryByText("0 kg")).toBeNull();
   });
 
   it("defaults to the first metric with points and keeps later units isolated", async () => {
