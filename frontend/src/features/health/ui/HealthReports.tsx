@@ -28,6 +28,9 @@ export function HealthReports({
     : { from: "", to: "" });
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [retryPending, setRetryPending] = useState(false);
+  const [customOpen, setCustomOpen] = useState(
+    () => controller.state.reportSelection.preset === "custom",
+  );
   const { state } = controller;
   const loading = state.reportStatus === "loading";
 
@@ -81,47 +84,60 @@ export function HealthReports({
               type="button"
               aria-pressed={state.reportSelection.preset === preset}
               disabled={loading}
-              onClick={() => request({ preset })}
+              onClick={() => {
+                setCustomOpen(false);
+                request({ preset });
+              }}
             >
               {preset} days
             </button>
           ))}
+          <button
+            type="button"
+            aria-pressed={customOpen}
+            disabled={loading}
+            onClick={() => setCustomOpen(true)}
+          >
+            Custom range
+          </button>
         </div>
-        <form
-          className="health-report-custom"
-          aria-label="Custom health report range"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            applyCustom();
-          }}
-        >
-          <label>
-            From
-            <input
-              type="date"
-              value={range.from}
-              disabled={loading}
-              onChange={(event) => {
-                setRangeError(null);
-                setRange((current) => ({ ...current, from: event.target.value }));
-              }}
-            />
-          </label>
-          <label>
-            To
-            <input
-              type="date"
-              value={range.to}
-              disabled={loading}
-              onChange={(event) => {
-                setRangeError(null);
-                setRange((current) => ({ ...current, to: event.target.value }));
-              }}
-            />
-          </label>
-          <button type="submit" disabled={loading}>Apply</button>
-        </form>
+        {customOpen && (
+          <form
+            className="health-report-custom"
+            aria-label="Custom health report range"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyCustom();
+            }}
+          >
+            <label>
+              From
+              <input
+                type="date"
+                value={range.from}
+                disabled={loading}
+                onChange={(event) => {
+                  setRangeError(null);
+                  setRange((current) => ({ ...current, from: event.target.value }));
+                }}
+              />
+            </label>
+            <label>
+              To
+              <input
+                type="date"
+                value={range.to}
+                disabled={loading}
+                onChange={(event) => {
+                  setRangeError(null);
+                  setRange((current) => ({ ...current, to: event.target.value }));
+                }}
+              />
+            </label>
+            <button type="submit" disabled={loading}>Apply</button>
+          </form>
+        )}
       </div>
       {rangeError && <p role="alert" className="items-message health-report-error">{rangeError}</p>}
       {state.reportError && (

@@ -324,25 +324,41 @@ describe("Health Reports workspace", () => {
     } as unknown as HealthController;
   }
 
-  it("requests the default range once in Strict Mode and validates custom dates locally", async () => {
+  it("collapses custom range controls until disclosed and validates dates locally", async () => {
     const user = userEvent.setup();
     const value = controller({ reportStatus: "idle", report: null });
     render(<StrictMode><HealthReports controller={value} /></StrictMode>);
 
     await waitFor(() => expect(value.runReports).toHaveBeenCalledTimes(1));
     expect(value.runReports).toHaveBeenCalledWith({ preset: 30 });
-    expect(screen.getAllByRole("button").slice(0, 4).map((button) => button.textContent))
-      .toEqual(["7 days", "14 days", "30 days", "90 days"]);
+    const presets = within(screen.getByLabelText("Health report period"))
+      .getAllByRole("button");
+    expect(presets.map((button) => button.textContent))
+      .toEqual(["7 days", "14 days", "30 days", "90 days", "Custom range"]);
+    expect(screen.getByRole("button", { name: "30 days" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Custom range" }))
+      .toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByRole("form", { name: "Custom health report range" })).toBeNull();
+
+    vi.mocked(value.runReports).mockClear();
+    await user.click(screen.getByRole("button", { name: "Custom range" }));
+    expect(screen.getByRole("button", { name: "Custom range" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("form", { name: "Custom health report range" })).toBeInTheDocument();
+    expect(value.runReports).not.toHaveBeenCalled();
 
     vi.mocked(value.runReports).mockClear();
     for (const preset of [7, 14, 30, 90] as const) {
       await user.click(screen.getByRole("button", { name: `${preset} days` }));
+      expect(screen.queryByRole("form", { name: "Custom health report range" })).toBeNull();
     }
     expect(value.runReports).toHaveBeenCalledTimes(4);
     expect(vi.mocked(value.runReports).mock.calls.map(([selection]) => selection))
       .toEqual([{ preset: 7 }, { preset: 14 }, { preset: 30 }, { preset: 90 }]);
 
     vi.mocked(value.runReports).mockClear();
+    await user.click(screen.getByRole("button", { name: "Custom range" }));
     await user.click(screen.getByRole("button", { name: "Apply" }));
     expect(screen.getByRole("alert")).toHaveTextContent("valid From and To dates");
     expect(value.runReports).not.toHaveBeenCalled();
