@@ -2099,6 +2099,9 @@ describe("WorkbenchPageClient", () => {
       id: "health-report-date", field: "date", type: "date", operator: "is_between",
       value: { start: "2026-07-22", end: "2026-08-20" },
     };
+    expect(screen.queryAllByRole("button", {
+      name: /View (?:Diet|Bowel|Medication) count records/i,
+    })).toHaveLength(0);
     const cases = [
       ["spicy, 1 record", "health.diet", "diet",
         { id: "health-report-tags", field: "tags", type: "multiSelect", operator: "contains", value: ["spicy"] }],
