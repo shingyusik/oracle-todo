@@ -28,8 +28,17 @@ describe("Health report analysis", () => {
     metrics: [
       { metric: "body_weight", name: "Weight", unit: "kg", current: null, previous: null },
       { metric: "sleep_duration", name: "Sleep", unit: "hours", current: null, previous: null },
+      { metric: "crp", name: "CRP", unit: "mg/L", current: null, previous: null },
+      { metric: "fecal_calprotectin", name: "Calprotectin", unit: "쨉g/g", current: null, previous: null },
+      { metric: "overall_condition", name: "Condition", unit: null, current: null, previous: null },
     ],
-    bowelPoints: [], metricSeries: [],
+    bowelPoints: [], metricSeries: [
+      { metric: "body_weight", points: [] },
+      { metric: "sleep_duration", points: [] },
+      { metric: "crp", points: [] },
+      { metric: "fecal_calprotectin", points: [] },
+      { metric: "overall_condition", points: [] },
+    ],
     dietCount: { current: null, previous: null }, bowel: {
       currentCount: null, previousCount: null, currentAverage: null, previousAverage: null,
     }, medicationCount: { current: null, previous: null }, medicationFrequencies: [],
@@ -69,10 +78,17 @@ describe("Health report analysis", () => {
       { localDate: "2026-08-15", occurredAt: "2026-08-15T01:00:00Z", value: 7 },
       { localDate: "2026-08-20", occurredAt: "2026-08-20T01:00:00Z", value: 7.5 },
     ] }] }));
-    expect(result.supportingMetrics).toEqual([expect.objectContaining({
-      metric: "sleep_duration", name: "Sleep", latest: expect.objectContaining({ value: 7.5 }),
-      previous: expect.objectContaining({ value: 7 }), change: 0.5,
-    })]);
+    expect(result.supportingMetrics).toHaveLength(4);
+    expect(result.supportingMetrics.find(({ metric }) => metric === "sleep_duration")).toEqual({
+      metric: "sleep_duration", name: "Sleep", unit: "hours",
+      points: [
+        { localDate: "2026-08-15", occurredAt: "2026-08-15T01:00:00Z", value: 7 },
+        { localDate: "2026-08-20", occurredAt: "2026-08-20T01:00:00Z", value: 7.5 },
+      ],
+      latest: { localDate: "2026-08-20", occurredAt: "2026-08-20T01:00:00Z", value: 7.5 },
+      previous: { localDate: "2026-08-15", occurredAt: "2026-08-15T01:00:00Z", value: 7 },
+      change: 0.5,
+    });
   });
 
   it("leaves weight change null when fewer than two readings are in range", () => {

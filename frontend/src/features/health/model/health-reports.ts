@@ -64,6 +64,7 @@ export type HealthReportSupportingMetric = {
   metric: Exclude<HealthReportMetric, "body_weight">;
   name: string;
   unit: string | null;
+  points: HealthReportReading[];
   latest: HealthReportReading | null;
   previous: HealthReportReading | null;
   change: number | null;
@@ -137,6 +138,7 @@ export function buildHealthReportAnalysis(report: HealthReport): HealthReportAna
         metric,
         name: definition.name,
         unit: definition.unit,
+        points,
         latest,
         previous,
         change: latest && previous ? latest.value - previous.value : null,
