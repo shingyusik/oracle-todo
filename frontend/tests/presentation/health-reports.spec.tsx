@@ -339,13 +339,24 @@ describe("Health Reports workspace", () => {
       .toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Custom range" }))
       .toHaveAttribute("aria-pressed", "false");
+    expect(presets.filter((button) => button.getAttribute("aria-pressed") === "true"))
+      .toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Custom range" }))
+      .toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Custom range" }))
+      .toHaveAttribute("aria-controls", "health-report-custom-range");
     expect(screen.queryByRole("form", { name: "Custom health report range" })).toBeNull();
 
     vi.mocked(value.runReports).mockClear();
     await user.click(screen.getByRole("button", { name: "Custom range" }));
     expect(screen.getByRole("button", { name: "Custom range" }))
       .toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("form", { name: "Custom health report range" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Custom range" }))
+      .toHaveAttribute("aria-expanded", "true");
+    expect(presets.filter((button) => button.getAttribute("aria-pressed") === "true"))
+      .toHaveLength(1);
+    expect(screen.getByRole("form", { name: "Custom health report range" }))
+      .toHaveAttribute("id", "health-report-custom-range");
     expect(value.runReports).not.toHaveBeenCalled();
 
     vi.mocked(value.runReports).mockClear();
@@ -353,6 +364,8 @@ describe("Health Reports workspace", () => {
       await user.click(screen.getByRole("button", { name: `${preset} days` }));
       expect(screen.queryByRole("form", { name: "Custom health report range" })).toBeNull();
     }
+    expect(presets.filter((button) => button.getAttribute("aria-pressed") === "true"))
+      .toHaveLength(1);
     expect(value.runReports).toHaveBeenCalledTimes(4);
     expect(vi.mocked(value.runReports).mock.calls.map(([selection]) => selection))
       .toEqual([{ preset: 7 }, { preset: 14 }, { preset: 30 }, { preset: 90 }]);
@@ -388,6 +401,20 @@ describe("Health Reports workspace", () => {
       preset: "custom", from: "2026-08-01", to: "2026-08-19",
     });
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("opens an existing custom selection with its draft dates", () => {
+    render(<HealthReports controller={controller({
+      reportSelection: { preset: "custom", from: "2026-08-01", to: "2026-08-20" },
+    })} />);
+
+    const custom = screen.getByRole("button", { name: "Custom range" });
+    expect(custom).toHaveAttribute("aria-pressed", "true");
+    expect(custom).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("From")).toHaveValue("2026-08-01");
+    expect(screen.getByLabelText("To")).toHaveValue("2026-08-20");
+    expect(within(screen.getByLabelText("Health report period")).getAllByRole("button")
+      .filter((button) => button.getAttribute("aria-pressed") === "true")).toHaveLength(1);
   });
 
   it("loads only the report aggregate when the real workspace mounts", async () => {
