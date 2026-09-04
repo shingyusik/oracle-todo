@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyHealthReportDrilldown,
+  buildHealthReportAnalysis,
   resolveHealthReportRange,
   type HealthReportDrilldown,
+  type HealthReport,
 } from "@/features/health/model/health-reports";
 import {
   defaultHealthTableSettings,
@@ -18,6 +20,67 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.useRealTimers());
+
+describe("Health report analysis", () => {
+  const report = (overrides: Partial<HealthReport> = {}): HealthReport => ({
+    range: { from: "2026-08-01", to: "2026-08-20" },
+    previousRange: { from: "2026-07-12", to: "2026-07-31" },
+    metrics: [
+      { metric: "body_weight", name: "Weight", unit: "kg", current: null, previous: null },
+      { metric: "sleep_duration", name: "Sleep", unit: "hours", current: null, previous: null },
+    ],
+    bowelPoints: [], metricSeries: [],
+    dietCount: { current: null, previous: null }, bowel: {
+      currentCount: null, previousCount: null, currentAverage: null, previousAverage: null,
+    }, medicationCount: { current: null, previous: null }, medicationFrequencies: [],
+    dietTagFrequencies: [], dietTagBowelResponses: [], reactionDisclaimer: "",
+    ...overrides,
+  });
+
+  it("groups bowel records by local date in chronological order without synthetic dates", () => {
+    const result = buildHealthReportAnalysis(report({ bowelPoints: [
+      { localDate: "2026-08-12", occurredAt: "2026-08-12T01:00:00Z", bristolScale: 6 },
+      { localDate: "2026-08-10", occurredAt: "2026-08-10T02:00:00Z", bristolScale: 5 },
+      { localDate: "2026-08-10", occurredAt: "2026-08-10T01:00:00Z", bristolScale: 3 },
+    ]}));
+    expect(result.dailyBowelPoints).toEqual([
+      { localDate: "2026-08-10", value: 4, recordCount: 2 },
+      { localDate: "2026-08-12", value: 6, recordCount: 1 },
+    ]);
+    expect(result.latestDailyBowel).toEqual({ localDate: "2026-08-12", value: 6, recordCount: 1 });
+  });
+
+  it("derives chronological weight readings and latest change within the range", () => {
+    const result = buildHealthReportAnalysis(report({ metricSeries: [{ metric: "body_weight", points: [
+      { localDate: "2026-08-20", occurredAt: "2026-08-20T01:00:00Z", value: 70.5 },
+      { localDate: "2026-08-05", occurredAt: "2026-08-05T01:00:00Z", value: 71.5 },
+      { localDate: "2026-07-31", occurredAt: "2026-07-31T01:00:00Z", value: 72 },
+    ] }] }));
+    expect(result.weightPoints).toEqual([
+      { localDate: "2026-08-05", occurredAt: "2026-08-05T01:00:00Z", value: 71.5 },
+      { localDate: "2026-08-20", occurredAt: "2026-08-20T01:00:00Z", value: 70.5 },
+    ]);
+    expect(result.latestWeight).toEqual(result.weightPoints[1]);
+    expect(result.weightChange).toBe(-1);
+  });
+
+  it("compares the latest two supporting metric readings", () => {
+    const result = buildHealthReportAnalysis(report({ metricSeries: [{ metric: "sleep_duration", points: [
+      { localDate: "2026-08-15", occurredAt: "2026-08-15T01:00:00Z", value: 7 },
+      { localDate: "2026-08-20", occurredAt: "2026-08-20T01:00:00Z", value: 7.5 },
+    ] }] }));
+    expect(result.supportingMetrics).toEqual([expect.objectContaining({
+      metric: "sleep_duration", name: "Sleep", latest: expect.objectContaining({ value: 7.5 }),
+      previous: expect.objectContaining({ value: 7 }), change: 0.5,
+    })]);
+  });
+
+  it("leaves weight change null when fewer than two readings are in range", () => {
+    expect(buildHealthReportAnalysis(report({ metricSeries: [{ metric: "body_weight", points: [
+      { localDate: "2026-08-20", occurredAt: "2026-08-20T01:00:00Z", value: 70.5 },
+    ] }] })).weightChange).toBeNull();
+  });
+});
 
 describe("Health report ranges", () => {
   it.each([

@@ -55,6 +55,27 @@ export type HealthReportMetricSeries = {
   metric: HealthReportMetric;
   points: HealthReportReading[];
 };
+export type HealthReportDailyBowelPoint = {
+  localDate: string;
+  value: number;
+  recordCount: number;
+};
+export type HealthReportSupportingMetric = {
+  metric: Exclude<HealthReportMetric, "body_weight">;
+  name: string;
+  unit: string | null;
+  latest: HealthReportReading | null;
+  previous: HealthReportReading | null;
+  change: number | null;
+};
+export type HealthReportAnalysis = {
+  dailyBowelPoints: HealthReportDailyBowelPoint[];
+  latestDailyBowel: HealthReportDailyBowelPoint | null;
+  weightPoints: HealthReportReading[];
+  latestWeight: HealthReportReading | null;
+  weightChange: number | null;
+  supportingMetrics: HealthReportSupportingMetric[];
+};
 export type HealthReport = {
   range: HealthReportRange;
   previousRange: HealthReportRange;
@@ -79,6 +100,58 @@ export type HealthReport = {
   }[];
   reactionDisclaimer: string;
 };
+
+export function buildHealthReportAnalysis(report: HealthReport): HealthReportAnalysis {
+  const inRange = (point: HealthReportReading | { localDate: string }) =>
+    point.localDate >= report.range.from && point.localDate <= report.range.to;
+  const sortReadings = (points: HealthReportReading[]) => [...points]
+    .filter(inRange)
+    .sort((left, right) => left.localDate.localeCompare(right.localDate)
+      || left.occurredAt.localeCompare(right.occurredAt));
+  const daily = new Map<string, { total: number; count: number }>();
+  for (const point of report.bowelPoints) {
+    if (!inRange(point)) continue;
+    const entry = daily.get(point.localDate) ?? { total: 0, count: 0 };
+    entry.total += point.bristolScale;
+    entry.count += 1;
+    daily.set(point.localDate, entry);
+  }
+  const dailyBowelPoints = [...daily].sort(([left], [right]) => left.localeCompare(right))
+    .map(([localDate, { total, count }]) => ({
+      localDate, value: total / count, recordCount: count,
+    }));
+  const weightPoints = sortReadings(
+    report.metricSeries.find(({ metric }) => metric === "body_weight")?.points ?? [],
+  );
+  const latestWeight = weightPoints.at(-1) ?? null;
+  const supportingMetrics = report.metrics
+    .filter(({ metric }) => metric !== "body_weight")
+    .map((definition) => {
+      const metric = definition.metric as Exclude<HealthReportMetric, "body_weight">;
+      const points = sortReadings(
+        report.metricSeries.find((series) => series.metric === metric)?.points ?? [],
+      );
+      const latest = points.at(-1) ?? null;
+      const previous = points.at(-2) ?? null;
+      return {
+        metric,
+        name: definition.name,
+        unit: definition.unit,
+        latest,
+        previous,
+        change: latest && previous ? latest.value - previous.value : null,
+      };
+    });
+  return {
+    dailyBowelPoints,
+    latestDailyBowel: dailyBowelPoints.at(-1) ?? null,
+    weightPoints,
+    latestWeight,
+    weightChange: latestWeight && weightPoints.length > 1
+      ? latestWeight.value - weightPoints[0]!.value : null,
+    supportingMetrics,
+  };
+}
 
 const metrics = [
   "body_weight", "sleep_duration", "crp", "fecal_calprotectin", "overall_condition",
