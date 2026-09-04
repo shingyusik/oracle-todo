@@ -9,7 +9,6 @@ import type {
   HealthReportAnalysis as ReportAnalysis,
   HealthReportDrilldown,
   HealthReportMetric,
-  HealthReportMetricSummary,
 } from "@/features/health/model/health-reports";
 import { buildHealthReportAnalysis } from "@/features/health/model/health-reports";
 
@@ -92,7 +91,7 @@ function Summary({
           label="Latest daily Bristol average"
           onClick={onDrilldown && bowelDrilldown}
         >
-          <strong>{analysis.latestDailyBowel ? number(analysis.latestDailyBowel.value) : "Unavailable"}</strong>
+          <strong>{analysis.latestDailyBowel ? bristolAverage(analysis.latestDailyBowel.value) : "Unavailable"}</strong>
           <small>{analysis.latestDailyBowel
             ? `${analysis.latestDailyBowel.localDate} · ${recordCount(analysis.latestDailyBowel.recordCount)}`
             : "No records in selected period"}</small>
@@ -121,7 +120,6 @@ function ReportCard({
     <button
       type="button"
       className="health-report-card"
-      aria-label={`View ${label} records for selected period`}
       data-report-card={label}
       onClick={onClick}
     >
@@ -131,22 +129,6 @@ function ReportCard({
     <div className="health-report-card" role="group" aria-label={label} data-report-card={label}>
       {content}
     </div>
-  );
-}
-
-function MetricComparison({ summary }: { summary: HealthReportMetricSummary | null }) {
-  const current = summary?.current;
-  const previous = summary?.previous;
-  if (!current) return <><strong>Unavailable</strong><small>Previous Unavailable</small></>;
-  const unit = summary?.unit ? ` ${summary.unit}` : "";
-  return (
-    <>
-      <strong>{number(current.value)}{unit}</strong>
-      <small>{current.localDate}</small>
-      <small>
-        Previous {previous ? `${number(previous.value)}${unit} · ${signed(current.value - previous.value)}${unit}` : "Unavailable"}
-      </small>
-    </>
   );
 }
 
@@ -163,7 +145,7 @@ function BowelChart({
     id: point.localDate,
     label: point.localDate,
     value: point.value,
-    ariaLabel: `${point.localDate}: Average Bristol ${number(point.value)} from ${recordCount(point.recordCount)}`,
+    ariaLabel: `${point.localDate}: Average Bristol ${bristolAverage(point.value)} from ${recordCount(point.recordCount)}`,
   }));
   return (
     <section className="health-report-section" aria-label="Daily average Bristol score">
@@ -403,6 +385,10 @@ function signed(value: number): string {
 
 function recordCount(value: number): string {
   return `${value} record${value === 1 ? "" : "s"}`;
+}
+
+function bristolAverage(value: number): string {
+  return number(Number(value.toFixed(1)));
 }
 
 function dateTime(value: string): string {

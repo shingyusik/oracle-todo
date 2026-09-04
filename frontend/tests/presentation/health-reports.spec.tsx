@@ -510,35 +510,10 @@ describe("Health Reports workspace", () => {
     expect(value.retryReports).toHaveBeenCalledTimes(2);
   });
 
-  it("renders ordered comparisons, isolated metric units, all frequency rows, and typed drilldowns", async () => {
+  it("renders supporting metrics, frequency rows, and typed drilldowns", async () => {
     const user = userEvent.setup();
     const onDrilldown = vi.fn<(target: HealthReportDrilldown) => void>();
     render(<HealthReports controller={controller()} onDrilldown={onDrilldown} />);
-
-    const summary = screen.getByRole("region", { name: "Summary" });
-    expect(within(summary).getAllByRole("button").map((button) =>
-      button.getAttribute("data-report-card"))).toEqual([
-      "Latest daily Bristol average", "Latest weight", "Weight change",
-    ]);
-    expect(within(summary).getByText("Latest weight").parentElement)
-      .toHaveTextContent("72 kg");
-    expect(within(summary).getByText("Weight change").parentElement)
-      .toHaveTextContent("+0.5 kg");
-    expect(within(summary).queryByText("Diet count")).toBeNull();
-
-    const bowelChart = screen.getByRole("group", {
-      name: "Daily average Bristol score. Typical Bristol band 3 to 5",
-    });
-    expect(bowelChart).toBeInTheDocument();
-    expect(within(bowelChart).getAllByRole("img").map((point) =>
-      point.getAttribute("aria-label"))).toEqual([
-      "2026-08-10: Average Bristol 4 from 2 records",
-      "2026-08-12: Average Bristol 6 from 1 record",
-    ]);
-    await user.click(screen.getByRole("button", { name: "View bowel records" }));
-    expect(onDrilldown).toHaveBeenLastCalledWith({
-      tab: "bowel", range: { start: "2026-08-01", end: "2026-08-20" },
-    });
 
     const selector = screen.getByRole("combobox", { name: "Metric" });
     expect(within(selector).getAllByRole("option").map((option) => option.textContent))
@@ -616,16 +591,20 @@ describe("Health Reports workspace", () => {
       .toHaveTextContent("+0.5 kgFirst to latest record in selected period");
     expect(within(summary).queryByText("Diet count")).toBeNull();
     await user.click(within(summary).getByRole("button", {
-      name: /Latest daily Bristol average/,
+      name: "Latest daily Bristol average62026-08-12 · 1 record",
     }));
     expect(onDrilldown).toHaveBeenLastCalledWith({
       tab: "bowel", range: { start: "2026-08-01", end: "2026-08-20" },
     });
-    await user.click(within(summary).getByRole("button", { name: /Latest weight/ }));
+    await user.click(within(summary).getByRole("button", {
+      name: "Latest weight72 kg2026-08-20",
+    }));
     expect(onDrilldown).toHaveBeenLastCalledWith({
       tab: "health-metrics", field: "weight", range: { start: "2026-08-01", end: "2026-08-20" },
     });
-    await user.click(within(summary).getByRole("button", { name: /Weight change/ }));
+    await user.click(within(summary).getByRole("button", {
+      name: "Weight change+0.5 kgFirst to latest record in selected period",
+    }));
     expect(onDrilldown).toHaveBeenLastCalledWith({
       tab: "health-metrics", field: "weight", range: { start: "2026-08-01", end: "2026-08-20" },
     });
@@ -676,6 +655,42 @@ describe("Health Reports workspace", () => {
 
     expect(within(screen.getByRole("region", { name: "Summary" }))
       .getByText("Weight change").parentElement).toHaveTextContent("No comparison available");
+  });
+
+  it("rounds repeating daily Bristol averages for primary display and accessibility", () => {
+    const value = populatedReport();
+    value.bowelPoints = [
+      { localDate: "2026-08-12", occurredAt: "2026-08-12T08:30:00Z", bristolScale: 3 },
+      { localDate: "2026-08-12", occurredAt: "2026-08-12T09:30:00Z", bristolScale: 3 },
+      { localDate: "2026-08-12", occurredAt: "2026-08-12T10:30:00Z", bristolScale: 4 },
+    ];
+    render(<HealthReports controller={controller({ report: value })} />);
+
+    const summary = screen.getByRole("region", { name: "Summary" });
+    expect(within(summary).getByText("Latest daily Bristol average").parentElement)
+      .toHaveTextContent("3.32026-08-12 · 3 records");
+    expect(within(summary).queryByText("3.3333333333333335")).toBeNull();
+    expect(screen.getByRole("img", {
+      name: "2026-08-12: Average Bristol 3.3 from 3 records",
+    })).toBeInTheDocument();
+  });
+
+  it("renders a zero weight change with an equal-value chart domain", () => {
+    const value = populatedReport();
+    value.metricSeries = value.metricSeries.map((series) => series.metric === "body_weight"
+      ? {
+        ...series,
+        points: [
+          { localDate: "2026-08-10", occurredAt: "2026-08-10T08:30:00Z", value: 72 },
+          { localDate: "2026-08-20", occurredAt: "2026-08-20T08:30:00Z", value: 72 },
+        ],
+      }
+      : series);
+    render(<HealthReports controller={controller({ report: value })} />);
+
+    expect(within(screen.getByRole("region", { name: "Summary" }))
+      .getByRole("group", { name: "Weight change" })).toHaveTextContent("0 kg");
+    expect(screen.getByRole("group", { name: "Weight trend (kg)" })).toBeInTheDocument();
   });
 
   it("defaults to the first metric with points and keeps later units isolated", async () => {
