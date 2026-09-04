@@ -655,16 +655,36 @@ describe("Health Reports workspace", () => {
     const { container, rerender } = render(
       <DashboardLineChart
         chart={chart}
+        domain={{ minimum: 1, maximum: 7 }}
         referenceBand={{ minimum: 3, maximum: 5, label: "Typical Bristol 3 to 5" }}
       />,
     );
     const band = container.querySelector(".dashboard-line-reference-band");
     expect(band).toHaveAttribute("aria-hidden", "true");
     expect(band).toHaveTextContent("Typical Bristol 3 to 5");
+    expect(band).toHaveStyle({ top: "38%", height: "28%" });
     expect(container.querySelectorAll(".dashboard-line-reference-band")).toHaveLength(1);
 
     rerender(<DashboardLineChart chart={chart} />);
     expect(container.querySelector(".dashboard-line-reference-band")).toBeNull();
+  });
+
+  it("renders an explicit weight domain with units and seven X ticks", () => {
+    const chart: LineChartSpec = {
+      kind: "line", ariaLabel: "Weight", total: 30,
+      points: Array.from({ length: 30 }, (_, index) => ({
+        id: `point-${index}`, label: `2026-08-${String(index + 1).padStart(2, "0")}`,
+        value: 67 + (index % 5), ariaLabel: `Weight ${67 + (index % 5)} kg`,
+      })),
+    };
+    const { container } = render(
+      <DashboardLineChart chart={chart} domain={{ minimum: 67, maximum: 71 }} valueSuffix=" kg" />,
+    );
+
+    expect(container.querySelector(".dashboard-line-y-axis"))
+      .toHaveTextContent("71 kg");
+    expect(container.querySelectorAll(".dashboard-line-y-tick")).toHaveLength(5);
+    expect(container.querySelectorAll(".dashboard-line-x-tick")).toHaveLength(7);
   });
 
   it("stacks every report grid at the existing narrow breakpoint", () => {

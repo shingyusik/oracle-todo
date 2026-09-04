@@ -5,24 +5,34 @@ import type { LineChartSpec } from "@/features/dashboard/model/dashboard-widgets
 type DashboardLineChartProps = {
   chart: LineChartSpec;
   scale?: "automatic" | "percentage";
+  domain?: { minimum: number; maximum: number };
+  valueSuffix?: string;
   referenceBand?: { minimum: number; maximum: number; label: string };
 };
 
 export function DashboardLineChart({
   chart,
   scale = "automatic",
+  domain,
+  valueSuffix = "",
   referenceBand,
 }: DashboardLineChartProps) {
-  const maximum = scale === "percentage"
+  const explicitDomain = domain && Number.isFinite(domain.minimum)
+    && Number.isFinite(domain.maximum) && domain.maximum > domain.minimum
+    ? domain
+    : undefined;
+  const minimum = explicitDomain?.minimum ?? 0;
+  const maximum = explicitDomain?.maximum ?? (scale === "percentage"
     ? 100
-    : Math.max(1, referenceBand?.maximum ?? 0, ...chart.points.map((point) => point.value));
+    : Math.max(1, referenceBand?.maximum ?? 0, ...chart.points.map((point) => point.value)));
+  const range = maximum - minimum;
   const coordinates = chart.points.map((point, index) => ({
     ...point,
     x:
       chart.points.length === 1
         ? 50
         : (index / (chart.points.length - 1)) * 100,
-    y: 94 - (point.value / maximum) * 84,
+    y: 94 - ((point.value - minimum) / range) * 84,
   }));
   const maximumXAxisTicks = 7;
   const xTicks = coordinates.length <= maximumXAxisTicks
@@ -34,7 +44,9 @@ export function DashboardLineChart({
       )],
     );
   const yTickStep = Math.max(1, Math.ceil(maximum / 4));
-  const yTicks = scale === "percentage"
+  const yTicks = explicitDomain
+    ? Array.from({ length: 5 }, (_, index) => maximum - (range * index) / 4)
+    : scale === "percentage"
     ? [100, 75, 50, 25, 0]
     : [
       ...Array.from(
@@ -56,9 +68,10 @@ export function DashboardLineChart({
             <span
               key={tick}
               className="dashboard-line-y-tick"
-              style={{ top: `${94 - (tick / maximum) * 84}%` }}
+              style={{ top: `${94 - ((tick - minimum) / range) * 84}%` }}
             >
-              {tick}{scale === "percentage" ? "%" : ""}
+              {Number.isInteger(tick) ? tick : Number(tick.toFixed(2))}
+              {scale === "percentage" ? "%" : valueSuffix}
             </span>
           ))}
         </div>
@@ -68,8 +81,8 @@ export function DashboardLineChart({
               className="dashboard-line-reference-band"
               aria-hidden="true"
               style={{
-                top: `${94 - (referenceBand.maximum / maximum) * 84}%`,
-                height: `${((referenceBand.maximum - referenceBand.minimum) / maximum) * 84}%`,
+                top: `${94 - ((referenceBand.maximum - minimum) / range) * 84}%`,
+                height: `${((referenceBand.maximum - referenceBand.minimum) / range) * 84}%`,
               }}
             >
               <span>{referenceBand.label}</span>
