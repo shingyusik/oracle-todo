@@ -2100,28 +2100,25 @@ describe("WorkbenchPageClient", () => {
       value: { start: "2026-07-22", end: "2026-08-20" },
     };
     const cases = [
-      ["spicy, 1 records", "health.diet", "diet",
+      ["spicy, 1 record", "health.diet", "diet",
         { id: "health-report-tags", field: "tags", type: "multiSelect", operator: "contains", value: ["spicy"] }],
-      ["Mesalamine, 1 records", "health.medication", "medication",
+      ["Mesalamine, 1 record", "health.medication", "medication",
         { id: "health-report-medication_name", field: "medication_name", type: "text", operator: "is", value: "Mesalamine" }],
-      ["View abnormal bowel records", "health.bowel", "bowel",
-        { id: "health-report-bristol_scale", field: "bristol_scale", type: "select", operator: "is", value: ["1", "2", "6", "7"] }],
-      ["View Weight records for selected period", "health.metrics", "health-metrics",
+      ["View bowel records", "health.bowel", "bowel", null],
+      ["View weight records", "health.metrics", "health-metrics",
         { id: "health-report-weight", field: "weight", type: "number", operator: "is_not_empty", value: null }],
-      ["View Sleep records for selected period", "health.metrics", "health-metrics",
-        { id: "health-report-sleep", field: "sleep", type: "number", operator: "is_not_empty", value: null }],
-      ["View CRP records for selected period", "health.metrics", "health-metrics",
-        { id: "health-report-crp", field: "crp", type: "number", operator: "is_not_empty", value: null }],
-      ["View Calprotectin records for selected period", "health.metrics", "health-metrics",
-        { id: "health-report-calprotectin", field: "calprotectin", type: "number", operator: "is_not_empty", value: null }],
-      ["View Condition records for selected period", "health.metrics", "health-metrics",
-        { id: "health-report-condition", field: "condition", type: "number", operator: "is_not_empty", value: null }],
-      ["View Diet count records for selected period", "health.diet", "diet", null],
-      ["View Bowel count records for selected period", "health.bowel", "bowel", null],
-      ["View Medication count records for selected period", "health.medication", "medication", null],
+      ["View sleep records", "health.metrics", "health-metrics",
+        { id: "health-report-sleep", field: "sleep", type: "number", operator: "is_not_empty", value: null }, "Sleep"],
+      ["View crp records", "health.metrics", "health-metrics",
+        { id: "health-report-crp", field: "crp", type: "number", operator: "is_not_empty", value: null }, "CRP"],
+      ["View calprotectin records", "health.metrics", "health-metrics",
+        { id: "health-report-calprotectin", field: "calprotectin", type: "number", operator: "is_not_empty", value: null }, "Calprotectin"],
+      ["View condition records", "health.metrics", "health-metrics",
+        { id: "health-report-condition", field: "condition", type: "number", operator: "is_not_empty", value: null }, "Condition"],
     ] as const;
 
-    for (const [button, scope, tab, targetRule] of cases) {
+    for (const [button, scope, tab, targetRule, metric] of cases) {
+      if (metric) await user.click(screen.getByRole("button", { name: metric }));
       await user.click(screen.getByRole("button", { name: button }));
       expect(workbench.result.current.selection.leafTabId).toBe(tab);
       expect(drafts[scope]).toMatchObject({
