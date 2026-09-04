@@ -327,7 +327,7 @@ describe("Health Reports workspace", () => {
   it("collapses custom range controls until disclosed and validates dates locally", async () => {
     const user = userEvent.setup();
     const value = controller({ reportStatus: "idle", report: null });
-    render(<StrictMode><HealthReports controller={value} /></StrictMode>);
+    const view = render(<StrictMode><HealthReports controller={value} /></StrictMode>);
 
     await waitFor(() => expect(value.runReports).toHaveBeenCalledTimes(1));
     expect(value.runReports).toHaveBeenCalledWith({ preset: 30 });
@@ -350,7 +350,7 @@ describe("Health Reports workspace", () => {
     vi.mocked(value.runReports).mockClear();
     await user.click(screen.getByRole("button", { name: "Custom range" }));
     expect(screen.getByRole("button", { name: "Custom range" }))
-      .toHaveAttribute("aria-pressed", "true");
+      .toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Custom range" }))
       .toHaveAttribute("aria-expanded", "true");
     expect(presets.filter((button) => button.getAttribute("aria-pressed") === "true"))
@@ -358,6 +358,14 @@ describe("Health Reports workspace", () => {
     expect(screen.getByRole("form", { name: "Custom health report range" }))
       .toHaveAttribute("id", "health-report-custom-range");
     expect(value.runReports).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Custom range" }));
+    expect(screen.getByRole("button", { name: "Custom range" }))
+      .toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("form", { name: "Custom health report range" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Custom range" }));
+    expect(screen.getByRole("button", { name: "Custom range" }))
+      .toHaveAttribute("aria-expanded", "true");
 
     vi.mocked(value.runReports).mockClear();
     for (const preset of [7, 14, 30, 90] as const) {
@@ -401,6 +409,17 @@ describe("Health Reports workspace", () => {
       preset: "custom", from: "2026-08-01", to: "2026-08-19",
     });
     expect(screen.queryByRole("alert")).toBeNull();
+
+    const applied = controller({
+      reportSelection: { preset: "custom", from: "2026-08-01", to: "2026-08-19" },
+    });
+    view.rerender(<HealthReports controller={applied} />);
+    const rangeButtons = within(screen.getByLabelText("Health report period"))
+      .getAllByRole("button");
+    expect(rangeButtons.filter((button) => button.getAttribute("aria-pressed") === "true"))
+      .toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Custom range" }))
+      .toHaveAttribute("aria-pressed", "true");
   });
 
   it("opens an existing custom selection with its draft dates", () => {

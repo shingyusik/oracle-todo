@@ -82,7 +82,7 @@ export function HealthReports({
             <button
               key={preset}
               type="button"
-              aria-pressed={!customOpen && state.reportSelection.preset === preset}
+              aria-pressed={state.reportSelection.preset === preset}
               disabled={loading}
               onClick={() => {
                 setCustomOpen(false);
@@ -94,11 +94,11 @@ export function HealthReports({
           ))}
           <button
             type="button"
-            aria-pressed={customOpen}
+            aria-pressed={state.reportSelection.preset === "custom"}
             aria-expanded={customOpen}
             aria-controls="health-report-custom-range"
             disabled={loading}
-            onClick={() => setCustomOpen(true)}
+            onClick={() => setCustomOpen((open) => !open)}
           >
             Custom range
           </button>
