@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import type { LineChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
@@ -15,17 +15,18 @@ import { buildHealthReportAnalysis } from "@/features/health/model/health-report
 type Drilldown = (target: HealthReportDrilldown) => void;
 type Range = HealthReportDrilldown["range"];
 
-const metrics = [
-  { metric: "body_weight", label: "Weight", field: "weight" },
+const supportingMetricDefinitions = [
   { metric: "sleep_duration", label: "Sleep", field: "sleep" },
   { metric: "crp", label: "CRP", field: "crp" },
   { metric: "fecal_calprotectin", label: "Calprotectin", field: "calprotectin" },
   { metric: "overall_condition", label: "Condition", field: "condition" },
 ] as const satisfies ReadonlyArray<{
-  metric: HealthReportMetric;
+  metric: Exclude<HealthReportMetric, "body_weight">;
   label: string;
-  field: "weight" | "sleep" | "crp" | "calprotectin" | "condition";
+  field: "sleep" | "crp" | "calprotectin" | "condition";
 }>;
+
+type SupportingMetric = typeof supportingMetricDefinitions[number]["metric"];
 
 export function HealthReportAnalysis({
   report,
@@ -46,11 +47,12 @@ export function HealthReportAnalysis({
         <BowelChart analysis={analysis} range={range} onDrilldown={onDrilldown} />
         <WeightChart analysis={analysis} range={range} onDrilldown={onDrilldown} />
       </div>
-      <MetricChart report={report} range={range} onDrilldown={onDrilldown} />
+      <MetricChart analysis={analysis} range={range} onDrilldown={onDrilldown} />
       <div className="health-report-list-grid">
         <FrequencyList
           heading="Medication frequency"
           empty="No medication records are available for this period."
+          coverage={report.medicationCount.current}
           rows={report.medicationFrequencies}
           onSelect={onDrilldown && ((name) => onDrilldown({
             tab: "medication", field: "medication_name", value: name, range,
@@ -59,6 +61,7 @@ export function HealthReportAnalysis({
         <FrequencyList
           heading="Diet tag frequency"
           empty="No diet tags are available for this period."
+          coverage={report.dietCount.current}
           rows={report.dietTagFrequencies}
           onSelect={onDrilldown && ((name) => onDrilldown({
             tab: "diet", field: "tags", value: name, range,
@@ -248,40 +251,64 @@ function WeightChart({
 }
 
 function MetricChart({
-  report,
+  analysis,
   range,
   onDrilldown,
 }: {
-  report: HealthReport;
+  analysis: ReportAnalysis;
   range: Range;
   onDrilldown?: Drilldown;
 }) {
-  const [selected, setSelected] = useState<HealthReportMetric>(() => defaultMetric(report));
-  const definition = metrics.find(({ metric }) => metric === selected) ?? metrics[0];
-  const summary = report.metrics.find(({ metric }) => metric === selected);
-  const series = report.metricSeries.find(({ metric }) => metric === selected);
-  const label = `${definition.label}${summary?.unit ? ` (${summary.unit})` : ""}`;
-  const points: LineChartSpec["points"] = (series?.points ?? []).map((point, index) => ({
+  const [selected, setSelected] = useState<SupportingMetric>(() => defaultSupportingMetric(analysis));
+  const selectedMetric = analysis.supportingMetrics.find(({ metric }) => metric === selected);
+  const definition = supportingMetricDefinitions.find(({ metric }) => metric === selected)
+    ?? supportingMetricDefinitions[0];
+
+  useEffect(() => {
+    if (!selectedMetric) setSelected(defaultSupportingMetric(analysis));
+  }, [analysis, selectedMetric]);
+
+  const name = selectedMetric?.name ?? definition.label;
+  const unit = selectedMetric?.unit ?? null;
+  const label = `${name}${unit ? ` (${unit})` : ""}`;
+  const points: LineChartSpec["points"] = (selectedMetric?.points ?? []).map((point, index) => ({
     id: `${selected}-${point.occurredAt}-${index}`,
     label: point.localDate,
     value: point.value,
-    ariaLabel: `${dateTime(point.occurredAt)}: ${number(point.value)}${summary?.unit ? ` ${summary.unit}` : ""}`,
+    ariaLabel: `${dateTime(point.occurredAt)}: ${number(point.value)}${unit ? ` ${unit}` : ""}`,
   }));
   return (
-    <section className="health-report-section" aria-label="Health metric">
+    <section className="health-report-section" aria-label="Other health metrics">
       <div className="health-report-section-heading">
-        <h2>Health metric</h2>
-        <label>
-          Metric
-          <select value={selected} onChange={(event) => setSelected(event.target.value as HealthReportMetric)}>
-            {metrics.map((metric) => <option key={metric.metric} value={metric.metric}>{metric.label}</option>)}
-          </select>
-        </label>
+        <h2>Other health metrics</h2>
+        <div className="health-report-metric-controls" role="group" aria-label="Other health metrics">
+          {supportingMetricDefinitions.map((metric) => (
+            <button
+              key={metric.metric}
+              type="button"
+              aria-pressed={selected === metric.metric}
+              onClick={() => setSelected(metric.metric)}
+            >
+              {metric.label}
+            </button>
+          ))}
+        </div>
       </div>
       {points.length === 0 ? (
-        <p className="items-message">No {definition.label.toLowerCase()} readings are available for this period.</p>
+        <p className="items-message">No {name} readings are available for this period.</p>
       ) : (
-        <DashboardLineChart chart={{ kind: "line", ariaLabel: label, total: points.length, points }} />
+        <>
+          <div className="health-report-metric-summary">
+            <strong>Latest: {number(selectedMetric!.latest!.value)}{unit ? ` ${unit}` : ""}</strong>
+            <small>{selectedMetric!.change === null
+              ? "No previous reading"
+              : `Change: ${signed(selectedMetric!.change)}${unit ? ` ${unit}` : ""}`}</small>
+          </div>
+          <DashboardLineChart
+            chart={{ kind: "line", ariaLabel: label, total: points.length, points }}
+            valueSuffix={unit ? ` ${unit}` : undefined}
+          />
+        </>
       )}
       {onDrilldown && (
         <button
@@ -301,11 +328,13 @@ function MetricChart({
 function FrequencyList({
   heading,
   empty,
+  coverage,
   rows,
   onSelect,
 }: {
   heading: string;
   empty: string;
+  coverage: number | null;
   rows: HealthReport["medicationFrequencies"];
   onSelect?: (name: string) => void;
 }) {
@@ -313,6 +342,7 @@ function FrequencyList({
   return (
     <section className="health-report-section" aria-label={heading}>
       <h2>{heading}</h2>
+      <p className="health-report-coverage">{coverage === null ? "Unavailable" : `${coverage} records in selected period`}</p>
       {rows.length === 0 ? <p className="items-message">{empty}</p> : (
         <ul className="health-report-frequency-list">
           {rows.map((row) => {
@@ -354,8 +384,15 @@ function DietTagResponses({
       ) : (
         <ul className="health-report-response-list">
           {report.dietTagBowelResponses.map((row) => {
-            const text = `${row.positiveMeals} / ${row.eligibleMeals} (${Math.round(row.rate * 100)}%)`;
-            const content = <><span>{row.tag}</span><strong>{text}</strong></>;
+            const text = `${row.positiveMeals} / ${row.eligibleMeals}, ${Math.round(row.rate * 100)}%`;
+            const content = <>
+              <span
+                className="health-report-frequency-bar health-report-response-bar"
+                style={{ "--health-report-bar": row.rate } as React.CSSProperties}
+                aria-hidden="true"
+              />
+              <span>{row.tag}</span><strong>{text}</strong>
+            </>;
             return (
               <li key={row.tag}>
                 {onDrilldown ? (
@@ -374,10 +411,10 @@ function DietTagResponses({
   );
 }
 
-function defaultMetric(report: HealthReport): HealthReportMetric {
-  return metrics.find(({ metric }) =>
-    report.metricSeries.find((series) => series.metric === metric)?.points.length,
-  )?.metric ?? "body_weight";
+function defaultSupportingMetric(analysis: ReportAnalysis): SupportingMetric {
+  return supportingMetricDefinitions.find(({ metric }) =>
+    analysis.supportingMetrics.find((item) => item.metric === metric)?.points.length,
+  )?.metric ?? supportingMetricDefinitions[0].metric;
 }
 
 function hasUsableData(report: HealthReport): boolean {

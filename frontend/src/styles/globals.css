@@ -612,8 +612,7 @@ button {
   color: var(--color-on-dark);
 }
 
-.health-report-custom label,
-.health-report-section-heading label {
+.health-report-custom label {
   display: grid;
   gap: 4px;
   color: var(--color-text-muted);
@@ -621,8 +620,7 @@ button {
   font-weight: 650;
 }
 
-.health-report-custom input,
-.health-report-section-heading select {
+.health-report-custom input {
   min-width: 0;
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
@@ -635,6 +633,32 @@ button {
 .health-report-section-heading h2,
 .health-report-error p {
   margin: 0;
+}
+
+.health-report-metric-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.health-report-metric-controls button[aria-pressed="true"] {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-on-dark);
+}
+
+.health-report-metric-summary {
+  display: grid;
+  gap: 4px;
+}
+
+.health-report-metric-summary small,
+.health-report-coverage {
+  color: var(--color-text-muted);
+}
+
+.health-report-coverage {
+  margin: -8px 0 0;
 }
 
 .health-report-primary-summary,
@@ -699,7 +723,9 @@ button {
 }
 
 .health-report-frequency-list button > :not(.health-report-frequency-bar),
-.health-report-frequency-list > li > div > :not(.health-report-frequency-bar) {
+.health-report-frequency-list > li > div > :not(.health-report-frequency-bar),
+.health-report-response-list button > :not(.health-report-frequency-bar),
+.health-report-response-list > li > div > :not(.health-report-frequency-bar) {
   position: relative;
 }
 
@@ -710,11 +736,15 @@ button {
   background: var(--color-accent-soft);
 }
 
+.health-report-response-bar {
+  background: var(--color-danger-soft);
+}
+
 .health-report-card:focus-visible,
 .health-report-period button:focus-visible,
 .health-report-period input:focus-visible,
 .health-report-section-heading button:focus-visible,
-.health-report-section-heading select:focus-visible,
+.health-report-metric-controls button:focus-visible,
 .health-report-chart-action:focus-visible,
 .health-report-frequency-list button:focus-visible,
 .health-report-response-list button:focus-visible,

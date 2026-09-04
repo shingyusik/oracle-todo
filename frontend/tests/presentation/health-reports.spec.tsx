@@ -515,21 +515,30 @@ describe("Health Reports workspace", () => {
     const onDrilldown = vi.fn<(target: HealthReportDrilldown) => void>();
     render(<HealthReports controller={controller()} onDrilldown={onDrilldown} />);
 
-    const selector = screen.getByRole("combobox", { name: "Metric" });
-    expect(within(selector).getAllByRole("option").map((option) => option.textContent))
-      .toEqual(["Weight", "Sleep", "CRP", "Calprotectin", "Condition"]);
-    expect(screen.getByRole("group", { name: "Weight (kg)" })).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: /Sleep.*hours/ })).toBeNull();
-    await user.selectOptions(selector, "sleep_duration");
-    expect(screen.getByRole("group", { name: "Sleep (hours)" })).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Weight (kg)" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "View sleep records" }));
+    const metricControls = screen.getByRole("group", { name: "Other health metrics" });
+    expect(within(metricControls).getAllByRole("button").map((button) => button.textContent))
+      .toEqual(["Sleep", "CRP", "Calprotectin", "Condition"]);
+    expect(within(metricControls).queryByRole("button", { name: "Weight" })).toBeNull();
+    expect(within(metricControls).getByRole("button", { name: "Sleep" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("region", { name: "Other health metrics" }))
+      .toHaveTextContent("Latest: 7.5 hoursChange: +0.5 hours");
+    await user.click(within(metricControls).getByRole("button", { name: "CRP" }));
+    expect(screen.getByText("No CRP readings are available for this period.")).toBeInTheDocument();
+    await user.click(within(metricControls).getByRole("button", { name: "Calprotectin" }));
+    expect(screen.getByRole("region", { name: "Other health metrics" }))
+      .toHaveTextContent("No previous reading");
+    await user.click(within(metricControls).getByRole("button", { name: "Sleep" }));
+    const metricDrilldown = screen.getByRole("button", { name: "View sleep records" });
+    metricDrilldown.focus();
+    await user.keyboard("{Enter}");
     expect(onDrilldown).toHaveBeenLastCalledWith({
       tab: "health-metrics", field: "sleep",
       range: { start: "2026-08-01", end: "2026-08-20" },
     });
 
     const medications = screen.getByRole("region", { name: "Medication frequency" });
+    expect(within(medications).getByText("4 records in selected period")).toBeInTheDocument();
     expect(within(medications).getAllByRole("button").map((button) => button.textContent))
       .toEqual(["Mesalamine3", "Vitamin D1"]);
     const medication = within(medications).getByRole("button", { name: "Mesalamine, 3 records" });
@@ -541,6 +550,7 @@ describe("Health Reports workspace", () => {
     });
 
     const dietTags = screen.getByRole("region", { name: "Diet tag frequency" });
+    expect(within(dietTags).getByText("8 records in selected period")).toBeInTheDocument();
     expect(within(dietTags).getAllByRole("button").map((button) => button.textContent))
       .toEqual(["spicy2", "fiber1"]);
     const spicyFrequency = within(dietTags).getByRole("button", {
@@ -555,11 +565,15 @@ describe("Health Reports workspace", () => {
 
     const responses = screen.getByRole("region", { name: "Diet-tag bowel response" });
     const zeroEligible = within(responses).getByRole("button", {
-      name: "fiber, 0 / 0 (0%)",
+      name: "fiber, 0 / 0, 0%",
     });
-    expect(zeroEligible).toHaveTextContent("fiber0 / 0 (0%)");
-    expect(within(responses).getByRole("button", { name: "spicy, 1 / 2 (50%)" }))
-      .toHaveTextContent("spicy1 / 2 (50%)");
+    expect(zeroEligible).toHaveTextContent("fiber0 / 0, 0%");
+    const spicyResponse = within(responses).getByRole("button", { name: "spicy, 1 / 2, 50%" });
+    expect(spicyResponse).toHaveTextContent("spicy1 / 2, 50%");
+    expect(spicyResponse.querySelector(".health-report-response-bar"))
+      .toHaveStyle({ "--health-report-bar": "0.5" });
+    expect(spicyResponse.querySelector(".health-report-response-bar"))
+      .toHaveAttribute("aria-hidden", "true");
     zeroEligible.focus();
     await user.keyboard("{Enter}");
     expect(onDrilldown).toHaveBeenLastCalledWith({
@@ -571,6 +585,18 @@ describe("Health Reports workspace", () => {
     )).toBeInTheDocument();
     expect(document.querySelector(".health-report-primary-grid")).toBeInTheDocument();
     expect(document.querySelector(".health-report-primary-summary")).toBeInTheDocument();
+  });
+
+  it("shows unavailable frequency coverage when the report does not provide counts", () => {
+    const value = populatedReport();
+    value.dietCount.current = null;
+    value.medicationCount.current = null;
+    render(<HealthReports controller={controller({ report: value })} />);
+
+    expect(within(screen.getByRole("region", { name: "Medication frequency" }))
+      .getByText("Unavailable")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Diet tag frequency" }))
+      .getByText("Unavailable")).toBeInTheDocument();
   });
 
   it("leads with daily Bristol and weight primary analysis", async () => {
@@ -696,7 +722,7 @@ describe("Health Reports workspace", () => {
     expect(within(chart).queryByText("0 kg")).toBeNull();
   });
 
-  it("defaults to the first metric with points and keeps later units isolated", async () => {
+  it("keeps a valid selected supporting metric across report rerenders", async () => {
     const user = userEvent.setup();
     const value = populatedReport();
     value.metricSeries = value.metricSeries.map((series) =>
@@ -713,17 +739,18 @@ describe("Health Reports workspace", () => {
       } : metric);
     const view = render(<HealthReports controller={controller({ report: value })} />);
 
-    const selector = screen.getByRole("combobox", { name: "Metric" });
-    expect(selector).toHaveValue("sleep_duration");
+    const metricControls = screen.getByRole("group", { name: "Other health metrics" });
+    expect(within(metricControls).getByRole("button", { name: "Sleep" }))
+      .toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("group", { name: "Sleep (hours)" })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /Weight.*kg/ })).toBeNull();
 
-    await user.selectOptions(selector, "fecal_calprotectin");
+    await user.click(within(metricControls).getByRole("button", { name: "Calprotectin" }));
     expect(screen.getByRole("group", { name: "Calprotectin (µg/g)" }))
       .toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /hours/ })).toBeNull();
 
-    await user.selectOptions(selector, "crp");
+    await user.click(within(metricControls).getByRole("button", { name: "CRP" }));
     const replacement = {
       ...value,
       metricSeries: value.metricSeries.map((series) =>
@@ -736,7 +763,8 @@ describe("Health Reports workspace", () => {
         } : series),
     };
     view.rerender(<HealthReports controller={controller({ report: replacement })} />);
-    expect(selector).toHaveValue("crp");
+    expect(within(metricControls).getByRole("button", { name: "CRP" }))
+      .toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("group", { name: "CRP (mg/L)" })).toBeInTheDocument();
     expect(screen.getByRole("img", {
       name: `${new Date("2026-08-20T12:00:00Z").toLocaleString()}: 0.123456789012345 mg/L`,
@@ -873,7 +901,7 @@ function populatedReport(): HealthReport {
     ],
     metricSeries: [
       { metric: "body_weight", points: [reading("2026-08-10", 71.5), reading("2026-08-20", 72)] },
-      { metric: "sleep_duration", points: [reading("2026-08-19", 7.5)] },
+      { metric: "sleep_duration", points: [reading("2026-08-18", 7), reading("2026-08-19", 7.5)] },
       { metric: "crp", points: [] },
       { metric: "fecal_calprotectin", points: [reading("2026-08-15", 80)] },
       { metric: "overall_condition", points: [reading("2026-08-20", 8)] },
