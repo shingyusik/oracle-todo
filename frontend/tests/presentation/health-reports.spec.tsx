@@ -674,16 +674,17 @@ describe("Health Reports workspace", () => {
       kind: "line", ariaLabel: "Weight", total: 30,
       points: Array.from({ length: 30 }, (_, index) => ({
         id: `point-${index}`, label: `2026-08-${String(index + 1).padStart(2, "0")}`,
-        value: 67 + (index % 5), ariaLabel: `Weight ${67 + (index % 5)} kg`,
+        value: 68 + index / 20, ariaLabel: `Weight ${68 + index / 20} kg`,
       })),
     };
     const { container } = render(
       <DashboardLineChart chart={chart} domain={{ minimum: 67, maximum: 71 }} valueSuffix=" kg" />,
     );
 
-    expect(container.querySelector(".dashboard-line-y-axis"))
-      .toHaveTextContent("71 kg");
-    expect(container.querySelectorAll(".dashboard-line-y-tick")).toHaveLength(5);
+    expect([...container.querySelectorAll(".dashboard-line-y-tick")]
+      .map((tick) => tick.textContent)).toEqual(["71 kg", "70 kg", "69 kg", "68 kg", "67 kg"]);
+    expect(container.querySelector(".dashboard-line-point"))
+      .toHaveStyle({ top: "73%" });
     expect(container.querySelectorAll(".dashboard-line-x-tick")).toHaveLength(7);
   });
 
