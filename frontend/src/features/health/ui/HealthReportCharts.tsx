@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 
 import type { LineChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
@@ -264,10 +264,6 @@ function MetricChart({
   const definition = supportingMetricDefinitions.find(({ metric }) => metric === selected)
     ?? supportingMetricDefinitions[0];
 
-  useEffect(() => {
-    if (!selectedMetric) setSelected(defaultSupportingMetric(analysis));
-  }, [analysis, selectedMetric]);
-
   const name = selectedMetric?.name ?? definition.label;
   const unit = selectedMetric?.unit ?? null;
   const label = `${name}${unit ? ` (${unit})` : ""}`;
@@ -342,7 +338,7 @@ function FrequencyList({
   return (
     <section className="health-report-section" aria-label={heading}>
       <h2>{heading}</h2>
-      <p className="health-report-coverage">{coverage === null ? "Unavailable" : `${coverage} records in selected period`}</p>
+      <p className="health-report-coverage">{coverage === null ? "Unavailable" : `${recordCount(coverage)} in selected period`}</p>
       {rows.length === 0 ? <p className="items-message">{empty}</p> : (
         <ul className="health-report-frequency-list">
           {rows.map((row) => {
@@ -355,8 +351,8 @@ function FrequencyList({
             return (
               <li key={row.name}>
                 {onSelect ? (
-                  <button type="button" aria-label={`${row.name}, ${row.count} records`} onClick={() => onSelect(row.name)}>{content}</button>
-                ) : <div aria-label={`${row.name}, ${row.count} records`}>{content}</div>}
+                  <button type="button" aria-label={`${row.name}, ${recordCount(row.count)}`} onClick={() => onSelect(row.name)}>{content}</button>
+                ) : <div aria-label={`${row.name}, ${recordCount(row.count)}`}>{content}</div>}
               </li>
             );
           })}

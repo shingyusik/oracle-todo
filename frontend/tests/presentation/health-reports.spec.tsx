@@ -542,6 +542,8 @@ describe("Health Reports workspace", () => {
     expect(within(medications).getAllByRole("button").map((button) => button.textContent))
       .toEqual(["Mesalamine3", "Vitamin D1"]);
     const medication = within(medications).getByRole("button", { name: "Mesalamine, 3 records" });
+    expect(within(medications).getByRole("button", { name: "Vitamin D, 1 record" }))
+      .toBeInTheDocument();
     medication.focus();
     await user.keyboard("{Enter}");
     expect(onDrilldown).toHaveBeenLastCalledWith({
@@ -597,6 +599,18 @@ describe("Health Reports workspace", () => {
       .getByText("Unavailable")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Diet tag frequency" }))
       .getByText("Unavailable")).toBeInTheDocument();
+  });
+
+  it("uses singular copy for one-record frequency coverage", () => {
+    const value = populatedReport();
+    value.dietCount.current = 1;
+    value.medicationCount.current = 1;
+    render(<HealthReports controller={controller({ report: value })} />);
+
+    expect(within(screen.getByRole("region", { name: "Medication frequency" }))
+      .getByText("1 record in selected period")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Diet tag frequency" }))
+      .getByText("1 record in selected period")).toBeInTheDocument();
   });
 
   it("leads with daily Bristol and weight primary analysis", async () => {
