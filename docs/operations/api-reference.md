@@ -452,6 +452,26 @@ response rows include every tag plus `positive_meals`, `eligible_meals`, and `ra
 uses bowel events in the interval `(meal, meal + 24 hours]`; a meal whose full response window
 has not elapsed is excluded from both numerator and denominator. Historical ranges therefore
 read through the selected end plus 24 hours so complete boundary responses remain visible.
+
+`diet_tag_bristol_comparisons` contains one row per recorded tag with `with_tag` and
+`without_tag` meal groups. Both groups include `eligible_meals` (completed 24-hour windows),
+`observed_meals` (eligible meals with any bowel record), `pending_meals` (incomplete windows),
+and `bristol_meals` (seven meal counts ordered by Bristol 1 through 7). Each score counts
+at most once per meal; different scores may count for the same meal. Meals without the tag,
+including untagged meals, form the comparison group. Only selected-period meals contribute;
+their bowel observations use the same `(meal, meal + 24 hours]` interval.
+
+The Reports heatmap displays `100 * (with_score / with_observed - without_score /
+without_observed)` in percentage points. Meals without bowel records are excluded from both
+percentage denominators, not classified as normal. Cells are gray when either group has fewer
+than five observed meals, including tags present on every meal. This display threshold does
+not establish statistical significance. Cells show a compact signed difference or a dash for
+insufficient data. Selecting a cell reveals raw counts, percentages, and unrecorded/pending
+meal counts below the heatmap. Method details are collapsed under About this chart. Blue indicates
+a higher score frequency with the tag, orange a lower frequency, without health judgments.
+Missing food tags, shared foods, and overlapping observation windows limit interpretation;
+this is an unadjusted descriptive comparison, not a causal estimate or correlation coefficient.
+
 The response includes this exact interpretation warning:
 
 ```text

@@ -40,6 +40,7 @@ function report(from: string, to: string): HealthReport {
     medicationFrequencies: [],
     dietTagFrequencies: [],
     dietTagBowelResponses: [],
+    dietTagBristolComparisons: [],
     reactionDisclaimer: "",
   };
 }
@@ -510,6 +511,25 @@ describe("Health Reports workspace", () => {
     expect(value.retryReports).toHaveBeenCalledTimes(2);
   });
 
+  it("leaves constant tags and small comparison groups gray", () => {
+    const data = populatedReport();
+    data.dietTagBristolComparisons = [{
+      tag: "rice",
+      withTag: { eligibleMeals: 10, observedMeals: 10, pendingMeals: 0, bristolMeals: [0, 0, 0, 5, 0, 5, 0] },
+      withoutTag: { eligibleMeals: 0, observedMeals: 0, pendingMeals: 0, bristolMeals: [0, 0, 0, 0, 0, 0, 0] },
+    }, {
+      tag: "small-sample",
+      withTag: { eligibleMeals: 4, observedMeals: 4, pendingMeals: 0, bristolMeals: [0, 0, 0, 0, 0, 4, 0] },
+      withoutTag: { eligibleMeals: 10, observedMeals: 10, pendingMeals: 0, bristolMeals: [0, 0, 0, 10, 0, 0, 0] },
+    }];
+    render(<HealthReports controller={controller({ report: data })} />);
+    const rice = screen.getByLabelText(/rice, Bristol 6: Insufficient data/);
+    expect(rice.closest("td")).toHaveAttribute("data-comparable", "false");
+    expect(rice).toHaveAttribute("aria-label", expect.stringContaining("Without tag: 0/0 (unavailable)"));
+    expect(screen.getByLabelText(/small-sample, Bristol 6: Insufficient data/).closest("td"))
+      .toHaveAttribute("data-comparable", "false");
+  });
+
   it("renders supporting metrics, frequency rows, and typed drilldowns", async () => {
     const user = userEvent.setup();
     const onDrilldown = vi.fn<(target: HealthReportDrilldown) => void>();
@@ -565,17 +585,20 @@ describe("Health Reports workspace", () => {
       range: { start: "2026-08-01", end: "2026-08-20" },
     });
 
-    const responses = screen.getByRole("region", { name: "Diet-tag bowel response" });
+    const responses = screen.getByRole("region", { name: "Diet-tag Bristol comparison" });
     const zeroEligible = within(responses).getByRole("button", {
-      name: "fiber, 0 / 0, 0%",
+      name: "fiber",
     });
-    expect(zeroEligible).toHaveTextContent("fiber0 / 0, 0%");
-    const spicyResponse = within(responses).getByRole("button", { name: "spicy, 1 / 2, 50%" });
-    expect(spicyResponse).toHaveTextContent("spicy1 / 2, 50%");
-    expect(spicyResponse.querySelector(".health-report-response-bar"))
-      .toHaveStyle({ "--health-report-bar": "0.5" });
-    expect(spicyResponse.querySelector(".health-report-response-bar"))
-      .toHaveAttribute("aria-hidden", "true");
+    expect(within(responses).getByLabelText(/fiber, Bristol 1: Insufficient data/)).toBeVisible();
+    expect(within(responses).getByLabelText(/spicy, Bristol 6: \+40 pp/)).toBeVisible();
+    expect(within(responses).getByLabelText(/fiber, Bristol 1: Insufficient data/)).toHaveTextContent("—");
+    expect(within(responses).getByLabelText(/spicy, Bristol 6: \+40 pp/)).toHaveTextContent("+40");
+    expect(within(responses).queryByRole("status")).toBeNull();
+    expect(within(responses).getByText("Observed associations only; they do not establish causation.")).not.toBeVisible();
+    await user.click(within(responses).getByLabelText(/spicy, Bristol 6: \+40 pp/));
+    expect(within(responses).getByRole("status")).toHaveTextContent("With tag: 3/5 (60.0%). Without tag: 1/5 (20.0%)");
+    expect(within(responses).getByLabelText(/spicy, Bristol 4: -40 pp/)).toBeVisible();
+    expect(within(responses).getByLabelText(/spicy, Bristol 1: 0 pp/)).toBeVisible();
     zeroEligible.focus();
     await user.keyboard("{Enter}");
     expect(onDrilldown).toHaveBeenLastCalledWith({
@@ -925,6 +948,14 @@ function populatedReport(): HealthReport {
     dietTagBowelResponses: [
       { tag: "fiber", positiveMeals: 0, eligibleMeals: 0, rate: 0 },
       { tag: "spicy", positiveMeals: 1, eligibleMeals: 2, rate: 0.5 },
+    ],
+    dietTagBristolComparisons: [
+      { tag: "fiber",
+        withTag: { eligibleMeals: 0, observedMeals: 0, pendingMeals: 1, bristolMeals: [0, 0, 0, 0, 0, 0, 0] },
+        withoutTag: { eligibleMeals: 5, observedMeals: 5, pendingMeals: 0, bristolMeals: [0, 0, 0, 4, 0, 1, 0] } },
+      { tag: "spicy",
+        withTag: { eligibleMeals: 7, observedMeals: 5, pendingMeals: 1, bristolMeals: [0, 0, 0, 2, 0, 3, 0] },
+        withoutTag: { eligibleMeals: 5, observedMeals: 5, pendingMeals: 0, bristolMeals: [0, 0, 0, 4, 0, 1, 0] } },
     ],
     reactionDisclaimer: "Observed associations only; they do not establish causation.",
   };

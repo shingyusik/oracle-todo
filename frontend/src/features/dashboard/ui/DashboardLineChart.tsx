@@ -7,6 +7,7 @@ type DashboardLineChartProps = {
   scale?: "automatic" | "percentage";
   domain?: { minimum: number; maximum: number };
   valueSuffix?: string;
+  dateRange?: { start: string; end: string };
   referenceBand?: { minimum: number; maximum: number; label: string };
 };
 
@@ -15,6 +16,7 @@ export function DashboardLineChart({
   scale = "automatic",
   domain,
   valueSuffix = "",
+  dateRange,
   referenceBand,
 }: DashboardLineChartProps) {
   const explicitDomain = domain && Number.isFinite(domain.minimum)
@@ -26,16 +28,27 @@ export function DashboardLineChart({
     ? 100
     : Math.max(1, referenceBand?.maximum ?? 0, ...chart.points.map((point) => point.value)));
   const range = maximum - minimum;
+  const start = dateRange ? Date.parse(dateRange.start) : 0;
+  const duration = dateRange ? Date.parse(dateRange.end) - start : 0;
   const coordinates = chart.points.map((point, index) => ({
     ...point,
     x:
-      chart.points.length === 1
+      dateRange && duration > 0
+        ? (Date.parse(point.label) - start) / duration * 100
+        : chart.points.length === 1
         ? 50
         : (index / (chart.points.length - 1)) * 100,
     y: 94 - ((point.value - minimum) / range) * 84,
   }));
   const maximumXAxisTicks = 7;
-  const xTicks = coordinates.length <= maximumXAxisTicks
+  const dateTickCount = Math.min(maximumXAxisTicks, duration / 86_400_000 + 1);
+  const xTicks = dateRange && duration > 0
+    ? Array.from({ length: dateTickCount }, (_, index) => {
+      const offset = Math.round(index * duration / 86_400_000 / (dateTickCount - 1)) * 86_400_000;
+      const label = new Date(start + offset).toISOString().slice(0, 10);
+      return { id: label, label, x: offset / duration * 100 };
+    })
+    : coordinates.length <= maximumXAxisTicks
     ? coordinates
     : Array.from(
       { length: maximumXAxisTicks },

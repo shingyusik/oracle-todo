@@ -99,8 +99,22 @@ export type HealthReport = {
     eligibleMeals: number;
     rate: number;
   }[];
+  dietTagBristolComparisons: {
+    tag: string;
+    withTag: BristolMealCounts;
+    withoutTag: BristolMealCounts;
+  }[];
   reactionDisclaimer: string;
 };
+
+export type BristolMealCounts = {
+  eligibleMeals: number;
+  observedMeals: number;
+  pendingMeals: number;
+  bristolMeals: number[];
+};
+
+export const BRISTOL_COMPARISON_MIN_MEALS = 5;
 
 export function buildHealthReportAnalysis(report: HealthReport): HealthReportAnalysis {
   const inRange = (point: HealthReportReading | { localDate: string }) =>
@@ -268,10 +282,35 @@ export function mapHealthReport(value: unknown): HealthReport {
         rate,
       };
     }),
+    dietTagBristolComparisons: array(
+      wire.diet_tag_bristol_comparisons, "health report.diet_tag_bristol_comparisons",
+    ).map((value) => {
+      const row = record(value, "health report Bristol comparison");
+      return {
+        tag: nonEmptyString(row.tag, "health report Bristol comparison.tag"),
+        withTag: mapBristolMealCounts(row.with_tag),
+        withoutTag: mapBristolMealCounts(row.without_tag),
+      };
+    }),
     reactionDisclaimer: nonEmptyString(
       wire.reaction_disclaimer, "health report.reaction_disclaimer",
     ),
   };
+}
+
+function mapBristolMealCounts(value: unknown): BristolMealCounts {
+  const row = record(value, "health report Bristol meal counts");
+  const eligibleMeals = u32(row.eligible_meals, "Bristol eligible meals");
+  const observedMeals = u32(row.observed_meals, "Bristol observed meals");
+  const pendingMeals = u32(row.pending_meals, "Bristol pending meals");
+  const bristolMeals = array(row.bristol_meals, "Bristol score meal counts")
+    .map((count) => u32(count, "Bristol score meal count"));
+  if (bristolMeals.length !== 7 || observedMeals > eligibleMeals
+    || bristolMeals.some((count) => count > observedMeals)
+    || bristolMeals.reduce((sum, count) => sum + count, 0) < observedMeals) {
+    throw new TypeError("invalid health report Bristol meal counts");
+  }
+  return { eligibleMeals, observedMeals, pendingMeals, bristolMeals };
 }
 
 function drilldownRule(target: HealthReportDrilldown): PlannerFilterRule | null {

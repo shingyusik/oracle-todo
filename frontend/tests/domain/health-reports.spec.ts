@@ -42,7 +42,7 @@ describe("Health report analysis", () => {
     dietCount: { current: null, previous: null }, bowel: {
       currentCount: null, previousCount: null, currentAverage: null, previousAverage: null,
     }, medicationCount: { current: null, previous: null }, medicationFrequencies: [],
-    dietTagFrequencies: [], dietTagBowelResponses: [], reactionDisclaimer: "",
+    dietTagFrequencies: [], dietTagBowelResponses: [], dietTagBristolComparisons: [], reactionDisclaimer: "",
     ...overrides,
   });
 

@@ -596,8 +596,6 @@ button {
 .health-report-chart-action,
 .health-report-frequency-list button,
 .health-report-frequency-list > li > div,
-.health-report-response-list button,
-.health-report-response-list > li > div,
 .health-report-error button {
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-xs);
@@ -699,8 +697,7 @@ button {
   justify-content: space-between;
 }
 
-.health-report-frequency-list,
-.health-report-response-list {
+.health-report-frequency-list {
   display: grid;
   margin: 0;
   padding: 0;
@@ -709,9 +706,7 @@ button {
 }
 
 .health-report-frequency-list button,
-.health-report-frequency-list > li > div,
-.health-report-response-list button,
-.health-report-response-list > li > div {
+.health-report-frequency-list > li > div {
   position: relative;
   display: flex;
   width: 100%;
@@ -723,9 +718,7 @@ button {
 }
 
 .health-report-frequency-list button > :not(.health-report-frequency-bar),
-.health-report-frequency-list > li > div > :not(.health-report-frequency-bar),
-.health-report-response-list button > :not(.health-report-frequency-bar),
-.health-report-response-list > li > div > :not(.health-report-frequency-bar) {
+.health-report-frequency-list > li > div > :not(.health-report-frequency-bar) {
   position: relative;
 }
 
@@ -736,8 +729,89 @@ button {
   background: var(--color-accent-soft);
 }
 
-.health-report-response-bar {
-  background: var(--color-danger-soft);
+.health-report-heatmap-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.health-report-heatmap {
+  width: 100%;
+  max-width: 900px;
+  min-width: 440px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 4px;
+  font-size: 13px;
+}
+
+.health-report-heatmap-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.health-report-heatmap-scale {
+  width: 100px;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, hsl(30 65% 67%), hsl(210 65% 97%), hsl(210 65% 67%));
+}
+
+.health-report-heatmap-legend > :last-child {
+  margin-left: 16px;
+}
+
+.health-report-heatmap-help {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.health-report-heatmap-detail {
+  margin: 0;
+  font-size: 12px;
+  max-width: 900px;
+}
+
+.health-report-heatmap th,
+.health-report-heatmap td {
+  padding: 0;
+  height: 36px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.health-report-heatmap th:first-child {
+  width: 120px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.health-report-heatmap td[data-comparable="false"] {
+  background: #e7e7e7;
+}
+
+.health-report-heatmap button {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.health-report-heatmap th button {
+  text-align: left;
+}
+
+.health-report-heatmap button[aria-pressed="true"] {
+  outline: 2px solid var(--color-ink);
+  outline-offset: -2px;
 }
 
 .health-report-card:focus-visible,
@@ -747,7 +821,9 @@ button {
 .health-report-metric-controls button:focus-visible,
 .health-report-chart-action:focus-visible,
 .health-report-frequency-list button:focus-visible,
-.health-report-response-list button:focus-visible,
+.health-report-heatmap summary:focus-visible,
+.health-report-heatmap button:focus-visible,
+.health-report-heatmap-scroll:focus-visible,
 .health-report-error button:focus-visible {
   outline: 3px solid var(--color-ink);
   outline-offset: 3px;
@@ -4366,6 +4442,7 @@ button {
   height: 110px;
 }
 
+.dashboard-health,
 .dashboard-ledger {
   grid-column: 1 / -1;
   min-width: 0;
@@ -4373,6 +4450,40 @@ button {
   border: 1px solid var(--color-hairline-light);
   border-radius: var(--radius-lg);
   background: var(--color-canvas-light);
+}
+
+.dashboard-health > [aria-busy] {
+  display: grid;
+  gap: 24px;
+  padding: 20px;
+}
+
+.dashboard-health-trends {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.dashboard-health .health-report-heatmap {
+  min-width: 320px;
+  border-spacing: 3px;
+  font-size: 11px;
+}
+
+.dashboard-health .health-report-heatmap th:first-child {
+  width: 80px;
+}
+
+.dashboard-health .health-report-section h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-health-trends {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .dashboard-ledger-header {

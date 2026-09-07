@@ -10,6 +10,7 @@ import { DashboardChart } from "@/features/dashboard/ui/DashboardChart";
 import { DashboardPanel } from "@/features/dashboard/ui/DashboardPanel";
 import { HealthSummaryCard } from "@/features/dashboard/ui/HealthSummaryCard";
 import { RecentActivityCard } from "@/features/dashboard/ui/RecentActivityCard";
+import { healthApi } from "@/features/health/api/health-api";
 import {
   loadLedgerReport,
   type LedgerReportData,
@@ -231,6 +232,7 @@ describe("DashboardPanel", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 6, 29, 12));
     vi.mocked(loadLedgerReport).mockReset().mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(healthApi, "reports").mockReturnValue(new Promise(() => undefined));
   });
 
   afterEach(() => {
@@ -267,7 +269,9 @@ describe("DashboardPanel", () => {
     const ledger = await screen.findByRole("region", { name: "Ledger highlights" });
     expect(await within(ledger).findByText("No Ledger currencies available."))
       .toBeVisible();
-    expect(document.querySelector(".dashboard-panel")?.lastElementChild).toBe(ledger);
+    const health = screen.getByRole("region", { name: "Health Journal highlights" });
+    expect(ledger.nextElementSibling).toBe(health);
+    expect(document.querySelector(".dashboard-panel")?.lastElementChild).toBe(health);
     expect(
       fetchMock.mock.calls.some(([url]) => url === "/api/v1/dashboard"),
     ).toBe(false);

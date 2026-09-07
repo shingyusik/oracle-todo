@@ -10,7 +10,7 @@ import type {
   HealthReportDrilldown,
   HealthReportMetric,
 } from "@/features/health/model/health-reports";
-import { buildHealthReportAnalysis } from "@/features/health/model/health-reports";
+import { BRISTOL_COMPARISON_MIN_MEALS, buildHealthReportAnalysis } from "@/features/health/model/health-reports";
 
 type Drilldown = (target: HealthReportDrilldown) => void;
 type Range = HealthReportDrilldown["range"];
@@ -27,6 +27,18 @@ const supportingMetricDefinitions = [
 }>;
 
 type SupportingMetric = typeof supportingMetricDefinitions[number]["metric"];
+
+export function HealthReportHighlights({ report }: {
+  report: HealthReport;
+}) {
+  const analysis = buildHealthReportAnalysis(report);
+  const range = { start: report.range.from, end: report.range.to };
+  return <div className="dashboard-health-trends">
+      <WeightChart analysis={analysis} range={range} dateRange={range} />
+      <BowelChart analysis={analysis} range={range} dateRange={range} />
+      <DietTagResponses report={report} range={range} />
+    </div>;
+}
 
 export function HealthReportAnalysis({
   report,
@@ -158,10 +170,12 @@ function BowelChart({
   analysis,
   range,
   onDrilldown,
+  dateRange,
 }: {
   analysis: ReportAnalysis;
   range: Range;
   onDrilldown?: Drilldown;
+  dateRange?: Range;
 }) {
   const points = analysis.dailyBowelPoints.map((point) => ({
     id: point.localDate,
@@ -193,6 +207,7 @@ function BowelChart({
             points,
           }}
           domain={{ minimum: 1, maximum: 7 }}
+          dateRange={dateRange}
           referenceBand={{ minimum: 3, maximum: 5, label: "Typical Bristol 3 to 5" }}
         />
       )}
@@ -204,10 +219,12 @@ function WeightChart({
   analysis,
   range,
   onDrilldown,
+  dateRange,
 }: {
   analysis: ReportAnalysis;
   range: Range;
   onDrilldown?: Drilldown;
+  dateRange?: Range;
 }) {
   const points = analysis.weightPoints.map((point, index) => ({
     id: `${point.occurredAt}-${index}`,
@@ -234,6 +251,7 @@ function WeightChart({
         <DashboardLineChart
           chart={{ kind: "line", ariaLabel: "Weight trend (kg)", total: points.length, points }}
           domain={domain}
+          dateRange={dateRange}
           valueSuffix=" kg"
         />
       )}
@@ -371,38 +389,64 @@ function DietTagResponses({
   range: Range;
   onDrilldown?: Drilldown;
 }) {
+  const [selected, setSelected] = useState<{ report: HealthReport; text: string } | null>(null);
   return (
-    <section className="health-report-section" aria-label="Diet-tag bowel response">
-      <h2>Diet-tag bowel response</h2>
+    <section className="health-report-section" aria-label="Diet-tag Bristol comparison">
+      <h2>Diet-tag Bristol comparison</h2>
+      <details className="health-report-heatmap-help"><summary>About this chart</summary>
       <p>{report.reactionDisclaimer}</p>
-      {report.dietTagBowelResponses.length === 0 ? (
-        <p className="items-message">No diet-tag bowel response data are available for this period.</p>
+      <p>Cells show the difference in Bristol score frequency after meals with versus without
+        each tag, in percentage points. Colors do not mean better or worse.</p>
+      <p>Only completed 24-hour windows with a bowel record enter the percentages. Missing records
+        are not normal results. A meal can have several scores, so rows need not total 100%.
+        Without tag means the tag was not recorded; complete food tagging matters.
+        Shared foods and overlapping windows are not adjusted for.</p>
+      <p>Gray means fewer than {BRISTOL_COMPARISON_MIN_MEALS} observed meals in either group.
+        This display threshold is not a test of statistical significance. Select a cell for counts.</p>
+      </details>
+      <div className="health-report-heatmap-legend" aria-label="Color scale: less frequent to more frequent; dash means insufficient data">
+        <span>Less</span><span className="health-report-heatmap-scale" aria-hidden="true" /><span>More</span>
+        <span>— Insufficient data</span>
+      </div>
+      {report.dietTagBristolComparisons.length === 0 ? (
+        <p className="items-message">No diet-tag Bristol comparison data are available for this period.</p>
       ) : (
-        <ul className="health-report-response-list">
-          {report.dietTagBowelResponses.map((row) => {
-            const text = `${row.positiveMeals} / ${row.eligibleMeals}, ${Math.round(row.rate * 100)}%`;
-            const content = <>
-              <span
-                className="health-report-frequency-bar health-report-response-bar"
-                style={{ "--health-report-bar": row.rate } as React.CSSProperties}
-                aria-hidden="true"
-              />
-              <span>{row.tag}</span><strong>{text}</strong>
-            </>;
-            return (
-              <li key={row.tag}>
-                {onDrilldown ? (
-                  <button
-                    type="button"
-                    aria-label={`${row.tag}, ${text}`}
-                    onClick={() => onDrilldown({ tab: "diet", field: "tags", value: row.tag, range })}
-                  >{content}</button>
-                ) : <div aria-label={`${row.tag}, ${text}`}>{content}</div>}
-              </li>
-            );
-          })}
-        </ul>
+        <div className="health-report-heatmap-scroll" role="region" aria-label="Scrollable Bristol comparison table" tabIndex={0}>
+          <table className="health-report-heatmap" aria-label="Bristol score frequency difference in percentage points">
+            <thead><tr><th scope="col">Tag / Bristol</th>
+              {Array.from({ length: 7 }, (_, index) => <th key={index} scope="col" aria-label={`Bristol ${index + 1}`}>{index + 1}</th>)}
+            </tr></thead>
+            <tbody>{report.dietTagBristolComparisons.map((row) => {
+              const enough = Math.min(row.withTag.observedMeals, row.withoutTag.observedMeals) >= BRISTOL_COMPARISON_MIN_MEALS;
+              return <tr key={row.tag}>
+                <th scope="row">
+                  {onDrilldown ? <button type="button" onClick={() => onDrilldown({
+                    tab: "diet", field: "tags", value: row.tag, range,
+                  })}>{row.tag}</button> : row.tag}
+                </th>
+                {row.withTag.bristolMeals.map((count, index) => {
+                  const withRate = row.withTag.observedMeals ? count / row.withTag.observedMeals * 100 : null;
+                  const withoutRate = row.withoutTag.observedMeals ? row.withoutTag.bristolMeals[index] / row.withoutTag.observedMeals * 100 : null;
+                  const difference = enough ? Number((withRate! - withoutRate!).toFixed(1)) : null;
+                  const label = difference === null ? "Insufficient data" : `${signed(difference)} pp`;
+                  const detail = `With tag: ${count}/${row.withTag.observedMeals} (${withRate === null ? "unavailable" : `${withRate.toFixed(1)}%`}). Without tag: ${row.withoutTag.bristolMeals[index]}/${row.withoutTag.observedMeals} (${withoutRate === null ? "unavailable" : `${withoutRate.toFixed(1)}%`}).`;
+                  const selectionText = `${row.tag} · Bristol ${index + 1} · ${label}. ${detail} No bowel record (with / without): ${row.withTag.eligibleMeals - row.withTag.observedMeals} / ${row.withoutTag.eligibleMeals - row.withoutTag.observedMeals}. Awaiting 24h: ${row.withTag.pendingMeals} / ${row.withoutTag.pendingMeals}.`;
+                  return <td key={index} data-comparable={enough} style={difference === null ? undefined : {
+                    backgroundColor: `hsl(${difference >= 0 ? 210 : 30} 65% ${97 - Math.abs(difference) * 0.3}%)`,
+                  }}>
+                    <button type="button"
+                      aria-label={`${row.tag}, Bristol ${index + 1}: ${label}. ${detail}`}
+                      aria-pressed={selected?.report === report && selected.text === selectionText}
+                      onClick={() => setSelected({ report, text: selectionText })}
+                    >{difference === null ? "—" : signed(difference)}</button>
+                  </td>;
+                })}
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
       )}
+      {selected?.report === report && <p className="health-report-heatmap-detail" role="status">{selected.text}</p>}
     </section>
   );
 }
@@ -423,7 +467,7 @@ function hasUsableData(report: HealthReport): boolean {
     || report.metricSeries.some(({ points }) => points.length > 0)
     || report.medicationFrequencies.length > 0
     || report.dietTagFrequencies.length > 0
-    || report.dietTagBowelResponses.length > 0;
+    || report.dietTagBristolComparisons.length > 0;
 }
 
 function number(value: number): string {

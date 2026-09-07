@@ -23,6 +23,7 @@ import {
 } from "@/features/dashboard/ui/DashboardLedgerHighlights";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
 import { DashboardStatusCard } from "@/features/dashboard/ui/DashboardStatusCard";
+import { DashboardHealthHighlights } from "@/features/dashboard/ui/DashboardHealthHighlights";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 
 const DASHBOARD_STATUS_PREVIEW_LIMIT = 4;
@@ -30,6 +31,7 @@ const DASHBOARD_STATUS_PREVIEW_LIMIT = 4;
 type DashboardPanelProps = {
   controller: WorkbenchController;
   ledgerMutationEpoch: number;
+  healthMutationEpoch?: number;
   onLedgerNavigate: (navigation: DashboardLedgerNavigation) => void;
 };
 
@@ -49,6 +51,7 @@ type DashboardWidgetProps = {
 export function DashboardPanel({
   controller,
   ledgerMutationEpoch,
+  healthMutationEpoch,
   onLedgerNavigate,
 }: DashboardPanelProps) {
   const { workspaceItems } = controller;
@@ -215,6 +218,13 @@ export function DashboardPanel({
       <DashboardLedgerHighlights
         mutationEpoch={ledgerMutationEpoch}
         onNavigate={onLedgerNavigate}
+      />
+      <DashboardHealthHighlights
+        mutationEpoch={healthMutationEpoch}
+        onNavigate={() => {
+          controller.selectTab("health");
+          controller.selectTab("reports");
+        }}
       />
     </section>
   );

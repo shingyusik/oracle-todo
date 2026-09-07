@@ -194,6 +194,7 @@ export function MainPanel({ controller, mutationEpochs }: MainPanelProps) {
         <DashboardPanel
           controller={controller}
           ledgerMutationEpoch={mutationEpochs?.ledger ?? 0}
+          healthMutationEpoch={mutationEpochs?.health ?? 0}
           onLedgerNavigate={navigateLedger}
         />
       </main>

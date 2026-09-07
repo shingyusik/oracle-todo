@@ -54,11 +54,27 @@ function healthReportWire() {
     diet_tag_frequencies: [{ name: "fiber", count: 3 }],
     diet_tag_bowel_responses: [{ tag: "fiber", positive_meals: 1,
       eligible_meals: 2, rate: 0.5 }],
+    diet_tag_bristol_comparisons: [{ tag: "fiber",
+      with_tag: { eligible_meals: 2, observed_meals: 1, pending_meals: 1, bristol_meals: [0, 0, 0, 0, 0, 1, 0] },
+      without_tag: { eligible_meals: 1, observed_meals: 1, pending_meals: 0, bristol_meals: [0, 0, 0, 1, 0, 0, 0] },
+    }],
     reaction_disclaimer: "Observed associations only; they do not establish causation.",
   };
 }
 
 describe("Health wire boundary", () => {
+  it.each([
+    { observed_meals: 3 },
+    { pending_meals: -1 },
+    { bristol_meals: [0, 0, 0, 0, 0, 2, 0] },
+    { bristol_meals: [0, 0, 0, 0, 0, 0, 0] },
+    { bristol_meals: [1] },
+  ])("rejects malformed Bristol comparison counts: %j", (invalid) => {
+    const response = healthReportWire();
+    Object.assign(response.diet_tag_bristol_comparisons[0].with_tag, invalid);
+    expect(() => mapHealthReport(response)).toThrow(TypeError);
+  });
+
   it("requests and maps the complete Health report projection", async () => {
     const response = healthReportWire();
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
@@ -95,6 +111,10 @@ describe("Health wire boundary", () => {
       medicationFrequencies: [{ name: "Vitamin D", count: 2 }],
       dietTagFrequencies: [{ name: "fiber", count: 3 }],
       dietTagBowelResponses: [{ tag: "fiber", positiveMeals: 1, eligibleMeals: 2, rate: 0.5 }],
+      dietTagBristolComparisons: [{ tag: "fiber",
+        withTag: { eligibleMeals: 2, observedMeals: 1, pendingMeals: 1, bristolMeals: [0, 0, 0, 0, 0, 1, 0] },
+        withoutTag: { eligibleMeals: 1, observedMeals: 1, pendingMeals: 0, bristolMeals: [0, 0, 0, 1, 0, 0, 0] },
+      }],
       reactionDisclaimer: "Observed associations only; they do not establish causation.",
     });
   });

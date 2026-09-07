@@ -23,7 +23,9 @@ adapters call those services; they do not write domain tables directly.
 - **Health Journal** — diet and images, bowel and medication events, health metrics, daily
   metric upsert, Reports, a combined timeline, and bounded trends.
 - **Dashboard** — a read-only ToDo analytics screen for today's work, completion history,
-  Area status, and Project status.
+  Area status, and Project status, followed by Ledger and Health Journal highlights.
+  Health highlights show weight and daily average Bristol trends alongside the
+  diet-tag Bristol comparison heatmap, sharing a 7/14/30-day period selector.
 
 Ledger and Health Journal do not repeat an Overview page. Their operational tabs remain
 available in the main navigation:

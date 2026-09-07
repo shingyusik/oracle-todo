@@ -8,7 +8,8 @@
 - `todo.sqlite`, `ledger.sqlite`, and `health.sqlite` are independent sources of truth.
 - Every domain mutation goes through its application service and writes audit history.
 - CLI and HTTP are adapters; neither may bypass service policy.
-- The UI Dashboard currently shows ToDo analytics only. Ledger and Health Journal do not
+- The UI Dashboard shows ToDo analytics, Ledger highlights, and Health Journal trends
+  with a diet-tag Bristol comparison heatmap. Ledger and Health Journal do not
   have duplicate Overview pages.
 
 Read `README.md` and the relevant operations reference before changing schemas, commands,

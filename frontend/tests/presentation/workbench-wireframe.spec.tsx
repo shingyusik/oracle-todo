@@ -636,6 +636,7 @@ function reportHealthController() {
     medicationFrequencies: [{ name: "Mesalamine", count: 1 }],
     dietTagFrequencies: [{ name: "spicy", count: 1 }],
     dietTagBowelResponses: [],
+    dietTagBristolComparisons: [],
     reactionDisclaimer: "Observed associations only; they do not establish causation.",
   };
   const scopes = ["health.diet", "health.bowel", "health.medication", "health.metrics"] as const;
