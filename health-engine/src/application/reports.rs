@@ -38,6 +38,7 @@ pub struct HealthReport {
     pub medication_frequencies: Vec<NamedCount>,
     pub diet_tag_frequencies: Vec<NamedCount>,
     pub diet_tag_bowel_responses: Vec<TagBowelResponse>,
+    pub diet_tag_bristol_comparisons: Vec<TagBristolComparison>,
     pub reaction_disclaimer: &'static str,
 }
 
@@ -108,6 +109,46 @@ pub struct TagBowelResponse {
     pub positive_meals: u32,
     pub eligible_meals: u32,
     pub rate: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct BristolMealCounts {
+    pub eligible_meals: u32,
+    pub observed_meals: u32,
+    pub pending_meals: u32,
+    pub bristol_meals: [u32; 7],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TagBristolComparison {
+    pub tag: String,
+    pub with_tag: BristolMealCounts,
+    pub without_tag: BristolMealCounts,
+}
+
+impl BristolMealCounts {
+    fn record(&mut self, scores: Option<[bool; 7]>) {
+        let Some(scores) = scores else {
+            self.pending_meals += 1;
+            return;
+        };
+        self.eligible_meals += 1;
+        self.observed_meals += u32::from(scores.iter().any(|seen| *seen));
+        for (count, seen) in self.bristol_meals.iter_mut().zip(scores) {
+            *count += u32::from(seen);
+        }
+    }
+
+    fn excluding(&self, included: &Self) -> Self {
+        Self {
+            eligible_meals: self.eligible_meals - included.eligible_meals,
+            observed_meals: self.observed_meals - included.observed_meals,
+            pending_meals: self.pending_meals - included.pending_meals,
+            bristol_meals: std::array::from_fn(|index| {
+                self.bristol_meals[index] - included.bristol_meals[index]
+            }),
+        }
+    }
 }
 
 #[allow(private_bounds)]
@@ -304,7 +345,8 @@ fn project(
             .iter()
             .flat_map(|diet| diet.tags().iter().cloned()),
     )?;
-    let diet_tag_bowel_responses = responses(&current_diets, &records.events, now)?;
+    let (diet_tag_bowel_responses, diet_tag_bristol_comparisons) =
+        responses(&current_diets, &records.events, now)?;
     Ok(HealthReport {
         range,
         previous_range,
@@ -317,6 +359,7 @@ fn project(
         medication_frequencies,
         diet_tag_frequencies,
         diet_tag_bowel_responses,
+        diet_tag_bristol_comparisons,
         reaction_disclaimer: REACTION_DISCLAIMER,
     })
 }
@@ -416,24 +459,21 @@ fn responses(
     diets: &[&DietEntry],
     events: &[HealthEvent],
     now: OffsetDateTime,
-) -> HealthResult<Vec<TagBowelResponse>> {
-    let mut abnormal_bowel = events
-        .iter()
-        .filter(|event| {
-            event.category() == HealthCategory::Bowel
-                && matches!(
-                    event.value_num().map(|value| value as u8),
-                    Some(1 | 2 | 6 | 7)
-                )
-        })
-        .map(HealthEvent::occurred_at)
-        .collect::<Vec<_>>();
-    abnormal_bowel.sort_unstable();
-    let mut counts = BTreeMap::<String, (u32, u32)>::new();
-    for diet in diets {
-        for tag in diet.tags() {
-            counts.entry(tag.clone()).or_default();
+) -> HealthResult<(Vec<TagBowelResponse>, Vec<TagBristolComparison>)> {
+    let mut bowel_by_score: [Vec<OffsetDateTime>; 7] = std::array::from_fn(|_| Vec::new());
+    for event in events {
+        if event.category() == HealthCategory::Bowel
+            && let Some(score @ 1..=7) = event.value_num().map(|value| value as usize)
+        {
+            bowel_by_score[score - 1].push(event.occurred_at());
         }
+    }
+    for instants in &mut bowel_by_score {
+        instants.sort_unstable();
+    }
+    let mut total = BristolMealCounts::default();
+    let mut counts = BTreeMap::<String, (u32, BristolMealCounts)>::new();
+    for diet in diets {
         let upper = diet
             .occurred_at()
             .checked_add(Duration::hours(24))
@@ -443,29 +483,40 @@ fn responses(
                     "diet response window is outside supported time",
                 )
             })?;
-        if upper > now {
-            continue;
-        }
-        let positive = has_in_window(&abnormal_bowel, diet.occurred_at(), upper);
+        let scores = (upper <= now).then(|| {
+            std::array::from_fn(|index| {
+                has_in_window(&bowel_by_score[index], diet.occurred_at(), upper)
+            })
+        });
+        let positive = scores.is_some_and(|seen| seen[0] || seen[1] || seen[5] || seen[6]);
+        total.record(scores);
         for tag in diet.tags() {
             let entry = counts.entry(tag.clone()).or_default();
-            entry.1 += 1;
+            entry.1.record(scores);
             entry.0 += u32::from(positive);
         }
     }
     Ok(counts
         .into_iter()
-        .map(|(tag, (positive_meals, eligible_meals))| TagBowelResponse {
-            tag,
-            positive_meals,
-            eligible_meals,
-            rate: if eligible_meals == 0 {
-                0.0
-            } else {
-                f64::from(positive_meals) / f64::from(eligible_meals)
-            },
+        .map(|(tag, (positive_meals, with_tag))| {
+            let response = TagBowelResponse {
+                tag: tag.clone(),
+                positive_meals,
+                eligible_meals: with_tag.eligible_meals,
+                rate: if with_tag.eligible_meals == 0 {
+                    0.0
+                } else {
+                    f64::from(positive_meals) / f64::from(with_tag.eligible_meals)
+                },
+            };
+            let comparison = TagBristolComparison {
+                tag,
+                without_tag: total.excluding(&with_tag),
+                with_tag,
+            };
+            (response, comparison)
         })
-        .collect())
+        .unzip())
 }
 
 fn has_in_window(

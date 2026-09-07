@@ -1265,6 +1265,16 @@ async fn health_reports_return_complete_engine_projection() {
         ])
     );
     assert_eq!(
+        report["diet_tag_bristol_comparisons"][0],
+        json!({
+            "tag": "fiber",
+            "with_tag": {"eligible_meals": 1, "observed_meals": 1, "pending_meals": 0,
+                "bristol_meals": [0, 0, 0, 0, 0, 1, 0]},
+            "without_tag": {"eligible_meals": 0, "observed_meals": 0, "pending_meals": 0,
+                "bristol_meals": [0, 0, 0, 0, 0, 0, 0]}
+        })
+    );
+    assert_eq!(
         report["reaction_disclaimer"],
         "Observed associations only; they do not establish causation."
     );

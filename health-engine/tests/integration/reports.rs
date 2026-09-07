@@ -167,6 +167,12 @@ fn bowel_responses_obey_boundaries_eligibility_and_ordering() {
         report.reaction_disclaimer,
         "Observed associations only; they do not establish causation."
     );
+    let alpha = &report.diet_tag_bristol_comparisons[0];
+    assert_eq!(alpha.tag, "alpha");
+    assert_eq!(alpha.with_tag.bristol_meals, [0, 0, 1, 1, 1, 1, 1]);
+    let zeta = report.diet_tag_bristol_comparisons.last().unwrap();
+    assert_eq!(zeta.tag, "zeta");
+    assert_eq!(zeta.with_tag.bristol_meals, [0, 1, 1, 1, 1, 1, 0]);
     assert_eq!(
         report
             .diet_tag_frequencies
@@ -278,6 +284,51 @@ fn bowel_response_rate_uses_all_eligible_meals() {
 }
 
 #[test]
+fn bristol_comparisons_include_normal_scores_and_separate_missing_and_pending_meals() {
+    let fixture = Fixture::new(UtcOffset::UTC);
+    let mut service = fixture.service();
+    let first = datetime!(2026-07-01 12:00 UTC);
+    for (day, tags, scores) in [
+        (0, vec!["rice", "dairy"], vec![4, 4]),
+        (2, vec!["rice", "dairy"], vec![6]),
+        (4, vec!["rice"], vec![4]),
+        (6, vec!["rice"], vec![6]),
+        (8, vec!["rice", "dairy"], vec![]),
+        (10, vec!["rice", "dairy"], vec![7]),
+    ] {
+        let meal = first + Duration::days(day);
+        diet(&mut service, meal, &tags);
+        for (index, scale) in scores.into_iter().enumerate() {
+            bowel(
+                &mut service,
+                meal + Duration::hours(index as i64 + 1),
+                scale,
+            );
+        }
+    }
+    let report = service
+        .reports_at(range(1, 11), first + Duration::hours(252))
+        .unwrap();
+    let dairy = &report.diet_tag_bristol_comparisons[0];
+    assert_eq!(dairy.tag, "dairy");
+    assert_eq!(dairy.with_tag.eligible_meals, 3);
+    assert_eq!(dairy.with_tag.observed_meals, 2);
+    assert_eq!(dairy.with_tag.pending_meals, 1);
+    assert_eq!(dairy.with_tag.bristol_meals, [0, 0, 0, 1, 0, 1, 0]);
+    assert_eq!(dairy.without_tag.eligible_meals, 2);
+    assert_eq!(dairy.without_tag.observed_meals, 2);
+    assert_eq!(
+        dairy.without_tag.bristol_meals,
+        dairy.with_tag.bristol_meals
+    );
+    let rice = &report.diet_tag_bristol_comparisons[1];
+    assert_eq!(rice.tag, "rice");
+    assert_eq!(rice.with_tag.observed_meals, 4);
+    assert_eq!(rice.without_tag.eligible_meals, 0);
+    assert_eq!(rice.without_tag.observed_meals, 0);
+}
+
+#[test]
 fn reports_use_historical_lookahead_active_rows_and_fixed_offset_dates() {
     let fixture = Fixture::new(UtcOffset::from_hms(9, 0, 0).unwrap());
     let mut service = fixture.service();
@@ -294,6 +345,13 @@ fn reports_use_historical_lookahead_active_rows_and_fixed_offset_dates() {
     assert_eq!(report.diet_count.current, Some(1));
     assert_eq!(report.medication_count.current, None);
     assert_eq!(report.diet_tag_bowel_responses[0].positive_meals, 1);
+    assert_eq!(report.diet_tag_bristol_comparisons.len(), 1);
+    assert_eq!(
+        report.diet_tag_bristol_comparisons[0]
+            .with_tag
+            .bristol_meals,
+        [0, 0, 0, 0, 0, 0, 1]
+    );
     assert!(report.bowel_points.is_empty());
 }
 
