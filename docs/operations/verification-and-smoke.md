@@ -36,8 +36,14 @@ todo=ok user_version=1 ledger=ok user_version=2 health=ok user_version=1 media=o
 
 ### Mock data
 
-The mock-data scripts seed ToDo records around the local run date and Ledger activity over
-the inclusive 90-day period ending today. Without an argument, they delete and rebuild
+The mock-data scripts build Raven once, then invoke that executable directly for each
+record through the domain CLI. A failed build leaves the existing mock home intact.
+They seed ToDo records around the local run date and Ledger and Health
+activity over the inclusive 90-day period ending today. Health includes 18 meals, 18 bowel
+records, 18 medication records, and 90 daily-upsert metric readings (weight, sleep, CRP, fecal
+calprotectin, and overall condition). Repeated food tags, varying readings, and same-day
+bowel records populate the Health Reports charts and tag association analysis for the
+7/14/30/90-day presets. Images are not included. Without an argument, the scripts delete and rebuild
 `.mock-data/todo-engine`:
 
 ```bash

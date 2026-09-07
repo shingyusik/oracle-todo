@@ -174,6 +174,23 @@ try {
     Assert-True ($transferOut[0].account_name -eq 'Checking' -and $transferIn[0].account_name -eq 'Savings') 'transfer accounts differ from the fixture'
     Assert-True (-not [string]::IsNullOrWhiteSpace($transferOut[0].transfer_group_id) -and $transferOut[0].transfer_group_id -eq $transferIn[0].transfer_group_id) 'transfer group id is missing or mismatched'
 
+    $diets = (Invoke-Raven $smokeHome health diet list --limit 200 --format json | ConvertFrom-Json)
+    Assert-True (@($diets).Count -eq 18) 'Health report fixture needs 18 meals across 90 days.'
+    foreach ($kind in @('bowel', 'medication')) {
+        $records = (Invoke-Raven $smokeHome health $kind list --limit 200 --format json | ConvertFrom-Json)
+        Assert-True (@($records).Count -eq 18) "Health report fixture needs 18 $kind records."
+    }
+    $metrics = (Invoke-Raven $smokeHome health metric list --limit 200 --format json | ConvertFrom-Json)
+    foreach ($key in @('body_weight', 'sleep_duration', 'crp', 'fecal_calprotectin', 'overall_condition')) {
+        $series = @($metrics | Where-Object { $_.metric_key -eq $key })
+        Assert-True ($series.Count -eq 18 -and @($series.value_num | Select-Object -Unique).Count -gt 1) "Health report fixture needs varying $key readings."
+    }
+    $weight = $metrics | Where-Object { $_.metric_key -eq 'body_weight' } | Sort-Object occurred_at -Descending | Select-Object -First 1
+    $probe = ConvertTo-Json -InputObject @(@{ at = $weight.occurred_at; category = 'weight'; key = 'body_weight'; name = $weight.name; value = $weight.value_num; unit = 'kg' }) -Compress
+    if ($PSVersionTable.PSVersion -lt [version]'7.3' -or $PSNativeCommandArgumentPassing -eq 'Legacy') { $probe = $probe.Replace(' ', '\u0020').Replace('"', '\"') }
+    $upserted = (Invoke-Raven $smokeHome health metric daily-upsert --json $probe | ConvertFrom-Json)
+    Assert-True ($upserted[0].id -eq $weight.id) 'Health report metrics must already be daily-upsert records.'
+
     $nonTransferEntries = @($entries | Where-Object { -not $_.transfer_group_id })
     $actualEntrySignatures = @($nonTransferEntries | ForEach-Object { "$($_.date)|$($_.entry_type)|$($_.amount_minor)|$($_.account_name)|$($_.category_name)|$($_.content)|$($_.source)" } | Sort-Object)
     $fixtureRows = @(

@@ -56,13 +56,25 @@ if [[ "$home_real" != "$default_home_real" ]]; then
   done
 fi
 
+# Build before replacing any mock home; use Cargo's artifact path for custom targets.
+echo 'Building Raven (once)...' >&2
+raven_bin="$(cargo build -q --manifest-path "$repo_root/Cargo.toml" -p raven-cli --message-format=json-render-diagnostics | PYTHONIOENCODING=utf-8 python3 -c '
+import json, sys
+artifacts = [json.loads(line) for line in sys.stdin if line.strip()]
+paths = [item["executable"] for item in artifacts if item.get("reason") == "compiler-artifact" and item["target"]["name"] == "raven" and item.get("executable")]
+if not paths:
+    raise SystemExit("Cargo did not return the raven executable.")
+sys.stdout.write(paths[-1])
+')"
+
 if [[ "$home_real" == "$default_home_real" ]]; then
   rm -rf -- "$home"
 fi
 mkdir -p "$home"
+echo 'Creating ToDo, Ledger, and Health mock data...' >&2
 
 run_raven() {
-  RAVEN_CONSOLE_LOG=error cargo run -q -p raven-cli -- --home "$home" "$@"
+  RAVEN_CONSOLE_LOG=error "$raven_bin" --home "$home" "$@"
 }
 
 run() {
@@ -350,6 +362,41 @@ ledger transfer \
   --date "$(day_offset -7)" --amount 500000 --currency KRW \
   --from-account Checking --to-account Savings --content "Mock savings transfer" \
   --source mock-seed >/dev/null
+
+# Sparse samples across every Reports preset, with repeated tags and varying metrics.
+health_offsets=(89 75 61 45 32 29 25 21 18 14 11 8 6 4 3 2 1 0)
+health_tags=('rice,vegetables' 'dairy,coffee' 'spicy,wheat')
+health_foods=('Rice bowl' 'Yogurt and coffee' 'Spicy noodles')
+health_bristol=(4 6 2)
+health_medications=('Vitamin D' 'Probiotic')
+for i in "${!health_offsets[@]}"; do
+  day="$(day_offset "-${health_offsets[$i]}")"
+  zone="$(python3 -c 'from datetime import datetime; import sys; print(datetime.fromisoformat(sys.argv[1]+"T12:00:00").astimezone().isoformat()[-6:])' "$day")"
+  run_raven health diet add --at "${day}T08:00:00${zone}" --meal breakfast \
+    --food "${health_foods[$((i % 3))]}" --tags "${health_tags[$((i % 3))]}" >/dev/null
+  run_raven health bowel add --at "${day}T13:00:00${zone}" --bristol "${health_bristol[$((i % 3))]}" >/dev/null
+  run_raven health medication add --at "${day}T09:00:00${zone}" \
+    --name "${health_medications[$((i % 2))]}" --dose 1 --unit tablet >/dev/null
+  metrics_json="$(python3 - "$i" "${day}T07:00:00${zone}" <<'PY'
+import json, sys
+i = int(sys.argv[1])
+metrics = []
+for category, key, name, value, unit in [
+    ('weight', 'body_weight', 'Body weight', round(72-i*0.1, 1), 'kg'),
+    ('sleep', 'sleep_duration', 'Sleep', 6+(i%4)*0.5, ''),
+    ('lab', 'crp', 'CRP', round(1+(i%5)*0.4, 1), 'mg/L'),
+    ('lab', 'fecal_calprotectin', 'Fecal calprotectin', 40+(i%5)*15, 'µg/g'),
+    ('symptom', 'overall_condition', 'Overall condition', 2+i%4, ''),
+]:
+    reading = dict(at=sys.argv[2], category=category, key=key, name=name, value=value)
+    if unit:
+        reading['unit'] = unit
+    metrics.append(reading)
+print(json.dumps(metrics))
+PY
+  )"
+  run_raven health metric daily-upsert --json "$metrics_json" >/dev/null
+done
 
 run_raven health-check
 echo "TODO_ENGINE_HOME=$home"

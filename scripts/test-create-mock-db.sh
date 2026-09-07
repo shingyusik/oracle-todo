@@ -178,3 +178,12 @@ WHERE ac.liability = 1 AND a.opening_balance_minor < 0
 [[ "$transfer_pairs" -ge 1 ]]
 [[ "$usd_balance_only" -ge 1 ]]
 [[ "$liabilities" -ge 1 ]]
+
+[[ "$(sqlite3 "$smoke_home/health.sqlite" 'SELECT COUNT(*) FROM diet_entries WHERE deleted_at IS NULL;')" -eq 18 ]]
+for category in bowel medication; do
+  [[ "$(sqlite3 "$smoke_home/health.sqlite" "SELECT COUNT(*) FROM health_events WHERE category='$category' AND deleted_at IS NULL;")" -eq 18 ]]
+done
+for key in body_weight sleep_duration crp fecal_calprotectin overall_condition; do
+  [[ "$(sqlite3 "$smoke_home/health.sqlite" "SELECT COUNT(*) FROM health_events WHERE metric_key='$key' AND daily_upsert=1 AND deleted_at IS NULL;")" -eq 18 ]]
+  [[ "$(sqlite3 "$smoke_home/health.sqlite" "SELECT COUNT(DISTINCT value_num) FROM health_events WHERE metric_key='$key' AND deleted_at IS NULL;")" -gt 1 ]]
+done

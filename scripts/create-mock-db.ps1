@@ -84,6 +84,20 @@ if (-not $isDefaultHome) {
     }
 }
 
+# Build before replacing any mock home; use Cargo's artifact path for custom targets.
+Write-Host 'Building Raven (once)...'
+$previousEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+try {
+    $buildOutput = & cargo build -q --manifest-path (Join-Path $repoRoot 'Cargo.toml') -p raven-cli --message-format=json-render-diagnostics
+    if ($LASTEXITCODE -ne 0) { throw "raven build failed ($LASTEXITCODE)" }
+    $ravenBinary = $buildOutput | ForEach-Object { $_ | ConvertFrom-Json } |
+        Where-Object { $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'raven' -and $_.executable } |
+        Select-Object -ExpandProperty executable -Last 1
+    if (-not $ravenBinary) { throw 'Cargo did not return the raven executable.' }
+}
+finally { [Console]::OutputEncoding = $previousEncoding }
+
 if ($isDefaultHome) {
     Assert-DefaultHomeSafe
     if ($null -ne (Get-ExistingPathEntry $DataHome)) {
@@ -91,6 +105,7 @@ if ($isDefaultHome) {
     }
 }
 New-Item -ItemType Directory -Force -Path $DataHome | Out-Null
+Write-Host 'Creating ToDo, Ledger, and Health mock data...'
 
 function Invoke-Raven {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$RavenArgs)
@@ -106,7 +121,7 @@ function Invoke-Raven {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $env:RAVEN_CONSOLE_LOG = 'error'
     try {
-        $output = & cargo run -q -p raven-cli -- --home $DataHome @RavenArgs
+        $output = & $ravenBinary --home $DataHome @RavenArgs
         if ($LASTEXITCODE -ne 0) {
             throw "raven failed ($LASTEXITCODE): $($RavenArgs -join ' ')"
         }
@@ -420,6 +435,36 @@ Invoke-Ledger transfer `
     --date (Get-RelativeDay -7) --amount 500000 --currency KRW `
     --from-account Checking --to-account Savings --content 'Mock savings transfer' `
     --source mock-seed | Out-Null
+
+# Sparse samples across every Reports preset, with repeated tags and varying metrics.
+$healthOffsets = @(89, 75, 61, 45, 32, 29, 25, 21, 18, 14, 11, 8, 6, 4, 3, 2, 1, 0)
+for ($i = 0; $i -lt $healthOffsets.Count; $i++) {
+    $day = Get-RelativeDay (-$healthOffsets[$i])
+    $zone = ([datetimeoffset]$todayDate.AddDays(-$healthOffsets[$i]).AddHours(12)).ToString('zzz')
+    $tags = @('rice,vegetables', 'dairy,coffee', 'spicy,wheat')[$i % 3]
+    $food = @('Rice bowl', 'Yogurt and coffee', 'Spicy noodles')[$i % 3]
+    Invoke-Raven health diet add --at "${day}T08:00:00${zone}" --meal breakfast --food $food --tags $tags | Out-Null
+    Invoke-Raven health bowel add --at "${day}T13:00:00${zone}" --bristol (@(4, 6, 2)[$i % 3]) | Out-Null
+    Invoke-Raven health medication add --at "${day}T09:00:00${zone}" --name (@('Vitamin D', 'Probiotic')[$i % 2]) --dose 1 --unit tablet | Out-Null
+    $metrics = @(
+        @('weight', 'body_weight', 'Body weight', (72 - $i * 0.1), 'kg'),
+        @('sleep', 'sleep_duration', 'Sleep', (6 + ($i % 4) * 0.5), ''),
+        @('lab', 'crp', 'CRP', (1 + ($i % 5) * 0.4), 'mg/L'),
+        @('lab', 'fecal_calprotectin', 'Fecal calprotectin', (40 + ($i % 5) * 15), 'µg/g'),
+        @('symptom', 'overall_condition', 'Overall condition', (2 + $i % 4), '')
+    )
+    $dailyMetrics = @(foreach ($metric in $metrics) {
+        $reading = @{ at = "${day}T07:00:00${zone}"; category = $metric[0]; key = $metric[1]; name = $metric[2]; value = $metric[3] }
+        if ($metric[4]) { $reading.unit = $metric[4] }
+        $reading
+    })
+    $metricJson = ConvertTo-Json -InputObject $dailyMetrics -Compress
+    if ($PSVersionTable.PSVersion -lt [version]'7.3' -or $PSNativeCommandArgumentPassing -eq 'Legacy') {
+        # Legacy native quoting splits JSON string values containing literal spaces.
+        $metricJson = $metricJson.Replace(' ', '\u0020').Replace('"', '\"')
+    }
+    Invoke-Raven health metric daily-upsert --json $metricJson | Out-Null
+}
 
 Invoke-Raven health-check
 Write-Output "TODO_ENGINE_HOME=$DataHome"
