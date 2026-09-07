@@ -655,12 +655,11 @@ struct FileStamp {
 
 #[cfg(windows)]
 fn opened_windows_handle_stamp(file: &std::fs::File) -> anyhow::Result<FileStamp> {
-    use std::os::windows::fs::MetadataExt;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FileBasicInfo,
-        GetFileInformationByHandle, GetFileInformationByHandleEx,
+        BY_HANDLE_FILE_INFORMATION, FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx,
     };
 
     let metadata = file
