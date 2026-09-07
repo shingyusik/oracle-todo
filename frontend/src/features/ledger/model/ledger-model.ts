@@ -490,8 +490,8 @@ export function mapLedgerSummary(value: unknown): LedgerSummary {
   const range = record(wire.range, "ledger summary.range");
   return {
     range: {
-      start: isoDate(range.start, "ledger summary.range.start"),
-      end: isoDate(range.end, "ledger summary.range.end"),
+      start: (Array.isArray(range.start) ? ordinalDate : isoDate)(range.start, "ledger summary.range.start"),
+      end: (Array.isArray(range.end) ? ordinalDate : isoDate)(range.end, "ledger summary.range.end"),
     },
     currencies: array(wire.currencies, "ledger summary.currencies")
       .map(mapCurrencySummary),

@@ -223,6 +223,17 @@ describe("Ledger wire boundary", () => {
     });
   });
 
+  it("maps summary dates returned by the Rust API and rejects invalid ordinals", () => {
+    expect(mapLedgerSummary({
+      range: { start: [2026, 244], end: [2026, 250] }, currencies: [],
+    }).range).toEqual({ start: "2026-09-01", end: "2026-09-07" });
+    for (const start of [[2026, 366], [2026, 0], [2026, 1, 2]]) {
+      expect(() => mapLedgerSummary({
+        range: { start, end: [2026, 250] }, currencies: [],
+      })).toThrow(/range.start/);
+    }
+  });
+
   it("maps account-balance precision only from the supported integer range", () => {
     const balance = {
       account: {
