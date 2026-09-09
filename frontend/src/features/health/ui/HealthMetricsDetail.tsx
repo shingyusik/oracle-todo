@@ -238,7 +238,7 @@ function MetricInput({ label, unit, value, disabled, onChange, min = Number.MIN_
   label: string; unit: string; value: string; disabled: boolean; min?: number | string;
   max?: number | string; onChange(value: string): void;
 }) {
-  return <label className="field-label">{label}<span>{unit}</span><input aria-label={label}
+  return <label className="field-label health-metric-field"><span>{label} [{unit}]</span><input aria-label={label}
     type="number" min={min} max={max} step="any" disabled={disabled} value={value}
     onChange={(event) => onChange(event.target.value)} /></label>;
 }

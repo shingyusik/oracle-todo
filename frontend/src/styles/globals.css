@@ -3016,6 +3016,10 @@ button {
   align-items: start;
 }
 
+.detail-properties-list .field-label.health-metric-field {
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
+}
+
 .property-row {
   display: grid;
   min-height: 36px;
