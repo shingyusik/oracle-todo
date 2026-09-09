@@ -47,6 +47,17 @@ function localInstant(year: number, month: number, day: number, hour = 12): stri
 }
 
 describe("Health Metrics daily table", () => {
+  it("includes sleep saved with the API default name", () => {
+    const sleep = metric("sleep", "1", 7.5, undefined, {
+      name: "Sleep duration",
+      attributes: { kind: "sleep", metricKey: "sleep_duration", name: "Sleep duration", hours: 7.5 },
+    });
+    const rows = deriveHealthMetricsGroups([sleep], settings())[0]!.rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.sleep).toBe(7.5);
+    expect(rows[0]!.events.sleep?.id).toBe(sleep.id);
+  });
+
   it("exports the five fixed identities", () => {
     expect(healthMetricIdentities).toEqual({
       weight: { category: "weight", metricKey: "body_weight", name: "Body weight", unit: "kg" },

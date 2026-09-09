@@ -111,7 +111,7 @@ function metricField(event: HealthEvent): HealthMetricField | null {
     const identity = healthMetricIdentities[field];
     return event.category === identity.category
       && event.metricKey === identity.metricKey
-      && event.name === identity.name
+      && (event.name === identity.name || (field === "sleep" && event.name === "Sleep duration"))
       && (identity.unit === null
         ? event.unit === null || event.unit === "score"
         : event.unit === identity.unit);

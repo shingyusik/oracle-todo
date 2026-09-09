@@ -121,7 +121,7 @@ async fn health_table_query_serves_all_scopes_and_keeps_legacy_list_shapes() {
         &app,
         json!({"metrics":[
         weight_metric(68.2, None),
-        {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"sleep","name":"Sleep","value":7.5}},
+        {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"sleep","value":7.5}},
         {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"lab","key":"crp","name":"CRP","value":0.2,"unit":"mg/L"}},
         {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"lab","key":"fecal_calprotectin","name":"Fecal calprotectin","value":42.0,"unit":"µg/g"}},
             {"occurred_at":"2026-07-31T01:00:00Z","details":{"kind":"overall_condition","score":8}}
