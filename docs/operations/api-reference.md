@@ -467,8 +467,10 @@ percentage denominators, not classified as normal. Cells are gray when either gr
 than five observed meals, including tags present on every meal. This display threshold does
 not establish statistical significance. Cells show a compact signed difference or a dash for
 insufficient data. Selecting a cell reveals raw counts, percentages, and unrecorded/pending
-meal counts below the heatmap. Method details are collapsed under About this chart. Blue indicates
-a higher score frequency with the tag, orange a lower frequency, without health judgments.
+meal counts below the heatmap. The minimum meal requirement stays visible above the table;
+method details are collapsed under About this chart. Dashboard and Reports heatmaps scroll
+within a 400px height with Bristol column headings fixed at the top. Green indicates
+a higher score frequency with the tag, amber a lower frequency, without health judgments.
 Missing food tags, shared foods, and overlapping observation windows limit interpretation;
 this is an unadjusted descriptive comparison, not a causal estimate or correlation coefficient.
 

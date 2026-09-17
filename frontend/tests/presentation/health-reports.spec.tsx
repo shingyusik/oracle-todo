@@ -586,6 +586,7 @@ describe("Health Reports workspace", () => {
     });
 
     const responses = screen.getByRole("region", { name: "Diet-tag Bristol comparison" });
+    expect(within(responses).getByText(/Each tag needs at least 5 meals with the tag and 5 without it/)).toBeVisible();
     const zeroEligible = within(responses).getByRole("button", {
       name: "fiber",
     });

@@ -837,7 +837,15 @@ textarea::placeholder {
 
 .health-report-heatmap-scroll {
   max-width: 100%;
-  overflow-x: auto;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.health-report-heatmap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-canvas-light);
 }
 
 .health-report-heatmap {
