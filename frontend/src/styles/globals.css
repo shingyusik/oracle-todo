@@ -2769,7 +2769,7 @@ textarea::placeholder {
 
 .detail-layout {
   display: grid;
-  width: min(100%, 680px);
+  width: min(100%, 1040px);
   margin: 0 auto;
   gap: 28px;
 }
