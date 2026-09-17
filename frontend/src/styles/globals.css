@@ -1073,6 +1073,7 @@ textarea::placeholder {
 }
 
 .planner-view-icon-button {
+  padding: 0;
   display: inline-flex;
   width: 32px;
   height: 32px;
@@ -1279,6 +1280,7 @@ textarea::placeholder {
 .period-carousel-arrow {
   position: relative;
   z-index: 1;
+  padding: 0;
   display: inline-grid;
   width: 36px;
   height: 36px;
@@ -1749,6 +1751,7 @@ textarea::placeholder {
 }
 
 .planner-sort-remove {
+  padding: 0;
   display: inline-flex;
   width: 28px;
   height: 28px;
@@ -2837,6 +2840,7 @@ textarea::placeholder {
 }
 
 .markdown-note-line-edit-button {
+  padding: 0;
   display: inline-grid;
   width: 32px;
   min-height: 32px;
@@ -3834,6 +3838,7 @@ textarea::placeholder {
 }
 
 .planner-group-drag-handle {
+  padding: 0;
   display: grid;
   width: 20px;
   height: 24px;
@@ -3870,6 +3875,7 @@ textarea::placeholder {
 
 .planner-group-keyboard-moves button,
 .planner-group-eye {
+  padding: 0;
   display: grid;
   width: 24px;
   height: 24px;
