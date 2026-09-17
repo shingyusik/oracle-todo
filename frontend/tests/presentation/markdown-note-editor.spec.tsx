@@ -36,6 +36,24 @@ describe("MarkdownNoteEditor", () => {
     ).toBeInTheDocument();
   });
 
+  it.each(["First\n\nLast\n", "\n\n"])("keeps blank lines empty and editable in %j", async (value) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(<MarkdownNoteEditor value={value} onChange={onChange} />);
+
+    expect(screen.queryByText(/Write a note with Markdown/)).not.toBeInTheDocument();
+    const lines = container.querySelectorAll(".markdown-note-line");
+    expect(lines).toHaveLength(value.split("\n").length);
+    expect(lines[1]).toHaveTextContent("");
+    await user.click(lines[1]);
+    const input = screen.getByRole("textbox", { name: "Markdown note line 2" });
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: "New" } });
+    const expected = value.split("\n");
+    expected[1] = "New";
+    expect(onChange).toHaveBeenCalledWith(expected.join("\n"));
+  });
+
   it("keeps one Markdown surface with line-specific styling hooks", async () => {
     const user = userEvent.setup();
     const { container } = render(
