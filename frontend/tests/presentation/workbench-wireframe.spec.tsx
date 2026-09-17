@@ -3994,7 +3994,7 @@ describe("WorkbenchPageClient", () => {
     }]);
   });
 
-  it("labels and portals the creation tag picker outside the dialog", async () => {
+  it("labels and floats the creation tag picker within the dialog focus boundary", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -4021,7 +4021,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(within(dialog).getByRole("button", { name: "Tags" }));
     const dropdown = screen.getByRole("listbox", { name: "Tags options" }).parentElement;
     expect(dropdown).not.toBeNull();
-    expect(dialog.contains(dropdown)).toBe(false);
+    expect(dropdown?.parentElement).toBe(dialog);
+    expect(dropdown).toHaveStyle({ position: "fixed" });
     expect(dropdown).toHaveStyle({ zIndex: "110" });
   });
 

@@ -51,6 +51,12 @@ never initialize a missing database.
 
 ## Visibility and tests
 
+Frontend tag fields reuse `TagsInput`. Its dropdown defaults to a fixed-position portal,
+placed above or below the trigger within the viewport and repositioned on scroll or resize.
+Inside a modal, the portal stays under the dialog element so focus isolation and keyboard
+navigation include it; outside a modal, it uses `document.body`. Dialog ancestors must not
+use transforms that turn fixed positioning into container-relative positioning.
+
 Engine crates expose only composition-facing types. Split implementation modules use
 private or `pub(super)` visibility where possible. Unit tests cover pure domain policy;
 integration tests exercise repository/service behavior; CLI/API tests verify adapter
