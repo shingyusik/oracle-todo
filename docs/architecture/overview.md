@@ -56,8 +56,9 @@ The Dashboard queries all three stores independently and returns an `ok` or `err
 projection per domain. A missing, corrupt, or unsupported database is isolated to its
 projection.
 
-The UI places Health Journal highlights below Ledger highlights in one desktop row:
-weight trend, daily average Bristol trend, and the diet-tag Bristol comparison heatmap.
+The UI places Health Journal highlights below Ledger highlights. On desktop, weight and
+daily average Bristol trends stack in a wider left column, with the diet-tag Bristol
+comparison heatmap on the right.
 All three share a 7/14/30-day selector (default 14) and a single report request. The two
 trend charts share a calendar axis; missing readings are not filled with zero. On narrow
 screens the panels stack vertically. Sleep and diet-tag frequency details remain in Reports.

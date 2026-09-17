@@ -4597,9 +4597,19 @@ textarea::placeholder {
 
 .dashboard-health-trends {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
   align-items: start;
   gap: 24px;
+}
+
+.dashboard-health-trends > :nth-child(2) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dashboard-health-trends > :nth-child(3) {
+  grid-column: 2;
+  grid-row: 1 / span 2;
 }
 
 .dashboard-health .health-report-heatmap {
@@ -4620,6 +4630,11 @@ textarea::placeholder {
 @media (max-width: 1100px) {
   .dashboard-health-trends {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-health-trends > :nth-child(n) {
+    grid-column: auto;
+    grid-row: auto;
   }
 }
 
