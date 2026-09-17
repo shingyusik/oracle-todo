@@ -22,7 +22,7 @@ export function TagsInput({
   tagOptions,
   onCommit,
   propagateEscape = false,
-  portalDropdown = false,
+  portalDropdown = true,
   disabled = false,
 }: {
   label: string;
@@ -131,6 +131,7 @@ export function TagsInput({
         placeholder="Search for an option..."
         value={draft}
         onKeyDown={(event) => {
+          if (event.key === "Tab") return;
           if (event.key === "Escape" && propagateEscape) {
             return;
           }
@@ -177,8 +178,8 @@ export function TagsInput({
     <div
       className="tag-combobox"
       onBlur={(event) => {
-        if (portalDropdown) return;
-        if (!event.currentTarget.contains(event.relatedTarget)) {
+        if (!tagInputRef.current?.contains(event.relatedTarget) &&
+            !dropdownRef.current?.contains(event.relatedTarget)) {
           closeDropdown();
         }
       }}
@@ -221,7 +222,11 @@ export function TagsInput({
           }}
         >{currentTags.length === 0 ? "Select or enter tags..." : null}</button>
       </div>
-      {open ? (portalDropdown ? createPortal(dropdown, document.body) : dropdown) : null}
+      {open && !disabled ? (portalDropdown ? createPortal(
+        dropdown,
+        // Stay in the modal's focus boundary, outside its form's clipping ancestors.
+        tagInputRef.current?.closest('[role="dialog"]') ?? document.body,
+      ) : dropdown) : null}
     </div>
   );
 }

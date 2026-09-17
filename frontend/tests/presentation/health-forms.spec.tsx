@@ -354,6 +354,38 @@ describe("Health Journal forms", () => {
     expect(screen.getByRole("combobox", { name: "Tags" })).toBeVisible();
   });
 
+  it("keeps diet tags within modal focus isolation while floating above a low trigger", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<DietDialogHarness health={controller()} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog", { name: "Add diet entry" });
+    const trigger = within(dialog).getByRole("button", { name: "Tags" });
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this === trigger
+        ? DOMRect.fromRect({ x: 20, y: 700, width: 260, height: 30 })
+        : DOMRect.fromRect({ width: 300, height: 260 });
+    });
+    try {
+      await user.click(trigger);
+      const search = screen.getByRole("combobox", { name: "Tags" });
+      const dropdown = search.parentElement!;
+      expect(dropdown.parentElement).toBe(dialog);
+      expect(dropdown).toHaveStyle({ position: "fixed" });
+      expect(parseFloat(dropdown.style.top)).toBeLessThan(700);
+      expect(search).toHaveFocus();
+      await user.type(search, "rice{Enter}");
+      expect(within(dialog).getByRole("button", { name: "Remove rice tag" })).toBeVisible();
+      await user.keyboard("{Escape}");
+      expect(trigger).toHaveFocus();
+      expect(onClose).not.toHaveBeenCalled();
+      await user.click(trigger);
+      await user.tab({ shift: true });
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
   it("gives each tag popup a distinct valid listbox relationship", async () => {
     const user = userEvent.setup();
     render(<>

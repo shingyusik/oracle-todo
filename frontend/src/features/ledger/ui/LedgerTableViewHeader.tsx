@@ -127,7 +127,7 @@ export function LedgerTableViewHeader({
             {onAdd ? (
               <button
                 ref={addButtonRef}
-                className="items-toolbar-button"
+                className="items-toolbar-button button-primary"
                 type="button"
                 aria-haspopup="dialog"
                 aria-label={resolvedAddLabel}

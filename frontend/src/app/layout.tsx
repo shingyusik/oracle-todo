@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   title: "Raven",
   description: "Local-first personal workbench",
   icons: {
-    icon: "/merovingian-mark.png",
+    icon: "/raven-mark.png",
   },
 };
 

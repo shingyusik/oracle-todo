@@ -401,9 +401,11 @@ function DietTagResponses({
         are not normal results. A meal can have several scores, so rows need not total 100%.
         Without tag means the tag was not recorded; complete food tagging matters.
         Shared foods and overlapping windows are not adjusted for.</p>
-      <p>Gray means fewer than {BRISTOL_COMPARISON_MIN_MEALS} observed meals in either group.
-        This display threshold is not a test of statistical significance. Select a cell for counts.</p>
+      <p>This display threshold is not a test of statistical significance.</p>
       </details>
+      <p className="health-report-heatmap-detail">Each tag needs at least {BRISTOL_COMPARISON_MIN_MEALS} meals with the tag and {BRISTOL_COMPARISON_MIN_MEALS} without it,
+        each with a bowel record within a completed 24-hour window. A dash means too few qualifying meals.
+        Select a cell to see counts and pending meals.</p>
       <div className="health-report-heatmap-legend" aria-label="Color scale: less frequent to more frequent; dash means insufficient data">
         <span>Less</span><span className="health-report-heatmap-scale" aria-hidden="true" /><span>More</span>
         <span>— Insufficient data</span>
@@ -432,7 +434,7 @@ function DietTagResponses({
                   const detail = `With tag: ${count}/${row.withTag.observedMeals} (${withRate === null ? "unavailable" : `${withRate.toFixed(1)}%`}). Without tag: ${row.withoutTag.bristolMeals[index]}/${row.withoutTag.observedMeals} (${withoutRate === null ? "unavailable" : `${withoutRate.toFixed(1)}%`}).`;
                   const selectionText = `${row.tag} · Bristol ${index + 1} · ${label}. ${detail} No bowel record (with / without): ${row.withTag.eligibleMeals - row.withTag.observedMeals} / ${row.withoutTag.eligibleMeals - row.withoutTag.observedMeals}. Awaiting 24h: ${row.withTag.pendingMeals} / ${row.withoutTag.pendingMeals}.`;
                   return <td key={index} data-comparable={enough} style={difference === null ? undefined : {
-                    backgroundColor: `hsl(${difference >= 0 ? 210 : 30} 65% ${97 - Math.abs(difference) * 0.3}%)`,
+                    backgroundColor: `color-mix(in srgb, var(--color-heatmap-${difference >= 0 ? "more" : "less"}) ${Math.abs(difference)}%, var(--color-surface-raised))`,
                   }}>
                     <button type="button"
                       aria-label={`${row.tag}, Bristol ${index + 1}: ${label}. ${detail}`}

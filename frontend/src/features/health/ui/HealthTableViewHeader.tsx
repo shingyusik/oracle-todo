@@ -83,7 +83,7 @@ export function HealthTableViewHeader({
         />
         <div className="workspace-table-header-actions">
           <TableViewControls adapter={adapter} />
-          <button ref={addButtonRef} className="items-toolbar-button" type="button"
+          <button ref={addButtonRef} className="items-toolbar-button button-primary" type="button"
             aria-label={addLabel} title={addLabel} aria-haspopup="dialog" onClick={onAdd}>
             <Plus size={16} aria-hidden="true" />
           </button>

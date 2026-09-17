@@ -68,6 +68,7 @@ export function MarkdownNoteEditor({ value, onChange }: MarkdownNoteEditorProps)
                   );
                 }
                 if (!line) {
+                  if (value !== "") return <br />;
                   return (
                     <p className="markdown-note-placeholder">Write a note with Markdown…</p>
                   );

@@ -1308,16 +1308,16 @@ describe("WorkbenchPageClient", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the Merovingian logo image", () => {
+  it("renders the Raven logo image", () => {
     render(<WorkbenchPageClient />);
 
     expect(
-      screen.getByRole("img", { name: "Merovingian" }),
-    ).toHaveAttribute("src", "/merovingian-mark.png");
-    expect(screen.getByText("MEROVINGIAN")).toBeInTheDocument();
+      screen.getByRole("img", { name: "Raven" }),
+    ).toHaveAttribute("src", "/raven-mark.png");
+    expect(screen.getByText("RAVEN")).toBeInTheDocument();
     expect(
-      screen.getByText("CONTROL. ANALYZE. OPTIMIZE."),
-    ).toBeInTheDocument();
+      screen.queryByText("CONTROL. ANALYZE. OPTIMIZE."),
+    ).not.toBeInTheDocument();
   });
 
   it("uses supplied table-control policy without interpreting the scope name", async () => {
@@ -3994,7 +3994,7 @@ describe("WorkbenchPageClient", () => {
     }]);
   });
 
-  it("labels and portals the creation tag picker outside the dialog", async () => {
+  it("labels and floats the creation tag picker within the dialog focus boundary", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -4021,7 +4021,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(within(dialog).getByRole("button", { name: "Tags" }));
     const dropdown = screen.getByRole("listbox", { name: "Tags options" }).parentElement;
     expect(dropdown).not.toBeNull();
-    expect(dialog.contains(dropdown)).toBe(false);
+    expect(dropdown?.parentElement).toBe(dialog);
+    expect(dropdown).toHaveStyle({ position: "fixed" });
     expect(dropdown).toHaveStyle({ zIndex: "110" });
   });
 

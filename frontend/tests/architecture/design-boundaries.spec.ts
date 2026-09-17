@@ -64,13 +64,47 @@ describe("design system boundaries", () => {
   });
 
   it("exposes non-empty tokens, copy, and layout constants", () => {
-    expect(designTokens.colors.aloe).toBe("#c1fbd4");
-    expect(designTokens.colors.aloeStrong).toBe("#3fae6a");
+    expect(designTokens.colors.aloe).toBe("#173b25");
+    expect(designTokens.colors.aloeStrong).toBe("#1ed760");
     expect(workbenchCopy.brandName).toBe("Raven");
     expect(workbenchCopy.panels).not.toHaveProperty("timeline");
     expect(workbenchCopy.panels).not.toHaveProperty("trends");
     expect(workbenchCopy.panels.reports.title).toBe("Reports");
     expect(workbenchLayout.mainSidebarWidthPx).toBe(64);
+  });
+
+  it("keeps the dark palette synchronized and readable on all surfaces", async () => {
+    const css = await readSource("src/styles/globals.css");
+    expect(css).toContain("color-scheme: dark;");
+    for (const [key, value] of Object.entries(designTokens.colors)) {
+      const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`).replace(/([a-z])(\d)/g, "$1-$2");
+      expect(css).toContain(`--color-${name}: ${value};`);
+    }
+    const luminance = (hex: string) => {
+      const channels = hex.slice(1).match(/../g)!.map((channel) => {
+        const value = parseInt(channel, 16) / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const contrast = (foreground: string, background: string) => {
+      const a = luminance(foreground);
+      const b = luminance(background);
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    };
+    const c = designTokens.colors;
+    for (const surface of [c.canvasCream, c.canvasLight, c.surfaceRaised, c.surfaceHover, c.aloe]) {
+      for (const text of [c.ink, c.shade50, c.shade60, c.shade70]) {
+        expect(contrast(text, surface), `${text} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    for (const background of [c.aloeStrong, c.shade60, c.dangerText]) {
+      expect(contrast(c.onAccent, background)).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const background of [c.heatmapLess, c.heatmapMore]) {
+      expect(contrast(c.ink, background)).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(contrast(c.borderControl, c.surfaceRaised)).toBeGreaterThanOrEqual(3);
   });
 
   it("keeps raw hex colors out of feature components", async () => {
@@ -177,10 +211,10 @@ describe("design system boundaries", () => {
     );
   });
 
-  it("uses the Merovingian asset as the favicon", async () => {
+  it("uses the Raven asset as the favicon", async () => {
     const source = await readSource("src/app/layout.tsx");
 
-    expect(source).toContain('icon: "/merovingian-mark.png"');
+    expect(source).toContain('icon: "/raven-mark.png"');
   });
 
   it("proxies the unified API to an injectable Raven development server", () => {
@@ -407,10 +441,10 @@ describe("design system boundaries", () => {
       /\.dashboard-status-tabs > button,\n\.dashboard-status-toggle\s*\{[^}]*border:\s*1px solid var\(--color-hairline-light\);[^}]*padding:\s*6px 10px;/s,
     );
     expect(source).toMatch(
-      /\.dashboard-status-tabs > button\[aria-selected="true"\]\s*\{[^}]*background:\s*var\(--color-ink\);[^}]*color:\s*var\(--color-on-dark\);/s,
+      /\.dashboard-status-tabs > button\[aria-selected="true"\]\s*\{[^}]*background:\s*var\(--color-accent-strong\);[^}]*color:\s*var\(--color-on-accent\);/s,
     );
     expect(source).toMatch(
-      /\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s,
+      /\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit, minmax\(min\(100%, 240px\), 1fr\)\);/s,
     );
     expect(mobile).toMatch(
       /\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/,

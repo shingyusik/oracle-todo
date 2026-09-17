@@ -1,9 +1,8 @@
 export const workbenchCopy = {
   brandName: "Raven",
   logoLabel: "Logo",
-  logoAlt: "Merovingian",
-  logoWordmark: "MEROVINGIAN",
-  logoTagline: "CONTROL. ANALYZE. OPTIMIZE.",
+  logoAlt: "Raven",
+  logoWordmark: "RAVEN",
   navigation: {
     shellLabel: "Raven navigation",
     drawerLabel: "Raven navigation drawer",

@@ -136,6 +136,7 @@ export function DashboardLineChart({
               key={tick.id}
               className="dashboard-line-x-tick"
               dateTime={tick.label}
+              title={tick.label}
               data-edge={
                 index === 0
                   ? "start"
@@ -145,7 +146,7 @@ export function DashboardLineChart({
               }
               style={{ left: `${tick.x}%` }}
             >
-              {tick.label}
+              {tick.label.replace(/^\d{4}-/, "")}
             </time>
           ))}
         </div>

@@ -150,7 +150,7 @@ export const dashboardWidgets: DashboardWidget[] = [
         id: "today-outcomes",
         title: "Today's work",
         description:
-          "Completed, incomplete, and missed Tasks and Events scheduled or due today.",
+          "Tasks and events scheduled or due today.",
         emptyMessage: "No Tasks or Events are scheduled or due today.",
         chart: {
           kind: "donut",
@@ -179,7 +179,7 @@ export const dashboardWidgets: DashboardWidget[] = [
         id: "completion-history",
         title: "Completion history",
         description:
-          "Completion rate for Tasks and Events scheduled or due by browser-local calendar date.",
+          "Daily completion rate for scheduled and due work.",
         emptyMessage: "No Tasks or Events are scheduled or due in this range.",
         chart: {
           kind: "line",
