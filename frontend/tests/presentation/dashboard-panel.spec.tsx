@@ -1008,10 +1008,14 @@ describe("DashboardPanel", () => {
       />,
     );
 
+    expect(container.querySelector(".dashboard-line-x-tick"))
+      .toHaveTextContent("07-01");
+    expect(container.querySelector(".dashboard-line-x-tick"))
+      .toHaveAttribute("title", "2026-07-01");
     expect(
       Array.from(
         container.querySelectorAll(".dashboard-line-x-tick"),
-        (tick) => tick.textContent,
+        (tick) => tick.getAttribute("datetime"),
       ),
     ).toEqual([
       "2026-07-01",
@@ -1050,7 +1054,7 @@ describe("DashboardPanel", () => {
     expect(
       Array.from(
         container.querySelectorAll(".dashboard-line-x-tick"),
-        (tick) => tick.textContent,
+        (tick) => tick.getAttribute("datetime"),
       ),
     ).toEqual([
       "2026-07-01",
@@ -1089,7 +1093,7 @@ describe("DashboardPanel", () => {
     expect(
       Array.from(
         container.querySelectorAll(".dashboard-line-x-tick"),
-        (tick) => tick.textContent,
+        (tick) => tick.getAttribute("datetime"),
       ),
     ).toEqual([
       "2026-07-01",

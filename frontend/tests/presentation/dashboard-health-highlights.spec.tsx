@@ -69,7 +69,7 @@ it("shows weight, bowel, and the heatmap in one shared-period group, then refres
   const axes = view.container.querySelectorAll(".dashboard-line-x-axis");
   expect(axes).toHaveLength(2);
   expect(new Set(Array.from(axes, (axis) => axis.textContent)).size).toBe(1);
-  expect(axes[0]).toHaveTextContent("2026-08-25");
+  expect(axes[0].querySelector("time")).toHaveAttribute("datetime", "2026-08-25");
   await userEvent.click(screen.getByRole("button", { name: "Health trends: 30 days" }));
   await screen.findByRole("region", { name: "Diet-tag Bristol comparison" });
   expect(healthApi.reports).toHaveBeenCalledWith({ from: "2026-08-09", to: "2026-09-07" });
@@ -96,5 +96,5 @@ it("recovers from a safe error and ignores stale responses after a period change
   await screen.findByRole("region", { name: "Weight trend" });
   await act(async () => resolve(report("2026-08-09", "2026-09-07")));
   expect(screen.getByRole("button", { name: "Health trends: 7 days" })).toHaveAttribute("aria-pressed", "true");
-  expect(document.querySelector(".dashboard-line-x-axis")).toHaveTextContent("2026-09-01");
+  expect(document.querySelector(".dashboard-line-x-axis time")).toHaveAttribute("datetime", "2026-09-01");
 });

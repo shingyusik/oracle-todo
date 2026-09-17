@@ -132,7 +132,7 @@ describe("dashboard widget registry", () => {
       id: "completion-history",
       title: "Completion history",
       description:
-        "Completion rate for Tasks and Events scheduled or due by browser-local calendar date.",
+        "Daily completion rate for scheduled and due work.",
       emptyMessage: "No Tasks or Events are scheduled or due in this range.",
       chart: {
         kind: "line",

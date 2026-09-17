@@ -432,7 +432,7 @@ function DietTagResponses({
                   const detail = `With tag: ${count}/${row.withTag.observedMeals} (${withRate === null ? "unavailable" : `${withRate.toFixed(1)}%`}). Without tag: ${row.withoutTag.bristolMeals[index]}/${row.withoutTag.observedMeals} (${withoutRate === null ? "unavailable" : `${withoutRate.toFixed(1)}%`}).`;
                   const selectionText = `${row.tag} · Bristol ${index + 1} · ${label}. ${detail} No bowel record (with / without): ${row.withTag.eligibleMeals - row.withTag.observedMeals} / ${row.withoutTag.eligibleMeals - row.withoutTag.observedMeals}. Awaiting 24h: ${row.withTag.pendingMeals} / ${row.withoutTag.pendingMeals}.`;
                   return <td key={index} data-comparable={enough} style={difference === null ? undefined : {
-                    backgroundColor: `hsl(${difference >= 0 ? 210 : 30} 65% ${97 - Math.abs(difference) * 0.3}%)`,
+                    backgroundColor: `color-mix(in srgb, var(--color-heatmap-${difference >= 0 ? "more" : "less"}) ${Math.abs(difference)}%, var(--color-surface-raised))`,
                   }}>
                     <button type="button"
                       aria-label={`${row.tag}, Bristol ${index + 1}: ${label}. ${detail}`}

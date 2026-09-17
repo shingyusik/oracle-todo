@@ -1308,16 +1308,16 @@ describe("WorkbenchPageClient", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the Merovingian logo image", () => {
+  it("renders the Raven logo image", () => {
     render(<WorkbenchPageClient />);
 
     expect(
-      screen.getByRole("img", { name: "Merovingian" }),
-    ).toHaveAttribute("src", "/merovingian-mark.png");
-    expect(screen.getByText("MEROVINGIAN")).toBeInTheDocument();
+      screen.getByRole("img", { name: "Raven" }),
+    ).toHaveAttribute("src", "/raven-mark.png");
+    expect(screen.getByText("RAVEN")).toBeInTheDocument();
     expect(
-      screen.getByText("CONTROL. ANALYZE. OPTIMIZE."),
-    ).toBeInTheDocument();
+      screen.queryByText("CONTROL. ANALYZE. OPTIMIZE."),
+    ).not.toBeInTheDocument();
   });
 
   it("uses supplied table-control policy without interpreting the scope name", async () => {

@@ -111,15 +111,12 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
         <div className="workbench-logo">
           <img
             className="workbench-logo-image"
-            src="/merovingian-mark.png"
+            src="/raven-mark.png"
             alt={workbenchCopy.logoAlt}
           />
           <div className="workbench-logo-copy">
             <span className="workbench-logo-wordmark">
               {workbenchCopy.logoWordmark}
-            </span>
-            <span className="workbench-logo-tagline">
-              {workbenchCopy.logoTagline}
             </span>
           </div>
           {mobile ? (
