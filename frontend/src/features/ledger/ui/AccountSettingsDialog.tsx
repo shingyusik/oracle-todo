@@ -2,7 +2,11 @@
 
 import React from "react";
 import { createPortal } from "react-dom";
-import { CircleOff, Pencil, Trash2 } from "lucide-react";
+import {
+  IconCircleOff as CircleOff,
+  IconPencil as Pencil,
+  IconTrash as Trash2,
+} from "@tabler/icons-react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type {

@@ -1,4 +1,5 @@
 import React from "react";
+import { ChartDonut, chartToneColors } from "@/lib/chart-ui";
 
 import type { DashboardDestination } from "@/features/dashboard/model/dashboard-navigation";
 import type { StatusChartSpec } from "@/features/dashboard/model/dashboard-widgets";
@@ -48,9 +49,6 @@ export function DashboardStatusDonutGrid({
           const paused = statusValue(row, "paused");
           const missed = statusValue(row, "missed");
           const completedStop = statusPercentage(row, "completed");
-          const incompleteStop = completedStop
-            + statusPercentage(row, "incomplete");
-          const pausedStop = incompleteStop + statusPercentage(row, "paused");
           const attention = row.attention ?? "normal";
           const attentionLabel = projectAttentionLabel(attention);
           const center = chart.scope === "project"
@@ -62,28 +60,24 @@ export function DashboardStatusDonutGrid({
           const ariaLabel = chart.scope === "project"
             ? `${row.label}: ${row.progressPercent == null ? "Progress —" : `Progress ${row.progressPercent}%`}, ${attentionLabel}, ${completed} completed, ${incomplete} incomplete, ${paused} paused, ${missed} miss`
             : `${row.label}: Total ${row.total}, ${completed} completed, ${incomplete} incomplete, ${paused} paused, ${missed} miss`;
-          const style = {
-            "--dashboard-status-completed-stop": `${completedStop}%`,
-            "--dashboard-status-incomplete-stop": `${incompleteStop}%`,
-            "--dashboard-status-paused-stop": `${pausedStop}%`,
-          } as React.CSSProperties;
 
           return (
             <button
               type="button"
               className={`dashboard-status-tile attention-${attention}`}
-              style={style}
               aria-label={ariaLabel}
               onClick={() => onNavigate(row.destination)}
               key={row.id}
             >
               <span className="dashboard-status-label">{row.label}</span>
-              <span
+              <div
                 className={`dashboard-status-donut${row.total === 0 ? " is-empty" : ""}`}
                 aria-hidden="true"
               >
-                <span className="dashboard-status-donut-center">{center}</span>
-              </span>
+                <ChartDonut data={row.segments.map((segment) => ({ ...segment,
+                  color: chartToneColors[segment.tone], description: segment.ariaLabel,
+                }))} center={<span className="dashboard-status-donut-center">{center}</span>} />
+              </div>
               <span className="dashboard-status-meta">{meta}</span>
             </button>
           );

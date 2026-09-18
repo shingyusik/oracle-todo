@@ -1,16 +1,16 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
-  ArrowLeft,
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-  Redo2,
-  Save,
-  Trash2,
-  Undo2,
-} from "lucide-react";
+  IconArrowLeft as ArrowLeft,
+  IconCalendar as CalendarDays,
+  IconChevronLeft as ChevronLeft,
+  IconChevronRight as ChevronRight,
+  IconPlus as Plus,
+  IconArrowForwardUp as Redo2,
+  IconDeviceFloppy as Save,
+  IconTrash as Trash2,
+  IconArrowBackUp as Undo2,
+} from "@tabler/icons-react";
 
 import type {
   HealthTabId,

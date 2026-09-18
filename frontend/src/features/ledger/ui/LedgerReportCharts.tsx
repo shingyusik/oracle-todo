@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { ChartDonut, useChartAnimation, ChartTooltip } from "@/lib/chart-ui";
 
 import type { ReportSelection } from "@/features/ledger/api/ledger-api";
 import type { Currency } from "@/features/ledger/model/ledger-model";
@@ -289,13 +291,12 @@ function CompositionDonut({
           className="ledger-report-donut"
           role="img"
           aria-label={`${ariaLabel}, total ${totalLabel}`}
-          style={slices.length === 0 ? undefined : {
-            "--ledger-report-donut": categoryGradient(
-              slices.map(({ valueMinor }) => valueMinor),
-            ),
-          } as React.CSSProperties}
         >
-          <strong>{totalLabel}</strong>
+          <ChartDonut data={slices.map((slice, index) => ({
+            label: slice.label, value: slice.valueMinor, color: chartColors[index % chartColors.length],
+            description: `${formatValue(slice.valueMinor)}, ${slice.percentage}%`,
+          }))} onSelect={(index) => { if (slices[index].interactive) onSelect?.(slices[index]); }}
+            center={<strong>{totalLabel}</strong>} />
         </div>
         {slices.length === 0 ? (
           <p className="items-message">{emptyMessage}</p>
@@ -342,17 +343,15 @@ export function IncomeExpenseTrendChart({
   currency: Pick<Currency, "code" | "decimalPlaces"> | undefined;
   onDrilldown?: (target: ReportDrilldownTarget) => void;
 }) {
+  const animate = useChartAnimation();
+  const chartAnchor = React.useRef<HTMLDivElement>(null);
   const points = model.trend.points;
   const [series, setSeries] = React.useState<"income" | "expense">("expense");
   const trendId = React.useId();
   const incomeTabRef = React.useRef<HTMLButtonElement>(null);
   const expenseTabRef = React.useRef<HTMLButtonElement>(null);
   const isExpense = series === "expense";
-  const maximum = Math.max(0, ...points.flatMap((point) => isExpense
-    ? [point.expenseMinor, point.averageExpensePaceMinor]
-    : [point.incomeMinor]));
-  const height = (value: number) => maximum === 0 ? "0%" : `${value / maximum * 100}%`;
-  const ticks = [maximum, Math.round(maximum / 2), 0];
+  const data = points.map((point) => ({ ...point, value: isExpense ? point.expenseMinor : point.incomeMinor }));
   const granularity = `${model.trend.granularity[0]?.toUpperCase()}${model.trend.granularity.slice(1)}`;
   const incomeTabId = `${trendId}-income-tab`;
   const expenseTabId = `${trendId}-expense-tab`;
@@ -434,53 +433,34 @@ export function IncomeExpenseTrendChart({
                 </span>
               </div>
             ) : null}
-            <div className="ledger-report-trend-chart">
-              <div
-                className="ledger-report-y-axis"
-                aria-label={`${isExpense ? "Spending" : "Income"} Y-axis`}
-              >
-                {ticks.map((tick, index) => (
-                  <span key={`${tick}-${index}`}>
-                    {reportMoney(tick, currency, model.currencyCode)}
-                  </span>
-                ))}
-              </div>
-              <div
-                className="ledger-report-bars"
-                role="group"
-                aria-label={`${isExpense ? "Spending" : "Income"} pattern`}
-              >
-                {points.map((point) => {
-                  const value = isExpense ? point.expenseMinor : point.incomeMinor;
-                  const label = isExpense ? "Expense" : "Income";
-                  return (
-                    <div className="ledger-report-bar-group" key={`${point.start}-${point.end}`}>
-                      <div className="ledger-report-bar-plot">
-                        <button
-                          type="button"
-                          className="ledger-report-bar-button"
-                          aria-label={`${point.start} ${label} ${reportMoney(value, currency, model.currencyCode)}`}
-                          onClick={() => onDrilldown?.(trendDrilldown(model, point, series))}
-                        >
-                          <span
-                            className={isExpense ? "ledger-report-bar-expense" : "ledger-report-bar-income"}
-                            style={{ height: height(value), minHeight: value === 0 ? 0 : undefined }}
-                            aria-hidden="true"
-                          />
-                        </button>
-                        {isExpense ? (
-                          <span
-                            className="ledger-report-average-marker"
-                            style={{ bottom: height(point.averageExpensePaceMinor) }}
-                            aria-hidden="true"
-                          />
-                        ) : null}
-                      </div>
-                      <span>{point.start}</span>
-                    </div>
-                  );
-                })}
-              </div>
+            <div ref={chartAnchor} className="chart-line-frame" role="group" aria-label={`${isExpense ? "Spending" : "Income"} pattern`}>
+              <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 600, height: 260 }}>
+                <ComposedChart data={data} margin={{ top: 16, right: 16, bottom: 8, left: 8 }} accessibilityLayer>
+                  <CartesianGrid vertical={false} stroke="var(--color-hairline-light)" />
+                  <XAxis dataKey="start" tickFormatter={(value: string) => value.slice(5)} minTickGap={30}
+                    stroke="var(--color-text-muted)" tickLine={false} />
+                  <YAxis width={90} tickFormatter={(value: number) => reportMoney(value, currency, model.currencyCode)}
+                    stroke="var(--color-text-muted)" tickLine={false} axisLine={false} />
+                  <ChartTooltip anchor={chartAnchor}
+                    formatter={(value) => reportMoney(Number(value), currency, model.currencyCode)} />
+                  <Bar dataKey="value" name={isExpense ? "Spending" : "Income"} fill="var(--color-accent-strong)"
+                    isAnimationActive={animate} animationDuration={350} maxBarSize={48}
+                    shape={(props: unknown) => {
+                      const bar = props as { x: number; y: number; width: number; height: number; payload: typeof data[number] };
+                      const select = () => onDrilldown?.(trendDrilldown(model, bar.payload, series));
+                      return <rect className="recharts-rectangle" x={bar.x} y={bar.y} width={bar.width} height={bar.height}
+                        rx={6} fill="var(--color-accent-strong)"
+                        role={onDrilldown ? "button" : "img"} tabIndex={onDrilldown ? 0 : undefined}
+                        aria-label={`${bar.payload.start} ${isExpense ? "Expense" : "Income"} ${reportMoney(bar.payload.value, currency, model.currencyCode)}`}
+                        onClick={select} onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
+                        }} />;
+                    }} />
+                  {isExpense && <Line dataKey="averageExpensePaceMinor" name="Average daily pace"
+                    stroke="var(--color-chart-warning)" strokeDasharray="4 4" dot={false}
+                    isAnimationActive={animate} animationDuration={350} />}
+                </ComposedChart>
+              </ResponsiveContainer>
             </div>
             <ul className="sr-only">
               {points.map((point) => (
@@ -528,16 +508,4 @@ function reportMoney(
   const display = fraction === undefined ? grouped : `${grouped}.${fraction}`;
   const currencyCode = currency?.code ?? code;
   return currencyCode ? `${display} ${currencyCode}` : display;
-}
-
-function categoryGradient(values: number[]): string {
-  const total = values.reduce((sum, value) => sum + value, 0);
-  let start = 0;
-  const stops = values.map((value, index) => {
-    const end = start + value / total * 100;
-    const stop = `${chartColors[index % chartColors.length]} ${start}% ${end}%`;
-    start = end;
-    return stop;
-  });
-  return `conic-gradient(${stops.join(", ")})`;
 }

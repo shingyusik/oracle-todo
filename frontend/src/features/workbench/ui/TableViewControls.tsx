@@ -1,11 +1,11 @@
 import {
-  ArrowDownUp,
-  Filter,
-  GripVertical,
-  Group,
-  Plus,
-  X,
-} from "lucide-react";
+  IconArrowsSort as ArrowDownUp,
+  IconFilter as Filter,
+  IconGripVertical as GripVertical,
+  IconLayoutRows as Group,
+  IconPlus as Plus,
+  IconX as X,
+} from "@tabler/icons-react";
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 

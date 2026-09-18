@@ -76,7 +76,7 @@ describe("Dashboard Ledger highlights", () => {
     expect(cashFlow).toHaveTextContent("2,266,000 KRW");
     expect(cashFlow).toHaveTextContent("44,645 KRW");
     expect(within(cashFlow).getByRole("img", { name: /Spending is 38% of income/ }))
-      .toHaveStyle({ "--dashboard-ledger-ring-stop": "38%" });
+      .toHaveTextContent("38%");
     expect(within(surface).getByRole("region", { name: "Spending by category" }))
       .toBeInTheDocument();
     expect(within(surface).getByRole("region", { name: "Income and spending pattern" }))
@@ -153,7 +153,7 @@ describe("Dashboard Ledger highlights", () => {
     expect(within(cashFlow).getByRole("img", { name: /Spending is 120% of income/ }))
       .toHaveClass("is-over");
     expect(within(cashFlow).getByRole("img", { name: /Spending is 120% of income/ }))
-      .toHaveStyle({ "--dashboard-ledger-ring-stop": "100%" });
+      .toHaveTextContent("Over");
   });
 
   it("shows a full no-income ring without an undefined percentage", async () => {
@@ -167,7 +167,7 @@ describe("Dashboard Ledger highlights", () => {
     const donut = within(cashFlow).getByRole("img", { name: /Spending 200,000 KRW with no income/ });
     expect(within(donut).getByText("No income")).toBeVisible();
     expect(donut).toHaveClass("is-over");
-    expect(donut).toHaveStyle({ "--dashboard-ledger-ring-stop": "100%" });
+    expect(donut.querySelectorAll(".recharts-sector")).toHaveLength(1);
     expect(within(cashFlow).getByText("Remaining").parentElement)
       .toHaveTextContent("-200,000 KRW");
     expect(cashFlow).not.toHaveTextContent("undefined");

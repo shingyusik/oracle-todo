@@ -1,5 +1,7 @@
 import * as React from "react";
-import { Pencil } from "lucide-react";
+import {
+  IconPencil as Pencil,
+} from "@tabler/icons-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 

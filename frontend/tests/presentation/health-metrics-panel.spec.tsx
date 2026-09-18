@@ -806,8 +806,8 @@ describe("Health Metrics table", () => {
     expect(screen.getByText("0.4 mg/L")).toBeInTheDocument();
     expect(screen.getByText("120 µg/g")).toBeInTheDocument();
     expect(screen.getByText("Steady")).toBeInTheDocument();
-    expectIconButton("Add health metrics entry", "lucide-plus");
-    expectIconButton("Archive selected health metrics entries", "lucide-trash-2");
+    expectIconButton("Add health metrics entry", "tabler-icon-plus");
+    expectIconButton("Archive selected health metrics entries", "tabler-icon-trash");
     expect(screen.getByRole("button", { name: "Archive selected health metrics entries" }))
       .toBeDisabled();
   });

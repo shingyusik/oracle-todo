@@ -524,9 +524,9 @@ describe("Health Reports workspace", () => {
     }];
     render(<HealthReports controller={controller({ report: data })} />);
     const rice = screen.getByLabelText(/rice, Bristol 6: Insufficient data/);
-    expect(rice.closest("td")).toHaveAttribute("data-comparable", "false");
+    expect(rice.closest("[data-comparable]")).toHaveAttribute("data-comparable", "false");
     expect(rice).toHaveAttribute("aria-label", expect.stringContaining("Without tag: 0/0 (unavailable)"));
-    expect(screen.getByLabelText(/small-sample, Bristol 6: Insufficient data/).closest("td"))
+    expect(screen.getByLabelText(/small-sample, Bristol 6: Insufficient data/).closest("[data-comparable]"))
       .toHaveAttribute("data-comparable", "false");
   });
 
@@ -559,8 +559,8 @@ describe("Health Reports workspace", () => {
 
     const medications = screen.getByRole("region", { name: "Medication frequency" });
     expect(within(medications).getByText("4 records in selected period")).toBeInTheDocument();
-    expect(within(medications).getAllByRole("button").map((button) => button.textContent))
-      .toEqual(["Mesalamine3", "Vitamin D1"]);
+    expect(within(medications).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
+      .toEqual(["Mesalamine, 3 records", "Vitamin D, 1 record"]);
     const medication = within(medications).getByRole("button", { name: "Mesalamine, 3 records" });
     expect(within(medications).getByRole("button", { name: "Vitamin D, 1 record" }))
       .toBeInTheDocument();
@@ -573,8 +573,8 @@ describe("Health Reports workspace", () => {
 
     const dietTags = screen.getByRole("region", { name: "Diet tag frequency" });
     expect(within(dietTags).getByText("8 records in selected period")).toBeInTheDocument();
-    expect(within(dietTags).getAllByRole("button").map((button) => button.textContent))
-      .toEqual(["spicy2", "fiber1"]);
+    expect(within(dietTags).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
+      .toEqual(["spicy, 2 records", "fiber, 1 record"]);
     const spicyFrequency = within(dietTags).getByRole("button", {
       name: "spicy, 2 records",
     });
@@ -681,10 +681,10 @@ describe("Health Reports workspace", () => {
         "2026-08-10: Average Bristol 4 from 2 records",
         "2026-08-12: Average Bristol 6 from 1 record",
       ]);
-    expect([...bowel.querySelectorAll(".dashboard-line-y-tick")].map((tick) => tick.textContent))
+    expect([...bowel.querySelectorAll(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value")].map((tick) => tick.textContent))
       .toEqual(["7", "5.5", "4", "2.5", "1"]);
-    expect(bowel.querySelector(".dashboard-line-reference-band"))
-      .toHaveTextContent("Typical Bristol 3 to 5");
+    expect(within(bowel).getByText("Typical Bristol 3 to 5"))
+      .toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "View bowel records" }));
     expect(onDrilldown).toHaveBeenLastCalledWith({
       tab: "bowel", range: { start: "2026-08-01", end: "2026-08-20" },
@@ -755,7 +755,7 @@ describe("Health Reports workspace", () => {
     expect(within(screen.getByRole("region", { name: "Summary" }))
       .getByRole("group", { name: "Weight change" })).toHaveTextContent("0 kg");
     const chart = screen.getByRole("group", { name: "Weight trend (kg)" });
-    expect([...chart.querySelectorAll(".dashboard-line-y-tick")].map((tick) => tick.textContent))
+    expect([...chart.querySelectorAll(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value")].map((tick) => tick.textContent))
       .toEqual(["73 kg", "72.5 kg", "72 kg", "71.5 kg", "71 kg"]);
     expect(within(chart).queryByText("0 kg")).toBeNull();
   });
@@ -861,7 +861,7 @@ describe("Health Reports workspace", () => {
       .toBeInTheDocument();
   });
 
-  it("positions one aria-hidden reference band without changing existing chart callers", () => {
+  it("renders one reference band with a label and removes it when omitted", () => {
     const chart: LineChartSpec = {
       kind: "line", ariaLabel: "Bristol. Typical Bristol band 3 to 5", total: 1,
       points: [{ id: "one", label: "2026-08-10", value: 4, ariaLabel: "Bristol 4" }],
@@ -873,14 +873,14 @@ describe("Health Reports workspace", () => {
         referenceBand={{ minimum: 3, maximum: 5, label: "Typical Bristol 3 to 5" }}
       />,
     );
-    const band = container.querySelector(".dashboard-line-reference-band");
-    expect(band).toHaveAttribute("aria-hidden", "true");
-    expect(band).toHaveTextContent("Typical Bristol 3 to 5");
-    expect(band).toHaveStyle({ top: "38%", height: "28%" });
-    expect(container.querySelectorAll(".dashboard-line-reference-band")).toHaveLength(1);
+    const band = container.querySelector(".recharts-reference-area");
+    expect(band?.querySelector("path")).toHaveAttribute("fill-opacity", "0.08");
+    expect(screen.getByText("Typical Bristol 3 to 5")).toBeInTheDocument();
+    expect(Number(band?.querySelector("path")?.getAttribute("height"))).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".recharts-reference-area")).toHaveLength(1);
 
     rerender(<DashboardLineChart chart={chart} />);
-    expect(container.querySelector(".dashboard-line-reference-band")).toBeNull();
+    expect(container.querySelector(".recharts-reference-area")).toBeNull();
   });
 
   it("renders an explicit weight domain with units and seven X ticks", () => {
@@ -895,11 +895,11 @@ describe("Health Reports workspace", () => {
       <DashboardLineChart chart={chart} domain={{ minimum: 67, maximum: 71 }} valueSuffix=" kg" />,
     );
 
-    expect([...container.querySelectorAll(".dashboard-line-y-tick")]
+    expect([...container.querySelectorAll(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value")]
       .map((tick) => tick.textContent)).toEqual(["71 kg", "70 kg", "69 kg", "68 kg", "67 kg"]);
-    expect(container.querySelector(".dashboard-line-point"))
-      .toHaveStyle({ top: "73%" });
-    expect(container.querySelectorAll(".dashboard-line-x-tick")).toHaveLength(7);
+    expect(container.querySelector(".recharts-line-dots circle"))
+      .toHaveAttribute("cy");
+    expect(container.querySelectorAll(".recharts-xAxis-tick-labels text[data-date]")).toHaveLength(7);
   });
 
   it("stacks every report grid at the existing narrow breakpoint", () => {

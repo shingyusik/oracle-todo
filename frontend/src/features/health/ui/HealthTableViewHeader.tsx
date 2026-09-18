@@ -1,5 +1,8 @@
 import React from "react";
-import { Plus, Trash2 } from "lucide-react";
+import {
+  IconPlus as Plus,
+  IconTrash as Trash2,
+} from "@tabler/icons-react";
 
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import {
