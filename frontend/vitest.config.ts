@@ -9,7 +9,7 @@ export default defineConfig({
       forks: { execArgv: ["--no-experimental-webstorage"] },
       threads: { execArgv: ["--no-experimental-webstorage"] },
     },
-    setupFiles: [],
+    setupFiles: ["./tests/chart-environment.ts"],
   },
   resolve: {
     alias: {

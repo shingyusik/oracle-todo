@@ -2,15 +2,15 @@
 
 import React from "react";
 import {
-  ArrowDown,
-  ArrowUp,
-  Check,
-  ChevronRight,
-  Eye,
-  EyeOff,
-  GripVertical,
-  Trash2,
-} from "lucide-react";
+  IconArrowDown as ArrowDown,
+  IconArrowUp as ArrowUp,
+  IconCheck as Check,
+  IconChevronRight as ChevronRight,
+  IconEye as Eye,
+  IconEyeOff as EyeOff,
+  IconGripVertical as GripVertical,
+  IconTrash as Trash2,
+} from "@tabler/icons-react";
 
 import {
   plannerGroupManagementCandidates,

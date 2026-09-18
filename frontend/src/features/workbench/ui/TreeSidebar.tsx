@@ -1,12 +1,12 @@
 import {
-  Banknote,
-  CalendarDays,
-  ChevronDown,
-  Folder,
-  HeartPulse,
-  LayoutDashboard,
-  ListTodo,
-} from "lucide-react";
+  IconCashBanknote as Banknote,
+  IconCalendar as CalendarDays,
+  IconChevronDown as ChevronDown,
+  IconFolder as Folder,
+  IconHeartbeat as HeartPulse,
+  IconLayoutDashboard as LayoutDashboard,
+  IconListCheck as ListTodo,
+} from "@tabler/icons-react";
 import React from "react";
 
 import {

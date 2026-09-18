@@ -55,8 +55,15 @@ Raven uses a dark UI with shared color and radius tokens in `frontend/src/design
 and `frontend/src/styles/globals.css`. Green primary actions use a dark foreground;
 cards, dialogs and menus use distinct dark surfaces. Native controls inherit `color-scheme:
 dark`. The palette test checks token synchronization and text contrast. Health heatmaps
-use dark diverging colors with numeric labels, and chart dates retain full dates in their
-`datetime` and `title` attributes while displaying compact month/day labels.
+use dark diverging colors with numeric labels. UI controls use Tabler outline icons from
+`@tabler/icons-react`; brand artwork remains a separate image asset.
+
+Dashboard, Ledger and Health charts use Recharts for lines, bars, donuts and the Bristol
+comparison heatmap. Charts resize to their containers, show value tooltips, and preserve
+report drilldowns and keyboard controls. Line axes show compact month/day labels with
+full dates in SVG titles and `data-date` attributes. Tooltips render in a viewport-bounded
+portal outside scrolling cards. Short data transitions respect the reduced-motion setting.
+The heatmap keeps its sample threshold, missing-data markers and bounded scroll area.
 
 Frontend tag fields reuse `TagsInput`. Its dropdown defaults to a fixed-position portal,
 placed above or below the trigger within the viewport and repositioned on scroll or resize.

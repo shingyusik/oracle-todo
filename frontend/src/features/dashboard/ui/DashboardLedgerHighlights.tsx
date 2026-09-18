@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { ChartDonut } from "@/lib/chart-ui";
 
 import type { ReportSelection } from "@/features/ledger/api/ledger-api";
 import {
@@ -193,7 +194,6 @@ function CashFlow({ model }: { model: LedgerReportModel }) {
     ? Math.round(expenseMinor / incomeMinor * 100)
     : null;
   const over = expenseMinor > incomeMinor;
-  const ringStop = over ? 100 : percent ?? 0;
   const money = (value: number) => cashFlowMoney(
     value,
     model.decimalPlaces,
@@ -218,17 +218,17 @@ function CashFlow({ model }: { model: LedgerReportModel }) {
               remainingMinor,
               averageDailyExpenseMinor,
             )}
-            style={{
-              "--dashboard-ledger-ring-stop": `${ringStop}%`,
-            } as React.CSSProperties}
           >
-            <strong>
+            <ChartDonut data={[
+              { label: "Spending", value: expenseMinor, color: over ? "var(--color-danger-text)" : "var(--color-accent-strong)", description: money(expenseMinor) },
+              { label: "Remaining", value: Math.max(0, remainingMinor), color: "var(--color-hairline-light)", description: money(remainingMinor) },
+            ]} center={<strong>
               {incomeMinor === 0
                 ? "No income"
                 : over
                   ? `Over ${percent! - 100}%`
                   : `${percent}%`}
-            </strong>
+            </strong>} />
           </div>
           <div className="dashboard-ledger-cash-flow-metrics">
             <CashFlowMetric label="Income" value={money(incomeMinor)} />

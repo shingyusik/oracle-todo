@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
+import { Bar, BarChart, Rectangle, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { useChartAnimation, ChartTooltip } from "@/lib/chart-ui";
+import { BristolHeatmap } from "@/features/health/ui/BristolHeatmap";
 
 import type { LineChartSpec } from "@/features/dashboard/model/dashboard-widgets";
 import { DashboardLineChart } from "@/features/dashboard/ui/DashboardLineChart";
@@ -352,29 +355,36 @@ function FrequencyList({
   rows: HealthReport["medicationFrequencies"];
   onSelect?: (name: string) => void;
 }) {
-  const maximum = Math.max(1, ...rows.map(({ count }) => count));
+  const animate = useChartAnimation();
+  const chartAnchor = React.useRef<HTMLDivElement>(null);
   return (
     <section className="health-report-section" aria-label={heading}>
       <h2>{heading}</h2>
       <p className="health-report-coverage">{coverage === null ? "Unavailable" : `${recordCount(coverage)} in selected period`}</p>
       {rows.length === 0 ? <p className="items-message">{empty}</p> : (
-        <ul className="health-report-frequency-list">
-          {rows.map((row) => {
-            const content = (
-              <>
-                <span className="health-report-frequency-bar" style={{ "--health-report-bar": row.count / maximum } as React.CSSProperties} aria-hidden="true" />
-                <span>{row.name}</span><strong>{row.count}</strong>
-              </>
-            );
-            return (
-              <li key={row.name}>
-                {onSelect ? (
-                  <button type="button" aria-label={`${row.name}, ${recordCount(row.count)}`} onClick={() => onSelect(row.name)}>{content}</button>
-                ) : <div aria-label={`${row.name}, ${recordCount(row.count)}`}>{content}</div>}
-              </li>
-            );
-          })}
-        </ul>
+        <div ref={chartAnchor} className="health-report-frequency-chart" style={{ height: Math.max(90, rows.length * 40 + 24) }}>
+          <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 600, height: Math.max(90, rows.length * 40 + 24) }}>
+            <BarChart data={rows} layout="vertical" margin={{ top: 8, right: 24, bottom: 8, left: 8 }} accessibilityLayer>
+              <XAxis type="number" allowDecimals={false} hide />
+              <YAxis type="category" dataKey="name" width={110} tickLine={false} axisLine={false}
+                stroke="var(--color-text-muted)" interval={0} />
+              <ChartTooltip anchor={chartAnchor}
+                formatter={(value) => [recordCount(Number(value)), "Records"]} />
+              <Bar dataKey="count" fill="var(--color-accent-strong)" maxBarSize={24}
+                isAnimationActive={animate} animationDuration={350}
+                label={{ position: "right", fill: "var(--color-ink)" }}
+                shape={(props: unknown) => {
+                  const bar = props as { x: number; y: number; width: number; height: number; payload: typeof rows[number] };
+                  return <Rectangle x={bar.x} y={bar.y} width={bar.width} height={bar.height} radius={6}
+                    fill="var(--color-accent-strong)" role={onSelect ? "button" : "img"}
+                    tabIndex={onSelect ? 0 : undefined} aria-label={`${bar.payload.name}, ${recordCount(bar.payload.count)}`}
+                    onClick={() => onSelect?.(bar.payload.name)} onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect?.(bar.payload.name); }
+                    }} />;
+                }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       )}
     </section>
   );
@@ -413,40 +423,9 @@ function DietTagResponses({
       {report.dietTagBristolComparisons.length === 0 ? (
         <p className="items-message">No diet-tag Bristol comparison data are available for this period.</p>
       ) : (
-        <div className="health-report-heatmap-scroll" role="region" aria-label="Scrollable Bristol comparison table" tabIndex={0}>
-          <table className="health-report-heatmap" aria-label="Bristol score frequency difference in percentage points">
-            <thead><tr><th scope="col">Tag / Bristol</th>
-              {Array.from({ length: 7 }, (_, index) => <th key={index} scope="col" aria-label={`Bristol ${index + 1}`}>{index + 1}</th>)}
-            </tr></thead>
-            <tbody>{report.dietTagBristolComparisons.map((row) => {
-              const enough = Math.min(row.withTag.observedMeals, row.withoutTag.observedMeals) >= BRISTOL_COMPARISON_MIN_MEALS;
-              return <tr key={row.tag}>
-                <th scope="row">
-                  {onDrilldown ? <button type="button" onClick={() => onDrilldown({
-                    tab: "diet", field: "tags", value: row.tag, range,
-                  })}>{row.tag}</button> : row.tag}
-                </th>
-                {row.withTag.bristolMeals.map((count, index) => {
-                  const withRate = row.withTag.observedMeals ? count / row.withTag.observedMeals * 100 : null;
-                  const withoutRate = row.withoutTag.observedMeals ? row.withoutTag.bristolMeals[index] / row.withoutTag.observedMeals * 100 : null;
-                  const difference = enough ? Number((withRate! - withoutRate!).toFixed(1)) : null;
-                  const label = difference === null ? "Insufficient data" : `${signed(difference)} pp`;
-                  const detail = `With tag: ${count}/${row.withTag.observedMeals} (${withRate === null ? "unavailable" : `${withRate.toFixed(1)}%`}). Without tag: ${row.withoutTag.bristolMeals[index]}/${row.withoutTag.observedMeals} (${withoutRate === null ? "unavailable" : `${withoutRate.toFixed(1)}%`}).`;
-                  const selectionText = `${row.tag} · Bristol ${index + 1} · ${label}. ${detail} No bowel record (with / without): ${row.withTag.eligibleMeals - row.withTag.observedMeals} / ${row.withoutTag.eligibleMeals - row.withoutTag.observedMeals}. Awaiting 24h: ${row.withTag.pendingMeals} / ${row.withoutTag.pendingMeals}.`;
-                  return <td key={index} data-comparable={enough} style={difference === null ? undefined : {
-                    backgroundColor: `color-mix(in srgb, var(--color-heatmap-${difference >= 0 ? "more" : "less"}) ${Math.abs(difference)}%, var(--color-surface-raised))`,
-                  }}>
-                    <button type="button"
-                      aria-label={`${row.tag}, Bristol ${index + 1}: ${label}. ${detail}`}
-                      aria-pressed={selected?.report === report && selected.text === selectionText}
-                      onClick={() => setSelected({ report, text: selectionText })}
-                    >{difference === null ? "—" : signed(difference)}</button>
-                  </td>;
-                })}
-              </tr>;
-            })}</tbody>
-          </table>
-        </div>
+        <BristolHeatmap report={report} selected={selected?.report === report ? selected.text : null}
+          onSelect={(text) => setSelected({ report, text })}
+          onTagSelect={onDrilldown && ((tag) => onDrilldown({ tab: "diet", field: "tags", value: tag, range }))} />
       )}
       {selected?.report === report && <p className="health-report-heatmap-detail" role="status">{selected.text}</p>}
     </section>

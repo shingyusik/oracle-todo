@@ -121,18 +121,17 @@ describe("design system boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps Ledger report charts native and on shared chart colors", async () => {
+  it("uses Recharts and shared colors for Ledger reports", async () => {
     const component = await readSource(
       "src/features/ledger/ui/LedgerReportCharts.tsx",
     );
     const dashboard = await readSource(
       "src/features/dashboard/ui/DashboardLedgerHighlights.tsx",
     );
-    const css = await readSource("src/styles/globals.css");
     const externalImports = Array.from(
       component.matchAll(/from "([^"]+)"/g),
       ([, dependency]) => dependency,
-    ).filter((dependency) => dependency !== "react" && !dependency.startsWith("@/"));
+    ).filter((dependency) => dependency !== "react" && dependency !== "recharts" && !dependency.startsWith("@/"));
 
     expect(externalImports).toEqual([]);
     expect(Array.from(
@@ -143,13 +142,11 @@ describe("design system boundaries", () => {
     expect(dashboard).toContain("ExpenseCategoryDonut");
     expect(dashboard).toContain("IncomeExpenseTrendChart");
     expect(component).toContain('type="date"');
-    expect(component).toContain("conic-gradient(");
-    expect(component).not.toContain("<svg");
-    expect(component).toMatch(/<span[^>]*ledger-report-bar-income/s);
-    expect(component).toMatch(/<span[^>]*ledger-report-bar-expense/s);
-    expect(css).toMatch(/\.ledger-report-bar-income\s*\{[^}]*background:\s*var\(--color-chart-primary\);/s);
-    expect(css).toMatch(/\.ledger-report-bar-expense\s*\{[^}]*background:\s*var\(--color-chart-secondary\);/s);
-    expect(css).toMatch(/\.ledger-report-average-marker\s*\{[^}]*border-top:\s*2px dashed var\(--color-chart-warning\);/s);
+    expect(component).toContain("<ChartDonut");
+    expect(component).toContain("<ComposedChart");
+    expect(component).toContain('dataKey="averageExpensePaceMinor"');
+    expect(component).toContain('stroke="var(--color-chart-warning)"');
+    expect(component).not.toContain("conic-gradient(");
   });
 
   it("keeps Cash Flow metric text clear of its grid separators", async () => {
@@ -449,24 +446,15 @@ describe("design system boundaries", () => {
     expect(mobile).toMatch(
       /\.dashboard-status-donut-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/,
     );
-    expect(source).toContain("var(--dashboard-status-completed-stop)");
-    expect(source).toContain("var(--dashboard-status-incomplete-stop)");
-    expect(source).toContain("var(--dashboard-status-paused-stop)");
     expect(source).toMatch(
       /\.dashboard-status-tile\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;[^}]*minmax\(0, 1fr\) 60px;[^}]*border:\s*1px solid var\(--color-hairline-light\);[^}]*padding:\s*9px 10px;/s,
     );
-    expect(source).toMatch(
-      /\.dashboard-status-donut\s*\{[^}]*background:\s*conic-gradient\([\s\S]*?color-mix\(in srgb, var\(--color-accent-strong\) 70%, var\(--color-ink\)\)[\s\S]*?var\(--color-ink\)[\s\S]*?var\(--color-shade-50\)[\s\S]*?var\(--color-chart-warning\)[\s\S]*?100%\s*\);/,
-    );
+
     expect(source).toMatch(
       /\.dashboard-status-donut\s*\{[^}]*display:\s*grid;[^}]*width:\s*60px;[^}]*aspect-ratio:\s*1;[^}]*place-items:\s*center;/s,
     );
-    expect(source).toMatch(
-      /\.dashboard-status-donut\.is-empty\s*\{[^}]*background:\s*var\(--color-hairline-light\);/s,
-    );
-    expect(source).toMatch(
-      /\.dashboard-status-donut::after\s*\{[^}]*position:\s*absolute;[^}]*width:\s*66%;[^}]*aspect-ratio:\s*1;[^}]*background:\s*var\(--color-canvas-light\);/s,
-    );
+
+
     expect(source).toMatch(
       /\.dashboard-status-donut-center\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;[^}]*max-width:\s*38px;/s,
     );

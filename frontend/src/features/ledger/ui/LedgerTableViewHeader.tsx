@@ -1,5 +1,9 @@
 import React from "react";
-import { Plus, Settings, Trash2 } from "lucide-react";
+import {
+  IconPlus as Plus,
+  IconSettings as Settings,
+  IconTrash as Trash2,
+} from "@tabler/icons-react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {

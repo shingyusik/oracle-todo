@@ -1,4 +1,7 @@
-import { Ellipsis, Plus } from "lucide-react";
+import {
+  IconDots as Ellipsis,
+  IconPlus as Plus,
+} from "@tabler/icons-react";
 import React, { useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 

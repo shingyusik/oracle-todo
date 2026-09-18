@@ -367,7 +367,7 @@ describe("DashboardPanel", () => {
     expect(projectEmpty).not.toBeVisible();
     expect(
       screen.getByRole("group", { name: "Completion history" })
-        .querySelectorAll(".dashboard-line-point"),
+        .querySelectorAll(".recharts-line-dots circle"),
     ).toHaveLength(14);
     expect(
       screen.getByRole("form", {
@@ -843,7 +843,7 @@ describe("DashboardPanel", () => {
     ).toHaveLength(2);
   });
 
-  it("maps reordered donut segments to ID-based CSS boundaries and navigation", async () => {
+  it("renders reordered donut segments and preserves navigation", async () => {
     const user = setupUser();
     const onNavigate = vi.fn();
     const chart: DashboardChartSpec = {
@@ -886,12 +886,8 @@ describe("DashboardPanel", () => {
     );
 
     const ring = container.querySelector<HTMLElement>(".dashboard-donut-ring");
-    expect(ring?.style.getPropertyValue("--dashboard-donut-completed-end"))
-      .toBe("50%");
-    expect(ring?.style.getPropertyValue("--dashboard-donut-incomplete-end"))
-      .toBe("75%");
-    expect(ring?.style.getPropertyValue("--dashboard-donut-missed-end"))
-      .toBe("100%");
+    expect(ring?.querySelectorAll(".recharts-sector")).toHaveLength(3);
+    expect(ring?.querySelectorAll(".recharts-sector")[0]).toHaveAttribute("fill", "var(--color-ink)");
 
     const completed = screen.getByRole("button", { name: "Completed: 2 (50%)" });
     expect(completed).toHaveTextContent("2");
@@ -902,7 +898,7 @@ describe("DashboardPanel", () => {
     });
   });
 
-  it("uses raw equal-third donut geometry and closes the final boundary", () => {
+  it("renders equal-valued donut slices with their percentage legend", () => {
     const chart: DashboardChartSpec = {
       kind: "donut",
       ariaLabel: "Today's work",
@@ -943,12 +939,8 @@ describe("DashboardPanel", () => {
     );
 
     const ring = container.querySelector<HTMLElement>(".dashboard-donut-ring");
-    expect(ring?.style.getPropertyValue("--dashboard-donut-completed-end"))
-      .toBe(`${100 / 3}%`);
-    expect(ring?.style.getPropertyValue("--dashboard-donut-incomplete-end"))
-      .toBe(`${200 / 3}%`);
-    expect(ring?.style.getPropertyValue("--dashboard-donut-missed-end"))
-      .toBe("100%");
+    expect(ring?.querySelectorAll(".recharts-sector")).toHaveLength(3);
+    expect(ring?.querySelectorAll(".recharts-sector")[0]).toHaveAttribute("fill", "var(--color-accent-strong)");
     for (const name of [
       "Completed: 1 (33%)",
       "Incomplete: 1 (33%)",
@@ -958,7 +950,7 @@ describe("DashboardPanel", () => {
     }
   });
 
-  it("renders informational line points as focusable images without navigation", () => {
+  it("renders accessible line data with keyboard chart navigation", () => {
     const onNavigate = vi.fn();
     const chart: DashboardChartSpec = {
       kind: "line",
@@ -978,9 +970,9 @@ describe("DashboardPanel", () => {
 
     expect(
       screen.getByRole("img", { name: "2026-07-28: 2 completed" }),
-    ).toHaveAttribute("tabindex", "0");
-    expect(container.querySelector(".dashboard-line-svg"))
-      .toHaveAttribute("preserveAspectRatio", "none");
+    ).toBeInTheDocument();
+    expect(container.querySelector(".recharts-surface"))
+      .toHaveAttribute("tabindex", "0");
     expect(screen.getByText("2026-07-28: 2 completed")).toBeInTheDocument();
     expect(onNavigate).not.toHaveBeenCalled();
   });
@@ -1008,14 +1000,14 @@ describe("DashboardPanel", () => {
       />,
     );
 
-    expect(container.querySelector(".dashboard-line-x-tick"))
+    expect(container.querySelector(".recharts-xAxis-tick-labels text[data-date]"))
       .toHaveTextContent("07-01");
-    expect(container.querySelector(".dashboard-line-x-tick"))
-      .toHaveAttribute("title", "2026-07-01");
+    expect(container.querySelector(".recharts-xAxis-tick-labels text[data-date] title"))
+      .toHaveTextContent("2026-07-01");
     expect(
       Array.from(
-        container.querySelectorAll(".dashboard-line-x-tick"),
-        (tick) => tick.getAttribute("datetime"),
+        container.querySelectorAll(".recharts-xAxis-tick-labels text[data-date]"),
+        (tick) => tick.getAttribute("data-date"),
       ),
     ).toEqual([
       "2026-07-01",
@@ -1053,8 +1045,8 @@ describe("DashboardPanel", () => {
 
     expect(
       Array.from(
-        container.querySelectorAll(".dashboard-line-x-tick"),
-        (tick) => tick.getAttribute("datetime"),
+        container.querySelectorAll(".recharts-xAxis-tick-labels text[data-date]"),
+        (tick) => tick.getAttribute("data-date"),
       ),
     ).toEqual([
       "2026-07-01",
@@ -1092,8 +1084,8 @@ describe("DashboardPanel", () => {
 
     expect(
       Array.from(
-        container.querySelectorAll(".dashboard-line-x-tick"),
-        (tick) => tick.getAttribute("datetime"),
+        container.querySelectorAll(".recharts-xAxis-tick-labels text[data-date]"),
+        (tick) => tick.getAttribute("data-date"),
       ),
     ).toEqual([
       "2026-07-01",
@@ -1132,13 +1124,13 @@ describe("DashboardPanel", () => {
     const chart = screen.getByRole("group", { name: "Completion history" });
     expect(
       Array.from(
-        chart.querySelectorAll(".dashboard-line-y-tick"),
+        chart.querySelectorAll(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value"),
         (tick) => tick.textContent,
       ),
     ).toEqual(["100%", "75%", "50%", "25%", "0%"]);
     expect(
       screen.getByRole("img", { name: "2026-07-29: 75% completed (3/4)" }),
-    ).toHaveStyle({ top: "31%" });
+    ).toHaveAttribute("cy", "67.5");
     expect(screen.getByText("2026-07-29: 75% completed (3/4)"))
       .toBeInTheDocument();
   });
@@ -1180,12 +1172,7 @@ describe("DashboardPanel", () => {
     expect(tile.querySelector(".dashboard-status-donut-center"))
       .toHaveTextContent("50%");
     expect(tile).toHaveTextContent("Risk / Miss 1 / Total 4");
-    expect(tile.style.getPropertyValue("--dashboard-status-completed-stop"))
-      .toBe("50%");
-    expect(tile.style.getPropertyValue("--dashboard-status-incomplete-stop"))
-      .toBe("75%");
-    expect(tile.style.getPropertyValue("--dashboard-status-paused-stop"))
-      .toBe("75%");
+    expect(tile.querySelectorAll(".recharts-sector")).toHaveLength(3);
     await user.click(tile);
     expect(onNavigate).toHaveBeenCalledWith({
       kind: "project-detail",

@@ -1,7 +1,13 @@
 "use client";
 
 import React, { useEffect, useReducer, useRef, useState } from "react";
-import { ArrowLeft, Redo2, Save, Trash2, Undo2 } from "lucide-react";
+import {
+  IconArrowLeft as ArrowLeft,
+  IconArrowForwardUp as Redo2,
+  IconDeviceFloppy as Save,
+  IconTrash as Trash2,
+  IconArrowBackUp as Undo2,
+} from "@tabler/icons-react";
 
 import {
   HealthMutationRefreshError,

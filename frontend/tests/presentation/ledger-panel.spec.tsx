@@ -838,9 +838,9 @@ describe("LedgerPanel", () => {
       expect(action).toContainElement(action.querySelector(`.${iconClass}`));
       expect(action.textContent?.trim()).toBe("");
     };
-    expectIconAction(accountTypeTable, "Edit Cash", "lucide-pencil");
-    expectIconAction(accountTypeTable, "Deactivate Cash", "lucide-circle-off");
-    expectIconAction(accountTypeTable, "Delete Cash", "lucide-trash-2");
+    expectIconAction(accountTypeTable, "Edit Cash", "tabler-icon-pencil");
+    expectIconAction(accountTypeTable, "Deactivate Cash", "tabler-icon-circle-off");
+    expectIconAction(accountTypeTable, "Delete Cash", "tabler-icon-trash");
     expect(within(accountTypeTable).getByRole("cell", { name: /Edit Cash/ }))
       .toHaveClass("ledger-account-settings-actions-cell");
 
@@ -873,8 +873,8 @@ describe("LedgerPanel", () => {
       "ledger-account-settings-table",
       "ledger-account-settings-currencies-table",
     );
-    expectIconAction(currencyTable, "Edit KRW", "lucide-pencil");
-    expectIconAction(currencyTable, "Deactivate KRW", "lucide-circle-off");
+    expectIconAction(currencyTable, "Edit KRW", "tabler-icon-pencil");
+    expectIconAction(currencyTable, "Deactivate KRW", "tabler-icon-circle-off");
     expect(within(currencyTable).queryByRole("button", { name: "Delete KRW" })).toBeNull();
     expect(within(currencyTable).getByRole("cell", { name: /Edit KRW/ }))
       .toHaveClass("ledger-account-settings-actions-cell");
@@ -1403,20 +1403,20 @@ describe("LedgerPanel", () => {
       entries: transactionEntries(),
     })} />);
 
-    expectIconButton("Add transaction", "lucide-plus");
+    expectIconButton("Add transaction", "tabler-icon-plus");
     await userEvent.click(screen.getByRole("checkbox", { name: "Select all visible transactions" }));
-    expectIconButton("Archive selected transactions", "lucide-trash-2");
+    expectIconButton("Archive selected transactions", "tabler-icon-trash");
 
     rerender(<LedgerPanel leafTabId="accounts" controller={controller()} />);
-    expectIconButton("Account settings", "lucide-settings");
-    expectIconButton("Add account", "lucide-plus");
+    expectIconButton("Account settings", "tabler-icon-settings");
+    expectIconButton("Add account", "tabler-icon-plus");
     await userEvent.click(screen.getByRole("checkbox", { name: "Select all visible accounts" }));
-    expectIconButton("Delete selected", "lucide-trash-2");
+    expectIconButton("Delete selected", "tabler-icon-trash");
 
     rerender(<LedgerPanel leafTabId="categories" controller={controller()} />);
-    expectIconButton("Add category", "lucide-plus");
+    expectIconButton("Add category", "tabler-icon-plus");
     await userEvent.click(screen.getByRole("checkbox", { name: "Select all visible categories" }));
-    expectIconButton("Delete selected", "lucide-trash-2");
+    expectIconButton("Delete selected", "tabler-icon-trash");
   });
 
   it("renders compact active logical transactions in default date order", () => {
@@ -2019,8 +2019,8 @@ describe("LedgerPanel", () => {
     expect(css).toMatch(/\.ledger-report-compositions\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
     const narrow = css.slice(css.indexOf("@media (max-width: 760px)"));
     expect(narrow).toMatch(/\.ledger-report-compositions\s*\{[^}]*grid-template-columns:\s*1fr/s);
-    expect(css).toContain(".ledger-report-bars");
-    expect(css).toContain(".ledger-report-bar-button:focus-visible");
+    expect(css).toContain(".chart-line-frame");
+    expect(css).toContain(".chart-heat-cell:focus-visible path");
   });
 
   it("uses the Transactions header structure for Accounts", () => {
@@ -3207,21 +3207,21 @@ describe("LedgerPanel", () => {
         }],
       }],
     };
-    render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
+    render(<LedgerPanel leafTabId="reports" controller={controller(state)} onReportDrilldown={vi.fn()} />);
 
     expect(screen.getByRole("tab", { name: "Spending" }))
       .toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("button", { name: "2026-08-01 Expense 800,000 KRW" }))
       .toBeInTheDocument();
-    expect(screen.getByLabelText("Spending Y-axis"))
-      .toHaveTextContent("800,000 KRW400,000 KRW0 KRW");
+    expect(document.querySelector(".recharts-yAxis-tick-labels"))
+      .toHaveTextContent("800,000 KRW");
     expect(screen.getByText("Average daily · 39 KRW")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Income" }));
     expect(screen.getByRole("button", { name: "2026-08-01 Income 3,200,000 KRW" }))
       .toBeInTheDocument();
-    expect(screen.getByLabelText("Income Y-axis"))
-      .toHaveTextContent("3,200,000 KRW1,600,000 KRW0 KRW");
+    expect(document.querySelector(".recharts-yAxis-tick-labels"))
+      .toHaveTextContent("3,200,000 KRW");
     expect(screen.queryByText(/Average daily ·/)).toBeNull();
   });
 
@@ -3270,9 +3270,7 @@ describe("LedgerPanel", () => {
     );
 
     const expenseButton = screen.getByRole("button", { name: "2026-08-01 Expense 0 KRW" });
-    const expenseVisual = expenseButton.querySelector(".ledger-report-bar-expense");
-    expect(expenseVisual)
-      .toHaveStyle({ height: "0%", minHeight: "0" });
+    expect(expenseButton).toHaveAttribute("height", "0");
     expenseButton.focus();
     expect(expenseButton).toHaveFocus();
     await user.keyboard("{Enter}");
@@ -3285,8 +3283,7 @@ describe("LedgerPanel", () => {
 
     await user.click(screen.getByRole("tab", { name: "Income" }));
     const incomeButton = screen.getByRole("button", { name: "2026-08-01 Income 0 KRW" });
-    expect(incomeButton.querySelector(".ledger-report-bar-income"))
-      .toHaveStyle({ height: "0%", minHeight: "0" });
+    expect(incomeButton).toHaveAttribute("height", "0");
   });
 
   it("scales trend bars against the selected series and an expense average maximum", async () => {
@@ -3304,23 +3301,22 @@ describe("LedgerPanel", () => {
       incomeMinor: 400,
       expenseMinor: 250,
     }];
-    render(<LedgerPanel leafTabId="reports" controller={controller(state)} />);
+    render(<LedgerPanel leafTabId="reports" controller={controller(state)} onReportDrilldown={vi.fn()} />);
 
-    expect(screen.getByLabelText("Spending Y-axis"))
-      .toHaveTextContent("1,000 KRW500 KRW0 KRW");
-    expect(document.querySelector(".ledger-report-average-marker"))
-      .toHaveStyle({ bottom: "100%" });
-    expect(screen.getByRole("button", { name: "2026-08-01 Expense 500 KRW" })
-      .querySelector(".ledger-report-bar-expense"))
-      .toHaveStyle({ height: "50%" });
+    expect(document.querySelector(".recharts-yAxis-tick-labels"))
+      .toHaveTextContent("1,000 KRW");
+    expect(document.querySelector(".recharts-line-curve"))
+      .toHaveAttribute("stroke-dasharray", "4 4");
+    const expenseHeight = Number(screen.getByRole("button", { name: "2026-08-01 Expense 500 KRW" }).getAttribute("height"));
+    const halfExpenseHeight = Number(screen.getByRole("button", { name: "2026-08-02 Expense 250 KRW" }).getAttribute("height"));
+    expect(expenseHeight).toBeGreaterThan(0);
+    expect(expenseHeight).toBeCloseTo(halfExpenseHeight * 2);
 
     await user.click(screen.getByRole("tab", { name: "Income" }));
-    expect(screen.getByRole("button", { name: "2026-08-01 Income 800 KRW" })
-      .querySelector(".ledger-report-bar-income"))
-      .toHaveStyle({ height: "100%" });
-    expect(screen.getByRole("button", { name: "2026-08-02 Income 400 KRW" })
-      .querySelector(".ledger-report-bar-income"))
-      .toHaveStyle({ height: "50%" });
+    const incomeHeight = Number(screen.getByRole("button", { name: "2026-08-01 Income 800 KRW" }).getAttribute("height"));
+    const halfIncomeHeight = Number(screen.getByRole("button", { name: "2026-08-02 Income 400 KRW" }).getAttribute("height"));
+    expect(incomeHeight).toBeGreaterThan(expenseHeight);
+    expect(incomeHeight).toBeCloseTo(halfIncomeHeight * 2);
   });
 
   it("shows zero cards and section-specific messages for an empty report", () => {

@@ -2,7 +2,9 @@
 
 import React from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import {
+  IconX as X,
+} from "@tabler/icons-react";
 
 export function parseTagInput(value: string): string[] {
   return value
