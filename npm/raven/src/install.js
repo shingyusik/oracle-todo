@@ -20,6 +20,21 @@ async function fetchRequestedRelease(options, env) {
 
 async function installBundle(options = {}) {
   const env = options.env || process.env;
+  const metadata = await readMetadata(options.cacheRoot || cacheDir(env));
+  if (
+    metadata?.installedVersion
+    && metadata.uiVersion === metadata.installedVersion
+    && (!env.RAVEN_VERSION || normalizeVersion(env.RAVEN_VERSION) === metadata.installedVersion)
+    && await isUsableFile(metadata.binaryPath, true)
+    && await isUsableFile(metadata.uiPath && path.join(metadata.uiPath, "index.html"))
+  ) {
+    return { status: "already-installed", ...metadata };
+  }
+  return updateBundle(options);
+}
+
+async function updateBundle(options = {}) {
+  const env = options.env || process.env;
   const cacheRoot = options.cacheRoot || cacheDir(env);
   const platformInfo = options.platformInfo || resolvePlatform();
   const metadata = await readMetadata(cacheRoot);
@@ -55,10 +70,6 @@ async function installBundle(options = {}) {
   };
   await writeMetadata(cacheRoot, metadataNext);
   return metadataNext;
-}
-
-async function updateBundle(options = {}) {
-  return installBundle(options);
 }
 
 async function installEngine(options = {}) {
