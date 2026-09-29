@@ -453,6 +453,27 @@ fn group_order_sql(query: &LedgerTableQuery, values: &mut Vec<Value>) -> String 
         GroupSort::Manual => {
             let manual = query.group_settings().manual_order();
             if manual.is_empty() {
+                if matches!(
+                    query.group_settings().group_by(),
+                    LedgerTableGroup::Transactions(
+                        TransactionTableGroup::Month
+                            | TransactionTableGroup::Week
+                            | TransactionTableGroup::Day
+                    )
+                ) && let Some(LedgerTableSort::Transactions {
+                    field: TransactionTableSortField::Date,
+                    direction,
+                }) = query.sorts().first()
+                {
+                    return format!(
+                        "group_key {}, ",
+                        if *direction == SortDirection::Asc {
+                            "ASC"
+                        } else {
+                            "DESC"
+                        }
+                    );
+                }
                 return "group_label ASC, ".into();
             }
             let mut sql = "CASE group_key ".to_string();

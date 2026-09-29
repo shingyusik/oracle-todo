@@ -11,6 +11,20 @@ import {
 } from "@/features/ledger/model/ledger-table-views";
 
 describe("ledger table views", () => {
+  it("keeps the latest direction when a stored view repeats the same sort field", () => {
+    const settings = normalizeLedgerTableSettings("ledger.transactions", {
+      sortRules: [
+        { id: "old-date", field: "date", direction: "asc" },
+        { id: "content", field: "content", direction: "asc" },
+        { id: "new-date", field: "date", direction: "desc" },
+      ],
+    });
+    expect(settings.sortRules).toEqual([
+      { id: "new-date", field: "date", direction: "desc" },
+      { id: "content", field: "content", direction: "asc" },
+    ]);
+  });
+
   it("defines independent stable scopes and scope-specific controls", () => {
     expect(ledgerTableScopeIds).toEqual([
       "ledger.transactions",

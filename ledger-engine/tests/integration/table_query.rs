@@ -535,6 +535,68 @@ fn sqlite_table_query_pages_the_full_filtered_and_sorted_transaction_set() {
 }
 
 #[test]
+fn sqlite_transaction_date_sort_changes_order_in_both_directions() {
+    let mut service = table_service();
+    for date in ["2026-09-02", "2025-12-31", "2026-09-01"] {
+        service
+            .create_entry(CreateEntry {
+                date: date.into(),
+                written_at: datetime!(2026-09-02 00:00 UTC),
+                content: date.into(),
+                category: Some("Food".into()),
+                account: "Wallet".into(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(100),
+                currency: "KRW".into(),
+                transfer_group: None,
+                source: "test".into(),
+                notes: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    for group_by in [
+        TransactionTableGroup::None,
+        TransactionTableGroup::Month,
+        TransactionTableGroup::Week,
+        TransactionTableGroup::Day,
+    ] {
+        for (direction, expected) in [
+            (
+                SortDirection::Asc,
+                ["2025-12-31", "2026-09-01", "2026-09-02"],
+            ),
+            (
+                SortDirection::Desc,
+                ["2026-09-02", "2026-09-01", "2025-12-31"],
+            ),
+        ] {
+            let query = query(
+                LedgerTableScope::Transactions,
+                FilterMode::And,
+                vec![],
+                vec![LedgerTableSort::Transactions {
+                    field: TransactionTableSortField::Date,
+                    direction,
+                }],
+                group_settings(LedgerTableGroup::Transactions(group_by)),
+            )
+            .unwrap();
+            let page = service.query_table(&query).unwrap();
+            let dates: Vec<_> = page
+                .items
+                .iter()
+                .map(|row| match row.record() {
+                    LedgerTableRecord::Transactions(record) => record.date.as_str(),
+                    _ => unreachable!(),
+                })
+                .collect();
+            assert_eq!(dates, expected, "{group_by:?} {direction:?}");
+        }
+    }
+}
+
+#[test]
 fn sqlite_table_query_uses_displayed_major_units_for_money_filters_and_sorts() {
     let mut service = table_service();
     service

@@ -4682,6 +4682,16 @@ describe("LedgerPanel", () => {
     expect(screen.queryByText("Food")).not.toBeInTheDocument();
   });
 
+  it("does not offer a duplicate Date sort that masks direction changes", async () => {
+    const user = userEvent.setup();
+    render(<TransactionHeaderHarness />);
+    await user.click(screen.getByRole("button", { name: "Sort Transactions" }));
+    await user.click(screen.getByRole("button", { name: "Add sort" }));
+    const fields = screen.getByRole("listbox", { name: "Sort fields" });
+    expect(within(fields).queryByRole("option", { name: "Date" })).toBeNull();
+    expect(within(fields).getByRole("option", { name: "Amount" })).toBeVisible();
+  });
+
   it("keeps saved view tabs independent across Ledger table leaves", () => {
     const views = createLedgerTableViews({
       "ledger.transactions": { tabs: [{ id: "tx", name: "Recent", settings: {} }] },

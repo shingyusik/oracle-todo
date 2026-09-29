@@ -158,7 +158,7 @@ export function normalizeLedgerTableSettings(
   return {
     filterMode: normalizeFilterMode(candidate.filterMode),
     filterRules,
-    sortRules,
+    sortRules: [...new Map(sortRules.map((rule) => [rule.field, rule])).values()],
     groupSettings: {
       ...normalizedGroup,
       groupBy: allowedGroups.has(requestedGroup) ? requestedGroup : "none",

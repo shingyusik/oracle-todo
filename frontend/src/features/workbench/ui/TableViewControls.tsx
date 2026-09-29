@@ -649,6 +649,7 @@ function TableViewSortPanel({
   const [addOpen, setAddOpen] = React.useState(false);
   const rules = adapter.settings.sortRules;
   const fields = tableViewSortFieldOptions(adapter);
+  const availableFields = fields.filter((field) => !rules.some((rule) => rule.field === field.value));
 
   if (rules.length === 0) {
     return (
@@ -713,7 +714,9 @@ function TableViewSortPanel({
               onChange={(event) =>
                 updateRule(rule.id, { field: event.target.value as PlannerSortBy })}
             >
-              {fields.map((field) => (
+              {fields.filter((field) => field.value === rule.field || !rules.some(
+                (other) => other.id !== rule.id && other.field === field.value,
+              )).map((field) => (
                 <option value={field.value} key={field.value}>
                   {field.label}
                 </option>
@@ -748,11 +751,12 @@ function TableViewSortPanel({
         className="planner-filter-action"
         aria-label="Add sort"
         aria-expanded={addOpen}
+        disabled={availableFields.length === 0}
         onClick={() => setAddOpen((current) => !current)}
       >
         + Add sort
       </button>
-      {addOpen ? <TableViewSortFieldOptions fields={fields} onPick={addSort} /> : null}
+      {addOpen ? <TableViewSortFieldOptions fields={availableFields} onPick={addSort} /> : null}
       <button
         type="button"
         className="planner-filter-action planner-filter-action-danger"
