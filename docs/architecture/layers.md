@@ -71,6 +71,18 @@ Inside a modal, the portal stays under the dialog element so focus isolation and
 navigation include it; outside a modal, it uses `document.body`. Dialog ancestors must not
 use transforms that turn fixed positioning into container-relative positioning.
 
+ToDo, Ledger and Health creation dialogs use the shared styled confirmation dialog before
+discarding an
+edited draft through Escape or Close; Health backdrop dismissal and Quick Add's Back
+action use the same guard. Cancelling keeps the form and draft open. Successful saves
+close directly. Drafts stay in memory and do not survive a page reload.
+
+Diet photo fields use a clickable upload area backed by a native image file input. The
+area supports keyboard focus and shows the selected filename in creation and detail forms.
+
+Table sort controls allow each field once. Ledger normalizes repeated saved sort fields
+to the latest direction while preserving the field's priority.
+
 Engine crates expose only composition-facing types. Split implementation modules use
 private or `pub(super)` visibility where possible. Unit tests cover pure domain policy;
 integration tests exercise repository/service behavior; CLI/API tests verify adapter

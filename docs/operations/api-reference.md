@@ -301,6 +301,10 @@ Unknown fields are rejected at every request-object level. The response is
 Transaction records include `amount_minor`, `currency_code`, and the currency's validated
 `decimal_places`, so clients can format minor units without loading the currency list.
 
+With `group_settings.sort:"manual"` and an empty manual order, Month, Week and Day
+transaction groups follow the leading Date sort direction. Explicit alphabetical,
+reverse-alphabetical and nonempty manual group orders keep their selected order.
+
 `GET /table/lookups` accepts the same three scope values. Transaction lookups return compact
 active `accounts`, `categories`, and `currencies`; account lookups return `account_types` and
 `currencies`; category lookups return `categories`. Every option contains only `id` and
