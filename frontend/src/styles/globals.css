@@ -418,6 +418,19 @@ textarea::placeholder {
   gap: 12px;
 }
 
+.ledger-transaction-analysis {
+  margin: 0 0 24px;
+  padding: 24px;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+.ledger-analysis-chart { height: 260px; min-width: 0; }
+.ledger-analysis-toggle { gap: 6px; padding-inline: 12px; }
+.ledger-analysis-values { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ledger-analysis-values th, .ledger-analysis-values td { padding: 8px; text-align: left; border-bottom: 1px solid var(--color-hairline-light); }
+
 .ledger-report-card {
   display: grid;
   gap: 7px;

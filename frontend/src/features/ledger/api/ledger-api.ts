@@ -42,6 +42,7 @@ import {
   mapTransfer,
 } from "@/features/ledger/model/ledger-model";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
+import { mapTransactionAnalysis } from "@/features/ledger/model/ledger-analysis";
 import { localCalendarDate } from "@/features/workbench/model/planner-model";
 import { tableFilterValue } from "@/features/workbench/model/table-query";
 import {
@@ -90,35 +91,18 @@ export type TransactionCategoryInput = {
 };
 
 export const ledgerApi = {
+  async analyzeTable(settings: PlannerTableSettings, referenceDate = new Date()) {
+    return mapTransactionAnalysis(await requestJson(`${ROOT}/table/analysis`, jsonRequest("POST",
+      tableQueryBody("ledger.transactions", settings, 0, referenceDate))));
+  },
   async queryTable(
     scope: LedgerTableScope,
     settings: PlannerTableSettings,
     offset = 0,
     referenceDate: Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date(),
   ): Promise<LedgerTablePage> {
-    const value = await requestJson(`${ROOT}/table/query`, jsonRequest("POST", {
-      scope,
-      offset,
-      limit: 50,
-      filter_mode: settings.filterMode,
-      filters: settings.filterRules.map((rule) => ({
-        field: rule.field,
-        operator: rule.operator,
-        value: tableFilterValue(rule.value, rule.operator),
-      })),
-      sorts: settings.sortRules.map((rule) => ({
-        field: rule.field,
-        direction: rule.direction,
-      })),
-      group_by: settings.groupSettings.groupBy,
-      group_settings: {
-        sort: settings.groupSettings.sort,
-        hide_empty: settings.groupSettings.hideEmpty,
-        manual_order: settings.groupSettings.manualOrder,
-        hidden_group_keys: settings.groupSettings.hiddenGroupKeys,
-      },
-      context: { reference_date: localCalendarDate(referenceDate) },
-    }));
+    const value = await requestJson(`${ROOT}/table/query`, jsonRequest("POST",
+      tableQueryBody(scope, settings, offset, referenceDate)));
     return mapLedgerTablePage(value, scope);
   },
   async tableLookups(scope: LedgerTableScope): Promise<LedgerTableLookups> {
@@ -437,4 +421,18 @@ function clean(value: Record<string, JsonValue | undefined>): JsonObject {
 
 function segment(value: string): string {
   return encodeURIComponent(value);
+}
+
+function tableQueryBody(scope: LedgerTableScope, settings: PlannerTableSettings, offset: number,
+  referenceDate: Pick<Date, "getFullYear" | "getMonth" | "getDate">): JsonObject {
+  return {
+    scope, offset, limit: 50, filter_mode: settings.filterMode,
+    filters: settings.filterRules.map((rule) => ({ field: rule.field, operator: rule.operator,
+      value: tableFilterValue(rule.value, rule.operator) })),
+    sorts: settings.sortRules.map((rule) => ({ field: rule.field, direction: rule.direction })),
+    group_by: settings.groupSettings.groupBy,
+    group_settings: { sort: settings.groupSettings.sort, hide_empty: settings.groupSettings.hideEmpty,
+      manual_order: settings.groupSettings.manualOrder, hidden_group_keys: settings.groupSettings.hiddenGroupKeys },
+    context: { reference_date: localCalendarDate(referenceDate) },
+  };
 }

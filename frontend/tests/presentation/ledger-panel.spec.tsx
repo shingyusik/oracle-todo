@@ -626,6 +626,18 @@ function reportAnalysisState(
 }
 
 describe("LedgerPanel", () => {
+  it("opens analysis from the transaction view using its current filters", async () => {
+    const analyze = vi.spyOn(ledgerApi, "analyzeTable").mockResolvedValue([]);
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: "Analyze transactions" }));
+    expect(await screen.findByText("No transactions match this view.")).toBeVisible();
+    expect(analyze).toHaveBeenCalledWith(ledger.tableSettings("ledger.transactions"));
+    await user.click(screen.getByRole("button", { name: "Close transaction analysis" }));
+    expect(screen.queryByRole("region", { name: "Transaction analysis" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Analyze transactions" })).toHaveFocus();
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -1997,6 +2009,7 @@ describe("LedgerPanel", () => {
     expect(actions).toHaveClass("workspace-table-header-actions");
     expect([...actions.children]).toEqual([
       screen.getByRole("group", { name: "Transactions controls" }),
+      screen.getByRole("button", { name: "Analyze transactions" }),
       add,
       remove,
     ]);

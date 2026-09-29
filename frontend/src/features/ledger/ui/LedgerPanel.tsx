@@ -20,6 +20,7 @@ import { TransactionCreateDialog } from "@/features/ledger/ui/TransactionCreateD
 import { TransactionDetail } from "@/features/ledger/ui/TransactionDetail";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
+import { TransactionAnalysis } from "@/features/ledger/ui/TransactionAnalysis";
 import { useLifecycleAction } from "@/features/ledger/ui/ledger-ui";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import { TableViewTabConfirmationDialog } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
@@ -130,6 +131,8 @@ function TransactionsPanel({
   const [editing, setEditing] = useState<TransactionRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const analysisButtonRef = useRef<HTMLButtonElement>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const actions = useLifecycleAction();
   const addButtonRef = useRef<HTMLButtonElement>(null);
@@ -251,12 +254,20 @@ function TransactionsPanel({
           if (loaded) setDialogOpen(true);
         })}
         addButtonRef={addButtonRef}
+        onAnalyze={() => setAnalysisOpen((open) => !open)}
+        analysisOpen={analysisOpen}
+        analysisButtonRef={analysisButtonRef}
         onArchiveSelected={() => {
           actions.clearError();
           setArchiveConfirmationOpen(true);
         }}
         archiveDisabled={selectedIds.length === 0 || actions.isPending("archive-selected")}
       />
+      {analysisOpen ? <TransactionAnalysis settings={controller.tableSettings("ledger.transactions")}
+        generation={page.generation} onClose={() => {
+          setAnalysisOpen(false);
+          analysisButtonRef.current?.focus();
+        }} /> : null}
       <TransactionsTable
         controller={controller}
         groups={groups}

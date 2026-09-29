@@ -17,6 +17,19 @@ const trend = {
 };
 
 describe("ledger report API", () => {
+  it("sends identical filter and group conditions to analysis and table queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({ buckets: [] }))
+      .mockResolvedValueOnce(response({ items: [], next_offset: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const settings = defaultLedgerTableSettings("ledger.transactions");
+    settings.filterRules = [{ id: "content", field: "content", operator: "contains", value: "subscription" }];
+    settings.groupSettings.groupBy = "month";
+    settings.groupSettings.hiddenGroupKeys = ["2026-07"];
+    await ledgerApi.analyzeTable(settings, new Date(2026, 8, 29));
+    await ledgerApi.queryTable("ledger.transactions", settings, 0, new Date(2026, 8, 29));
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ledger/table/analysis");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(JSON.parse(fetchMock.mock.calls[1][1].body));
+  });
   it("uses preset or custom comparison query contracts and automatic trends", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(comparison))

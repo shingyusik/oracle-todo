@@ -3,6 +3,7 @@ import {
   IconPlus as Plus,
   IconSettings as Settings,
   IconTrash as Trash2,
+  IconChartBar,
 } from "@tabler/icons-react";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
@@ -40,6 +41,9 @@ export function LedgerTableViewHeader({
   onArchiveSelected,
   archiveDisabled = true,
   archiveSelectedLabel,
+  onAnalyze,
+  analysisOpen,
+  analysisButtonRef,
 }: {
   controller: LedgerController;
   scope: LedgerTableScopeId;
@@ -55,6 +59,9 @@ export function LedgerTableViewHeader({
   onArchiveSelected?: () => void;
   archiveDisabled?: boolean;
   archiveSelectedLabel?: string;
+  onAnalyze?: () => void;
+  analysisOpen?: boolean;
+  analysisButtonRef?: React.RefObject<HTMLButtonElement>;
 }) {
   const tabs = controller.tableTabs(scope);
   const settings = controller.tableSettings(scope);
@@ -115,6 +122,10 @@ export function LedgerTableViewHeader({
           {tableTabs}
           <div className="workspace-table-header-actions">
             <TableViewControls adapter={controlsAdapter} />
+            {onAnalyze ? <button ref={analysisButtonRef} className="items-toolbar-button ledger-analysis-toggle" type="button" onClick={onAnalyze}
+              aria-expanded={analysisOpen} aria-controls="transaction-analysis" aria-label="Analyze transactions">
+              <IconChartBar size={16} aria-hidden="true" /> Analyze
+            </button> : null}
             {isAccounts && onSettings ? (
               <button
                 ref={settingsButtonRef as React.RefObject<HTMLButtonElement> | undefined}
