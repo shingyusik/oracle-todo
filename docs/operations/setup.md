@@ -30,8 +30,16 @@ npx @shings/raven version
 npx @shings/raven doctor
 ```
 
-Other arguments are forwarded to the native binary. `ui` installs both artifacts and
-delegates to native `raven ui`.
+Other arguments are forwarded to the native binary. `ui` and `install` reuse the
+installed bundle without contacting GitHub when the engine is executable, the UI
+index is readable, and their recorded versions match. `RAVEN_VERSION`, if set,
+must also match the installed version. Otherwise the wrapper downloads a matching
+bundle before delegating `ui` to native `raven ui`.
+
+`update` explicitly checks GitHub for the requested or latest release. A new bundle
+is activated only after both archives pass checksum verification and extraction;
+a download failure for a newer version leaves the active bundle unchanged.
+The `npx` launcher itself may still need npm access to obtain the wrapper package.
 
 ## Source build
 

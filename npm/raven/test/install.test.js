@@ -37,6 +37,40 @@ async function fakeNestedExtractor(_archivePath, destination) {
   await fs.writeFile(path.join(releaseRoot, "raven"), "#!/bin/sh\necho fake engine\n", { mode: 0o755 });
 }
 
+test("uses a complete cached bundle offline but checks releases for updates or repairs", async (t) => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-offline-"));
+  t.after(() => fs.rm(cacheRoot, { recursive: true, force: true }));
+  const binaryPath = path.join(cacheRoot, "raven");
+  const uiPath = path.join(cacheRoot, "ui");
+  await fs.writeFile(binaryPath, "#!/bin/sh\n", { mode: 0o755 });
+  await fs.mkdir(uiPath);
+  await fs.writeFile(path.join(uiPath, "index.html"), "<!doctype html>");
+  const metadata = { installedVersion: "0.3.0", uiVersion: "0.3.0", binaryPath, uiPath };
+  await writeMetadata(cacheRoot, metadata);
+  const options = {
+    cacheRoot,
+    env: {},
+    fetchReleaseImpl: async () => { throw new Error("offline"); },
+  };
+
+  for (const env of [{}, { RAVEN_VERSION: "0.3.0" }, { RAVEN_VERSION: "v0.3.0" }]) {
+    const result = await installBundle({ ...options, env });
+    assert.equal(result.status, "already-installed");
+    assert.equal(result.uiPath, uiPath);
+    assert.equal(result.binaryPath, binaryPath);
+  }
+  await assert.rejects(() => updateBundle(options), /offline/);
+  await assert.rejects(() => installBundle({ ...options, env: { RAVEN_VERSION: "0.4.0" } }), /offline/);
+  await writeMetadata(cacheRoot, { ...metadata, uiVersion: "0.2.0" });
+  await assert.rejects(() => installBundle(options), /offline/);
+  await writeMetadata(cacheRoot, metadata);
+  await fs.unlink(path.join(uiPath, "index.html"));
+  await assert.rejects(() => installBundle(options), /offline/);
+  await fs.writeFile(path.join(uiPath, "index.html"), "<!doctype html>");
+  await fs.unlink(binaryPath);
+  await assert.rejects(() => installBundle(options), /offline/);
+});
+
 test("reinstalls when cached binary metadata is stale", async () => {
   const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-install-"));
   await fs.mkdir(cacheRoot, { recursive: true });
@@ -198,7 +232,7 @@ test("keeps the previous bundle metadata when UI installation fails", async () =
   const previousBinary = await fs.readFile(previousMetadata.binaryPath, "utf8");
 
   await assert.rejects(
-    () => installBundle({
+    () => updateBundle({
       cacheRoot,
       platformInfo,
       fetchReleaseImpl: async () => releaseFor("0.3.0"),
@@ -213,6 +247,19 @@ test("keeps the previous bundle metadata when UI installation fails", async () =
 
   assert.deepEqual(await readMetadata(cacheRoot), previousMetadata);
   assert.equal(await fs.readFile(previousMetadata.binaryPath, "utf8"), previousBinary);
+  assert.equal(await fs.readFile(path.join(previousMetadata.uiPath, "index.html"), "utf8"), "<title>0.2.0</title>");
+
+  const updated = await updateBundle({
+    cacheRoot,
+    platformInfo,
+    fetchReleaseImpl: async () => releaseFor("0.3.0"),
+    downloadFileImpl: fakeDownload,
+    extractArchiveImpl: extract,
+  });
+  assert.equal(updated.installedVersion, "0.3.0");
+  assert.equal(updated.uiVersion, "0.3.0");
+  assert.equal(await fs.readFile(updated.binaryPath, "utf8"), "engine 0.3.0");
+  assert.equal(await fs.readFile(path.join(updated.uiPath, "index.html"), "utf8"), "<title>0.3.0</title>");
 });
 
 test("installs the latest compatible engine", async () => {
