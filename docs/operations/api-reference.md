@@ -312,6 +312,22 @@ active `accounts`, `categories`, and `currencies`; account lookups return `accou
 
 ### Ledger reports
 
+`POST /table/analysis` accepts the same validated body as `/table/query` with scope
+`ledger.transactions`. It aggregates all matching active logical transactions, ignoring
+`offset`, `limit` and sort order. Hidden groups are honored; transfers visible under two
+accounts count once. The response is `{"buckets":[...]}`; an empty match returns an empty
+array. Each bucket contains `currency_id`, `currency_code`, `decimal_places`, `month`
+(`YYYY-MM`), `kind`, `category_id`, `category_label`, `count` and `total_minor`. Buckets
+group by currency, month, transaction kind and category; amounts remain integer minor
+units. Transfers are separate from income and spending. Unsupported scopes return 400.
+
+In Transactions, **Analyze** opens statistics and charts for the active view. Filters and
+hidden group changes refresh the analysis; saved table views retain these conditions.
+Currencies are analyzed separately. Monthly average spending divides spending by the
+calendar-month span from the first to last matching transaction, including empty months
+between them. Months outside that matched span are excluded even if a date filter allows
+them. Monthly values are available in an accessible table alongside the graph.
+
 `GET /reports/compare` accepts either the legacy explicit four-date selector or a period
 selector:
 
