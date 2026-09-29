@@ -280,6 +280,19 @@ function BowelPanelHarness({ health }: { health: HealthController }) {
 }
 
 describe("Health Journal forms", () => {
+  it("offers a clickable photo area with a native file input and selected filename", async () => {
+    const user = userEvent.setup();
+    render(<DietForm controller={controller()} />);
+    const input = screen.getByLabelText("Photo");
+    expect(input).toHaveAttribute("type", "file");
+    expect(input).toHaveClass("photo-upload-input");
+    expect(input.parentElement).toHaveClass("photo-upload-area");
+    const image = new File(["image"], "lunch.png", { type: "image/png" });
+    await user.upload(input, image);
+    expect(input).toHaveProperty("files.length", 1);
+    expect(screen.getByText("lunch.png")).toBeVisible();
+  });
+
   it.each([
     ["Add diet entry", () => <DietDialogHarness health={controller()} />],
     ["Add bowel entry", () => <BowelDialogHarness health={controller()} />],

@@ -21,6 +21,7 @@ import {
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
 import { useDraftDirty } from "@/features/workbench/ui/modal-lifecycle";
+import { PhotoInput } from "@/features/health/ui/PhotoInput";
 
 const mealTypes: Array<{ value: MealType; label: string }> = [
   { value: "breakfast", label: "Breakfast" },
@@ -162,10 +163,10 @@ export function DietForm({
       </div>
       <label className="field-label">
         Photo
-        <input
+        <PhotoInput
           ref={imageInput}
-          type="file"
-          accept="image/*"
+          selectedName={image?.name}
+          disabled={refreshRecovery || action.pending}
           onChange={(event) => setImage(event.target.files?.[0] ?? null)}
         />
       </label>

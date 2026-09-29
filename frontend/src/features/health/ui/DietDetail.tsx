@@ -19,6 +19,7 @@ import { localDateTimeToRfc3339 } from "@/features/health/ui/HealthForms";
 import type { BrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
+import { PhotoInput } from "@/features/health/ui/PhotoInput";
 
 type DietDetailProps = {
   controller: HealthController;
@@ -281,11 +282,9 @@ export function DietDetail({
           </div>
           <label className="field-label">
             Photo
-            <input
+            <PhotoInput
               ref={imageInputRef}
-              type="file"
-              aria-label="Photo"
-              accept="image/*"
+              selectedName={draft.newImage?.name}
               disabled={readOnly}
               onChange={(event) => {
                 const image = event.target.files?.[0] ?? null;
@@ -299,7 +298,7 @@ export function DietDetail({
               }}
             />
             {draft.newImage ? (
-              <><span>{draft.newImage.name}</span><button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: false })}>Remove selected photo</button></>
+              <button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: false })}>Remove selected photo</button>
             ) : baseline.row.entry.mediaId && draft.removeImage ? (
               <><span>Photo will be removed</span><button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: false })}>Keep photo</button></>
             ) : baseline.row.entry.mediaId ? (

@@ -2362,6 +2362,58 @@ textarea::placeholder {
   padding: 0;
 }
 
+.photo-upload-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 104px;
+  padding: 16px;
+  border: 1px dashed var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+
+.photo-upload-area:hover,
+.photo-upload-area:focus-within {
+  border-color: var(--color-accent-strong);
+  background: var(--color-surface-hover);
+}
+
+.photo-upload-area:focus-within {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 2px;
+}
+
+.field-label .photo-upload-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.photo-upload-caption {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.photo-upload-area:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.photo-upload-input:disabled {
+  cursor: not-allowed;
+}
+
 .confirmation-dialog .field-label textarea {
   resize: none;
 }
