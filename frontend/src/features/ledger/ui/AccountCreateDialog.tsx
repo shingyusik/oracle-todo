@@ -5,7 +5,8 @@ import { createPortal } from "react-dom";
 
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
-import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDraftDirty, useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 
 type AccountCreateDialogProps = {
   controller: LedgerController;
@@ -63,6 +64,12 @@ function AccountCreateDialogContent({
   const mounted = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
+  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialogRef);
+  useDraftDirty([draft], onDirtyChange);
+
+  function close() {
+    if (!pending) requestDiscard(onClose);
+  }
 
   React.useEffect(() => {
     mounted.current = true;
@@ -100,7 +107,7 @@ function AccountCreateDialogContent({
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      if (!pending) onClose();
+      close();
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
@@ -131,6 +138,7 @@ function AccountCreateDialogContent({
         aria-busy={pending}
         onKeyDown={handleKeyDown}
       >
+        {discardConfirmation}
         <header className="dashboard-widget-header">
           <h2>Add account</h2>
         </header>
@@ -189,7 +197,7 @@ function AccountCreateDialogContent({
               className="items-toolbar-button"
               aria-label="Close Add account"
               disabled={pending}
-              onClick={onClose}
+              onClick={close}
             >
               Close
             </button>

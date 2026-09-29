@@ -138,6 +138,21 @@ async function fillDraft(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("CategoryCreateDialog", () => {
+  it("protects unsaved category input from Escape and Close", async () => {
+    const user = userEvent.setup();
+    render(<CategoryCreateHarness ledger={controller()} />);
+    await user.click(screen.getByRole("button", { name: "Add category" }));
+    await user.type(screen.getByLabelText("Category name"), "Keep this draft");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Close Add category" }));
+    await user.keyboard("{Escape}");
+    expect(screen.getByLabelText("Category name")).toHaveValue("Keep this draft");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByRole("dialog", { name: "Add category" })).toBeNull();
+  });
+
   afterEach(() => vi.restoreAllMocks());
 
   it("opens with ordered fields, active same-type parents, and isolated background", async () => {

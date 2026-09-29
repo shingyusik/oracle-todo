@@ -281,6 +281,44 @@ function BowelPanelHarness({ health }: { health: HealthController }) {
 
 describe("Health Journal forms", () => {
   it.each([
+    ["Add diet entry", () => <DietDialogHarness health={controller()} />],
+    ["Add bowel entry", () => <BowelDialogHarness health={controller()} />],
+    ["Add medication entry", () => <MedicationDialogHarness health={controller()} />],
+    ["Add health metrics", () => <MetricsDialogHarness health={controller()} />],
+  ])("protects unsaved input in %s from dismissal", async (title, harness) => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      const user = userEvent.setup();
+      render(harness());
+      const dialog = screen.getByRole("dialog", { name: title });
+      await user.type(within(dialog).getByLabelText("Note"), "Keep this draft");
+      await user.keyboard("{Escape}");
+      const confirmation = screen.getByRole("dialog", { name: "Discard unsaved changes?" });
+      expect(confirmation).toHaveClass("confirmation-dialog");
+      expect(within(confirmation).getByRole("button", { name: "Cancel" })).toHaveFocus();
+      await user.keyboard("{Tab}");
+      expect(within(confirmation).getByRole("button", { name: "Discard" })).toHaveFocus();
+      await user.keyboard("{Tab}");
+      expect(within(confirmation).getByRole("button", { name: "Cancel" })).toHaveFocus();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+      expect(within(dialog).getByLabelText("Note")).toHaveValue("Keep this draft");
+      await user.click(within(dialog).getByRole("button", { name: `Close ${title}` }));
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      fireEvent.mouseDown(dialog.parentElement!);
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(confirm).not.toHaveBeenCalled();
+      expect(dialog).toBeInTheDocument();
+      fireEvent.keyDown(dialog, { key: "Escape" });
+      await user.click(screen.getByRole("button", { name: "Discard" }));
+      expect(screen.queryByRole("dialog", { name: title })).toBeNull();
+      expect(document.body.style.overflow).toBe("");
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it.each([
     ["Diet", "Add diet entry", "Close Add diet entry", () => <DietDialogHarness health={controller()} />,
       [["Time", "INPUT"], ["Meal", "SELECT"], ["Note", "TEXTAREA"]]],
     ["Bowel", "Add bowel entry", "Close Add bowel entry", () => <BowelDialogHarness health={controller()} />,

@@ -7,7 +7,8 @@ import type { LedgerController } from "@/features/ledger/hooks/useLedgerControll
 import { categoryParentOptions } from "@/features/ledger/model/category-table";
 import type { TransactionCategoryKind } from "@/features/ledger/model/ledger-model";
 import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
-import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDraftDirty, useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 
 type CategoryCreateDialogProps = {
   controller: LedgerController;
@@ -63,6 +64,12 @@ function CategoryCreateDialogContent({
   const mounted = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
+  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialogRef);
+  useDraftDirty([draft], onDirtyChange);
+
+  function close() {
+    if (!pending) requestDiscard(onClose);
+  }
 
   React.useEffect(() => {
     mounted.current = true;
@@ -110,7 +117,7 @@ function CategoryCreateDialogContent({
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      if (!pending) onClose();
+      close();
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
@@ -140,6 +147,7 @@ function CategoryCreateDialogContent({
         aria-busy={pending}
         onKeyDown={handleKeyDown}
       >
+        {discardConfirmation}
         <header className="dashboard-widget-header">
           <h2>Add category</h2>
         </header>
@@ -184,7 +192,7 @@ function CategoryCreateDialogContent({
               className="items-toolbar-button"
               aria-label="Close Add category"
               disabled={pending}
-              onClick={onClose}
+              onClick={close}
             >
               Close
             </button>

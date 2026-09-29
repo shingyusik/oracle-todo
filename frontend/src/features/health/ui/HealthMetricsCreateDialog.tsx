@@ -7,6 +7,7 @@ import type { HealthController } from "@/features/health/hooks/useHealthControll
 import type { HealthEvent } from "@/features/health/model/health-model";
 import { MetricsForm } from "@/features/health/ui/HealthForms";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 
 type HealthMetricsCreateDialogProps = {
   controller: HealthController;
@@ -52,6 +53,7 @@ function HealthMetricsCreateDialogContent({
   const mountedRef = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
+  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialogRef);
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -74,7 +76,7 @@ function HealthMetricsCreateDialogContent({
   }
 
   function close() {
-    if (!pendingRef.current && !recoveringRef.current) onClose();
+    if (!pendingRef.current && !recoveringRef.current) requestDiscard(onClose);
   }
 
   function updateRecovery(nextRecovering: boolean) {
@@ -127,6 +129,7 @@ function HealthMetricsCreateDialogContent({
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
+        {discardConfirmation}
         <header className="dashboard-widget-header">
           <h2>Add health metrics</h2>
         </header>
@@ -135,6 +138,7 @@ function HealthMetricsCreateDialogContent({
           metricsEntries={metricsEntries}
           mode="create"
           onSaved={onClose}
+          onDirtyChange={onDirtyChange}
           onPendingChange={updatePending}
           onRecoveryChange={updateRecovery}
           dialogActions={{ closeLabel: "Close Add health metrics", onClose: close }}

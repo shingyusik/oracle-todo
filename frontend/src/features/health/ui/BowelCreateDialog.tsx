@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import { BowelForm } from "@/features/health/ui/HealthForms";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 
 type BowelCreateDialogProps = {
   controller: HealthController;
@@ -39,6 +40,7 @@ function BowelCreateDialogContent({
   const mountedRef = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
+  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialogRef);
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -67,7 +69,7 @@ function BowelCreateDialogContent({
   }
 
   function close() {
-    if (!pendingRef.current && !recoveringRef.current) onClose();
+    if (!pendingRef.current && !recoveringRef.current) requestDiscard(onClose);
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -117,12 +119,14 @@ function BowelCreateDialogContent({
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
+        {discardConfirmation}
         <header className="dashboard-widget-header">
           <h2>Add bowel entry</h2>
         </header>
         <BowelForm
           controller={controller}
           onSaved={onClose}
+          onDirtyChange={onDirtyChange}
           onPendingChange={updatePending}
           onRecoveryChange={updateRecovery}
           dialogActions={{ closeLabel: "Close Add bowel entry", onClose: close }}

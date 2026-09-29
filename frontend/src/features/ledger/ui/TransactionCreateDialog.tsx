@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 
 type TransactionCreateDialogProps = {
   controller: LedgerController;
@@ -48,6 +49,11 @@ function TransactionCreateDialogContent({
   const [pending, setPending] = React.useState(false);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
+  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialogRef);
+
+  function close() {
+    if (!pending) requestDiscard(onClose);
+  }
 
   React.useEffect(() => {
     const dialog = dialogRef.current;
@@ -63,7 +69,7 @@ function TransactionCreateDialogContent({
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      if (!pending) onClose();
+      close();
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
@@ -93,13 +99,15 @@ function TransactionCreateDialogContent({
         aria-label="Add transaction"
         onKeyDown={handleKeyDown}
       >
+        {discardConfirmation}
         <header className="dashboard-widget-header">
           <h2>Add transaction</h2>
         </header>
         <TransactionForm
           controller={controller}
-          onClose={onClose}
+          onClose={close}
           onSaved={onClose}
+          onDirtyChange={onDirtyChange}
           onPendingChange={setPending}
         />
       </div>

@@ -150,6 +150,21 @@ async function fillDraft(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("AccountCreateDialog", () => {
+  it("protects unsaved account input from Escape and Close", async () => {
+    const user = userEvent.setup();
+    render(<AccountCreateHarness ledger={controller()} />);
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+    await user.type(screen.getByLabelText("Account name"), "Keep this draft");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Close Add account" }));
+    await user.keyboard("{Escape}");
+    expect(screen.getByLabelText("Account name")).toHaveValue("Keep this draft");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByRole("dialog", { name: "Add account" })).toBeNull();
+  });
+
   afterEach(() => vi.restoreAllMocks());
 
   it("opens with the name focused, ordered fields, and active-only choices", async () => {

@@ -4071,6 +4071,27 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("dialog", { name: "Create Daily item" })).toBeNull();
   });
 
+  it("protects a planner creation draft when Escape discarding is cancelled", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })));
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Add to Today" }));
+    const dialog = screen.getByRole("dialog", { name: "Create Daily item" });
+    const title = within(dialog).getByRole("textbox", { name: "Title" });
+    await user.type(title, "Keep this task");
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toHaveClass("confirmation-dialog");
+    await user.keyboard("{Escape}");
+    expect(title).toHaveValue("Keep this task");
+    expect(dialog).toBeVisible();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByRole("dialog", { name: "Create Daily item" })).toBeNull();
+  });
+
   it("renders daily planner sections with filter, group, and sort controls", async () => {
     const user = userEvent.setup();
     const today = testToday();

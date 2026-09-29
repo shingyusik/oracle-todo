@@ -2364,6 +2364,7 @@ describe("LedgerPanel", () => {
     const close = screen.getByRole("button", { name: "Close Add transaction" });
     expect(close).not.toBeDisabled();
     await user.click(close);
+    await user.click(screen.getByRole("button", { name: "Discard" }));
     expect(screen.queryByRole("dialog", { name: "Add transaction" })).toBeNull();
     expect(trigger).toHaveFocus();
   });
@@ -2386,6 +2387,24 @@ describe("LedgerPanel", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Add transaction" })).toBeNull();
     expect(trigger).toHaveFocus();
+  });
+
+  it("protects transaction input until discard is confirmed", async () => {
+    const user = userEvent.setup();
+    render(<LedgerPanel controller={controller()} />);
+    await user.click(screen.getByRole("button", { name: "Add transaction" }));
+    await user.type(screen.getByLabelText("Content"), "Keep this transaction");
+    await user.click(screen.getByRole("tab", { name: "Transfer" }));
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toHaveClass("confirmation-dialog");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Content")).toHaveValue("Keep this transaction");
+    await user.click(screen.getByRole("button", { name: "Close Add transaction" }));
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Add transaction" })).toBeVisible();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByRole("dialog", { name: "Add transaction" })).toBeNull();
   });
 
   it("skips inactive transaction tabs in the Add transaction focus order", async () => {

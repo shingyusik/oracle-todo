@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import { DietForm } from "@/features/health/ui/HealthForms";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 
 type DietCreateDialogProps = {
   controller: HealthController;
@@ -41,6 +42,7 @@ function DietCreateDialogContent({
   const mountedRef = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
+  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialogRef);
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -70,7 +72,7 @@ function DietCreateDialogContent({
   }
 
   function close() {
-    if (!pendingRef.current && !recoveringRef.current) onClose();
+    if (!pendingRef.current && !recoveringRef.current) requestDiscard(onClose);
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -118,12 +120,14 @@ function DietCreateDialogContent({
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
+        {discardConfirmation}
         <header className="dashboard-widget-header">
           <h2>Add diet entry</h2>
         </header>
         <DietForm
           controller={controller}
           onSaved={onClose}
+          onDirtyChange={onDirtyChange}
           onPendingChange={updatePending}
           onRecoveryChange={updateRecovery}
           dialogActions={{ closeLabel: "Close Add diet entry", onClose: close }}

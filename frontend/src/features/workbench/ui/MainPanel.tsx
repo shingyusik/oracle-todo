@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useDraftDirty } from "@/features/workbench/ui/modal-lifecycle";
+import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 import {
   IconArrowLeft as ArrowLeft,
   IconCalendar as CalendarDays,
@@ -5058,6 +5060,15 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
   const [submitError, setSubmitError] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(formRef);
+  useDraftDirty([
+    title, itemType, scheduled, horizon, definitionOfDone, recurrenceRule,
+    areaId, projectId, priority, tags,
+  ], onDirtyChange);
+
+  function close() {
+    if (!isSubmitting) requestDiscard(controller.closeCreationDialog);
+  }
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const isGoal = controller.panel.id === "goals";
   const isPlannerGoal =
@@ -5100,7 +5111,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
   function handleKeyDown(event: React.KeyboardEvent<HTMLFormElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      controller.closeCreationDialog();
+      close();
       return;
     }
 
@@ -5177,6 +5188,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
         onKeyDown={handleKeyDown}
         onSubmit={handleSubmit}
       >
+        {discardConfirmation}
         <h2>Create {controller.panel.title} item</h2>
         {controller.plannerCreationAnalysis.visibilityWarning ? (
           <p className="items-message" role="alert">
@@ -5306,7 +5318,7 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
           </p>
         ) : null}
         <div className="dialog-actions">
-          <button type="button" onClick={controller.closeCreationDialog}>
+          <button type="button" onClick={close} disabled={isSubmitting}>
             Cancel
           </button>
           <button type="submit" disabled={isSubmitting}>

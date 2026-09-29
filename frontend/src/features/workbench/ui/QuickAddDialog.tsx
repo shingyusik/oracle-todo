@@ -13,6 +13,7 @@ import { useLedgerController } from "@/features/ledger/hooks/useLedgerController
 import { TransactionForm } from "@/features/ledger/ui/TransactionForm";
 import type { WorkbenchController } from "@/features/workbench/model/workbench-model";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
+import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 
 type QuickAddKind =
   | "select"
@@ -38,6 +39,11 @@ export function QuickAddDialog({
   const dialog = React.useRef<HTMLDivElement | null>(null);
   const returnFocus = React.useRef<HTMLElement | null>(null);
   useModalIsolation(dialog, true, "shell");
+  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialog);
+
+  function close() {
+    if (!pending) requestDiscard(onClose);
+  }
 
   React.useEffect(() => {
     returnFocus.current = returnFocusRef?.current
@@ -65,7 +71,7 @@ export function QuickAddDialog({
     if (event.key === "Escape") {
       event.preventDefault();
       if (pending) return;
-      onClose();
+      close();
       return;
     }
     if (event.key !== "Tab" || !dialog.current) return;
@@ -92,11 +98,12 @@ export function QuickAddDialog({
         aria-label={dialogLabel(kind)}
         onKeyDown={handleKeyDown}
       >
+        {discardConfirmation}
         <header className="dashboard-widget-header">
           <h2>{dialogLabel(kind)}</h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
             aria-label="Close Quick Add"
             disabled={pending}
           >
@@ -122,7 +129,12 @@ export function QuickAddDialog({
           <>
             <button
               type="button"
-              onClick={() => setKind("select")}
+              onClick={() => {
+                requestDiscard(() => {
+                  onDirtyChange(false);
+                  setKind("select");
+                });
+              }}
               disabled={pending}
             >
               Back to Quick Add
@@ -134,6 +146,7 @@ export function QuickAddDialog({
             ) : null}
             {kind === "ledger" ? (
               <LedgerQuickAdd
+                onDirtyChange={onDirtyChange}
                 onSaved={() => {
                   onMutation?.("ledger");
                   onClose();
@@ -143,6 +156,7 @@ export function QuickAddDialog({
             ) : null}
             {kind !== "ledger" ? (
               <HealthQuickAdd
+                onDirtyChange={onDirtyChange}
                 kind={kind}
                 onSaved={() => {
                   onMutation?.("health");
@@ -159,11 +173,13 @@ export function QuickAddDialog({
 }
 
 type QuickAddFormProps = {
+  onDirtyChange: (dirty: boolean) => void;
   onSaved: () => void;
   onPendingChange: (pending: boolean) => void;
 };
 
 function LedgerQuickAdd({
+  onDirtyChange,
   onSaved,
   onPendingChange,
 }: QuickAddFormProps) {
@@ -190,11 +206,13 @@ function LedgerQuickAdd({
       controller={controller}
       onSaved={onSaved}
       onPendingChange={onPendingChange}
+      onDirtyChange={onDirtyChange}
     />
   );
 }
 
 function HealthQuickAdd({
+  onDirtyChange,
   kind,
   onSaved,
   onPendingChange,
@@ -207,7 +225,7 @@ function HealthQuickAdd({
     controller.ensureQuickAddReferences ?? controller.ensureReferenceData,
     scope,
   );
-  const props = { controller, onSaved, onPendingChange };
+  const props = { controller, onSaved, onPendingChange, onDirtyChange };
 
   if (references.status === "loading") {
     return <p role="status">Loading Health references…</p>;

@@ -8,6 +8,7 @@ import {
 } from "@/features/workbench/ui/modal-lifecycle";
 
 type DestructiveConfirmationDialogProps = {
+  inline?: boolean;
   title: string;
   description: string;
   confirmLabel?: string;
@@ -24,14 +25,15 @@ export function DestructiveConfirmationDialog(
   const [host, setHost] = useState<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
+    if (props.inline) return;
     const element = document.createElement("div");
     element.dataset.ravenModalHost = "";
     document.body.append(element);
     setHost(element);
     return () => element.remove();
-  }, []);
+  }, [props.inline]);
 
-  return host
+  return props.inline ? <DestructiveDialogContent {...props} /> : host
     ? createPortal(<DestructiveDialogContent {...props} />, host)
     : null;
 }
@@ -91,9 +93,11 @@ function DestructiveDialogContent({
         aria-busy={pending || disabled}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
+            event.stopPropagation();
             event.preventDefault();
             if (!pending && !disabled) onCancel();
           } else if (event.key === "Tab") {
+            event.stopPropagation();
             event.preventDefault();
             if (document.activeElement === cancelRef.current && event.shiftKey) {
               confirmRef.current?.focus();

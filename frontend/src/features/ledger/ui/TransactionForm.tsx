@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { useDraftDirty } from "@/features/workbench/ui/modal-lifecycle";
 
 import {
   LedgerMutationRefreshError,
@@ -25,6 +26,7 @@ type TransactionFormProps = {
   onClose?: () => void;
   onSaved?: () => void;
   onPendingChange?: (pending: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 type CreationMode = "expense" | "income" | "transfer";
@@ -36,11 +38,13 @@ export function TransactionForm({
   onClose,
   onSaved,
   onPendingChange,
+  onDirtyChange,
 }: TransactionFormProps) {
   const initial = transactionDraft(entry, controller.state.currencies);
   const [mode, setMode] = useState<CreationMode>("expense");
   const [focusedMode, setFocusedMode] = useState<CreationMode>("expense");
   const [draft, setDraft] = useState(initial);
+  useDraftDirty([mode, draft], onDirtyChange);
   const [pending, setPending] = useState(false);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
   const [error, setError] = useState<string | null>(null);

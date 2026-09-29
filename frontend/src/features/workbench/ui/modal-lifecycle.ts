@@ -7,6 +7,14 @@ const focusableSelector =
 
 type IsolationScope = "body" | "shell";
 
+export function useDraftDirty(values: readonly unknown[], onDirtyChange?: (dirty: boolean) => void) {
+  const snapshot = JSON.stringify(values);
+  const initial = React.useRef(snapshot);
+  React.useEffect(() => {
+    onDirtyChange?.(snapshot !== initial.current);
+  }, [onDirtyChange, snapshot]);
+}
+
 export function useModalIsolation(
   dialogRef: React.RefObject<HTMLElement>,
   active: boolean,
@@ -28,7 +36,8 @@ export function useModalIsolation(
     }
 
     const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const locksBody = !dialog.parentElement?.closest('[role="dialog"]');
+    if (locksBody) document.body.style.overflow = "hidden";
     const keepFocusInside = (event: FocusEvent) => {
       if (event.target instanceof Node && !dialog.contains(event.target)) {
         event.stopPropagation();
@@ -39,7 +48,7 @@ export function useModalIsolation(
 
     return () => {
       document.removeEventListener("focusin", keepFocusInside, true);
-      document.body.style.overflow = originalOverflow;
+      if (locksBody) document.body.style.overflow = originalOverflow;
       for (const snapshot of snapshots) {
         restoreAttribute(snapshot.element, "aria-hidden", snapshot.ariaHidden);
         restoreAttribute(snapshot.element, "inert", snapshot.inert);
@@ -57,6 +66,13 @@ function backgroundElements(
   scope: IsolationScope,
 ): HTMLElement[] {
   if (scope === "body") {
+    const parentDialog = dialog.parentElement?.closest<HTMLElement>('[role="dialog"]');
+    if (parentDialog) {
+      return Array.from(parentDialog.children).filter(
+        (element): element is HTMLElement => element instanceof HTMLElement &&
+          !element.contains(dialog),
+      );
+    }
     const host = dialog.closest<HTMLElement>("[data-raven-modal-host]");
     return Array.from(document.body.children).filter(
       (element): element is HTMLElement => element instanceof HTMLElement &&

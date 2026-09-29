@@ -20,6 +20,7 @@ import {
 } from "@/features/health/model/health-metrics-table";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { TagsInput } from "@/features/workbench/ui/TagsInput";
+import { useDraftDirty } from "@/features/workbench/ui/modal-lifecycle";
 
 const mealTypes: Array<{ value: MealType; label: string }> = [
   { value: "breakfast", label: "Breakfast" },
@@ -44,6 +45,7 @@ type HealthFormProps = {
   onSaved?: () => void;
   onPendingChange?: (pending: boolean) => void;
   onRecoveryChange?: (recovering: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   dialogActions?: { closeLabel: string; onClose(): void };
 };
 
@@ -52,6 +54,7 @@ export function DietForm({
   onSaved,
   onPendingChange,
   onRecoveryChange,
+  onDirtyChange,
   dialogActions,
   tagOptions,
 }: HealthFormProps & { tagOptions?: readonly string[] }) {
@@ -63,6 +66,7 @@ export function DietForm({
   const [image, setImage] = useState<File | null>(null);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
   const imageInput = useRef<HTMLInputElement | null>(null);
+  useDraftDirty([occurredAt, mealType, foodName, note, tags, image], onDirtyChange);
   const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -206,12 +210,14 @@ export function BowelForm({
   onSaved,
   onPendingChange,
   onRecoveryChange,
+  onDirtyChange,
   dialogActions,
 }: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
   const [bristol, setBristol] = useState("4");
   const [bloodVisible, setBloodVisible] = useState(false);
   const [note, setNote] = useState("");
+  useDraftDirty([occurredAt, bristol, bloodVisible, note], onDirtyChange);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
   const action = useFormAction(onPendingChange);
 
@@ -329,6 +335,7 @@ export function MedicationForm({
   onSaved,
   onPendingChange,
   onRecoveryChange,
+  onDirtyChange,
   dialogActions,
 }: HealthFormProps) {
   const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
@@ -336,6 +343,7 @@ export function MedicationForm({
   const [dose, setDose] = useState("");
   const [unit, setUnit] = useState<MedicationUnit>("tablet");
   const [note, setNote] = useState("");
+  useDraftDirty([occurredAt, name, dose, unit, note], onDirtyChange);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
   const action = useFormAction(onPendingChange);
 
@@ -471,6 +479,7 @@ export function MetricsForm({
   onSaved,
   onPendingChange,
   onRecoveryChange,
+  onDirtyChange,
   dialogActions,
 }: HealthFormProps & {
   metricsEntries?: readonly HealthEvent[];
@@ -493,6 +502,10 @@ export function MetricsForm({
   const selectedDateRef = useRef<string | null>(null);
   const snapshotRef = useRef<HealthMetricsRow | undefined>(undefined);
   const pristineRef = useRef(true);
+  const initialDate = useRef(date);
+  useEffect(() => {
+    onDirtyChange?.(!pristineRef.current || date !== initialDate.current);
+  });
 
   React.useEffect(() => {
     const row = rows.find((candidate) => candidate.date === date)

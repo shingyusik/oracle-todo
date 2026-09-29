@@ -391,4 +391,26 @@ describe("QuickAddDialog", () => {
     expect(trigger).toHaveFocus();
     trigger.remove();
   });
+
+  it("protects Quick Add drafts from Escape, Close and Back", async () => {
+    const user = userEvent.setup();
+    stubHealthLoaded();
+    const onClose = vi.fn();
+    render(<QuickAddDialog controller={workbenchController()} onClose={onClose} />);
+    await user.click(screen.getByRole("button", { name: "Diet entry" }));
+    await user.type(await screen.findByLabelText("Food"), "Keep this meal");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Close Quick Add" }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Back to Quick Add" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Food")).toHaveValue("Keep this meal");
+    await user.click(screen.getByRole("button", { name: "Back to Quick Add" }));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+  });
 });
