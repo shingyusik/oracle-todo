@@ -27,6 +27,13 @@ use super::{SqliteLedgerRepository, storage_error};
 impl LedgerRepository for SqliteLedgerRepository {}
 
 impl LedgerReadRepository for SqliteLedgerRepository {
+    fn analyze_table(
+        &self,
+        query: &crate::application::table::LedgerTableQuery,
+    ) -> LedgerResult<Vec<crate::application::table::TransactionAnalysisBucket>> {
+        super::table_query::analyze_table(&self.connection, query)
+    }
+
     fn query_table(
         &self,
         query: &crate::application::table::LedgerTableQuery,

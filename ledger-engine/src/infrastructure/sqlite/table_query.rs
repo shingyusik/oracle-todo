@@ -108,6 +108,48 @@ fn page_sql(query: &LedgerTableQuery) -> (String, Vec<Value>) {
     (sql, values)
 }
 
+pub(super) fn analyze_table(
+    connection: &Connection,
+    query: &LedgerTableQuery,
+) -> LedgerResult<Vec<crate::application::table::TransactionAnalysisBucket>> {
+    let mut values = Vec::new();
+    let (base, group_key, group_label) = transaction_base(query.group_settings().group_by());
+    let filters = filter_sql(query, &mut values);
+    let hidden = hidden_sql(query, &mut values);
+    let occurrences = occurrence_sql(query, &group_key, &group_label);
+    let sql = format!(
+        "WITH base AS ({base}), filtered AS (
+        SELECT * FROM base WHERE {filters}
+    ), occurrences AS ({occurrences}), matched AS (
+        SELECT DISTINCT logical_id, date, kind, category_id, category_name,
+            currency_id, currency_code, decimal_places, amount_minor
+        FROM occurrences WHERE 1{hidden}
+    ) SELECT currency_id, currency_code, decimal_places, substr(date,1,7), kind,
+        category_id, CASE WHEN category_id IS NULL THEN 'Uncategorized' ELSE category_name END,
+        COUNT(*), SUM(amount_minor)
+    FROM matched GROUP BY currency_id, substr(date,1,7), kind, category_id
+    ORDER BY currency_code, currency_id, substr(date,1,7), kind, category_id"
+    );
+    let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+    statement
+        .query_map(params_from_iter(values), |row| {
+            Ok(crate::application::table::TransactionAnalysisBucket {
+                currency_id: row.get(0)?,
+                currency_code: row.get(1)?,
+                decimal_places: row.get(2)?,
+                month: row.get(3)?,
+                kind: row.get(4)?,
+                category_id: row.get(5)?,
+                category_label: row.get(6)?,
+                count: row.get(7)?,
+                total_minor: row.get(8)?,
+            })
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)
+}
+
 fn occurrence_sql(query: &LedgerTableQuery, group_key: &str, group_label: &str) -> String {
     let first = format!(
         "SELECT id, pair_id, {group_key} AS group_key, {group_label} AS group_label, filtered.* FROM filtered"

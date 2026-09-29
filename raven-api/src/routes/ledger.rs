@@ -84,6 +84,7 @@ pub fn router() -> Router<RavenApiState> {
         )
         .route("/account-balances", get(account_balances))
         .route("/table/query", post(query_table))
+        .route("/table/analysis", post(analyze_table))
         .route("/table/lookups", get(table_lookups))
         .route("/audit/:record_type/:record_id", get(audit))
         .route("/reports/summary", get(report_summary))
@@ -413,7 +414,21 @@ async fn query_table(
     State(state): State<RavenApiState>,
     body: Result<Json<TableQueryBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let body = json_value(body)?;
+    let query = validated_table_query(json_value(body)?)?;
+    let page = ledger(&state, move |service| service.query_table(&query)).await?;
+    Ok(Json(json!(page)))
+}
+
+async fn analyze_table(
+    State(state): State<RavenApiState>,
+    body: Result<Json<TableQueryBody>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let query = validated_table_query(json_value(body)?)?;
+    let buckets = ledger(&state, move |service| service.analyze_table(&query)).await?;
+    Ok(Json(json!({"buckets": buckets})))
+}
+
+fn validated_table_query(body: TableQueryBody) -> Result<LedgerTableQuery, ApiError> {
     let reference_date =
         parse_optional_date(body.context.reference_date.as_deref(), "reference_date")?;
     let filters = body
@@ -433,7 +448,7 @@ async fn query_table(
         body.group_settings.manual_order,
         body.group_settings.hidden_group_keys,
     )?;
-    let query = LedgerTableQuery::new(
+    Ok(LedgerTableQuery::new(
         body.scope,
         body.offset,
         body.limit,
@@ -442,9 +457,7 @@ async fn query_table(
         sorts,
         group,
         reference_date,
-    )?;
-    let page = ledger(&state, move |service| service.query_table(&query)).await?;
-    Ok(Json(json!(page)))
+    )?)
 }
 
 async fn table_lookups(

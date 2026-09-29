@@ -740,9 +740,32 @@ impl<T> TablePage<T> {
 
 #[allow(private_bounds)]
 impl<R: LedgerReadRepository> LedgerService<R> {
+    pub fn analyze_table(
+        &self,
+        query: &LedgerTableQuery,
+    ) -> LedgerResult<Vec<TransactionAnalysisBucket>> {
+        if query.scope() != LedgerTableScope::Transactions {
+            return Err(validation("scope", "analysis requires ledger.transactions"));
+        }
+        self.repository.analyze_table(query)
+    }
+
     pub fn query_table(&self, query: &LedgerTableQuery) -> LedgerResult<TablePage<LedgerTableRow>> {
         self.repository.query_table(query)
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TransactionAnalysisBucket {
+    pub currency_id: String,
+    pub currency_code: String,
+    pub decimal_places: u8,
+    pub month: String,
+    pub kind: String,
+    pub category_id: Option<String>,
+    pub category_label: String,
+    pub count: u64,
+    pub total_minor: i64,
 }
 
 fn validate_limit(limit: u16) -> LedgerResult<()> {

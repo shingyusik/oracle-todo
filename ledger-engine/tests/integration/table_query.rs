@@ -24,6 +24,124 @@ use time::format_description::well_known::Rfc3339;
 use time::macros::{date, datetime};
 
 #[test]
+fn filtered_analysis_aggregates_all_pages_and_counts_transfers_once() {
+    let mut service = table_service();
+    for index in 0..61 {
+        let entry = service
+            .create_entry(CreateEntry {
+                date: if index < 30 {
+                    "2026-07-01"
+                } else {
+                    "2026-09-01"
+                }
+                .into(),
+                written_at: datetime!(2026-09-01 00:00 UTC),
+                content: if index == 60 {
+                    "excluded"
+                } else {
+                    "subscription"
+                }
+                .into(),
+                category: Some("Food".into()),
+                account: "Wallet".into(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(100),
+                currency: "KRW".into(),
+                transfer_group: None,
+                source: "test".into(),
+                notes: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+        if index == 59 {
+            service.archive_entry(entry.id()).unwrap();
+        }
+    }
+    service
+        .transfer(TransferCommand {
+            operation_key: TransferOperationKey::generate(),
+            date: "2026-09-01".into(),
+            written_at: datetime!(2026-09-01 00:00 UTC),
+            content: "subscription transfer".into(),
+            from_account: "Wallet".into(),
+            to_account: "Bank".into(),
+            amount: Money::from_minor_units(500),
+            currency: "KRW".into(),
+            source: "test".into(),
+            notes: None,
+            actor: "test".into(),
+        })
+        .unwrap();
+    let query = query(
+        LedgerTableScope::Transactions,
+        FilterMode::And,
+        vec![LedgerTableFilter::Transactions {
+            field: TransactionTableFilterField::Content,
+            operator: LedgerFilterOperator::Contains,
+            value: LedgerTableFilterValue::Text("subscription".into()),
+        }],
+        vec![transaction_date_sort()],
+        group_settings(LedgerTableGroup::Transactions(
+            TransactionTableGroup::Account,
+        )),
+    )
+    .unwrap();
+    let buckets = service.analyze_table(&query).unwrap();
+    assert_eq!(buckets.iter().map(|b| b.count).sum::<u64>(), 60);
+    assert_eq!(
+        buckets
+            .iter()
+            .filter(|b| b.kind == "expense")
+            .map(|b| b.total_minor)
+            .sum::<i64>(),
+        5900
+    );
+    assert_eq!(
+        buckets
+            .iter()
+            .filter(|b| b.kind == "transfer")
+            .map(|b| b.count)
+            .sum::<u64>(),
+        1
+    );
+    assert_eq!(service.query_table(&query).unwrap().items.len(), 50);
+    let wallet_id = service
+        .accounts_page(ledger_engine::application::ports::Page {
+            offset: 0,
+            limit: 10,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|account| account.name() == "Wallet")
+        .unwrap()
+        .id()
+        .to_string();
+    let hidden = LedgerTableQuery::new(
+        LedgerTableScope::Transactions,
+        50,
+        1,
+        FilterMode::And,
+        vec![],
+        vec![transaction_date_sort()],
+        LedgerTableGroupSettings::new(
+            LedgerTableGroup::Transactions(TransactionTableGroup::Account),
+            GroupSort::Manual,
+            true,
+            vec![],
+            vec![wallet_id],
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
+    let buckets = service.analyze_table(&hidden).unwrap();
+    assert_eq!(buckets.len(), 1);
+    assert_eq!(buckets[0].kind, "transfer");
+    assert_eq!(buckets[0].count, 1);
+}
+
+#[test]
 fn table_queries_accept_each_scope_and_both_filter_modes() {
     let transactions = query(
         LedgerTableScope::Transactions,

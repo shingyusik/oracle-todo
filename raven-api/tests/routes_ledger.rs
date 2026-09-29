@@ -134,6 +134,50 @@ async fn post_json(app: &axum::Router, path: &str, value: Value) -> axum::respon
 }
 
 #[tokio::test]
+async fn transaction_analysis_uses_validated_filters_and_ignores_paging() {
+    let (_temp, app) = app();
+    let created = post_json(&app, "/api/v1/ledger/entries", json!({
+        "date":"2026-08-21", "written_at":"2026-08-21T00:00:00Z", "content":"Subscription",
+        "category":"Food", "account":"Wallet", "entry_type":"expense", "amount":"12000", "currency":"KRW"
+    })).await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let mut query = table_query("ledger.transactions");
+    query["offset"] = json!(50);
+    query["limit"] = json!(1);
+    query["filters"] =
+        json!([{"field":"content", "operator":"contains", "value":{"text":"Subscription"}}]);
+    let response = post_json(&app, "/api/v1/ledger/table/analysis", query.clone()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let value = body(response).await;
+    assert_eq!(value["buckets"][0]["count"], 1);
+    assert_eq!(value["buckets"][0]["total_minor"], 12000);
+    query["filters"][0]["value"]["text"] = json!("Missing");
+    assert_eq!(
+        body(post_json(&app, "/api/v1/ledger/table/analysis", query).await).await["buckets"],
+        json!([])
+    );
+    assert_eq!(
+        post_json(
+            &app,
+            "/api/v1/ledger/table/analysis",
+            table_query("ledger.accounts")
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let mut invalid = table_query("ledger.transactions");
+    invalid["filters"] =
+        json!([{"field":"content", "operator":"greater_than", "value":{"text":"1"}}]);
+    assert_eq!(
+        post_json(&app, "/api/v1/ledger/table/analysis", invalid)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
 async fn table_query_serves_all_ledger_scopes_without_changing_legacy_lists() {
     let (_temp, app) = app();
     assert_eq!(

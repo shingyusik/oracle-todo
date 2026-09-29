@@ -350,6 +350,15 @@ pub(crate) trait LedgerTransaction {
 pub trait LedgerRepository: Send {}
 
 pub(crate) trait LedgerReadRepository: LedgerRepository {
+    fn analyze_table(
+        &self,
+        _query: &LedgerTableQuery,
+    ) -> LedgerResult<Vec<crate::application::table::TransactionAnalysisBucket>> {
+        Err(LedgerError::Storage(
+            "ledger table analysis is not implemented by this repository".into(),
+        ))
+    }
+
     fn query_table(&self, _query: &LedgerTableQuery) -> LedgerResult<TablePage<LedgerTableRow>> {
         Err(LedgerError::Storage(
             "ledger table query is not implemented by this repository".to_string(),
