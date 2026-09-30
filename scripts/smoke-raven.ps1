@@ -111,14 +111,15 @@ try {
     Assert-True ($Doctor.healthy -eq $true) "Ledger doctor failed"
 
     $Diet = Invoke-Raven @("--home", $FullHome, "health", "diet", "add", "--at", $CurrentTime, "--meal", "lunch", "--food", "SmokeFoodSecret", "--tags", "smoke-diet-tag") | ConvertFrom-Json
-    $Weight = Invoke-Raven @("--home", $FullHome, "health", "metric", "add", "--at", $CurrentTime, "--category", "weight", "--key", "weight", "--name", "SmokeWeight", "--value", "67.89", "--unit", "kg") | ConvertFrom-Json
-    $Condition = Invoke-Raven @("--home", $FullHome, "health", "metric", "add", "--at", $CurrentTime, "--category", "overall_condition", "--name", "SmokeCondition", "--value", "7") | ConvertFrom-Json
-    $Timeline = @(Invoke-Raven @("--home", $FullHome, "health", "timeline", "--format", "json") | ConvertFrom-Json)
-    $Trends = Invoke-Raven @("--home", $FullHome, "health", "trends", "--days", "30", "--format", "json") | ConvertFrom-Json
-    Assert-True (($Timeline | Where-Object { $_.record.id -eq $Diet.id -and $_.record.food_name -eq "SmokeFoodSecret" }).Count -eq 1) "Health diet smoke failed"
-    Assert-True (($Timeline | Where-Object { $_.record.id -eq $Weight.id -and $_.record.value_num -eq 67.89 }).Count -eq 1) "Health weight smoke failed"
-    Assert-True (($Trends.top_diet_tags | Where-Object { $_.name -eq "smoke-diet-tag" -and $_.count -eq 1 }).Count -eq 1) "Health trends tag projection failed"
-    Assert-True (($Trends.numeric_series | Where-Object { $_.metric_key -eq "weight" -and $_.points.value -contains 67.89 }).Count -eq 1) "Health trends value projection failed"
+    $MetricInput = ConvertTo-Json -Compress -InputObject @(
+        @{ at = $CurrentTime; category = 'weight'; key = 'body_weight'; name = 'Body weight'; value = 67.89; unit = 'kg' },
+        @{ at = $CurrentTime; category = 'overall_condition'; name = 'Overall condition'; value = 7 }
+    )
+    $Metrics = @(Invoke-Raven @('--home', $FullHome, 'health', 'metric', 'daily-upsert', '--json', $MetricInput) | ConvertFrom-Json)
+    $Weight = $Metrics | Where-Object metric_key -eq 'body_weight'
+    $Condition = $Metrics | Where-Object metric_key -eq 'overall_condition'
+    $SavedDiet = Invoke-Raven @('--home', $FullHome, 'health', 'diet', 'show', $Diet.id, '--format', 'json') | ConvertFrom-Json
+    Assert-True ($SavedDiet.food_name -eq 'SmokeFoodSecret' -and $Weight.value_num -eq 67.89 -and $Condition.value_num -eq 7) 'Health daily record smoke failed'
 
     $HealthCheck = Invoke-Raven @("--home", $FullHome, "health-check")
     foreach ($Status in @("todo=ok", "ledger=ok", "health=ok", "media=ok")) {
@@ -165,17 +166,15 @@ try {
     $Dashboard = Invoke-RestMethod -TimeoutSec 5 -Uri "$BaseUrl/api/v1/dashboard" -Headers $Headers
     $TodoApi = @(Invoke-RestMethod -TimeoutSec 5 -Uri "$BaseUrl/api/v1/todo/items?type=task" -Headers $Headers)
     $LedgerApi = Invoke-RestMethod -TimeoutSec 5 -Uri "$BaseUrl/api/v1/ledger/entries?limit=10" -Headers $Headers
-    $HealthApi = Invoke-RestMethod -TimeoutSec 5 -Uri "$BaseUrl/api/v1/health/timeline?limit=10" -Headers $Headers
-    $HealthTrends = Invoke-RestMethod -TimeoutSec 5 -Uri "$BaseUrl/api/v1/health/trends?days=30" -Headers $Headers
+    $HealthApi = Invoke-RestMethod -TimeoutSec 5 -Uri "$BaseUrl/api/v1/health/records?limit=10" -Headers $Headers
     Assert-True ($Dashboard.todo.data.today_total -eq 1 -and $Dashboard.todo.data.today_incomplete -eq 1) "Dashboard ToDo projection failed"
     $Krw = @($Dashboard.ledger.data.currencies | Where-Object currency_code -eq "KRW")
     Assert-True ($Krw.Count -eq 1 -and $Krw[0].expense_minor -eq 314159 -and $Krw[0].net_change_minor -eq -314159) "Dashboard Ledger projection failed"
-    Assert-True ($Dashboard.health.data.latest_condition.name -eq "SmokeCondition" -and $Dashboard.health.data.latest_condition.value -eq 7) "Dashboard Health projection failed"
+    Assert-True ($Dashboard.health.data.latest_condition.name -eq "Overall condition" -and $Dashboard.health.data.latest_condition.value -eq 7) "Dashboard Health projection failed"
     Assert-True (($TodoApi | Where-Object { $_.id -eq $Task.id -and $_.title -eq "Smoke Today Task" }).Count -eq 1) "ToDo API exact record failed"
     Assert-True (($LedgerApi.items | Where-Object { $_.entry.id -eq $LedgerCreated.id -and $_.entry.content -eq "SmokeLedgerSecret" -and $_.entry.amount -eq 314159 }).Count -eq 1) "Ledger API exact record failed"
     Assert-True (($HealthApi.items | Where-Object { $_.record.id -eq $Diet.id -and $_.record.food_name -eq "SmokeFoodSecret" }).Count -eq 1) "Health API diet failed"
     Assert-True (($HealthApi.items | Where-Object { $_.record.id -eq $Weight.id -and $_.record.value_num -eq 67.89 }).Count -eq 1) "Health API metric failed"
-    Assert-True (($HealthTrends.numeric_series | Where-Object { $_.metric_key -eq "weight" -and $_.points.value -contains 67.89 }).Count -eq 1) "Health API trends failed"
     Stop-Bounded $ApiProcess
     $ApiProcess = $null
 

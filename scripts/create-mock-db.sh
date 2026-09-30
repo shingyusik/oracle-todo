@@ -97,7 +97,7 @@ add_entry() {
   local offset="$1" type="$2" amount="$3" account="$4" category="$5" content="$6"
   ledger entry add --date "$(day_offset "$offset")" --type "$type" --amount "$amount" \
     --currency KRW --account "$account" --category "$category" --content "$content" \
-    --source mock-seed >/dev/null
+    >/dev/null
 }
 
 json_id() {
@@ -193,7 +193,7 @@ active_task="$(run task propose "Workbench 테이블 편집 플로우 점검" \
   --area "$dev_area" \
   --scheduled "$today" \
   --priority 1 \
-  --description "행 선택, 상태 전환, 상세 패널 표시를 확인" | json_id)"
+  --note "행 선택, 상태 전환, 상세 패널 표시를 확인" | json_id)"
 run update "$active_task" --project-id "$project" --reason "mock seed link" >/dev/null
 run update "$active_task" --parent-id "$week_goal" --reason "mock seed goal link" >/dev/null
 tag_item "$active_task" planner daily focus
@@ -211,7 +211,7 @@ overdue_task="$(run task propose "어제 넘긴 데이터 정리" \
   --area "$ops_area" \
   --scheduled "$yesterday" \
   --priority 1 \
-  --description "Daily planner의 어제 했어야 하는 일 섹션 확인" | json_id)"
+  --note "Daily planner의 어제 했어야 하는 일 섹션 확인" | json_id)"
 run update "$overdue_task" --project-id "$daily_project" --parent-id "$week_goal" --reason "mock seed link" >/dev/null
 tag_item "$overdue_task" planner overdue ops
 
@@ -220,7 +220,7 @@ tomorrow_task="$(run task propose "내일 오전 planner 필터 확인" \
   --area "$dev_area" \
   --scheduled "$tomorrow" \
   --priority 2 \
-  --description "Upcoming 섹션과 날짜 범위 필터 확인" | json_id)"
+  --note "Upcoming 섹션과 날짜 범위 필터 확인" | json_id)"
 run update "$tomorrow_task" --project-id "$daily_project" --parent-id "$week_goal" --reason "mock seed link" >/dev/null
 tag_item "$tomorrow_task" planner upcoming focus
 
@@ -228,7 +228,7 @@ unscheduled_task="$(run task propose "날짜 없는 inbox triage" \
   --actor user \
   --area "$ops_area" \
   --priority 3 \
-  --description "Daily planner의 미지정 섹션 확인" | json_id)"
+  --note "Daily planner의 미지정 섹션 확인" | json_id)"
 run update "$unscheduled_task" --project-id "$daily_project" --reason "mock seed link" >/dev/null
 tag_item "$unscheduled_task" planner inbox ops
 
@@ -249,7 +249,7 @@ for entry in "${weekly_days[@]}"; do
     --area "$dev_area" \
     --scheduled "$scheduled" \
     --priority "$priority" \
-    --description "Weekly planner day card fixture" | json_id)"
+    --note "Weekly planner day card fixture" | json_id)"
   run update "$task_id" --project-id "$daily_project" --parent-id "$week_goal" --reason "mock seed link" >/dev/null
   tag_item "$task_id" planner weekly focus
 done
@@ -276,10 +276,10 @@ routine="$(run routine propose "Workbench mock DB 스모크" \
   --materialization-policy single_open \
   --note "today view에 생성 태스크가 보여야 함" | json_id)"
 tag_item "$routine" planner routine ops
-routine_task="$(run routine materialize | json_id)"
+routine_task="$(run routine materialize "$routine" | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')"
 tag_item "$routine_task" planner routine today
 
-today_event="$(run event propose "Mock API 데모 미팅" "${today}T15:00" \
+today_event="$(run event propose "Mock API 데모 미팅" "${today}T15:00:00+09:00" \
   --actor user \
   --area "$ops_area" \
   --project-id "$daily_project" \
@@ -290,25 +290,24 @@ today_event="$(run event propose "Mock API 데모 미팅" "${today}T15:00" \
   --note "event 카드 표시 확인" | json_id)"
 tag_item "$today_event" planner event ops
 
-review_event="$(run event propose "목표 리뷰 캘린더 샘플" "${today}T17:00" \
+review_event="$(run event propose "목표 리뷰 캘린더 샘플" "${today}T17:00:00+09:00" \
   --actor user \
   --area "$dev_area" \
   --project-id "$project" \
   --location "회의실 A" \
   --with "planning" \
   --commitment-type review \
-  --description "goal/event 테이블 표시 확인용" \
-  --note "event 테이블용 추가 샘플" | json_id)"
+  --note "goal/event 테이블 표시 확인용; event 테이블용 추가 샘플" | json_id)"
 tag_item "$review_event" planner event review
 
-tomorrow_event="$(run event propose "내일 planner 리뷰" "${tomorrow}T10:30" \
+tomorrow_event="$(run event propose "내일 planner 리뷰" "${tomorrow}T10:30:00+09:00" \
   --actor user \
   --area "$dev_area" \
   --project-id "$daily_project" \
   --location "온라인" \
   --with "planning" \
   --commitment-type review \
-  --description "Daily upcoming 및 weekly event 표시 확인" | json_id)"
+  --note "Daily upcoming 및 weekly event 표시 확인" | json_id)"
 tag_item "$tomorrow_event" planner event upcoming
 
 ledger currency create --code KRW --name "Korean Won" --symbol KRW --decimal-places 0 >/dev/null
@@ -361,7 +360,7 @@ ledger transfer \
   --operation-key 10000000-0000-4000-8000-000000000001 \
   --date "$(day_offset -7)" --amount 500000 --currency KRW \
   --from-account Checking --to-account Savings --content "Mock savings transfer" \
-  --source mock-seed >/dev/null
+  >/dev/null
 
 # Sparse samples across every Reports preset, with repeated tags and varying metrics.
 health_offsets=(89 75 61 45 32 29 25 21 18 14 11 8 6 4 3 2 1 0)
@@ -383,13 +382,15 @@ i = int(sys.argv[1])
 metrics = []
 for category, key, name, value, unit in [
     ('weight', 'body_weight', 'Body weight', round(72-i*0.1, 1), 'kg'),
-    ('sleep', 'sleep_duration', 'Sleep', 6+(i%4)*0.5, ''),
+    ('sleep', 'sleep_duration', 'Sleep', 6+(i%4)*0.5, 'hours'),
     ('lab', 'crp', 'CRP', round(1+(i%5)*0.4, 1), 'mg/L'),
     ('lab', 'fecal_calprotectin', 'Fecal calprotectin', 40+(i%5)*15, 'µg/g'),
-    ('symptom', 'overall_condition', 'Overall condition', 2+i%4, ''),
+    ('overall_condition', 'overall_condition', 'Overall condition', 2+i%4, ''),
 ]:
-    reading = dict(at=sys.argv[2], category=category, key=key, name=name, value=value)
-    if unit:
+    reading = dict(at=sys.argv[2], category=category, name=name, value=value)
+    if category != 'overall_condition':
+        reading['key'] = key
+    if unit and category != 'sleep':
         reading['unit'] = unit
     metrics.append(reading)
 print(json.dumps(metrics))

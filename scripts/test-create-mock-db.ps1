@@ -134,19 +134,19 @@ try {
     $yearStart = (Get-Date -Year $todayDate.Year -Month 1 -Day 1).ToString('yyyy-MM-dd')
     Assert-True (@($entries | Where-Object { $_.date -lt $ledgerStart -or $_.date -gt $today }).Count -eq 0) 'Ledger contains stale dates.'
 
-    $yesterdayItems = Invoke-Raven $smokeHome todo date-range $yesterday $yesterday | ConvertFrom-Json
-    $todayItems = Invoke-Raven $smokeHome todo date-range $today $today | ConvertFrom-Json
-    $tomorrowItems = Invoke-Raven $smokeHome todo date-range $tomorrow $tomorrow | ConvertFrom-Json
+    $yesterdayItems = (Invoke-Raven $smokeHome todo list --scheduled $yesterday --format json | ConvertFrom-Json).items
+    $todayItems = (Invoke-Raven $smokeHome todo list --scheduled $today --format json | ConvertFrom-Json).items
+    $tomorrowItems = (Invoke-Raven $smokeHome todo list --scheduled $tomorrow --format json | ConvertFrom-Json).items
     Assert-TitleOnce $yesterdayItems '어제 넘긴 데이터 정리' 'yesterday task is missing or duplicated'
     Assert-TitleOnce $todayItems 'Workbench 테이블 편집 플로우 점검' 'today task is missing or duplicated'
     Assert-TitleOnce $tomorrowItems '내일 오전 planner 필터 확인' 'tomorrow task is missing or duplicated'
 
-    $weekPeriod = Invoke-Raven $smokeHome todo period --horizon week --period $weekStart | ConvertFrom-Json
-    $monthPeriod = Invoke-Raven $smokeHome todo period --horizon month --period $monthStart | ConvertFrom-Json
-    $yearPeriod = Invoke-Raven $smokeHome todo period --horizon year --period $yearStart | ConvertFrom-Json
-    Assert-TitleOnce @($weekPeriod.roots | ForEach-Object { $_.goal }) '이번 주 Planner 실행력 만들기' 'week goal is missing or duplicated'
-    Assert-TitleOnce @($monthPeriod.roots | ForEach-Object { $_.goal }) '이번 달 UI 데이터 흐름 검증' 'month goal is missing or duplicated'
-    Assert-TitleOnce @($yearPeriod.roots | ForEach-Object { $_.goal }) '올해 Workbench 품질 기준 세우기' 'year goal is missing or duplicated'
+    $weekGoals = (Invoke-Raven $smokeHome todo list --type goal --horizon week --scheduled $weekStart --format json | ConvertFrom-Json).items
+    $monthGoals = (Invoke-Raven $smokeHome todo list --type goal --horizon month --scheduled $monthStart --format json | ConvertFrom-Json).items
+    $yearGoals = (Invoke-Raven $smokeHome todo list --type goal --horizon year --scheduled $yearStart --format json | ConvertFrom-Json).items
+    Assert-TitleOnce $weekGoals '이번 주 Planner 실행력 만들기' 'week goal is missing or duplicated'
+    Assert-TitleOnce $monthGoals '이번 달 UI 데이터 흐름 검증' 'month goal is missing or duplicated'
+    Assert-TitleOnce $yearGoals '올해 Workbench 품질 기준 세우기' 'year goal is missing or duplicated'
 
     $summary = Invoke-Raven $smokeHome ledger reports --from $ledgerStart --to $today --format json | ConvertFrom-Json
     $krwSummary = @($summary.currencies | Where-Object { $_.currency_code -eq 'KRW' })
@@ -169,24 +169,30 @@ try {
     $transferIn = @($transferEntries | Where-Object { $_.entry_type -eq 'transfer_in' })
     Assert-True ($transferEntries.Count -eq 2 -and $transferOut.Count -eq 1 -and $transferIn.Count -eq 1) 'transfer pair is missing or malformed'
     foreach ($transferEntry in $transferEntries) {
-        Assert-True ($transferEntry.date -eq $todayDate.AddDays(-7).ToString('yyyy-MM-dd') -and $transferEntry.amount_minor -eq 500000 -and $transferEntry.content -eq 'Mock savings transfer' -and $transferEntry.source -eq 'mock-seed') 'transfer values differ from the fixture'
+        Assert-True ($transferEntry.date -eq $todayDate.AddDays(-7).ToString('yyyy-MM-dd') -and $transferEntry.amount_minor -eq 500000 -and $transferEntry.content -eq 'Mock savings transfer' -and $transferEntry.source -eq 'raven-cli') 'transfer values differ from the fixture'
     }
     Assert-True ($transferOut[0].account_name -eq 'Checking' -and $transferIn[0].account_name -eq 'Savings') 'transfer accounts differ from the fixture'
     Assert-True (-not [string]::IsNullOrWhiteSpace($transferOut[0].transfer_group_id) -and $transferOut[0].transfer_group_id -eq $transferIn[0].transfer_group_id) 'transfer group id is missing or mismatched'
 
-    $diets = (Invoke-Raven $smokeHome health diet list --limit 200 --format json | ConvertFrom-Json)
+    $dietPage = Invoke-Raven $smokeHome health diet list --limit 200 --format json | ConvertFrom-Json
+    Assert-True ($null -eq $dietPage.next) 'Health diet fixture unexpectedly exceeds the requested page.'
+    $diets = $dietPage.items
     Assert-True (@($diets).Count -eq 18) 'Health report fixture needs 18 meals across 90 days.'
     foreach ($kind in @('bowel', 'medication')) {
-        $records = (Invoke-Raven $smokeHome health $kind list --limit 200 --format json | ConvertFrom-Json)
+        $recordPage = Invoke-Raven $smokeHome health $kind list --limit 200 --format json | ConvertFrom-Json
+        Assert-True ($null -eq $recordPage.next) "Health $kind fixture unexpectedly exceeds the requested page."
+        $records = $recordPage.items
         Assert-True (@($records).Count -eq 18) "Health report fixture needs 18 $kind records."
     }
-    $metrics = (Invoke-Raven $smokeHome health metric list --limit 200 --format json | ConvertFrom-Json)
+    $metricPage = Invoke-Raven $smokeHome health metric list --limit 200 --format json | ConvertFrom-Json
+    Assert-True ($null -eq $metricPage.next) 'Health metric fixture unexpectedly exceeds the requested page.'
+    $metrics = $metricPage.items
     foreach ($key in @('body_weight', 'sleep_duration', 'crp', 'fecal_calprotectin', 'overall_condition')) {
         $series = @($metrics | Where-Object { $_.metric_key -eq $key })
         Assert-True ($series.Count -eq 18 -and @($series.value_num | Select-Object -Unique).Count -gt 1) "Health report fixture needs varying $key readings."
     }
     $weight = $metrics | Where-Object { $_.metric_key -eq 'body_weight' } | Sort-Object occurred_at -Descending | Select-Object -First 1
-    $probe = ConvertTo-Json -InputObject @(@{ at = $weight.occurred_at; category = 'weight'; key = 'body_weight'; name = $weight.name; value = $weight.value_num; unit = 'kg' }) -Compress
+    $probe = ConvertTo-Json -InputObject @(@{ at = $weight.occurred_at; category = 'weight'; key = 'body_weight'; name = $weight.name; value = $weight.value_num; unit = 'kg'; expected_updated_at = $weight.updated_at }) -Compress
     if ($PSVersionTable.PSVersion -lt [version]'7.3' -or $PSNativeCommandArgumentPassing -eq 'Legacy') { $probe = $probe.Replace(' ', '\u0020').Replace('"', '\"') }
     $upserted = (Invoke-Raven $smokeHome health metric daily-upsert --json $probe | ConvertFrom-Json)
     Assert-True ($upserted[0].id -eq $weight.id) 'Health report metrics must already be daily-upsert records.'
@@ -196,7 +202,7 @@ try {
     $fixtureRows = @(
         @(-85, 'income', '3200000', 'Checking', 'Salary', 'Monthly salary 1'), @(-82, 'expense', '120000', 'Checking', 'Food', 'Groceries 1'), @(-75, 'expense', '800000', 'Checking', 'Housing', 'Monthly rent 1'), @(-70, 'expense', '45000', 'Checking', 'Transport', 'Transit pass'), @(-64, 'expense', '135000', 'Checking', 'Utilities', 'Utilities 1'), @(-58, 'expense', '72000', 'Checking', 'Health', 'Clinic'), @(-52, 'income', '3200000', 'Checking', 'Salary', 'Monthly salary 2'), @(-48, 'expense', '185000', 'Checking', 'Shopping', 'Household goods'), @(-43, 'expense', '95000', 'Checking', 'Leisure', 'Weekend outing'), @(-39, 'expense', '210000', 'Checking', 'Education', 'Course'), @(-34, 'expense', '19000', 'Checking', 'Subscriptions', 'Streaming'), @(-29, 'expense', '138000', 'Checking', 'Food', 'Groceries 2'), @(-23, 'income', '3200000', 'Checking', 'Salary', 'Monthly salary 3'), @(-20, 'expense', '800000', 'Checking', 'Housing', 'Monthly rent 2'), @(-16, 'expense', '62000', 'Checking', 'Transport', 'Taxi and transit'), @(-12, 'expense', '148000', 'Checking', 'Utilities', 'Utilities 2'), @(-9, 'income', '450000', 'Checking', 'Freelance', 'Side project'), @(-6, 'expense', '87000', 'Checking', 'Food', 'Groceries 3'), @(-3, 'expense', '125000', 'Checking', 'Shopping', 'Recent shopping'), @(0, 'expense', '24000', 'Cash', 'Leisure', 'Today coffee and movie')
     )
-    $expectedEntrySignatures = @($fixtureRows | ForEach-Object { "$($todayDate.AddDays([int]$_[0]).ToString('yyyy-MM-dd'))|$($_[1])|$($_[2])|$($_[3])|$($_[4])|$($_[5])|mock-seed" } | Sort-Object)
+    $expectedEntrySignatures = @($fixtureRows | ForEach-Object { "$($todayDate.AddDays([int]$_[0]).ToString('yyyy-MM-dd'))|$($_[1])|$($_[2])|$($_[3])|$($_[4])|$($_[5])|raven-cli" } | Sort-Object)
     Assert-True ($nonTransferEntries.Count -eq 20 -and ([string]::Join("`n", $actualEntrySignatures)) -ceq ([string]::Join("`n", $expectedEntrySignatures))) 'non-transfer entries differ from the fixture'
 }
 finally {

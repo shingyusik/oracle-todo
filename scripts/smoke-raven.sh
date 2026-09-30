@@ -103,22 +103,23 @@ diet_created="$("$binary" --home "$smoke_home" health diet add \
   --at "$current_time" --meal lunch --food SmokeFoodSecret --tags smoke-diet-tag)"
 diet_id="$(DIET_CREATED="$diet_created" python3 -c \
   'import json,os; print(json.loads(os.environ["DIET_CREATED"])["id"])')"
-weight_created="$("$binary" --home "$smoke_home" health metric add \
-  --at "$current_time" --category weight --key weight --name SmokeWeight \
-  --value 67.89 --unit kg)"
-weight_id="$(WEIGHT_CREATED="$weight_created" python3 -c \
-  'import json,os; print(json.loads(os.environ["WEIGHT_CREATED"])["id"])')"
-condition_created="$("$binary" --home "$smoke_home" health metric add \
-  --at "$current_time" --category overall_condition --name SmokeCondition --value 7)"
-condition_id="$(CONDITION_CREATED="$condition_created" python3 -c \
-  'import json,os; print(json.loads(os.environ["CONDITION_CREATED"])["id"])')"
-timeline_json="$("$binary" --home "$smoke_home" health timeline --format json)"
-trends_json="$("$binary" --home "$smoke_home" health trends --days 30 --format json)"
+metrics_input="$(CURRENT_TIME="$current_time" python3 - <<'PY'
+import json, os
+at = os.environ['CURRENT_TIME']
+print(json.dumps([
+    dict(at=at, category='weight', key='body_weight', name='Body weight', value=67.89, unit='kg'),
+    dict(at=at, category='overall_condition', name='Overall condition', value=7),
+]))
+PY
+)"
+metrics_json="$("$binary" --home "$smoke_home" health metric daily-upsert --json "$metrics_input")"
+weight_id="$(METRICS_JSON="$metrics_json" python3 -c 'import json,os; print(next(x["id"] for x in json.loads(os.environ["METRICS_JSON"]) if x["metric_key"]=="body_weight"))')"
+condition_id="$(METRICS_JSON="$metrics_json" python3 -c 'import json,os; print(next(x["id"] for x in json.loads(os.environ["METRICS_JSON"]) if x["metric_key"]=="overall_condition"))')"
 
 TASK_JSON="$task_json" TODO_ID="$todo_id" CURRENT_DATE="$current_date" \
 LEDGER_JSON="$ledger_json" LEDGER_ID="$ledger_id" DOCTOR_JSON="$doctor_json" \
-TIMELINE_JSON="$timeline_json" DIET_ID="$diet_id" WEIGHT_ID="$weight_id" \
-CONDITION_ID="$condition_id" TRENDS_JSON="$trends_json" python3 - <<'PY'
+DIET_CREATED="$diet_created" METRICS_JSON="$metrics_json" DIET_ID="$diet_id" WEIGHT_ID="$weight_id" \
+CONDITION_ID="$condition_id" python3 - <<'PY'
 import json
 import os
 
@@ -135,18 +136,12 @@ assert entries[0]["amount_minor"] == 314159
 assert entries[0]["date"] == os.environ["CURRENT_DATE"]
 assert json.loads(os.environ["DOCTOR_JSON"])["healthy"] is True
 
-timeline = json.loads(os.environ["TIMELINE_JSON"])
-records = {item["record"]["id"]: item["record"] for item in timeline}
-assert records[os.environ["DIET_ID"]]["food_name"] == "SmokeFoodSecret"
+diet = json.loads(os.environ["DIET_CREATED"])
+assert diet["food_name"] == "SmokeFoodSecret"
+records = {item["id"]: item for item in json.loads(os.environ["METRICS_JSON"])}
 assert records[os.environ["WEIGHT_ID"]]["value_num"] == 67.89
 assert records[os.environ["CONDITION_ID"]]["value_num"] == 7
 
-trends = json.loads(os.environ["TRENDS_JSON"])
-assert any(item["name"] == "smoke-diet-tag" and item["count"] == 1
-           for item in trends["top_diet_tags"])
-assert any(series["metric_key"] == "weight"
-           and any(point["value"] == 67.89 for point in series["points"])
-           for series in trends["numeric_series"])
 PY
 
 health_output="$("$binary" --home "$smoke_home" health-check)"
@@ -202,14 +197,12 @@ todo_api_json="$(curl "${curl_args[@]}" --fail --silent --header "$auth_header" 
 ledger_api_json="$(curl "${curl_args[@]}" --fail --silent --header "$auth_header" \
   "$base_url/api/v1/ledger/entries?limit=10")"
 health_api_json="$(curl "${curl_args[@]}" --fail --silent --header "$auth_header" \
-  "$base_url/api/v1/health/timeline?limit=10")"
-health_trends_api_json="$(curl "${curl_args[@]}" --fail --silent --header "$auth_header" \
-  "$base_url/api/v1/health/trends?days=30")"
+  "$base_url/api/v1/health/records?limit=10")"
 
 DASHBOARD_JSON="$dashboard_json" TODO_API_JSON="$todo_api_json" TODO_ID="$todo_id" \
 LEDGER_API_JSON="$ledger_api_json" LEDGER_ID="$ledger_id" \
 HEALTH_API_JSON="$health_api_json" DIET_ID="$diet_id" WEIGHT_ID="$weight_id" \
-CONDITION_ID="$condition_id" HEALTH_TRENDS_JSON="$health_trends_api_json" python3 - <<'PY'
+CONDITION_ID="$condition_id" python3 - <<'PY'
 import json
 import os
 
@@ -222,7 +215,7 @@ krw = next(item for item in dashboard["ledger"]["data"]["currencies"]
 assert krw["expense_minor"] == 314159
 assert krw["net_change_minor"] == -314159
 condition = dashboard["health"]["data"]["latest_condition"]
-assert condition["name"] == "SmokeCondition" and condition["value"] == 7
+assert condition["name"] == "Overall condition" and condition["value"] == 7
 assert "smoke-diet-tag" in dashboard["health"]["data"]["recent_diet_tags"]
 
 todo = json.loads(os.environ["TODO_API_JSON"])
@@ -237,12 +230,7 @@ health = {item["record"]["id"]: item["record"]
 assert health[os.environ["DIET_ID"]]["food_name"] == "SmokeFoodSecret"
 assert health[os.environ["WEIGHT_ID"]]["value_num"] == 67.89
 assert health[os.environ["CONDITION_ID"]]["value_num"] == 7
-trends = json.loads(os.environ["HEALTH_TRENDS_JSON"])
-assert any(item["name"] == "smoke-diet-tag" and item["count"] == 1
-           for item in trends["top_diet_tags"])
-assert any(series["metric_key"] == "weight"
-           and any(point["value"] == 67.89 for point in series["points"])
-           for series in trends["numeric_series"])
+
 PY
 stop_child "$api_pid"
 api_pid=""

@@ -194,7 +194,7 @@ function Add-LedgerEntry {
 
     Invoke-Ledger entry add --date (Get-RelativeDay $Offset) --type $Type `
         --amount $Amount --currency KRW --account $Account --category $Category `
-        --content $Content --source mock-seed
+        --content $Content
 }
 
 $weekDays = @{}
@@ -268,7 +268,7 @@ $activeTask = Get-ItemId (Invoke-Todo task propose 'Workbench 테이블 편집 �
         --area $devArea `
         --scheduled $today `
         --priority 1 `
-        --description '행 선택, 상태 전환, 상세 패널 표시를 확인')
+        --note '행 선택, 상태 전환, 상세 패널 표시를 확인')
 Invoke-Todo update $activeTask --project-id $project --reason 'mock seed link' | Out-Null
 Invoke-Todo update $activeTask --parent-id $weekGoal --reason 'mock seed goal link' | Out-Null
 Set-ItemTags $activeTask @('planner', 'daily', 'focus')
@@ -286,7 +286,7 @@ $overdueTask = Get-ItemId (Invoke-Todo task propose '어제 넘긴 데이터 정
         --area $opsArea `
         --scheduled $yesterday `
         --priority 1 `
-        --description 'Daily planner의 어제 했어야 하는 일 섹션 확인')
+        --note 'Daily planner의 어제 했어야 하는 일 섹션 확인')
 Invoke-Todo update $overdueTask --project-id $dailyProject --parent-id $weekGoal --reason 'mock seed link' | Out-Null
 Set-ItemTags $overdueTask @('planner', 'overdue', 'ops')
 
@@ -295,7 +295,7 @@ $tomorrowTask = Get-ItemId (Invoke-Todo task propose '내일 오전 planner 필�
         --area $devArea `
         --scheduled $tomorrow `
         --priority 2 `
-        --description 'Upcoming 섹션과 날짜 범위 필터 확인')
+        --note 'Upcoming 섹션과 날짜 범위 필터 확인')
 Invoke-Todo update $tomorrowTask --project-id $dailyProject --parent-id $weekGoal --reason 'mock seed link' | Out-Null
 Set-ItemTags $tomorrowTask @('planner', 'upcoming', 'focus')
 
@@ -303,7 +303,7 @@ $unscheduledTask = Get-ItemId (Invoke-Todo task propose '날짜 없는 inbox tri
         --actor user `
         --area $opsArea `
         --priority 3 `
-        --description 'Daily planner의 미지정 섹션 확인')
+        --note 'Daily planner의 미지정 섹션 확인')
 Invoke-Todo update $unscheduledTask --project-id $dailyProject --reason 'mock seed link' | Out-Null
 Set-ItemTags $unscheduledTask @('planner', 'inbox', 'ops')
 
@@ -323,7 +323,7 @@ foreach ($entry in $weeklyDays) {
             --area $devArea `
             --scheduled $weekDays[$entry.Day] `
             --priority $entry.Priority `
-            --description 'Weekly planner day card fixture')
+            --note 'Weekly planner day card fixture')
     Invoke-Todo update $taskId --project-id $dailyProject --parent-id $weekGoal --reason 'mock seed link' | Out-Null
     Set-ItemTags $taskId @('planner', 'weekly', 'focus')
 }
@@ -350,10 +350,10 @@ $routine = Get-ItemId (Invoke-Todo routine propose 'Workbench mock DB 스모크'
         --materialization-policy single_open `
         --note 'today view에 생성 태스크가 보여야 함')
 Set-ItemTags $routine @('planner', 'routine', 'ops')
-$routineTask = Get-ItemId (Invoke-Todo routine materialize)
+$routineTask = (Invoke-Todo routine materialize $routine | ConvertFrom-Json)[0].id
 Set-ItemTags $routineTask @('planner', 'routine', 'today')
 
-$todayEvent = Get-ItemId (Invoke-Todo event propose 'Mock API 데모 미팅' "${today}T15:00" `
+$todayEvent = Get-ItemId (Invoke-Todo event propose 'Mock API 데모 미팅' "${today}T15:00:00+09:00" `
         --actor user `
         --area $opsArea `
         --project-id $dailyProject `
@@ -364,25 +364,24 @@ $todayEvent = Get-ItemId (Invoke-Todo event propose 'Mock API 데모 미팅' "${
         --note 'event 카드 표시 확인')
 Set-ItemTags $todayEvent @('planner', 'event', 'ops')
 
-$reviewEvent = Get-ItemId (Invoke-Todo event propose '목표 리뷰 캘린더 샘플' "${today}T17:00" `
+$reviewEvent = Get-ItemId (Invoke-Todo event propose '목표 리뷰 캘린더 샘플' "${today}T17:00:00+09:00" `
         --actor user `
         --area $devArea `
         --project-id $project `
         --location '회의실 A' `
         --with 'planning' `
         --commitment-type review `
-        --description 'goal/event 테이블 표시 확인용' `
-        --note 'event 테이블용 추가 샘플')
+        --note 'goal/event 테이블 표시 확인용; event 테이블용 추가 샘플')
 Set-ItemTags $reviewEvent @('planner', 'event', 'review')
 
-$tomorrowEvent = Get-ItemId (Invoke-Todo event propose '내일 planner 리뷰' "${tomorrow}T10:30" `
+$tomorrowEvent = Get-ItemId (Invoke-Todo event propose '내일 planner 리뷰' "${tomorrow}T10:30:00+09:00" `
         --actor user `
         --area $devArea `
         --project-id $dailyProject `
         --location '온라인' `
         --with 'planning' `
         --commitment-type review `
-        --description 'Daily upcoming 및 weekly event 표시 확인')
+        --note 'Daily upcoming 및 weekly event 표시 확인')
 Set-ItemTags $tomorrowEvent @('planner', 'event', 'upcoming')
 
 Invoke-Ledger currency create --code KRW --name 'Korean Won' --symbol KRW --decimal-places 0 | Out-Null
@@ -434,7 +433,7 @@ Invoke-Ledger transfer `
     --operation-key 10000000-0000-4000-8000-000000000001 `
     --date (Get-RelativeDay -7) --amount 500000 --currency KRW `
     --from-account Checking --to-account Savings --content 'Mock savings transfer' `
-    --source mock-seed | Out-Null
+    | Out-Null
 
 # Sparse samples across every Reports preset, with repeated tags and varying metrics.
 $healthOffsets = @(89, 75, 61, 45, 32, 29, 25, 21, 18, 14, 11, 8, 6, 4, 3, 2, 1, 0)
@@ -448,14 +447,15 @@ for ($i = 0; $i -lt $healthOffsets.Count; $i++) {
     Invoke-Raven health medication add --at "${day}T09:00:00${zone}" --name (@('Vitamin D', 'Probiotic')[$i % 2]) --dose 1 --unit tablet | Out-Null
     $metrics = @(
         @('weight', 'body_weight', 'Body weight', (72 - $i * 0.1), 'kg'),
-        @('sleep', 'sleep_duration', 'Sleep', (6 + ($i % 4) * 0.5), ''),
+        @('sleep', 'sleep_duration', 'Sleep', (6 + ($i % 4) * 0.5), 'hours'),
         @('lab', 'crp', 'CRP', (1 + ($i % 5) * 0.4), 'mg/L'),
         @('lab', 'fecal_calprotectin', 'Fecal calprotectin', (40 + ($i % 5) * 15), 'µg/g'),
-        @('symptom', 'overall_condition', 'Overall condition', (2 + $i % 4), '')
+        @('overall_condition', 'overall_condition', 'Overall condition', (2 + $i % 4), '')
     )
     $dailyMetrics = @(foreach ($metric in $metrics) {
-        $reading = @{ at = "${day}T07:00:00${zone}"; category = $metric[0]; key = $metric[1]; name = $metric[2]; value = $metric[3] }
-        if ($metric[4]) { $reading.unit = $metric[4] }
+        $reading = @{ at = "${day}T07:00:00${zone}"; category = $metric[0]; name = $metric[2]; value = $metric[3] }
+        if ($metric[0] -ne 'overall_condition') { $reading.key = $metric[1] }
+        if ($metric[4] -and $metric[0] -ne 'sleep') { $reading.unit = $metric[4] }
         $reading
     })
     $metricJson = ConvertTo-Json -InputObject $dailyMetrics -Compress

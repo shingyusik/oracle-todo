@@ -8,11 +8,12 @@ const { runEngine } = require("../src/runner");
 
 test("forwards arguments to an engine binary and returns its exit code", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "raven-runner-"));
-  const engine = path.join(dir, "raven");
+  const engine = path.join(dir, "engine.js");
   const output = path.join(dir, "args.txt");
-  await fs.writeFile(engine, `#!/bin/sh\necho "$@" > "${output}"\nexit 7\n`, { mode: 0o755 });
+  await fs.writeFile(engine, `require("node:fs").writeFileSync(${JSON.stringify(output)}, JSON.stringify(process.argv.slice(2))); process.exit(7);`);
 
-  const code = await runEngine(["today", "--json"], { binaryPath: engine, stdio: "ignore" });
+  const args = ["todo", "list", "--format", "json", "a value with spaces"];
+  const code = await runEngine([engine, ...args], { binaryPath: process.execPath, stdio: "ignore" });
   assert.equal(code, 7);
-  assert.equal((await fs.readFile(output, "utf8")).trim(), "today --json");
+  assert.deepEqual(JSON.parse(await fs.readFile(output, "utf8")), args);
 });
