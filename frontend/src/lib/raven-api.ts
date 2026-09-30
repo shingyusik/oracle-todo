@@ -18,6 +18,8 @@ export class RavenApiError extends Error {
     readonly fields: Record<string, string[]>,
     readonly requestId: string,
     readonly status: number,
+    readonly committed: boolean | null = null,
+    readonly recordId: string | null = null,
   ) {
     super(message);
   }
@@ -114,12 +116,17 @@ export function decodeApiError(body: unknown, status: number): RavenApiError {
         return decoded;
       })];
     }));
+    if (value.committed !== undefined && value.committed !== null && typeof value.committed !== "boolean") {
+      throw boundary("error.committed");
+    }
     return new RavenApiError(
       string(value.code, "error.code"),
       string(value.message, "error.message"),
       fields,
       uuid(value.request_id, "error.request_id"),
       status,
+      value.committed === undefined ? null : value.committed as boolean | null,
+      value.record_id === undefined || value.record_id === null ? null : uuid(value.record_id, "error.record_id"),
     );
   } catch (cause) {
     if (cause instanceof RavenTransportError) {

@@ -212,7 +212,7 @@ function occurrenceGroups(items: Extract<HealthTableOccurrence, { scope: "health
   const groups = new Map<string, { key: string; label: string | null; rows: BowelRow[] }>();
   for (const { key: occurrenceKey, groupKey, groupLabel, record } of items) {
     const key = groupKey ?? "all"; const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
-    group.rows.push({ ...record, timeLabel: new Date(record.event.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), occurrenceKey } as BowelRow & { occurrenceKey: string });
+    group.rows.push({ ...record, timeLabel: new Date(record.event.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Etc/GMT-9" }), occurrenceKey } as BowelRow & { occurrenceKey: string });
     groups.set(key, group);
   }
   return [...groups.values()];

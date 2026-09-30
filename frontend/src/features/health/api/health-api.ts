@@ -7,19 +7,17 @@ import {
   type HealthCategory,
   type HealthEvent,
   type HealthEventDetailsInput,
-  type HealthTrends,
   type HealthTableLookups,
   type HealthTableScope,
-  type TimelineItem,
+  type HealthRecord,
   mapDietEntry,
   mapHealthEvent,
-  mapHealthTrends,
   mapHealthTableLookups,
   mapHealthTablePage,
-  mapTimelineItem,
+  mapHealthRecord,
 } from "@/features/health/model/health-model";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
-import { localCalendarDate } from "@/features/workbench/model/planner-model";
+import { healthCalendarDate } from "@/features/health/model/health-date";
 import { tableFilterValue } from "@/features/workbench/model/table-query";
 import {
   mapHealthReport,
@@ -43,17 +41,11 @@ export type EventQuery = PageQuery & {
   metricKey?: string;
   dailyOnly?: boolean;
 };
-export type TimelineQuery = PageQuery & {
-  from?: string;
-  to?: string;
-  category?: HealthCategory;
-  includeArchived?: boolean;
-};
 export type DailyMetricDetailsInput = Extract<
   HealthEventDetailsInput,
   { kind: "weight" | "sleep" | "lab" | "overall_condition" }
 >;
-export type DailyMetricInput = Omit<EventInput, "details"> & {
+export type DailyMetricInput = Omit<EventInput, "details" | "note"> & {
   details: DailyMetricDetailsInput;
   expectedUpdatedAt?: string;
 };
@@ -69,7 +61,7 @@ export const healthApi = {
     scope: HealthTableScope,
     settings: PlannerTableSettings,
     offset = 0,
-    referenceDate: Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date(),
+    referenceDate: Date = new Date(),
   ): Promise<HealthTablePage> {
     return mapHealthTablePage(await requestJson(
       `${ROOT}/table/query`,
@@ -94,7 +86,7 @@ export const healthApi = {
           manual_order: settings.groupSettings.manualOrder,
           hidden_group_keys: settings.groupSettings.hiddenGroupKeys,
         },
-        context: { reference_date: localCalendarDate(referenceDate) },
+        context: { reference_date: healthCalendarDate(referenceDate) },
       }),
     ), scope);
   },
@@ -148,14 +140,11 @@ export const healthApi = {
       },
     }));
   },
-  async archiveDiet(id: string): Promise<DietEntry> {
-    return mapDietEntry(await transition("diet", id, "archive"));
+  async archiveDiet(id: string, expectedUpdatedAt: string): Promise<DietEntry> {
+    return mapDietEntry(await transition("diet", id, "archive", expectedUpdatedAt));
   },
-  async restoreDiet(id: string): Promise<DietEntry> {
-    return mapDietEntry(await transition("diet", id, "restore"));
-  },
-  async purgeDiet(id: string, confirmation: string): Promise<void> {
-    await purge("diet", id, confirmation);
+  async restoreDiet(id: string, expectedUpdatedAt: string): Promise<DietEntry> {
+    return mapDietEntry(await transition("diet", id, "restore", expectedUpdatedAt));
   },
   async listEvents(query: EventQuery = {}): Promise<HealthEvent[]> {
     return mapItems(await requestJson(apiPath(`${ROOT}/events`, {
@@ -183,19 +172,14 @@ export const healthApi = {
         details: input.details === undefined ? undefined : detailsBody(input.details),
         note: input.note,
         expected_updated_at: input.expectedUpdatedAt,
-        actor: input.actor,
-        reason: input.reason,
-      })),
+          })),
     ));
   },
-  async archiveEvent(id: string): Promise<HealthEvent> {
-    return mapHealthEvent(await transition("events", id, "archive"));
+  async archiveEvent(id: string, expectedUpdatedAt: string): Promise<HealthEvent> {
+    return mapHealthEvent(await transition("events", id, "archive", expectedUpdatedAt));
   },
-  async restoreEvent(id: string): Promise<HealthEvent> {
-    return mapHealthEvent(await transition("events", id, "restore"));
-  },
-  async purgeEvent(id: string, confirmation: string): Promise<void> {
-    await purge("events", id, confirmation);
+  async restoreEvent(id: string, expectedUpdatedAt: string): Promise<HealthEvent> {
+    return mapHealthEvent(await transition("events", id, "restore", expectedUpdatedAt));
   },
   async upsertDailyMetrics(input: DailyMetricInput[]): Promise<HealthEvent[]> {
     return mapItems(await requestJson(`${ROOT}/metrics/daily`, jsonRequest("POST", {
@@ -211,19 +195,13 @@ export const healthApi = {
       })),
     })), mapHealthEvent);
   },
-  async timeline(query: TimelineQuery = {}): Promise<TimelineItem[]> {
-    return mapItems(await requestJson(apiPath(`${ROOT}/timeline`, {
-      offset: query.offset,
-      limit: query.limit,
-      from: query.from,
-      to: query.to,
-      category: query.category,
-      include_archived: query.includeArchived,
-    })), mapTimelineItem);
+  async records(query: PageQuery = {}): Promise<HealthRecord[]> {
+    return mapItems(await requestJson(apiPath(`${ROOT}/records`, query)), mapHealthRecord);
   },
-  async trends(days?: number): Promise<HealthTrends> {
-    return mapHealthTrends(await requestJson(apiPath(`${ROOT}/trends`, { days })));
+  async audit(kind: "diet_entry" | "health_event", id: string, query: PageQuery = {}): Promise<Record<string, unknown>[]> {
+    return mapItems(await requestJson(apiPath(`${ROOT}/audit/${kind}/${segment(id)}`, query)), (value) => record(value, "audit event"));
   },
+  photoUrl(id: string): string { return `${ROOT}/diet/${segment(id)}/image`; },
   async reports(query: { from: string; to: string }): Promise<HealthReport> {
     return mapHealthReport(await requestJson(apiPath(`${ROOT}/reports`, query)));
   },
@@ -236,7 +214,6 @@ function dietBody(input: DietInput): JsonObject {
     food_name: input.foodName,
     note: input.note,
     tags: input.tags,
-    actor: input.actor,
   });
 }
 
@@ -255,8 +232,6 @@ function dietUpdateBody(input: DietUpdate): JsonObject {
     note: input.note,
     tags: input.tags,
     expected_updated_at: input.expectedUpdatedAt,
-    actor: input.actor,
-    reason: input.reason,
     remove_image: input.removeImage,
   });
 }
@@ -266,7 +241,6 @@ function eventBody(input: EventInput): JsonObject {
     occurred_at: input.occurredAt,
     details: detailsBody(input.details),
     note: input.note,
-    actor: input.actor,
   });
 }
 
@@ -292,14 +266,6 @@ function detailsBody(input: HealthEventDetailsInput): JsonObject {
         value: input.value,
         unit: input.unit,
       });
-    case "symptom":
-      return clean({
-        kind: input.kind,
-        key: input.key,
-        name: input.name,
-        score: input.score,
-        condition_note: input.conditionNote,
-      });
     case "overall_condition":
       return clean({
         kind: input.kind,
@@ -321,19 +287,9 @@ async function transition(
   kind: "diet" | "events",
   id: string,
   action: "archive" | "restore",
+  expectedUpdatedAt: string,
 ): Promise<unknown> {
-  return requestJson(`${ROOT}/${kind}/${segment(id)}/${action}`, { method: "POST" });
-}
-
-async function purge(
-  kind: "diet" | "events",
-  id: string,
-  confirmation: string,
-): Promise<void> {
-  await requestJson(
-    `${ROOT}/${kind}/${segment(id)}/purge`,
-    jsonRequest("DELETE", { confirmation }),
-  );
+  return requestJson(`${ROOT}/${kind}/${segment(id)}/${action}`, jsonRequest("POST", { expected_updated_at: expectedUpdatedAt }));
 }
 
 function mapItems<T>(value: unknown, mapper: (value: unknown) => T): T[] {

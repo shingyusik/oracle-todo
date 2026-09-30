@@ -329,4 +329,4 @@ function details(field: HealthMetricField, value: number, note: string | null): 
   return { kind: "overall_condition", score: value, conditionNote: note };
 }
 function memberEvents(row: HealthMetricsRow) { return fields.flatMap((field) => row.events[field] ? [row.events[field]!] : []); }
-function formatTimestamp(value: string) { return new Date(value).toLocaleString(); }
+function formatTimestamp(value: string) { return new Date(value).toLocaleString(undefined, { timeZone: "Etc/GMT-9" }); }

@@ -535,9 +535,9 @@ describe("MedicationPanel", () => {
     fireEvent.change(time, { target: { value: time.value.length === 16
       ? `${time.value}:00` : time.value.slice(0, 16) } });
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    expect(screen.getByText(`Created ${new Date(distinct.createdAt).toLocaleString()}`))
+    expect(screen.getByText(`Created ${new Date(distinct.createdAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`))
       .toBeInTheDocument();
-    expect(screen.getByText(`Updated ${new Date(distinct.updatedAt).toLocaleString()}`))
+    expect(screen.getByText(`Updated ${new Date(distinct.updatedAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`))
       .toBeInTheDocument();
     expect(within(screen.getByLabelText("Unit")).getAllByRole("option")
       .map((option) => [option.getAttribute("value"), option.textContent])).toEqual([
@@ -546,7 +546,7 @@ describe("MedicationPanel", () => {
       ]);
   });
 
-  it("blocks a DST gap plus IME, pending, confirmation, and recovery shortcuts", async () => {
+  it("blocks missing time plus IME, pending, confirmation, and recovery shortcuts", async () => {
     vi.stubEnv("TZ", "America/New_York");
     const user = userEvent.setup();
     const saved = deferred<void>();
@@ -554,7 +554,7 @@ describe("MedicationPanel", () => {
     health.updateMedication = vi.fn(() => saved.promise);
     render(<MedicationPanelHarness controller={health} />);
     await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
-    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
+    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "" } });
     expect(screen.getByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
     expect(health.updateMedication).not.toHaveBeenCalled();
@@ -603,7 +603,7 @@ describe("MedicationPanel", () => {
     expect(screen.getByLabelText("Note")).toHaveValue("draft");
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(screen.getByLabelText("Note")).toHaveValue("");
-    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
+    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "" } });
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Save unavailable");
     expect(alert).toHaveTextContent("Time must be a valid local date and time");
@@ -975,7 +975,7 @@ describe("MedicationPanel", () => {
     health.archiveMedication = vi.fn().mockRejectedValue(new Error("Archive unavailable"));
     render(<MedicationPanelHarness controller={health} />);
     await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
-    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
+    fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "" } });
     await user.type(screen.getByLabelText("Note"), "draft");
     const remove = screen.getByRole("button", { name: "Delete" });
     await user.click(remove);
@@ -983,7 +983,7 @@ describe("MedicationPanel", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Archive unavailable");
     expect(alert).toHaveTextContent("Time must be a valid local date and time");
-    expect(screen.getByLabelText("Taken at")).toHaveValue("2026-03-08T02:30");
+    expect(screen.getByLabelText("Taken at")).toHaveValue("");
     expect(screen.getByLabelText("Note")).toHaveValue("draft");
     await waitFor(() => expect(remove).toHaveFocus());
     vi.unstubAllEnvs();

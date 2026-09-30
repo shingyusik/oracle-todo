@@ -301,7 +301,7 @@ function dietOccurrenceGroups(items: Extract<HealthTableOccurrence, { scope: "he
     const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
     const occurredAt = new Date(record.entry.occurredAt);
     group.rows.push({ ...record, mealType: record.entry.mealType,
-      timeLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timeLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Etc/GMT-9" }),
       occurrenceKey } as DietRow & { occurrenceKey: string });
     groups.set(key, group);
   }

@@ -23,9 +23,6 @@ export type HealthEventDetailsInput =
   | { kind: "bowel"; bristolScale: number; bloodVisible?: boolean }
   | { kind: "sleep"; value: number; key?: string; name?: string }
   | { kind: "lab"; key: string; name: string; value: number; unit?: string | null }
-  | {
-    kind: "symptom"; key: string; name: string; score: number; conditionNote?: string | null;
-  }
   | { kind: "overall_condition"; name?: string; score: number; conditionNote?: string | null }
   | { kind: "medication"; medicationName: string; dose: number; unit: MedicationUnit };
 
@@ -70,7 +67,7 @@ export type HealthEvent = {
   deletedAt: string | null;
 };
 
-export type TimelineItem =
+export type HealthRecord =
   | { kind: "diet"; record: DietEntry }
   | { kind: "health_event"; record: HealthEvent };
 
@@ -119,51 +116,21 @@ export type DietInput = {
   foodName: string;
   note?: string | null;
   tags?: string[];
-  actor?: string;
 };
 export type DietUpdate = Partial<DietInput> & {
   expectedUpdatedAt?: string;
-  reason?: string | null;
   removeImage?: boolean;
 };
 export type EventInput = {
   occurredAt: string;
   details: HealthEventDetailsInput;
   note?: string | null;
-  actor?: string;
 };
 export type EventUpdate = {
   occurredAt?: string;
   details?: HealthEventDetailsInput;
   note?: string | null;
   expectedUpdatedAt?: string;
-  actor?: string;
-  reason?: string | null;
-};
-
-export type NamedCount = { name: string; count: number };
-export type DailyAverage = { localDate: string; average: number; count: number };
-export type NumericSeries = {
-  category: HealthCategory;
-  metricKey: string;
-  name: string;
-  unit: string | null;
-  points: { occurredAt: string; value: number }[];
-};
-export type PossibleTagReaction = {
-  tag: string;
-  dietEntries: number;
-  eventsWithin24h: number;
-};
-export type HealthTrends = {
-  days: number;
-  topDietTags: NamedCount[];
-  bowelAverageByDay: DailyAverage[];
-  symptomFrequencies: NamedCount[];
-  medicationFrequencies: NamedCount[];
-  numericSeries: NumericSeries[];
-  possibleTagReactions: PossibleTagReaction[];
-  reactionDisclaimer: string;
 };
 
 export function mapDietEntry(value: unknown): DietEntry {
@@ -220,12 +187,12 @@ export function mapHealthEvent(value: unknown): HealthEvent {
   };
 }
 
-export function mapTimelineItem(value: unknown): TimelineItem {
-  const wire = record(value, "timeline item");
-  const kind = string(wire.kind, "timeline item.kind");
+export function mapHealthRecord(value: unknown): HealthRecord {
+  const wire = record(value, "health record");
+  const kind = string(wire.kind, "health record.kind");
   if (kind === "diet") return { kind, record: mapDietEntry(wire.record) };
   if (kind === "health_event") return { kind, record: mapHealthEvent(wire.record) };
-  throw new TypeError("invalid timeline item.kind");
+  throw new TypeError("invalid health record.kind");
 }
 
 export function mapHealthTablePage(
@@ -330,69 +297,7 @@ function nullableNumber(value: unknown, field: string): number | null {
   return value === null ? null : finiteNumber(value, field);
 }
 
-export function mapHealthTrends(value: unknown): HealthTrends {
-  const wire = record(value, "health trends");
-  return {
-    days: rangeInteger(wire.days, "health trends.days", 1, 3_650),
-    topDietTags: array(wire.top_diet_tags, "health trends.top_diet_tags").map(mapNamedCount),
-    bowelAverageByDay: array(
-      wire.bowel_average_by_day,
-      "health trends.bowel_average_by_day",
-    ).map((item) => {
-      const row = record(item, "daily average");
-      return {
-        localDate: isoDate(row.local_date, "daily average.local_date"),
-        average: finiteNumber(row.average, "daily average.average"),
-        count: u32(row.count, "daily average.count"),
-      };
-    }),
-    symptomFrequencies: array(
-      wire.symptom_frequencies,
-      "health trends.symptom_frequencies",
-    ).map(mapNamedCount),
-    medicationFrequencies: array(
-      wire.medication_frequencies,
-      "health trends.medication_frequencies",
-    ).map(mapNamedCount),
-    numericSeries: array(wire.numeric_series, "health trends.numeric_series").map((item) => {
-      const series = record(item, "numeric series");
-      return {
-        category: healthCategory(series.category),
-        metricKey: metricKeyValue(series.metric_key, "numeric series.metric_key"),
-        name: nonEmptyString(series.name, "numeric series.name"),
-        unit: nullableString(series.unit, "numeric series.unit"),
-        points: array(series.points, "numeric series.points").map((point) => {
-          const row = record(point, "numeric point");
-          return {
-            occurredAt: timestamp(row.occurred_at, "numeric point.occurred_at"),
-            value: finiteNumber(row.value, "numeric point.value"),
-          };
-        }),
-      };
-    }),
-    possibleTagReactions: array(
-      wire.possible_tag_reactions,
-      "health trends.possible_tag_reactions",
-    ).map((item) => {
-      const row = record(item, "possible tag reaction");
-      return {
-        tag: nonEmptyString(row.tag, "possible tag reaction.tag"),
-        dietEntries: u32(
-          row.diet_entries,
-          "possible tag reaction.diet_entries",
-        ),
-        eventsWithin24h: u32(
-          row.events_within_24h,
-          "possible tag reaction.events_within_24h",
-        ),
-      };
-    }),
-    reactionDisclaimer: string(
-      wire.reaction_disclaimer,
-      "health trends.reaction_disclaimer",
-    ),
-  };
-}
+
 
 function mapAttributes(category: HealthCategory, value: unknown): HealthAttributes {
   const wire = record(value, "health event.attributes");
@@ -453,13 +358,7 @@ function mapAttributes(category: HealthCategory, value: unknown): HealthAttribut
   }
 }
 
-function mapNamedCount(value: unknown): NamedCount {
-  const wire = record(value, "named count");
-  return {
-    name: nonEmptyString(wire.name, "named count.name"),
-    count: u32(wire.count, "named count.count"),
-  };
-}
+
 
 function healthCategory(value: unknown): HealthCategory {
   const result = string(value, "health category");

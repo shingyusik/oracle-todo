@@ -1,3 +1,4 @@
+import { healthCalendarDate } from "@/features/health/model/health-date";
 import {
   array,
   finiteNumber,
@@ -10,7 +11,6 @@ import {
 } from "@/lib/raven-api";
 import {
   clonePlannerTableSettings,
-  localCalendarDate,
   type PlannerFilterField,
   type PlannerFilterRule,
   type PlannerTableSettings,
@@ -179,11 +179,11 @@ export function resolveHealthReportRange(
   now: Date = new Date(),
 ): HealthReportRangeResult {
   if (selection.preset !== "custom") {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    start.setDate(start.getDate() - selection.preset + 1);
+    const start = new Date(`${healthCalendarDate(now)}T00:00:00+09:00`);
+    start.setUTCDate(start.getUTCDate() - selection.preset + 1);
     return {
       ok: true,
-      range: { start: localCalendarDate(start), end: localCalendarDate(now) },
+      range: { start: healthCalendarDate(start), end: healthCalendarDate(now) },
     };
   }
   if (!validIsoDate(selection.from) || !validIsoDate(selection.to)) {

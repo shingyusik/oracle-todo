@@ -346,8 +346,8 @@ describe("Bowel table workflow", () => {
     await user.click(screen.getByText("Type 4"));
     expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Bowel · Type 4" })).toBeInTheDocument();
-    expect(screen.getByText(`Created ${new Date(distinct.createdAt).toLocaleString()}`)).toBeInTheDocument();
-    expect(screen.getByText(`Updated ${new Date(distinct.updatedAt).toLocaleString()}`)).toBeInTheDocument();
+    expect(screen.getByText(`Created ${new Date(distinct.createdAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`)).toBeInTheDocument();
+    expect(screen.getByText(`Updated ${new Date(distinct.updatedAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`)).toBeInTheDocument();
     const header = screen.getByRole("region", { name: "Edit bowel properties" })
       .closest(".detail-view")!.querySelector("header")!;
     expect(within(header).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
@@ -616,18 +616,18 @@ describe("Bowel table workflow", () => {
     expect(screen.getByRole("button", { name: "Redo" })).toBeEnabled();
   });
 
-  it("rejects a nonexistent local wall time without losing the draft", async () => {
+  it("rejects a missing Health time without losing the draft", async () => {
     vi.stubEnv("TZ", "America/New_York");
     const user = userEvent.setup();
     const health = panelController();
     render(<BowelPanelHarness controller={health} />);
     await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-03-08T02:30" } });
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "" } });
     expect(screen.getByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
     expect(health.updateBowel).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Time")).toHaveValue("2026-03-08T02:30");
+    expect(screen.getByLabelText("Time")).toHaveValue("");
     vi.unstubAllEnvs();
   });
 

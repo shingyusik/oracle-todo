@@ -1,8 +1,9 @@
+import { healthCalendarDate } from "@/features/health/model/health-date";
 import type { HealthEvent, MedicationUnit } from "@/features/health/model/health-model";
 import { healthFilterFieldsForScope, healthSortFieldsForScope } from "@/features/health/model/health-table-views";
 import { orderVisiblePlannerGroups, type PlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
 import {
-  effectivePlannerFilterRules, isoWeekStart, localCalendarDate, matchesPlannerFilterValue,
+  effectivePlannerFilterRules, isoWeekStart, matchesPlannerFilterValue,
   type PlannerFilterField, type PlannerFilterRule, type PlannerGroupBy, type PlannerSortBy,
   type PlannerSortRule, type PlannerTableSettings,
 } from "@/features/workbench/model/planner-model";
@@ -24,7 +25,7 @@ const monthNames = [
 export function deriveMedicationGroups(
   events: readonly HealthEvent[], settings: PlannerTableSettings, now = new Date(),
 ): MedicationRowGroup[] {
-  const today = localCalendarDate(now);
+  const today = healthCalendarDate(now);
   const rules = effectivePlannerFilterRules(settings.filterRules, healthFilterFieldsForScope("health.medication"));
   const rows = events
     .filter((event) => event.deletedAt === null && event.category === "medication" && event.attributes.kind === "medication")
@@ -38,8 +39,8 @@ function projectMedicationRow(event: HealthEvent): MedicationRow {
   if (event.attributes.kind !== "medication") throw new TypeError("invalid medication event attributes");
   const occurredAt = new Date(event.occurredAt);
   return {
-    id: event.id, event, date: localCalendarDate(occurredAt),
-    takenAtLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    id: event.id, event, date: healthCalendarDate(occurredAt),
+    takenAtLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Etc/GMT-9" }),
     medicationName: event.attributes.medicationName, dose: event.attributes.dose,
     unit: event.attributes.unit, unitLabel: unitLabels[event.attributes.unit], note: event.note ?? "",
   };

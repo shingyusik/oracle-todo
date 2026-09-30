@@ -1,3 +1,4 @@
+import { healthCalendarDate } from "@/features/health/model/health-date";
 import type { DietEntry, MealType } from "@/features/health/model/health-model";
 import {
   healthFilterFieldsForScope,
@@ -10,7 +11,6 @@ import {
 import {
   effectivePlannerFilterRules,
   isoWeekStart,
-  localCalendarDate,
   matchesPlannerFilterValue,
   type PlannerFilterField,
   type PlannerFilterRule,
@@ -56,7 +56,7 @@ export function deriveDietGroups(
   settings: PlannerTableSettings,
   now = new Date(),
 ): DietRowGroup[] {
-  const today = localCalendarDate(now);
+  const today = healthCalendarDate(now);
   const rules = effectivePlannerFilterRules(
     settings.filterRules,
     healthFilterFieldsForScope("health.diet"),
@@ -74,8 +74,8 @@ function projectDietRow(entry: DietEntry): DietRow {
   return {
     id: entry.id,
     entry,
-    date: localCalendarDate(occurredAt),
-    timeLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    date: healthCalendarDate(occurredAt),
+    timeLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Etc/GMT-9" }),
     mealType: entry.mealType,
     mealLabel: mealLabels[entry.mealType],
     food: entry.foodName,

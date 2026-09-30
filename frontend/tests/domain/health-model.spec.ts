@@ -3,8 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { healthApi } from "@/features/health/api/health-api";
 import {
   mapHealthEvent,
-  mapHealthTrends,
-  mapTimelineItem,
+  mapHealthRecord,
 } from "@/features/health/model/health-model";
 import { mapHealthReport } from "@/features/health/model/health-reports";
 
@@ -271,57 +270,6 @@ describe("Health wire boundary", () => {
     })).toThrow();
   });
 
-  it("maps tagged timeline records and trends", () => {
-    expect(mapTimelineItem({
-      kind: "diet",
-      record: {
-        ...base,
-        meal_type: "lunch",
-        food_name: "Salad",
-        tags: ["vegetable"],
-        media_id: null,
-      },
-    })).toMatchObject({ kind: "diet", record: { mealType: "lunch" } });
-    expect(mapHealthTrends({
-      days: 30,
-      top_diet_tags: [{ name: "vegetable", count: 2 }],
-      bowel_average_by_day: [{ local_date: "2026-07-31", average: 4, count: 1 }],
-      symptom_frequencies: [],
-      medication_frequencies: [],
-      numeric_series: [{
-        category: "weight", metric_key: "body_weight", name: "Weight", unit: "kg",
-        points: [{ occurred_at: "2026-07-31T01:00:00Z", value: 71.5 }],
-      }],
-      possible_tag_reactions: [{ tag: "spicy", diet_entries: 2, events_within_24h: 1 }],
-      reaction_disclaimer: "Descriptive only.",
-    }).numericSeries[0]?.points[0]).toEqual({
-      occurredAt: "2026-07-31T01:00:00Z",
-      value: 71.5,
-    });
-  });
-
-  it("rejects impossible Diet and trend bounds", () => {
-    const diet = {
-      ...base,
-      meal_type: "lunch",
-      food_name: "x".repeat(121),
-      tags: [],
-      media_id: null,
-    };
-    expect(() => mapTimelineItem({ kind: "diet", record: diet })).toThrow();
-    const trends = {
-      days: 0,
-      top_diet_tags: [],
-      bowel_average_by_day: [],
-      symptom_frequencies: [],
-      medication_frequencies: [],
-      numeric_series: [],
-      possible_tag_reactions: [],
-      reaction_disclaimer: "Descriptive only.",
-    };
-    expect(() => mapHealthTrends(trends)).toThrow();
-  });
-
   it("uploads image bytes with ASCII-safe Unicode metadata", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ...base,
@@ -375,7 +323,6 @@ describe("Health wire boundary", () => {
     const metadata = {
       foodName: "Soup",
       expectedUpdatedAt: base.updated_at,
-      reason: null,
       removeImage: true,
     };
 
@@ -390,7 +337,6 @@ describe("Health wire boundary", () => {
     const expectedBody = {
       food_name: "Soup",
       expected_updated_at: base.updated_at,
-      reason: null,
       remove_image: true,
     };
     expect(JSON.parse(String(jsonInit.body))).toEqual(expectedBody);

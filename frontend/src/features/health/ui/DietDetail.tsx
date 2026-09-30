@@ -1,5 +1,9 @@
 "use client";
 
+import { healthApi } from "@/features/health/api/health-api";
+
+import { healthLocalDateTime } from "@/features/health/model/health-date";
+
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import {
   IconArrowLeft as ArrowLeft,
@@ -101,7 +105,7 @@ export function DietDetail({
   const dirty = !sameCanonicalDraft(canonicalPresent, canonicalBaseline) ||
     draft.newImage !== null || draft.removeImage;
   const valid = canonicalPresent.occurredAt !== null && canonicalPresent.foodName !== "";
-  const timeError = draft.occurredAt && canonicalPresent.occurredAt === null
+  const timeError = canonicalPresent.occurredAt === null
     ? invalidLocalTimeMessage
     : null;
   const readOnly = pending || refreshRecovery;
@@ -302,7 +306,7 @@ export function DietDetail({
             ) : baseline.row.entry.mediaId && draft.removeImage ? (
               <><span>Photo will be removed</span><button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: false })}>Keep photo</button></>
             ) : baseline.row.entry.mediaId ? (
-              <><span>Current photo</span><button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: true })}>Remove photo</button></>
+              <><img src={healthApi.photoUrl(baseline.row.id)} alt="Saved meal" style={{ maxWidth: "100%", maxHeight: 280 }} /><span>Current photo</span><button type="button" disabled={readOnly} onClick={() => dispatch({ type: "image", newImage: null, removeImage: true })}>Remove photo</button></>
             ) : <span>No photo</span>}
           </label>
           <label className="field-label">
@@ -383,10 +387,8 @@ function pushHistory(past: DietDraft[], present: DietDraft): DietDraft[] {
 }
 
 function dietDraft(row: DietRow): DietDraft {
-  const occurredAt = new Date(row.entry.occurredAt);
-  const local = new Date(occurredAt.getTime() - occurredAt.getTimezoneOffset() * 60_000);
   return {
-    occurredAt: local.toISOString().slice(0, 23).replace(/\.000$/, ""),
+    occurredAt: healthLocalDateTime(new Date(row.entry.occurredAt)),
     mealType: row.entry.mealType,
     foodName: row.entry.foodName,
     tags: [...row.entry.tags],
@@ -461,5 +463,5 @@ function dietPatch(
 }
 
 function formatTimestamp(value: string): string {
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString(undefined, { timeZone: "Etc/GMT-9" });
 }

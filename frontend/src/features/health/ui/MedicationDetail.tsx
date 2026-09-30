@@ -1,5 +1,7 @@
 "use client";
 
+import { healthLocalDateTime } from "@/features/health/model/health-date";
+
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import {
   IconArrowLeft as ArrowLeft,
@@ -83,7 +85,7 @@ export function MedicationDetail({ controller, row, detailHistory, onArchived }:
   const dirty = !sameCanonicalDraft(canonicalPresent, canonicalBaseline);
   const valid = canonicalPresent.occurredAt !== null && canonicalPresent.medicationName !== "" &&
     canonicalPresent.dose !== null;
-  const timeError = draft.occurredAt && canonicalPresent.occurredAt === null
+  const timeError = canonicalPresent.occurredAt === null
     ? invalidLocalTimeMessage : null;
   const doseError = draft.dose.trim() !== "" && canonicalPresent.dose === null
     ? invalidDoseMessage : null;
@@ -380,10 +382,8 @@ function pushHistory(past: MedicationDraft[], present: MedicationDraft): Medicat
 }
 
 function medicationDraft(row: MedicationRow): MedicationDraft {
-  const occurredAt = new Date(row.event.occurredAt);
-  const local = new Date(occurredAt.getTime() - occurredAt.getTimezoneOffset() * 60_000);
   return {
-    occurredAt: local.toISOString().slice(0, 23).replace(/\.000$/, ""),
+    occurredAt: healthLocalDateTime(new Date(row.event.occurredAt)),
     medicationName: row.medicationName,
     dose: String(row.dose),
     unit: row.unit,
@@ -436,5 +436,5 @@ function medicationPatch(
 }
 
 function formatTimestamp(value: string): string {
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString(undefined, { timeZone: "Etc/GMT-9" });
 }

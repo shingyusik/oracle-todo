@@ -345,9 +345,9 @@ describe("DietPanel table", () => {
       .closest(".detail-view")!.querySelector("header")!;
     expect(within(detailHeader).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
       .toEqual(["< Back", "Undo", "Redo", "Save", "Delete"]);
-    expect(screen.getByText(`Created ${new Date(entry.createdAt).toLocaleString()}`))
+    expect(screen.getByText(`Created ${new Date(entry.createdAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`))
       .toBeInTheDocument();
-    expect(screen.getByText(`Updated ${new Date(entry.updatedAt).toLocaleString()}`))
+    expect(screen.getByText(`Updated ${new Date(entry.updatedAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`))
       .toBeInTheDocument();
     expect([...screen.getByRole("region", { name: "Edit diet properties" }).children]
       .map((field) => field.textContent?.trim())).toEqual([
@@ -624,7 +624,7 @@ describe("DietPanel table", () => {
     ]).toEqual([2026, 7, 19, 0, 15, 0]);
   });
 
-  it("rejects a nonexistent Diet detail wall time without losing the draft", async () => {
+  it("rejects a missing Diet detail time without losing the draft", async () => {
     const previousTimezone = process.env.TZ;
     process.env.TZ = "America/New_York";
     try {
@@ -632,7 +632,7 @@ describe("DietPanel table", () => {
       render(<DietPanel controller={health} />);
       await userEvent.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
       fireEvent.change(screen.getByLabelText("Time"), {
-        target: { value: "2026-03-08T02:30" },
+        target: { value: "" },
       });
 
       expect(screen.getByRole("alert")).toHaveTextContent(
@@ -641,7 +641,7 @@ describe("DietPanel table", () => {
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
       fireEvent.keyDown(window, { key: "s", ctrlKey: true });
       expect(health.updateDiet).not.toHaveBeenCalled();
-      expect(screen.getByLabelText("Time")).toHaveValue("2026-03-08T02:30");
+      expect(screen.getByLabelText("Time")).toHaveValue("");
     } finally {
       if (previousTimezone === undefined) delete process.env.TZ;
       else process.env.TZ = previousTimezone;

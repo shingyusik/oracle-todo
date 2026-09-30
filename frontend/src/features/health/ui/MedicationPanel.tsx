@@ -247,7 +247,7 @@ function occurrenceGroups(items: Extract<HealthTableOccurrence, { scope: "health
   for (const { key: occurrenceKey, groupKey, groupLabel, record } of items) {
     const key = groupKey ?? "all"; const group = groups.get(key) ?? { key, label: groupLabel, rows: [] };
     group.rows.push({ ...record, unit: record.event.attributes.kind === "medication" ? record.event.attributes.unit : "dose",
-      takenAtLabel: new Date(record.event.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), occurrenceKey } as MedicationRow & { occurrenceKey: string });
+      takenAtLabel: new Date(record.event.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Etc/GMT-9" }), occurrenceKey } as MedicationRow & { occurrenceKey: string });
     groups.set(key, group);
   }
   return [...groups.values()];

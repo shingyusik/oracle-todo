@@ -61,8 +61,6 @@ describe("Health Reports controller", () => {
     vi.setSystemTime(new Date(2026, 7, 20, 12));
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
     vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
-    vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
-    vi.spyOn(healthApi, "trends").mockResolvedValue({} as never);
     vi.spyOn(healthApi, "reports").mockResolvedValue(report("2026-07-22", "2026-08-20"));
   });
 
@@ -87,8 +85,6 @@ describe("Health Reports controller", () => {
 
     expect(healthApi.listDiet).not.toHaveBeenCalled();
     expect(healthApi.listEvents).not.toHaveBeenCalled();
-    expect(healthApi.timeline).not.toHaveBeenCalled();
-    expect(healthApi.trends).not.toHaveBeenCalled();
     expect(healthApi.reports).not.toHaveBeenCalled();
     for (const legacyMember of [
       "timeline", "timelineStatus", "timelineError", "timelineHasMore",
@@ -293,8 +289,6 @@ describe("Health Reports controller", () => {
     });
     expect(healthApi.listDiet).not.toHaveBeenCalled();
     expect(healthApi.listEvents).not.toHaveBeenCalled();
-    expect(healthApi.timeline).not.toHaveBeenCalled();
-    expect(healthApi.trends).not.toHaveBeenCalled();
     expect(healthApi.reports).not.toHaveBeenCalled();
   });
 });
@@ -444,8 +438,6 @@ describe("Health Reports workspace", () => {
       .mockResolvedValue(report("2026-07-22", "2026-08-20"));
     const listDiet = vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
     const listEvents = vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
-    const timeline = vi.spyOn(healthApi, "timeline").mockResolvedValue([]);
-    const trends = vi.spyOn(healthApi, "trends").mockResolvedValue({} as never);
 
     render(<StrictMode><IntegratedReports /></StrictMode>);
 
@@ -455,8 +447,6 @@ describe("Health Reports workspace", () => {
     });
     expect(listDiet).not.toHaveBeenCalled();
     expect(listEvents).not.toHaveBeenCalled();
-    expect(timeline).not.toHaveBeenCalled();
-    expect(trends).not.toHaveBeenCalled();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });

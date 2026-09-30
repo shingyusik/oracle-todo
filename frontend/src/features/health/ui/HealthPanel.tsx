@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from "react";
 import type { HealthTabId } from "@/domain/workbench/navigation";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import type { HealthReportDrilldown } from "@/features/health/model/health-reports";
+import { HealthRecordsInspector } from "@/features/health/ui/HealthRecordsInspector";
 import { BowelPanel } from "@/features/health/ui/BowelPanel";
 import { DietPanel } from "@/features/health/ui/DietPanel";
 import { HealthMetricsPanel } from "@/features/health/ui/HealthMetricsPanel";
@@ -261,7 +262,9 @@ export function HealthPanel({
 
   return (
     <>
+      <p>Health dates and times use UTC+09:00.</p>
       {panel}
+      <HealthRecordsInspector onChanged={controller.refresh} />
       {controller.tableViewSaveError ? (
         <div className="items-message">
           <p role="alert">{controller.tableViewSaveError}</p>

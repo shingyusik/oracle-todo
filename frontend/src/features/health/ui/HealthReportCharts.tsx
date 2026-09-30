@@ -469,5 +469,5 @@ function bristolAverage(value: number): string {
 }
 
 function dateTime(value: string): string {
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString(undefined, { timeZone: "Etc/GMT-9" });
 }

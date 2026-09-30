@@ -606,7 +606,7 @@ describe("Health Journal forms", () => {
     expect(screen.getByLabelText("Note")).toHaveValue("Keep this");
   });
 
-  it("rejects a nonexistent Bowel wall time without losing the draft", async () => {
+  it("uses the fixed Health offset across browser daylight-saving gaps", async () => {
     const previousTimezone = process.env.TZ;
     process.env.TZ = "America/New_York";
     try {
@@ -620,14 +620,11 @@ describe("Health Journal forms", () => {
       fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Early" } });
       fireEvent.submit(screen.getByRole("form", { name: "Bowel entry" }));
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Time must be a valid local date and time",
-      );
-      expect(health.createBowel).not.toHaveBeenCalled();
-      expect(screen.getByLabelText("Time")).toHaveValue("2026-03-08T02:30");
-      expect(screen.getByLabelText("Bristol Scale")).toHaveValue("2");
-      expect(screen.getByLabelText("Blood Visible")).toBeChecked();
-      expect(screen.getByLabelText("Note")).toHaveValue("Early");
+      await waitFor(() => expect(health.createBowel).toHaveBeenCalledWith({
+        occurredAt: "2026-03-07T17:30:00.000Z",
+        details: { kind: "bowel", bristolScale: 2, bloodVisible: true },
+        note: "Early",
+      }));
     } finally {
       if (previousTimezone === undefined) delete process.env.TZ;
       else process.env.TZ = previousTimezone;
@@ -1257,7 +1254,7 @@ describe("Health Journal forms", () => {
     const onClose = vi.fn();
     render(<MedicationDialogHarness health={health} onClose={onClose} />);
     const localTime = "2026-07-30T09:00";
-    const expectedRfc3339 = new Date(2026, 6, 30, 9, 0).toISOString();
+    const expectedRfc3339 = new Date("2026-07-30T09:00:00+09:00").toISOString();
 
     fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: localTime } });
     await user.type(screen.getByLabelText("Medication name"), "Vitamin D");
@@ -1298,27 +1295,6 @@ describe("Health Journal forms", () => {
     expect(health.createMedication).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Medication name")).toHaveValue(name);
     expect(screen.getByLabelText("Dose")).toHaveValue(dose === "" || dose === "Infinity" ? null : Number(dose));
-  });
-
-  it("rejects a nonexistent Medication wall time and retains the draft", async () => {
-    const previousTimezone = process.env.TZ;
-    process.env.TZ = "America/New_York";
-    try {
-      const health = controller();
-      render(<MedicationDialogHarness health={health} />);
-      fireEvent.change(screen.getByLabelText("Taken at"), { target: { value: "2026-03-08T02:30" } });
-      fireEvent.change(screen.getByLabelText("Medication name"), { target: { value: "Vitamin D" } });
-      fireEvent.change(screen.getByLabelText("Dose"), { target: { value: "1000" } });
-      fireEvent.submit(screen.getByRole("form", { name: "Medication entry" }));
-
-      expect(await screen.findByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
-      expect(health.createMedication).not.toHaveBeenCalled();
-      expect(screen.getByLabelText("Taken at")).toHaveValue("2026-03-08T02:30");
-      expect(screen.getByLabelText("Medication name")).toHaveValue("Vitamin D");
-    } finally {
-      if (previousTimezone === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTimezone;
-    }
   });
 
   it("wraps Medication focus and closes from idle controls", async () => {
@@ -1506,7 +1482,7 @@ describe("Health Journal forms", () => {
     fireEvent.change(screen.getByLabelText("Condition"), { target: { value: "8" } });
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "  Good  " } });
     fireEvent.submit(form);
-    const occurredAt = new Date(2026, 7, 19, 12).toISOString();
+    const occurredAt = new Date("2026-08-19T12:00:00+09:00").toISOString();
     await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledWith({
       metrics: [
         { occurredAt, details: { kind: "weight", value: 68.2, unit: "kg" } },
@@ -1521,9 +1497,9 @@ describe("Health Journal forms", () => {
 
   it("defaults Health Metrics to the local date and preloads another date with optimistic timestamps", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 7, 20, 23, 30));
-    const first = metricEvent("weight-1", new Date(2026, 7, 18, 12).toISOString(), "weight", 67.1, "2026-08-18T04:00:00.000Z");
-    const second = metricEvent("weight-2", new Date(2026, 7, 19, 12).toISOString(), "weight", 68.2, "2026-08-19T04:00:00.000Z");
+    vi.setSystemTime(new Date("2026-08-20T23:30:00+09:00"));
+    const first = metricEvent("weight-1", new Date("2026-08-18T12:00:00+09:00").toISOString(), "weight", 67.1, "2026-08-18T04:00:00.000Z");
+    const second = metricEvent("weight-2", new Date("2026-08-19T12:00:00+09:00").toISOString(), "weight", 68.2, "2026-08-19T04:00:00.000Z");
     const health = controller({ state: { ...loadedState, metricsEntries: [first, second] } });
     try {
       render(<MetricsDialogHarness health={health} />);
@@ -1538,7 +1514,7 @@ describe("Health Journal forms", () => {
       await act(async () => Promise.resolve());
       expect(health.saveMetrics).toHaveBeenCalledWith({
         metrics: [{
-          occurredAt: new Date(2026, 7, 19, 12).toISOString(),
+          occurredAt: new Date("2026-08-19T12:00:00+09:00").toISOString(),
           details: { kind: "weight", value: 68.2, unit: "kg" },
           expectedUpdatedAt: "2026-08-19T04:00:00.000Z",
         }],
@@ -1551,7 +1527,7 @@ describe("Health Journal forms", () => {
 
   it("keeps the selected-date draft and original optimistic token across background refresh", async () => {
     const date = "2026-08-18";
-    const occurredAt = new Date(2026, 7, 18, 12).toISOString();
+    const occurredAt = new Date("2026-08-18T12:00:00+09:00").toISOString();
     const original = metricEvent("weight-1", occurredAt, "weight", 67.1, "2026-08-18T04:00:00.000Z");
     const refreshed = metricEvent("weight-1", occurredAt, "weight", 72.4, "2026-08-18T05:00:00.000Z");
     const initial = controller({ state: { ...loadedState, metricsEntries: [original] } });
@@ -1578,7 +1554,7 @@ describe("Health Journal forms", () => {
 
   it("hydrates a late selected-date row once while pristine, then preserves edits", async () => {
     const date = "2026-08-18";
-    const occurredAt = new Date(2026, 7, 18, 12).toISOString();
+    const occurredAt = new Date("2026-08-18T12:00:00+09:00").toISOString();
     const loaded = metricEvent("weight-1", occurredAt, "weight", 67.1, "2026-08-18T04:00:00.000Z");
     const refreshed = metricEvent("weight-1", occurredAt, "weight", 72.4, "2026-08-18T05:00:00.000Z");
     const empty = controller();
@@ -1604,26 +1580,6 @@ describe("Health Journal forms", () => {
       }],
       archives: [],
     }));
-  });
-
-  it("uses the browser-local date on both sides of local midnight", () => {
-    const previousTimezone = process.env.TZ;
-    process.env.TZ = "America/Los_Angeles";
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date("2026-08-20T06:59:59.000Z"));
-      const beforeMidnight = render(<MetricsDialogHarness health={controller()} />);
-      expect(screen.getByLabelText("Date")).toHaveValue("2026-08-19");
-      beforeMidnight.unmount();
-
-      vi.setSystemTime(new Date("2026-08-20T07:00:00.000Z"));
-      render(<MetricsDialogHarness health={controller()} />);
-      expect(screen.getByLabelText("Date")).toHaveValue("2026-08-20");
-    } finally {
-      vi.useRealTimers();
-      if (previousTimezone === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTimezone;
-    }
   });
 
   it("portals and isolates Health Metrics, wraps focus, closes only while idle, and restores focus", async () => {
@@ -1889,24 +1845,6 @@ describe("Health Journal forms", () => {
     ]);
   });
 
-  it("rejects a skipped local Health Metrics date instead of shifting it", async () => {
-    const previousTimezone = process.env.TZ;
-    process.env.TZ = "Pacific/Apia";
-    try {
-      const health = controller();
-      render(<MetricsDialogHarness health={health} />);
-      fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2011-12-30" } });
-      fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68" } });
-      fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
-      expect(health.saveMetrics).not.toHaveBeenCalled();
-      expect(screen.getByLabelText("Date")).toHaveValue("2011-12-30");
-    } finally {
-      if (previousTimezone === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTimezone;
-    }
-  });
-
   it("converts browser-local health times to RFC3339 without changing the instant", async () => {
     const previousTimezone = process.env.TZ;
     process.env.TZ = "Asia/Seoul";
@@ -1932,28 +1870,15 @@ describe("Health Journal forms", () => {
     }
   });
 
-  it("rejects a nonexistent Diet creation wall time without losing the draft", async () => {
-    const previousTimezone = process.env.TZ;
-    process.env.TZ = "America/New_York";
-    try {
-      const health = controller();
-      render(<DietPanel controller={health} />);
-      await userEvent.click(screen.getByRole("button", { name: "Add diet entry" }));
-      fireEvent.change(screen.getByLabelText("Time"), {
-        target: { value: "2026-03-08T02:30" },
-      });
-      await userEvent.type(screen.getByLabelText("Food"), "Early breakfast");
-      fireEvent.submit(screen.getByRole("form", { name: "Diet entry" }));
-
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Time must be a valid local date and time",
-      );
-      expect(health.createDiet).not.toHaveBeenCalled();
-      expect(screen.getByLabelText("Time")).toHaveValue("2026-03-08T02:30");
-      expect(screen.getByLabelText("Food")).toHaveValue("Early breakfast");
-    } finally {
-      if (previousTimezone === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTimezone;
-    }
+  it("freezes a committed photo save and preserves the cleanup warning without resubmitting", async () => {
+    const save=vi.fn().mockRejectedValue(new HealthMutationRefreshError("Saved; media cleanup pending."));
+    const health=controller({createDiet:save});
+    render(<DietForm controller={health}/>);
+    fireEvent.change(screen.getByLabelText("Food"),{target:{value:"Meal"}});
+    fireEvent.submit(screen.getByRole("form",{name:"Diet entry"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Saved; media cleanup pending.");
+    expect(screen.getByRole("button",{name:"Save diet entry"})).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form",{name:"Diet entry"}));
+    expect(save).toHaveBeenCalledOnce();
   });
 });

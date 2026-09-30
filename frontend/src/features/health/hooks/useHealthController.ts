@@ -1,5 +1,7 @@
 "use client";
 
+import { RavenApiError } from "@/lib/raven-api";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -70,8 +72,8 @@ export type HealthTablePageState = {
 type HealthInternalTablePageState = HealthTablePageState & { referenceDate: Date };
 
 export class HealthMutationRefreshError extends Error {
-  constructor() {
-    super("Changes were saved, but Health could not refresh.");
+  constructor(message = "Changes were saved, but Health could not refresh.") {
+    super(message);
     this.name = "HealthMutationRefreshError";
   }
 }
@@ -852,7 +854,16 @@ export function useHealthController(): HealthController {
     operation: () => Promise<unknown>,
     refreshMutation = refreshAfterMutation,
   ) {
-    await operation();
+    try {
+      await operation();
+    } catch (error) {
+      if (error instanceof RavenApiError && error.committed === true) {
+        try { await refreshMutation(); } finally {
+          throw new HealthMutationRefreshError("Saved; media cleanup pending. Refresh before making further changes.");
+        }
+      }
+      throw error;
+    }
     await refreshMutation();
   }
 
@@ -1000,13 +1011,13 @@ export function useHealthController(): HealthController {
     updateDiet: (id, input, image) => mutate(() => image
       ? healthApi.updateDietWithImage(id, { image, metadata: input })
       : healthApi.updateDiet(id, input)),
-    archiveDiet: (id) => mutate(() => healthApi.archiveDiet(id)),
+    archiveDiet: (id) => mutate(() => healthApi.archiveDiet(id, currentVersion(state.dietEntries, id))),
     createBowel: (input) => mutate(() => healthApi.createEvent(input), refreshAfterBowelMutation),
     updateBowel: (id, input) => mutate(
       () => healthApi.updateEvent(id, input),
       refreshAfterBowelMutation,
     ),
-    archiveBowel: (id) => mutate(() => healthApi.archiveEvent(id), refreshAfterBowelMutation),
+    archiveBowel: (id) => mutate(() => healthApi.archiveEvent(id, currentVersion(state.bowelEntries, id)), refreshAfterBowelMutation),
     createMedication: (input) => mutate(
       () => healthApi.createEvent(input),
       refreshAfterMedicationMutation,
@@ -1016,7 +1027,7 @@ export function useHealthController(): HealthController {
       refreshAfterMedicationMutation,
     ),
     archiveMedication: (id) => mutate(
-      () => healthApi.archiveEvent(id),
+      () => healthApi.archiveEvent(id, currentVersion(state.medicationEntries, id)),
       refreshAfterMedicationMutation,
     ),
     upsertMetrics: (input) => mutate(
@@ -1077,4 +1088,10 @@ function setScopeLoadState(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function currentVersion(entries: { id: string; updatedAt: string }[], id: string): string {
+  const entry = entries.find((entry) => entry.id === id);
+  if (!entry) throw new Error("Refresh this record before archiving.");
+  return entry.updatedAt;
 }

@@ -1,3 +1,4 @@
+import { healthCalendarDate } from "@/features/health/model/health-date";
 import type { HealthEvent } from "@/features/health/model/health-model";
 import {
   healthFilterFieldsForScope,
@@ -10,7 +11,6 @@ import {
 import {
   effectivePlannerFilterRules,
   isoWeekStart,
-  localCalendarDate,
   matchesPlannerFilterValue,
   type PlannerFilterField,
   type PlannerFilterRule,
@@ -43,7 +43,7 @@ export function deriveBowelGroups(
   settings: PlannerTableSettings,
   now = new Date(),
 ): BowelRowGroup[] {
-  const today = localCalendarDate(now);
+  const today = healthCalendarDate(now);
   const rules = effectivePlannerFilterRules(
     settings.filterRules,
     healthFilterFieldsForScope("health.bowel"),
@@ -64,8 +64,8 @@ function projectBowelRow(event: HealthEvent): BowelRow {
   return {
     id: event.id,
     event,
-    date: localCalendarDate(occurredAt),
-    timeLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    date: healthCalendarDate(occurredAt),
+    timeLabel: occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Etc/GMT-9" }),
     bristolScale: event.attributes.bristolScale,
     bloodVisible: event.attributes.bloodVisible,
     bloodLabel: event.attributes.bloodVisible ? "Yes" : "No",

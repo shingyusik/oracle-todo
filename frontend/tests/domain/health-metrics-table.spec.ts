@@ -30,7 +30,7 @@ function metric(
     id: id(suffix), occurredAt: date, category: identity.category as HealthCategory,
     metricKey: identity.metricKey, name: identity.name, value,
     unit: field === "condition" ? "score" : identity.unit,
-    note: field === "condition" ? "steady" : null, attributes,
+    note: null, attributes,
     createdAt: date, updatedAt: date, deletedAt: null, ...patch,
   };
 }
@@ -43,7 +43,8 @@ function settings(patch: Omit<Partial<PlannerTableSettings>, "groupSettings"> & 
 }
 
 function localInstant(year: number, month: number, day: number, hour = 12): string {
-  return new Date(year, month - 1, day, hour).toISOString();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return new Date(`${year}-${pad(month)}-${pad(day)}T${pad(hour)}:00:00+09:00`).toISOString();
 }
 
 describe("Health Metrics daily table", () => {
@@ -74,7 +75,7 @@ describe("Health Metrics daily table", () => {
     const events = [
       metric("weight", "1", 68.2, older, { createdAt: older, updatedAt: older }),
       metric("condition", "2", 7, newer, {
-        unit: null, note: "separate event note", createdAt: newer, updatedAt: newer,
+        unit: null, createdAt: newer, updatedAt: newer,
       }),
       metric("sleep", "3", 7.5, older),
       metric("crp", "4", 2.1, older),
@@ -93,6 +94,18 @@ describe("Health Metrics daily table", () => {
     expect(Object.keys(rows[0]!.events)).toEqual([
       "weight", "condition", "sleep", "crp", "calprotectin",
     ]);
+  });
+
+  it("excludes legacy generic notes and negative labs from canonical daily rows", () => {
+    const rows = deriveHealthMetricsGroups([
+      metric("condition", "1", 7, undefined, { note: "legacy generic note" }),
+      metric("crp", "2", -1),
+      metric("calprotectin", "3", -2),
+      metric("weight", "4", 68),
+    ], settings())[0]!.rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ weight: 68, condition: null, crp: null, calprotectin: null });
+    expect(Object.keys(rows[0]!.events)).toEqual(["weight"]);
   });
 
   it("defaults to newest local date and uses date as the final ascending identity tie", () => {

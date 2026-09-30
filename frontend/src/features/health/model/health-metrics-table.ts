@@ -1,10 +1,10 @@
+import { healthCalendarDate } from "@/features/health/model/health-date";
 import type { HealthEvent } from "@/features/health/model/health-model";
 import { healthFilterFieldsForScope, healthSortFieldsForScope } from "@/features/health/model/health-table-views";
 import { orderVisiblePlannerGroups, type PlannerGroupSettings } from "@/features/workbench/model/planner-group-settings";
 import {
   effectivePlannerFilterRules,
   isoWeekStart,
-  localCalendarDate,
   matchesPlannerFilterValue,
   type PlannerFilterField,
   type PlannerFilterRule,
@@ -67,7 +67,7 @@ export function deriveHealthMetricsGroups(
         healthFilterFieldsForScope("health.metrics"),
       ),
       settings.filterMode,
-      localCalendarDate(now),
+      healthCalendarDate(now),
     ))
     .sort((left, right) => compareRows(left, right, settings.sortRules));
   return groupRows(rows, settings.groupSettings);
@@ -78,7 +78,7 @@ function projectRows(events: readonly HealthEvent[]): HealthMetricsRow[] {
   for (const event of events) {
     const field = metricField(event);
     if (!field || event.deletedAt !== null) continue;
-    const date = localCalendarDate(new Date(event.occurredAt));
+    const date = healthCalendarDate(new Date(event.occurredAt));
     const members = byDate.get(date) ?? {};
     members[field] = event;
     byDate.set(date, members);
@@ -107,6 +107,7 @@ function projectRows(events: readonly HealthEvent[]): HealthMetricsRow[] {
 }
 
 function metricField(event: HealthEvent): HealthMetricField | null {
+  if (event.note !== null || (event.category === "lab" && (event.value === null || event.value < 0))) return null;
   return fields.find((field) => {
     const identity = healthMetricIdentities[field];
     return event.category === identity.category

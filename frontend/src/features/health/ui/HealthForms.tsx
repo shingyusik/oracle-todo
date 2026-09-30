@@ -1,5 +1,7 @@
 "use client";
 
+import { healthLocalDateTime } from "@/features/health/model/health-date";
+
 import React, { useEffect, useRef, useState } from "react";
 
 import type { DailyMetricInput } from "@/features/health/api/health-api";
@@ -66,6 +68,7 @@ export function DietForm({
   const [tags, setTags] = useState<string[]>([]);
   const [image, setImage] = useState<File | null>(null);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState(new HealthMutationRefreshError().message);
   const imageInput = useRef<HTMLInputElement | null>(null);
   useDraftDirty([occurredAt, mealType, foodName, note, tags, image], onDirtyChange);
   const action = useFormAction(onPendingChange);
@@ -90,6 +93,7 @@ export function DietForm({
         if (cause instanceof HealthMutationRefreshError) {
           if (action.isMounted()) {
             setRefreshRecovery(true);
+            setRecoveryMessage(cause.message);
             onRecoveryChange?.(true);
           }
           return;
@@ -197,7 +201,7 @@ export function DietForm({
       ) : <button type="submit" disabled={action.pending}>Save diet entry</button>}
       </fieldset>
       {refreshRecovery ? <div className="items-message">
-        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <p role="alert">{recoveryMessage}</p>
         <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
           Retry refresh
         </button>
@@ -220,6 +224,7 @@ export function BowelForm({
   const [note, setNote] = useState("");
   useDraftDirty([occurredAt, bristol, bloodVisible, note], onDirtyChange);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState(new HealthMutationRefreshError().message);
   const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -241,6 +246,7 @@ export function BowelForm({
         if (cause instanceof HealthMutationRefreshError) {
           if (action.isMounted()) {
             setRefreshRecovery(true);
+            setRecoveryMessage(cause.message);
             onRecoveryChange?.(true);
           }
           return;
@@ -322,7 +328,7 @@ export function BowelForm({
       ) : <button type="submit" disabled={action.pending}>Save bowel entry</button>}
       </fieldset>
       {refreshRecovery ? <div className="items-message">
-        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <p role="alert">{recoveryMessage}</p>
         <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
           Retry refresh
         </button>
@@ -346,6 +352,7 @@ export function MedicationForm({
   const [note, setNote] = useState("");
   useDraftDirty([occurredAt, name, dose, unit, note], onDirtyChange);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState(new HealthMutationRefreshError().message);
   const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -371,6 +378,7 @@ export function MedicationForm({
         if (cause instanceof HealthMutationRefreshError) {
           if (action.isMounted()) {
             setRefreshRecovery(true);
+            setRecoveryMessage(cause.message);
             onRecoveryChange?.(true);
           }
           return;
@@ -463,7 +471,7 @@ export function MedicationForm({
       ) : <button type="submit" disabled={action.pending}>Save medication</button>}
       </fieldset>
       {refreshRecovery ? <div className="items-message">
-        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <p role="alert">{recoveryMessage}</p>
         <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
           Retry refresh
         </button>
@@ -499,6 +507,7 @@ export function MetricsForm({
   const [conditionScore, setConditionScore] = useState("");
   const [conditionNote, setConditionNote] = useState("");
   const [refreshRecovery, setRefreshRecovery] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState(new HealthMutationRefreshError().message);
   const action = useFormAction(onPendingChange);
   const selectedDateRef = useRef<string | null>(null);
   const snapshotRef = useRef<HealthMetricsRow | undefined>(undefined);
@@ -605,6 +614,7 @@ export function MetricsForm({
         if (cause instanceof HealthMutationRefreshError) {
           if (action.isMounted()) {
             setRefreshRecovery(true);
+            setRecoveryMessage(cause.message);
             onRecoveryChange?.(true);
           }
           return;
@@ -752,7 +762,7 @@ export function MetricsForm({
       )}
       </fieldset>
       {refreshRecovery ? <div className="items-message">
-        <p role="alert">{new HealthMutationRefreshError().message}</p>
+        <p role="alert">{recoveryMessage}</p>
         <button type="button" disabled={action.pending} onClick={() => void retryRefresh()}>
           Retry refresh
         </button>
@@ -811,9 +821,7 @@ function nullable(value: string): string | null {
 }
 
 function defaultLocalDateTime(): string {
-  const date = new Date();
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+  return healthLocalDateTime(new Date()).slice(0, 16);
 }
 
 function defaultLocalDate(): string {
@@ -825,27 +833,12 @@ function metricDraft(value: number | null | undefined): string {
 }
 
 export function localDateTimeToRfc3339(value: string): string {
-  const match = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value);
-  if (!match) throw new Error("Time must be a valid local date and time");
-  const [, year, month, day, hour, minute, second = "0", fraction = "0"] = match;
-  const components = [year, month, day, hour, minute, second].map(Number);
-  const [yearValue, monthValue, dayValue, hourValue, minuteValue, secondValue] = components;
-  const millisecondValue = Number(fraction.padEnd(3, "0"));
-  const date = new Date(0);
-  date.setFullYear(yearValue, monthValue - 1, dayValue);
-  date.setHours(hourValue, minuteValue, secondValue, millisecondValue);
-  if (
-    date.getFullYear() !== yearValue ||
-    date.getMonth() !== monthValue - 1 ||
-    date.getDate() !== dayValue ||
-    date.getHours() !== hourValue ||
-    date.getMinutes() !== minuteValue ||
-    date.getSeconds() !== secondValue ||
-    date.getMilliseconds() !== millisecondValue
-  ) {
-    throw new Error("Time must be a valid local date and time");
-  }
-  return date.toISOString();
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?$/.exec(value);
+  if (!match) throw new Error("Enter a valid date and time.");
+  const [, year, month, day, hour, minute, second = "00", fraction = ""] = match;
+  const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}${fraction}Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 19) !== `${year}-${month}-${day}T${hour}:${minute}:${second}`) throw new Error("Enter a valid date and time.");
+  return new Date(`${value}+09:00`).toISOString();
 }
 
 function positiveNumber(value: string, field: string): number {
